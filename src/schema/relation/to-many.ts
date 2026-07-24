@@ -40,11 +40,18 @@ export class ToManyRelation<State extends ToManyRelationState> {
   /**
    * Internal accessor for state and source binding.
    */
+  private _internal?: {
+    state: State;
+    setSource: (source: AnyModel) => void;
+  };
+
   get "~"() {
-    return {
+    return (this._internal ??= {
       state: this._state,
-      setSource: (source: AnyModel) => (this._state.source = source),
-    };
+      setSource: (source: AnyModel) => {
+        this._state.source = source;
+      },
+    });
   }
 }
 
@@ -57,9 +64,7 @@ export class ToManyRelation<State extends ToManyRelationState> {
  */
 export function oneToMany<const G>(
   getter: G
-): G extends Getter
-  ? ToManyRelation<{ type: "oneToMany"; getter: G }>
-  : never;
+): G extends Getter ? ToManyRelation<{ type: "oneToMany"; getter: G }> : never;
 export function oneToMany(getter: Getter) {
   return new ToManyRelation({ type: "oneToMany" as const, getter });
 }

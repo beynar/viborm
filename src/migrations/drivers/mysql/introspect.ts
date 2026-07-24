@@ -345,8 +345,14 @@ export async function introspect(
     // Build indexes
     const indexes: IndexDef[] = [];
     const tableIndexes = indexesByTable.get(tableName);
+    // MySQL auto-creates an index named after each FK constraint; it isn't a
+    // user index and can't be dropped while the FK exists, so hide it
+    const fkNames = new Set(fkByTable.get(tableName)?.keys() ?? []);
     if (tableIndexes) {
       for (const [indexName, indexCols] of tableIndexes) {
+        if (fkNames.has(indexName)) {
+          continue;
+        }
         indexCols.sort((a, b) => a.SEQ_IN_INDEX - b.SEQ_IN_INDEX);
         const firstCol = indexCols[0];
         if (firstCol) {

@@ -496,9 +496,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
             posts: {
               create: { id: "new", title: "New", authorId: "author-1" },
               createMany: {
-                data: [
-                  { id: "new-2", title: "New 2", authorId: "author-1" },
-                ],
+                data: [{ id: "new-2", title: "New 2", authorId: "author-1" }],
               },
               set: { id: "existing-post" },
             },

@@ -1,12 +1,12 @@
 // Database-Specific & Value Validation Rules
 
-import type { Field } from "../../fields/base";
 import type { Model } from "../../model";
+import type { Scalar } from "../../scalars/base";
 import type { Schema, ValidationError } from "../types";
 
 /** Helper to get typed scalar field entries */
-function getScalars(model: Model<any>): [string, Field][] {
-  return Object.entries(model["~"].state.scalars) as [string, Field][];
+function getScalars(model: Model<any>): [string, Scalar][] {
+  return Object.entries(model["~"].state.scalars) as [string, Scalar][];
 }
 
 export type DatabaseType = "mysql" | "postgres" | "sqlite";
@@ -18,7 +18,7 @@ export type DatabaseType = "mysql" | "postgres" | "sqlite";
 /**
  * DB001: MySQL doesn't support native array column types
  *
- * Workaround: Array fields on MySQL will be stored as JSON columns.
+ * Workaround: Array scalars on MySQL will be stored as JSON columns.
  * The ORM will automatically serialize/deserialize arrays to JSON.
  *
  * Example:
@@ -37,8 +37,8 @@ export function mysqlNoArrayFields(
 ): ValidationError[] {
   if (db !== "mysql") return [];
   const errors: ValidationError[] = [];
-  for (const [fname, field] of getScalars(model)) {
-    if (field["~"].state.array) {
+  for (const [fname, scalar] of getScalars(model)) {
+    if (scalar["~"].state.array) {
       errors.push({
         code: "DB001",
         message: `MySQL: '${fname}' in '${name}' will use JSON (no native arrays)`,
@@ -54,7 +54,7 @@ export function mysqlNoArrayFields(
 /**
  * DB002: SQLite doesn't support native ENUM type
  *
- * Workaround: Enum fields on SQLite will use TEXT with CHECK constraint.
+ * Workaround: Enum scalars on SQLite will use TEXT with CHECK constraint.
  * The ORM will generate: CHECK(column IN ('value1', 'value2', ...))
  *
  * Example:
@@ -74,8 +74,8 @@ export function sqliteNoEnum(
 ): ValidationError[] {
   if (db !== "sqlite") return [];
   const errors: ValidationError[] = [];
-  for (const [fname, field] of getScalars(model)) {
-    if (field["~"].state.type === "enum") {
+  for (const [fname, scalar] of getScalars(model)) {
+    if (scalar["~"].state.type === "enum") {
       errors.push({
         code: "DB002",
         message: `SQLite: '${fname}' in '${name}' will use CHECK constraint (no native ENUM)`,
@@ -99,11 +99,11 @@ export function enumValueValid(
   model: Model<any>
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const [_fname, field] of getScalars(model)) {
-    const st = field["~"].state;
+  for (const [_fname, scalar] of getScalars(model)) {
+    const st = scalar["~"].state;
     if (st.type !== "enum") continue;
-    // Note: enum values would need to be extracted from field definition
-    // This is a placeholder for when enum field exposes values
+    // Note: enum values would need to be extracted from scalar definition
+    // This is a placeholder for when enum scalar exposes values
   }
   return errors;
 }

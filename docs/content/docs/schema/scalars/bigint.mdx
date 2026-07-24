@@ -1,0 +1,61 @@
+---
+title: BigInt
+description: BigInt scalar type for large integers beyond JavaScript's Number.MAX_SAFE_INTEGER
+icon: Binary
+---
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.bigInt()               // Required bigint
+s.bigInt().nullable()    // bigint | null
+s.bigInt().default(0n)   // With default
+```
+
+Use `s.bigInt()` when values can exceed `Number.MAX_SAFE_INTEGER` (2^53 - 1) — snowflake IDs, cryptocurrency amounts, nanosecond timestamps; otherwise [`s.int()`](/docs/schema/scalars/number) is enough.
+
+BigInt supports the full [modifier reference](/docs/schema/scalars). Column types live on [Native Types](/docs/schema/native-types).
+
+## Auto-Increment
+
+```ts
+s.bigInt().id().increment(); // Auto-incrementing bigint primary key
+```
+
+## Examples
+
+```ts
+// Auto-incrementing primary key
+const id = s.bigInt().id().increment();
+
+// Twitter-style snowflake ID
+const snowflakeId = s.bigInt().id();
+
+// Large counter
+const viewCount = s.bigInt().default(0n);
+
+// Cryptocurrency amount (in smallest unit)
+const satoshis = s.bigInt().default(0n);
+```
+
+## Working with BigInt
+
+```ts
+// Create with bigint literal
+await client.post.create({
+  data: {
+    id: 1234567890123456789n,
+    viewCount: 0n,
+  }
+});
+
+// Filter and update with bigint
+await client.post.update({
+  where: { id: 1n },
+  data: {
+    viewCount: { increment: 1n },
+  }
+});
+```

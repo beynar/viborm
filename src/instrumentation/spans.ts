@@ -121,6 +121,9 @@ export const ATTR_ERROR_TYPE = "error.type";
 /** Driver name (postgres, pg, pglite, mysql2, better-sqlite3) */
 export const ATTR_DB_DRIVER = "db.system.driver";
 
+/** Caller-supplied identifier that correlates one execution across outputs. */
+export const ATTR_VIBORM_CORRELATION_ID = "viborm.correlation.id";
+
 /**
  * Query parameter by key or index
  * Usage: `db.query.parameter.0`, `db.query.parameter.userId`

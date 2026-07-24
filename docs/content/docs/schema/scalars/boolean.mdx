@@ -1,0 +1,71 @@
+---
+title: Boolean
+description: Boolean scalar type for true/false values with common patterns like soft delete and feature flags
+icon: ToggleLeft
+---
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.boolean()               // Required boolean
+s.boolean().nullable()    // boolean | null
+s.boolean().default(false)
+```
+
+Booleans support `.nullable()`, `.array()`, `.default()`, and `.map()` — but **not** `.id()`, `.unique()`, or `.schema()`. See the [support matrix](/docs/schema/scalars) and [Native Types](/docs/schema/native-types) for column types.
+
+## Examples
+
+```ts
+// Active flag with default
+const active = s.boolean().default(true);
+
+// Published status
+const published = s.boolean().default(false);
+
+// Email verification (nullable for pending)
+const emailVerified = s.boolean().nullable().default(null);
+```
+
+## Common Patterns
+
+### Soft Delete
+
+```ts
+const user = s.model({
+  id: s.string().id().ulid(),
+  // ...
+  deleted: s.boolean().default(false),
+  deletedAt: s.dateTime().nullable(),
+});
+
+// Query only active records
+await client.user.findMany({
+  where: { deleted: false },
+});
+```
+
+### Feature Flags
+
+```ts
+const userSettings = s.model({
+  userId: s.string().id(),
+  emailNotifications: s.boolean().default(true),
+  pushNotifications: s.boolean().default(false),
+  marketingEmails: s.boolean().default(false),
+});
+```
+
+### Status Flags
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  published: s.boolean().default(false),
+  featured: s.boolean().default(false),
+  archived: s.boolean().default(false),
+});
+```

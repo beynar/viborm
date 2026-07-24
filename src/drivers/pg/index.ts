@@ -11,10 +11,35 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import { unsupportedGeospatial, unsupportedVector } from "@errors";
-import { Pool, type PoolClient, type PoolConfig } from "pg";
-import { Driver } from "../driver";
-import type { QueryResult, TransactionOptions } from "../types";
+import {
+  TransactionError,
+  unsupportedGeospatial,
+  unsupportedVector,
+} from "@errors";
+import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
+import { Driver, type QueryExecutionContext } from "../driver";
+import {
+  nestedTransactionDispatchError,
+  normalizePostgresRowCount,
+  runTransactionLifecycle,
+} from "../shared";
+import type { QueryResult } from "../types";
+
+// DATE (1082) and TIMESTAMP WITHOUT TIME ZONE (1114): pg's default parsers
+// build process-local Dates, shifting the stored value by the process
+// timezone. Return the raw strings instead — the shared result parser builds
+// UTC Dates from them, matching every other driver.
+const DATE_OID = 1082;
+const TIMESTAMP_OID = 1114;
+const identityParser = (value: string) => value;
+const utcSafeTypes: PoolConfig["types"] = {
+  getTypeParser: (oid: number, format?: string) => {
+    if ((oid === DATE_OID || oid === TIMESTAMP_OID) && format !== "binary") {
+      return identityParser;
+    }
+    return pgTypes.getTypeParser(oid as never, format as never);
+  },
+};
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -50,13 +75,21 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     }
 
     const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     this.adapter = adapter;
   }
 
   protected initClient(): Promise<Pool> {
-    return Promise.resolve(new Pool(this.driverOptions.options));
+    const options: PoolConfig = {
+      types: utcSafeTypes,
+      ...this.driverOptions.options,
+    };
+    if (this.driverOptions.databaseUrl !== undefined) {
+      options.connectionString ??= this.driverOptions.databaseUrl;
+    }
+    return Promise.resolve(new Pool(options));
   }
 
   protected async closeClient(pool: Pool): Promise<void> {
@@ -66,76 +99,88 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   protected async execute<T>(
     client: Pool | PoolClient,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "execute";
     const result = await client.query(sql, params);
     return {
       rows: result.rows,
-      rowCount: result.rowCount ?? result.rows.length,
+      rowCount: normalizePostgresRowCount(
+        result.rowCount,
+        result.command,
+        result.rows,
+        { provider: "pg", operation }
+      ),
     };
   }
 
   protected async executeRaw<T>(
     client: Pool | PoolClient,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "executeRaw";
     const result = await client.query(sql, params);
     return {
       rows: result.rows,
-      rowCount: result.rowCount ?? result.rows.length,
+      rowCount: normalizePostgresRowCount(
+        result.rowCount,
+        result.command,
+        result.rows,
+        { provider: "pg", operation }
+      ),
     };
   }
 
   protected async transaction<T>(
     client: Pool | PoolClient,
-    fn: (tx: PoolClient) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: PoolClient) => Promise<T>
   ): Promise<T> {
-    if (this.inTransaction) {
-      // Nested transaction - use savepoint
-      const poolClient = client as PoolClient;
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      await poolClient.query(`SAVEPOINT ${savepointName}`);
-
-      try {
-        const result = await fn(poolClient);
-        await poolClient.query(`RELEASE SAVEPOINT ${savepointName}`);
-        return result;
-      } catch (error) {
-        await poolClient.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-        throw error;
-      }
+    if ("release" in client) {
+      throw nestedTransactionDispatchError(this.driverName);
     }
 
     // Start a new transaction
     const pool = client as Pool;
     const poolClient = await pool.connect();
-
-    try {
-      let beginStatement = "BEGIN";
-      if (options?.isolationLevel) {
-        const isolationMap = {
-          read_uncommitted: "READ UNCOMMITTED",
-          read_committed: "READ COMMITTED",
-          repeatable_read: "REPEATABLE READ",
-          serializable: "SERIALIZABLE",
-        };
-        beginStatement = `BEGIN ISOLATION LEVEL ${isolationMap[options.isolationLevel]}`;
+    let releaseError: Error | boolean | undefined;
+    const queryOrDiscard = async (statement: string) => {
+      try {
+        await poolClient.query(statement);
+      } catch (error) {
+        releaseError ??= error instanceof Error ? error : true;
+        throw error;
       }
+    };
+    return runTransactionLifecycle({
+      begin: () => queryOrDiscard("BEGIN"),
+      callback: () => fn(poolClient),
+      commit: () => queryOrDiscard("COMMIT"),
+      rollback: () => queryOrDiscard("ROLLBACK"),
+      close: () => {
+        try {
+          if (releaseError) {
+            poolClient.release(releaseError);
+            return;
+          }
+          poolClient.release();
+        } catch (error) {
+          super.transactionCleanupFailed(
+            new TransactionError(
+              'Driver "pg" could not release an unsafe transaction connection.',
+              { meta: { driver: "pg", method: "$transaction" } }
+            )
+          );
+          throw error;
+        }
+      },
+    });
+  }
 
-      await poolClient.query(beginStatement);
-      this.inTransaction = true;
-      const result = await fn(poolClient);
-      await poolClient.query("COMMIT");
-      return result;
-    } catch (error) {
-      await poolClient.query("ROLLBACK");
-      throw error;
-    } finally {
-      poolClient.release();
-    }
-    // Note: this.inTransaction reset is handled by base Driver._transaction()
+  protected override transactionCleanupFailed(_error: Error): void {
+    // The failed PoolClient was discarded with release(error); the pool stays usable.
   }
 }
 

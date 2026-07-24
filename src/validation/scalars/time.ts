@@ -1,5 +1,6 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
+import { createScalarInterner, scalarInternKey } from "./intern";
 
 // =============================================================================
 // BASE TYPES
@@ -150,7 +151,7 @@ const buildTimeListUpdateSchema = <S extends V.Schema>(
     }),
   ]);
 
-export interface TimeSchemas<F extends FieldState<"time">> {
+export interface TimeSchemas<F extends ScalarState<"time">> {
   base: F["base"];
   create: V.IsoTime<F>;
   update: F["array"] extends true
@@ -161,17 +162,25 @@ export interface TimeSchemas<F extends FieldState<"time">> {
     : TimeFilterSchema<F["base"]>;
 }
 
-export const buildTimeSchema = <F extends FieldState<"time">>(
+const internFilter = createScalarInterner<unknown>();
+const internUpdate = createScalarInterner<unknown>();
+
+export const buildTimeSchema = <F extends ScalarState<"time">>(
   state: F
 ): TimeSchemas<F> => {
+  const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
     create: v.isoTime(state),
-    update: state.array
-      ? buildTimeListUpdateSchema(state.base)
-      : buildTimeUpdateSchema(state.base),
-    filter: state.array
-      ? buildTimeListFilterSchema(state.base)
-      : buildTimeFilterSchema(state.base),
+    update: internUpdate(key, () =>
+      state.array
+        ? buildTimeListUpdateSchema(state.base)
+        : buildTimeUpdateSchema(state.base)
+    ) as never,
+    filter: internFilter(key, () =>
+      state.array
+        ? buildTimeListFilterSchema(state.base)
+        : buildTimeFilterSchema(state.base)
+    ) as never,
   } as TimeSchemas<F>;
 };

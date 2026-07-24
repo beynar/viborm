@@ -5,11 +5,23 @@
  */
 
 import { type Sql, sql } from "@sql";
-import { getColumnName, isScalarField } from "../context";
-import type { QueryContext } from "../types";
+import {
+  getColumnName,
+  getRelationInfo,
+  isRelation,
+  isScalarField,
+} from "../context";
+import { QueryEngineError, type QueryScope } from "../types";
+import {
+  buildRelationOrders,
+  type RelationOrderAlias,
+} from "./relation-orderby-builder";
+import { buildSingleOrder } from "./sort-order-builder";
 
-type SortOrder = "asc" | "desc";
-type NullsOrder = "first" | "last";
+export interface OrderByParts {
+  orderBy: Sql | undefined;
+  joins: Sql[];
+}
 
 /**
  * Build ORDER BY clause
@@ -20,16 +32,37 @@ type NullsOrder = "first" | "last";
  * @returns SQL for ORDER BY or undefined if no ordering
  */
 export function buildOrderBy(
-  ctx: QueryContext,
+  ctx: QueryScope,
   orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
   alias: string
 ): Sql | undefined {
+  return buildOrderByInternal(ctx, orderBy, alias, false).orderBy;
+}
+
+/**
+ * Build ORDER BY clause and relation joins for SELECT queries.
+ */
+export function buildOrderByParts(
+  ctx: QueryScope,
+  orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
+  alias: string
+): OrderByParts {
+  return buildOrderByInternal(ctx, orderBy, alias, true);
+}
+
+function buildOrderByInternal(
+  ctx: QueryScope,
+  orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
+  alias: string,
+  allowRelationOrder: boolean
+): OrderByParts {
   if (!orderBy) {
-    return undefined;
+    return { orderBy: undefined, joins: [] };
   }
 
   const items = Array.isArray(orderBy) ? orderBy : [orderBy];
   const orders: Sql[] = [];
+  const relationAliases = new Map<string, RelationOrderAlias>();
 
   for (const item of items) {
     for (const [field, value] of Object.entries(item)) {
@@ -37,63 +70,53 @@ export function buildOrderBy(
         continue;
       }
 
-      // Skip relation ordering for now (would need join or subquery)
       if (!isScalarField(ctx.model, field)) {
-        continue;
+        if (isRelation(ctx.model, field)) {
+          if (!allowRelationOrder) {
+            throw new QueryEngineError(
+              `Relation orderBy '${field}' is not supported in this context.`
+            );
+          }
+          const relationInfo = getRelationInfo(ctx, field);
+          if (!relationInfo) {
+            throw new QueryEngineError(`Unknown orderBy field '${field}'.`);
+          }
+          orders.push(
+            ...buildRelationOrders(
+              ctx,
+              relationInfo,
+              value,
+              alias,
+              relationAliases
+            )
+          );
+          continue;
+        }
+        throw new QueryEngineError(`Unknown orderBy field '${field}'.`);
       }
 
       // Resolve field name to actual column name (handles .map() overrides)
       const columnName = getColumnName(ctx.model, field);
       const column = ctx.adapter.identifiers.column(alias, columnName);
-      const orderSql = buildSingleOrder(ctx, column, value);
-      if (orderSql) {
-        orders.push(orderSql);
-      }
+      const scalar = ctx.model["~"].state.scalars[field];
+      orders.push(
+        buildSingleOrder(ctx, column, value, {
+          name: field,
+          scalarState: scalar?.["~"].state,
+        })
+      );
     }
   }
 
   if (orders.length === 0) {
-    return undefined;
+    return {
+      orderBy: undefined,
+      joins: [...relationAliases.values()].map((entry) => entry.join),
+    };
   }
 
-  return sql.join(orders, ", ");
-}
-
-/**
- * Build a single order expression
- */
-function buildSingleOrder(
-  ctx: QueryContext,
-  column: Sql,
-  value: unknown
-): Sql | undefined {
-  const { adapter } = ctx;
-
-  // Simple string: "asc" or "desc"
-  if (typeof value === "string") {
-    return value === "desc"
-      ? adapter.orderBy.desc(column)
-      : adapter.orderBy.asc(column);
-  }
-
-  // Object with sort and optional nulls
-  if (typeof value === "object" && value !== null) {
-    const { sort, nulls } = value as { sort?: SortOrder; nulls?: NullsOrder };
-
-    let orderExpr =
-      sort === "desc"
-        ? adapter.orderBy.desc(column)
-        : adapter.orderBy.asc(column);
-
-    // Apply nulls ordering if specified
-    if (nulls === "first") {
-      orderExpr = adapter.orderBy.nullsFirst(orderExpr);
-    } else if (nulls === "last") {
-      orderExpr = adapter.orderBy.nullsLast(orderExpr);
-    }
-
-    return orderExpr;
-  }
-
-  return undefined;
+  return {
+    orderBy: sql.join(orders, ", "),
+    joins: [...relationAliases.values()].map((entry) => entry.join),
+  };
 }

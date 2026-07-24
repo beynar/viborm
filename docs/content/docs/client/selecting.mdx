@@ -21,7 +21,7 @@ const users = await client.user.findMany({
 
 ## include
 
-Return all scalar fields plus specified relations:
+Return all scalars plus specified relations:
 
 ```ts
 const users = await client.user.findMany({
@@ -37,9 +37,13 @@ const users = await client.user.findMany({
 
 | Aspect | `select` | `include` |
 |--------|----------|-----------|
-| Base fields | Only selected | All scalars |
+| Base scalars | Only selected | All scalars |
 | Relations | Must select | Add to base |
 | Default | Nothing selected | All scalars |
+
+<Callout type="warn">
+  An empty `select: {}`, or a `select` where every field is `false`/`undefined`, throws an error rather than returning all fields. `select` must include at least one truthy field.
+</Callout>
 
 ## Nested Selection
 
@@ -172,41 +176,6 @@ async function getPublicProfile(userId: string) {
       _count: {
         select: { posts: true, followers: true },
       },
-    },
-  });
-}
-```
-
-### Minimal List
-
-```ts
-async function getUserList() {
-  return client.user.findMany({
-    select: {
-      id: true,
-      name: true,
-      email: true,
-    },
-    orderBy: { name: "asc" },
-  });
-}
-```
-
-### Full Detail
-
-```ts
-async function getUserDetail(userId: string) {
-  return client.user.findUnique({
-    where: { id: userId },
-    include: {
-      profile: true,
-      posts: {
-        include: {
-          tags: true,
-          _count: { select: { comments: true } },
-        },
-      },
-      settings: true,
     },
   });
 }

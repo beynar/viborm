@@ -179,7 +179,9 @@ describe("ToOne Filter - Optional (Profile.user)", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Scalar values are transformed to { equals: value }
-        expect(result.value.isNot).toEqual({ username: { equals: "bob" } });
+        expect(result.value).toMatchObject({
+          isNot: { username: { equals: "bob" } },
+        });
       }
     });
   });

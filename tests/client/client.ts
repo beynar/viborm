@@ -137,20 +137,16 @@ console.log("Created user:", newUser);
 
 const newUserfetched = await client.user.findUnique({
   where: {
-    id: newUser.id,
+    id:"2"
+
   },
   include: {
-    posts: {
-      where: {
-        AND: [
-          {
-            title: {
-              contains: "Hello",
-            },
-          },
-        ],
-      },
-    },
+    posts:{
+      select:{
+        content:true,
+        author:true,
+      }
+    }
   },
 });
 console.log("Created user:", newUser);

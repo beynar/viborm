@@ -13,7 +13,7 @@ import type { ConversionContext, JsonSchema, JsonSchemaTarget } from "./types";
 /**
  * Wrapper schema types that should be traversed to find inner schemas.
  */
-const WRAPPER_TYPES = new Set(["array", "nullable", "optional"]);
+const WRAPPER_TYPES = new Set(["array", "nullable", "optional", "lazyRef"]);
 
 /**
  * Traverse through wrapper schemas to find the innermost schema.

@@ -1,12 +1,12 @@
 /**
- * All Field Types Integration Test
+ * All Scalar Types Integration Test
  *
  * Comprehensive test that:
- * 1. Creates a schema with ALL possible field type combinations
+ * 1. Creates a schema with ALL possible scalar type combinations
  * 2. Pushes the schema to an in-memory PGLite database
- * 3. Creates a record with all field inputs
+ * 3. Creates a record with all scalar inputs
  * 4. Uses findUnique to retrieve the record
- * 5. Verifies each field returns the correct type and value
+ * 5. Verifies each scalar value has the correct type and value
  */
 const enumRequired = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
 
@@ -23,14 +23,14 @@ import {
 } from "vitest";
 
 // =============================================================================
-// TEST SCHEMA WITH ALL FIELD TYPES
+// TEST SCHEMA WITH ALL SCALAR TYPES
 // =============================================================================
 
 const allFieldsModel = s.model({
   // ============= ID FIELD =============
   id: s.string().id(),
 
-  // ============= STRING FIELDS =============
+  // ============= STRING SCALARS =============
   // Required string
   stringRequired: s.string(),
   // Nullable string
@@ -56,7 +56,7 @@ const allFieldsModel = s.model({
   // Int with default
   intWithDefault: s.int().default(42),
 
-  // ============= FLOAT FIELDS =============
+  // ============= FLOAT SCALARS =============
   // Required float
   floatRequired: s.float(),
   // Nullable float
@@ -68,7 +68,7 @@ const allFieldsModel = s.model({
   // Float with default
   floatWithDefault: s.float().default(3.14),
 
-  // ============= DECIMAL FIELDS =============
+  // ============= DECIMAL SCALARS =============
   // Required decimal
   decimalRequired: s.decimal(),
   // Nullable decimal
@@ -80,7 +80,7 @@ const allFieldsModel = s.model({
   // Decimal with default
   decimalWithDefault: s.decimal().default(99.99),
 
-  // ============= BIGINT FIELDS =============
+  // ============= BIGINT SCALARS =============
   // Required bigint
   bigintRequired: s.bigInt(),
   // Nullable bigint
@@ -92,7 +92,7 @@ const allFieldsModel = s.model({
   // BigInt with default
   bigintWithDefault: s.bigInt().default(1000000n),
 
-  // ============= BOOLEAN FIELDS =============
+  // ============= BOOLEAN SCALARS =============
   // Required boolean
   booleanRequired: s.boolean(),
   // Nullable boolean
@@ -142,7 +142,7 @@ const allFieldsModel = s.model({
   // Time with now() default
   timeWithNow: s.time().withoutTimezone().now(),
 
-  // ============= JSON FIELDS =============
+  // ============= JSON SCALARS =============
   // Required json
   //   { nested: { value: 123 }, array: [1, 2, 3] };
   jsonRequired: s.json().schema(
@@ -156,7 +156,7 @@ const allFieldsModel = s.model({
   // JSON with default
   jsonWithDefault: s.json().default({ key: "value" }),
 
-  // ============= ENUM FIELDS =============
+  // ============= ENUM SCALARS =============
   // Required enum
   enumRequired,
   // Nullable enum
@@ -166,14 +166,14 @@ const allFieldsModel = s.model({
   // Note: Enum arrays are skipped due to a bug in enum array serialization
   // See: serializer.ts line 335 - enum array types don't get [] suffix
 
-  // ============= BLOB FIELDS =============
+  // ============= BLOB SCALARS =============
   // Required blob
   blobRequired: s.blob(),
   // Nullable blob
   blobNullable: s.blob().nullable(),
   // Note: blob doesn't support array()
 
-  // ============= VECTOR FIELDS (requires pgvector) =============
+  // ============= VECTOR SCALARS (requires pgvector) =============
   // We'll skip vector for now as it requires the pgvector extension
   // vectorRequired: s.vector().dimension(3),
   // vectorNullable: s.vector().dimension(3).nullable(),
@@ -229,14 +229,14 @@ const testJson = { nested: { value: 123 }, array: [1, 2, 3] };
 // TESTS
 // =============================================================================
 
-describe("All Field Types Integration Test", () => {
-  test("creates a record with all field types and retrieves it correctly", async () => {
-    // Create a record with all field types
+describe("All Scalar Types Integration Test", () => {
+  test("creates a record with all scalar types and retrieves it correctly", async () => {
+    // Create a record with all scalar types
     const created = await client.allFieldsModel.create({
       data: {
         id: "test-record-1",
 
-        // String fields
+        // String scalars
         stringRequired: "hello world",
         stringNullable: "nullable string",
         stringArray: ["a", "b", "c"],
@@ -251,28 +251,28 @@ describe("All Field Types Integration Test", () => {
         intArrayNullable: [10, 20],
         // intWithDefault uses default
 
-        // Float fields
+        // Float scalars
         floatRequired: 1.5,
         floatNullable: 2.75,
         floatArray: [0.1, 0.2, 0.3],
         floatArrayNullable: [1.1, 2.2],
         // floatWithDefault uses default
 
-        // Decimal fields
+        // Decimal scalars
         decimalRequired: 100.5,
         decimalNullable: 200.75,
         decimalArray: [10.1, 20.2, 30.3],
         decimalArrayNullable: [50.5, 60.6],
         // decimalWithDefault uses default
 
-        // BigInt fields
+        // BigInt scalars
         bigintRequired: 9007199254740993n,
         bigintNullable: 9007199254740994n,
         bigintArray: [1n, 2n, 3n],
         bigintArrayNullable: [100n, 200n],
         // bigintWithDefault uses default
 
-        // Boolean fields
+        // Boolean scalars
         booleanRequired: true,
         booleanNullable: false,
         booleanArray: [true, false, true],
@@ -287,7 +287,7 @@ describe("All Field Types Integration Test", () => {
         // datetimeWithNow uses now()
         // datetimeUpdatedAt uses updatedAt()
 
-        // Date fields
+        // Date scalars
         dateRequired: testDateOnly1,
         dateNullable: testDateOnly2,
         dateArray: [testDateOnly1, testDateOnly2],
@@ -301,17 +301,17 @@ describe("All Field Types Integration Test", () => {
         timeArrayNullable: [testTime3],
         // timeWithNow uses now()
 
-        // JSON fields
+        // JSON scalars
         jsonRequired: testJson,
         jsonNullable: { nullableKey: "value" },
         // jsonWithDefault uses default
 
-        // Enum fields
+        // Enum scalars
         enumRequired: "ACTIVE",
         enumNullable: "HIGH",
         // enumWithDefault uses default
 
-        // Blob fields
+        // Blob scalars
         blobRequired: testBlob,
         blobNullable: new Uint8Array([6, 7, 8]),
       },
@@ -332,7 +332,7 @@ describe("All Field Types Integration Test", () => {
     }
 
     // =========================================================================
-    // STRING FIELD VERIFICATIONS
+    // STRING SCALAR VERIFICATIONS
     // =========================================================================
     expect(found.stringRequired).toBe("hello world");
     expect(typeof found.stringRequired).toBe("string");
@@ -350,7 +350,7 @@ describe("All Field Types Integration Test", () => {
     expect(found.stringUnique).toBe("unique-value-1");
 
     // =========================================================================
-    // INT FIELD VERIFICATIONS
+    // INT SCALAR VERIFICATIONS
     // =========================================================================
     expect(found.intRequired).toBe(123);
     expect(typeof found.intRequired).toBe("number");
@@ -365,7 +365,7 @@ describe("All Field Types Integration Test", () => {
     expect(found.intWithDefault).toBe(42);
 
     // =========================================================================
-    // FLOAT FIELD VERIFICATIONS
+    // FLOAT SCALAR VERIFICATIONS
     // =========================================================================
     expect(found.floatRequired).toBe(1.5);
     expect(typeof found.floatRequired).toBe("number");
@@ -379,7 +379,7 @@ describe("All Field Types Integration Test", () => {
     expect(found.floatWithDefault).toBe(3.14);
 
     // =========================================================================
-    // DECIMAL FIELD VERIFICATIONS
+    // DECIMAL SCALAR VERIFICATIONS
     // =========================================================================
     // Note: PostgreSQL returns numeric types as strings to preserve precision
     // The ORM should ideally convert these, but currently returns raw values
@@ -394,7 +394,7 @@ describe("All Field Types Integration Test", () => {
     expect(Number(found.decimalWithDefault)).toBe(99.99);
 
     // =========================================================================
-    // BIGINT FIELD VERIFICATIONS
+    // BIGINT SCALAR VERIFICATIONS
     // =========================================================================
     expect(found.bigintRequired).toBe(9007199254740993n);
     expect(typeof found.bigintRequired).toBe("bigint");
@@ -411,7 +411,7 @@ describe("All Field Types Integration Test", () => {
     expect(BigInt(found.bigintWithDefault)).toBe(1000000n);
 
     // =========================================================================
-    // BOOLEAN FIELD VERIFICATIONS
+    // BOOLEAN SCALAR VERIFICATIONS
     // =========================================================================
     expect(found.booleanRequired).toBe(true);
     expect(typeof found.booleanRequired).toBe("boolean");
@@ -425,7 +425,7 @@ describe("All Field Types Integration Test", () => {
     expect(found.booleanWithDefault).toBe(true);
 
     // =========================================================================
-    // DATETIME FIELD VERIFICATIONS
+    // DATETIME SCALAR VERIFICATIONS
     // =========================================================================
     // PostgreSQL/PGlite returns Date objects
     const toISOString = (d: unknown): string => {
@@ -457,9 +457,9 @@ describe("All Field Types Integration Test", () => {
     );
 
     // =========================================================================
-    // DATE FIELD VERIFICATIONS
+    // DATE SCALAR VERIFICATIONS
     // =========================================================================
-    // Date fields return Date objects
+    // Date scalars return Date objects
     expect(found.dateRequired instanceof Date).toBe(true);
     expect((found.dateRequired as Date).toISOString().split("T")[0]).toBe(
       testDateOnly1
@@ -485,7 +485,7 @@ describe("All Field Types Integration Test", () => {
     expect(found.dateWithNow instanceof Date).toBe(true);
 
     // =========================================================================
-    // TIME FIELD VERIFICATIONS
+    // TIME SCALAR VERIFICATIONS
     // =========================================================================
     expect(found.timeRequired).toBe(testTime1);
     expect(typeof found.timeRequired).toBe("string");
@@ -500,7 +500,7 @@ describe("All Field Types Integration Test", () => {
     expect(found.timeWithNow).toMatch(TIME_PATTERN);
 
     // =========================================================================
-    // JSON FIELD VERIFICATIONS
+    // JSON SCALAR VERIFICATIONS
     // =========================================================================
     expect(found.jsonRequired).toEqual(testJson);
     expect(typeof found.jsonRequired).toBe("object");
@@ -510,7 +510,7 @@ describe("All Field Types Integration Test", () => {
     expect(found.jsonWithDefault).toEqual({ key: "value" });
 
     // =========================================================================
-    // ENUM FIELD VERIFICATIONS
+    // ENUM SCALAR VERIFICATIONS
     // =========================================================================
     expect(found.enumRequired).toBe("ACTIVE");
     expect(typeof found.enumRequired).toBe("string");
@@ -520,7 +520,7 @@ describe("All Field Types Integration Test", () => {
     expect(found.enumWithDefault).toBe("ON");
 
     // =========================================================================
-    // BLOB FIELD VERIFICATIONS
+    // BLOB SCALAR VERIFICATIONS
     // =========================================================================
     // PostgreSQL returns Buffer, we need to compare as arrays
     expect(Array.from(found.blobRequired)).toEqual([1, 2, 3, 4, 5]);
@@ -532,7 +532,7 @@ describe("All Field Types Integration Test", () => {
     expect(Array.from(found.blobNullable as Uint8Array)).toEqual([6, 7, 8]);
   });
 
-  test("handles null values for nullable fields", async () => {
+  test("handles null values for nullable scalars", async () => {
     const created = await client.allFieldsModel.create({
       data: {
         id: "test-record-null",
@@ -593,7 +593,7 @@ describe("All Field Types Integration Test", () => {
     expect(found).not.toBeNull();
     if (!found) throw new Error("Record not found");
 
-    // Verify all nullable fields are null
+    // Verify all nullable scalars are null
     expect(found.stringNullable).toBeNull();
     expect(found.stringArrayNullable).toBeNull();
     expect(found.intNullable).toBeNull();
@@ -657,7 +657,7 @@ describe("All Field Types Integration Test", () => {
         timeArray: [],
         timeArrayNullable: [],
 
-        // Nullable non-array fields
+        // Nullable non-array scalars
         stringNullable: null,
         intNullable: null,
         floatNullable: null,
@@ -730,7 +730,7 @@ const assertValid = <T>(
   const result = parse(schema, value);
   if (result.issues) {
     throw new Error(
-      `Field "${fieldName}" failed validation: ${result.issues[0]?.message}`
+      `Scalar "${fieldName}" failed validation: ${result.issues[0]?.message}`
     );
   }
   return result.value as T;
@@ -745,13 +745,13 @@ const assertInvalid = (
   const result = parse(schema, value);
   if (!result.issues) {
     throw new Error(
-      `Field "${fieldName}" should have failed validation but passed`
+      `Scalar "${fieldName}" should have failed validation but passed`
     );
   }
 };
 
 describe("Runtime type verification using v validation", () => {
-  test("validates all field types with v schemas", async () => {
+  test("validates all scalar types with v schemas", async () => {
     const found = await client.allFieldsModel.findUnique({
       where: { id: "test-record-1" },
     });
@@ -761,7 +761,7 @@ describe("Runtime type verification using v validation", () => {
     }
 
     // =========================================================================
-    // STRING FIELDS
+    // STRING SCALARS
     // =========================================================================
     assertValid(v.string(), found.stringRequired, "stringRequired");
     assertValid(v.string(), found.stringNullable, "stringNullable");
@@ -788,7 +788,7 @@ describe("Runtime type verification using v validation", () => {
     assertValid(v.integer(), found.intWithDefault, "intWithDefault");
 
     // =========================================================================
-    // FLOAT FIELDS
+    // FLOAT SCALARS
     // =========================================================================
     assertValid(v.number(), found.floatRequired, "floatRequired");
     assertValid(v.number(), found.floatNullable, "floatNullable");
@@ -801,7 +801,7 @@ describe("Runtime type verification using v validation", () => {
     assertValid(v.number(), found.floatWithDefault, "floatWithDefault");
 
     // =========================================================================
-    // DECIMAL FIELDS
+    // DECIMAL SCALARS
     // Note: PostgreSQL returns decimals as strings, so we accept both
     // =========================================================================
     assertValid(
@@ -819,7 +819,7 @@ describe("Runtime type verification using v validation", () => {
     expect(Array.isArray(found.decimalArrayNullable)).toBe(true);
 
     // =========================================================================
-    // BIGINT FIELDS
+    // BIGINT SCALARS
     // Note: PGlite may return number for small bigint values
     // =========================================================================
     assertValid(v.bigint(), found.bigintRequired, "bigintRequired");
@@ -837,7 +837,7 @@ describe("Runtime type verification using v validation", () => {
     );
 
     // =========================================================================
-    // BOOLEAN FIELDS
+    // BOOLEAN SCALARS
     // =========================================================================
     assertValid(v.boolean(), found.booleanRequired, "booleanRequired");
     assertValid(v.boolean(), found.booleanNullable, "booleanNullable");
@@ -864,14 +864,14 @@ describe("Runtime type verification using v validation", () => {
     assertValid(v.date(), found.datetimeUpdatedAt, "datetimeUpdatedAt");
 
     // =========================================================================
-    // JSON FIELDS
+    // JSON SCALARS
     // =========================================================================
     assertValid(v.json(), found.jsonRequired, "jsonRequired");
     assertValid(v.json(), found.jsonNullable, "jsonNullable");
     assertValid(v.json(), found.jsonWithDefault, "jsonWithDefault");
 
     // =========================================================================
-    // ENUM FIELDS
+    // ENUM SCALARS
     // =========================================================================
     assertValid(
       v.enum(["ACTIVE", "INACTIVE", "PENDING"]),
@@ -890,7 +890,7 @@ describe("Runtime type verification using v validation", () => {
     );
 
     // =========================================================================
-    // BLOB FIELDS
+    // BLOB SCALARS
     // =========================================================================
     assertValid(v.blob(), found.blobRequired, "blobRequired");
     assertValid(v.blob({ nullable: true }), found.blobNullable, "blobNullable");
@@ -905,7 +905,7 @@ describe("Runtime type verification using v validation", () => {
       throw new Error("Test record not found - run null values test first");
     }
 
-    // All nullable fields should pass v.nullable() and be null
+    // All nullable scalars should pass v.nullable() and be null
     assertValid(
       v.string({ nullable: true }),
       found.stringNullable,
@@ -1024,7 +1024,7 @@ describe("Runtime type verification using v validation", () => {
       throw new Error("Test record not found - run empty arrays test first");
     }
 
-    // All array fields should pass validation and be empty arrays
+    // All array scalars should pass validation and be empty arrays
     const arrayValidations = [
       {
         schema: v.string({ array: true }),
@@ -1134,7 +1134,7 @@ describe("Runtime type verification using v validation", () => {
 // =============================================================================
 
 describe("Compile-time type verification", () => {
-  test("verifies correct TypeScript types for all fields", async () => {
+  test("verifies correct TypeScript types for all scalars", async () => {
     // Create a dummy record to get the return type
     const found = await client.allFieldsModel.findFirst();
 

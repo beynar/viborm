@@ -9,18 +9,17 @@
 // - Strict objects by default
 //
 // =============================================================================
-export type { inferred as inferredType } from "./inferred";
 
+export { createSchemaRegistry, SchemaRegistry } from "./builder";
+export type { inferred as inferredType } from "./inferred";
 // Branded type symbol
 export { inferred } from "./inferred";
-// V Namespace - Type-level schema mirrors for explicit type annotations
-// Convenience namespace (v.string(), v.number(), etc.)
-export { type V, v, v as default } from "./primitives/v";
-export { createSchemaRegistry, SchemaRegistry } from "./builder";
+// JSON Schema conversion (StandardJSONSchemaV1)
+export type { JsonSchema } from "./json-schema";
+export { createJsonSchemaConverter, toJsonSchema } from "./json-schema";
 export type {
   ArgsSchemas,
   CoreSchemas,
-  FieldSchemas,
   ModelArgsSchemas,
   ModelCoreInput,
   ModelCoreSchemas,
@@ -28,16 +27,8 @@ export type {
   ModelRelationNestedInput,
   ModelSchemas,
   ModelStateSchemas,
+  ScalarSchemas,
 } from "./model";
-export type {
-  InferInput,
-  InferOutput,
-  Prettify,
-  ParseResult,
-  SchemaRegistryLookup,
-  SchemaRegistryOperation,
-  VibSchema,
-} from "./types";
 export type { BaseBigIntSchema } from "./primitives/bigint";
 export type { BaseBlobSchema } from "./primitives/blob";
 export type { BaseBooleanSchema } from "./primitives/boolean";
@@ -51,10 +42,19 @@ export type { BaseJsonSchema, JsonValue } from "./primitives/json";
 export type { BaseIntegerSchema, BaseNumberSchema } from "./primitives/number";
 export type { ObjectSchema } from "./primitives/object";
 export type { BasePointSchema } from "./primitives/point";
+// V Namespace - Type-level schema mirrors for explicit type annotations
+// Convenience namespace (v.string(), v.number(), etc.)
+export { type V, v, v as default } from "./primitives/v";
 export type { BaseVectorSchema } from "./primitives/vector";
-// JSON Schema conversion (StandardJSONSchemaV1)
-export type { JsonSchema } from "./json-schema";
-export { createJsonSchemaConverter, toJsonSchema } from "./json-schema";
+export type {
+  InferInput,
+  InferOutput,
+  ParseResult,
+  Prettify,
+  SchemaRegistryLookup,
+  SchemaRegistryOperation,
+  VibSchema,
+} from "./types";
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { ParseResult, ValidationFailure } from "./types";

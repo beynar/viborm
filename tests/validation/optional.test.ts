@@ -40,12 +40,8 @@ describe("optional wrapper schema", () => {
     test("default factory function", () => {
       let counter = 0;
       const schema = v.optional(v.number(), () => ++counter);
-      expect(
-        (parse(schema, undefined) as { value: number }).value
-      ).toBe(1);
-      expect(
-        (parse(schema, undefined) as { value: number }).value
-      ).toBe(2);
+      expect((parse(schema, undefined) as { value: number }).value).toBe(1);
+      expect((parse(schema, undefined) as { value: number }).value).toBe(2);
     });
   });
 
@@ -130,12 +126,8 @@ describe("optional option vs wrapper comparison", () => {
     const wrapperSchema = v.optional(v.number());
 
     test("both allow undefined", () => {
-      expect(
-        parse(optionsSchema, undefined).issues
-      ).toBeUndefined();
-      expect(
-        parse(wrapperSchema, undefined).issues
-      ).toBeUndefined();
+      expect(parse(optionsSchema, undefined).issues).toBeUndefined();
+      expect(parse(wrapperSchema, undefined).issues).toBeUndefined();
     });
 
     test("both validate numbers", () => {
@@ -167,12 +159,8 @@ describe("optional option vs wrapper comparison", () => {
     const wrapperSchema = v.optional(v.boolean());
 
     test("both allow undefined", () => {
-      expect(
-        parse(optionsSchema, undefined).issues
-      ).toBeUndefined();
-      expect(
-        parse(wrapperSchema, undefined).issues
-      ).toBeUndefined();
+      expect(parse(optionsSchema, undefined).issues).toBeUndefined();
+      expect(parse(wrapperSchema, undefined).issues).toBeUndefined();
     });
 
     test("both validate booleans", () => {

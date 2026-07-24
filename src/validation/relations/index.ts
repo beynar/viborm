@@ -17,6 +17,7 @@ export { toManyUpdateFactory, toOneUpdateFactory } from "./update";
 
 import type { AnyModel } from "@schema/model";
 import v from "..";
+import { lazyRecord } from "../lazy";
 import { type CountFilterSchema, countFilterFactory } from "./count-filter";
 import {
   type ToManyCreateSchema,
@@ -162,19 +163,22 @@ export const getRelationsSchemas = <Source extends AnyModel>(
   source: Source,
   createSchemasGetter: <S extends RelationState>(state: S) => SchemaGetter<S>
 ) => {
-  const relationsSchemas: Record<string, unknown> = {};
+  // Build each relation's schemas lazily: a relation's filter/create/update/
+  // select/include schemas are only constructed when that relation is first
+  // referenced (via `v.fromObject(relations, "<subkey>")`). A query that
+  // touches no relations (e.g. findUnique by id) builds none of them.
+  const builders: Record<string, () => unknown> = {};
   const relations = source["~"].state.relations;
   for (const relation in relations) {
     const state = relations[relation]!["~"].state;
-    const targetSchemas = createSchemasGetter(state) as SchemaGetter<
-      typeof state
-    >;
-
-    Object.assign(relationsSchemas, {
-      [relation]: getRelationSchemas(state, source, targetSchemas),
-    });
+    builders[relation] = () => {
+      const targetSchemas = createSchemasGetter(state) as SchemaGetter<
+        typeof state
+      >;
+      return getRelationSchemas(state, source, targetSchemas);
+    };
   }
-  return relationsSchemas as GetRelationsSchemas<Source>;
+  return lazyRecord(builders) as GetRelationsSchemas<Source>;
 };
 
 export type GetRelationsSchemas<Source extends AnyModel> = {

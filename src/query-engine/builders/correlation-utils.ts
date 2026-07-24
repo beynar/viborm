@@ -6,14 +6,10 @@
  */
 
 import type { Model } from "@schema/model";
-import type { AnyRelation } from "@schema/relation";
+import type { AnyRelation, ReferentialAction } from "@schema/relation";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
-import {
-  type QueryContext,
-  QueryEngineError,
-  type RelationInfo,
-} from "../types";
+import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 
 /**
  * Build correlation condition between parent and related table.
@@ -30,7 +26,7 @@ import {
  * @throws QueryEngineError if unable to determine correlation
  */
 export function buildCorrelation(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   parentAlias: string,
   relatedAlias: string
@@ -103,49 +99,47 @@ export function buildCorrelation(
 }
 
 /**
- * Find the inverse relation on the target model that points back to the source model.
- * Returns the fields/references from the inverse relation.
+ * Find the relation on the target model that points back to the source model
+ * and carries the FK fields.
  *
- * For self-referential relations (where source === target), this function uses
- * relation names to disambiguate between multiple possible inverses. If the
- * relation has an explicit `.name()`, it looks for an inverse with the same name.
+ * When multiple relations point back (e.g. Post.author and Post.editor both
+ * targeting User), disambiguates via explicit relation names (`.name()`).
+ * Throws when no name match exists: silently picking one would correlate on
+ * the wrong FK and return wrong rows.
  *
- * This fixes the Drizzle v0.26.4 bug where named self-relations were failing.
+ * Shared by correlation building (reads) and nested-write FK resolution.
  */
-function findInverseRelation(
-  ctx: QueryContext,
+export function findInverseRelationState(
+  sourceModel: Model<any>,
   relationInfo: RelationInfo
-): { fields: string[]; references: string[] } | undefined {
-  const targetModel = relationInfo.targetModel;
-  const sourceModel = ctx.model;
-  const targetRelations = targetModel["~"].state.relations;
+):
+  | {
+      fields: string[];
+      references: string[] | undefined;
+      onUpdate: ReferentialAction | undefined;
+    }
+  | undefined {
+  const { targetModel } = relationInfo;
   const currentRelationName = relationInfo.relation["~"].state.name;
+  const targetRelations = targetModel["~"].state.relations;
 
-  // Collect all potential inverses
   const potentialInverses: Array<{
-    name: string;
     relationName?: string;
     fields: string[];
-    references: string[];
+    references: string[] | undefined;
+    onUpdate: ReferentialAction | undefined;
   }> = [];
 
-  // Look for a relation on target that points to source
-  for (const [relFieldName, relation] of Object.entries(targetRelations)) {
+  for (const relation of Object.values(targetRelations ?? {})) {
     const relState = (relation as AnyRelation)["~"].state;
-    const relTarget = relState.getter();
-
-    // Check if this relation points back to our source model
-    if (relTarget === sourceModel) {
-      const fields = relState.fields;
-      const references = relState.references;
-      if (fields && references && fields.length > 0 && references.length > 0) {
-        potentialInverses.push({
-          name: relFieldName,
-          relationName: relState.name,
-          fields,
-          references,
-        });
-      }
+    const fields = relState.fields;
+    if (relState.getter?.() === sourceModel && fields && fields.length > 0) {
+      potentialInverses.push({
+        relationName: relState.name,
+        fields,
+        references: relState.references,
+        onUpdate: relState.onUpdate,
+      });
     }
   }
 
@@ -153,33 +147,50 @@ function findInverseRelation(
     return undefined;
   }
 
-  // If only one inverse, return it
   if (potentialInverses.length === 1) {
+    const inverse = potentialInverses[0]!;
     return {
-      fields: potentialInverses[0]!.fields,
-      references: potentialInverses[0]!.references,
+      fields: inverse.fields,
+      references: inverse.references,
+      onUpdate: inverse.onUpdate,
     };
   }
 
-  // Multiple potential inverses - need to disambiguate
-  // Strategy 1: Match by explicit relation name (.name())
+  // Multiple potential inverses - disambiguate by explicit relation name (.name())
   if (currentRelationName) {
     const matchByName = potentialInverses.find(
       (inv) => inv.relationName === currentRelationName
     );
     if (matchByName) {
-      return { fields: matchByName.fields, references: matchByName.references };
+      return {
+        fields: matchByName.fields,
+        references: matchByName.references,
+        onUpdate: matchByName.onUpdate,
+      };
     }
   }
 
-  // Note: Self-referential relations require explicit .name() for disambiguation,
-  // which is enforced by schema validation. Strategy 1 will always match for self-ref.
+  throw new QueryEngineError(
+    `Ambiguous relation '${relationInfo.name}' on model '${getModelName(sourceModel)}': ` +
+      `multiple relations on '${getModelName(targetModel)}' point back to it. ` +
+      "Add .name() to both sides of each relation to disambiguate."
+  );
+}
 
-  // Fallback: return the first match
-  return {
-    fields: potentialInverses[0]!.fields,
-    references: potentialInverses[0]!.references,
-  };
+/**
+ * Find the inverse relation on the target model that points back to the source model.
+ * Returns the fields/references from the inverse relation, or undefined when no
+ * inverse with both fields and references exists.
+ */
+function findInverseRelation(
+  ctx: QueryScope,
+  relationInfo: RelationInfo
+): { fields: string[]; references: string[] } | undefined {
+  const inverse = findInverseRelationState(ctx.model, relationInfo);
+  if (!inverse?.references || inverse.references.length === 0) {
+    return undefined;
+  }
+  return { fields: inverse.fields, references: inverse.references };
 }
 
 /**
@@ -190,37 +201,84 @@ function getModelName(model: Model<any>): string {
 }
 
 /**
+ * Get the compound primary key constraint of a model: its constraint name
+ * (e.g. "tenantId_id") and its member field names (e.g. ["tenantId", "id"]).
+ * Returns undefined when the model has no compound id.
+ */
+export function getCompoundIdConstraint(
+  model: Model<any>
+): { name: string; fields: string[] } | undefined {
+  const compoundId = model["~"].state.compoundId;
+  if (!compoundId) {
+    return undefined;
+  }
+  const name = Object.keys(compoundId)[0];
+  const entries = name ? compoundId[name]?.entries : undefined;
+  if (!(name && entries)) {
+    return undefined;
+  }
+  const fields = Object.keys(entries);
+  return fields.length > 0 ? { name, fields } : undefined;
+}
+
+/**
+ * Wrap flat PK field values into whereUnique shape. Compound PKs nest under
+ * the constraint name ({ tenantId_id: { tenantId, id } }); single-field PKs
+ * stay flat. buildWhereUnique only accepts unique discriminators, so bare
+ * compound member fields would be rejected.
+ */
+export function buildPrimaryKeyWhereUnique(
+  model: Model<any>,
+  values: Record<string, unknown>
+): Record<string, unknown> {
+  const compound = getCompoundIdConstraint(model);
+  return compound ? { [compound.name]: values } : values;
+}
+
+/**
  * Get primary key field name from a model.
  *
  * Checks for:
- * 1. Field marked as id (isId: true)
- * 2. Compound ID (first field)
+ * 1. Compound ID (first member field)
+ * 2. Scalar marked as id (isId: true)
  * 3. Falls back to "id" as default
  *
  * @param model - Model to inspect
  * @returns Primary key field name
  */
 export function getPrimaryKeyField(model: Model<any>): string {
-  const scalars = model["~"].state.scalars;
+  return getPrimaryKeyFields(model)[0]!;
+}
 
-  // Check for field marked as id
-  for (const [name, field] of Object.entries(scalars)) {
+/**
+ * Get the single primary key field of a model, or throw.
+ *
+ * Junction tables key on one PK column per side, so many-to-many requires a
+ * single-field PK on both models — unlike getPrimaryKeyField, which silently
+ * returns the first compound-PK field or falls back to a literal "id".
+ */
+export function getRequiredSinglePrimaryKeyField(model: Model<any>): string {
+  const modelName = getModelName(model);
+
+  const compoundId = model["~"].state.compoundId;
+  if (compoundId && Object.keys(compoundId).length > 0) {
+    throw new QueryEngineError(
+      `Model "${modelName}" uses a compound primary key. ` +
+        "Many-to-many relations with compound PKs are not supported. " +
+        "Use a single-field surrogate key (e.g., s.string().id().ulid()) instead."
+    );
+  }
+
+  for (const [name, field] of Object.entries(model["~"].state.scalars)) {
     if ((field as any)["~"].state.isId) {
       return name;
     }
   }
 
-  // Check for compound ID
-  const compoundId = model["~"].state.compoundId;
-  if (compoundId) {
-    const keys = Object.keys(compoundId);
-    if (keys.length > 0) {
-      return keys[0]!;
-    }
-  }
-
-  // Default to "id"
-  return "id";
+  throw new QueryEngineError(
+    `Model "${modelName}" has no primary key field. ` +
+      "Many-to-many relations require a single-field primary key."
+  );
 }
 
 /**
@@ -234,19 +292,15 @@ export function getPrimaryKeyField(model: Model<any>): string {
  * @returns Array of primary key field names
  */
 export function getPrimaryKeyFields(model: Model<any>): string[] {
-  const scalars = model["~"].state.scalars;
-
-  // Check for compound ID first
-  const compoundId = model["~"].state.compoundId;
-  if (compoundId) {
-    const keys = Object.keys(compoundId);
-    if (keys.length > 0) {
-      return keys;
-    }
+  // Check for compound ID first: return its member fields, not the
+  // constraint name (Object.keys(compoundId) would yield "tenantId_id").
+  const compound = getCompoundIdConstraint(model);
+  if (compound) {
+    return compound.fields;
   }
 
   // Check for field marked as id
-  for (const [name, field] of Object.entries(scalars)) {
+  for (const [name, field] of Object.entries(model["~"].state.scalars)) {
     if ((field as any)["~"].state.isId) {
       return [name];
     }

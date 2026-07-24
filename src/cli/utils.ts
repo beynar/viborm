@@ -248,7 +248,9 @@ function isModel(value: unknown): boolean {
     "~" in value &&
     typeof (value as any)["~"] === "object" &&
     "state" in (value as any)["~"] &&
-    "fields" in (value as any)["~"].state
+    // Model state exposes `scalars`/`relations` (never `fields`); the rest of
+    // the codebase discriminates models the same way (see serializer).
+    "scalars" in (value as any)["~"].state
   );
 }
 
@@ -256,11 +258,14 @@ function isModel(value: unknown): boolean {
  * Checks if a value is a valid VibORM client instance.
  */
 function isValidClient(value: unknown): boolean {
+  // The client is a Proxy whose only trap is `get`, so `"$driver" in value`
+  // (which triggers the `has` trap / falls back to the bare target) is always
+  // false. Probe via property access instead.
   return (
     value !== null &&
-    typeof value === "object" &&
-    "$driver" in value &&
-    "$schema" in value
+    (typeof value === "object" || typeof value === "function") &&
+    (value as any).$driver !== undefined &&
+    (value as any).$schema !== undefined
   );
 }
 

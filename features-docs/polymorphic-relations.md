@@ -407,7 +407,7 @@ Before diving into phases, here's how polymorphic relations affect each of VibOR
 | Layer | Location | Affected? | Impact |
 |-------|----------|-----------|--------|
 | **L1: Validation** | `src/validation/` | ✅ Yes | Add `v.discriminatedUnion()` helper |
-| **L2: Fields** | `src/schema/fields/` | ❌ No | Polymorphic is a relation type, not a field type |
+| **L2: Scalars** | `src/schema/scalars/` | ❌ No | Polymorphic is a relation type, not a scalar type |
 | **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | ✅ Yes | Add polymorphic to where, create, update, select schemas |
 | **L4: Relations** | `src/schema/relation/` | ✅ Yes | New `PolymorphicRelation` class |
 | **L5: Schema Validation** | `src/schema/validation/` | ✅ Yes | Add P001-P007 validation rules |
@@ -420,7 +420,7 @@ Before diving into phases, here's how polymorphic relations affect each of VibOR
 | **L12: Migrations** | `src/migrations/` | ✅ Yes | Generate DDL for `_type` and `_id` columns |
 
 **Layers NOT affected:**
-- **L2: Fields** - Polymorphic is a relation concept, not a field type. No changes needed.
+- **L2: Scalars** - Polymorphic is a relation concept, not a scalar type. No changes needed.
 - **L8: Drivers** - Drivers execute raw SQL. The query engine and adapters handle the polymorphic SQL generation.
 
 ---
@@ -656,16 +656,16 @@ Update `ModelState` to include polymorphic relations:
 
 ```typescript
 export interface ModelState {
-  fields: FieldRecord;
+  fields: ModelShape;
   // ... existing fields ...
-  scalars: Record<string, Field>;
+  scalars: Record<string, Scalar>;
   relations: Record<string, AnyRelation>;
   polymorphicRelations: Record<string, PolymorphicRelation<any>>;  // NEW
-  uniques: Record<string, Field>;
+  uniques: Record<string, Scalar>;
 }
 ```
 
-Update `extractRelationFields()` helper to separate polymorphic from regular relations.
+Update `extractRelationMap()` helper to separate polymorphic from regular relations.
 
 **3. `src/validation/model/core/utils.ts`**
 

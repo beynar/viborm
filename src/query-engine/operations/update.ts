@@ -8,9 +8,10 @@
 import { type Sql, sql } from "@sql";
 import { buildSelect } from "../builders/select-builder";
 import { buildSet } from "../builders/set-builder";
-import { buildWhere, buildWhereUnique } from "../builders/where-builder";
+import { buildWhere } from "../builders/where-builder";
+import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getRelationInfo, getTableName, isRelation } from "../context";
-import type { QueryContext } from "../types";
+import type { QueryScope } from "../types";
 
 interface UpdateArgs {
   where: Record<string, unknown>;
@@ -34,7 +35,7 @@ interface UpdateManyArgs {
  * @returns Processed data with FK assignments from relation operations
  */
 function processRelationOperations(
-  ctx: QueryContext,
+  ctx: QueryScope,
   data: Record<string, unknown>
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -97,7 +98,7 @@ function processRelationOperations(
  * @param args - Update arguments
  * @returns SQL statement (UPDATE with optional RETURNING)
  */
-export function buildUpdate(ctx: QueryContext, args: UpdateArgs): Sql {
+export function buildUpdate(ctx: QueryScope, args: UpdateArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
@@ -134,15 +135,45 @@ export function buildUpdate(ctx: QueryContext, args: UpdateArgs): Sql {
  * @param args - UpdateMany arguments
  * @returns SQL statement
  */
-export function buildUpdateMany(ctx: QueryContext, args: UpdateManyArgs): Sql {
+/**
+ * Build SQL for updateManyAndReturn operation
+ *
+ * UPDATE ... RETURNING on adapters that support it. On adapters without
+ * RETURNING the operation program uses an atomic select/update/re-select
+ * sequence instead of this statement.
+ */
+export function buildUpdateManyAndReturn(
+  ctx: QueryScope,
+  args: UpdateManyArgs & { select?: Record<string, unknown> }
+): Sql {
+  const updateSql = buildUpdateMany(ctx, args);
+
+  const returningCols = buildSelect(ctx, args.select, undefined, "");
+  const returningSql = ctx.adapter.mutations.returning(returningCols);
+
+  if (returningSql.strings.join("").trim() === "") {
+    return updateSql;
+  }
+
+  return sql`${updateSql} ${returningSql}`;
+}
+
+export function buildUpdateMany(ctx: QueryScope, args: UpdateManyArgs): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
   // Build SET clause
   const setSql = buildSet(ctx, args.data);
 
-  // Build WHERE (optional for updateMany, no alias for UPDATE statements)
-  const whereSql = buildWhere(ctx, args.where, "");
+  // Build WHERE qualified by table name so relation-filter EXISTS subqueries
+  // stay correlated (the unaliased UPDATE target is addressable by its name).
+  // mutationTable lets relation filters wrap subqueries that select from the
+  // mutated table on dialects that reject that (MySQL error 1093).
+  const whereSql = buildWhere(
+    { ...ctx, mutationTable: tableName },
+    args.where,
+    tableName
+  );
 
   // Build UPDATE
   const table = adapter.identifiers.escape(tableName);

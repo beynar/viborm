@@ -1,13 +1,14 @@
 ---
 title: Transactions & Batching
-description: Execute multiple operations atomically with transactions or batch mode
+description: Execute multiple operations with callback transactions or atomic batch mode
 icon: Layers
 ---
 
-VibORM provides two ways to execute multiple operations atomically:
+VibORM gives you two supported ways to run several operations together, and
+both are **atomic** — if any operation fails, none are applied:
 
-1. **Dynamic Transactions** - Operations can depend on each other (callback API)
-2. **Batch Mode** - Independent operations executed atomically (array API)
+1. **Interactive transactions** — a callback where later operations can use results from earlier ones.
+2. **Batch mode** — an array of independent operations that share one atomic boundary.
 
 ## Dynamic Transactions
 
@@ -30,23 +31,31 @@ await client.$transaction(async (tx) => {
 });
 ```
 
-### Transaction Options
+### Portable option contract
 
-```ts
-await client.$transaction(
-  async (tx) => {
-    // ... operations
-  },
-  {
-    isolationLevel: "serializable",  // PostgreSQL only
-    timeout: 5000,                    // Max duration in ms
-  }
-);
-```
+`$transaction` does not accept a second options argument. Isolation levels,
+timeouts, and access modes are provider-specific, so the portable client
+rejects them — see [Compatibility](/docs/client/compatibility). VibORM currently
+exposes no provider-native transaction-option escape hatch; use the database
+provider client directly when database-specific behavior is intentional.
+Ordinary raw SQL does not guarantee a pinned session on pooled or HTTP drivers.
+
+### Use only the supplied transaction client
+
+Portable callback-transaction code performs database work through the `tx`
+client supplied to the callback. Starting work through the originating client
+while that callback is active is outside the portable contract because drivers
+have different connection topologies: single-connection drivers reject that
+work fail-closed, and pooled drivers are not globally serialized. Do not depend
+on originating-client concurrency inside a callback transaction.
+
+At every nesting level, use the client supplied to that callback. Parent-scope
+work admitted before nested activation is serialized after it; new parent-scope
+calls during the nested callback reject fail-closed.
 
 ## Batch Mode (Prisma-style)
 
-Use the array API for independent operations that should execute atomically:
+Use the array API for independent operations that should run together atomically. Sibling operations can't read each other's results, but a nested write inside a single operation works normally.
 
 ```ts
 const [users, posts, count] = await client.$transaction([
@@ -78,60 +87,42 @@ const [newUser, allPosts, userCount] = await client.$transaction([
 ]);
 ```
 
-## How Operations Work
+## Operations are lazy
 
-All model operations in VibORM return a `PendingOperation` object that implements `PromiseLike`. This means:
+Operations don't run until you `await` them (or pass them to `$transaction([...])`). This lets you build an operation and run it later:
 
 ```ts
-// Direct await - executes immediately
-const users = await client.user.findMany();
-
-// Store without awaiting - creates a pending operation
+// Build an operation without running it
 const findUsersOp = client.user.findMany();
 
-// Execute later via await
+// Run it later
 const users = await findUsersOp;
 
-// Or batch multiple operations
+// Or run it as part of a batch
 const [users, posts] = await client.$transaction([
   findUsersOp,
   client.post.findMany(),
 ]);
 ```
 
-## Driver Support
+## Driver support
 
-Different drivers have different capabilities for atomic execution:
+Every connection-oriented driver supports both forms. D1 Workers bindings and
+Neon HTTP are batch-only, so their callback form throws. Cloudflare D1 support
+uses the Workers binding: its `batch()` primitive is the documented atomic path
+required by VibORM. An empty array always returns `[]` without contacting a
+provider.
 
-| Driver | Dynamic Transactions | Batch Mode | How Batch Works |
-|--------|---------------------|------------|-----------------|
-| **pg** | Full | Full | Transaction wrapper |
-| **postgres** | Full | Full | Transaction wrapper |
-| **pglite** | Full | Full | Transaction wrapper |
-| **mysql2** | Full | Full | Transaction wrapper |
-| **sqlite3** | Full | Full | Transaction wrapper |
-| **libsql** | Full | Full | Transaction wrapper |
-| **bun-sqlite** | Full | Full | Transaction wrapper |
-| **planetscale** | Full | Full | Transaction wrapper |
-| **d1** | Sequential* | Full | Native `batch()` API |
-| **d1-http** | Sequential* | Full | HTTP batch endpoint |
-| **neon-http** | Sequential* | Full | `transaction()` function |
+### The difference
 
-<Callout type="warn">
-*Drivers marked "Sequential" for dynamic transactions will execute operations one-by-one without isolation. Use batch mode for atomic operations on these drivers.
-</Callout>
+**Interactive transactions** give you read-your-writes: later operations can use the results of earlier ones.
 
-### Understanding the Difference
+**Batch mode** runs independent operations under one atomic boundary, but
+siblings can't read each other's results. Drivers with native batch APIs may
+submit one provider call; connection-oriented drivers may execute sequential
+statements inside a transaction.
 
-**Dynamic transactions** provide:
-- Atomicity (all-or-nothing)
-- Isolation (changes not visible until commit)
-- Read-your-writes (can use results from previous operations)
-
-**Batch mode** provides:
-- Atomicity (all-or-nothing)
-- No isolation (other connections may see partial state)
-- No read-your-writes (operations must be independent)
+Both are all-or-nothing.
 
 ## Choosing the Right Approach
 
@@ -156,12 +147,12 @@ await client.$transaction(async (tx) => {
 
 ### Use Batch Mode When:
 
-- Operations are independent
-- You want better performance (single round-trip on some drivers)
-- You're using a driver without full transaction support (D1, Neon-HTTP)
+- Operations are independent (any dependency inside a single nested write is fine)
+- You want independent operations to share one atomic boundary
+- You're on a serverless driver that only supports batch mode (see [Driver support](#driver-support))
 
 ```ts
-// Good: independent operations
+// Good: sibling operations can be planned up front
 const [users, posts, stats] = await client.$transaction([
   client.user.findMany(),
   client.post.findMany({ where: { published: true } }),
@@ -169,18 +160,12 @@ const [users, posts, stats] = await client.$transaction([
 ]);
 ```
 
-## Error Handling
+## Error handling
 
-Both transaction modes provide automatic rollback when any operation fails. The transaction is rolled back at the database level before the error is thrown to your code.
+If any operation in a supported transaction or atomic batch fails, the whole
+thing is rolled back — you never end up with a partial write.
 
-## Migrations and Atomicity
-
-When running migrations, VibORM automatically uses the best available method for atomic execution:
-
-1. **Native batch** - For D1, D1-HTTP, Neon-HTTP
-2. **Transaction wrapper** - For drivers with transaction support
-3. **Sequential** - Fallback with warning (shouldn't happen with current drivers)
-
-This ensures migrations are atomic (all-or-nothing) regardless of the driver being used.
-
-See [Migration Atomicity](/docs/migration#atomicity) for more details.
+If rollback or savepoint cleanup also fails, the original operation failure
+remains the primary error and cleanup failures are attached in an
+`AggregateError`. A driver whose transaction state can no longer be proven safe
+is closed or poisoned instead of being reused.

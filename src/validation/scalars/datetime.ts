@@ -1,5 +1,6 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
+import { createScalarInterner, scalarInternKey } from "./intern";
 
 // =============================================================================
 // BASE TYPES
@@ -156,7 +157,7 @@ const buildDateTimeListUpdateSchema = <S extends V.Schema>(
     }),
   ]);
 
-export interface DateTimeSchemas<F extends FieldState<"datetime">> {
+export interface DateTimeSchemas<F extends ScalarState<"datetime">> {
   base: F["base"];
   create: V.IsoTimestamp<F>;
   update: F["array"] extends true
@@ -167,17 +168,25 @@ export interface DateTimeSchemas<F extends FieldState<"datetime">> {
     : DateTimeFilterSchema<F["base"]>;
 }
 
-export const buildDateTimeSchema = <F extends FieldState<"datetime">>(
+const internFilter = createScalarInterner<unknown>();
+const internUpdate = createScalarInterner<unknown>();
+
+export const buildDateTimeSchema = <F extends ScalarState<"datetime">>(
   state: F
 ): DateTimeSchemas<F> => {
+  const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
     create: v.isoTimestamp(state),
-    update: state.array
-      ? buildDateTimeListUpdateSchema(state.base)
-      : buildDateTimeUpdateSchema(state.base),
-    filter: state.array
-      ? buildDateTimeListFilterSchema(state.base)
-      : buildDateTimeFilterSchema(state.base),
+    update: internUpdate(key, () =>
+      state.array
+        ? buildDateTimeListUpdateSchema(state.base)
+        : buildDateTimeUpdateSchema(state.base)
+    ) as never,
+    filter: internFilter(key, () =>
+      state.array
+        ? buildDateTimeListFilterSchema(state.base)
+        : buildDateTimeFilterSchema(state.base)
+    ) as never,
   } as DateTimeSchemas<F>;
 };

@@ -1,9 +1,10 @@
 // Foreign Key & Referential Action Validation Rules
 
-import type { Field } from "../../fields/base";
 import type { Model } from "../../model";
 import type { AnyRelation } from "../../relation";
+import type { Scalar } from "../../scalars/base";
 import type { Schema, ValidationContext, ValidationError } from "../types";
+import { getCompoundIdFields, getCompoundUniques } from "./model";
 
 /** Helper to get typed relation entries */
 function getRelations(model: Model<any>): [string, AnyRelation][] {
@@ -11,8 +12,8 @@ function getRelations(model: Model<any>): [string, AnyRelation][] {
 }
 
 /** Helper to get a scalar field by name */
-function getScalar(model: Model<any>, name: string): Field | undefined {
-  return model["~"].state.scalars[name] as Field | undefined;
+function getScalar(model: Model<any>, name: string): Scalar | undefined {
+  return model["~"].state.scalars[name] as Scalar | undefined;
 }
 
 // =============================================================================
@@ -77,7 +78,7 @@ export function fkReferenceExists(
   return errors;
 }
 
-/** FK003: FK type must match referenced field type */
+/** FK003: FK type must match referenced scalar type */
 export function fkTypeMatch(
   schema: Schema,
   name: string,
@@ -155,9 +156,9 @@ export function fkReferencesUnique(
     const targetName = findModel(schema, target, ctx) ?? "?";
 
     for (const ref of refs) {
-      const field = getScalar(target, ref);
-      if (!field) continue;
-      const st = field["~"].state;
+      const scalar = getScalar(target, ref);
+      if (!scalar) continue;
+      const st = scalar["~"].state;
       if (!(st.isId || st.isUnique)) {
         errors.push({
           code: "FK005",
@@ -216,6 +217,46 @@ export function fkCardinalityMatch(
       errors.push({
         code: "FK007",
         message: `'${rname}': fields(${fks.length}) != references(${refs.length})`,
+        severity: "error",
+        model: name,
+        relation: rname,
+      });
+    }
+  }
+  return errors;
+}
+
+/** FK008: Owning oneToOne FK must be unique, or the relation is effectively many-to-one */
+export function fkOneToOneUnique(
+  _s: Schema,
+  name: string,
+  model: Model<any>
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  for (const [rname, rel] of getRelations(model)) {
+    const fks = rel["~"].state.fields;
+    if (rel["~"].state.type !== "oneToOne" || !fks) continue;
+
+    const fkSet = [...fks].sort().join(",");
+    const singleFieldUnique =
+      fks.length === 1 &&
+      (() => {
+        const st = getScalar(model, fks[0]!)?.["~"].state;
+        return !!(st?.isId || st?.isUnique);
+      })();
+    const coveredByCompound =
+      getCompoundIdFields(model).sort().join(",") === fkSet ||
+      getCompoundUniques(model).some(
+        (cu) => [...cu.fields].sort().join(",") === fkSet
+      );
+    const coveredByIndex = model["~"].state.indexes.some(
+      (idx) => idx.options.unique && [...idx.fields].sort().join(",") === fkSet
+    );
+
+    if (!(singleFieldUnique || coveredByCompound || coveredByIndex)) {
+      errors.push({
+        code: "FK008",
+        message: `1:1 '${rname}' in '${name}': FK [${fks.join(", ")}] must be unique - add .unique() or a compound unique constraint`,
         severity: "error",
         model: name,
         relation: rname,
@@ -308,8 +349,8 @@ export function setNullRequiresNullable(
     const fks = rel["~"].state.fields;
     if (action === "setNull" && fks) {
       for (const fk of fks) {
-        const field = getScalar(model, fk);
-        if (field && !field["~"].state.nullable) {
+        const scalar = getScalar(model, fk);
+        if (scalar && !scalar["~"].state.nullable) {
           errors.push({
             code: "RA004",
             message: `SET NULL on '${rname}' but '${fk}' not nullable`,
@@ -349,6 +390,7 @@ export const fkRules = [
   fkReferencesUnique,
   fkFieldNotRelation,
   fkCardinalityMatch,
+  fkOneToOneUnique,
   onDeleteValid,
   onUpdateValid,
   cascadeOnRequiredWarning,

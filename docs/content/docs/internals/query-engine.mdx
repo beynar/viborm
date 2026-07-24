@@ -1,115 +1,137 @@
 ---
 title: L6 - Query Engine
-description: Transform VibORM queries into SQL without knowing which database you're using
+description: Compile one portable operation program and execute it consistently on every supported database
 icon: Database
 ---
 
 **Location:** `src/query-engine/`
 
-## Why This Layer Exists
+## Purpose
 
-VibORM supports PostgreSQL, MySQL, and SQLite. Each has different syntax:
+The query engine owns database-agnostic query meaning. Every accepted client
+operation compiles to one declarative `OperationProgram`; adapters express its
+SQL and drivers execute it. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite may use
+different syntax or execution capabilities, but portable operations retain the
+same accepted inputs, atomic effects, results, and failures.
 
-```sql
--- PostgreSQL
-SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json) FROM ...
+## Ownership Graph
 
--- MySQL  
-SELECT JSON_ARRAYAGG(JSON_OBJECT(...)) FROM ...
-
--- SQLite
-SELECT json_group_array(json_object(...)) FROM ...
+```text
+QueryEngine
+└── PendingOperation
+    ├── OperationCompiler → OperationProgram → SQL builders → adapter
+    ├── OperationRuntime  → OperationProgram → driver
+    └── OperationResults  → result shape → strict parsers
 ```
 
-If the query engine generated dialect-specific SQL, adding a database would require modifying 50+ files. Instead:
+| Owner | Responsibility |
+| --- | --- |
+| `QueryEngine` | Client-scoped driver, registry, instrumentation, client identity, and transaction scope |
+| `PendingOperation` | The sole lazy and Promise-like operation lifecycle |
+| `OperationCompiler` | Exhaustive read/write dispatch and program construction |
+| `WriteOperations` | Every write semantic, including relation mutations |
+| `OperationProgram` | Data-only steps, dependencies, guards, branches, produced values, atomicity, and result declaration |
+| `OperationRuntime` | Select statement, transaction, or atomic-batch execution |
+| `OperationResults` | Attribute provider outputs and produce the declared public result |
+| `QueryScope` | Adapter, current model, alias allocation, root alias, and mutation target for SQL construction only |
 
-- **Query engine** decides WHAT to query (structure, joins, conditions)
-- **Adapters** decide HOW to express it (syntax, functions, quotes)
+`QueryEngine` is a real owner rather than a forwarding shell. A transaction-
+bound engine preserves its originating client identity and receives a new scope
+identity.
 
-## The Golden Rule
+## One Program Vocabulary
 
-> Query engine NEVER generates dialect-specific SQL. ALWAYS delegate to adapter.
+A simple read or write is a one-step program. Multi-step non-`RETURNING`
+emulation, bulk operations, relation mutations, deep returns, and dynamic
+branches compose from the same vocabulary:
+
+- `read` and `write` execute adapter-built SQL fragments;
+- `guard` fails when a required database premise no longer holds;
+- `branch` chooses a declared step sequence from a prior read;
+- `failure` represents an explicit typed error;
+- produced values reference earlier outputs without runtime callbacks.
+
+This is an operation program, not a second SQL AST. Programs contain no
+callbacks, relation semantics, adapters, drivers, or arbitrary context bags.
+
+## Execution
+
+```text
+client call
+  → PendingOperation (lazy)
+  → validation
+  → OperationCompiler
+  → OperationProgram
+  → OperationRuntime
+       ├── direct statement
+       ├── interactive transaction
+       └── atomic driver batch
+  → OperationResults
+  → typed value
+```
+
+Runtime modules do not import relation semantics. Transaction and batch paths
+specialize the same program: one may observe uncommitted writes directly,
+while the other lowers references and guards into an ordered atomic batch.
+
+## Relation Writes
+
+Nested writes remain a public feature, but there is no nested-write engine.
+Relation mutation semantics live under `WriteOperations`, compile into ordinary
+program steps, and use the same runtime as every other operation.
+
+This keeps create, connect, connect-or-create, update, upsert, set, disconnect,
+delete, and many-to-many membership behavior equivalent across providers.
+
+## SQL and Adapter Boundary
+
+The golden rule remains:
+
+> The query engine decides what to query. The adapter decides how the database
+> expresses it.
 
 ```typescript
-// ❌ WRONG: Hardcoded PostgreSQL
-sql`COALESCE(json_agg(...), '[]'::json)`
+// Wrong: PostgreSQL syntax in the query engine
+sql`COALESCE(json_agg(...), '[]'::json)`;
 
-// ✅ RIGHT: Delegate to adapter
-ctx.adapter.json.agg(subquery)
+// Right: adapter-owned syntax
+scope.adapter.json.agg(expression);
 ```
 
-This is the most important architectural rule in VibORM.
+SQL construction remains in `builders/`, grouped by real concerns: where,
+relation filters, selections, includes, ordering, aggregation, mutation values,
+row shapes, and many-to-many junctions. Builders return parameterized `Sql`
+fragments and never interpolate user values into SQL strings.
 
-## How It Works
+## Strict Results
 
-### 1. Query Context
+`OperationResults` validates program result sources and owns one parser identity
+per execution driver. Provider middleware runs in this order:
 
-Every query operation receives a context:
-
-```typescript
-interface QueryContext {
-  adapter: DatabaseAdapter;  // Database-specific methods
-  model: Model;              // The model being queried
-  // ...
-}
+```text
+driver parser → adapter parser → default strict parser
 ```
 
-### 2. SQL Fragments
+Row, relation, aggregate, count, scalar, and expected-shape parsing remain
+separate cohesive concerns under `result/`. Missing or malformed provider data
+raises typed errors; parsing never replaces it with a plausible default.
 
-Builders return `Sql` fragments, not strings:
+## SQL Inspection
 
-```typescript
-const fragment = sql`WHERE ${field} = ${value}`;
-// Contains: template strings + parameter values (separated)
-```
+`QueryEngine.build()` is deliberately limited to programs containing exactly
+one executable SQL step. It throws for multi-step programs instead of pretending
+that an atomic operation is one SQL statement. General operations use
+`prepare()` or execute the returned `PendingOperation`.
 
-Fragments enable:
-- **Parameterization**: Values stay separate from SQL (prevents injection)
-- **Composition**: Fragments can nest inside other fragments
+## Compatibility
 
-### 3. Operation Flow
+`PendingOperation` is the sole deferred-operation class. The deprecated
+`QueryMetadata<T>` export is only a type alias to `PendingOperation<T>` through
+the next published compatibility release; no runtime metadata object exists.
 
-```typescript
-orm.user.findMany({ where: { email: "..." } })
+## Architecture Gates
 
-// 1. Query enters operations/findMany.ts
-// 2. Builders construct SQL fragments
-// 3. Fragments delegate to adapter for syntax
-// 4. Driver executes final SQL
-```
-
-## Core Operations
-
-| Operation | Description |
-|-----------|-------------|
-| `findMany` | SELECT with relations |
-| `findFirst` | SELECT with LIMIT 1 |
-| `findUnique` | SELECT by unique constraint |
-| `create` | INSERT single row |
-| `createMany` | INSERT multiple rows |
-| `update` | UPDATE by condition |
-| `updateMany` | UPDATE multiple rows |
-| `delete` | DELETE by condition |
-| `deleteMany` | DELETE multiple rows |
-| `count` | COUNT with conditions |
-| `aggregate` | SUM, AVG, MIN, MAX |
-
-## Builder Responsibilities
-
-| Builder | Purpose |
-|---------|---------|
-| **select** | Column selection, aliasing |
-| **where** | WHERE clause conditions |
-| **orderBy** | ORDER BY clause |
-| **pagination** | LIMIT, OFFSET |
-| **join** | JOIN clauses for relations |
-| **include** | Nested relation loading |
-| **create** | INSERT statements |
-| **update** | UPDATE statements |
-
-## Connection to Other Layers
-
-- **L3 (Query Schemas)**: Query engine validates inputs against schemas
-- **L7 (Adapters)**: All SQL syntax delegated to adapters
-- **L8 (Drivers)**: Drivers execute the generated SQL
-- **L9 (Client)**: Client calls query engine operations
+`pnpm test:gates` enforces lifecycle ownership, compiler/runtime/result import
+boundaries, the narrow `QueryScope`, removal of the retired subsystem, and an
+acyclic query-engine runtime import graph. Shared provider suites then prove the
+same portable behavior on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite.

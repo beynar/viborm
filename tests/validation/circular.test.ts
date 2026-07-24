@@ -108,9 +108,7 @@ describe("circular references with thunks", () => {
 
       type UserOutput = StandardSchemaV1.InferOutput<typeof user>;
       type BestFriend = UserOutput["bestFriend"];
-      expectTypeOf<BestFriend>().toMatchTypeOf<
-        { name?: string } | undefined
-      >();
+      expectTypeOf<BestFriend>().toMatchTypeOf<{ name?: string } | undefined>();
     });
 
     test("deep recursion works", () => {

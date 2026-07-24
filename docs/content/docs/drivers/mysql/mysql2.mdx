@@ -1,0 +1,76 @@
+---
+title: MySQL2
+description: MySQL driver using mysql2 with connection pooling
+---
+
+## Installation
+
+```bash
+pnpm add mysql2
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/mysql2";
+
+const client = createClient({
+  databaseUrl: "mysql://user:password@localhost:3306/database",
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `pool` | `Pool` | Existing mysql2 pool instance |
+| `options` | `PoolOptions` | mysql2 pool configuration |
+| `databaseUrl` | `string` | MySQL connection URL |
+
+### Using Pool Options
+
+```typescript
+import { createClient } from "viborm/mysql2";
+
+const client = createClient({
+  options: {
+    host: "localhost",
+    port: 3306,
+    user: "root",
+    password: "password",
+    database: "mydb",
+    connectionLimit: 10,
+  },
+  schema,
+});
+```
+
+### Using Existing Pool
+
+```typescript
+import { createPool } from "mysql2/promise";
+import { createClient } from "viborm/mysql2";
+
+const pool = createPool({
+  host: "localhost",
+  user: "root",
+  database: "mydb",
+});
+
+const client = createClient({
+  pool,
+  schema,
+});
+```
+
+## Transactions
+
+MySQL2 supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
+
+## Limitations
+
+- No `RETURNING` clause - VibORM refetches created rows (using the driver-reported insert id for auto-increment keys)
+- JSON columns return as strings and are parsed automatically
+- Boolean values stored as `TINYINT(1)`
+- `updateMany`/`deleteMany` with a **self-relation** filter (e.g. filtering users by their own `manager`/`reports` relation) fails with MySQL error 1093: MySQL cannot reference the table being updated/deleted in a filter subquery. Workaround: select the matching ids first, then mutate with `where: { id: { in: ids } }`.

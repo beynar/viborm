@@ -1,8 +1,8 @@
 /**
  * Relation Update Schema Tests
  *
- * Tests the _update.relation schema which includes executable nested write
- * operations for relations.
+ * Tests the _update.relation schema which includes executable and planned
+ * nested write operation shapes for relations.
  */
 
 import { type InferInput, parse } from "@validation";
@@ -52,18 +52,31 @@ describe("Relation Update - Types (Post Model)", () => {
     expectTypeOf<Input>().toHaveProperty("author");
   });
 
-  test("type: to-one update rejects unsupported update and upsert", () => {
+  test("type: to-one update accepts planned update and upsert", () => {
     expectTypeOf<{
       author?: {
         update: { name?: string };
       };
-    }>().not.toMatchTypeOf<Input>();
+    }>().toMatchTypeOf<Input>();
     expectTypeOf<{
       author?: {
         upsert: {
           create: { id: string; name: string };
           update: { name?: string };
         };
+      };
+    }>().toMatchTypeOf<Input>();
+  });
+
+  test("type: to-one update rejects to-many-only planned operations", () => {
+    expectTypeOf<{
+      author?: {
+        updateMany: { data: { name?: string } };
+      };
+    }>().not.toMatchTypeOf<Input>();
+    expectTypeOf<{
+      author?: {
+        deleteMany: { name?: string };
       };
     }>().not.toMatchTypeOf<Input>();
   });
@@ -159,17 +172,74 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test.each(["update", "updateMany", "deleteMany", "upsert"] as const)(
-    "runtime: rejects unsupported to-many '%s'",
-    (operation) => {
-      const result = parse(schema, {
-        posts: {
-          [operation]: {},
+  test("runtime: accepts planned to-many update", () => {
+    const result = parse(schema, {
+      posts: {
+        update: {
+          where: { id: "post-1" },
+          data: { title: "Updated" },
         },
-      });
-      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-    }
-  );
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts planned to-many updateMany", () => {
+    const result = parse(schema, {
+      posts: {
+        updateMany: {
+          where: { published: false },
+          data: { published: true },
+        },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts planned to-many upsert", () => {
+    const result = parse(schema, {
+      posts: {
+        upsert: {
+          where: { id: "post-1" },
+          create: { id: "post-1", title: "Created", authorId: "author-1" },
+          update: { title: "Updated" },
+        },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts planned to-many deleteMany", () => {
+    const result = parse(schema, {
+      posts: {
+        deleteMany: { published: false },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test.each([
+    ["update missing where", { update: { data: { title: "Updated" } } }],
+    ["update missing data", { update: { where: { id: "post-1" } } }],
+    [
+      "updateMany missing data",
+      { updateMany: { where: { published: false } } },
+    ],
+    [
+      "upsert missing update",
+      {
+        upsert: {
+          where: { id: "post-1" },
+          create: { id: "post-1", title: "Created", authorId: "author-1" },
+        },
+      },
+    ],
+  ] as const)("runtime: rejects malformed planned to-many %s", (_, envelope) => {
+    const result = parse(schema, {
+      posts: envelope,
+    });
+    expect(result.issues).toBeDefined();
+  });
 
   test("runtime: accepts set to replace all", () => {
     const result = parse(schema, {
@@ -224,17 +294,38 @@ describe("Relation Update - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test.each(["update", "upsert"] as const)(
-    "runtime: rejects unsupported to-one '%s'",
-    (operation) => {
-      const result = parse(schema, {
-        author: {
-          [operation]: {},
+  test("runtime: accepts planned to-one update", () => {
+    const result = parse(schema, {
+      author: {
+        update: { name: "Updated Author" },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts planned to-one upsert", () => {
+    const result = parse(schema, {
+      author: {
+        upsert: {
+          create: { id: "author-1", name: "Alice" },
+          update: { name: "Updated Author" },
         },
-      });
-      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-    }
-  );
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test.each([
+    "updateMany",
+    "deleteMany",
+  ] as const)("runtime: rejects to-many-only '%s' on to-one", (operation) => {
+    const result = parse(schema, {
+      author: {
+        [operation]: {},
+      },
+    });
+    expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+  });
 
   test("runtime: accepts create nested write", () => {
     const result = parse(schema, {

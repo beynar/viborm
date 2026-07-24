@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from "@standard-schema";
 import { createJsonSchemaConverter } from "../json-schema/factory";
 import type {
   InferInputShape,
@@ -127,10 +126,11 @@ type ApplyRequiresOneOfGroups<T, Groups> = Groups extends readonly [
     ? [Group[number]] extends [never]
       ? T
       : RequireOneKey<T, Group[number]>
-  : T;
+    : T;
 
 type ApplyRequiresOneOfKeySets<TCurrent, TOpts> = TOpts extends {
-  requiresOneOfKeySets: infer Groups extends readonly (readonly (readonly string[])[])[];
+  requiresOneOfKeySets: infer Groups extends
+    readonly (readonly (readonly string[])[])[];
 }
   ? ApplyRequiresOneOfKeySetGroups<TCurrent, Groups>
   : TCurrent;
@@ -143,35 +143,39 @@ type RequireOneKeySet<T, Alternatives> = [Alternatives] extends [never]
   ? T
   : Alternatives extends readonly []
     ? never
-  : Alternatives extends readonly [
-        infer KeySet extends readonly string[],
-        ...infer Rest extends readonly (readonly string[])[],
-      ]
-    ? RequireKeySet<T, KeySet[number]> | RequireOneKeySet<T, Rest>
-    : Alternatives extends readonly (infer KeySet extends readonly string[])[]
-      ? [KeySet[number]] extends [never]
-        ? T
-        : RequireKeySet<T, KeySet[number]>
-      : T;
+    : Alternatives extends readonly [
+          infer KeySet extends readonly string[],
+          ...infer Rest extends readonly (readonly string[])[],
+        ]
+      ? RequireKeySet<T, KeySet[number]> | RequireOneKeySet<T, Rest>
+      : Alternatives extends readonly (infer KeySet extends readonly string[])[]
+        ? [KeySet[number]] extends [never]
+          ? T
+          : RequireKeySet<T, KeySet[number]>
+        : T;
 
 type UnionToIntersection<T> = (
-  T extends unknown ? (value: T) => void : never
+  T extends unknown
+    ? (value: T) => void
+    : never
 ) extends (value: infer I) => void
   ? I
   : never;
 
-type RequireEveryKeySetGroup<T, Group> = UnionToIntersection<
-  Group extends unknown ? { value: RequireOneKeySet<T, Group> } : never
-> extends { value: infer I }
-  ? I & T
-  : T;
+type RequireEveryKeySetGroup<T, Group> =
+  UnionToIntersection<
+    Group extends unknown ? { value: RequireOneKeySet<T, Group> } : never
+  > extends { value: infer I }
+    ? I & T
+    : T;
 
 type ApplyRequiresOneOfKeySetGroups<T, Groups> = Groups extends readonly [
   infer Group extends readonly (readonly string[])[],
   ...infer Rest extends readonly (readonly (readonly string[])[])[],
 ]
   ? ApplyRequiresOneOfKeySetGroups<RequireOneKeySet<T, Group>, Rest>
-  : Groups extends readonly (infer Group extends readonly (readonly string[])[])[]
+  : Groups extends readonly (infer Group extends
+        readonly (readonly string[])[])[]
     ? [Group] extends [never]
       ? T
       : RequireEveryKeySetGroup<T, Group>
@@ -248,7 +252,7 @@ export interface ObjectSchema<
     TNewTOpts extends ObjectOptions | undefined = undefined,
   >(
     newEntries: TNewEntries,
-    options?: TNewTOpts,
+    options?: TNewTOpts
   ): ObjectSchema<TEntries & TNewEntries, TOpts & TNewTOpts>;
 }
 
@@ -256,8 +260,10 @@ export interface ObjectSchema<
 // Object Schema Implementation
 // =============================================================================
 
-// Pre-computed error for fast path
-const OBJECT_TYPE_ERROR = { issues: [{ message: "Expected object" }] };
+// Pre-computed error for fast path (frozen — shared across all callers)
+const OBJECT_TYPE_ERROR = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Expected object" })]),
+});
 
 /**
  * Create an optimized validator for an object schema.
@@ -265,7 +271,7 @@ const OBJECT_TYPE_ERROR = { issues: [{ message: "Expected object" }] };
  */
 function createObjectValidator(
   entries: ObjectEntries,
-  options: ObjectOptions = {},
+  options: ObjectOptions = {}
 ): (value: unknown) => ValidationResult<Record<string, unknown>> {
   const {
     partial = true,
@@ -285,12 +291,24 @@ function createObjectValidator(
     (group) => !group.some((key) => omitSet?.has(key))
   );
   const activeRequiresOneOfKeySets = requiresOneOfKeySets?.filter(
-    (group) =>
-      !group.some((keySet) => keySet.some((key) => omitSet?.has(key)))
+    (group) => !group.some((keySet) => keySet.some((key) => omitSet?.has(key)))
   );
 
   // Pre-compute which keys are required via atLeast
   const atLeastSet = atLeast ? new Set(atLeast) : null;
+
+  // Key -> index lookup for the partial fast path
+  const keyIndex = new Map<string, number>();
+  for (let i = 0; i < keyCount; i++) {
+    keyIndex.set(keys[i]!, i);
+  }
+
+  // Fully-partial objects (where/select/orderBy args) can iterate input keys
+  // instead of all schema keys — input is usually far narrower than the schema.
+  const isFullyPartial = partial && !atLeastSet;
+  // Indices of keys that must run on absence (they may apply a default);
+  // populated during resolve().
+  const runOnMissingIdx: number[] = [];
 
   // Lazy resolution flag - for circular refs
   let resolved = false;
@@ -298,20 +316,21 @@ function createObjectValidator(
   const validates: ((v: unknown) => any)[] = new Array(keyCount);
   const acceptsUndefined: boolean[] = new Array(keyCount);
   const isRequired: boolean[] = new Array(keyCount);
+  // Error artifacts (key paths, missing-field messages) are built on first
+  // use: they only matter on validation failure, so constructing them per key
+  // at schema-creation time was pure cold-start cost on the success path.
   const keyPaths: PropertyKey[][] = new Array(keyCount);
-  const missingErrors: {
-    issues: { message: string; path: PropertyKey[] }[];
-  }[] = new Array(keyCount);
+  const getKeyPath = (i: number): PropertyKey[] => (keyPaths[i] ??= [keys[i]!]);
+  const missingError = (i: number) => ({
+    issues: [
+      { message: `Missing required field: ${keys[i]}`, path: [keys[i]!] },
+    ],
+  });
 
-  // Pre-compute key paths, error messages, and required flags
+  // Pre-compute required flags
   for (let i = 0; i < keyCount; i++) {
-    const key = keys[i]!;
-    keyPaths[i] = [key];
-    missingErrors[i] = {
-      issues: [{ message: `Missing required field: ${key}`, path: [key] }],
-    };
     // Key is required if: not partial, OR key is in atLeast list
-    isRequired[i] = !partial || (atLeastSet?.has(key) ?? false);
+    isRequired[i] = !partial || (atLeastSet?.has(keys[i]!) ?? false);
   }
 
   // Resolve validators lazily (for circular refs)
@@ -329,7 +348,7 @@ function createObjectValidator(
       // Defensive null check: if schema is undefined or invalid, create a failing validator
       if (!schema?.["~standard"]) {
         console.warn(
-          `[VibORM] Schema for key "${key}" is undefined or invalid`,
+          `[VibORM] Schema for key "${key}" is undefined or invalid`
         );
         validates[i] = () => ({
           issues: [{ message: `Schema error: "${key}" schema is undefined` }],
@@ -359,6 +378,11 @@ function createObjectValidator(
           schemaAny.options?.optional === true ||
           schemaAny.options?.default !== undefined ||
           schemaAny.default !== undefined;
+      }
+    }
+    for (let i = 0; i < keyCount; i++) {
+      if (acceptsUndefined[i]) {
+        runOnMissingIdx.push(i);
       }
     }
   };
@@ -432,6 +456,78 @@ function createObjectValidator(
       }
     }
 
+    // Fast path for fully-partial objects (where/select/orderBy args):
+    // iterate input keys instead of all schema keys, and don't materialize
+    // undefined entries for absent keys — output stays input-sized.
+    if (isFullyPartial) {
+      for (const key in input) {
+        const i = keyIndex.get(key);
+        if (i === undefined) {
+          // unknown key with strict: false — dropped, as before
+          continue;
+        }
+
+        // Explicit undefined is treated as absent (Prisma parity): it is
+        // neither validated nor materialized. Downstream consumers use key
+        // presence ("where" in config, hasRecordKeys) as meaningful, so
+        // { f: undefined } must behave exactly like {}. Defaults for such
+        // keys still fire via the absent-keys loop below.
+        if (input[key] === undefined) {
+          continue;
+        }
+
+        const result = validates[i]!(input[key]);
+        if (result.issues) {
+          const issue = result.issues[0]!;
+          return {
+            issues: [
+              {
+                message: issue.message,
+                path: issue.path
+                  ? getKeyPath(i).concat(issue.path)
+                  : getKeyPath(i),
+              },
+            ],
+          };
+        }
+        if ("then" in result) {
+          return {
+            issues: [{ message: "Async not supported", path: getKeyPath(i) }],
+          };
+        }
+        if (result.value !== undefined) {
+          output[key] = result.value;
+        }
+      }
+
+      // Keys that are absent (or explicitly undefined) only matter when their
+      // schema can apply a default
+      for (const i of runOnMissingIdx) {
+        const key = keys[i]!;
+        if (input[key] !== undefined) {
+          continue;
+        }
+        const result = validates[i]!(undefined);
+        if (result.issues) {
+          return missingError(i);
+        }
+        if ("then" in result) {
+          return {
+            issues: [{ message: "Async not supported", path: getKeyPath(i) }],
+          };
+        }
+        if (result.value !== undefined) {
+          output[key] = result.value;
+        }
+      }
+
+      return { value: output };
+    }
+
+    // Slow path (partial: false or atLeast): output is intentionally DENSE —
+    // every schema key is materialized, including undefined. Create/update
+    // data schemas rely on this to surface defaults; required keys are always
+    // present in valid input anyway, so sparse vs dense doesn't diverge there.
     // Validate each field - direct array access, no object property lookup
     for (let i = 0; i < keyCount; i++) {
       const key = keys[i]!;
@@ -440,7 +536,7 @@ function createObjectValidator(
       if (!(key in input)) {
         // Key is required (partial: false OR in atLeast) and schema doesn't accept undefined
         if (isRequired[i] && !acceptsUndefined[i]) {
-          return missingErrors[i]!;
+          return missingError(i);
         }
 
         // If schema accepts undefined, run validator to apply defaults
@@ -448,16 +544,16 @@ function createObjectValidator(
           const result = validates[i]!(undefined);
           if (result.issues) {
             // Should not happen if acceptsUndefined is correct, but handle it
-            return missingErrors[i]!;
+            return missingError(i);
           }
           if ("then" in result) {
             return {
-              issues: [{ message: "Async not supported", path: keyPaths[i] }],
+              issues: [{ message: "Async not supported", path: getKeyPath(i) }],
             };
           }
           output[key] = result.value;
         } else {
-          // Field is optional (partial: true, not in atLeast) but schema doesn't have defaults
+          // Scalar is optional (partial: true, not in atLeast) but schema doesn't have defaults
           // Just set to undefined without running validator
           output[key] = undefined;
         }
@@ -474,7 +570,9 @@ function createObjectValidator(
           issues: [
             {
               message: issue.message,
-              path: issue.path ? keyPaths[i]!.concat(issue.path) : keyPaths[i],
+              path: issue.path
+                ? getKeyPath(i).concat(issue.path)
+                : getKeyPath(i),
             },
           ],
         };
@@ -483,7 +581,7 @@ function createObjectValidator(
       // Handle async (rare)
       if ("then" in result) {
         return {
-          issues: [{ message: "Async not supported", path: keyPaths[i] }],
+          issues: [{ message: "Async not supported", path: getKeyPath(i) }],
         };
       }
 
@@ -500,7 +598,7 @@ function createObjectValidator(
  * IMPORTANT: No constraint on TEntries to allow circular reference resolution.
  * The identity conditional (R extends infer _ ? _ : never) defers type evaluation.
  *
- * @param entries - Object field definitions
+ * @param entries - Object schema entries
  * @param options - Schema options
  *   - `strict` (default: true) - Reject unknown keys
  *   - `partial` (default: true) - Make all fields optional
@@ -526,10 +624,7 @@ function createObjectValidator(
 export function object<TEntries>(
   entries: TEntries
 ): ObjectSchema<TEntries, undefined>;
-export function object<
-  TEntries,
-  const TOpts extends ObjectOptions | undefined,
->(
+export function object<TEntries, const TOpts extends ObjectOptions | undefined>(
   entries: TEntries,
   options?: TOpts
 ): ObjectSchema<TEntries, TOpts>;
@@ -641,7 +736,7 @@ export function object<
       // Lazy jsonSchema - converter is created when first accessed
       get jsonSchema() {
         const converter = createJsonSchemaConverter(
-          schema as unknown as VibSchema<unknown, unknown>,
+          schema as unknown as VibSchema<unknown, unknown>
         );
         // Replace getter with static value for subsequent access
         Object.defineProperty(this, "jsonSchema", {

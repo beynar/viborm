@@ -7,7 +7,7 @@ import type {
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
-// Blob Schema (Uint8Array / Buffer)
+// Blob Schema (Uint8Array, including Node Buffer subclasses)
 // =============================================================================
 
 export interface BaseBlobSchema<
@@ -24,22 +24,19 @@ export interface BlobSchema<TInput = Uint8Array, TOutput = Uint8Array>
 
 // Pre-computed error for fast path
 const BLOB_ERROR = Object.freeze({
-  issues: Object.freeze([
-    Object.freeze({ message: "Expected Uint8Array or Buffer" }),
-  ]),
+  issues: Object.freeze([Object.freeze({ message: "Expected Uint8Array" })]),
 });
 
 /**
- * Validate that a value is a Uint8Array or Buffer.
+ * Validate binary data without requiring a Node Buffer global. Node Buffers
+ * inherit from Uint8Array and therefore pass this same runtime check.
  */
 export function validateBlob(value: unknown) {
-  return value instanceof Uint8Array || Buffer.isBuffer(value)
-    ? ok(value as Uint8Array)
-    : BLOB_ERROR;
+  return value instanceof Uint8Array ? ok(value) : BLOB_ERROR;
 }
 
 /**
- * Create a blob schema for binary data (Uint8Array/Buffer).
+ * Create a blob schema for binary data.
  *
  * @example
  * const avatar = v.blob();

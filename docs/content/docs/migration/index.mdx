@@ -105,28 +105,21 @@ Both push and migrate follow the same core process:
 
 ## Atomicity
 
-Migrations in VibORM are executed **atomically** - either all statements succeed or none are applied. This is critical for maintaining database integrity.
+Migration atomicity is a DDL-specific guarantee and is not implied by support
+for client transactions. VibORM uses a real transaction or atomic batch where
+the database can honor it. D1 binding and Neon apply paths reject when that
+substrate is absent; MySQL-family DDL is the documented limited exception
+because its statements implicitly commit:
 
-VibORM automatically uses the best available method for atomic execution based on your driver:
+| Driver | `push` | `migrate apply` |
+|--------|--------|-----------------|
+| **PostgreSQL, SQLite family** | Transaction (all-or-nothing) | Transaction (all-or-nothing) |
+| **MySQL, PlanetScale** | Limited — DDL statements implicitly commit, so a failed run can leave earlier statements applied | Same limitation |
+| **D1 bindings, Neon HTTP** | Atomic batch | Rejects — requires callback transactions, which these drivers don't support |
 
-| Driver Type | Atomicity Method |
-|------------|------------------|
-| **PostgreSQL, MySQL, SQLite** | Transaction wrapper |
-| **D1, D1-HTTP** | Native `batch()` API |
-| **Neon-HTTP** | `transaction()` function |
-| **PlanetScale** | Transaction wrapper |
-
-<Callout type="info">
-All drivers provide **atomicity** (all-or-nothing) for migrations. Neon-HTTP uses `transaction()` with full PostgreSQL transaction semantics, providing transaction isolation by default (ReadCommitted) with configurable levels (ReadUncommitted, ReadCommitted, RepeatableRead, Serializable). Only D1 and D1-HTTP use batch execution without isolation guarantees, but this is rarely a concern since migrations typically run in controlled environments.
-</Callout>
-
-### What Atomicity Means
-
-- **If migration succeeds**: All schema changes are applied
-- **If migration fails**: No schema changes are applied (rolled back)
-- **Your database is never left in a partially migrated state**
-
-This applies to both `push` and `migrate apply` commands.
+On the atomic paths, a successful migration applies every statement and a
+failed one applies none. The portable API exposes no transaction isolation
+options.
 
 ## Next Steps
 

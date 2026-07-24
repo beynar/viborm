@@ -12,7 +12,7 @@ description: Distributed cache driver using Cloudflare Workers KV for persistent
 
 ```bash
 # Create a KV namespace
-wrangler kv:namespace create "CACHE"
+wrangler kv namespace create "CACHE"
 
 # Add to wrangler.toml
 [[kv_namespaces]]
@@ -23,11 +23,8 @@ id = "your-namespace-id"
 ## Configuration
 
 ```typescript
-// Direct import for optimal tree-shaking (recommended)
+import { createClient } from "viborm";
 import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
-
-// Or import from main package
-import { createClient, CloudflareKVCache } from "viborm";
 
 export default {
   async fetch(request, env, ctx) {
@@ -75,7 +72,7 @@ new CloudflareKVCache(kv: KVNamespace)
 
 Cloudflare KV handles TTL natively. When a cache entry is stored:
 
-1. VibORM calculates the storage TTL (2x user TTL for SWR support)
+1. VibORM calculates the storage TTL: the TTL alone, 2x the TTL with `swr: true`, or TTL + stale window with a custom SWR duration
 2. KV's `expirationTtl` is set in seconds
 3. KV automatically deletes expired entries
 
@@ -119,7 +116,8 @@ Add to `tsconfig.json`:
 ## Example with SWR
 
 ```typescript
-import { createClient, CloudflareKVCache } from "viborm";
+import { createClient } from "viborm";
+import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
 
 export default {
   async fetch(request, env, ctx) {

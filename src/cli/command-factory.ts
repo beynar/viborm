@@ -130,38 +130,57 @@ export function createCommand(
       const loaded = await loadConfig({ config: options.config });
       spinner.stop("Configuration loaded");
 
-      // Connect to database if required
-      if (config.requiresConnection && loaded.driver.connect) {
-        spinner.start("Connecting to database...");
-        await loaded.driver.connect();
-        spinner.stop("Connected to database");
-      }
+      let didConnect = false;
+      try {
+        // Connect to database if required
+        if (config.requiresConnection && loaded.driver.connect) {
+          spinner.start("Connecting to database...");
+          await loaded.driver.connect();
+          didConnect = true;
+          spinner.stop("Connected to database");
+        }
 
-      // Create context
-      const ctx: CommandContext = {
-        ...loaded,
-        startTime,
-        spinner,
-        options,
-      };
+        // Create context
+        const ctx: CommandContext = {
+          ...loaded,
+          startTime,
+          spinner,
+          options,
+        };
 
-      // Run handler
-      await handler(ctx);
-
-      // Disconnect if we connected
-      if (config.requiresConnection && loaded.driver.disconnect) {
-        await loaded.driver.disconnect();
+        // Run handler
+        await handler(ctx);
+      } finally {
+        if (didConnect && loaded.driver.disconnect) {
+          await loaded.driver.disconnect();
+        }
       }
 
       // Show completion
       const duration = Date.now() - startTime;
       p.outro(`Done in ${formatDuration(duration)}`);
     } catch (error) {
-      handleCommandError(error, spinner, config.requiresConnection);
+      handleCommandError(error, spinner);
     }
   });
 
   return cmd;
+}
+
+export function isCleanProcessExit(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+
+  if (error.code !== 0) {
+    return false;
+  }
+
+  if ("name" in error && error.name === "ProcessExitError") {
+    return true;
+  }
+
+  return "message" in error && error.message === "process.exit(0)";
 }
 
 /**
@@ -169,9 +188,12 @@ export function createCommand(
  */
 function handleCommandError(
   error: unknown,
-  spinner: ReturnType<typeof p.spinner>,
-  wasConnected?: boolean
+  spinner: ReturnType<typeof p.spinner>
 ): never {
+  if (isCleanProcessExit(error)) {
+    throw error;
+  }
+
   // Stop spinner if it's running
   try {
     spinner.stop("Error");

@@ -91,8 +91,10 @@ JOIN pg_class i ON i.oid = ix.indexrelid
 JOIN pg_am am ON am.oid = i.relam
 JOIN pg_namespace n ON n.oid = t.relnamespace
 JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+LEFT JOIN pg_constraint c ON c.conindid = ix.indexrelid
 WHERE n.nspname = 'public'
   AND NOT ix.indisprimary
+  AND c.oid IS NULL
   AND t.relkind = 'r'
 ORDER BY t.relname, i.relname, array_position(ix.indkey, a.attnum);
 `;

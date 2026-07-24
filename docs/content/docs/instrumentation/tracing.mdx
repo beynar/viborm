@@ -19,10 +19,10 @@ The `@opentelemetry/api` package is an optional peer dependency. VibORM graceful
 ## Configuration
 
 ```typescript
-import { VibORM } from "viborm";
+import { createClient } from "viborm";
 
 // Simple: enable with defaults
-const client = VibORM.create({
+const client = createClient({
   schema,
   driver,
   instrumentation: {
@@ -31,12 +31,12 @@ const client = VibORM.create({
 });
 
 // Custom: configure options
-const clientCustom = VibORM.create({
+const clientCustom = createClient({
   schema,
   driver,
   instrumentation: {
     tracing: {
-      includeSql: true,     // Include SQL in spans (default: true)
+      includeSql: true,     // Explicitly include SQL in spans
       includeParams: false  // Exclude params (default: false)
     }
   }
@@ -47,7 +47,7 @@ const clientCustom = VibORM.create({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `includeSql` | `boolean` | `true` | Include SQL query text in span attributes |
+| `includeSql` | `boolean` | `false` | Include SQL query text in span attributes |
 | `includeParams` | `boolean` | `false` | Include query parameters in span attributes |
 | `ignoreSpanTypes` | `Array<string \| RegExp>` | `[]` | Span names to skip |
 
@@ -59,8 +59,7 @@ VibORM creates a hierarchy of spans for each operation:
 viborm.operation (root span for client method call)
 ├── viborm.validate  (input validation)
 ├── viborm.build     (SQL construction)
-├── viborm.execute   (query execution wrapper)
-│   └── viborm.driver.execute (actual database call)
+├── viborm.execute   (database query execution)
 └── viborm.parse     (result parsing)
 ```
 
@@ -80,8 +79,7 @@ viborm.transaction (transaction wrapper)
 | `viborm.operation` | High-level client method call |
 | `viborm.validate` | Schema validation of arguments |
 | `viborm.build` | SQL query construction |
-| `viborm.execute` | Query execution wrapper |
-| `viborm.driver.execute` | Actual database round-trip |
+| `viborm.execute` | Database round-trip |
 | `viborm.parse` | Result hydration |
 | `viborm.transaction` | Transaction boundaries |
 | `viborm.connect` | Connection establishment |
@@ -106,13 +104,17 @@ VibORM follows [OTel database semantic conventions](https://opentelemetry.io/doc
 |-----------|-------------|
 | `db.collection.name` | Table name (e.g., `users`) |
 | `db.operation.name` | Operation (`findMany`, `create`, `update`, etc.) |
+| `viborm.correlation.id` | Stable identifier for the originating ORM operation |
 
-**Driver execute span** (`viborm.driver.execute`) adds SQL details when configured:
+**Execute spans** (`viborm.execute`) add SQL details when configured:
 
 | Attribute | Condition | Description |
 |-----------|-----------|-------------|
 | `db.query.text` | `includeSql: true` | SQL query text |
 | `db.query.parameter.<index>` | `includeParams: true` | Individual query parameters |
+
+Cache spans omit `cache.key`, including for custom cache keys — see
+[Privacy & Security](/docs/instrumentation#privacy--security).
 
 ### Example Span Attributes
 
@@ -122,10 +124,11 @@ VibORM follows [OTel database semantic conventions](https://opentelemetry.io/doc
   "db.system.name": "postgresql",
   "db.system.driver": "pg",
   "db.collection.name": "users",
-  "db.operation.name": "findMany"
+  "db.operation.name": "findMany",
+  "viborm.correlation.id": "operation-correlation-id"
 }
 
-// viborm.driver.execute span (with includeSql: true)
+// viborm.execute span (with includeSql: true)
 {
   "db.system.name": "postgresql",
   "db.system.driver": "pg",
@@ -150,18 +153,15 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 
-// Set up the trace provider
-const provider = new NodeTracerProvider();
-
-// Export traces to your backend (Jaeger, Honeycomb, etc.)
-provider.addSpanProcessor(
-  new SimpleSpanProcessor(new OTLPTraceExporter())
-);
+// Set up the trace provider, exporting to your backend (Jaeger, Honeycomb, etc.)
+const provider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(new OTLPTraceExporter())],
+});
 
 provider.register();
 
 // Now create your VibORM client
-const client = VibORM.create({
+const client = createClient({
   schema,
   driver,
   instrumentation: {
@@ -197,18 +197,24 @@ This allows you to enable tracing only in environments where it's needed without
 
 VibORM's tracer is designed for serverless environments:
 
-- No module-level mutable state
+- No module-level request context
 - Each client instance has isolated tracer state
 - Safe for Cloudflare Workers, Vercel Edge, and similar runtimes
 
+Operation attribution is snapshotted before asynchronous provider work starts.
+Concurrent operations sharing a driver or cache therefore retain their own
+model, operation, correlation ID, tracer, and logger. Instrumentation failures
+are observational and cannot replace the application result or execute the
+application callback twice.
+
 ## SQL and Parameters
 
-By default, SQL is included in spans but parameters are excluded:
+By default, both SQL and parameters are excluded from spans:
 
 ```typescript
 // Default behavior
 tracing: {
-  includeSql: true,      // SQL visible in spans
+  includeSql: false,     // SQL hidden
   includeParams: false   // Params hidden
 }
 ```
@@ -216,6 +222,9 @@ tracing: {
 <Callout type="warn">
 Only enable `includeParams` in development. Query parameters in traces may contain sensitive data and could be stored in your tracing backend.
 </Callout>
+
+These options affect tracing only — logging and error diagnostics have
+[independent disclosure policies](/docs/instrumentation#privacy--security).
 
 ## Testing with In-Memory Exporter
 
@@ -226,8 +235,9 @@ import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-tr
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 
 const exporter = new InMemorySpanExporter();
-const provider = new NodeTracerProvider();
-provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+const provider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
+});
 provider.register();
 
 // Run your queries...

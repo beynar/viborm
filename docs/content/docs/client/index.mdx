@@ -7,50 +7,47 @@ icon: Terminal
 ## Creating a Client
 
 ```ts
-import { createClient } from "viborm";
-import { PostgresAdapter } from "viborm/adapters/postgres";
+import { createClient } from "viborm/pg";
 import { user, post } from "./schema";
 
 const client = createClient({
   schema: { user, post },
-  adapter: new PostgresAdapter({
-    connectionString: process.env.DATABASE_URL,
-  }),
+  databaseUrl: process.env.DATABASE_URL,
 });
 ```
 
-## Operations Overview
+## Operations
 
-### Query Operations
+Every operation works identically on every database. Prisma-inspired, not a drop-in replacement — see [Compatibility](/docs/client/compatibility) for the differences.
 
-| Operation | Description | Returns |
-|-----------|-------------|---------|
-| `findMany` | Find multiple records | `T[]` |
-| `findFirst` | Find first matching record | `T \| null` |
-| `findUnique` | Find by unique identifier | `T \| null` |
-| `findFirstOrThrow` | Find first or throw | `T` |
-| `findUniqueOrThrow` | Find unique or throw | `T` |
-| `exist` | Check if records exist | `boolean` |
-
-### Mutation Operations
+### Queries
 
 | Operation | Description | Returns |
 |-----------|-------------|---------|
-| `create` | Create a record | `T` |
-| `createMany` | Create multiple records | `{ count }` |
-| `update` | Update a record | `T` |
-| `updateMany` | Update multiple records | `{ count }` |
-| `delete` | Delete a record | `T` |
-| `deleteMany` | Delete multiple records | `{ count }` |
-| `upsert` | Create or update | `T` |
+| [`findMany`](/docs/client/find-many) | Find multiple records | `T[]` |
+| [`findFirst`](/docs/client/find-first) | Find first matching record | `T \| null` |
+| [`findUnique`](/docs/client/find-unique) | Find by unique identifier | `T \| null` |
+| [`exist`](/docs/client/exist) | Check if any record matches | `boolean` |
+| [`count`](/docs/client/count) | Count records | `number` |
+| [`aggregate`](/docs/client/aggregate) | Compute min/max/sum/avg/count | `{ _count, _avg, ... }` |
+| [`groupBy`](/docs/client/group-by) | Group records and aggregate per group | grouped rows |
 
-### Aggregate Operations
+`findFirstOrThrow` and `findUniqueOrThrow` throw `NotFoundError` instead of returning `null` — documented on their base operation's page.
+
+### Mutations
 
 | Operation | Description | Returns |
 |-----------|-------------|---------|
-| `count` | Count records | `number` |
-| `aggregate` | Run aggregations | `{ _count, _avg, ... }` |
-| `groupBy` | Group and aggregate | `Array` |
+| [`create`](/docs/client/create) | Create a record, with relations | `T` |
+| [`createMany`](/docs/client/create-many) | Create multiple records | `{ count }` |
+| [`update`](/docs/client/update) | Update a record | `T` |
+| [`updateMany`](/docs/client/update-many) | Update every match | `{ count }` |
+| [`upsert`](/docs/client/upsert) | Create or update | `T` |
+| [`delete`](/docs/client/delete) | Delete a record | `T` |
+| [`deleteMany`](/docs/client/delete-many) | Delete every match | `{ count }` |
+| [Nested writes](/docs/client/nested-writes) | Write related records in one call | — |
+
+`createManyAndReturn` and `updateManyAndReturn` return the affected rows instead of a count — documented on their base operation's page.
 
 ## Quick Examples
 
@@ -126,29 +123,24 @@ await client.user.create({
 
 <Cards>
   <Card
-    title="Queries"
-    description="findMany, findUnique, findFirst, aggregations"
-    href="/docs/client/queries"
-  />
-  <Card
-    title="Mutations"
-    description="create, update, delete, upsert"
-    href="/docs/client/mutations"
-  />
-  <Card
     title="Transactions"
     description="Atomic operations with transactions and batching"
     href="/docs/client/transactions"
   />
   <Card
+    title="Compatibility"
+    description="Supported operations and intentional Prisma differences"
+    href="/docs/client/compatibility"
+  />
+  <Card
     title="Filtering"
-    description="Filter operators by field type"
+    description="Filter operators by scalar type"
     href="/docs/client/filtering"
   />
   <Card
-    title="Relations"
+    title="Relation Filters"
     description="Query and filter on relations"
-    href="/docs/client/relations"
+    href="/docs/client/filtering/relations"
   />
   <Card
     title="Selecting"

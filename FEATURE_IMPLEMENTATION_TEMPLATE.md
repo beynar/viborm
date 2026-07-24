@@ -60,7 +60,7 @@ Here's how types flow through VibORM:
 │  1. User defines schema:     const User = s.model({...})           │
 │                                       │                             │
 │                                       ▼                             │
-│  2. Schema holds state:      User["~"].state (fields, relations)   │
+│  2. Schema holds state:      User["~"].state (scalars, relations)   │
 │                                       │                             │
 │                                       ▼                             │
 │  3. Registry builds schemas: SchemaRegistry.proxy.User.core.where   │
@@ -81,7 +81,7 @@ Here's how types flow through VibORM:
 | Concept | Description |
 |---------|-------------|
 | **Schema Definition** | User-facing API (`s.model()`, `s.string()`) that creates runtime state |
-| **State** | Internal representation holding metadata (field types, relations, options) |
+| **State** | Internal representation holding metadata (scalar types, relations, options) |
 | **Operation Schemas** | Registry schemas (via `v.*`) that validate AND type query inputs |
 | **Type Inference** | Types extracted from schemas using `InferInput<S>` / `InferOutput<S>` |
 
@@ -113,7 +113,7 @@ Before diving into implementation, identify what type of work this is:
 
 | Work Type | Description | Go To |
 |-----------|-------------|-------|
-| **New Feature** | Adding new capability (field type, relation, query operator) | [Feature Implementation](#feature-implementation) |
+| **New Feature** | Adding new capability (scalar type, relation, query operator) | [Feature Implementation](#feature-implementation) |
 | **Bug Fix** | Something doesn't work as expected | [Bug Fix Process](#bug-fix-process) |
 | **Refactoring** | Improving code without changing behavior | [Feature Implementation](#feature-implementation) (subset) |
 
@@ -147,7 +147,7 @@ Hypothesis: [Which layer(s) might be involved?]
 
 Layer 2 (Schema Definition):
   □ Is the schema state being built incorrectly?
-  □ Are field/relation options being lost?
+  □ Are scalar/relation options being lost?
 
 Layer 3 (Query Schema):
   □ Is the validation schema accepting invalid input?
@@ -241,7 +241,7 @@ Do not assume all layers need changes. Analyze the feature requirements and just
 │  Classes and types that represent the user's schema at runtime       │
 │  ────────────────────────────────────────────────────────────────── │
 │  ├── model/      Model class, ModelState, helpers                   │
-│  ├── fields/     Field types (string, number, datetime, etc.)       │
+│  ├── scalars/    Scalar types (string, number, datetime, etc.)      │
 │  └── relation/   Relation types (one, many)                         │
 └──────────────────────────────────────────────────────────────────────┘
                                     │
@@ -370,7 +370,7 @@ What type of feature is this?
 
 | Category | Examples | Typically Affects |
 |----------|----------|-------------------|
-| **New primitive** | New field type, new relation type | Layers 2, 3, 5, 6, 7, 9 |
+| **New primitive** | New scalar type, new relation type | Layers 2, 3, 5, 6, 7, 9 |
 | **New query capability** | New filter operator, new aggregation | Layers 3, 6, 7 |
 | **New schema modifier** | New field option, new model option | Layers 2, 3, 5 |
 | **Query API extension** | New operation type, new include pattern | Layers 3, 6, 9 |
@@ -413,7 +413,7 @@ For each layer, answer:
 | `src/index.ts` | Main exports — the `s` object and all public APIs |
 
 **When to modify:**
-- Exposing a new factory function (e.g., new field type, new relation type)
+- Exposing a new factory function (e.g., new scalar type, new relation type)
 - Adding new top-level exports
 
 **Key questions:**
@@ -432,17 +432,17 @@ For each layer, answer:
 | `src/schema/model/model.ts` | `Model` class, `ModelState` interface |
 | `src/schema/model/helper.ts` | Type helpers, field extractors |
 | `src/schema/model/types.ts` | Model-related type definitions |
-| `src/schema/fields/` | All field type implementations |
-| `src/schema/fields/base.ts` | Base `Field` class |
-| `src/schema/fields/string.ts` | String field implementation |
-| `src/schema/fields/types.ts` | Field type definitions, `FieldState` |
+| `src/schema/scalars/` | All scalar type implementations |
+| `src/schema/scalars/base.ts` | `Scalar` union and scalar exports |
+| `src/schema/scalars/string/scalar.ts` | String scalar implementation |
+| `src/schema/scalars/types.ts` | Scalar type definitions, `ScalarState` |
 | `src/schema/relation/` | Relation implementations |
 | `src/schema/relation/relation.ts` | `Relation` class, relation factories |
 | `src/schema/relation/types.ts` | Relation type definitions |
 | `src/schema/index.ts` | Schema layer exports |
 
 **When to modify:**
-- Adding a new concept users define (new field type, relation type, model modifier)
+- Adding a new concept users define (new scalar type, relation type, model modifier)
 - Adding new metadata that needs to be stored at definition time
 - Changing how existing definitions work
 
@@ -549,7 +549,7 @@ For each layer, answer:
 | `src/schema/validation/validator.ts` | `SchemaValidator` class |
 | `src/schema/validation/types.ts` | `ValidationError`, `ValidationContext` types |
 | `src/schema/validation/rules/` | Validation rule implementations |
-| `src/schema/validation/rules/field.ts` | Field-specific validation rules |
+| `src/schema/validation/rules/scalar.ts` | Scalar-specific validation rules |
 | `src/schema/validation/rules/relation.ts` | Relation-specific validation rules |
 | `src/schema/validation/rules/model.ts` | Model-level validation rules |
 
@@ -915,7 +915,7 @@ What other approaches were rejected and why.
 
 | Folder/File | Purpose |
 |-------------|---------|
-| `tests/fields/` | Field type tests (validation, schemas) |
+| `tests/scalars/` | Scalar type tests (validation, schemas) |
 | `tests/model/` | Model-related tests |
 | `tests/model/filter/` | Filter/where schema tests |
 | `tests/model/create/` | Create schema tests |
@@ -938,51 +938,57 @@ What other approaches were rejected and why.
 
 This section shows **proof patterns** — examples of how to correctly modify VibORM layers while preserving type inference.
 
-### Example 1: Adding a New Field Type
+### Example 1: Adding a New Scalar Type
 
-When adding a new field type (e.g., `s.uuid()`):
+When adding a new scalar type (e.g., `s.uuid()`):
 
 ```typescript
 // ─────────────────────────────────────────────────────────────────────
-// src/schema/fields/uuid.ts — New file
+// src/schema/scalars/uuid/scalar.ts — New file
 // ─────────────────────────────────────────────────────────────────────
 
-import { Field, type FieldState } from "./base";
-import * as v from "@validation";
+import v from "@validation";
+import {
+  createDefaultState,
+  type DefaultValueInput,
+  type ScalarState,
+  updateState,
+} from "../common";
 
-// 1. Define state interface — this is what gets stored
-export interface UuidFieldState extends FieldState {
-  type: "uuid";           // Discriminator for type inference
-  version?: 4 | 7;        // Field-specific options
-}
+// 1. Define class with generic to preserve state type
+export class UuidScalar<State extends ScalarState<"uuid">> {
+  private readonly state: State;
 
-// 2. Define class with generic to preserve state type
-export class UuidField<S extends UuidFieldState = UuidFieldState> extends Field<S> {
-  
-  // 3. Chainable methods return NEW instance with UPDATED generic
-  version<V extends 4 | 7>(v: V): UuidField<S & { version: V }> {
-    return new UuidField({ ...this.state, version: v });
+  constructor(state: State) {
+    this.state = state;
   }
-  
-  // 4. Build validation schema from state (NOT hardcoded types)
-  protected buildSchema() {
-    return v.pipe(
-      v.string(),
-      v.uuid({ version: this.state.version })
+
+  // 2. Chainable methods return NEW instance with UPDATED generic
+  default<V extends DefaultValueInput<State>>(value: V) {
+    return new UuidScalar(
+      updateState(this, {
+        hasDefault: true,
+        default: value,
+        optional: true,
+      })
     );
   }
+
+  get ["~"]() {
+    return { state: this.state };
+  }
 }
 
-// 5. Factory function — entry point for users
-export const uuid = (): UuidField => new UuidField({ type: "uuid" });
+// 3. Factory function — entry point for users
+export const uuid = () => new UuidScalar(createDefaultState("uuid", v.string()));
 ```
 
 ```typescript
 // ─────────────────────────────────────────────────────────────────────
-// src/schema/fields/index.ts — Export the new field
+// src/schema/scalars/index.ts — Export the new scalar
 // ─────────────────────────────────────────────────────────────────────
 
-export { uuid, UuidField, type UuidFieldState } from "./uuid";
+export { uuid, UuidScalar } from "./uuid";
 ```
 
 ### Example 2: Adding Query Schema Support
@@ -994,7 +1000,7 @@ When a feature needs query schemas (where, create, etc.):
 // src/validation/model/core/filter.ts — Modify existing
 // ─────────────────────────────────────────────────────────────────────
 
-// BEFORE: Scalar fields only
+// BEFORE: Scalar schemas only
 const scalarEntries = Object.fromEntries(
   Object.entries(schemas.scalars).map(([name, fieldSchemas]) => [
     name,
@@ -1002,7 +1008,7 @@ const scalarEntries = Object.fromEntries(
   ])
 );
 
-// AFTER: Add the new field type
+// AFTER: Add the new scalar type
 const scalarEntries = Object.fromEntries(
   Object.entries(schemas.scalars).map(([name, fieldSchemas]) => [
     name,
@@ -1010,7 +1016,7 @@ const scalarEntries = Object.fromEntries(
   ])
 );
 
-// If new field type needs special handling:
+// If new scalar type needs special handling:
 const uuidEntries = forEachFieldOfType(state.fields, "uuid", (field, name) => ({
   [name]: buildUuidFilter(field),  // Custom filter schema
 }));
@@ -1043,16 +1049,16 @@ function buildSchema(schemas: ModelSchemas<AnyModel>) {
   return v.object(entries);  // Returns VibSchema<unknown, unknown>
 }
 
-// ✅ GOOD: Preserves exact field types via mapped type
+// ✅ GOOD: Preserves exact scalar types via mapped type
 function buildSchema<T extends ModelSchemas<AnyModel>>(schemas: T) {
-  type FieldSchemas = {
+  type ScalarFilterSchemas = {
     [K in keyof T["scalars"]]: T["scalars"][K]["filter"]
   };
   
   // Build at runtime
-  const entries = {} as FieldSchemas;
+  const entries = {} as ScalarFilterSchemas;
   for (const [k, scalarSchemas] of Object.entries(schemas.scalars)) {
-    entries[k as keyof FieldSchemas] = scalarSchemas.filter;
+    entries[k as keyof ScalarFilterSchemas] = scalarSchemas.filter;
   }
   
   return v.object(entries);  // Returns exact typed schema!
@@ -1072,7 +1078,7 @@ import type { ValidationError, ValidationContext } from "../types";
 import type { Model } from "@schema/model";
 
 export function uuidVersionRequired(
-  field: UuidField,
+  field: UuidScalar,
   fieldName: string,
   model: Model<any>,
   ctx?: ValidationContext
@@ -1103,14 +1109,14 @@ When modifying query engine builders, **always delegate database-specific SQL to
 // ─────────────────────────────────────────────────────────────────────
 
 // Pattern: Switch on operator, delegate SQL generation to adapter
-function buildFieldCondition(
+function buildScalarCondition(
   ctx: QueryContext,
-  field: Field,
+  scalar: Scalar,
   operator: string,
   value: unknown,
   alias: string
 ): Sql {
-  const column = ctx.adapter.qualifyColumn(alias, field.columnName);
+  const column = ctx.adapter.qualifyColumn(alias, scalar["~"].state.columnName);
   
   switch (operator) {
     case "equals":
@@ -1175,9 +1181,9 @@ Access model structure via the internal symbol `"~"` and operation schemas via `
 model["~"].state.fields
 schemaRegistry.getModelSchemas(model).core.where
 
-// From field
-field["~"].state.type
-field["~"].state.base
+// From scalar
+scalar["~"].state.type
+scalar["~"].state.base
 
 // From relation
 relation["~"].targetModel
@@ -1217,13 +1223,13 @@ function handle(result: Result) {
 Use to transform object shapes while preserving keys.
 ```typescript
 // Transform each scalar schema bundle to its filter input
-type FieldFilters<S extends Record<string, { filter: VibSchema }>> = {
+type ScalarFilters<S extends Record<string, { filter: VibSchema }>> = {
   [K in keyof S]?: InferInput<S[K]["filter"]>
 };
 ```
 
 ### Pattern: Conditional Schema Properties
-When a schema property should only be available under certain conditions (e.g., a feature only makes sense for specific field/relation types), conditionally include it at the schema level:
+When a schema property should only be available under certain conditions (e.g., a feature only makes sense for specific field kinds (scalars or relations)), conditionally include it at the schema level:
 ```typescript
 // Only include 'recurse' option if relation is self-referencing
 export const toManyIncludeFactory = <S extends RelationState>(state: S) => {
@@ -1254,7 +1260,7 @@ Use the appropriate checklist based on work type.
 ```
 ANALYSIS
 □ Work type identified (feature / refactor)
-□ Feature category identified (primitive / query / modifier / extension)
+□ Feature category identified (schema member / query / modifier / extension)
 □ Each layer analyzed: affected (why, what files) or not affected (why not)
 □ Design decisions documented with alternatives considered
 

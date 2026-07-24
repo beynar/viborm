@@ -26,7 +26,17 @@ export type ReferentialAction = "cascade" | "setNull" | "restrict" | "noAction";
  */
 export interface RelationState {
   type: RelationType;
-  getter: Getter;
+  // Deliberately `any`, NOT `Getter`: when a relation state is structurally
+  // compared against this interface (e.g. model()'s ModelShape constraint or
+  // a relation class's State constraint), a function-typed member forces
+  // TypeScript to resolve the getter's return type. In mutually-recursive
+  // schemas with chained relation builders on both sides (e.g. .name() on a
+  // to-many plus .fields() on its inverse) that resolution is circular and
+  // silently collapses both model consts to `any`. Comparing against `any`
+  // short-circuits without touching the return type. Concrete states still
+  // carry the precise `() => typeof model` type for inference.
+  // biome-ignore lint/suspicious/noExplicitAny: see above
+  getter: any;
   name?: string;
   // ToOne properties (oneToOne, manyToOne)
   fields?: string[];
@@ -84,11 +94,13 @@ type ExtractInverseFieldsRaw<TTargetModel, TSourceModel, TName> =
           infer State
         >
           ? State["getter"] extends () => TSourceModel
-            ? TName extends string
-              ? State["name"] extends TName
-                ? State["fields"]
-                : never
-              : State["fields"]
+            ? State extends { fields: infer Fields extends string[] }
+              ? TName extends string
+                ? State["name"] extends TName
+                  ? Fields
+                  : never
+                : Fields
+              : never
             : never
           : never;
       }[keyof TTargetModel["~"]["state"]["relations"]]
@@ -103,16 +115,20 @@ type ExtractInverseFields<TTargetModel, TSourceModel, TName> = [
 
 /**
  * Get the FK fields from the inverse relation.
- * - For manyToOne/oneToOne: returns its own fields (it holds the FK)
- * - For oneToMany/manyToMany: finds the inverse toOne relation in target model and returns its fields
+ * - For to-one relations with `.fields()`: returns its own fields
+ * - For inverse one-to-one, one-to-many, and many-to-many relations: finds the
+ *   inverse to-one relation in the target model and returns its fields
  *
  * The target model's relations are inferred from S["getter"].
  * If the relation has a name, only matches inverse relations with the same name.
  */
-export type GetInverseRelationFields<
+export type GetInverseRelationMap<
   S extends RelationState,
   TSourceModel,
-> = S extends { type: "manyToOne" | "oneToOne" }
+> = S extends {
+  type: "manyToOne" | "oneToOne";
+  fields: readonly string[];
+}
   ? S["fields"]
   : S["getter"] extends () => infer TTargetModel
     ? ExtractInverseFields<TTargetModel, TSourceModel, S["name"]>
@@ -120,19 +136,24 @@ export type GetInverseRelationFields<
 
 /**
  * Get the FK fields from the inverse relation at runtime.
- * - For manyToOne/oneToOne: returns its own fields
- * - For oneToMany/manyToMany: finds the inverse toOne relation in target model
+ * - For to-one relations with `.fields()`: returns its own fields
+ * - For inverse one-to-one, one-to-many, and many-to-many relations: finds the
+ *   inverse to-one relation in the target model
  *
  * @param state - The current relation state
  * @param sourceModel - The source model (to verify the inverse points back)
  */
-export function getInverseRelationFields<S extends RelationState, TSourceModel>(
+export function getInverseRelationMap<S extends RelationState, TSourceModel>(
   state: S,
   sourceModel: TSourceModel
-): GetInverseRelationFields<S, TSourceModel> {
-  // manyToOne/oneToOne already have FK fields on this side
-  if (state.type === "manyToOne" || state.type === "oneToOne") {
-    return state.fields as GetInverseRelationFields<S, TSourceModel>;
+): GetInverseRelationMap<S, TSourceModel> {
+  // To-one relations with explicit fields hold the FK on this side. Inverse
+  // one-to-one relations have no fields and must scan the target model.
+  if (
+    (state.type === "manyToOne" || state.type === "oneToOne") &&
+    state.fields
+  ) {
+    return state.fields as GetInverseRelationMap<S, TSourceModel>;
   }
 
   // oneToMany/manyToMany - find the inverse relation in target model
@@ -162,8 +183,8 @@ export function getInverseRelationFields<S extends RelationState, TSourceModel>(
       continue;
     }
 
-    return relState.fields as GetInverseRelationFields<S, TSourceModel>;
+    return relState.fields as GetInverseRelationMap<S, TSourceModel>;
   }
 
-  return undefined as GetInverseRelationFields<S, TSourceModel>;
+  return undefined as GetInverseRelationMap<S, TSourceModel>;
 }

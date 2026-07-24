@@ -22,9 +22,14 @@ This separation means adding a new database = implementing one adapter interface
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `query-engine.ts` | Main orchestrator, execute() | ~500 |
-| `types.ts` | QueryContext, ModelRegistry, Operation | ~150 |
-| `validator.ts` | Input validation through `SchemaRegistry` | ~80 |
+| `query-engine.ts` | Public `QueryEngine` orchestration shell (build/prepare/execute) | ~170 |
+| `executor.ts` | Validates + builds SQL for an operation | ~600 |
+| `result-flow.ts` | Result parsing/hydration flow | ~340 |
+| `transaction-flow.ts` | `$transaction` + the nested-write entry (`executeWithNestedWrites` → race retry → `selectMode` → interpreter) | ~200 |
+| `operations/nested-writes/` | The one nested-write interpreter + its two execution modes | See below |
+| `cache-flow.ts` | Cache read/write orchestration around operations | ~130 |
+| `types.ts` | QueryContext, ModelRegistry, Operation | ~390 |
+| `validator.ts` | Input validation through `SchemaRegistry` | ~110 |
 | `builders/` | SQL fragment builders | See [builders/AGENTS.md](builders/AGENTS.md) |
 
 ---
@@ -79,6 +84,84 @@ sql`WHERE ${column} = ${value}`
 **Why not strings:** String concatenation invites SQL injection. Fragments ensure proper parameterization at every level of composition.
 
 ---
+
+## Nested-Write Interpreter (`operations/nested-writes/`)
+
+A nested write (`create`/`update`/`upsert` carrying relation mutations) is an
+ordered plan over uncertain state — DB-assigned ids a later statement needs,
+reads that decide branches (upsert exists?, connectOrCreate found?), and
+invariants that must hold at commit — committing atomically on one connection.
+
+There is **one interpreter** that owns every semantic decision, parameterized by
+a two-implementation `Mode` capability object. It is split across the
+`interpret-*.ts` family modules purely for navigability (§11 M10 gate 4
+follow-up) — the file boundaries carry no semantic meaning; the families recurse
+into each other and none of them consults a mode implementation. This is the
+whole architecture:
+
+- **`interpreter.ts`** (entry) — dispatch, the per-operation `Interp` bundle
+  (mode + effect sink + symbol minter), and the `selectMode` re-export. The only
+  family-layer file that may touch a concrete mode (`bindContext`).
+- **`interpret-create-family.ts`** — create / createMany / connect /
+  connectOrCreate, both FK directions. These bodies are also the create branches
+  that update/upsert/m2m trees recurse into.
+- **`interpret-update-family.ts`** — update / updateMany / disconnect / delete /
+  deleteMany / set, the parent-holds-FK update-tree bodies, the shared
+  `interpretConnectedChildUpdate` (reused by m2m), and the PK-change / D4 overlay
+  plumbing.
+- **`interpret-upsert-family.ts`** — top-level and nested (to-one / to-many)
+  upsert, targetWhere / setWhere.
+- **`interpret-m2m.ts`** — every many-to-many kind, including the
+  filtered-deleteMany symmetric-difference staleness guards.
+- **`interpret-shared.ts`** — the cross-family leaves: guard constructors /
+  emitters, `childCtx`, the FK-expr helpers, and the `Expr` ↔ raw-carrier
+  plumbing (Axis A). No semantic decision lives here.
+- **`mode.ts`** — the `Mode` interface plus **`selectMode`**, the single
+  capability fork. `selectMode` is the **only** place a driver's
+  `supportsTransactions`/`supportsBatch` are read (a transaction driver →
+  `LiveMode`; a batch-only driver → `PlannedMode`; neither → a typed rejection).
+- **`live-mode.ts` / `planned-mode.ts`** — the two substrates. `LiveMode`
+  executes each effect immediately inside one `withTransaction` and reads live
+  (sees its own writes). `PlannedMode` lowers each effect into one ordered
+  statement list, defers produced values through a scratch table
+  (`batchRefs.store`/`read`), and pins plan-time branch decisions with SQL
+  assertions. The store lives entirely inside `planned-mode.ts`.
+
+The single axis of variation is one capability bit — **`canObserveOwnWrites`**:
+can a read issued mid-operation see this operation's own uncommitted writes?
+Everything else the two modes differ on is a consequence of that bit.
+
+**Load-bearing invariants (grep-gated by
+`tests/query-engine/nested-write-architecture-gates.test.ts`):**
+
+1. `supportsTransactions`/`supportsBatch` are read only in the mode files (the
+   `selectMode` fork). No capability branch anywhere else in `nested-writes/`.
+2. The mode files (`mode.ts`, `live-mode.ts`, `planned-mode.ts`) import **no**
+   semantic layer — not `semantic-plan.ts`, `fk.ts`, or `relation-data-builder`.
+   A mode may only hold substrate mechanics; any relation/step/branch rule
+   belongs in the interpreter.
+3. No mutation kind has a second implementation — the old dual engines were
+   deleted, and nothing re-imports a deleted engine/scaffolding module.
+4. The directory roster is exactly the interpreter entry + the `interpret-*.ts`
+   family modules + the two modes + the kept shared builders (a new file is a
+   deliberate, reviewed addition).
+5. No `interpret-*.ts` family module imports a mode implementation
+   (`live-mode.ts` / `planned-mode.ts`) — the split is navigability only, so a
+   family module that reaches a concrete mode is a per-mode branch smuggled into
+   the semantics. Only the `interpreter.ts` entry (for `bindContext`) and
+   `mode.ts` (for `selectMode`) may.
+
+**The test of the whole design:** a feature request touching nested-write
+semantics is implementable without editing either mode file. If a change edits
+both mode files *and* encodes a rule about relations, the design is violated.
+
+The shared, substrate-agnostic pieces the interpreter reuses stay beside it:
+`semantic-plan.ts` (step/guard planning), `fk.ts` (FK condition builders),
+`record-access.ts` (select-one / not-found error), `assertions.ts`,
+`effect-lowering.ts`, and the value carrier `BatchValueRef` (defined in
+`builders/values-builder.ts`, lowered at `buildScalarSqlValue`).
+
+Full design: `docs/architecture/engine-unification/DESIGN.md`.
 
 ## Core Rules
 

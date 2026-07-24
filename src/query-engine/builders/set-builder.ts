@@ -5,9 +5,10 @@
  * Handles simple assignments, increment/decrement, and array operations.
  */
 
-import { type Sql, sql } from "@sql";
+import { isSql, type Sql, sql } from "@sql";
 import { getColumnName, getScalarFieldNames, isRelation } from "../context";
-import type { QueryContext } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
+import { scalarValueLiteral } from "./values-builder";
 
 /**
  * Build SET clause for UPDATE from update data
@@ -18,7 +19,7 @@ import type { QueryContext } from "../types";
  * @returns SQL for SET clause
  */
 export function buildSet(
-  ctx: QueryContext,
+  ctx: QueryScope,
   data: Record<string, unknown>,
   alias?: string
 ): Sql {
@@ -43,31 +44,17 @@ export function buildSet(
       ? adapter.identifiers.column(alias, columnName)
       : adapter.identifiers.escape(columnName);
 
-    const assignment = buildAssignment(ctx, column, value);
+    const assignment = buildAssignment(ctx, key, column, value);
     if (assignment) {
       assignments.push(assignment);
     }
   }
 
   if (assignments.length === 0) {
-    throw new Error("No fields to update");
+    throw new QueryEngineError("No fields to update");
   }
 
   return sql.join(assignments, ", ");
-}
-
-/**
- * Check if a value is a Sql object
- */
-function isSql(value: unknown): value is Sql {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "strings" in value &&
-    "values" in value &&
-    Array.isArray((value as Sql).strings) &&
-    Array.isArray((value as Sql).values)
-  );
 }
 
 /**
@@ -78,7 +65,8 @@ function isSql(value: unknown): value is Sql {
  * - null becomes { set: null }
  */
 function buildAssignment(
-  ctx: QueryContext,
+  ctx: QueryScope,
+  fieldName: string,
   column: Sql,
   value: unknown
 ): Sql | undefined {
@@ -96,7 +84,7 @@ function buildAssignment(
 
   // Schema validation guarantees value is always an operation object
   if (typeof value !== "object") {
-    throw new Error(
+    throw new QueryEngineError(
       "Update value must be an operation object (schema validation should have normalized this)"
     );
   }
@@ -104,12 +92,15 @@ function buildAssignment(
   const op = value as Record<string, unknown>;
 
   // set: assign value directly
-  if ("set" in op) {
+  if ("set" in op && op.set !== undefined) {
     const setValue = op.set;
     if (setValue === null) {
       return adapter.set.assign(column, adapter.literals.null());
     }
-    return adapter.set.assign(column, adapter.literals.value(setValue));
+    return adapter.set.assign(
+      column,
+      scalarValueLiteral(ctx, fieldName, setValue)
+    );
   }
 
   // increment: add to current value
@@ -127,21 +118,39 @@ function buildAssignment(
     return adapter.set.multiply(column, adapter.literals.value(op.multiply));
   }
 
-  // divide: divide current value
+  // divide: divide current value. Integer columns must divide as integers
+  // (Prisma/Postgres truncate toward zero); the adapter forces this where the
+  // dialect would otherwise do real division.
   if ("divide" in op && op.divide !== undefined) {
-    return adapter.set.divide(column, adapter.literals.value(op.divide));
+    const scalarType =
+      ctx.model["~"].state.scalars[fieldName]?.["~"].state.type;
+    const columnIsInteger = scalarType === "int" || scalarType === "bigint";
+    return adapter.set.divide(
+      column,
+      adapter.literals.value(op.divide),
+      columnIsInteger
+    );
   }
 
-  // push: append to array
+  // push/unshift take one value or an array of values; always hand the
+  // adapter an element array so array-valued pushes expand element-wise
+  // instead of appending one malformed element
   if ("push" in op && op.push !== undefined) {
-    return adapter.set.push(column, adapter.literals.value(op.push));
+    return adapter.set.push(
+      column,
+      Array.isArray(op.push) ? op.push : [op.push]
+    );
   }
 
-  // unshift: prepend to array
   if ("unshift" in op && op.unshift !== undefined) {
-    return adapter.set.unshift(column, adapter.literals.value(op.unshift));
+    return adapter.set.unshift(
+      column,
+      Array.isArray(op.unshift) ? op.unshift : [op.unshift]
+    );
   }
 
   // Unknown operation - schema validation should prevent this
-  throw new Error(`Unknown update operation: ${Object.keys(op).join(", ")}`);
+  throw new QueryEngineError(
+    `Unknown update operation: ${Object.keys(op).join(", ")}`
+  );
 }

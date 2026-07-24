@@ -1,0 +1,113 @@
+---
+title: DateTime
+description: DateTime, date, and time scalar types for timestamps with auto-timestamp helpers
+icon: Calendar
+---
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.dateTime()               // Required timestamp (Date)
+s.dateTime().nullable()    // Date | null
+s.date()                   // Calendar date, no time component (Date)
+s.time()                   // Time of day, no date component (string)
+```
+
+All three support the full [modifier reference](/docs/schema/scalars). Column types and precision options live on [Native Types](/docs/schema/native-types).
+
+## Auto-Timestamps
+
+```ts
+s.dateTime().now()        // Default to current timestamp on create
+s.dateTime().updatedAt()  // Update to current timestamp on every update
+```
+
+`.now()` and `.updatedAt()` also exist on `s.date()` and `s.time()`.
+
+## Timezones
+
+`s.dateTime()` and `s.time()` are timezone-aware by default (`timestamptz` / `timetz` on PostgreSQL). Chain `.withoutTimezone()` to store without timezone:
+
+```ts
+s.dateTime().withoutTimezone()  // timestamp instead of timestamptz
+s.time().withoutTimezone()      // time instead of timetz
+```
+
+## Input Types
+
+DateTime scalars accept both `Date` objects and ISO strings:
+
+```ts
+// Both are valid in queries
+await client.user.create({
+  data: {
+    createdAt: new Date(),           // Date object
+    updatedAt: "2024-01-15T10:30:00Z" // ISO string
+  }
+});
+```
+
+## Examples
+
+```ts
+// Created timestamp (set once)
+const createdAt = s.dateTime().now();
+
+// Updated timestamp (auto-updates)
+const updatedAt = s.dateTime().updatedAt();
+
+// Optional date
+const lastLogin = s.dateTime().nullable();
+
+// Birthday - no time component needed
+const birthday = s.date().nullable();
+
+// Opening hours
+const opensAt = s.time();
+```
+
+## Common Patterns
+
+### Timestamps on All Models
+
+```ts
+const timestamps = {
+  createdAt: s.dateTime().now(),
+  updatedAt: s.dateTime().updatedAt(),
+};
+
+const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string(),
+  ...timestamps,
+});
+
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  ...timestamps,
+});
+```
+
+For the soft-delete pattern (`deleted` flag + `deletedAt` timestamp), see [Boolean](/docs/schema/scalars/boolean#soft-delete).
+
+### Scheduled Publishing
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  publishAt: s.dateTime().nullable(),
+  publishedAt: s.dateTime().nullable(),
+});
+
+// Find scheduled posts ready to publish
+await client.post.findMany({
+  where: {
+    publishAt: { lte: new Date() },
+    publishedAt: null,
+  },
+});
+```

@@ -4,4 +4,8 @@
  * Exports result parsing utilities.
  */
 
-export { parseMutationCount, parseResult } from "./result-parser";
+export {
+  parseMutationCount,
+  parseResult,
+  ResultParser,
+} from "./ResultParser";

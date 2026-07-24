@@ -1,0 +1,33 @@
+---
+title: L10 - Cache
+description: Cache read results without moving query execution or persistence into the cache layer
+icon: Database
+---
+
+**Location:** `src/cache/`
+
+## Why This Layer Exists
+
+Repeated reads should not always reach the database. L10 provides cache keys,
+TTL handling, stale-while-revalidate behavior, invalidation, and backend
+abstractions while keeping database queries in the query engine and drivers.
+
+The client exposes the layer through `$withCache()` and `$invalidate()`. Cache
+backends implement storage; they do not know how VibORM builds or executes SQL.
+
+## Boundary
+
+| Cache owns | Cache does not own |
+|------------|--------------------|
+| Deterministic keys and version prefixes | Query construction |
+| TTL and stale-while-revalidate policy | Database execution |
+| Cache backend abstraction | Mutation semantics |
+| Explicit and mutation-triggered invalidation | Result parsing |
+
+See [Caching](/docs/cache) for configuration and backend documentation.
+
+## Connection to Other Layers
+
+- **L9 (Client)**: Creates cached client proxies and exposes invalidation
+- **L11 (Instrumentation)**: Observes cache hits, misses, writes, and refreshes
+- **L6-L8 (Execution)**: Run only when the cache path requires a database read

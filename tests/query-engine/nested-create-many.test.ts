@@ -39,7 +39,27 @@ const post = s
   })
   .map("posts");
 
-const schema = { user, post };
+const incrementParent = s
+  .model({
+    id: s.int().id().increment(),
+    name: s.string(),
+    children: s.oneToMany(() => incrementChild),
+  })
+  .map("nested_increment_parents");
+
+const incrementChild = s
+  .model({
+    id: s.int().id().increment(),
+    label: s.string(),
+    parentId: s.int(),
+    parent: s
+      .manyToOne(() => incrementParent)
+      .fields("parentId")
+      .references("id"),
+  })
+  .map("nested_increment_children");
+
+const schema = { user, post, incrementParent, incrementChild };
 
 // =============================================================================
 // TEST SETUP
@@ -60,6 +80,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean up data between tests
+  await client.incrementChild.deleteMany();
+  await client.incrementParent.deleteMany();
   await client.post.deleteMany();
   await client.user.deleteMany();
 });
@@ -170,6 +192,30 @@ describe("Nested CreateMany", () => {
       expect(posts.length).toBe(1);
       expect(posts[0]?.title).toBe("Only Post");
       expect(posts[0]?.userId).toBe("user-1");
+    });
+
+    test("preserves generation when another nested createMany row supplies an increment id", async () => {
+      const parent = await client.incrementParent.create({
+        data: {
+          name: "Parent",
+          children: {
+            createMany: {
+              data: [{ id: 10, label: "explicit" }, { label: "generated" }],
+            },
+          },
+        },
+      });
+
+      const children = await client.incrementChild.findMany({
+        where: { parentId: parent.id },
+      });
+      const idsByLabel = new Map(
+        children.map((child) => [child.label, child.id])
+      );
+
+      expect(idsByLabel.get("explicit")).toBe(10);
+      expect(idsByLabel.get("generated")).not.toBe(0);
+      expect(idsByLabel.get("generated")).not.toBe(10);
     });
 
     test("creates parent with empty createMany data array", async () => {
@@ -288,7 +334,63 @@ describe("Nested CreateMany", () => {
   });
 
   describe("validation before execution", () => {
-    test("rejects unsupported nested update key before executing parent mutation", async () => {
+    test("rejects relation envelopes in top-level createMany before writing", async () => {
+      const invalidCreateManyArgs = {
+        data: [
+          {
+            id: "user-1",
+            name: "John",
+            posts: {
+              create: { id: "post-1", title: "Should not write" },
+            },
+          },
+        ],
+      } as unknown as Parameters<typeof client.user.createMany>[0];
+
+      await expect(
+        client.user.createMany(invalidCreateManyArgs)
+      ).rejects.toThrow();
+
+      const [users, posts] = await Promise.all([
+        client.user.findMany(),
+        client.post.findMany(),
+      ]);
+      expect(users).toHaveLength(0);
+      expect(posts).toHaveLength(0);
+    });
+
+    test("rejects relation envelopes in nested createMany data before writing", async () => {
+      const invalidCreateArgs = {
+        data: {
+          id: "user-1",
+          name: "John",
+          posts: {
+            createMany: {
+              data: [
+                {
+                  id: "post-1",
+                  title: "Should not write",
+                  author: {
+                    connect: { id: "user-1" },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      } as unknown as Parameters<typeof client.user.create>[0];
+
+      await expect(client.user.create(invalidCreateArgs)).rejects.toThrow();
+
+      const [users, posts] = await Promise.all([
+        client.user.findMany(),
+        client.post.findMany(),
+      ]);
+      expect(users).toHaveLength(0);
+      expect(posts).toHaveLength(0);
+    });
+
+    test("missing nested update target rolls back parent mutation", async () => {
       await client.user.create({
         data: { id: "user-1", name: "John" },
       });
@@ -299,7 +401,6 @@ describe("Nested CreateMany", () => {
           data: {
             name: "Changed",
             posts: {
-              // @ts-expect-error unsupported nested update is intentionally tested at runtime
               update: {
                 where: { id: "post-1" },
                 data: { title: "Ignored" },
@@ -307,12 +408,18 @@ describe("Nested CreateMany", () => {
             },
           },
         })
-      ).rejects.toThrow("Unknown key: update");
+      ).rejects.toThrow(
+        "Cannot update relation 'posts': target record was not found for this parent."
+      );
 
-      const user = await client.user.findUnique({
-        where: { id: "user-1" },
-      });
+      const [user, posts] = await Promise.all([
+        client.user.findUnique({
+          where: { id: "user-1" },
+        }),
+        client.post.findMany(),
+      ]);
       expect(user?.name).toBe("John");
+      expect(posts).toHaveLength(0);
     });
   });
 

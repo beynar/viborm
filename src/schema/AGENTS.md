@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Defines database schema using type-safe builders (fields, models, relations) that enable fully-typed queries without code generation.
+Defines database schema using type-safe builders (scalars, models, relations) that enable fully-typed queries without code generation.
 
 ## Why This Layer Exists
 
@@ -25,7 +25,7 @@ await orm.user.findMany({
 });
 ```
 
-This works because fields use the **State generic pattern** - configuration is tracked as a type parameter, then consumed by validation registry schemas and client types.
+This works because scalars use the **State generic pattern** - configuration is tracked as a type parameter, then consumed by validation registry schemas and client types.
 
 ---
 
@@ -33,7 +33,7 @@ This works because fields use the **State generic pattern** - configuration is t
 
 | Directory | Purpose | Guide |
 |-----------|---------|-------|
-| `fields/` | Field type definitions | [fields/AGENTS.md](fields/AGENTS.md) |
+| `scalars/` | Scalar type definitions | [scalars/AGENTS.md](scalars/AGENTS.md) |
 | `model/` | Model composition and structural metadata | — |
 | `relation/` | Relation types | [relation/AGENTS.md](relation/AGENTS.md) |
 | `validation/` | Definition-time validation | — |
@@ -41,13 +41,30 @@ This works because fields use the **State generic pattern** - configuration is t
 
 ---
 
+## Taxonomy
+
+Use schema terms this way:
+
+| Term | Meaning in schema layer |
+|------|-------------------------|
+| **Field** | Any named member of a model shape. A field can be a `Scalar` or a `Relation`. |
+| **Scalar** | Primitive/value field implementation under `src/schema/scalars/`. |
+| **Relation** | Association field implementation under `src/schema/relation/`. |
+
+`fieldName`, `getFieldName`, compound `fields`, index `fields`, and relation
+`.fields()` are correct because they refer to model keys or foreign-key fields.
+Use `scalar` for scalar classes, scalar state, scalar operation schemas, and
+the `scalars/` package.
+
+---
+
 ## The Four Subsystems
 
-### 1. Fields (`fields/`)
-Field type definitions with State generic pattern. Each field (string, int, boolean, etc.) carries configuration as a type parameter.
+### 1. Scalars (`scalars/`)
+Primitive/value field definitions with the State generic pattern. Each scalar (string, int, boolean, etc.) carries configuration as a type parameter.
 
 ### 2. Models (`model/`)
-Model class that composes fields and relations. Owns structural metadata; operation schemas are built by the validation registry.
+Model class that composes fields: scalar fields and relation fields. Owns structural metadata; operation schemas are built by the validation registry.
 
 ### 3. Relations (`relation/`)
 Relation types (oneToOne, manyToOne, oneToMany, manyToMany) using thunks for circular references.
@@ -60,11 +77,11 @@ Definition-time validation to catch schema errors before runtime (e.g., relation
 ## Core Rules
 
 ### Rule 1: State Generic Pattern
-Every field/model carries configuration as type parameter:
+Every scalar/model carries configuration as type parameter:
 
 ```typescript
-s.string()           // StringField<{type: "string"}>
-  .nullable()        // StringField<{type: "string", nullable: true}>
+s.string()           // StringScalar<{type: "string"}>
+  .nullable()        // StringScalar<{type: "string", nullable: true}>
 ```
 
 **Why:** TypeScript tracks changes at compile time, enabling typed queries without codegen.
@@ -75,7 +92,7 @@ Every modifier returns NEW instance. Never mutate `this.state`.
 ```typescript
 // ✅ Returns new instance
 nullable() {
-  return new StringField({ ...this.state, nullable: true });
+  return new StringScalar({ ...this.state, nullable: true });
 }
 ```
 
@@ -94,15 +111,15 @@ s.oneToMany(() => post)  // Thunk defers evaluation
 All internal state exposed via tilde accessor:
 
 ```typescript
-field["~"].state          // Configuration object
-field["~"].state.base     // Base field schema
+scalar["~"].state         // Configuration object
+scalar["~"].state.base    // Base scalar schema
 model["~"].state          // Model structure and metadata
 ```
 
 **Why:** Keeps public API clean, signals "internal" to users.
 
 ### Rule 5: Schema/Validation Boundary
-Schema owns structure and base field schemas. The validation registry owns operation schemas (`where`, `create`, `update`, args, relation inputs), and the client/query-engine use that registry for operation validation.
+Schema owns structure and base scalar schemas. The validation registry owns operation schemas (`where`, `create`, `update`, args, relation inputs), and the client/query-engine use that registry for operation validation.
 
 ---
 
@@ -114,8 +131,8 @@ Modifying `this.state` directly. Breaks type tracking - compile-time type won't 
 ### Direct Model References
 Passing model directly to relation. JavaScript can't handle forward references.
 
-### Missing Field Union Update
-Adding new field type but forgetting to add to Field union in `base.ts`. TypeScript won't recognize it.
+### Missing Scalar Union Update
+Adding new scalar type but forgetting to add to the `Scalar` union in `base.ts`. TypeScript won't recognize it.
 
 ### Type Assertions
 Using `as` to force types. Breaks natural inference chain from schema to client.
@@ -130,9 +147,9 @@ Building schemas eagerly without caching. Wastes performance rebuilding on every
 ```
 User writes:           s.string().nullable()
                               ↓
-Field creates State:   StringField<{type: "string", nullable: true}>
+Scalar creates State:  StringScalar<{type: "string", nullable: true}>
                               ↓
-Field state stores:    v.string({nullable: true}) as base schema
+Scalar state stores:    v.string({nullable: true}) as base schema
                               ↓
 SchemaRegistry builds: operation schemas from model graph context
                               ↓
@@ -151,7 +168,7 @@ Client uses:           orm.user.findMany({...})  // Fully typed!
 The tilde is visually distinctive and won't appear in autocomplete prominently. `_internal` was tried but cluttered suggestions.
 
 ### Why operation schemas live in the registry
-Nested relation inputs need full model graph context, especially to omit parent-derived foreign keys. Keeping operation schemas in `SchemaRegistry` avoids rebuilding that context inside fields or models.
+Nested relation inputs need full model graph context, especially to omit parent-derived foreign keys. Keeping operation schemas in `SchemaRegistry` avoids rebuilding that context inside scalars or models.
 
 ---
 
@@ -159,7 +176,7 @@ Nested relation inputs need full model graph context, especially to omit parent-
 
 | Task | Location |
 |------|----------|
-| Add new field type | [fields/AGENTS.md](fields/AGENTS.md) |
+| Add new scalar type | [scalars/AGENTS.md](scalars/AGENTS.md) |
 | Add query operator | `src/validation/model/core/` + query-engine + adapters |
 | Add relation type | [relation/AGENTS.md](relation/AGENTS.md) |
 | Fix type inference | Check validation schema factories, then client |

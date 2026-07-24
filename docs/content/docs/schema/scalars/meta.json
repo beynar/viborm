@@ -1,0 +1,15 @@
+{
+  "title": "Scalars",
+  "pages": [
+    "index",
+    "string",
+    "number",
+    "boolean",
+    "datetime",
+    "bigint",
+    "json",
+    "blob",
+    "enum",
+    "vector"
+  ]
+}

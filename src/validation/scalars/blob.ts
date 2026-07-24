@@ -1,5 +1,5 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
 
 // =============================================================================
 // FILTER TYPES
@@ -65,14 +65,14 @@ const buildBlobUpdateSchema = <S extends V.Schema>(
 // BLOB SCHEMA BUILDER
 // =============================================================================
 
-export interface BlobSchemas<F extends FieldState<"blob">> {
+export interface BlobSchemas<F extends ScalarState<"blob">> {
   base: F["base"];
   create: V.Blob<F>;
   update: BlobUpdateSchema<F["base"]>;
   filter: BlobFilterSchema<F["base"]>;
 }
 
-export const buildBlobSchema = <F extends FieldState<"blob">>(
+export const buildBlobSchema = <F extends ScalarState<"blob">>(
   state: F
 ): BlobSchemas<F> => {
   return {

@@ -6,15 +6,23 @@
  * and delegates relation filters to relation-filter-builder.
  */
 
-import { type Sql, sql } from "@sql";
+import type { ScalarState } from "@schema/scalars";
+import type { Sql } from "@sql";
 import {
+  createChildScope,
   getColumnName,
   getRelationInfo,
   isRelation,
   isScalarField,
 } from "../context";
-import type { QueryContext } from "../types";
-import { buildRelationFilter } from "./relation-filter-builder";
+import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import { buildJsonFilter } from "./json-filter-builder";
+import {
+  type BuildNestedWhere,
+  buildRelationFilterSql,
+} from "./relation-filter-builder";
+import { assertSupportedScalarFilterOperator } from "./scalar-filter-operators";
+import { scalarValueLiteral } from "./values-builder";
 
 /**
  * Build a WHERE clause from a where input object
@@ -25,7 +33,7 @@ import { buildRelationFilter } from "./relation-filter-builder";
  * @returns SQL for WHERE clause or undefined if no conditions
  */
 export function buildWhere(
-  ctx: QueryContext,
+  ctx: QueryScope,
   where: Record<string, unknown> | undefined,
   alias: string
 ): Sql | undefined {
@@ -72,11 +80,11 @@ export function buildWhere(
       continue;
     }
 
-    // Handle scalar field filters
+    // Handle scalar filters
     if (isScalarField(ctx.model, key)) {
-      const fieldCondition = buildScalarFilter(ctx, key, value, alias);
-      if (fieldCondition) {
-        conditions.push(fieldCondition);
+      const scalarCondition = buildScalarFilter(ctx, key, value, alias);
+      if (scalarCondition) {
+        conditions.push(scalarCondition);
       }
       continue;
     }
@@ -84,18 +92,22 @@ export function buildWhere(
     // Handle relation filters
     if (isRelation(ctx.model, key)) {
       const relationInfo = getRelationInfo(ctx, key);
-      if (relationInfo) {
-        const relationCondition = buildRelationFilter(
-          ctx,
-          relationInfo,
-          value as Record<string, unknown>,
-          alias
-        );
-        if (relationCondition) {
-          conditions.push(relationCondition);
-        }
+      if (!relationInfo) {
+        throw new QueryEngineError(`Unknown relation '${key}'.`);
       }
+      const relationCondition = buildRelationFilter(
+        ctx,
+        relationInfo,
+        value as Record<string, unknown>,
+        alias
+      );
+      if (relationCondition) {
+        conditions.push(relationCondition);
+      }
+      continue;
     }
+
+    throw new QueryEngineError(`Unknown where field '${key}'.`);
   }
 
   if (conditions.length === 0) {
@@ -105,11 +117,44 @@ export function buildWhere(
   return ctx.adapter.operators.and(...conditions);
 }
 
+const buildNestedWhere: BuildNestedWhere = (ctx, where) =>
+  buildWhere(ctx, where, ctx.rootAlias);
+
+/** Build a relation predicate while preserving the public advanced API. */
+export function buildRelationFilter(
+  ctx: QueryScope,
+  relationInfo: RelationInfo,
+  filter: Record<string, unknown>,
+  parentAlias: string
+): Sql | undefined {
+  const parentScope =
+    parentAlias === ctx.rootAlias
+      ? ctx
+      : createChildScope(ctx, ctx.model, parentAlias);
+  return buildRelationFilterSql(
+    buildNestedWhere,
+    parentScope,
+    relationInfo,
+    filter
+  );
+}
+
+/** Add an ordinary filter to an already-built identity/correlation predicate. */
+export function buildWhereWith(
+  ctx: QueryScope,
+  base: Sql,
+  where: Record<string, unknown>,
+  alias: string
+): Sql {
+  const filter = buildWhere(ctx, where, alias);
+  return filter ? ctx.adapter.operators.and(base, filter) : base;
+}
+
 /**
  * Build AND logical operator
  */
 function buildLogicalAnd(
-  ctx: QueryContext,
+  ctx: QueryScope,
   value: unknown,
   alias: string
 ): Sql | undefined {
@@ -133,12 +178,12 @@ function buildLogicalAnd(
  * Build OR logical operator
  */
 function buildLogicalOr(
-  ctx: QueryContext,
+  ctx: QueryScope,
   value: unknown,
   alias: string
 ): Sql | undefined {
   if (!Array.isArray(value)) {
-    return undefined;
+    throw new QueryEngineError("Logical OR requires an array value.");
   }
 
   const conditions: Sql[] = [];
@@ -151,7 +196,7 @@ function buildLogicalOr(
   }
 
   if (conditions.length === 0) {
-    return undefined;
+    return ctx.adapter.literals.false();
   }
   return ctx.adapter.operators.or(...conditions);
 }
@@ -160,57 +205,68 @@ function buildLogicalOr(
  * Build NOT logical operator
  */
 function buildLogicalNot(
-  ctx: QueryContext,
+  ctx: QueryScope,
   value: unknown,
   alias: string
 ): Sql | undefined {
+  // Prisma semantics: NOT: [c1, c2] negates each item and ANDs the
+  // negations (NOT c1 AND NOT c2 — "all conditions must return false"),
+  // not NOT (c1 AND c2). The object form NOT: { ... } is a single item,
+  // so it becomes NOT (that object's implicit-AND) exactly as before.
   const items = Array.isArray(value) ? value : [value];
-  const conditions: Sql[] = [];
+  const negations: Sql[] = [];
 
   for (const item of items) {
     const condition = buildWhere(ctx, item as Record<string, unknown>, alias);
     if (condition) {
-      conditions.push(condition);
+      negations.push(ctx.adapter.operators.not(condition));
     }
   }
 
-  if (conditions.length === 0) {
+  if (negations.length === 0) {
     return undefined;
   }
 
-  const combined = ctx.adapter.operators.and(...conditions);
-  return ctx.adapter.operators.not(combined);
+  return ctx.adapter.operators.and(...negations);
 }
 
 /** Filter mode for case sensitivity */
 type FilterMode = "default" | "insensitive";
 
 /**
- * Build a scalar field filter
+ * Build a scalar filter
  *
  * Schema validation normalizes all values to filter objects:
  * - Simple values become { equals: value }
  * - null becomes { equals: null }
  */
 function buildScalarFilter(
-  ctx: QueryContext,
+  ctx: QueryScope,
   fieldName: string,
   value: unknown,
   alias: string
 ): Sql | undefined {
+  const scalarState = getScalarState(ctx, fieldName);
+
   // Resolve field name to actual column name (handles .map() overrides)
   const columnName = getColumnName(ctx.model, fieldName);
   const column = ctx.adapter.identifiers.column(alias, columnName);
 
   // Schema validation guarantees value is always a filter object
   if (typeof value !== "object" || value === null) {
-    throw new Error(
+    throw new QueryEngineError(
       `Filter for '${fieldName}' must be a filter object (schema validation should have normalized this)`
     );
   }
 
   // Filter object with operations like equals, contains, gt, etc.
   const filter = value as Record<string, unknown>;
+
+  // JSON documents get their own filter language (path-scoped operators)
+  if (scalarState.type === "json" && !scalarState.array) {
+    return buildJsonFilter(ctx, fieldName, scalarState, column, filter);
+  }
+
   const conditions: Sql[] = [];
 
   // Extract mode for case-insensitive operations
@@ -221,18 +277,27 @@ function buildScalarFilter(
     if (opValue === undefined) {
       continue;
     }
-    if (op === "mode") {
-      continue; // Skip mode itself, it's a modifier
-    }
+    assertSupportedScalarFilterOperator(fieldName, scalarState, op);
+    if (op === "mode") continue;
 
-    const condition = buildFilterOperation(ctx, column, op, opValue, mode);
+    const condition = buildFilterOperation(
+      ctx,
+      fieldName,
+      scalarState,
+      column,
+      op,
+      opValue,
+      mode
+    );
     if (condition) {
       conditions.push(condition);
     }
   }
 
   if (conditions.length === 0) {
-    return undefined;
+    throw new QueryEngineError(
+      `Filter for field '${fieldName}' must contain at least one operation.`
+    );
   }
   return ctx.adapter.operators.and(...conditions);
 }
@@ -247,15 +312,37 @@ function buildScalarFilter(
  * @param mode - Case sensitivity mode (default or insensitive)
  */
 function buildFilterOperation(
-  ctx: QueryContext,
+  ctx: QueryScope,
+  fieldName: string,
+  scalarState: ScalarState,
   column: Sql,
   operation: string,
   value: unknown,
   mode: FilterMode = "default"
-): Sql | undefined {
+): Sql {
   const { adapter } = ctx;
-  const lit = (v: unknown) => adapter.literals.value(v);
+  const lit = (v: unknown) => scalarValueLiteral(ctx, fieldName, v);
   const isInsensitive = mode === "insensitive";
+  const isTextScalar =
+    !scalarState.array &&
+    (scalarState.type === "string" || scalarState.type === "enum");
+  const exactTextColumn = isTextScalar
+    ? adapter.expressions.caseSensitiveText(column)
+    : column;
+  const foldedTextColumn = isTextScalar
+    ? adapter.expressions.caseSensitiveText(
+        adapter.expressions.asciiCaseFold(column)
+      )
+    : column;
+
+  // Portable insensitive mode folds ASCII A-Z only, then uses exact text
+  // predicates. This avoids provider-native Unicode/collation divergence.
+  const foldedLiteral = (v: unknown) =>
+    adapter.expressions.asciiCaseFold(lit(v));
+  const insensitiveEq = (v: unknown) =>
+    adapter.operators.eq(foldedTextColumn, foldedLiteral(v));
+  const insensitiveNeq = (v: unknown) =>
+    adapter.operators.neq(foldedTextColumn, foldedLiteral(v));
 
   switch (operation) {
     // Equality
@@ -263,23 +350,47 @@ function buildFilterOperation(
       if (value === null) {
         return adapter.operators.isNull(column);
       }
-      return adapter.operators.eq(column, lit(value));
+      // Whole-list and JSON document operands need the dialect's storage
+      // format: a plain param compares as a string scalar on MySQL and is
+      // unbindable on SQLite
+      if (scalarState.array && Array.isArray(value)) {
+        return adapter.operators.eq(column, adapter.arrays.value(value));
+      }
+      // JSON columns store serialized JSON for every value shape (primitives
+      // included — see buildScalarSqlValue), so compare in the same format
+      if (scalarState.type === "json") {
+        return adapter.operators.eq(column, adapter.json.value(value));
+      }
+      if (isInsensitive && typeof value === "string") {
+        return insensitiveEq(value);
+      }
+      return adapter.operators.eq(exactTextColumn, lit(value));
 
     case "not":
       if (value === null) {
         return adapter.operators.isNotNull(column);
       }
+      // List shorthand ({ not: [...] }) — before the nested-filter branch,
+      // which would misread array indices as filter operations. JSON `not`
+      // stays on the nested-filter path (its schema nests { equals: ... }).
+      if (scalarState.array && Array.isArray(value)) {
+        return adapter.operators.neq(column, adapter.arrays.value(value));
+      }
       if (typeof value === "object" && value !== null) {
         // Nested filter: { not: { contains: "foo" } }
         const nested = buildScalarFilterObject(
           ctx,
+          fieldName,
           column,
           value as Record<string, unknown>,
           mode
         );
-        return nested ? adapter.operators.not(nested) : undefined;
+        return adapter.operators.not(nested);
       }
-      return adapter.operators.neq(column, lit(value));
+      if (isInsensitive && typeof value === "string") {
+        return insensitiveNeq(value);
+      }
+      return adapter.operators.neq(exactTextColumn, lit(value));
 
     // Comparison
     case "lt":
@@ -297,66 +408,82 @@ function buildFilterOperation(
     // Set membership
     case "in": {
       if (!Array.isArray(value)) {
-        return undefined;
+        throw new QueryEngineError(
+          `Filter operation '${operation}' for field '${fieldName}' requires an array value.`
+        );
       }
       // Empty array should match nothing (always false)
       if (value.length === 0) {
         return adapter.literals.false();
       }
+      if (isInsensitive) {
+        return adapter.operators.or(...value.map(insensitiveEq));
+      }
       const inValues = value.map((v) => lit(v));
-      return adapter.operators.in(column, adapter.literals.list(inValues));
+      return adapter.operators.in(
+        exactTextColumn,
+        adapter.literals.list(inValues)
+      );
     }
 
     case "notIn": {
       if (!Array.isArray(value)) {
-        return undefined;
+        throw new QueryEngineError(
+          `Filter operation '${operation}' for field '${fieldName}' requires an array value.`
+        );
       }
       // Empty array for notIn should match everything (always true)
       if (value.length === 0) {
         return adapter.literals.true();
       }
+      if (isInsensitive) {
+        return adapter.operators.and(...value.map(insensitiveNeq));
+      }
       const notInValues = value.map((v) => lit(v));
       return adapter.operators.notIn(
-        column,
+        exactTextColumn,
         adapter.literals.list(notInValues)
       );
     }
 
-    // String operations (respect case sensitivity mode)
-    // Use adapter.expressions.concat to build LIKE pattern at SQL execution time
-    // Keeps wildcards in SQL and user value as separate parameter
+    // String operations use adapter-owned exact substring predicates, so user
+    // values are always literal and database LIKE behavior cannot diverge.
     case "contains": {
-      const containsPattern = adapter.expressions.concat(
-        sql`'%'`,
-        lit(value),
-        sql`'%'`
-      );
       return isInsensitive
-        ? adapter.operators.ilike(column, containsPattern)
-        : adapter.operators.like(column, containsPattern);
+        ? adapter.operators.containsText(foldedTextColumn, foldedLiteral(value))
+        : adapter.operators.containsText(column, lit(value));
     }
 
     case "startsWith": {
-      const startsPattern = adapter.expressions.concat(lit(value), sql`'%'`);
       return isInsensitive
-        ? adapter.operators.ilike(column, startsPattern)
-        : adapter.operators.like(column, startsPattern);
+        ? adapter.operators.startsWithText(
+            foldedTextColumn,
+            foldedLiteral(value)
+          )
+        : adapter.operators.startsWithText(column, lit(value));
     }
 
     case "endsWith": {
-      const endsPattern = adapter.expressions.concat(sql`'%'`, lit(value));
       return isInsensitive
-        ? adapter.operators.ilike(column, endsPattern)
-        : adapter.operators.like(column, endsPattern);
+        ? adapter.operators.endsWithText(foldedTextColumn, foldedLiteral(value))
+        : adapter.operators.endsWithText(column, lit(value));
     }
 
-    // Array operations (for array/list fields)
+    // Array operations (for array/list scalars)
     case "has":
+      // `has: null` never matches on any dialect (Prisma/PG semantics:
+      // NULL = element is never true). MySQL's JSON_CONTAINS would match
+      // JSON null elements, so short-circuit before it diverges.
+      if (value === null) {
+        return adapter.literals.false();
+      }
       return adapter.arrays.has(column, lit(value));
 
     case "hasEvery":
       if (!Array.isArray(value)) {
-        return undefined;
+        throw new QueryEngineError(
+          `Filter operation '${operation}' for field '${fieldName}' requires an array value.`
+        );
       }
       return adapter.arrays.hasEvery(
         column,
@@ -365,7 +492,9 @@ function buildFilterOperation(
 
     case "hasSome":
       if (!Array.isArray(value)) {
-        return undefined;
+        throw new QueryEngineError(
+          `Filter operation '${operation}' for field '${fieldName}' requires an array value.`
+        );
       }
       return adapter.arrays.hasSome(
         column,
@@ -378,8 +507,9 @@ function buildFilterOperation(
         : adapter.operators.not(adapter.arrays.isEmpty(column));
 
     default:
-      // Unknown operation, skip
-      return undefined;
+      throw new QueryEngineError(
+        `Unknown filter operation '${operation}' for field '${fieldName}'.`
+      );
   }
 }
 
@@ -387,11 +517,13 @@ function buildFilterOperation(
  * Build a filter from an object (for nested not operations)
  */
 function buildScalarFilterObject(
-  ctx: QueryContext,
+  ctx: QueryScope,
+  fieldName: string,
   column: Sql,
   filter: Record<string, unknown>,
   mode: FilterMode = "default"
-): Sql | undefined {
+): Sql {
+  const scalarState = getScalarState(ctx, fieldName);
   const conditions: Sql[] = [];
 
   // Nested filter may also have mode
@@ -402,73 +534,35 @@ function buildScalarFilterObject(
     if (value === undefined) {
       continue;
     }
-    if (op === "mode") {
-      continue; // Skip mode itself
-    }
-    const condition = buildFilterOperation(ctx, column, op, value, nestedMode);
+    assertSupportedScalarFilterOperator(fieldName, scalarState, op);
+    if (op === "mode") continue;
+
+    const condition = buildFilterOperation(
+      ctx,
+      fieldName,
+      scalarState,
+      column,
+      op,
+      value,
+      nestedMode
+    );
     if (condition) {
       conditions.push(condition);
     }
   }
 
   if (conditions.length === 0) {
-    return undefined;
+    throw new QueryEngineError(
+      `Filter operation 'not' for field '${fieldName}' must contain at least one nested condition.`
+    );
   }
   return ctx.adapter.operators.and(...conditions);
 }
 
-/**
- * Build WHERE from a unique input (for findUnique, update, delete)
- * Unique input can be a single field or compound key
- *
- * Handles:
- * - Single field: { id: "123" }
- * - Compound ID: { email_orgId: { email: "a@b.com", orgId: "org1" } }
- * - Named compound: { uq_name_org: { name: "Alice", orgId: "org1" } }
- */
-export function buildWhereUnique(
-  ctx: QueryContext,
-  where: Record<string, unknown>,
-  alias: string
-): Sql | undefined {
-  const conditions: Sql[] = [];
-
-  for (const [key, value] of Object.entries(where)) {
-    if (value === undefined) {
-      continue;
-    }
-
-    // Check if this is a compound key (object value with multiple fields)
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      // Compound key: { email_orgId: { email: "a@b.com", orgId: "org1" } }
-      const compound = value as Record<string, unknown>;
-      for (const [fieldName, fieldValue] of Object.entries(compound)) {
-        if (fieldValue === undefined) {
-          continue;
-        }
-        // Resolve field name to actual column name (handles .map() overrides)
-        const columnName = getColumnName(ctx.model, fieldName);
-        const column = ctx.adapter.identifiers.column(alias, columnName);
-        conditions.push(
-          ctx.adapter.operators.eq(
-            column,
-            ctx.adapter.literals.value(fieldValue)
-          )
-        );
-      }
-    } else {
-      // Single field: { id: "123" }
-      // Resolve field name to actual column name (handles .map() overrides)
-      const columnName = getColumnName(ctx.model, key);
-      const column = ctx.adapter.identifiers.column(alias, columnName);
-      conditions.push(
-        ctx.adapter.operators.eq(column, ctx.adapter.literals.value(value))
-      );
-    }
+function getScalarState(ctx: QueryScope, fieldName: string): ScalarState {
+  const scalar = ctx.model["~"].state.scalars[fieldName];
+  if (!scalar) {
+    throw new QueryEngineError(`Unknown scalar field '${fieldName}'.`);
   }
-
-  if (conditions.length === 0) {
-    return undefined;
-  }
-  return ctx.adapter.operators.and(...conditions);
+  return scalar["~"].state;
 }

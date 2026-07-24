@@ -1,0 +1,104 @@
+---
+title: upsert
+description: Create a record if it doesn't exist, or update it if it does
+icon: RefreshCw
+---
+
+`upsert` updates the record matching `where` if it exists, otherwise creates it — in a single atomic operation.
+
+```ts
+const user = await client.user.upsert({
+  where: { email: "alice@example.com" },
+  create: {
+    email: "alice@example.com",
+    name: "Alice",
+  },
+  update: {
+    name: "Alice Updated",
+  },
+});
+```
+
+`upsert` is atomic and race-safe: concurrent upserts on the same key never fail with a duplicate error — one creates, the other updates.
+
+## Options
+
+```ts
+await client.user.upsert({
+  where: { ... },       // Required: unique identifier
+  create: { ... },      // Required: data for new record
+  update: { ... },      // Required: data for existing record
+  select: { ... },      // Optional: fields to return
+  include: { ... },     // Optional: relations to include
+});
+```
+
+## With Relations
+
+```ts
+const user = await client.user.upsert({
+  where: { email: "alice@example.com" },
+  create: {
+    email: "alice@example.com",
+    name: "Alice",
+    profile: {
+      create: { bio: "New user" },
+    },
+  },
+  update: {
+    name: "Alice Updated",
+    profile: {
+      upsert: {
+        create: { bio: "New profile" },
+        update: { bio: "Updated profile" },
+      },
+    },
+  },
+  include: { profile: true },
+});
+```
+
+## Examples
+
+### User Settings
+
+```ts
+async function updateSetting(userId: string, key: string, value: string) {
+  return client.userSetting.upsert({
+    where: {
+      userId_key: { userId, key },  // Compound unique
+    },
+    create: {
+      userId,
+      key,
+      value,
+    },
+    update: {
+      value,
+    },
+  });
+}
+```
+
+### Increment Counter
+
+```ts
+async function recordPageView(pageId: string) {
+  return client.pageStats.upsert({
+    where: { pageId },
+    create: {
+      pageId,
+      views: 1,
+      lastViewedAt: new Date(),
+    },
+    update: {
+      views: { increment: 1 },
+      lastViewedAt: new Date(),
+    },
+  });
+}
+```
+
+## vs Create + Update
+
+Prefer `upsert` over a find-then-create/update sequence: it's an atomic operation with no exposed race window. Use separate queries only when the two branches have genuinely different logic or you need to know which one ran.

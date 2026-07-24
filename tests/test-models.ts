@@ -9,7 +9,7 @@ import { s } from "@schema";
 import z from "zod/v4";
 
 // =============================================================================
-// FIELD EXPORTS (for field type inference tests)
+// SCALAR EXPORTS (for scalar type inference tests)
 // =============================================================================
 
 export const string = s.string();
@@ -44,9 +44,9 @@ export const nullableJson = s.json().schema(simpleJson).nullable();
 export const blob = s.blob();
 export const nullableBlob = s.blob().nullable();
 
-export const enumField = s.enum(["a", "b"]);
-export const nullableEnumField = s.enum(["a", "b"]).nullable();
-export const enumFieldWithDefault = s.enum(["a", "b"]).default("a");
+export const enumScalar = s.enum(["a", "b"]);
+export const nullableEnumScalar = s.enum(["a", "b"]).nullable();
+export const enumScalarWithDefault = s.enum(["a", "b"]).default("a");
 
 // =============================================================================
 // TEST MODELS FOR CONTRACT TESTS

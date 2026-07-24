@@ -1,12 +1,12 @@
 ---
 title: Model
-description: Define database tables with fields (columns) and relations (foreign keys)
+description: "Define database tables with fields: scalar columns and relation associations"
 icon: Table
 ---
 
 ## Creating a Model
 
-Use `s.model()` with an object of field definitions:
+Use `s.model()` with an object of field definitions (scalars and relations):
 
 ```ts
 import { s } from "viborm";
@@ -45,11 +45,11 @@ Sets the database table name.
 
 ### `.index(fields, options?)`
 
-Adds an index on one or more fields.
+Adds an index on one or more fields. Fields are always passed as an array:
 
 ```ts
 // Single field index
-.index("email")
+.index(["email"])
 
 // Composite index
 .index(["lastName", "firstName"])
@@ -129,6 +129,7 @@ const user = s
     // Required fields
     email: s.string().unique(),
     passwordHash: s.string(),
+    orgId: s.string(),
 
     // Optional fields
     name: s.string().nullable(),
@@ -144,32 +145,7 @@ const user = s
     posts: s.oneToMany(() => post),
     profile: s.oneToOne(() => profile).optional(),
   })
-  .index("email")
+  .index(["email"])
   .index(["role", "active"])
   .unique(["email", "orgId"]);
-```
-
-## Accessing Model Internals
-
-The `~` property exposes internal state (for advanced use):
-
-```ts
-const user = s.model({ ... });
-
-user["~"].fields       // Field definitions
-user["~"].fieldMap     // Map<string, Field>
-user["~"].relations    // Map<string, Relation>
-user["~"].tableName    // Table name
-user["~"].indexes      // Index definitions
-user["~"].compoundId   // Compound PK (if any)
-user["~"].infer        // Inferred TypeScript type
-```
-
-## Type Inference
-
-Access the inferred type for a model:
-
-```ts
-type User = (typeof user)["~"]["infer"];
-// { id: string; email: string; name: string | null; ... }
 ```

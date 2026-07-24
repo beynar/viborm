@@ -2,7 +2,7 @@
  * Relation Types Integration Test
  *
  * This test verifies that types flow correctly through relations.
- * It tests various field types via parent-child relationships.
+ * It tests various scalar types via parent-child relationships.
  */
 
 import type { BatchPayload } from "@client/exports";
@@ -20,33 +20,33 @@ import {
 import { z } from "zod/v4";
 
 // =============================================================================
-// MODEL DEFINITIONS - All scalar field types
+// MODEL DEFINITIONS - All scalar types
 // =============================================================================
 
-// Parent model with all field types
+// Parent model with all scalar types
 const parentModel = s.model({
   id: s.string().id(),
 
-  // String fields
+  // String scalars
   stringRequired: s.string(),
   stringNullable: s.string().nullable(),
   stringArray: s.string().array(),
 
-  // Number fields
+  // Number scalars
   intRequired: s.int(),
   intNullable: s.int().nullable(),
   floatRequired: s.float(),
   decimalRequired: s.decimal(),
 
-  // Boolean fields
+  // Boolean scalars
   booleanRequired: s.boolean(),
   booleanNullable: s.boolean().nullable(),
 
-  // BigInt fields
+  // BigInt scalars
   bigintRequired: s.bigInt(),
   bigintNullable: s.bigInt().nullable(),
 
-  // DateTime fields
+  // DateTime scalars
   datetimeRequired: s.dateTime(),
   datetimeNullable: s.dateTime().nullable(),
 
@@ -56,7 +56,7 @@ const parentModel = s.model({
   timeRequired: s.time(),
   timeNullable: s.time().nullable(),
 
-  // JSON fields
+  // JSON scalars
   jsonRequired: s.json().schema(
     z.object({
       name: z.string(),
@@ -68,7 +68,7 @@ const parentModel = s.model({
   // Enum field
   status: s.enum(["ACTIVE", "INACTIVE", "PENDING"] as const),
 
-  // Blob field
+  // Blob scalar
   blobNullable: s.blob().nullable(),
 
   // Relation
@@ -178,7 +178,7 @@ describe("Relation Types Integration Test", () => {
     }>().toMatchTypeOf<ChildCreateArgs>();
   });
 
-  test("type: client update rejects unsupported nested to-many update operations", () => {
+  test("type: client update accepts planned nested to-many update operations", () => {
     type ParentUpdateArgs = Parameters<typeof client.parentModel.update>[0];
 
     expectTypeOf<{
@@ -188,15 +188,18 @@ describe("Relation Types Integration Test", () => {
           update: { where: { id: string }; data: { name?: string } };
         };
       };
-    }>().not.toMatchTypeOf<ParentUpdateArgs>();
+    }>().toMatchTypeOf<ParentUpdateArgs>();
     expectTypeOf<{
       where: { id: string };
       data: {
         children: {
-          updateMany: { where: { isActive?: boolean }; data: { name?: string } };
+          updateMany: {
+            where: { isActive?: boolean };
+            data: { name?: string };
+          };
         };
       };
-    }>().not.toMatchTypeOf<ParentUpdateArgs>();
+    }>().toMatchTypeOf<ParentUpdateArgs>();
     expectTypeOf<{
       where: { id: string };
       data: {
@@ -204,7 +207,7 @@ describe("Relation Types Integration Test", () => {
           deleteMany: { isActive?: boolean };
         };
       };
-    }>().not.toMatchTypeOf<ParentUpdateArgs>();
+    }>().toMatchTypeOf<ParentUpdateArgs>();
     expectTypeOf<{
       where: { id: string };
       data: {
@@ -223,10 +226,10 @@ describe("Relation Types Integration Test", () => {
           };
         };
       };
-    }>().not.toMatchTypeOf<ParentUpdateArgs>();
+    }>().toMatchTypeOf<ParentUpdateArgs>();
   });
 
-  test("type: client upsert rejects unsupported nested mutation keys in update branch", () => {
+  test("type: client upsert accepts planned nested mutation keys in update branch", () => {
     type ParentUpsertArgs = Parameters<typeof client.parentModel.upsert>[0];
 
     expectTypeOf<{
@@ -251,18 +254,22 @@ describe("Relation Types Integration Test", () => {
           update: { where: { id: string }; data: { name?: string } };
         };
       };
-    }>().not.toMatchTypeOf<ParentUpsertArgs>();
+    }>().toMatchTypeOf<ParentUpsertArgs>();
   });
 
   test("type: client createMany rejects relation mutation envelopes", () => {
-    type ParentCreateManyArgs = Parameters<typeof client.parentModel.createMany>[0];
+    type ParentCreateManyArgs = Parameters<
+      typeof client.parentModel.createMany
+    >[0];
     type ParentCreateManyItem = ParentCreateManyArgs["data"][number];
 
     expectTypeOf<ParentCreateManyItem>().not.toHaveProperty("children");
   });
 
   test("type: createMany accepts scalar data and returns BatchPayload", () => {
-    type ParentCreateManyArgs = Parameters<typeof client.parentModel.createMany>[0];
+    type ParentCreateManyArgs = Parameters<
+      typeof client.parentModel.createMany
+    >[0];
     type ParentCreateManyResult = Awaited<
       ReturnType<typeof client.parentModel.createMany>
     >;
@@ -288,7 +295,9 @@ describe("Relation Types Integration Test", () => {
   });
 
   test("type: createMany rejects select and include", () => {
-    type ParentCreateManyArgs = Parameters<typeof client.parentModel.createMany>[0];
+    type ParentCreateManyArgs = Parameters<
+      typeof client.parentModel.createMany
+    >[0];
 
     expectTypeOf<ParentCreateManyArgs>().not.toHaveProperty("select");
     expectTypeOf<ParentCreateManyArgs>().not.toHaveProperty("include");
@@ -298,17 +307,17 @@ describe("Relation Types Integration Test", () => {
     type ParentGroupByArgs = Parameters<typeof client.parentModel.groupBy>[0];
 
     expectTypeOf<{ by: "status" }>().toMatchTypeOf<ParentGroupByArgs>();
-    expectTypeOf<{ by: ["status", "booleanRequired"] }>().toMatchTypeOf<
-      ParentGroupByArgs
-    >();
+    expectTypeOf<{
+      by: ["status", "booleanRequired"];
+    }>().toMatchTypeOf<ParentGroupByArgs>();
     expectTypeOf<{ by: "children" }>().not.toMatchTypeOf<ParentGroupByArgs>();
-    expectTypeOf<{ by: ["status", "children"] }>().not.toMatchTypeOf<
-      ParentGroupByArgs
-    >();
+    expectTypeOf<{
+      by: ["status", "children"];
+    }>().not.toMatchTypeOf<ParentGroupByArgs>();
   });
 
   test("oneToMany relation returns correctly typed children", async () => {
-    // Create parent with all field types
+    // Create parent with all scalar types
     const parent = await client.parentModel.create({
       data: {
         id: "parent-1",
@@ -373,7 +382,7 @@ describe("Relation Types Integration Test", () => {
     expect(Array.isArray(parentWithChildren.children)).toBe(true);
     expect(parentWithChildren.children.length).toBe(2);
 
-    // Verify child field types at runtime
+    // Verify child scalar types at runtime
     const child = parentWithChildren.children[0]!;
     expect(typeof child.id).toBe("string");
     expect(typeof child.name).toBe("string");
@@ -397,14 +406,14 @@ describe("Relation Types Integration Test", () => {
       }>
     >();
 
-    // Verify parent fields still have correct types
+    // Verify parent scalars still have correct types
     expect(parentWithChildren.stringRequired).toBe("hello");
     expect(parentWithChildren.intRequired).toBe(42);
     expect(parentWithChildren.booleanRequired).toBe(true);
     expect(parentWithChildren.status).toBe("ACTIVE");
   });
 
-  test("manyToOne relation returns correctly typed parent with all field types", async () => {
+  test("manyToOne relation returns correctly typed parent with all scalar types", async () => {
     // Query child with parent included
     const childWithParent = await client.childModel.findUnique({
       where: { id: "child-1" },
@@ -419,7 +428,7 @@ describe("Relation Types Integration Test", () => {
     // Verify parent is included
     expect(childWithParent.parent).toBeDefined();
 
-    // Verify parent field types at runtime
+    // Verify parent scalar types at runtime
     const parent = childWithParent.parent;
 
     // String types

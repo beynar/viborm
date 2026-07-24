@@ -1,0 +1,55 @@
+---
+title: Number
+description: Integer, float, and decimal scalar types with different precision characteristics
+icon: Hash
+---
+
+## Scalar Types
+
+| Scalar        | TypeScript | Precision              | Use for                                        |
+| ------------- | ---------- | ---------------------- | ---------------------------------------------- |
+| `s.int()`     | `number`   | Whole numbers          | Counts, IDs, quantities                        |
+| `s.float()`   | `number`   | Approximate            | Scientific data, coordinates, ratings          |
+| `s.decimal()` | `number`   | Exact                  | Money, percentages, anything you'd audit       |
+
+```ts
+import { s } from "viborm";
+
+s.int(); // Required integer
+s.float().nullable(); // number | null
+s.decimal().default(0); // With default
+```
+
+All three support the full [modifier reference](/docs/schema/scalars) (`.nullable()`, `.array()`, `.id()`, `.unique()`, `.default()`, `.schema()`, `.map()`). Column types (`SMALLINT`, `DECIMAL(10,2)`, unsigned variants, ...) are configured via [Native Types](/docs/schema/native-types).
+
+## Auto-Increment
+
+`s.int()` (and [`s.bigInt()`](/docs/schema/scalars/bigint)) support auto-incrementing primary keys:
+
+```ts
+s.int().id().increment(); // Auto-incrementing primary key
+```
+
+## Examples
+
+```ts
+import { pipe, number, minValue, maxValue } from "valibot";
+
+// Auto-incrementing ID
+const id = s.int().id().increment();
+
+// Age with validation
+const age = s.int().schema(pipe(number(), minValue(0), maxValue(150)));
+
+// Rating between 1-5
+const rating = s.float()
+  .nullable()
+  .schema(pipe(number(), minValue(1), maxValue(5)));
+
+// View counter with default
+const views = s.int().default(0);
+
+// Latitude/Longitude
+const lat = s.float();
+const lng = s.float();
+```

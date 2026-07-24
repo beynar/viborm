@@ -1,0 +1,159 @@
+---
+title: Native Types
+description: Override the default database column type of any scalar with database-specific native types
+icon: Database
+---
+
+Every scalar factory accepts an optional native type as its first argument to override the default column type:
+
+```ts
+import { s } from "viborm";
+import { PG, MYSQL, SQLITE } from "viborm/schema";
+
+s.string(PG.STRING.VARCHAR(255)); // varchar(255) instead of text
+s.string(MYSQL.STRING.LONGTEXT);  // LONGTEXT on MySQL
+s.json(PG.JSON.JSON);             // json instead of jsonb
+```
+
+A native type only applies when it matches the database you run against (`PG.*` on PostgreSQL, `MYSQL.*` on MySQL, `SQLITE.*` on SQLite); otherwise the default mapping below is used. This keeps schemas portable across databases.
+
+## Default Type Mapping
+
+Without a native type override, scalars map to these column types:
+
+| Scalar          | TypeScript      | PostgreSQL           | MySQL            | SQLite    |
+| --------------- | --------------- | -------------------- | ---------------- | --------- |
+| `s.string()`    | `string`        | `text`               | `TEXT`           | `TEXT`    |
+| `s.int()`       | `number`        | `integer`            | `INT`            | `INTEGER` |
+| `s.float()`     | `number`        | `double precision`   | `DOUBLE`         | `REAL`    |
+| `s.decimal()`   | `number`        | `numeric`            | `DECIMAL(65,30)` | `REAL`    |
+| `s.bigInt()`    | `bigint`        | `bigint`             | `BIGINT`         | `INTEGER` |
+| `s.boolean()`   | `boolean`       | `boolean`            | `TINYINT(1)`     | `INTEGER` |
+| `s.dateTime()`  | `Date`          | `timestamptz`        | `DATETIME(3)`    | `TEXT`    |
+| `s.date()`      | `Date`          | `date`               | `DATE`           | `TEXT`    |
+| `s.time()`      | `string`        | `timetz`             | `TIME(3)`        | `TEXT`    |
+| `s.json()`      | `unknown` / `T` | `jsonb`              | `JSON`           | `JSON`    |
+| `s.blob()`      | `Uint8Array`    | `bytea`              | `BLOB`           | `BLOB`    |
+| `s.enum([...])` | Union type      | Native enum type     | `ENUM(...)`      | `TEXT`    |
+| `s.vector()`    | `number[]`      | `vector(n)`          | `JSON`           | `JSON`    |
+
+`s.dateTime()` and `s.time()` default to timezone-aware columns on PostgreSQL; chain `.withoutTimezone()` for `timestamp` / `time`. `.array()` appends `[]` to the column type on PostgreSQL and stores as JSON on MySQL/SQLite.
+
+## String
+
+| Constant | Column type |
+| --- | --- |
+| `PG.STRING.TEXT` | `text` (default) |
+| `PG.STRING.VARCHAR(n)` | `varchar(n)` |
+| `PG.STRING.CHAR(n)` | `char(n)` |
+| `PG.STRING.CITEXT` | `citext` (case-insensitive) |
+| `PG.STRING.UUID` | `uuid` |
+| `PG.STRING.BIT(n)` / `PG.STRING.VARBIT(n?)` | `bit(n)` / `varbit(n)` |
+| `PG.STRING.XML` | `xml` |
+| `PG.STRING.INET` / `PG.STRING.CIDR` | `inet` / `cidr` |
+| `PG.STRING.MACADDR` / `PG.STRING.MACADDR8` | `macaddr` / `macaddr8` |
+| `PG.STRING.TSVECTOR` / `PG.STRING.TSQUERY` | `tsvector` / `tsquery` |
+| `MYSQL.STRING.VARCHAR(n)` | `VARCHAR(n)` |
+| `MYSQL.STRING.CHAR(n)` | `CHAR(n)` |
+| `MYSQL.STRING.TEXT` | `TEXT` (default) |
+| `MYSQL.STRING.TINYTEXT` / `MEDIUMTEXT` / `LONGTEXT` | `TINYTEXT` / `MEDIUMTEXT` / `LONGTEXT` |
+| `MYSQL.STRING.BIT(n)` | `BIT(n)` |
+| `SQLITE.STRING.TEXT` | `TEXT` (only option) |
+
+## Integer
+
+| Constant | Column type |
+| --- | --- |
+| `PG.INT.SMALLINT` | `smallint` |
+| `PG.INT.INTEGER` | `integer` (default) |
+| `PG.INT.OID` | `oid` |
+| `MYSQL.INT.TINYINT` / `TINYINT_UNSIGNED` | `TINYINT` / `TINYINT UNSIGNED` |
+| `MYSQL.INT.SMALLINT` / `SMALLINT_UNSIGNED` | `SMALLINT` / `SMALLINT UNSIGNED` |
+| `MYSQL.INT.MEDIUMINT` / `MEDIUMINT_UNSIGNED` | `MEDIUMINT` / `MEDIUMINT UNSIGNED` |
+| `MYSQL.INT.INT` / `INT_UNSIGNED` | `INT` (default) / `INT UNSIGNED` |
+| `MYSQL.INT.YEAR` | `YEAR` |
+| `SQLITE.INT.INTEGER` | `INTEGER` (only option) |
+
+## Float
+
+| Constant | Column type |
+| --- | --- |
+| `PG.FLOAT.REAL` | `real` |
+| `PG.FLOAT.DOUBLE_PRECISION` | `double precision` (default) |
+| `MYSQL.FLOAT.FLOAT` | `FLOAT` |
+| `MYSQL.FLOAT.DOUBLE` | `DOUBLE` (default) |
+| `SQLITE.FLOAT.REAL` | `REAL` (only option) |
+
+## Decimal
+
+| Constant | Column type |
+| --- | --- |
+| `PG.DECIMAL.DECIMAL(p?, s?)` | `decimal(p,s)` |
+| `PG.DECIMAL.NUMERIC(p?, s?)` | `numeric(p,s)` |
+| `PG.DECIMAL.MONEY` | `money` |
+| `MYSQL.DECIMAL.DECIMAL(p?, s?)` | `DECIMAL(p,s)` |
+| `MYSQL.DECIMAL.NUMERIC(p?, s?)` | `NUMERIC(p,s)` |
+| `SQLITE.DECIMAL.REAL` | `REAL` (default, no exact decimal) |
+| `SQLITE.DECIMAL.NUMERIC` | `NUMERIC` |
+
+## BigInt
+
+| Constant | Column type |
+| --- | --- |
+| `PG.BIGINT.BIGINT` | `bigint` |
+| `MYSQL.BIGINT.BIGINT` | `BIGINT` (signed) |
+| `MYSQL.BIGINT.BIGINT_UNSIGNED` | `BIGINT UNSIGNED` |
+| `SQLITE.BIGINT.INTEGER` | `INTEGER` |
+
+## Boolean
+
+| Constant | Column type |
+| --- | --- |
+| `PG.BOOLEAN.BOOLEAN` | `boolean` |
+| `MYSQL.BOOLEAN.TINYINT` | `TINYINT(1)` |
+| `SQLITE.BOOLEAN.INTEGER` | `INTEGER` (0/1) |
+
+## DateTime
+
+| Constant | Column type |
+| --- | --- |
+| `PG.DATETIME.TIMESTAMP(p?)` | `timestamp(p)` |
+| `PG.DATETIME.TIMESTAMPTZ(p?)` | `timestamptz(p)` |
+| `PG.DATETIME.DATE` | `date` |
+| `PG.DATETIME.TIME(p?)` / `TIMETZ(p?)` | `time(p)` / `timetz(p)` |
+| `PG.DATETIME.INTERVAL` | `interval` |
+| `MYSQL.DATETIME.DATETIME(p?)` | `DATETIME(p)` |
+| `MYSQL.DATETIME.TIMESTAMP(p?)` | `TIMESTAMP(p)` |
+| `MYSQL.DATETIME.DATE` / `TIME(p?)` | `DATE` / `TIME(p)` |
+| `SQLITE.DATETIME.TEXT` | `TEXT` (ISO format, default) |
+| `SQLITE.DATETIME.REAL` | `REAL` (Julian day) |
+| `SQLITE.DATETIME.INTEGER` | `INTEGER` (Unix timestamp) |
+
+## JSON
+
+| Constant | Column type |
+| --- | --- |
+| `PG.JSON.JSONB` | `jsonb` (binary, indexable, default) |
+| `PG.JSON.JSON` | `json` (text-based) |
+| `MYSQL.JSON.JSON` | `JSON` |
+| `SQLITE.JSON.TEXT` | `TEXT` |
+
+## Blob
+
+| Constant | Column type |
+| --- | --- |
+| `PG.BLOB.BYTEA` | `bytea` |
+| `MYSQL.BLOB.TINYBLOB` | `TINYBLOB` (max 255 B) |
+| `MYSQL.BLOB.BLOB` | `BLOB` (max 64 KB) |
+| `MYSQL.BLOB.MEDIUMBLOB` | `MEDIUMBLOB` (max 16 MB) |
+| `MYSQL.BLOB.LONGBLOB` | `LONGBLOB` (max 4 GB) |
+| `MYSQL.BLOB.BINARY(n)` / `VARBINARY(n)` | `BINARY(n)` / `VARBINARY(n)` |
+| `SQLITE.BLOB.BLOB` | `BLOB` |
+
+## Point (PostgreSQL only)
+
+| Constant | Column type |
+| --- | --- |
+| `PG.POINT.POINT` | `point` |
+| `PG.POINT.GEOMETRY_POINT` | `geometry(Point)` (PostGIS) |
+| `PG.POINT.GEOGRAPHY_POINT` | `geography(Point)` (PostGIS) |

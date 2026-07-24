@@ -2,13 +2,26 @@
   "title": "Client",
   "pages": [
     "index",
-    "queries",
-    "mutations",
-    "transactions",
+    "find-many",
+    "find-first",
+    "find-unique",
+    "exist",
+    "count",
+    "aggregate",
+    "group-by",
+    "create",
+    "create-many",
+    "update",
+    "update-many",
+    "upsert",
+    "delete",
+    "delete-many",
+    "nested-writes",
     "filtering",
-    "relations",
     "selecting",
     "sorting",
-    "pagination"
+    "pagination",
+    "transactions",
+    "compatibility"
   ]
 }

@@ -105,11 +105,7 @@ describe("bigint schema", () => {
     const schema = v.bigint({ array: true });
 
     test("validates array of bigints", () => {
-      const result = parse(schema, [
-        BigInt(1),
-        BigInt(2),
-        BigInt(3),
-      ]);
+      const result = parse(schema, [BigInt(1), BigInt(2), BigInt(3)]);
       expect(result.issues).toBeUndefined();
       expect((result as { value: bigint[] }).value).toEqual([
         BigInt(1),

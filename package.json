@@ -1,7 +1,7 @@
 {
   "name": "viborm",
   "version": "0.1.0",
-  "description": "Type-safe ORM for PostgreSQL and MySQL with Prisma-like API",
+  "description": "Type-safe ORM for PostgreSQL, MySQL, and SQLite with a Prisma-inspired API",
   "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
@@ -58,10 +58,6 @@
       "types": "./dist/d1.d.mts",
       "import": "./dist/d1.mjs"
     },
-    "./d1-http": {
-      "types": "./dist/d1-http.d.mts",
-      "import": "./dist/d1-http.mjs"
-    },
     "./bun-sqlite": {
       "types": "./dist/bun-sqlite.d.mts",
       "import": "./dist/bun-sqlite.mjs"
@@ -81,6 +77,14 @@
     "./migrations": {
       "types": "./dist/migrations.d.mts",
       "import": "./dist/migrations.mjs"
+    },
+    "./migrations/storage/fs": {
+      "types": "./dist/migrations/storage/fs.d.mts",
+      "import": "./dist/migrations/storage/fs.mjs"
+    },
+    "./config": {
+      "types": "./dist/config.d.mts",
+      "import": "./dist/config.mjs"
     },
     "./client": {
       "types": "./dist/client.d.mts",
@@ -113,13 +117,24 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:types": "vitest run tests/types/",
+    "test:types": "tsc --noEmit",
     "test:runtime": "vitest run tests/runtime/",
+    "test:gates": "vitest run tests/query-engine-v2/architecture-gates.test.ts tests/query-engine-v2/decline-surface-gate.test.ts tests/query-engine-v2/dead-symbol-gate.test.ts tests/query-engine-v2/parse-boundary-gate.test.ts",
+    "test:pg": "vitest run --no-file-parallelism tests/drivers/pg.test.ts tests/drivers/postgres.test.ts",
+    "test:pglite": "vitest run tests/drivers/pglite.test.ts",
+    "test:sqlite": "vitest run tests/drivers/sqlite3.test.ts tests/drivers/libsql.test.ts",
+    "test:mysql": "vitest run tests/drivers/mysql2.test.ts",
+    "test:drivers:local": "vitest run tests/drivers/pglite.test.ts tests/drivers/sqlite3.test.ts tests/drivers/libsql.test.ts",
     "type-check": "tsc --noEmit",
+    "bench": "vitest bench --run",
+    "bench:baseline": "vitest bench --run --outputJson benchmarks/baseline.json",
+    "bench:compare": "vitest bench --run --compare benchmarks/baseline.json",
     "db:run": "docker run -d --name baseorm -p 2222:5432 -e POSTGRES_DB=baseorm -e POSTGRES_PASSWORD=password postgres",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "package:build": "tsdown",
+    "test:package:error-names": "pnpm package:build && node tests/package-error-names-smoke.mjs",
+    "test:package:phase7": "pnpm package:build && node tests/package-error-names-smoke.mjs && node tests/package-otel-absent-smoke.mjs",
     "package:dev": "tsdown --watch",
     "size": "size-limit",
     "size:why": "size-limit --why"

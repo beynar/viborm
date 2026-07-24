@@ -5,10 +5,10 @@
  * Works directly with ModelState for full type context (including omit settings).
  */
 
-import type { Field, FieldState } from "@schema/fields";
 import type { Model, ModelState } from "@schema/model";
-import type { FieldRecord } from "@schema/model/helper";
+import type { ModelShape } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
+import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
 import type { EnumValues } from "@validation/primitives/enum";
@@ -18,7 +18,7 @@ import type { EnumValues } from "@validation/primitives/enum";
 // =============================================================================
 
 /**
- * Maps scalar field types to their DATABASE RESULT types.
+ * Maps VibORM scalar types to their DATABASE RESULT types.
  * This is what the ORM returns after querying the database.
  *
  * Key difference from validation schema output:
@@ -44,25 +44,25 @@ type ScalarResultTypeMap = {
 };
 
 /**
- * Extract the FieldState from a Field using infer to preserve literal types.
+ * Extract the ScalarState from a Scalar using infer to preserve literal types.
  */
-type ExtractFieldState<F> = F extends { "~": { state: infer S } }
-  ? S extends FieldState
+type ExtractScalarState<F> = F extends { "~": { state: infer S } }
+  ? S extends ScalarState
     ? S
     : never
   : never;
 
 /**
  * Get the base scalar type for a field, handling custom schemas.
- * For json/enum fields with custom schemas, infer from the schema.
+ * For json/enum scalars with custom schemas, infer from the schema.
  * For datetime fields, always return Date (regardless of validation schema output).
  *
  * Note: Enum types return `string` when accessed through relations due to type widening.
  * See BUG_REPORT_RELATION_TYPES.md Bug 1 for details.
  */
-type GetScalarResultType<F extends Field> =
-  ExtractFieldState<F> extends infer S
-    ? S extends FieldState
+type GetScalarResultType<F extends Scalar> =
+  ExtractScalarState<F> extends infer S
+    ? S extends ScalarState
       ? S["type"] extends "json"
         ? S["schema"] extends StandardSchemaV1<any, infer O>
           ? O
@@ -74,26 +74,26 @@ type GetScalarResultType<F extends Field> =
     : unknown;
 
 /**
- * Apply nullable wrapper based on field state.
+ * Apply nullable wrapper based on scalar state.
  * Uses non-distributive check to handle boolean literals correctly.
  */
 type ApplyNullable<T, Nullable> = [Nullable] extends [true] ? T | null : T;
 
 /**
- * Apply array wrapper based on field state.
+ * Apply array wrapper based on scalar state.
  * Uses non-distributive check to handle boolean literals correctly.
  */
 type ApplyArray<T, IsArray> = [IsArray] extends [true] ? T[] : T;
 
 /**
- * Infer the DATABASE RESULT type for a scalar field.
+ * Infer the DATABASE RESULT type for a scalar.
  *
- * This is the canonical helper for inferring output types from fields.
+ * This is the canonical helper for inferring output types from scalars.
  * It correctly handles:
  * - All scalar types with proper DB result mapping (datetime → Date)
- * - Custom schemas for json/enum fields
- * - Nullable fields
- * - Array fields
+ * - Custom schemas for json/enum scalars
+ * - Nullable scalars
+ * - Array scalars
  *
  * @example
  * // For s.dateTime().nullable() → Date | null
@@ -101,9 +101,9 @@ type ApplyArray<T, IsArray> = [IsArray] extends [true] ? T[] : T;
  * // For s.json().schema(z.object({...})) → { ... }
  */
 
-export type InferScalarOutput<F extends Field> =
-  ExtractFieldState<F> extends infer S
-    ? S extends FieldState
+export type InferScalarOutput<F extends Scalar> =
+  ExtractScalarState<F> extends infer S
+    ? S extends ScalarState
       ? ApplyNullable<
           ApplyArray<GetScalarResultType<F>, S["array"]>,
           S["nullable"]
@@ -158,14 +158,14 @@ export type InferModelOutput<S extends ModelState> =
   S["omit"] extends Record<string, true>
     ? Omit<
         {
-          [K in keyof S["scalars"]]: S["scalars"][K] extends Field
+          [K in keyof S["scalars"]]: S["scalars"][K] extends Scalar
             ? InferScalarOutput<S["scalars"][K]>
             : never;
         },
         keyof S["omit"]
       >
     : {
-        [K in keyof S["scalars"]]: S["scalars"][K] extends Field
+        [K in keyof S["scalars"]]: S["scalars"][K] extends Scalar
           ? InferScalarOutput<S["scalars"][K]>
           : never;
       };
@@ -209,36 +209,84 @@ export type InferRelationResult<R extends AnyRelation> = [
  * - neither: returns base model output
  */
 export type InferSelectInclude<S extends ModelState, Args> = Args extends {
-  select: infer Selection;
+  select: unknown;
+  include: unknown;
 }
-  ? InferSelectResult<S, Selection>
-  : Args extends { include: infer Include }
-    ? InferIncludeResult<S, Include>
-    : InferModelOutput<S>;
+  ? never
+  : Args extends { select: infer Selection }
+    ? InferSelectResult<S, Selection>
+    : Args extends { include: infer Include }
+      ? InferIncludeResult<S, Include>
+      : InferModelOutput<S>;
 
 /**
  * Result when select is provided - ONLY selected fields are returned
  */
-export type InferSelectResult<S extends ModelState, Selection> = Prettify<{
-  [K in keyof Selection & keyof S["fields"] as Selection[K] extends
-    | true
-    | object
-    ? K
-    : never]: S["fields"][K] extends Field
-    ? InferScalarOutput<S["fields"][K]>
-    : S["fields"][K] extends AnyRelation
+export type InferSelectResult<S extends ModelState, Selection> = Prettify<
+  InferSelectedFields<S, Selection> &
+    InferVectorDistanceSelection<S, Selection> &
+    InferRelationCountSelection<S, Selection>
+>;
+
+type InferSelectedFields<S extends ModelState, Selection> = {
+  [K in keyof Selection & keyof S["shape"] as S["shape"][K] extends Scalar
+    ? Selection[K] extends true
+      ? K
+      : never
+    : Selection[K] extends true | object
+      ? K
+      : never]: S["shape"][K] extends Scalar
+    ? InferScalarOutput<S["shape"][K]>
+    : S["shape"][K] extends AnyRelation
       ? Selection[K] extends true
-        ? InferRelationResult<S["fields"][K]>
+        ? InferRelationResult<S["shape"][K]>
         : Selection[K] extends { select: infer NS }
-          ? InferNestedSelectResult<S["fields"][K], NS>
+          ? InferNestedSelectResult<S["shape"][K], NS>
           : Selection[K] extends { include: infer NI }
-            ? InferNestedIncludeResult<S["fields"][K], NI>
+            ? InferNestedIncludeResult<S["shape"][K], NI>
             : Selection[K] extends object
               ? // Other object shapes (where, take, skip) - return base relation result
-                InferRelationResult<S["fields"][K]>
+                InferRelationResult<S["shape"][K]>
               : never
       : never;
-}>;
+};
+
+type VectorScalarFieldKeys<S extends ModelState> = {
+  [K in keyof S["shape"]]: S["shape"][K] extends Scalar
+    ? [ExtractScalarState<S["shape"][K]>] extends [ScalarState<"vector">]
+      ? K
+      : never
+    : never;
+}[keyof S["shape"]];
+
+type SelectedVectorDistanceKeys<S extends ModelState, Selection> = {
+  [K in keyof Selection & VectorScalarFieldKeys<S>]: Selection[K] extends {
+    _distance: unknown;
+  }
+    ? K
+    : never;
+}[keyof Selection & VectorScalarFieldKeys<S>];
+
+type InferVectorDistanceSelection<
+  S extends ModelState,
+  Selection,
+> = [SelectedVectorDistanceKeys<S, Selection>] extends [never]
+  ? {}
+  : { _distance: number };
+
+type InferRelationCountSelection<
+  S extends ModelState,
+  Selection,
+> = Selection extends { _count: { select: infer CountSelection } }
+  ? {
+      _count: {
+        [K in keyof CountSelection &
+          keyof S["relations"] as CountSelection[K] extends true | object
+          ? K
+          : never]: number;
+      };
+    }
+  : {};
 
 /**
  * Result when include is provided - base result + included relations
@@ -261,7 +309,7 @@ export type InferIncludeResult<S extends ModelState, Include> = Prettify<
                 InferRelationResult<S["relations"][K]>
               : never
       : never;
-  }
+  } & InferRelationCountSelection<S, Include>
 >;
 
 /**
@@ -291,23 +339,23 @@ export type InferNestedIncludeResult<R extends AnyRelation, NI> = [
 // =============================================================================
 
 /**
- * Extract scalar field keys from a FieldRecord
+ * Extract scalar keys from a ModelShape
  */
-type ScalarFieldKeys<T extends FieldRecord> = {
-  [K in keyof T]: T[K] extends Field ? K : never;
+type ScalarKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends Scalar ? K : never;
 }[keyof T];
 
 /**
- * Infer base type from a field for aggregates.
+ * Infer base type from a scalar for aggregates.
  * Uses InferScalarOutput for correct DB result types.
  */
-type InferFieldBase<F> = F extends Field ? InferScalarOutput<F> : never;
+type InferScalarBase<F> = F extends Scalar ? InferScalarOutput<F> : never;
 
 /**
  * Result type for aggregate operations
  * Dynamically typed based on which aggregates are requested
  */
-export type AggregateResultType<T extends FieldRecord, Args> = Prettify<{
+export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
   [K in keyof Args as K extends `_${string}` ? K : never]: K extends "_count"
     ? Args[K] extends true
       ? number
@@ -321,8 +369,8 @@ export type AggregateResultType<T extends FieldRecord, Args> = Prettify<{
       : K extends "_min" | "_max"
         ? Args[K] extends object
           ? {
-              [F in keyof Args[K]]: F extends ScalarFieldKeys<T>
-                ? InferFieldBase<T[F]> | null
+              [F in keyof Args[K]]: F extends ScalarKeys<T>
+                ? InferScalarBase<T[F]> | null
                 : never;
             }
           : never
@@ -337,17 +385,17 @@ export type AggregateResultType<T extends FieldRecord, Args> = Prettify<{
  * Result type for groupBy operations
  * Includes the grouped-by fields plus any requested aggregates
  */
-export type GroupByResultType<T extends FieldRecord, Args> = Args extends {
+export type GroupByResultType<T extends ModelShape, Args> = Args extends {
   by: infer B;
 }
   ? Prettify<
       // Grouped-by fields
       (B extends readonly (infer K)[]
-        ? K extends ScalarFieldKeys<T> & keyof T
-          ? { [F in K]: InferFieldBase<T[F]> }
+        ? K extends ScalarKeys<T> & keyof T
+          ? { [F in K]: InferScalarBase<T[F]> }
           : never
-        : B extends ScalarFieldKeys<T> & keyof T
-          ? { [F in B]: InferFieldBase<T[F]> }
+        : B extends ScalarKeys<T> & keyof T
+          ? { [F in B]: InferScalarBase<T[F]> }
           : never) &
         // Aggregate fields
         AggregateResultType<T, Args>

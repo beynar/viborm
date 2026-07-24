@@ -6,6 +6,7 @@
  */
 
 import { Command } from "commander";
+import { VIBORM_VERSION } from "../version";
 import { migrateCommand } from "./commands/migrate";
 import { pushCommand } from "./commands/push";
 
@@ -14,7 +15,7 @@ const program = new Command();
 program
   .name("viborm")
   .description("VibORM - Type-safe ORM for PostgreSQL, MySQL and SQLite")
-  .version("0.1.0");
+  .version(VIBORM_VERSION);
 
 // Register commands
 program.addCommand(pushCommand);

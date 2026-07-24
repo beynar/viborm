@@ -1,0 +1,102 @@
+import { createClient } from "@client/client";
+import { PGliteDriver } from "@drivers/pglite";
+import { PGlite } from "@electric-sql/pglite";
+import { push } from "@migrations";
+import { s } from "@schema";
+import { expect, test } from "vitest";
+import { createV2RoutedClient } from "./v2-client-proxy";
+
+test("nested update resolves a manyToOne target declared later", async () => {
+  const team = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      members: s.oneToMany(() => member),
+    })
+    .map("forward_team");
+  // This declaration order is the regression: member's FK target does not exist yet.
+  const member = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      teamId: s.string().nullable(),
+      team: s
+        .manyToOne(() => team)
+        .fields("teamId")
+        .references("id")
+        .optional(),
+      badgeId: s.int().nullable(),
+      badge: s
+        .manyToOne(() => badge)
+        .fields("badgeId")
+        .references("id")
+        .optional(),
+    })
+    .map("forward_member");
+  const badge = s
+    .model({
+      id: s.int().id().increment(),
+      code: s.string(),
+      members: s.oneToMany(() => member),
+    })
+    .map("forward_badge");
+  const schema = { team, member, badge };
+  const database = new PGlite();
+  const driver = new PGliteDriver({ client: database });
+  const baseClient = createClient({ schema, driver });
+
+  try {
+    await push(baseClient, { force: true });
+    await baseClient.team.create({ data: { id: "t1", name: "t1" } });
+    await baseClient.member.create({
+      data: { id: "m1", name: "m1", teamId: "t1" },
+    });
+
+    const fallbackClient: Record<
+      string,
+      Record<string, (args: Record<string, unknown>) => unknown>
+    > = new Proxy(
+      {},
+      {
+        get: (_target, modelName) => Reflect.get(baseClient, modelName),
+      }
+    );
+    const routed = createV2RoutedClient({
+      schema,
+      client: fallbackClient,
+      driver,
+    });
+    const updateTeam = routed.client.team?.update;
+    if (!updateTeam) {
+      throw new Error("V2 routed team.update is unavailable");
+    }
+    await updateTeam({
+      where: { id: "t1" },
+      data: {
+        members: {
+          update: {
+            where: { id: "m1" },
+            data: { name: "m1b", badge: { create: { code: "x" } } },
+          },
+        },
+      },
+    });
+
+    await expect(
+      baseClient.member.findUnique({ where: { id: "m1" } })
+    ).resolves.toMatchObject({
+      name: "m1b",
+      badgeId: 1,
+    });
+    await expect(baseClient.badge.findMany()).resolves.toMatchObject([
+      { id: 1, code: "x" },
+    ]);
+    expect(routed.routes).toContainEqual({
+      model: "team",
+      operation: "update",
+      engine: "v2",
+    });
+  } finally {
+    await baseClient.$disconnect();
+  }
+});

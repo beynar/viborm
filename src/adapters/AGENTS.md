@@ -29,11 +29,12 @@ Without adapters, we'd have `if (postgres) ... else if (mysql) ...` scattered ev
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `database-adapter.ts` | Interface & base implementation | ~800 |
-| `databases/postgres/postgres-adapter.ts` | PostgreSQL dialect | ~800 |
-| `databases/mysql/mysql-adapter.ts` | MySQL dialect | ~800 |
-| `databases/sqlite/sqlite-adapter.ts` | SQLite dialect | ~800 |
+| `database-adapter.ts` | Interface & base implementation | ~720 |
+| `databases/postgres/postgres-adapter.ts` | PostgreSQL dialect | ~570 |
+| `databases/mysql/mysql-adapter.ts` | MySQL dialect | ~620 |
+| `databases/sqlite/sqlite-adapter.ts` | SQLite dialect | ~570 |
 | `databases/*/migrations.ts` | DDL for each database | varies |
+| `shared/` | Cross-dialect helpers (standard SQL ops, SELECT/JSON assembly) | varies |
 
 ---
 
@@ -80,7 +81,7 @@ A change that works in PostgreSQL might break MySQL or SQLite. Always run the fu
 | Native arrays | ✅ | ❌ | ❌ | Use JSON columns |
 | JSON functions | ✅ | ✅ (8.0+) | ✅ (3.38+) | All supported |
 | ILIKE | ✅ | ❌ | ❌ | MySQL/SQLite: COLLATE |
-| NULLS FIRST/LAST | ✅ | ❌ | ❌ | Emulate with CASE |
+| NULLS FIRST/LAST | ✅ | ❌ | ❌ | Emulate with `(col IS NULL)` sort key |
 
 **Important:** When PostgreSQL has a feature others lack, the adapter must either emulate it or the capability check must prevent its use.
 

@@ -4,7 +4,7 @@
 
 This document was the execution plan for finishing the `fix-nested-create`
 branch. At the time this plan was written, operation schemas were hoisted onto
-fields, relations, and models through `["~"].schemas`, which prevented nested
+scalar definitions, relation definitions, and models through `["~"].schemas`, which prevented nested
 create from using full schema graph context to omit inverse foreign key fields
 correctly.
 
@@ -17,7 +17,7 @@ registry.proxy.user.relations.posts.create;
 ```
 
 The registry owns operation schemas. The schema layer owns database structure:
-models, fields, relations, names, constraints, and static metadata. This
+models, fields (scalars and relations), names, constraints, and static metadata. This
 separation lets relation schemas know the source model, target model, and inverse
 foreign key relation at the same time.
 
@@ -256,7 +256,7 @@ partial stub, and the `args`/`core` types are not consistently parameterized.
    `ArgsSchemas` type must pass that parameter everywhere. Do not erase it to
    `VibSchema` unless a boundary is intentionally runtime-only.
 
-4. Make core schema factories consume `fieldSchemas`, not hoisted field schemas.
+4. Make core schema factories consume `fieldSchemas`, not hoisted per-scalar/per-relation schemas.
 
    New code should prefer:
 
@@ -274,7 +274,7 @@ partial stub, and the `args`/`core` types are not consistently parameterized.
 5. Keep `CreateWithOmittedFk` intact in `src/validation/relations/create.ts`.
 
    This is the branch's core fix. It must still use target core create schemas
-   plus `GetInverseRelationFields<S, Source>`.
+   plus `GetInverseRelationMap<S, Source>`.
 
 6. Remove or quarantine scratch code in `src/validation/builder.ts`.
 
@@ -556,7 +556,7 @@ Remove the old duplicate schema system from `src/schema/`.
 
 - `src/schema/model/schemas/`
 - `src/schema/relation/schemas/`
-- `src/schema/fields/*/schemas.ts`
+- `src/schema/scalars/*/schemas.ts`
 
 ### Files to modify
 
@@ -564,9 +564,9 @@ Remove the old duplicate schema system from `src/schema/`.
 - `src/schema/relation/to-one.ts`
 - `src/schema/relation/to-many.ts`
 - `src/schema/relation/many-to-many.ts`
-- `src/schema/fields/*/field.ts`
-- `src/schema/fields/base.ts`
-- `src/schema/fields/common.ts`
+- `src/schema/scalars/*/scalar.ts`
+- `src/schema/scalars/base.ts`
+- `src/schema/scalars/common.ts`
 - `src/schema/validation/rules/model.ts`
 - `src/validation/constraints/id.ts`
 - `src/validation/constraints/unique.ts`
@@ -574,15 +574,15 @@ Remove the old duplicate schema system from `src/schema/`.
 
 ### Work
 
-1. Remove `schemas` from field internals.
+1. Remove `schemas` from scalar internals.
 
-   Fields should keep:
+   Scalars should keep:
 
    - state
-   - base primitive schema in `FieldState["base"]`
+   - base primitive schema in `ScalarState["base"]`
    - database metadata such as nullable, array, id, default, column name
 
-   Fields should not expose operation schemas such as `create`, `update`, or
+   Scalars should not expose operation schemas such as `create`, `update`, or
    `filter`.
 
 2. Remove `schemas` from relation internals.
@@ -625,10 +625,10 @@ tests being deliberately updated in later phases.
 
 ### Pass criteria
 
-- No operation schemas are exposed through `field["~"]`, `relation["~"]`, or
+- No operation schemas are exposed through `scalar["~"]`, `relation["~"]`, or
   `model["~"]`.
 - Old schema directories are gone.
-- Schema definition remains reusable: the same field instance can be reused in
+- Schema definition remains reusable: the same scalar instance can be reused in
   two models without name/schema leakage.
 - Definition-time validation still works from state and base schemas.
 
@@ -707,9 +707,8 @@ Verify the branch's original bug is fixed at both type and runtime levels.
 - `tests/model/args/nested-args.test.ts`
 - `tests/model/create/relation-create.test.ts`
 - `tests/client/relation-types.test.ts`
-- `src/query-engine/builders/nested-create-builder.ts`
 - `src/query-engine/builders/relation-data-builder.ts`
-- `src/query-engine/operations/nested-writes.ts`
+- `src/query-engine/operations/nested-writes/create.ts`
 
 ### Required test cases
 
@@ -763,7 +762,7 @@ Remove stale references to the old architecture and make the branch mergeable.
 ### Files to modify
 
 - `src/schema/AGENTS.md`
-- `src/schema/fields/AGENTS.md`
+- `src/schema/scalars/AGENTS.md`
 - `src/schema/model/schemas/AGENTS.md` or delete if directory is removed
 - `src/query-engine/AGENTS.md`
 - `src/client/AGENTS.md`
@@ -778,7 +777,7 @@ Remove stale references to the old architecture and make the branch mergeable.
 
    New rule:
 
-   - Schema layer owns structure and base field schemas.
+   - Schema layer owns structure and base scalar schemas.
    - Validation registry owns operation schemas.
    - Client/query-engine use the registry for operation validation.
 

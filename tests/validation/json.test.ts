@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { parse, type JsonValue, v } from "@validation";
+import { type JsonValue, parse, v } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("json schema", () => {
@@ -214,11 +214,7 @@ describe("json schema", () => {
 
     test("array of json", () => {
       const arraySchema = v.json({ array: true });
-      const result = parse(arraySchema, [
-        { a: 1 },
-        { b: 2 },
-        "string",
-      ]);
+      const result = parse(arraySchema, [{ a: 1 }, { b: 2 }, "string"]);
       expect(result.issues).toBeUndefined();
     });
   });

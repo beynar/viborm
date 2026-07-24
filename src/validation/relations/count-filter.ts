@@ -2,7 +2,7 @@
 // Schema for _count filtering - accepts true or { where: ... }
 
 import type { RelationState } from "@schema/relation/types";
-import v, { type V } from "@validation";
+import v, { type V } from "../primitives/v";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 
 /**

@@ -1,10 +1,10 @@
 ---
 title: Internals Overview
-description: The 10-layer architecture transforming type-safe schema definitions into database queries without code generation
+description: The 12-layer architecture transforming type-safe schema definitions into database queries without code generation
 icon: Layers
 ---
 
-## The 10-Layer Architecture
+## The 12-Layer Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -16,7 +16,7 @@ icon: Layers
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  L1: Validation       │ v.* primitives, Standard Schema V1, registry     │
 ├───────────────────────┼─────────────────────────────────────────────────┤
-│  L2: Fields           │ Field classes with State generic pattern        │
+│  L2: Scalars          │ Scalar classes with State generic pattern        │
 ├───────────────────────┼─────────────────────────────────────────────────┤
 │  L3: Operation Schemas│ where, create, update, args schema generation   │
 ├───────────────────────┼─────────────────────────────────────────────────┤
@@ -32,7 +32,11 @@ icon: Layers
 ├───────────────────────┼─────────────────────────────────────────────────┤
 │  L9: Client           │ Type-safe ORM interface via recursive proxies   │
 ├───────────────────────┼─────────────────────────────────────────────────┤
-│  L10: Migrations      │ Schema diffing and database synchronization     │
+│  L10: Cache           │ Query caching, invalidation, and SWR             │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L11: Instrumentation │ Tracing, structured logging, and diagnostics     │
+├───────────────────────┼─────────────────────────────────────────────────┤
+│  L12: Migrations      │ Schema diffing and database synchronization     │
 └───────────────────────┴─────────────────────────────────────────────────┘
 ```
 
@@ -40,8 +44,8 @@ icon: Layers
 
 | Layer | Location | Owns | Doesn't Own |
 |-------|----------|------|-------------|
-| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` | Field logic, domain rules |
-| **L2: Fields** | `src/schema/fields/` | Field classes, State generics | Query schemas |
+| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` | Scalar logic, domain rules |
+| **L2: Scalars** | `src/schema/scalars/` | Scalar classes, State generics | Query schemas |
 | **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation |
 | **L4: Relations** | `src/schema/relation/` | Relation types, nested schemas | Query execution |
 | **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation | Runtime validation |
@@ -49,7 +53,9 @@ icon: Layers
 | **L7: Adapters** | `src/adapters/` | **Database-specific SQL** | Query logic |
 | **L8: Drivers** | `src/drivers/` | Connection, execution | Query building |
 | **L9: Client** | `src/client/` | Result types, proxies | Query construction |
-| **L10: Migrations** | `src/migrations/` | Schema diffing, push | Schema definition |
+| **L10: Cache** | `src/cache/` | Query caching, invalidation | Query execution |
+| **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging, diagnostics | Query logic |
+| **L12: Migrations** | `src/migrations/` | Schema sync, migration files, DDL | Schema definition |
 
 ## Why This Architecture?
 
@@ -94,7 +100,7 @@ So we built our own validation layer using **thunks + lazy evaluation** (inspire
 ```
 User writes:           s.string().nullable()
                               ↓
-L2: Field creates:     StringField<{type: "string", nullable: true}>
+L2: Scalar creates:     StringScalar<{type: "string", nullable: true}>
                               ↓
 L1: Schema factory:    v.string({nullable: true})  (lazy, on first access)
                               ↓
@@ -103,7 +109,7 @@ Type inference:        InferInput<schema> → string | null
 L9: Client uses:       orm.user.findMany({ where: { name: ... }})  // Fully typed!
 ```
 
-**Key insight:** Types flow DOWN through this chain. If types are wrong at the client level, the bug is upstream in schema or field definition.
+**Key insight:** Types flow DOWN through this chain. If types are wrong at the client level, the bug is upstream in schema or scalar definition.
 
 ## The Golden Rule
 
@@ -126,14 +132,17 @@ This is the most important architectural boundary. The query engine decides **WH
 | Layer | Purpose |
 |-------|---------|
 | [L1: Validation](/docs/internals/validation) | Recursive schemas via thunks + lazy evaluation |
-| [L2: Fields](/docs/internals/fields) | Field types with State generic for type tracking |
+| [L2: Scalars](/docs/internals/scalars) | Scalar types with State generic for type tracking |
 | [L3: Operation Schemas](/docs/internals/query-schemas) | Registry schema generation for where/create/update |
 | [L4: Relations](/docs/internals/relations) | Model relationships with thunks for circular refs |
+| [L5: Schema Validation](/docs/internals/schema-validation) | Definition-time structural correctness checks |
 | [L6: Query Engine](/docs/internals/query-engine) | Database-agnostic query structure |
 | [L7: Adapters](/docs/internals/adapters) | Database-specific SQL dialects |
 | [L8: Drivers](/docs/internals/drivers) | Connection management and execution |
 | [L9: Client](/docs/internals/client) | The public `orm.model.operation()` API |
-| [L10: Migrations](/docs/internals/migrations) | Schema diffing and synchronization |
+| [L10: Cache](/docs/internals/cache) | Query result caching and invalidation |
+| [L11: Instrumentation](/docs/internals/instrumentation) | Tracing, logging, and diagnostics |
+| [L12: Migrations](/docs/internals/migrations) | Schema diffing and synchronization |
 
 ## Next Steps
 

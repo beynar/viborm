@@ -22,15 +22,15 @@ describe("Count Args - Types", () => {
     expectTypeOf<{ where?: { active?: boolean } }>().toMatchTypeOf<Input>();
   });
 
-  test("type: has optional cursor", () => {
-    expectTypeOf<{ cursor?: { id?: string } }>().toMatchTypeOf<Input>();
+  test("type: has optional orderBy", () => {
+    expectTypeOf<{
+      orderBy?: { name?: "asc" | "desc" };
+    }>().toMatchTypeOf<Input>();
   });
 
-  test("type: has optional take", () => {
+  test("type: has optional pagination", () => {
+    expectTypeOf<{ cursor?: { id: string } }>().toMatchTypeOf<Input>();
     expectTypeOf<{ take?: number }>().toMatchTypeOf<Input>();
-  });
-
-  test("type: has optional skip", () => {
     expectTypeOf<{ skip?: number }>().toMatchTypeOf<Input>();
   });
 });
@@ -58,6 +58,38 @@ describe("Count Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test("runtime: accepts with orderBy", () => {
+    const result = parse(schema, {
+      orderBy: { name: "asc" },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts with orderBy array", () => {
+    const result = parse(schema, {
+      orderBy: [{ active: "desc" }, { name: "asc" }],
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: rejects invalid pagination values", () => {
+    expect(parse(schema, { take: 1.5 }).issues?.[0]?.message).toBe(
+      "Expected integer"
+    );
+    expect(parse(schema, { skip: 1.5 }).issues?.[0]?.message).toBe(
+      "Expected integer"
+    );
+    expect(parse(schema, { skip: -1 }).issues?.[0]?.message).toBe(
+      "Transform failed: skip must be greater than or equal to 0"
+    );
+    expect(parse(schema, { take: Number.NaN }).issues?.[0]?.message).toBe(
+      "Expected integer"
+    );
+    expect(
+      parse(schema, { take: Number.POSITIVE_INFINITY }).issues?.[0]?.message
+    ).toBe("Expected integer");
+  });
+
   test("runtime: accepts with cursor", () => {
     const result = parse(schema, {
       cursor: { id: "user-123" },
@@ -65,33 +97,48 @@ describe("Count Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test("runtime: rejects invalid orderBy", () => {
+    const result = parse(schema, {
+      orderBy: { unknown: "asc" },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
   test("runtime: accepts all options", () => {
     const result = parse(schema, {
       where: { active: true },
+      orderBy: { name: "asc" },
       cursor: { id: "user-123" },
       take: 100,
       skip: 10,
+      select: { _all: true },
     });
     expect(result.issues).toBeUndefined();
   });
 
-  test("output: preserves count args correctly (with normalization)", () => {
+  test("output: preserves count args correctly", () => {
     const result = parse(schema, {
       where: { active: true },
+      orderBy: { name: "asc" },
       take: 100,
       skip: 10,
+      select: { _all: true },
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
       const value = result.value as {
         where: unknown;
+        orderBy: unknown;
         take: number;
         skip: number;
+        select: unknown;
       };
       // Filter values are normalized to { equals: value }
       expect(value.where).toEqual({ active: { equals: true } });
+      expect(value.orderBy).toEqual({ name: "asc" });
       expect(value.take).toBe(100);
       expect(value.skip).toBe(10);
+      expect(value.select).toEqual({ _all: true });
     }
   });
 });
@@ -107,12 +154,15 @@ describe("Aggregate Args - Types", () => {
     expectTypeOf<Input>().toHaveProperty("where");
   });
 
-  test("type: has optional orderBy", () => {
-    expectTypeOf<Input>().toHaveProperty("orderBy");
-  });
-
   test("type: has optional _count", () => {
     expectTypeOf<Input>().toHaveProperty("_count");
+  });
+
+  test("type: has optional order and pagination", () => {
+    expectTypeOf<Input>().toHaveProperty("orderBy");
+    expectTypeOf<Input>().toHaveProperty("cursor");
+    expectTypeOf<Input>().toHaveProperty("take");
+    expectTypeOf<Input>().toHaveProperty("skip");
   });
 });
 

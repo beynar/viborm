@@ -9,7 +9,7 @@
  * related data. BigInt values in JSON lose precision because JSON numbers
  * are limited to Number.MAX_SAFE_INTEGER (2^53 - 1).
  *
- * The fix: Cast BigInt fields to TEXT in SQL before JSON aggregation,
+ * The fix: Cast BigInt scalar columns to TEXT in SQL before JSON aggregation,
  * then convert back to BigInt during result parsing.
  */
 
@@ -38,7 +38,7 @@ const SAFE_BIGINT = 9007199254740991n; // MAX_SAFE_INTEGER
 const author = s.model({
   id: s.string().id(),
   name: s.string(),
-  // BigInt fields that will be fetched through relations
+  // BigInt scalars that will be fetched through relations
   followerCount: s.bigInt(),
   totalViews: s.bigInt().nullable(),
   posts: s.oneToMany(() => post),
@@ -47,7 +47,7 @@ const author = s.model({
 const post = s.model({
   id: s.string().id(),
   title: s.string(),
-  // BigInt field on the child model
+  // BigInt scalar on the child model
   viewCount: s.bigInt(),
   likeCount: s.bigInt().nullable(),
   // Foreign key

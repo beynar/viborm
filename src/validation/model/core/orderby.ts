@@ -1,60 +1,119 @@
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
-import v, { type V } from "@validation";
-import type { FieldSchemas } from "../index";
+import type { ScalarState } from "@schema/scalars";
+import { createSchema, fail } from "../../primitives/helpers";
+import v, { type V } from "../../primitives/v";
+import type { VibSchema } from "../../types";
+import type { ScalarSchemas } from "../index";
 
 const orderEnum = v.enum(["asc", "desc"]);
+const vectorDistanceMetricSchema = v.enum(["l2", "cosine"]);
+const forbiddenOrderByKeySchema = (key: string): VibSchema<never, never> => {
+  return createSchema<never, never>("forbidden_orderby_key", () =>
+    fail(`OrderBy key '${key}' is not valid here.`)
+  );
+};
 
-type OrderEnum = V.Enum<["asc", "desc"]>;
-
-type SortOrderSchema = V.Union<
-  readonly [
-    OrderEnum,
-    V.Object<
-      {
-        sort: OrderEnum;
-        nulls: V.Enum<["first", "last"]>;
-      },
-      { partial: false }
-    >,
-  ]
->;
 export const sortOrderSchema = v.union([
   orderEnum,
   v.object(
     {
       sort: orderEnum,
-      nulls: v.enum(["first", "last"], { optional: true }),
+      nulls: v.enum(["first", "last"]),
+      _distance: forbiddenOrderByKeySchema("_distance"),
     },
-    { partial: false }
+    { atLeast: ["sort"] }
   ),
 ]);
+export type SortOrderSchema = typeof sortOrderSchema;
+
+export const vectorDistanceOrderSchema = v.object(
+  {
+    _distance: v.object(
+      {
+        to: v.array(v.number()),
+        metric: vectorDistanceMetricSchema,
+        sort: orderEnum,
+      },
+      { atLeast: ["to", "metric"] }
+    ),
+    sort: forbiddenOrderByKeySchema("sort"),
+    nulls: forbiddenOrderByKeySchema("nulls"),
+  },
+  { atLeast: ["_distance"] }
+);
+export type VectorDistanceOrderSchema = typeof vectorDistanceOrderSchema;
+
+export const vectorSortOrderSchema = v.union([
+  sortOrderSchema,
+  vectorDistanceOrderSchema,
+]);
+export type VectorSortOrderSchema = typeof vectorSortOrderSchema;
 
 /**
  * Build orderBy schema - sort direction for each scalar field and nested relation ordering
  */
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
+type ModelScalars<M extends AnyModel> = ModelStateOf<M>["scalars"];
+type ModelScalarKey<M extends AnyModel> = StringKeyOf<ModelScalars<M>>;
+type ScalarStateOf<F> = F extends { "~": { state: infer S } }
+  ? S extends ScalarState
+    ? S
+    : never
+  : never;
+type VectorScalarKeys<M extends AnyModel> = {
+  [K in keyof ModelScalars<M>]: ScalarStateOf<
+    ModelScalars<M>[K]
+  >["type"] extends "vector"
+    ? K extends string
+      ? K
+      : never
+    : never;
+}[keyof ModelScalars<M>];
+type NonVectorScalarKeys<M extends AnyModel> = Exclude<
+  ModelScalarKey<M>,
+  VectorScalarKeys<M>
+>;
 
 export type OrderBySchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
-  V.FromKeys<StringKeyOf<ModelStateOf<M>["scalars"]>[], SortOrderSchema>["entries"] &
+  V.FromKeys<NonVectorScalarKeys<M>[], SortOrderSchema>["entries"] &
+    V.FromKeys<VectorScalarKeys<M>[], VectorSortOrderSchema>["entries"] &
     V.FromObject<F["relations"], "orderBy">["entries"]
 >;
 export const getOrderBySchema = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
-  fieldSchemas: F,
+  model: M,
+  fieldSchemas: F
 ): OrderBySchema<M, F> => {
-  const scalarKeys = Object.keys(fieldSchemas.scalars) as StringKeyOf<
-    ModelStateOf<M>["scalars"]
-  >[];
+  const vectorScalarKeys: VectorScalarKeys<M>[] = [];
+  const nonVectorScalarKeys: NonVectorScalarKeys<M>[] = [];
+
+  const scalarKeys = Object.keys(
+    model["~"].state.scalars
+  ) as ModelScalarKey<M>[];
+
+  for (const fieldName of scalarKeys) {
+    const scalar = model["~"].state.scalars[fieldName];
+    if (scalar["~"].state.type === "vector") {
+      vectorScalarKeys.push(fieldName as VectorScalarKeys<M>);
+      continue;
+    }
+    nonVectorScalarKeys.push(fieldName as NonVectorScalarKeys<M>);
+  }
+
   const scalarEntries = v.fromKeys<
-    StringKeyOf<ModelStateOf<M>["scalars"]>[],
+    NonVectorScalarKeys<M>[],
     typeof sortOrderSchema
-  >(scalarKeys, sortOrderSchema);
+  >(nonVectorScalarKeys, sortOrderSchema);
+  const vectorEntries = v.fromKeys<
+    VectorScalarKeys<M>[],
+    typeof vectorSortOrderSchema
+  >(vectorScalarKeys, vectorSortOrderSchema);
 
   const relationEntries = v.fromObject<F["relations"], "orderBy">(
     fieldSchemas.relations,
@@ -63,6 +122,7 @@ export const getOrderBySchema = <
 
   return v.object({
     ...scalarEntries.entries,
+    ...vectorEntries.entries,
     ...relationEntries.entries,
   });
 };

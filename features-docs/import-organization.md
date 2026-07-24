@@ -13,14 +13,14 @@
 
 ### 1. Schema Definition (`viborm/schema`)
 
-**Purpose**: Define models, fields, relations
+**Purpose**: Define models, scalars, and relations
 
 ```typescript
 import { s, PG, MYSQL, SQLITE } from "viborm/schema";
 ```
 
 **Exports:**
-- `s` - Schema builder (model, fields, relations)
+- `s` - Schema builder (models, scalars, relations)
 - `PG` / `MYSQL` / `SQLITE` - Native database types
 
 **File:** `src/schema/exports.ts` → `viborm/schema`
@@ -67,7 +67,6 @@ import { PlanetScaleDriver } from "viborm/planetscale";
 import { SQLite3Driver } from "viborm/sqlite3";
 import { LibSQLDriver } from "viborm/libsql";
 import { D1Driver } from "viborm/d1";
-import { D1HTTPDriver } from "viborm/d1-http";
 import { BunSQLiteDriver } from "viborm/bun-sqlite";
 ```
 
@@ -166,7 +165,6 @@ import type {
 | `viborm/sqlite3` | better-sqlite3 | `SQLite3Driver` |
 | `viborm/libsql` | LibSQL/Turso | `LibSQLDriver` |
 | `viborm/d1` | Cloudflare D1 | `D1Driver` |
-| `viborm/d1-http` | D1 HTTP API | `D1HTTPDriver` |
 | `viborm/bun-sqlite` | Bun SQLite | `BunSQLiteDriver` |
 | `viborm/driver` | Driver base | `Driver`, types |
 | `viborm/cache` | Cache types | `CacheDriver`, `generateCacheKey` |
@@ -205,7 +203,6 @@ export default defineConfig({
     sqlite3: "./src/drivers/sqlite3/index.ts",
     libsql: "./src/drivers/libsql/index.ts",
     d1: "./src/drivers/d1/index.ts",
-    "d1-http": "./src/drivers/d1-http/index.ts",
     "bun-sqlite": "./src/drivers/bun-sqlite/index.ts",
     
     // Cache
@@ -286,10 +283,6 @@ export default defineConfig({
       "types": "./dist/d1.d.ts",
       "import": "./dist/d1.mjs"
     },
-    "./d1-http": {
-      "types": "./dist/d1-http.d.ts",
-      "import": "./dist/d1-http.mjs"
-    },
     "./bun-sqlite": {
       "types": "./dist/bun-sqlite.d.ts",
       "import": "./dist/bun-sqlite.mjs"
@@ -335,11 +328,11 @@ export default defineConfig({
 export { s } from "./index";
 
 // Native types (directly exported, no separate subpath)
-export { PG, MYSQL, SQLITE, type NativeType } from "./fields/native-types";
+export { PG, MYSQL, SQLITE, type NativeType } from "./scalars/native-types";
 
-// Model and field types for advanced usage
+// Model and scalar types for advanced usage
 export type { Model, ModelState, AnyModel } from "./model";
-export type { Field, NumberField } from "./fields";
+export type { Scalar, NumberScalar } from "./scalars";
 export type { AnyRelation, Getter, ReferentialAction, RelationType } from "./relation";
 
 // Hydration utilities (for library authors)
@@ -365,11 +358,10 @@ export type {
 } from "./driver";
 
 export type {
+  BatchQuery,
   Dialect,
-  IsolationLevel,
   LogFunction,
   QueryResult,
-  TransactionOptions,
 } from "./types";
 
 // Errors (commonly needed with drivers)

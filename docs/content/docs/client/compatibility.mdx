@@ -1,0 +1,104 @@
+---
+title: Compatibility
+description: What's supported, and how VibORM intentionally differs from Prisma
+icon: ListChecks
+---
+
+# Compatibility
+
+VibORM's API is Prisma-inspired, but it is **not** a drop-in replacement. This page lists what's supported, the operations that intentionally differ, and the handful of behaviors that vary by database.
+
+Everything in the API works the same on every database unless noted under [Database differences](#database-differences).
+
+## Operations
+
+| Operation | Status | Notes |
+|-----------|--------|-------|
+| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). |
+| `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
+| `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
+| `create` | ✅ | Scalar data and nested writes. |
+| `createMany` / `createManyAndReturn` | ✅ | Returns `{ count }` (or the created rows). Relation nesting isn't supported inside `createMany`. |
+| `update` / `updateMany` / `updateManyAndReturn` | ✅ | `update` requires a unique `where` and throws when missing; the `Many` forms return `{ count }` (or rows). |
+| `upsert` | ✅ | Requires unique `where`, `create`, and `update`. |
+| `delete` / `deleteMany` | ✅ | `delete` requires a unique `where` and throws when missing; `deleteMany` returns `{ count }`. |
+| `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. |
+| `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
+| `$queryRaw` / `$executeRaw` | Different | Take an explicit `(sql, params)` / `Sql` fragment rather than Prisma's tagged template. See [Raw SQL differences](#type-and-api-differences). |
+
+## Relation filters
+
+| Relation | Filters | Notes |
+|----------|---------|-------|
+| To-one (`oneToOne`, `manyToOne`) | `is`, `isNot` | Filters against the related model's `where`. Pass `null` to match records with no relation. |
+| To-many (`oneToMany`, `manyToMany`) | `some`, `every`, `none` | `every` also matches records with no related rows; combine with `some: {}` when you need at least one. |
+
+## Nested writes
+
+Nested writes are supported inside `create`, `update`, and both branches of `upsert`. What you can nest depends on the context — you can't update or delete a related record inside a `create`, because there's nothing to update yet.
+
+| In a… | create | createMany | connect | connectOrCreate | disconnect | delete | set | update | updateMany | upsert | deleteMany |
+|-------|--------|-----------|---------|-----------------|-----------|--------|-----|--------|-----------|--------|-----------|
+| `create` (or `upsert` create branch) | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — | — | — |
+| `update` (or `upsert` update branch) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+`createMany`, `updateMany`, and `deleteMany` apply to to-many relations only. For a to-one relation use `create`, `update`, and `delete: true`.
+
+**Shapes:**
+
+| Relation | Shape |
+|----------|-------|
+| To-one `update` | `update: { ...data }` |
+| To-many `update` | `update: { where, data }` (or an array of them) |
+| To-one `upsert` | `upsert: { create, update }` |
+| To-many `upsert` | `upsert: { where, create, update }` (or an array) |
+| To-many `updateMany` | `updateMany: { where?, data }` (or an array) |
+| To-many `deleteMany` | `deleteMany: where` (or an array) |
+
+**Behavior:**
+
+- A nested `update` or `delete` with a specific target throws if that record isn't found (or belongs to another parent).
+- Nested `updateMany` and `deleteMany` may match zero rows without throwing.
+- A nested `upsert` creates only when nothing matches `where`; if the match belongs to another parent, it's rejected rather than stolen or duplicated.
+- You can't `disconnect`, empty-`set`, or otherwise orphan records on a **required** relation.
+- `createMany` with `skipDuplicates` rejects a row containing only database-owned defaults before any parent or child write.
+
+**Planned superset — nested `upsert` under `create`:** Prisma has no `upsert` in a create input, and the current engine rejects it. VibORM's input surface accepts it as a deliberate superset with **global-lookup, adopt-and-update** semantics — the target is located by its own unique `where`, an existing row is adopted (reparented) and `update`d, and a missing row is created under the new parent. This completes the adopt family that `connect`/`connectOrCreate` already provide under `create`. It becomes executable only when the create tree routes to the query-engine-v2 path; until then it still rejects, so there is no mid-migration behavior change.
+
+**No engine depth limit — deep write subtrees at any depth (the depth lift, finished in X1b):** a nested `create` under a located target (inside an `update`, or inside an `upsert` update branch) is a create SUBTREE that folds recursively to any depth, and a relation-carrying fresh child now runs the *full* create-root machinery at every level — for example `post.update({ where, data: { author: { update: { posts: { create: { title, comments: { create: { body, … } } } } } } } })`. Every fresh row becomes the parent of its own nested writes, and **every mechanism the top-level `create` supports is available at any depth**: a database-generated or compound primary key on a fresh child (its produced id threads to its own grandchildren), a parent-held to-one written before its fresh holder, the fresh-parent adopt family (`connect` / `connectOrCreate` / `upsert`), a `createMany` with `skipDuplicates`, and many-to-many through the junction. These execute natively, byte-identically on transaction and batch substrates. Semantic rules are unchanged at every depth: a create-then-`connectOrCreate` on the same key still rejects with "Split these operations into separate queries", and validation still rejects unknown keys, wherever they appear in the tree.
+
+**The only depth ceiling is the TypeScript compiler's, not the engine's.** Inferring a deeply-nested *literal* payload is a type-instantiation cost: a rich per-level literal (a `children.create` plus a parent-held create plus an M2M create at each level) type-checks to ~31 levels and then raises TS2321 "Excessive stack depth comparing types". That is a DX limit on the client *input* inference, far past any hand-written payload; the runtime carries no depth counter and folds deeper. If you ever build a payload past that ceiling, construct it programmatically (a plain object, widened to the input type) so the compiler never infers the deep literal — the engine executes it unchanged (a 40-level chain is exercised in the test estate). One shape is still one level short at a *located* target and routes as a typed refusal (a distinct upcoming mechanism, the located-`update` projection of child-SET folding — not a depth limit): a deeper parent-held to-one, or a non-primary-key / compound reference, of an existing row being updated.
+
+## Database differences
+
+The API is provider-agnostic. Remaining differences are limited to features
+whose underlying data model is not shared by every database:
+
+Portable string `mode: "insensitive"` folds ASCII `A`-`Z` only on every
+database. Non-ASCII code points remain exact, so behavior does not depend on a
+database's locale or ICU installation.
+
+| Behavior | Difference |
+|----------|-----------|
+| Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** support batch mode only. Cloudflare D1 support uses the binding because its `batch()` primitive provides the required atomic boundary. See [Transactions](/docs/client/transactions). |
+| Vector / geospatial | PostgreSQL with the relevant extension enabled; unsupported (and clearly errors) elsewhere. |
+
+JSON filter paths use one portable grammar. Segments containing `"` or `\`
+reject before SQL generation on every database; they never degrade to an empty
+result on one provider.
+
+New MySQL 8 tables use the binary, no-pad `utf8mb4_0900_bin` collation so
+string keys preserve case, accents, and trailing spaces like PostgreSQL and
+SQLite. Existing tables require the explicit collation migration described in
+the [MySQL migration driver guide](/docs/migration/drivers/mysql); upgrading the
+package does not rewrite deployed tables.
+
+## Type and API differences
+
+| Area | VibORM |
+|------|--------|
+| Type generation | Types are inferred from your schema — there's no `prisma generate` step. |
+| Prisma helper types | VibORM doesn't expose `XOR`, `Exact`, `SelectSubset`, or generated model helper types. |
+| Create/update inputs | A single blended input surface rather than Prisma's separate checked/unchecked variants. |
+| `omit` | Model-level omit only; no per-query `omit`. |
+| Raw SQL | `$queryRaw(sql, params)` and `$executeRaw(sqlFragment)` use explicit shapes, not tagged templates, and return a `QueryResult`. |

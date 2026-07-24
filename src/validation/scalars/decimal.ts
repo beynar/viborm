@@ -1,5 +1,5 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
 
 // =============================================================================
 // BASE TYPES
@@ -164,7 +164,7 @@ const buildDecimalListUpdateSchema = <S extends V.Schema>(
 // DECIMAL SCHEMA BUILDER
 // =============================================================================
 
-export interface DecimalSchemas<F extends FieldState<"decimal">> {
+export interface DecimalSchemas<F extends ScalarState<"decimal">> {
   base: F["base"];
   create: V.Number<F>;
   update: F["array"] extends true
@@ -175,7 +175,7 @@ export interface DecimalSchemas<F extends FieldState<"decimal">> {
     : DecimalFilterSchema<F["base"]>;
 }
 
-export const buildDecimalSchema = <F extends FieldState<"decimal">>(
+export const buildDecimalSchema = <F extends ScalarState<"decimal">>(
   state: F
 ): DecimalSchemas<F> => {
   return {

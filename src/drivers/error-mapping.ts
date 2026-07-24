@@ -1,0 +1,403 @@
+import {
+  CheckConstraintError,
+  ConnectionError,
+  type DiagnosticDisclosure,
+  ForeignKeyError,
+  isVibORMError,
+  NestedWriteAssertionError,
+  NotNullConstraintError,
+  QueryError,
+  TransactionError,
+  UniqueConstraintError,
+  type VibORMError,
+  VibORMErrorCode,
+  type VibORMErrorMeta,
+} from "@errors";
+import {
+  attachExecutionContext,
+  buildMeta,
+  type DriverErrorContext,
+  type DriverErrorShape,
+} from "./driver-error-context";
+
+const POSTGRES_UNIQUE = "23505";
+const POSTGRES_FOREIGN_KEY = "23503";
+const POSTGRES_NOT_NULL = "23502";
+const POSTGRES_CHECK = "23514";
+const POSTGRES_SERIALIZATION = "40001";
+const POSTGRES_DEADLOCK = "40P01";
+
+const MYSQL_UNIQUE = 1062;
+const MYSQL_FOREIGN_KEY = 1452;
+const MYSQL_FOREIGN_KEY_ROW_IS_REFERENCED = 1451;
+const MYSQL_NOT_NULL = 1048;
+const MYSQL_CHECK = 3819;
+const MYSQL_DEADLOCK = 1213;
+const MYSQL_LOCK_WAIT_TIMEOUT = 1205;
+// Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
+const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
+const MYSQL_ERRNO_IN_MESSAGE_PATTERN = /\(errno (\d+)\)/;
+// Batch-plan assertions (adapter.assertions) fail on purpose with a
+// dialect-specific trick: division by zero on PG (SQLSTATE 22012), invalid
+// JSON via JSON_EXTRACT/json_extract on MySQL (errno 3141) and SQLite
+// ("malformed JSON"). The statements are identifiable by their column alias.
+const ASSERTION_MARKER = "__viborm_assert__";
+const POSTGRES_DIVISION_BY_ZERO = "22012";
+const MYSQL_INVALID_JSON_TEXT = 3141;
+
+function isAssertionFailure(
+  code: string | number | undefined,
+  errno: number | undefined,
+  message: string
+): boolean {
+  return (
+    code === POSTGRES_DIVISION_BY_ZERO ||
+    code === "ER_INVALID_JSON_TEXT_IN_PARAM" ||
+    errno === MYSQL_INVALID_JSON_TEXT ||
+    message.includes("division by zero") ||
+    message.includes("malformed JSON") ||
+    message.includes("Invalid JSON text")
+  );
+}
+
+export function normalizeDriverError(
+  error: unknown,
+  context: DriverErrorContext
+): Error {
+  if (isKnownVibORMError(error)) {
+    return attachExecutionContext(error, context);
+  }
+
+  const cause = toError(error);
+  const rawMessage = getErrorMessage(cause);
+  const dbError = readDriverErrorShape(error);
+  const meta = buildMeta(dbError, context, rawMessage);
+  const code = dbError.code;
+  const errno = dbError.errno ?? parseMessageErrno(rawMessage);
+  const diagnostics = context.diagnostics;
+  if (errno !== undefined && meta.providerErrno === undefined) {
+    meta.providerErrno = errno;
+  }
+
+  if (
+    context.query?.includes(ASSERTION_MARKER) &&
+    isAssertionFailure(code, errno, rawMessage)
+  ) {
+    return new NestedWriteAssertionError(
+      "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.",
+      { cause, diagnostics, meta }
+    );
+  }
+
+  if (code === POSTGRES_UNIQUE || code === "SQLITE_CONSTRAINT_UNIQUE") {
+    return new UniqueConstraintError("Unique constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (
+    code === POSTGRES_FOREIGN_KEY ||
+    code === "SQLITE_CONSTRAINT_FOREIGNKEY"
+  ) {
+    return new ForeignKeyError("Foreign key constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (code === POSTGRES_NOT_NULL || code === "SQLITE_CONSTRAINT_NOTNULL") {
+    return new NotNullConstraintError("Not-null constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (code === POSTGRES_CHECK || code === "SQLITE_CONSTRAINT_CHECK") {
+    return new CheckConstraintError("Check constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (code === POSTGRES_SERIALIZATION) {
+    return new TransactionError("Transaction serialization failure", {
+      cause,
+      diagnostics,
+      meta,
+      code: VibORMErrorCode.SERIALIZATION_FAILURE,
+    });
+  }
+
+  if (code === POSTGRES_DEADLOCK) {
+    return new TransactionError("Transaction deadlock detected", {
+      cause,
+      diagnostics,
+      meta,
+      code: VibORMErrorCode.DEADLOCK,
+    });
+  }
+
+  if (errno === MYSQL_UNIQUE || code === "ER_DUP_ENTRY") {
+    return new UniqueConstraintError("Unique constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (
+    errno === MYSQL_FOREIGN_KEY ||
+    errno === MYSQL_FOREIGN_KEY_ROW_IS_REFERENCED ||
+    code === "ER_NO_REFERENCED_ROW_2" ||
+    code === "ER_ROW_IS_REFERENCED_2"
+  ) {
+    return new ForeignKeyError("Foreign key constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (errno === MYSQL_NOT_NULL || code === "ER_BAD_NULL_ERROR") {
+    return new NotNullConstraintError("Not-null constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (errno === MYSQL_CHECK || code === "ER_CHECK_CONSTRAINT_VIOLATED") {
+    return new CheckConstraintError("Check constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (
+    errno === MYSQL_DEADLOCK ||
+    errno === MYSQL_LOCK_WAIT_TIMEOUT ||
+    code === "ER_LOCK_DEADLOCK" ||
+    code === "ER_LOCK_WAIT_TIMEOUT"
+  ) {
+    return new TransactionError("Transaction deadlock detected", {
+      cause,
+      diagnostics,
+      meta,
+      code: VibORMErrorCode.DEADLOCK,
+    });
+  }
+
+  if (
+    code === "SQLITE_BUSY" ||
+    code === "SQLITE_LOCKED" ||
+    rawMessage.includes("SQLITE_BUSY") ||
+    rawMessage.includes("SQLITE_LOCKED")
+  ) {
+    // DEADLOCK code so the write-race retry logic treats it as retryable
+    return new TransactionError("Database is locked", {
+      cause,
+      diagnostics,
+      meta,
+      code: VibORMErrorCode.DEADLOCK,
+    });
+  }
+
+  const sqliteConstraint = mapSQLiteConstraint(
+    rawMessage,
+    meta,
+    cause,
+    diagnostics
+  );
+  if (sqliteConstraint) {
+    return sqliteConstraint;
+  }
+
+  return new QueryError("Query execution failed", {
+    cause,
+    diagnostics,
+    meta,
+  });
+}
+
+export function normalizeDriverConnectionError(
+  error: unknown,
+  context: DriverErrorContext,
+  message = "Database connection failed"
+): Error {
+  if (isKnownVibORMError(error)) {
+    return attachExecutionContext(error, context);
+  }
+
+  const cause = toError(error);
+  const rawMessage = getErrorMessage(cause);
+  const dbError = readDriverErrorShape(error);
+  const meta = buildMeta(dbError, context, rawMessage);
+  const errno = dbError.errno ?? parseMessageErrno(rawMessage);
+  if (errno !== undefined && meta.providerErrno === undefined) {
+    meta.providerErrno = errno;
+  }
+  return new ConnectionError(message, {
+    cause,
+    diagnostics: context.diagnostics,
+    meta,
+  });
+}
+
+function isKnownVibORMError(error: unknown): error is VibORMError {
+  try {
+    return isVibORMError(error);
+  } catch {
+    return false;
+  }
+}
+
+function toError(error: unknown): Error {
+  try {
+    return error instanceof Error ? error : new Error("Unknown provider error");
+  } catch {
+    return new Error("Unknown provider error");
+  }
+}
+
+function getErrorMessage(error: Error): string {
+  try {
+    return typeof error.message === "string"
+      ? error.message
+      : "Unknown provider error";
+  } catch {
+    return "Unknown provider error";
+  }
+}
+
+function readDriverErrorShape(error: unknown): DriverErrorShape {
+  if ((typeof error !== "object" && typeof error !== "function") || !error) {
+    return {};
+  }
+  const body = readProperty(error, "body");
+  return {
+    code: readStringOrNumber(error, "code"),
+    bodyCode:
+      body && (typeof body === "object" || typeof body === "function")
+        ? readStringOrNumber(body, "code")
+        : undefined,
+    errno: readNumber(error, "errno"),
+    constraint: readString(error, "constraint"),
+    table: readString(error, "table"),
+    column: readString(error, "column"),
+    constraint_name: readString(error, "constraint_name"),
+    table_name: readString(error, "table_name"),
+    column_name: readString(error, "column_name"),
+    sqlState: readString(error, "sqlState"),
+    sqlstate: readString(error, "sqlstate"),
+    status: readStringOrNumber(error, "status"),
+    statusCode: readStringOrNumber(error, "statusCode"),
+  };
+}
+
+function readString(value: object, key: string): string | undefined {
+  const member = readProperty(value, key);
+  return typeof member === "string" ? member : undefined;
+}
+
+function readNumber(value: object, key: string): number | undefined {
+  const member = readProperty(value, key);
+  return typeof member === "number" ? member : undefined;
+}
+
+function readStringOrNumber(
+  value: object,
+  key: string
+): string | number | undefined {
+  const member = readProperty(value, key);
+  return typeof member === "string" || typeof member === "number"
+    ? member
+    : undefined;
+}
+
+function readProperty(value: object, key: string): unknown {
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+}
+
+function parseMessageErrno(message: string): number | undefined {
+  const match = MYSQL_ERRNO_IN_MESSAGE_PATTERN.exec(message);
+  return match?.[1] ? Number(match[1]) : undefined;
+}
+
+function mapSQLiteConstraint(
+  message: string,
+  meta: VibORMErrorMeta,
+  cause: Error,
+  diagnostics: DiagnosticDisclosure | undefined
+): Error | undefined {
+  const isSQLiteConstraint =
+    message.includes("SQLITE_CONSTRAINT") ||
+    message.includes("UNIQUE constraint failed") ||
+    message.includes("FOREIGN KEY constraint failed") ||
+    message.includes("NOT NULL constraint failed") ||
+    message.includes("CHECK constraint failed");
+
+  if (!isSQLiteConstraint) {
+    return undefined;
+  }
+
+  if (message.includes("UNIQUE constraint failed")) {
+    return new UniqueConstraintError("Unique constraint violation", {
+      cause,
+      diagnostics,
+      meta: { ...meta, columns: parseSQLiteColumns(message) },
+    });
+  }
+
+  if (message.includes("FOREIGN KEY constraint failed")) {
+    return new ForeignKeyError("Foreign key constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (message.includes("NOT NULL constraint failed")) {
+    return new NotNullConstraintError("Not-null constraint violation", {
+      cause,
+      diagnostics,
+      meta: { ...meta, columns: parseSQLiteColumns(message) },
+    });
+  }
+
+  if (message.includes("CHECK constraint failed")) {
+    return new CheckConstraintError("Check constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  return undefined;
+}
+
+function parseSQLiteColumns(message: string): string[] | undefined {
+  const match = SQLITE_CONSTRAINT_COLUMNS_PATTERN.exec(message);
+  if (!match) {
+    return undefined;
+  }
+
+  const columns = match[1];
+  if (!columns) {
+    return undefined;
+  }
+
+  return columns
+    .split(",")
+    .map((column) => column.trim())
+    .filter((column) => column.length > 0);
+}

@@ -11,7 +11,9 @@ icon: Terminal
 VibORM's type safety comes from inferring types from schema definitions. The client layer makes this work:
 
 ```typescript
-const orm = client(schema);
+import { createClient } from "viborm";
+
+const orm = createClient({ schema, driver });
 
 // Fully typed - no codegen!
 const users = await orm.user.findMany({
@@ -42,7 +44,7 @@ Types flow through a chain:
 ```
 Schema Definition
       ↓
-Model extracts field types
+Model extracts fields (scalars and relations)
       ↓
 Client infers model names from schema
       ↓
@@ -79,19 +81,28 @@ orm.user.findFirst({
 
 ## Available Operations
 
+The full `Operations` union (see `src/client/types.ts`):
+
 | Operation | Description |
 |-----------|-------------|
 | `findMany` | Get multiple records |
 | `findFirst` | Get first matching record |
+| `findFirstOrThrow` | Get first matching record or throw |
 | `findUnique` | Get record by unique constraint |
+| `findUniqueOrThrow` | Get record by unique constraint or throw |
+| `exist` | Check whether any row matches |
 | `create` | Create single record |
 | `createMany` | Create multiple records |
-| `update` | Update matching records |
+| `createManyAndReturn` | Create multiple records and return them |
+| `update` | Update a record by unique constraint |
 | `updateMany` | Update multiple records |
-| `delete` | Delete matching records |
+| `updateManyAndReturn` | Update multiple records and return them |
+| `upsert` | Create or update on conflict |
+| `delete` | Delete a record by unique constraint |
 | `deleteMany` | Delete multiple records |
 | `count` | Count matching records |
 | `aggregate` | Aggregate functions (SUM, AVG, etc.) |
+| `groupBy` | Group rows and aggregate per group |
 
 ## Why Zero Codegen?
 
@@ -104,12 +115,12 @@ prisma generate  # Must run after schema changes
 VibORM infers types directly from your schema definition:
 
 ```typescript
-const schema = s.schema({
+const schema = {
   user: s.model({ ... }),
   post: s.model({ ... }),
-});
+};
 
-const orm = client(schema);  // Types inferred immediately
+const orm = createClient({ schema, driver });  // Types inferred immediately
 ```
 
 Benefits:

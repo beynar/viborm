@@ -1,0 +1,79 @@
+---
+title: Relation Filters
+description: Filter records by their related models
+icon: GitBranch
+---
+
+## Overview
+
+Filter records by their relations using operators that depend on the relation's cardinality — `is`/`isNot` for to-one relations, and `some`/`every`/`none` for to-many.
+
+## To-One Relations
+
+For `oneToOne` and `manyToOne` relations:
+
+| Operator | Description |
+|----------|-------------|
+| `is` | Match related record |
+| `isNot` | Exclude matching related record |
+
+## To-Many Relations
+
+For `oneToMany` and `manyToMany` relations:
+
+| Operator | Description |
+|----------|-------------|
+| `some` | At least one match |
+| `every` | All must match |
+| `none` | No matches |
+
+## Quick Examples
+
+```ts
+// Users with admin profile
+await client.user.findMany({
+  where: {
+    profile: {
+      is: { role: "ADMIN" },
+    },
+  },
+});
+
+// Users with at least one published post
+await client.user.findMany({
+  where: {
+    posts: {
+      some: { published: true },
+    },
+  },
+});
+
+// Posts with all approved comments
+await client.post.findMany({
+  where: {
+    comments: {
+      every: { approved: true },
+    },
+  },
+});
+```
+
+## Pages
+
+<Cards>
+  <Card
+    title="To-One Filters"
+    description="Filter by oneToOne and manyToOne relations"
+    href="/docs/client/filtering/relations-to-one"
+  />
+  <Card
+    title="To-Many Filters"
+    description="Filter by oneToMany and manyToMany relations"
+    href="/docs/client/filtering/relations-to-many"
+  />
+  <Card
+    title="Nested Writes"
+    description="Create and update related records"
+    href="/docs/client/nested-writes"
+  />
+</Cards>

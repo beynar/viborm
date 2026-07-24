@@ -1,16 +1,23 @@
 // Relation Filter Schemas
 
 import type { RelationState } from "@schema/relation/types";
-import { type V, v } from "@validation";
+import { type V, v } from "../primitives/v";
+import { createSchema, fail, ok } from "../primitives/helpers";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 
 /**
  * To-one filter: { is?, isNot? }
- * For optional relations, `is` can also be null
+ * For optional relations, `is` can also be null, and the bare `null`
+ * shorthand normalizes to `{ is: null }` (Prisma parity)
  * Uses thunks for lazy evaluation to avoid circular reference issues
  */
 
-export type ToOneFilterSchema<S extends RelationState> = V.Object<{
+type NullToIsNull = V.Schema<null, { is: null }>;
+const nullToIsNull: NullToIsNull = createSchema("object", (value) =>
+  value === null ? ok({ is: null }) : fail("Expected object")
+);
+
+type ToOneFilterObjectSchema<S extends RelationState> = V.Object<{
   is: () => V.MaybeNullable<
     GetTargetSchemas<S>["core"]["where"],
     S["optional"] extends true ? true : false
@@ -20,6 +27,12 @@ export type ToOneFilterSchema<S extends RelationState> = V.Object<{
     S["optional"] extends true ? true : false
   >;
 }>;
+
+export type ToOneFilterSchema<S extends RelationState> =
+  S["optional"] extends true
+    ? V.Union<readonly [NullToIsNull, ToOneFilterObjectSchema<S>]>
+    : ToOneFilterObjectSchema<S>;
+
 export const toOneFilterFactory = <
   S extends RelationState,
   T extends SchemaGetter<S>,
@@ -27,7 +40,7 @@ export const toOneFilterFactory = <
   state: S,
   targetSchemas: T
 ): ToOneFilterSchema<S> => {
-  return v.object({
+  const filterObject = v.object({
     is: () =>
       v.maybeNullable(
         targetSchemas().core.where,
@@ -39,6 +52,9 @@ export const toOneFilterFactory = <
         state.optional as S["optional"] extends true ? true : false
       ),
   });
+  return (
+    state.optional ? v.union([nullToIsNull, filterObject]) : filterObject
+  ) as ToOneFilterSchema<S>;
 };
 
 /**
@@ -56,7 +72,7 @@ export const toManyFilterFactory = <
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  state: S,
+  _state: S,
   targetSchemas: T
 ): ToManyFilterSchema<S> => {
   return v.object({

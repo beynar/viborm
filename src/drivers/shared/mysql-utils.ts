@@ -31,12 +31,12 @@ export const mysqlResultParser: DriverResultParser = {
     if (parsed !== undefined) return next(parsed, type);
     return next(value, type);
   },
-  parseField: (value, fieldType, next) => {
-    if (fieldType === "boolean") {
+  parseField: (value, scalarType, next) => {
+    if (scalarType === "boolean") {
       const parsed = parseIntegerBoolean(value);
-      if (parsed !== undefined) return parsed;
+      if (parsed !== undefined) return next(parsed, scalarType);
     }
-    return next(value, fieldType);
+    return next(value, scalarType);
   },
 };
 

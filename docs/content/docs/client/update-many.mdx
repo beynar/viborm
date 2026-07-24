@@ -1,0 +1,60 @@
+---
+title: updateMany
+description: Update every record matching a filter
+icon: PencilLine
+---
+
+Update every record matching the filter, in one call:
+
+```ts
+const result = await client.user.updateMany({
+  where: { role: "GUEST" },
+  data: { role: "USER" },
+});
+// Result: { count: 42 }
+```
+
+`updateMany` returns a `{ count }`. `where` is optional — omit it to update every row.
+
+## Examples
+
+```ts
+// Archive old drafts
+await client.post.updateMany({
+  where: {
+    createdAt: { lt: new Date("2023-01-01") },
+    published: false,
+  },
+  data: { archived: true },
+});
+
+// Apply a discount with an atomic update
+await client.product.updateMany({
+  where: { category: "electronics" },
+  data: {
+    price: { multiply: 0.9 }, // 10% off
+  },
+});
+```
+
+## updateManyAndReturn
+
+Same as `updateMany`, but returns the updated rows instead of a count:
+
+```ts
+const updated = await client.post.updateManyAndReturn({
+  where: { published: false },
+  data: { published: true },
+  select: { id: true, title: true },
+});
+// Type: { id: string; title: string }[]
+```
+
+## Options
+
+```ts
+await client.user.updateMany({
+  where: { ... },       // Optional: filter (all rows if empty)
+  data: { ... },        // Required: fields to update
+});
+```

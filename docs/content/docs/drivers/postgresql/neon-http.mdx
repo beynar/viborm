@@ -1,0 +1,108 @@
+---
+title: Neon HTTP
+description: Serverless PostgreSQL driver for Neon
+---
+
+## Installation
+
+```bash
+pnpm add @neondatabase/serverless
+```
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/neon-http";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `databaseUrl` | `string` | PostgreSQL connection URL |
+| `options.fetchOptions` | `RequestInit` | Custom fetch options |
+| `pgvector` | `boolean` | Enable pgvector support |
+| `postgis` | `boolean` | Enable PostGIS support |
+
+### With pgvector
+
+```typescript
+import { createClient } from "viborm/neon-http";
+
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  pgvector: true,
+  schema,
+});
+```
+
+## Serverless Usage
+
+Neon HTTP is optimized for serverless/edge environments:
+
+```typescript
+// Vercel Edge, Cloudflare Workers, etc.
+export default async function handler(request: Request) {
+  const client = createClient({
+    databaseUrl: process.env.DATABASE_URL,
+    schema,
+  });
+
+  const users = await client.user.findMany();
+  return Response.json(users);
+}
+```
+
+## Transactions & Batching
+
+Neon HTTP does **not** support traditional dynamic transactions (each HTTP request is a separate connection), but VibORM provides full support for **batch mode** using Neon's `transaction()` function.
+
+### Batch Mode (Recommended)
+
+Use the array API for atomic operations - VibORM uses Neon's `transaction()` function under the hood:
+
+```typescript
+// Atomic execution using Neon's transaction() function
+const [user, post] = await client.$transaction([
+  client.user.create({ data: { name: "Alice", email: "alice@example.com" } }),
+  client.post.create({ data: { title: "Hello", authorId: "preset-id" } }),
+]);
+```
+
+### Dynamic Transactions
+
+Dynamic transactions (callback API) are unsupported and reject:
+
+```typescript
+// Throws TransactionError: Neon HTTP does not support callback transactions
+await client.$transaction(async (tx) => {
+  const user = await tx.user.create({ data: { name: "Alice" } });
+  await tx.post.create({ data: { title: "Hello", authorId: user.id } });
+});
+```
+
+<Callout type="warn">
+For Neon HTTP, use batch mode (`$transaction([...])`) for operations that can be planned up front. Nested writes are supported inside a batch, but sibling operations cannot read each other's results.
+</Callout>
+
+### Migrations
+
+Schema `push` executes atomically through Neon's `transaction()` function.
+File-based `migrate apply` requires a callback transaction and rejects on
+Neon HTTP.
+
+## Capabilities
+
+Dynamic transactions reject; batch mode is fully supported via Neon's `transaction()` function. See the [feature matrix](/docs/drivers#feature-matrix) for the full comparison.
+
+## Limitations
+
+- Batch operations cannot read each other's results — use a single nested write for dependent mutations
+- HTTP-based: slightly higher latency than traditional connections
+- Best suited for serverless environments with simple queries
+- For full transaction support, use `@neondatabase/serverless` Pool with WebSockets

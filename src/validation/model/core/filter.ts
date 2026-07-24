@@ -1,24 +1,17 @@
-import type { Field } from "@schema/fields";
 import type { AnyModel } from "@schema/model";
-import v, { type V } from "@validation";
+import v, { type V } from "../../primitives/v";
 import type { ObjectSchema } from "@validation/primitives/object";
-import type { FieldSchemas } from "../index";
+import type { ScalarSchemas } from "../index";
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
-type UniqueScalarSchemas<
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = Pick<
+type UniqueScalarSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = Pick<
   F["scalars"],
   Extract<keyof F["scalars"], keyof ModelStateOf<M>["uniques"]>
 >;
 
-const getUniqueScalarSchemas = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+const getUniqueScalarSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F,
+  fieldSchemas: F
 ): UniqueScalarSchemas<M, F> => {
   const uniqueSchemas: Record<PropertyKey, unknown> = {};
   for (const key of Object.keys(model["~"].state.uniques) as Array<
@@ -34,50 +27,35 @@ const getUniqueScalarSchemas = <
 
 export type ScalarFilterSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = V.FromObject<
-  F["scalars"],
-  "filter"
->;
-export const getScalarFilter = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
-  fieldSchemas: F,
+  F extends ScalarSchemas<M>,
+> = V.FromObject<F["scalars"], "filter">;
+export const getScalarFilter = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  fieldSchemas: F
 ): ScalarFilterSchema<M, F> => {
   return v.fromObject(fieldSchemas.scalars, "filter");
 };
 
 export type UniqueFilterSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = V.FromObject<
-  UniqueScalarSchemas<M, F>,
-  "base"
->;
-export const getUniqueFilter = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+  F extends ScalarSchemas<M>,
+> = V.FromObject<UniqueScalarSchemas<M, F>, "base">;
+export const getUniqueFilter = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F,
+  fieldSchemas: F
 ): UniqueFilterSchema<M, F> => {
   return v.fromObject(getUniqueScalarSchemas(model, fieldSchemas), "base");
 };
 
 export type RelationFilterSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = V.FromObject<
-  F["relations"],
-  "filter"
->;
+  F extends ScalarSchemas<M>,
+> = V.FromObject<F["relations"], "filter">;
 
 export const getRelationFilter = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
-  fieldSchemas: F,
+  fieldSchemas: F
 ): RelationFilterSchema<M, F> => {
   return v.fromObject(fieldSchemas.relations, "filter");
 };
@@ -87,17 +65,23 @@ export const getRelationFilter = <
  * Creates an object schema where each compound key maps to an optional object of field base schemas
  */
 
-export type CompoundConstraintFilterSchema<M extends AnyModel> =
-  ModelStateOf<M>["compoundId"] extends Record<string, Record<string, Field>>
-    ? ModelStateOf<M>["compoundUniques"] extends Record<string, Record<string, Field>>
-      ? ObjectSchema<ModelStateOf<M>["compoundId"] & ModelStateOf<M>["compoundUniques"]>
-      : ObjectSchema<ModelStateOf<M>["compoundId"]>
-    : ModelStateOf<M>["compoundUniques"] extends Record<string, Record<string, Field>>
-      ? ObjectSchema<ModelStateOf<M>["compoundUniques"]>
-      : ObjectSchema<{}, undefined>;
+type CompoundConstraintEntries<M extends AnyModel> =
+  (ModelStateOf<M>["compoundId"] extends Record<string, ObjectSchema<any>>
+    ? ModelStateOf<M>["compoundId"]
+    : Record<never, never>) &
+    (ModelStateOf<M>["compoundUniques"] extends Record<
+      string,
+      ObjectSchema<any>
+    >
+      ? ModelStateOf<M>["compoundUniques"]
+      : Record<never, never>);
+
+export type CompoundConstraintFilterSchema<M extends AnyModel> = ObjectSchema<
+  CompoundConstraintEntries<M>
+>;
 
 export const getCompoundConstraintFilter = <M extends AnyModel>(
-  model: M,
+  model: M
 ): CompoundConstraintFilterSchema<M> => {
   const state = model["~"].state;
   if (!(state.compoundUniques || state.compoundId)) {
@@ -118,7 +102,7 @@ export type CompoundIdFilterSchema<M extends AnyModel> = V.Object<
   ModelStateOf<M>["compoundId"]
 >;
 export const getCompoundIdFilter = <M extends AnyModel>(
-  model: M,
+  model: M
 ): CompoundIdFilterSchema<M> => {
   const state = model["~"].state;
   if (!state.compoundId) {

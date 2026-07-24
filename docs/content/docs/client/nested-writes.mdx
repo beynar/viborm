@@ -1,0 +1,464 @@
+---
+title: Nested Writes
+description: Create, update, and manage related records in a single operation
+icon: Layers
+---
+
+Nested writes let you create, connect, update, and delete related records in the same call as their parent. The whole operation is **atomic** — if any part fails, nothing is written — and generated IDs flow automatically from a parent to its children.
+
+## Create Operations
+
+### create
+
+Create nested records:
+
+```ts
+// Create user with profile
+const user = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    profile: {
+      create: { bio: "Hello!" },
+    },
+  },
+  include: { profile: true },
+});
+
+// Create user with multiple posts
+const user = await client.user.create({
+  data: {
+    email: "bob@example.com",
+    posts: {
+      create: [
+        { title: "Post 1" },
+        { title: "Post 2" },
+      ],
+    },
+  },
+  include: { posts: true },
+});
+```
+
+### connect
+
+Connect to existing records:
+
+```ts
+// Connect existing category
+const post = await client.post.create({
+  data: {
+    title: "My Post",
+    category: {
+      connect: { id: "cat_123" },
+    },
+  },
+});
+
+// Connect multiple tags
+const post = await client.post.create({
+  data: {
+    title: "Tagged Post",
+    tags: {
+      connect: [
+        { id: "tag_1" },
+        { name: "featured" },
+      ],
+    },
+  },
+});
+```
+
+### connectOrCreate
+
+Connect if exists, create if not:
+
+```ts
+const post = await client.post.create({
+  data: {
+    title: "My Post",
+    category: {
+      connectOrCreate: {
+        where: { name: "Tech" },
+        create: { name: "Tech" },
+      },
+    },
+    tags: {
+      connectOrCreate: [
+        {
+          where: { name: "tutorial" },
+          create: { name: "tutorial" },
+        },
+        {
+          where: { name: "beginner" },
+          create: { name: "beginner" },
+        },
+      ],
+    },
+  },
+});
+```
+
+## Update Operations
+
+### update (nested)
+
+A to-one nested update targets the currently related row. If there's no related row yet, the operation throws and nothing is written:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    profile: {
+      update: { bio: "Updated bio" },
+    },
+  },
+});
+```
+
+A to-many nested update targets a specific related row. The `where` must identify a row that belongs to the parent you're updating — targeting another record's row is rejected:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      update: {
+        where: { id: "post_123" },
+        data: { published: true },
+      },
+    },
+  },
+});
+```
+
+The to-many form also accepts an array of targeted updates:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      update: [
+        {
+          where: { id: "post_123" },
+          data: { published: true },
+        },
+        {
+          where: { slug: "draft-notes" },
+          data: { archived: true },
+        },
+      ],
+    },
+  },
+});
+```
+
+### updateMany (nested)
+
+Nested `updateMany` is supported for to-many relations only. It combines the child filter with parent correlation. Matching zero rows is allowed and does not throw:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      updateMany: {
+        where: { published: false },
+        data: { archived: true },
+      },
+    },
+  },
+});
+```
+
+`updateMany` applies to to-many relations only.
+
+### upsert (nested)
+
+A to-one nested upsert updates the currently related row when one exists; otherwise it creates and connects a new related row:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    profile: {
+      upsert: {
+        create: { bio: "New bio" },
+        update: { bio: "Updated bio" },
+      },
+    },
+  },
+});
+```
+
+A to-many nested upsert requires `where`, `create`, and `update`. If `where` matches a row already correlated to the parent, VibORM updates that row. If `where` matches no row, VibORM creates a new row correlated to the parent. If `where` matches a row owned by another parent, VibORM rejects instead of mutating it or creating a duplicate:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      upsert: {
+        where: { slug: "launch-plan" },
+        update: { title: "Launch plan v2" },
+        create: {
+          slug: "launch-plan",
+          title: "Launch plan",
+        },
+      },
+    },
+  },
+});
+```
+
+The to-many form also accepts an array of `{ where, create, update }` envelopes.
+
+## Connection Management
+
+### disconnect
+
+Disconnect related records (many-to-many):
+
+```ts
+// Disconnect specific tags
+const post = await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      disconnect: [{ id: "tag_1" }],
+    },
+  },
+});
+
+// Disconnect to-one (set FK to null)
+const post = await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    category: { disconnect: true },
+  },
+});
+```
+
+### set
+
+Replace all connections:
+
+```ts
+// Replace all tags
+const post = await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: {
+      set: [{ id: "tag_2" }, { id: "tag_3" }],
+    },
+  },
+});
+
+// Clear all tags
+const post = await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { set: [] },
+  },
+});
+```
+
+## Delete Operations
+
+### delete (nested)
+
+Delete related records. A nested `delete` throws when the target isn't found, including when it matches a row that belongs to another parent:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      delete: { id: "post_123" },
+    },
+  },
+});
+
+// Delete multiple
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      delete: [{ id: "post_1" }, { id: "post_2" }],
+    },
+  },
+});
+```
+
+### deleteMany (nested)
+
+Nested `deleteMany` is supported for to-many relations only. It combines the filter with parent correlation. Matching zero rows is allowed and does not throw:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      deleteMany: {
+        published: false,
+        createdAt: { lt: new Date("2023-01-01") },
+      },
+    },
+  },
+});
+```
+
+The to-many form also accepts an array of filters:
+
+```ts
+const user = await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      deleteMany: [
+        { published: false },
+        { archived: true },
+      ],
+    },
+  },
+});
+```
+
+`deleteMany` applies to to-many relations only. For a to-one relation, use `delete: true`.
+
+## What's not allowed
+
+### Required relations
+
+When a relation's foreign key is required, you can't detach or orphan its records — these are rejected and nothing is written:
+
+```ts
+// post.authorId is required, so the author cannot be disconnected.
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    author: {
+      disconnect: true,
+    },
+  },
+});
+```
+
+```ts
+// post.authorId is required, so clearing the user's posts would orphan rows.
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      set: [],
+    },
+  },
+});
+```
+
+```ts
+// Required foreign keys cannot be nulled through nested updateMany data.
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      updateMany: {
+        where: { archived: false },
+        data: { authorId: null },
+      },
+    },
+  },
+});
+```
+
+### Update and delete inside a create
+
+You can't update or delete related records inside a `create` (or the create branch of an `upsert`) — there's no existing related record yet:
+
+```ts
+await client.user.create({
+  data: {
+    email: "new@example.com",
+    profile: {
+      update: { bio: "No existing profile under a new user" },
+    },
+  },
+});
+```
+
+```ts
+await client.user.upsert({
+  where: { email: "new@example.com" },
+  create: {
+    email: "new@example.com",
+    posts: {
+      deleteMany: { archived: true },
+    },
+  },
+  update: {
+    name: "Existing user",
+  },
+});
+```
+
+## Examples
+
+### Complete User Registration
+
+```ts
+async function registerUser(data: {
+  email: string;
+  name: string;
+  bio?: string;
+  defaultTags?: string[];
+}) {
+  return client.user.create({
+    data: {
+      email: data.email,
+      name: data.name,
+      profile: {
+        create: { bio: data.bio || "" },
+      },
+      settings: {
+        create: {
+          theme: "system",
+          notifications: true,
+        },
+      },
+      ...(data.defaultTags && {
+        followedTags: {
+          connectOrCreate: data.defaultTags.map(name => ({
+            where: { name },
+            create: { name },
+          })),
+        },
+      }),
+    },
+    include: {
+      profile: true,
+      settings: true,
+      followedTags: true,
+    },
+  });
+}
+```
+
+### Update Post with Tags
+
+```ts
+async function updatePostTags(postId: string, tagNames: string[]) {
+  return client.post.update({
+    where: { id: postId },
+    data: {
+      tags: {
+        set: [],  // Clear existing
+        connectOrCreate: tagNames.map(name => ({
+          where: { name },
+          create: { name },
+        })),
+      },
+    },
+    include: { tags: true },
+  });
+}
+```

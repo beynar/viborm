@@ -14,7 +14,7 @@ import type {
 
 /**
  * Relation class for many-to-many relations
- * Supports configuration for junction table name and field names
+ * Supports configuration for junction table name and column names
  *
  * @example
  * ```ts
@@ -28,7 +28,7 @@ import type {
  *   tags: s.manyToMany(() => tag).through("post_tags"),
  * });
  *
- * // With custom field names in junction table
+ * // With custom column names in junction table
  * const post = s.model({
  *   tags: s.manyToMany(() => tag)
  *     .through("post_tags")
@@ -55,7 +55,7 @@ export class ManyToManyRelation<State extends ManyToManyRelationState> {
   }
 
   /**
-   * Specify the source field name in the junction table
+   * Specify the source column name in the junction table
    */
   A(fieldName: string) {
     return new ManyToManyRelation<State & { A: string }>({
@@ -65,7 +65,7 @@ export class ManyToManyRelation<State extends ManyToManyRelationState> {
   }
 
   /**
-   * Specify the target field name in the junction table
+   * Specify the target column name in the junction table
    */
   B(fieldName: string) {
     return new ManyToManyRelation<State & { B: string }>({
@@ -107,11 +107,18 @@ export class ManyToManyRelation<State extends ManyToManyRelationState> {
   /**
    * Internal accessor for state and source binding.
    */
+  private _internal?: {
+    state: State;
+    setSource: (source: AnyModel) => void;
+  };
+
   get "~"() {
-    return {
+    return (this._internal ??= {
       state: this._state,
-      setSource: (source: AnyModel) => (this._state.source = source),
-    };
+      setSource: (source: AnyModel) => {
+        this._state.source = source;
+      },
+    });
   }
 }
 

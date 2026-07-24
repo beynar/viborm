@@ -5,18 +5,23 @@
  * that can be compared with the current database state.
  *
  * Database-specific logic is delegated to the MigrationDriver:
- * - Type mapping (mapFieldType)
+ * - Type mapping (mapScalarType)
  * - Default expressions (getDefaultExpression)
  * - Enum handling (capabilities.supportsNativeEnums, getEnumColumnType)
  */
 
-import type { Field } from "../schema/fields/base";
-import type { AnyModel } from "../schema/model";
+import {
+  type AnyModel,
+  getTableName as getModelTableName,
+  type ModelState,
+} from "../schema/model";
 import type { AnyRelation } from "../schema/relation";
 import {
+  findPairedManyToManyState,
   getJunctionFieldNames,
   getJunctionTableName,
 } from "../schema/relation/helpers";
+import type { Scalar } from "../schema/scalars/base";
 import type { MigrationDriver } from "./drivers";
 import type {
   ColumnDef,
@@ -35,7 +40,8 @@ import type {
 // =============================================================================
 
 function mapReferentialAction(
-  action: "cascade" | "setNull" | "restrict" | "noAction" | undefined
+  action: "cascade" | "setNull" | "restrict" | "noAction" | undefined,
+  fallback: ReferentialAction
 ): ReferentialAction {
   switch (action) {
     case "cascade":
@@ -44,8 +50,10 @@ function mapReferentialAction(
       return "setNull";
     case "restrict":
       return "restrict";
-    default:
+    case "noAction":
       return "noAction";
+    default:
+      return fallback;
   }
 }
 
@@ -81,22 +89,22 @@ export function serializeModels(
     let primaryKey: PrimaryKeyDef | undefined;
     const pkColumns: string[] = [];
 
-    // Process scalar fields
-    for (const [fieldName, field] of Object.entries(modelState.scalars)) {
-      const fieldState = (field as Field)["~"].state;
+    // Process scalars
+    for (const [fieldName, scalar] of Object.entries(modelState.scalars)) {
+      const scalarState = (scalar as Scalar)["~"].state;
       // Use model's nameRegistry for column name resolution (supports field reuse)
       const columnName = model["~"].getFieldName(fieldName).sql;
 
       // Handle enum types (only for databases that support native enums)
       let columnType: string;
-      if (fieldState.type === "enum") {
-        const enumField = field as any;
-        const enumValues = enumField.enumValues as string[] | undefined;
+      if (scalarState.type === "enum") {
+        const enumScalar = scalar as any;
+        const enumValues = enumScalar.enumValues as string[] | undefined;
 
         if (migrationDriver.capabilities.supportsNativeEnums && enumValues) {
           // Use explicit enum name if provided, otherwise auto-generate
-          const enumName = fieldState.enumName
-            ? fieldState.enumName
+          const enumName = scalarState.enumName
+            ? scalarState.enumName
             : migrationDriver.getEnumColumnType(
                 tableName,
                 columnName,
@@ -120,26 +128,29 @@ export function serializeModels(
           );
         }
       } else {
-        columnType = migrationDriver.mapFieldType(field as Field, fieldState);
+        columnType = migrationDriver.mapScalarType(
+          scalar as Scalar,
+          scalarState
+        );
       }
 
       const columnDef: ColumnDef = {
         name: columnName,
         type: columnType,
-        nullable: fieldState.nullable,
-        default: migrationDriver.getDefaultExpression(fieldState),
-        autoIncrement: fieldState.autoGenerate === "increment",
+        nullable: scalarState.nullable,
+        default: migrationDriver.getDefaultExpression(scalarState),
+        autoIncrement: scalarState.autoGenerate === "increment",
       };
 
       columns.push(columnDef);
 
       // Track primary key columns
-      if (fieldState.isId) {
+      if (scalarState.isId) {
         pkColumns.push(columnName);
       }
 
       // Handle unique constraints on individual fields
-      if (fieldState.isUnique && !fieldState.isId) {
+      if (scalarState.isUnique && !scalarState.isId) {
         uniqueConstraints.push({
           name: `${tableName}_${columnName}_key`,
           columns: [columnName],
@@ -149,18 +160,16 @@ export function serializeModels(
 
     // Handle compound primary key
     if (modelState.compoundId) {
-      const compoundIdKeys = Object.keys(modelState.compoundId);
-      if (compoundIdKeys.length > 0) {
-        // The compound ID name contains the field names
-        const firstKey = compoundIdKeys[0]!;
-        // Extract field names from the compound ID schema
-        const compoundIdSchema = modelState.compoundId[firstKey];
-        if (compoundIdSchema?.["~"]) {
-          const schemaState = compoundIdSchema["~"];
-          if (schemaState.def && typeof schemaState.def === "object") {
-            pkColumns.push(...Object.keys(schemaState.def));
-          }
-        }
+      const firstKey = Object.keys(modelState.compoundId)[0];
+      const compoundIdSchema = firstKey
+        ? modelState.compoundId[firstKey]
+        : undefined;
+      if (compoundIdSchema?.entries) {
+        pkColumns.push(
+          ...Object.keys(compoundIdSchema.entries).map(
+            (field) => model["~"].getFieldName(field).sql
+          )
+        );
       }
     }
 
@@ -173,18 +182,17 @@ export function serializeModels(
     }
 
     // Handle compound unique constraints
-    if (modelState.compoundUniques) {
-      for (const [constraintName, schema] of Object.entries(
-        modelState.compoundUniques
-      )) {
-        if (schema?.["~"]) {
-          const schemaState = schema["~"];
-          if (schemaState.def && typeof schemaState.def === "object") {
-            uniqueConstraints.push({
-              name: `${tableName}_${constraintName}_key`,
-              columns: Object.keys(schemaState.def),
-            });
-          }
+    const compoundUniques: ModelState["compoundUniques"] =
+      modelState.compoundUniques;
+    if (compoundUniques) {
+      for (const [constraintName, schema] of Object.entries(compoundUniques)) {
+        if (schema?.entries) {
+          uniqueConstraints.push({
+            name: `${tableName}_${constraintName}_key`,
+            columns: Object.keys(schema.entries).map(
+              (field) => model["~"].getFieldName(field).sql
+            ),
+          });
         }
       }
     }
@@ -225,14 +233,57 @@ export function serializeModels(
             targetModelState.tableName ||
             relationName.toLowerCase();
 
-          foreignKeys.push({
-            name: `${tableName}_${relationState.fields.join("_")}_fkey`,
-            columns: relationState.fields,
-            referencedTable: targetTableName,
-            referencedColumns: relationState.references,
-            onDelete: mapReferentialAction(relationState.onDelete),
-            onUpdate: mapReferentialAction(relationState.onUpdate),
+          // Resolve TS field names to actual column names (.map() support)
+          const fkColumns = relationState.fields.map(
+            (field: string) => model["~"].getFieldName(field).sql
+          );
+          const referencedColumns = relationState.references.map(
+            (field: string) => targetModel["~"].getFieldName(field).sql
+          );
+
+          // Prisma parity: without an explicit .onDelete(), optional to-one
+          // relations (all FK scalars nullable) default to SET NULL and
+          // required ones to RESTRICT, so deletes behave identically across
+          // databases (MySQL checks self-referencing FKs row-by-row where
+          // PG/SQLite validate at statement end).
+          const fkNullable = relationState.fields.every((field: string) => {
+            const fkScalar = modelState.scalars[field] as Scalar | undefined;
+            return fkScalar?.["~"].state.nullable === true;
           });
+          const defaultOnDelete: ReferentialAction = fkNullable
+            ? "setNull"
+            : "restrict";
+
+          foreignKeys.push({
+            name: `${tableName}_${fkColumns.join("_")}_fkey`,
+            columns: fkColumns,
+            referencedTable: targetTableName,
+            referencedColumns,
+            onDelete: mapReferentialAction(
+              relationState.onDelete,
+              defaultOnDelete
+            ),
+            onUpdate: mapReferentialAction(relationState.onUpdate, "noAction"),
+          });
+
+          // 1:1 FK must be unique at the DB level, or it degrades to N:1
+          if (relationState.type === "oneToOne") {
+            const fkKey = [...fkColumns].sort().join(",");
+            const alreadyUnique =
+              [...pkColumns].sort().join(",") === fkKey ||
+              uniqueConstraints.some(
+                (u) => [...u.columns].sort().join(",") === fkKey
+              ) ||
+              indexes.some(
+                (i) => i.unique && [...i.columns].sort().join(",") === fkKey
+              );
+            if (!alreadyUnique) {
+              uniqueConstraints.push({
+                name: `${tableName}_${fkColumns.join("_")}_key`,
+                columns: fkColumns,
+              });
+            }
+          }
         }
       }
     }
@@ -250,7 +301,7 @@ export function serializeModels(
   // ==========================================================================
   // JUNCTION TABLES FOR MANY-TO-MANY RELATIONS
   // ==========================================================================
-  const junctionTables = new Map<string, TableDef>();
+  const junctionTables = new Map<string, { def: TableDef; pairKey: string }>();
 
   for (const [modelName, model] of Object.entries(models)) {
     const modelState = model["~"].state;
@@ -283,15 +334,12 @@ export function serializeModels(
         );
       }
 
-      // Get junction table name (from .through() or generated)
+      // Get junction table name (from .through() on either side, or generated)
       const junctionTableName = getJunctionTableName(
         relation as AnyRelation,
         modelName,
         targetModelName
       );
-
-      // Avoid duplicating (post_tag from Post side and from Tag side)
-      if (junctionTables.has(junctionTableName)) continue;
 
       // Get junction field names
       const [sourceFieldName, targetFieldName] = getJunctionFieldNames(
@@ -300,54 +348,131 @@ export function serializeModels(
         targetModelName
       );
 
+      // Referential actions may be configured on either side of the pair.
+      // Prisma parity: implicit junction FKs default to CASCADE so deleting
+      // an endpoint row removes its associations.
+      const paired = findPairedManyToManyState(relation as AnyRelation);
+      if (
+        relState.onDelete &&
+        paired?.onDelete &&
+        relState.onDelete !== paired.onDelete
+      ) {
+        throw new Error(
+          `Many-to-many relation pair for junction "${junctionTableName}" disagrees on onDelete: '${relState.onDelete}' vs '${paired.onDelete}'.`
+        );
+      }
+      if (
+        relState.onUpdate &&
+        paired?.onUpdate &&
+        relState.onUpdate !== paired.onUpdate
+      ) {
+        throw new Error(
+          `Many-to-many relation pair for junction "${junctionTableName}" disagrees on onUpdate: '${relState.onUpdate}' vs '${paired.onUpdate}'.`
+        );
+      }
+      const onDelete = mapReferentialAction(
+        relState.onDelete ?? paired?.onDelete,
+        "cascade"
+      );
+      const onUpdate = mapReferentialAction(
+        relState.onUpdate ?? paired?.onUpdate,
+        "cascade"
+      );
+
       // Get PK types from source and target models
       const sourcePkField = getPrimaryKeyFieldDef(model, migrationDriver);
       const targetPkField = getPrimaryKeyFieldDef(targetModel, migrationDriver);
 
-      junctionTables.set(junctionTableName, {
+      // Canonical column order: sorted model names decide (as the generated
+      // table name does), so both sides serialize the identical table.
+      const sourceSide = {
+        column: sourceFieldName,
+        pk: sourcePkField,
+        table: sourceTableName,
+        sortKey: modelName.toLowerCase(),
+      };
+      const targetSide = {
+        column: targetFieldName,
+        pk: targetPkField,
+        table: targetTableName,
+        sortKey: targetModelName.toLowerCase(),
+      };
+      let [first, second] = [sourceSide, targetSide];
+      if (
+        first.sortKey > second.sortKey ||
+        (first.sortKey === second.sortKey && first.column > second.column)
+      ) {
+        [first, second] = [second, first];
+      }
+
+      const junctionDef: TableDef = {
         name: junctionTableName,
         columns: [
+          { name: first.column, type: first.pk.type, nullable: false },
+          { name: second.column, type: second.pk.type, nullable: false },
+        ],
+        primaryKey: { columns: [first.column, second.column] },
+        // The PK covers first-column lookups; reverse traversal needs its
+        // own index (Prisma indexes B the same way).
+        indexes: [
           {
-            name: sourceFieldName,
-            type: sourcePkField.type,
-            nullable: false,
-          },
-          {
-            name: targetFieldName,
-            type: targetPkField.type,
-            nullable: false,
+            name: `${junctionTableName}_${second.column}_idx`,
+            columns: [second.column],
+            unique: false,
           },
         ],
-        primaryKey: { columns: [sourceFieldName, targetFieldName] },
-        indexes: [],
         foreignKeys: [
           {
-            name: `${junctionTableName}_${sourceFieldName}_fkey`,
-            columns: [sourceFieldName],
-            referencedTable: sourceTableName,
-            referencedColumns: [sourcePkField.name],
-            onDelete: mapReferentialAction(relState.onDelete),
-            onUpdate: mapReferentialAction(relState.onUpdate),
+            name: `${junctionTableName}_${first.column}_fkey`,
+            columns: [first.column],
+            referencedTable: first.table,
+            referencedColumns: [first.pk.name],
+            onDelete,
+            onUpdate,
           },
           {
-            name: `${junctionTableName}_${targetFieldName}_fkey`,
-            columns: [targetFieldName],
-            referencedTable: targetTableName,
-            referencedColumns: [targetPkField.name],
-            onDelete: mapReferentialAction(relState.onDelete),
-            onUpdate: mapReferentialAction(relState.onUpdate),
+            name: `${junctionTableName}_${second.column}_fkey`,
+            columns: [second.column],
+            referencedTable: second.table,
+            referencedColumns: [second.pk.name],
+            onDelete,
+            onUpdate,
           },
         ],
         uniqueConstraints: [],
-      });
+      };
+
+      // Both sides of a pair serialize identically after canonicalization, so
+      // a mismatch means two different relation pairs collide on one table.
+      // Pair identity (models + relation name) catches collisions even when
+      // the column defs happen to be byte-identical.
+      const pairKey = `${[first.sortKey, second.sortKey].join("::")}::${
+        relState.name ?? paired?.name ?? ""
+      }`;
+      const existing = junctionTables.get(junctionTableName);
+      if (existing) {
+        if (
+          existing.pairKey !== pairKey ||
+          JSON.stringify(existing.def) !== JSON.stringify(junctionDef)
+        ) {
+          throw new Error(
+            `Junction table "${junctionTableName}" is shared by multiple distinct many-to-many relation pairs. ` +
+              "Give each pair a distinct .name() or its own .through() table name."
+          );
+        }
+        continue;
+      }
+      junctionTables.set(junctionTableName, { def: junctionDef, pairKey });
     }
   }
 
   // Append junction tables to the tables array
-  tables.push(...junctionTables.values());
+  for (const { def } of junctionTables.values()) {
+    tables.push(def);
+  }
 
   return {
-    tables,
+    tables: tables.map((table) => migrationDriver.finalizeTable(table)),
     enums: enums.length > 0 ? enums : undefined,
   };
 }
@@ -376,13 +501,13 @@ function getPrimaryKeyFieldDef(
     );
   }
 
-  for (const [fieldName, field] of Object.entries(modelState.scalars)) {
-    const fieldState = (field as Field)["~"].state;
-    if (fieldState.isId) {
+  for (const [fieldName, scalar] of Object.entries(modelState.scalars)) {
+    const scalarState = (scalar as Scalar)["~"].state;
+    if (scalarState.isId) {
       const columnName = model["~"].getFieldName(fieldName).sql;
-      const columnType = migrationDriver.mapFieldType(
-        field as Field,
-        fieldState
+      const columnType = migrationDriver.mapScalarType(
+        scalar as Scalar,
+        scalarState
       );
       return { name: columnName, type: columnType };
     }
@@ -394,25 +519,11 @@ function getPrimaryKeyFieldDef(
   );
 }
 
-/**
- * Gets the SQL column name for a field using the model's nameRegistry.
- * This supports field reuse across multiple models.
- *
- * @param model - The model containing the field
- * @param fieldName - The field key in the schema
- * @returns The SQL column name
- */
-export function getColumnName(model: AnyModel, fieldName: string): string {
-  return model["~"].getFieldName(fieldName).sql;
-}
+export { getColumnName } from "../schema/model";
 
 /**
  * Gets the SQL table name for a model
  */
 export function getTableName(model: AnyModel, modelName: string): string {
-  return (
-    model["~"].names.sql ||
-    model["~"].state.tableName ||
-    modelName.toLowerCase()
-  );
+  return getModelTableName(model, modelName.toLowerCase());
 }

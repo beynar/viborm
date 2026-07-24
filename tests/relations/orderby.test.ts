@@ -17,6 +17,7 @@ import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import {
   optionalOneToOneSchemas,
+  optionalManyToOneSchemas,
   requiredManyToOneSchemas,
   requiredOneToManySchemas,
   selfRefOneToManySchemas,
@@ -91,6 +92,56 @@ describe("ToOne OrderBy (Post.author)", () => {
     test("runtime: rejects invalid order value", () => {
       const schema = getSchema();
       const result = parse(schema, { name: "invalid" });
+      expect(result.issues).toBeDefined();
+    });
+
+    test("runtime: rejects to-many relation in to-one orderBy chain", () => {
+      const schema = getSchema();
+      const result = parse(schema, { posts: { _count: "asc" } });
+      expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toBe(
+        "Relation orderBy 'posts' cannot order through a to-many relation; use '_count'."
+      );
+    });
+
+    test("runtime: keeps unknown orderBy keys as unknown keys", () => {
+      const schema = getSchema();
+      const result = parse(schema, { unknownRelation: { _count: "asc" } });
+      expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toBe("Unknown key: unknownRelation");
+    });
+  });
+});
+
+describe("Nested ToOne OrderBy", () => {
+  describe("runtime", () => {
+    test("runtime: accepts nested to-one relation ordering", () => {
+      const schema = optionalOneToOneSchemas.orderBy();
+      const result = parse(schema, { profile: { bio: "asc" } });
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.profile).toEqual({ bio: "asc" });
+      }
+    });
+
+    test("runtime: accepts three-hop to-one relation ordering", () => {
+      const schema = optionalManyToOneSchemas.orderBy();
+      const result = parse(schema, {
+        manager: { manager: { username: "asc" } },
+      });
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(result.value.manager).toEqual({
+          manager: { username: "asc" },
+        });
+      }
+    });
+
+    test("runtime: rejects four-hop to-one relation ordering", () => {
+      const schema = optionalManyToOneSchemas.orderBy();
+      const result = parse(schema, {
+        manager: { manager: { manager: { username: "asc" } } },
+      });
       expect(result.issues).toBeDefined();
     });
   });

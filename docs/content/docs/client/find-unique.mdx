@@ -1,0 +1,117 @@
+---
+title: findUnique
+description: Find a single record by unique identifier (primary key or unique scalar)
+icon: Fingerprint
+---
+
+## Basic Usage
+
+```ts
+// By primary key
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+});
+
+// By unique scalar
+const user = await client.user.findUnique({
+  where: { email: "alice@example.com" },
+});
+```
+
+## Compound Keys
+
+For models with compound unique constraints:
+
+```ts
+// Schema
+const membership = s.model({
+  orgId: s.string(),
+  userId: s.string(),
+  role: s.string(),
+}).id(["orgId", "userId"]);
+
+// Query by compound key
+const member = await client.membership.findUnique({
+  where: {
+    orgId_userId: {
+      orgId: "org_1",
+      userId: "user_1",
+    },
+  },
+});
+
+// With custom name
+const membership = s.model({ ... })
+  .id(["orgId", "userId"], { name: "membership_pk" });
+
+const member = await client.membership.findUnique({
+  where: {
+    membership_pk: {
+      orgId: "org_1",
+      userId: "user_1",
+    },
+  },
+});
+```
+
+## Options
+
+```ts
+await client.user.findUnique({
+  where: { ... },     // Required: unique identifier
+  select: { ... },    // Optional: fields to return
+  include: { ... },   // Optional: relations to include
+});
+```
+
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
+
+## findUniqueOrThrow
+
+Throws if the record doesn't exist:
+
+```ts
+const user = await client.user.findUniqueOrThrow({
+  where: { id: "user_123" },
+});
+// Type: User (never null)
+// Throws: NotFoundError if not found
+```
+
+## Return Type
+
+```ts
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+});
+// Type: User | null
+
+// With select
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string } | null
+```
+
+## Valid Unique Scalars
+
+You can only use scalars marked as unique:
+
+```ts
+const user = s.model({
+  id: s.string().id(),           // ✅ Primary key
+  email: s.string().unique(),    // ✅ Unique scalar
+  name: s.string(),              // ❌ Not unique
+});
+
+// Valid
+await client.user.findUnique({ where: { id: "..." } });
+await client.user.findUnique({ where: { email: "..." } });
+
+// Invalid - TypeScript error
+await client.user.findUnique({ where: { name: "..." } });
+```
+
+To get-or-create a record atomically, use [`upsert`](/docs/client/upsert) instead of a `findUnique` + `create` pair.
+

@@ -1,14 +1,22 @@
-# Prisma Parity Follow-up
+# Prisma Parity Execution Plan
 
 ## Purpose
 
-This document records the adversarial review performed after the schema registry
-migration and nested-write hardening work.
+This document is the execution plan for moving VibORM from "Prisma-inspired
+alpha" toward Prisma-like developer experience for the core ORM surface.
 
-The current pull request should stay focused on the schema registry migration,
-nested create correctness, validation/runtime coherence, and the tests added for
-that work. The issues below are real, but they should be tackled in one or more
-follow-up PRs instead of expanding the current PR.
+The goal is not to clone every Prisma feature. The goal is stricter:
+
+1. Inputs that look supported must either work correctly or fail loudly.
+2. Runtime behavior and TypeScript behavior must agree.
+3. The basic CRUD, filtering, relation, nested write, aggregate, transaction, and
+   cross-dialect behavior should feel familiar to a Prisma user.
+4. Any intentional difference must be documented as a VibORM decision, not
+   discovered by surprise.
+
+This plan was written after the schema registry migration was merged. That PR
+fixed the architecture needed for dynamic model operation schemas. This document
+organizes the next work into phases that should usually map to separate PRs.
 
 ## Current Stability Claim
 
@@ -24,196 +32,437 @@ The adversarial review found that the public surface looks more Prisma-complete
 than it currently is. The main risk is false confidence: some inputs validate or
 type-check but are unsupported, ignored, or semantically different from Prisma.
 
-## Current PR Scope
+## Definition of the Holy Grail
 
-Keep this PR limited to:
+VibORM reaches the "Prisma parity" target for this roadmap when the following
+claims are true:
 
-- Runtime schema registry ownership of model/field/relation operation schemas.
-- Nested create and nested `createMany` foreign key omission/assignment.
-- Validation/runtime alignment for supported nested write operations.
-- Rejection of unsupported nested mutation keys.
-- Test coverage added during the schema registry migration.
-- Documentation updates that explain the new registry architecture.
+- Basic model operations behave like Prisma: `findUnique`, `findFirst`,
+  `findMany`, `create`, `createMany`, `update`, `updateMany`, `upsert`, `delete`,
+  `deleteMany`, `count`, `aggregate`, and `groupBy`.
+- `where`, `whereUnique`, `orderBy`, `cursor`, `skip`, `take`, `distinct`,
+  `select`, and `include` either match Prisma semantics or are documented
+  intentional differences.
+- Relation filters and includes work for to-one, to-many, and many-to-many where
+  documented.
+- Supported nested writes are Prisma-compatible. Unsupported nested writes are
+  rejected before query generation.
+- TypeScript catches the same basic misuse Prisma catches: invalid args, invalid
+  `select`/`include` combinations, missing unique selectors, unsupported nested
+  writes, and invalid aggregate/groupBy shapes.
+- Cross-dialect mutation return values are stable across Postgres, SQLite, and
+  MySQL-style drivers.
+- Docs describe the exact supported API, not the imagined API.
 
-Do not fold the Prisma parity work below into this PR unless a bug directly
-breaks the schema registry migration itself.
+## Global Rules for Every Phase
 
-## Follow-up Work
+### Rule 1: Fail Closed
 
-### 1. Fail Closed for Unsupported Query Inputs
+Never leave an accepted input path that silently does nothing. If an input shape
+is Prisma-like, VibORM has only two valid choices:
 
-Some query args are accepted but ignored or compiled with incorrect semantics.
-This must be fixed before VibORM can be described as stable.
+1. Implement it with Prisma-compatible semantics.
+2. Reject it before query generation.
 
-Known issues:
+Unsupported Prisma-like features must not be ignored, partially applied, or
+compiled into a broader query than the user requested.
 
-- Relation `orderBy` is accepted but skipped by the query builder.
-- Some advanced scalar filters can validate but be ignored by `where` building.
-- `count` and `aggregate` accept pagination/cursor/order args beyond the current
-  implementation's correct semantics.
-- `every: {}` and `OR: []` need Prisma-compatible semantics or explicit
-  rejection.
-- Dialect-specific null ordering support needs either implementation or
-  validation rejection.
+Bad:
 
-Expected follow-up PR:
+```ts
+await orm.user.findMany({
+  orderBy: { posts: { _count: "desc" } },
+});
+// Relation order accepted, then ignored.
+```
 
-- Reject unsupported accepted inputs at validation time, or implement them fully.
-- Add runtime tests proving unsupported inputs cannot silently return broad data.
+Good:
 
-### 2. Tighten Prisma-like Type Algebra
+```ts
+// Implement relation count ordering with Prisma-like semantics in its phase.
+// Until then, reject it with a clear validation error before SQL generation.
+```
 
-VibORM's happy-path inference is useful, but it does not yet enforce Prisma's
-strict operation input algebra.
+### Rule 2: Type and Runtime Must Agree
 
-Known gaps:
+If TypeScript accepts an input, runtime should accept it. If runtime rejects an
+input, TypeScript should reject it when the shape is statically visible.
 
-- No equivalent of Prisma's `Exact`, `XOR`, or `SelectSubset` helpers.
-- Top-level `select` and `include` can be provided together; Prisma rejects this.
-- Checked and unchecked create/update inputs are not separated like Prisma.
-- Type tests often prove assignability, not exactness.
-- GroupBy and aggregate result types need stronger coupling to selected args.
+Temporary exceptions are allowed only if documented in the phase notes and
+covered by runtime tests.
 
-Expected follow-up PR:
+### Rule 3: Prisma Compatibility Requires Exactness
 
-- Introduce strict operation input helpers.
-- Decide whether `select` + `include` is an intentional VibORM extension or a
-  Prisma-compatibility bug.
-- Add direct client-call type tests using `@ts-expect-error`, not only
-  `expectTypeOf` assignability.
+Structural assignability is not enough. Many TypeScript tests should use direct
+client calls with `// @ts-expect-error` because that catches the real developer
+experience better than broad `expectTypeOf(...).toMatchTypeOf(...)` checks.
 
-### 3. Fix `whereUnique` Safety
+### Rule 4: Each Phase Ships with Tests
 
-Prisma requires a real unique selector for unique operations. VibORM currently
-has risk around empty or structurally weak `whereUnique` inputs.
+Every phase must add or update tests in the existing test structure:
 
-Known risks:
+- Type tests: `tests/client/**`, `tests/model/args/**`, `tests/relations/**`.
+- Runtime client tests: `tests/client/**`.
+- Query engine tests: `tests/query-engine/**`.
+- Validation tests: `tests/model/**`, `tests/validation/**`.
+- Driver/adapters tests: `tests/drivers/**`, `tests/adapters/**`,
+  `tests/query-engine/*dialects*.test.ts`.
 
-- `where: {}` can validate or type-check in some paths.
-- `buildWhereUnique` can return no condition if no unique fields are present.
-- Single-record operations can then behave unlike Prisma or return surprising
-  rows.
+### Rule 5: No Broad Refactors Without a Phase Reason
 
-Expected follow-up PR:
+Do not clean unrelated modules while working through a phase. Prisma parity is
+large enough; each PR should have one dominant concern.
 
-- Require at least one valid unique discriminator at validation and type level.
-- Add runtime tests for `findUnique`, `update`, `delete`, and `upsert` with empty
-  or invalid unique inputs.
+## Systematic Verification Loop
 
-### 4. Align Single-record Mutation Semantics
+Use this loop for every phase:
 
-Prisma throws on missing records for single-record `update` and `delete`.
-VibORM can currently return `null` while the public type says a record.
+1. Start from clean `main`.
 
-Expected follow-up PR:
+   ```bash
+   git status --short --branch
+   ```
 
-- Make missing `update` and `delete` throw a stable not-found error.
-- Align result types with runtime behavior.
-- Add tests for missing `update`, missing `delete`, and selected/included
-  variants.
+2. Add failing tests that describe the target behavior.
 
-### 5. Harden Cross-dialect Mutation Returns
+3. Implement the smallest code change that makes those tests pass.
 
-Postgres/PGlite paths are well covered. MySQL-style adapters do not support
-`RETURNING`, so ordinary mutations need a refetch strategy or clearly different
-semantics.
+4. Run focused tests for the phase.
 
-Known risks:
+   ```bash
+   pnpm vitest run tests/path/to/file.test.ts
+   ```
 
-- `create`, `update`, `delete`, and `upsert` can rely on returned rows.
-- MySQL adapters return empty `RETURNING`.
-- Nested create has fallback/refetch logic that ordinary mutations do not share.
+5. Run broad checks.
 
-Expected follow-up PR:
+   ```bash
+   pnpm type-check
+   pnpm test
+   pnpm build
+   ```
 
-- Implement per-dialect mutation return strategies.
-- Add mysql/mysql2 runtime tests for basic mutations and selected/included
-  results.
+6. Review the diff for accidental scope creep.
 
-### 6. Scope Nested Relation Mutations
+7. Update this document only when the phase scope changes materially.
 
-Implemented nested relation mutations must not mutate unrelated child rows.
+## Phase 0: Baseline Audit and Contract Matrix
 
-Known risks:
+### Goal
 
-- Specific to-many `disconnect` and `delete` should prove the target child row is
-  currently related to the parent.
-- Many-to-many nested write schemas can imply support that the executor does not
-  safely provide.
-- Required vs optional relation constraints should be rejected before database
-  constraint errors where possible.
+Create a precise contract table for the Prisma-like surface VibORM intends to
+support. This phase prevents the rest of the work from drifting into anecdotes.
 
-Expected follow-up PR:
+### Units of Work
 
-- Scope specific `disconnect` and `delete` with parent FK correlation.
-- Either remove many-to-many nested write schemas or implement junction-table
-  nested write semantics.
-- Add cross-parent mutation tests.
+#### Unit 0.1: Operation Contract Matrix
 
-### 7. Clarify Relation and Nested Write Scope
+Document the expected status of each operation:
 
-Current relation querying is reasonably Prisma-like for basics, but nested writes
-are a subset.
+- `findUnique`
+- `findUniqueOrThrow`
+- `findFirst`
+- `findFirstOrThrow`
+- `findMany`
+- `create`
+- `createMany`
+- `update`
+- `updateMany`
+- `upsert`
+- `delete`
+- `deleteMany`
+- `count`
+- `aggregate`
+- `groupBy`
+- `exist` boolean check
+- `$queryRaw`
+- `$executeRaw`
 
-Supported today, subject to the caveats above:
+For each operation record:
 
-- Relation include/select.
-- To-one `is` / `isNot` and to-many `some` / `every` / `none` filters.
-- Nested `create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`,
-  `delete`, and `set` for supported FK-backed relations.
+- Prisma behavior.
+- Current VibORM behavior.
+- Intended VibORM behavior.
+- Type-level tests that should exist.
+- Runtime tests that should exist.
+- Dialect-specific risks.
 
-Not Prisma-complete:
+Plan decision:
 
-- Nested `update`.
-- Nested `updateMany`.
-- Nested `deleteMany`.
-- Nested relation `upsert`.
-- Full many-to-many nested write semantics.
+- Keep `exist` as the VibORM boolean-existence operation for this roadmap.
+- Do not add an `exists` alias during Prisma parity work.
+- Document `exist` as a VibORM extension because Prisma does not expose this
+  operation directly.
 
-Expected follow-up PR:
+Suggested file:
 
-- Update public docs to describe the supported subset exactly.
-- Add runtime tests before documenting additional Prisma-like nested write
-  operations as supported.
+- `docs/architecture/prisma-parity-contract.md`
 
-### 8. Runtime Stability and Driver Semantics
+#### Unit 0.2: Argument Contract Matrix
 
-The runtime is promising but not release-stable across all drivers.
+Document the intended behavior for:
 
-Known issues:
+- `where`
+- `whereUnique`
+- `select`
+- `include`
+- `omit`
+- `data`
+- `orderBy`
+- `cursor`
+- `skip`
+- `take`
+- `distinct`
+- `_count`
+- `_avg`
+- `_sum`
+- `_min`
+- `_max`
+- `having`
 
-- Transaction state can be too global for pooled/concurrent drivers.
-- Constraint errors are not consistently mapped to stable ORM error classes.
-- Some no-transaction or batch-only drivers can weaken `$transaction` semantics.
-- `TransactionOptions.timeout` is declared but not enforced.
+#### Unit 0.3: Test Inventory
 
-Expected follow-up PR:
+Map existing tests to the contract matrix. Mark gaps as:
 
-- Audit transaction state per driver.
-- Normalize common constraint errors.
-- Reject unsupported transaction modes or make non-atomic behavior explicit.
-- Implement or remove unused transaction options.
+- `missing type test`
+- `missing runtime test`
+- `missing dialect test`
+- `known unsupported`
+- `intentionally different from Prisma`
 
-## Documentation Follow-up
+### Target Files
 
-Before claiming Prisma-like basics in public docs:
+- `docs/architecture/prisma-parity-contract.md`
+- `docs/architecture/prisma-parity-follow-up.md`
 
-- Replace broad "Prisma parity" language with "Prisma-inspired alpha" language.
-- Document all intentional differences from Prisma.
-- Remove or mark unsupported nested write examples that use nested `update`,
-  `updateMany`, `deleteMany`, or `upsert`.
-- Audit docs for cursor pagination, distinct, JSON filters, array filters,
-  relation ordering, and case-insensitive filtering against actual runtime
-  support.
+### Exit Criteria
 
-## Suggested PR Breakdown
+- The contract matrix exists.
+- Every later phase can cite contract rows rather than re-arguing intended
+  behavior.
+- No production code changes in this phase unless a typo blocks documentation.
 
-1. Fail-closed validation for unsupported accepted inputs.
-2. `whereUnique` safety and single-record mutation not-found semantics.
-3. Prisma-like type algebra and exactness.
-4. Nested relation mutation scoping and many-to-many nested write decision.
-5. Cross-dialect mutation return strategy.
-6. Public documentation cleanup for Prisma-inspired alpha scope.
+## Focused Core Gaps
 
-Each PR should include focused runtime tests and type tests for the behavior it
-claims to support.
+The detailed implementation roadmap for the first Prisma-compatible core gaps
+has moved to `docs/architecture/prisma-core-gaps.md`.
+
+This file keeps the broader parity contract, verification loop, runtime
+stability work, documentation cleanup, and final audit process. Do not duplicate
+the focused implementation list here.
+
+## Remaining Phase 1: Transactions, Error Semantics, and Driver Stability
+
+### Goal
+
+Make runtime behavior stable enough for real applications, not only local PGlite
+tests.
+
+### Units of Work
+
+#### Unit 1.1: Transaction State Isolation
+
+Current risk:
+
+- Transaction state can be too global for pooled or concurrent drivers.
+
+Work:
+
+- Audit `Driver` transaction state.
+- Move transaction state into transaction-scoped context where needed.
+- Add concurrent transaction tests for pooled drivers where available.
+
+Target files:
+
+- `src/drivers/**`
+- `src/client/client.ts`
+- `tests/client/batch-transaction.test.ts`
+- `tests/drivers/savepoint-queue.test.ts`
+
+#### Unit 1.2: Unsupported Transaction Modes — Done
+
+Work:
+
+- Identify drivers that cannot provide callback transaction atomicity.
+- Reject unsupported transaction usage or require explicit non-atomic opt-in.
+- Remove silent `console.warn` fallback where it implies atomicity.
+
+Status: done. `src/client/client.ts` and `src/drivers/driver.ts` throw
+`"does not support callback transactions"` instead of silently falling back;
+no `console.warn` calls remain in `src/`.
+
+#### Unit 1.3: Stable Error Classes — Done
+
+Work:
+
+- Map common database errors:
+  - unique constraint
+  - foreign key constraint
+  - not-null constraint
+  - check constraint
+  - serialization/deadlock for drivers that expose reliable error codes
+- Ensure errors include model and operation context for ORM-generated queries.
+
+Target files:
+
+- `src/errors/**` or current error location
+- `src/drivers/**`
+- `tests/drivers/**`
+
+Status: done. `src/errors/constraints.ts` defines `UniqueConstraintError`,
+`ForeignKeyError`, `NotNullConstraintError`, and `CheckConstraintError`;
+serialization/deadlock mapping lives in `src/drivers/error-mapping.ts` and
+`src/errors/base.ts`.
+
+#### Unit 1.4: Transaction Options — Superseded
+
+Phase 8 of the query-engine correctness remediation plan replaced the earlier
+timeout design with an empty portable option subset. `$transaction` accepts no
+second options argument because timeout, isolation, access-mode, and
+provider-specific settings do not have one honest meaning across every
+advertised driver. Removed options reject before callback or provider work; the
+old `Promise.race` timeout path no longer exists.
+
+### Exit Criteria
+
+- Transaction behavior is explicit per driver.
+- Common database errors are normalized.
+- The portable API declares no transaction option it cannot honor everywhere.
+
+## Remaining Phase 2: Documentation and Public Contract Cleanup
+
+### Goal
+
+Make public docs match the actual supported surface.
+
+### Units of Work
+
+#### Unit 2.1: Replace Overclaims
+
+Work:
+
+- Replace broad "Prisma parity" language with "Prisma-inspired" until all
+  earlier phases are complete.
+- Avoid claims like "all nested writes" unless the matrix proves it.
+
+Target files:
+
+- `README.md`
+- `docs/content/docs/**`
+- `readme/**`
+
+#### Unit 2.2: Document Intentional Differences
+
+Known likely differences:
+
+- `exist` naming if kept.
+- Blended checked/unchecked create inputs if kept.
+- Raw query API shape.
+- Excluded nested-write shapes.
+- Driver-specific feature availability.
+
+#### Unit 2.3: Add Compatibility Tables
+
+Docs should include tables for:
+
+- operation support
+- relation filter support
+- nested write support
+- dialect support
+- type-system differences
+
+#### Unit 2.4: Add Examples Backed by Tests
+
+Rule:
+
+- Every public docs example for Prisma-like behavior should correspond to a test
+  or be marked conceptual.
+
+### Exit Criteria
+
+- Docs no longer overclaim.
+- Unsupported Prisma features are listed explicitly.
+- Compatibility tables match tests and implementation.
+
+## Remaining Phase 3: Final Parity Audit
+
+### Goal
+
+Run an adversarial final review before declaring the core Prisma-like surface
+stable.
+
+### Units of Work
+
+#### Unit 3.1: Multi-agent Review
+
+Repeat adversarial review across:
+
+- operation API
+- type system
+- filters/pagination/aggregate
+- relations/nested writes
+- runtime/drivers/transactions
+- docs/tests
+
+#### Unit 3.2: Contract Matrix Reconciliation
+
+Work:
+
+- Compare implementation against `prisma-parity-contract.md`.
+- Mark every row:
+  - complete
+  - intentionally different
+  - unsupported and documented
+  - still broken
+
+#### Unit 3.3: Release Gate
+
+Run:
+
+```bash
+pnpm type-check
+pnpm test
+pnpm build
+```
+
+Run local database suites:
+
+```bash
+pnpm test:pglite
+pnpm test:sqlite
+pnpm test:drivers:local
+```
+
+MySQL, PlanetScale, D1, and other hosted-driver suites are external follow-up
+work until dedicated scripts and credentials exist.
+
+### Exit Criteria
+
+- No known accepted-but-ignored inputs remain.
+- No known type/runtime mismatch remains in the basic surface.
+- Docs match the implementation.
+- The stability claim can be upgraded from "Prisma-inspired alpha" to a narrower
+  but honest statement such as:
+
+> VibORM supports a Prisma-like core CRUD and relation query experience for the
+> documented feature set, with zero code generation and explicit documented
+> differences from Prisma.
+
+## Recommended PR Order
+
+1. Phase 0: Contract matrix.
+2. Focused core gaps roadmap in `docs/architecture/prisma-core-gaps.md`.
+3. Remaining Phase 1: Runtime stability and driver semantics.
+4. Remaining Phase 2: Documentation cleanup.
+5. Remaining Phase 3: Final parity audit.
+
+If a phase becomes too large, split by unit of work. Do not merge unrelated
+phases into one PR for convenience.
+
+## First Implementation Recommendation
+
+Start with `docs/architecture/prisma-core-gaps.md`, Unit 1: fail closed for
+accepted-but-ignored inputs.
+
+Reason: fail-closed behavior is the safety floor. It prevents VibORM from
+accepting Prisma-like inputs that silently broaden or change a query while the
+rest of the focused gaps are implemented.

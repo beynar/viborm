@@ -7,9 +7,9 @@
 
 import { type Sql, sql } from "@sql";
 import { buildSelectWithAliases } from "../builders/select-builder";
-import { buildWhereUnique } from "../builders/where-builder";
+import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getTableName } from "../context";
-import type { QueryContext } from "../types";
+import type { QueryScope } from "../types";
 
 interface FindUniqueArgs {
   where: Record<string, unknown>;
@@ -29,7 +29,7 @@ interface FindUniqueArgs {
  * @param args - FindUnique arguments
  * @returns SQL statement
  */
-export function buildFindUnique(ctx: QueryContext, args: FindUniqueArgs): Sql {
+export function buildFindUnique(ctx: QueryScope, args: FindUniqueArgs): Sql {
   const { adapter, rootAlias } = ctx;
   const tableName = getTableName(ctx.model);
 
@@ -60,7 +60,7 @@ export function buildFindUnique(ctx: QueryContext, args: FindUniqueArgs): Sql {
   if (lateralJoins.length > 0) {
     parts.joins = lateralJoins;
   }
-  if (where) parts.where = where;
+  parts.where = where;
   parts.limit = limit;
 
   // Add FOR UPDATE for row locking in transactions

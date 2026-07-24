@@ -155,12 +155,8 @@ describe("number schema", () => {
     test("default factory function", () => {
       let counter = 0;
       const schema = v.number({ default: () => ++counter });
-      expect(
-        (parse(schema, undefined) as { value: number }).value
-      ).toBe(1);
-      expect(
-        (parse(schema, undefined) as { value: number }).value
-      ).toBe(2);
+      expect((parse(schema, undefined) as { value: number }).value).toBe(1);
+      expect((parse(schema, undefined) as { value: number }).value).toBe(2);
     });
   });
 

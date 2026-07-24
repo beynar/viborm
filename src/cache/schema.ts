@@ -1,4 +1,4 @@
-import v, { type V } from "@validation";
+import v, { type V } from "@validation/primitives/v";
 import { parseTTL } from "./ttl";
 
 // =============================================================================

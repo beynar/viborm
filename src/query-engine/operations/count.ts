@@ -5,13 +5,15 @@
  * Returns the number of records matching the criteria.
  */
 
+import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { type Sql, sql } from "@sql";
-import { buildWhere } from "../builders/where-builder";
-import { getColumnName, getTableName } from "../context";
-import type { QueryContext } from "../types";
+import { getColumnName } from "../context";
+import type { QueryScope } from "../types";
+import { buildAggregateInputWindow } from "./aggregate-input";
 
 interface CountArgs {
   where?: Record<string, unknown>;
+  orderBy?: Record<string, unknown> | Record<string, unknown>[];
   select?: Record<string, boolean>;
   cursor?: Record<string, unknown>;
   take?: number;
@@ -25,51 +27,48 @@ interface CountArgs {
  * @param args - Count arguments
  * @returns SQL statement
  */
-export function buildCount(ctx: QueryContext, args: CountArgs): Sql {
-  const { adapter, rootAlias } = ctx;
-  const tableName = getTableName(ctx.model);
-
-  // Build count columns
-  const columns = buildCountColumns(ctx, args.select);
-
-  // Build FROM
-  const from = adapter.identifiers.table(tableName, rootAlias);
-
-  // Build WHERE
-  const where = buildWhere(ctx, args.where, rootAlias);
-
-  // Build LIMIT (take)
-  const limit =
-    args.take !== undefined ? adapter.literals.value(args.take) : undefined;
-
-  // Build OFFSET (skip)
-  const offset =
-    args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
+export function buildCount(ctx: QueryScope, args: CountArgs): Sql {
+  const { adapter } = ctx;
+  const input = buildAggregateInputWindow(
+    ctx,
+    args,
+    getCountFieldNames(args.select)
+  );
 
   // Assemble query parts
   const parts: Parameters<typeof adapter.assemble.select>[0] = {
-    columns,
-    from,
+    columns: buildCountColumns(ctx, args.select, input.alias),
+    from: input.from,
   };
-  if (where) parts.where = where;
-  if (limit) parts.limit = limit;
-  if (offset) parts.offset = offset;
 
   return adapter.assemble.select(parts);
+}
+
+function getCountFieldNames(select?: Record<string, boolean>): string[] {
+  if (!select) {
+    return [];
+  }
+
+  return Object.entries(select)
+    .filter(([field, include]) => field !== "_all" && include)
+    .map(([field]) => field);
 }
 
 /**
  * Build count columns based on select input
  */
 function buildCountColumns(
-  ctx: QueryContext,
-  select?: Record<string, boolean>
+  ctx: QueryScope,
+  select: Record<string, boolean> | undefined,
+  alias: string
 ): Sql {
   const { adapter } = ctx;
 
   if (!select) {
-    // Simple count all - adapter.result.parseResult normalizes database-specific column names
-    return adapter.aggregates.count();
+    return adapter.identifiers.aliased(
+      adapter.aggregates.count(),
+      COUNT_RESULT_KEY
+    );
   }
 
   // Build count for specific fields
@@ -86,13 +85,16 @@ function buildCountColumns(
 
     // Resolve field name to actual column name (handles .map() overrides)
     const columnName = getColumnName(ctx.model, field);
-    const column = adapter.identifiers.column(ctx.rootAlias, columnName);
+    const column = adapter.identifiers.column(alias, columnName);
     const countExpr = adapter.aggregates.count(column);
     counts.push(adapter.identifiers.aliased(countExpr, field));
   }
 
   if (counts.length === 0) {
-    return adapter.aggregates.count();
+    return adapter.identifiers.aliased(
+      adapter.aggregates.count(),
+      COUNT_RESULT_KEY
+    );
   }
 
   return sql.join(counts, ", ");

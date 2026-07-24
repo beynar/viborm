@@ -5,7 +5,7 @@
  * Supports all DDL operations natively.
  */
 
-import type { Field, FieldState } from "@schema/fields";
+import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import type { ColumnDef } from "../../types";
 import {
@@ -43,6 +43,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     supportsAddEnumValueInTransaction: false,
     supportsIndexTypes: ["btree", "hash", "gin", "gist"],
     supportsNativeArrays: true,
+    supportsAddForeignKeyViaAlter: true,
   };
 
   // ===========================================================================
@@ -55,19 +56,20 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // TYPE MAPPING
   // ===========================================================================
 
-  mapFieldType(field: Field, fieldState: FieldState): string {
-    const nativeType = field["~"].nativeType;
+  mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
+    const nativeType = scalar["~"].nativeType;
 
     // If a native type is specified and it's for PostgreSQL, use it
     if (nativeType && nativeType.db === "pg") {
-      return fieldState.array ? `${nativeType.type}[]` : nativeType.type;
+      return scalarState.array ? `${nativeType.type}[]` : nativeType.type;
     }
 
     // Use centralized type mapping
     return getPostgresType({
-      type: fieldState.type,
-      array: fieldState.array,
-      withTimezone: fieldState.withTimezone,
+      type: scalarState.type,
+      array: scalarState.array,
+      withTimezone: scalarState.withTimezone,
+      dimension: scalarState.dimension,
     });
   }
 
@@ -79,7 +81,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
    * This is more efficient than generating UUIDs at the application level.
    */
   protected override getAutoGenerateExpression(
-    autoGenerate: import("@schema/fields").FieldState["autoGenerate"]
+    autoGenerate: import("@schema/scalars").ScalarState["autoGenerate"]
   ): string | undefined {
     switch (autoGenerate) {
       case "uuid":
@@ -561,7 +563,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
             "-- If rows exist with these values, the migration will fail.\n" +
             "-- To fix this, do one of the following:\n" +
             `--   1. Add valueReplacements: { "${unreplacedValues[0]}": "newValue" }\n` +
-            "--   2. Set defaultReplacement to your field's default value"
+            "--   2. Set defaultReplacement to your column's default value"
         );
       }
 

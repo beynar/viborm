@@ -2,7 +2,8 @@
  * PlanetScale Driver (Vitess MySQL)
  *
  * Driver implementation for @planetscale/database - PlanetScale's serverless MySQL driver.
- * Supports transactions via the Client.transaction() method.
+ * Transactions pin one Connection and enable Vitess SINGLE mode before BEGIN;
+ * Client.transaction() is intentionally not used because it hides that setup.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -12,15 +13,23 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import type {
-  Client,
-  Config,
-  Connection,
-  Transaction,
-} from "@planetscale/database";
-import { Driver, type DriverResultParser } from "../driver";
-import { mysqlResultParser } from "../shared";
-import type { QueryResult, TransactionOptions } from "../types";
+import type { Client, Config, Connection } from "@planetscale/database";
+import {
+  Driver,
+  type DriverResultParser,
+  type QueryExecutionContext,
+} from "../driver";
+import {
+  normalizeProviderInsertId,
+  normalizeProviderRowCount,
+} from "../normalized-result";
+import {
+  mysqlResultParser,
+  nestedTransactionDispatchError,
+  runTransactionLifecycle,
+} from "../shared";
+import type { QueryResult } from "../types";
+import { createValidatedPlanetScaleFetch } from "./response-contract";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -42,8 +51,30 @@ export type PlanetScaleClientConfig<C extends DriverConfig> =
 // ============================================================
 
 type PlanetScaleClient = Client | Connection;
+type PlanetScaleTransaction = Pick<Connection, "execute">;
 
-export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
+/** PlanetScale reports insertId as a string; "0" means none was generated. */
+function toQueryResult<T>(
+  result: {
+    rows: unknown[];
+    rowsAffected: number;
+    insertId: string;
+  },
+  operation: string
+): QueryResult<T> {
+  const context = { provider: "planetscale", operation };
+  const insertId = normalizeProviderInsertId(result.insertId, context);
+  return {
+    rows: result.rows as T[],
+    rowCount: normalizeProviderRowCount(result.rowsAffected, context),
+    ...(insertId === undefined ? {} : { insertId }),
+  };
+}
+
+export class PlanetScaleDriver extends Driver<
+  PlanetScaleClient,
+  PlanetScaleTransaction
+> {
   readonly adapter: DatabaseAdapter = new MySQLAdapter();
   readonly result: DriverResultParser = mysqlResultParser;
   readonly supportsTransactions = true;
@@ -53,20 +84,26 @@ export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
   constructor(options: PlanetScaleDriverOptions = {}) {
     super("mysql", "planetscale");
     this.driverOptions = options;
-
-    if (options.client) {
-      this.client = options.client;
-    }
   }
 
   protected async initClient(): Promise<PlanetScaleClient> {
     const { Client } = await import("@planetscale/database");
+
+    const providedClient = this.driverOptions.client;
+    if (providedClient) {
+      if (!isRecord(providedClient.config)) return providedClient;
+      const config: Config = { ...providedClient.config };
+      config.fetch = createValidatedPlanetScaleFetch(config.fetch);
+      return new Client(config);
+    }
 
     const config: Config = { ...this.driverOptions.options };
 
     if (this.driverOptions.databaseUrl) {
       config.url = this.driverOptions.databaseUrl;
     }
+
+    config.fetch = createValidatedPlanetScaleFetch(config.fetch);
 
     return new Client(config);
   }
@@ -76,60 +113,62 @@ export class PlanetScaleDriver extends Driver<PlanetScaleClient, Transaction> {
   }
 
   protected async execute<T>(
-    client: PlanetScaleClient | Transaction,
+    client: PlanetScaleClient | PlanetScaleTransaction,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "execute";
     const result = await client.execute(sql, params);
-    return {
-      rows: result.rows as T[],
-      rowCount: result.rowsAffected ?? result.rows.length,
-    };
+    return toQueryResult<T>(result, operation);
   }
 
   protected async executeRaw<T>(
-    client: PlanetScaleClient | Transaction,
+    client: PlanetScaleClient | PlanetScaleTransaction,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "executeRaw";
     const result = await client.execute(sql, params);
-    return {
-      rows: result.rows as T[],
-      rowCount: result.rowsAffected ?? result.rows.length,
-    };
+    return toQueryResult<T>(result, operation);
   }
 
   protected async transaction<T>(
-    client: PlanetScaleClient | Transaction,
-    fn: (tx: Transaction) => Promise<T>,
-    options?: TransactionOptions
+    client: PlanetScaleClient | PlanetScaleTransaction,
+    fn: (tx: PlanetScaleTransaction) => Promise<T>
   ): Promise<T> {
-    // If we're already in a transaction, use the existing transaction context
-    if ("execute" in client && !("transaction" in client)) {
-      return fn(client as Transaction);
+    if (!("transaction" in client)) {
+      throw nestedTransactionDispatchError(this.driverName);
     }
 
-    const psClient = client as Client;
+    const connection: Connection =
+      "connection" in client ? client.connection() : client;
 
-    // Set isolation level BEFORE starting transaction (MySQL requirement)
-    if (options?.isolationLevel) {
-      const isolationMap: Record<string, string> = {
-        read_uncommitted: "READ UNCOMMITTED",
-        read_committed: "READ COMMITTED",
-        repeatable_read: "REPEATABLE READ",
-        serializable: "SERIALIZABLE",
-      };
-      const level = isolationMap[options.isolationLevel];
-      if (!level) {
-        throw new Error(`Unknown isolation level: ${options.isolationLevel}`);
-      }
-      // SET TRANSACTION must be executed before START TRANSACTION in MySQL
-      await psClient.execute(`SET TRANSACTION ISOLATION LEVEL ${level}`);
-    }
-
-    // Use PlanetScale's transaction() method
-    return psClient.transaction(fn);
+    return runTransactionLifecycle({
+      begin: async () => {
+        // Vitess SINGLE mode rejects cross-shard transactions instead of using
+        // best-effort multi-shard commit semantics.
+        await connection.execute("SET transaction_mode = 'single'");
+        await connection.execute("BEGIN");
+      },
+      callback: () => fn(connection),
+      commit: () => connection.execute("COMMIT"),
+      rollback: () => connection.execute("ROLLBACK"),
+    });
   }
+
+  protected override transactionCleanupFailed(error: Error): void {
+    if (this.client && "connection" in this.client) {
+      // Each transaction used a fresh Connection that is now discarded.
+      return;
+    }
+    super.transactionCleanupFailed(error);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // ============================================================

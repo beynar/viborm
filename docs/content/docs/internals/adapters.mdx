@@ -15,61 +15,90 @@ Databases have different syntax for the same operations:
 | Identifier quote | `"column"` | `` `column` `` | `"column"` |
 | String concat | `\|\|` | `CONCAT()` | `\|\|` |
 | JSON aggregation | `json_agg()` | `JSON_ARRAYAGG()` | `json_group_array()` |
-| Upsert | `ON CONFLICT ... DO UPDATE` | `ON DUPLICATE KEY UPDATE` | `ON CONFLICT ... DO UPDATE` |
+| Low-level upsert primitive | `ON CONFLICT ... DO UPDATE` | `ON DUPLICATE KEY UPDATE` | `ON CONFLICT ... DO UPDATE` |
 | Boolean | `true/false` | `1/0` | `1/0` |
 | RETURNING | `RETURNING *` | Requires separate SELECT | `RETURNING *` |
 
 The adapter pattern lets VibORM support multiple databases without scattering conditionals throughout the codebase.
 
+MySQL's low-level primitive reacts to any unique collision, so VibORM does not
+use it for public non-returning upserts. The query engine selects and locks the
+requested target, chooses the create/update branch, and refetches inside one
+transaction. This preserves the same target-specific public behavior as
+PostgreSQL and SQLite.
+
+MySQL duplicate skipping likewise avoids `INSERT IGNORE`, which suppresses
+unrelated failures. Top-level bulk creates execute row-level inserts inside one
+transaction and recover only mapped duplicate-key errors; nested idempotent
+inserts use a duplicate-key no-op update. Both paths surface foreign-key,
+`NOT NULL`, conversion, truncation, and other integrity failures.
+
 ## Adapter Interface
 
-Every adapter implements `DatabaseAdapter`:
+Every adapter implements `DatabaseAdapter` (see `src/adapters/database-adapter.ts`) — a large interface organized into ~25 namespaced groups of pure, composable SQL-fragment functions:
 
 ```typescript
 interface DatabaseAdapter {
-  // Identifiers
-  quoteIdentifier(name: string): string;
-  
-  // Expressions
-  concat(...parts: Sql[]): Sql;
-  coalesce(value: Sql, fallback: Sql): Sql;
-  
-  // JSON
-  json: {
-    build(fields: Record<string, Sql>): Sql;
-    agg(query: Sql): Sql;
+  raw: (sqlString: string) => Sql;      // escape hatch (use sparingly)
+
+  identifiers: { escape, column, table, aliased };       // "name" vs `name`
+  literals: { value, null, ... };                        // parameterized values
+  operators: { eq, neq, lt, gt, in, like, ... };         // comparison operators
+  expressions: { concat, coalesce, cast, ... };          // scalar expressions
+  aggregates: { count, sum, avg, min, max, ... };        // aggregate functions
+  json: { ... };                                          // JSON build/extract/agg
+  arrays: { ... };                                        // array ops (native or JSON)
+  orderBy: { ... };                                       // ORDER BY fragments
+  clauses: { ... };                                       // WHERE/LIMIT/... clauses
+  set: { ... };                                           // UPDATE SET fragments
+  filters: { ... };                                       // filter helpers
+  subqueries: { ... };                                    // correlated subqueries
+  assemble: { ... };                                      // final query assembly
+  cte: { ... };                                           // common table expressions
+  mutations: { ... };                                     // INSERT/UPDATE/DELETE/upsert
+  assertions: { ... };                                    // runtime SQL assertions
+  joins: { ... };                                         // JOIN fragments
+  setOperations: { ... };                                 // UNION and friends
+  vector: { ... };                                        // vector distance (pgvector, ...)
+  geospatial: { ... };                                    // point/geometry support
+  result: { ... };                                        // result-shape hints
+  lastInsertId: () => Sql;                                // lastval()/LAST_INSERT_ID()/...
+  batchRefs: BatchReferenceSqlAdapter;                    // atomic-batch temp refs
+
+  capabilities: {
+    supportsReturning: boolean;
+    supportsLateralJoins: boolean;
+    supportsVector: boolean;
+    supportsUpsertWhere: boolean;
+    supportsMutationTargetInSubquery: boolean;
+    // ...
   };
-  
-  // Operations
-  upsert(config: UpsertConfig): Sql;
-  returning(columns: string[]): Sql;
-  
-  // Types
-  columnType(field: Field): string;
 }
 ```
 
+Each group takes database-agnostic inputs and returns dialect-specific `Sql` fragments. The query engine composes fragments; it never inspects them.
+
 ## Available Adapters
 
-| Adapter | Database | Status |
-|---------|----------|--------|
-| `PostgresAdapter` | PostgreSQL | Full support |
-| `MySQLAdapter` | MySQL 8.0+ | Full support |
-| `SQLiteAdapter` | SQLite 3.35+ | Partial support |
+| Adapter | Database |
+|---------|----------|
+| `PostgresAdapter` | PostgreSQL |
+| `MySQLAdapter` | MySQL 8.0+ |
+| `SQLiteAdapter` | SQLite 3.35+ |
 
 ## Database Capabilities
 
-Not all databases support everything:
+The `capabilities` group lets the query engine branch on database features instead of dialect names. Examples:
 
 | Capability | PostgreSQL | MySQL | SQLite |
 |------------|------------|-------|--------|
-| RETURNING clause | ✅ | ❌ | ✅ |
-| JSON columns | ✅ | ✅ | ✅ |
-| Array columns | ✅ | ❌ | ❌ |
-| CTEs | ✅ | ✅ | ✅ |
-| Window functions | ✅ | ✅ | ✅ |
-| ENUM type | ✅ | ✅ | ❌ (VARCHAR) |
-| Vector type | pgvector | ❌ | ❌ |
+| `supportsReturning` | ✅ | ❌ | ✅ |
+| `supportsLateralJoins` | ✅ | ✅ | ❌ |
+| `supportsVector` | with pgvector | ❌ | ❌ |
+| `supportsUpsertWhere` | ✅ | ❌ | ✅ |
+| `supportsMutationTargetInSubquery` | ✅ | ❌ | ✅ |
+
+When a capability is false the query engine picks a fallback strategy (e.g. correlated subqueries instead of lateral joins, or a transactional upsert instead of `ON CONFLICT ... WHERE`).
 
 ## How Adapters Are Used
 
@@ -92,4 +121,4 @@ The query engine doesn't know which SQL was generated - it just gets a composabl
 
 - **L6 (Query Engine)**: Query engine delegates all SQL syntax to adapters
 - **L8 (Drivers)**: Adapters produce SQL that drivers execute
-- **L10 (Migrations)**: Adapters generate DDL for their database
+- **L12 (Migrations)**: Migration drivers, not query adapters, generate database-specific DDL

@@ -28,7 +28,7 @@ import type { IsoDateSchema, IsoTimeSchema, IsoTimestampSchema } from "./iso";
 import { isoDate, isoTime, isoTimestamp } from "./iso";
 import type { JsonSchema, JsonValue } from "./json";
 import { json } from "./json";
-import { lazy } from "./lazy";
+import { lazy, lazyRef } from "./lazy";
 import type { LiteralSchema, LiteralValue } from "./literal";
 import { literal } from "./literal";
 import type { NullableSchema } from "./nullable";
@@ -119,6 +119,7 @@ export const v = {
   map,
   // Lazy evaluation
   lazy,
+  lazyRef,
   // Single or array
   singleOrArray,
   // Shorthand coercions

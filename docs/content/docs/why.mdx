@@ -1,0 +1,51 @@
+---
+title: Why We Built This
+description: The story behind VibORM — vibe coding, Prisma friction, and building from first principles
+icon: Lightbulb
+---
+
+VibORM started as an experiment: **how far can we push vibe coding?** Can we build something as complex as an ORM with AI assistance?
+
+The answer, so far, is yes - and the result gives you a **Prisma-inspired query API** without the code generation step or WASM query-engine deployment headaches.
+
+## The Origin
+
+This project was born from two things: frustration with Prisma's developer experience friction, and the opportunity presented by new AI models like Claude Opus and agents like Cursor.
+
+The name says it: **Vib**e coding + **ORM** = **VibORM**.
+
+Unlike Prisma's codebase (which can be intimidating), VibORM is designed to be **accessible to mid-level TypeScript engineers**. The architecture is organized into clean layers, each documented by `AGENTS.md` files that explain what each layer does, why it exists, and how to modify it. This makes it easy for contributors - and their AI assistants - to understand the codebase and make quality pull requests.
+
+Check out the [Internals](/docs/internals) section to see how it's structured.
+
+## The Friction We Wanted to Remove
+
+We loved Prisma's developer experience - the intuitive query API, the nested includes, the type safety, and especially the **schema definition** where relations are declared within the model itself. But two things kept causing friction:
+
+### Code Generation
+
+Every schema change requires `prisma generate`. Forget to run it and you're debugging phantom type errors. We wanted **types that update instantly on save**.
+
+### WASM Deployment Issues
+
+Prisma's query engine is compiled to WASM, which creates deployment problems - bundle size concerns, cold start latency, and compatibility issues with edge runtimes like Cloudflare Workers. We wanted a **pure TypeScript solution**.
+
+## Built From First Principles
+
+We tried to reproduce Prisma's schema DDL in pure TypeScript - not like Drizzle where models and relations are defined in separate places, but where **relations live inside the model definition**:
+
+```typescript
+// What we wanted - relations declared within the model
+const user = s.model({
+  id: s.string().id(),
+  posts: s.oneToMany(() => post),  // Relation here, not in a separate file
+});
+```
+
+This immediately confronted us with **circular reference issues** - User references Post, Post references User. TypeScript and JavaScript don't handle this well out of the box.
+
+Solving this led us to build our own validation engine using **thunks** (`() => model`) for lazy evaluation. To have types inferred without code generation, we needed a way to **declare the type surface that also validates at runtime** - and handle circular references correctly.
+
+This is what "from first principles" means for us: starting with the schema definition we wanted, hitting real problems, and building solutions as we went.
+
+The result: the schema you write generates validation schemas, TypeScript infers types from those schemas, the query engine builds database-agnostic queries, and adapters handle the dialect-specific SQL.

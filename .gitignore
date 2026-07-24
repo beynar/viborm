@@ -17,3 +17,5 @@ dist/**/*.d.ts
 dist/**/*.d.ts.map
 .dist-test
 .dist-tsc
+benchmarks/baseline.json
+benchmarks/baseline.json

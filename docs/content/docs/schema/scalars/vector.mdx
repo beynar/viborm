@@ -1,0 +1,132 @@
+---
+title: Vector
+description: Vector scalar type for AI/ML embeddings and similarity search (PostgreSQL pgvector)
+icon: Sparkles
+---
+
+<Callout type="info">
+  Vector scalars require PostgreSQL with the `pgvector` extension. On MySQL and SQLite the values are stored as JSON and similarity search is unavailable.
+</Callout>
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.vector()               // Required number[]
+s.vector().dimension(3)  // Fixed-length number[]
+s.vector().nullable()    // number[] | null
+```
+
+Stored as a pgvector `vector(n)` column. Vectors support `.nullable()`, `.default()`, `.map()`, and `.dimension(n)` — but **not** `.array()`, `.id()`, `.unique()`, or `.schema()`. See the [support matrix](/docs/schema/scalars).
+
+## PostgreSQL Setup
+
+Enable the pgvector extension:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+## Complete Example
+
+```ts
+const document = s.model({
+  id: s.string().id().ulid(),
+  content: s.string(),
+  embedding: s.vector().dimension(1536),  // Store embedding
+  createdAt: s.dateTime().now(),
+}).map("documents");
+
+// Store a document with embedding
+await client.document.create({
+  data: {
+    content: "Hello, world!",
+    embedding: [0.1, 0.2, 0.3 /* 1533 more values */],
+  }
+});
+```
+
+## Similarity Search
+
+Use `_distance` in `orderBy` for nearest-neighbor searches:
+
+```ts
+const queryEmbedding = [0.1, 0.2, 0.3 /* 1533 more values */];
+
+const similar = await client.document.findMany({
+  select: { id: true, content: true },
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "cosine", // "l2" | "cosine"
+      },
+    },
+  },
+  take: 10,
+});
+```
+
+Set `sort: "desc"` to return farthest matches first. You can also select the distance score; it is returned as `_distance: number`:
+
+```ts
+const scored = await client.document.findMany({
+  select: {
+    id: true,
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "l2",
+      },
+    },
+  },
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "l2",
+      },
+    },
+  },
+});
+
+scored[0]?._distance; // number | undefined
+```
+
+<Callout type="warning">
+  Distance ordering and selection require a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the query vector length must match `.dimension(...)` when a dimension is declared.
+</Callout>
+
+## Vector Dimensions
+
+| Model | Dimensions |
+|-------|------------|
+| OpenAI text-embedding-ada-002 | 1536 |
+| OpenAI text-embedding-3-small | 1536 |
+| OpenAI text-embedding-3-large | 3072 |
+| Cohere embed-english-v3.0 | 1024 |
+| sentence-transformers | 384-768 |
+
+## Indexing Vectors
+
+For efficient similarity search, create an index:
+
+```sql
+-- HNSW index (recommended for most cases)
+CREATE INDEX ON documents USING hnsw (embedding vector_cosine_ops);
+
+-- IVFFlat index (for very large datasets)
+CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+```
+
+## When to Use Vector
+
+| Use Case | Recommendation |
+|----------|----------------|
+| Semantic search | Vector embeddings |
+| Image similarity | Vector embeddings |
+| Recommendation | Vector embeddings |
+| Full-text search | PostgreSQL tsvector or dedicated search |
+| Exact matching | Regular scalars with indexes |

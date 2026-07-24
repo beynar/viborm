@@ -8,6 +8,7 @@
 import { ValidationError } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type SchemaRegistryLookup, type VibSchema } from "@validation";
+import { assertPortablePrimaryKeyUpdateInput } from "./operations/mutation-identity";
 import type { Operation } from "./types";
 
 /**
@@ -32,10 +33,14 @@ function getOperationSchema(
       return schemas.args.create;
     case "createMany":
       return schemas.args.createMany;
+    case "createManyAndReturn":
+      return schemas.args.createManyAndReturn;
     case "update":
       return schemas.args.update;
     case "updateMany":
       return schemas.args.updateMany;
+    case "updateManyAndReturn":
+      return schemas.args.updateManyAndReturn;
     case "delete":
       return schemas.args.delete;
     case "deleteMany":
@@ -92,6 +97,7 @@ export function validate<T>(
     throw new ValidationError(operation, issues);
   }
 
+  assertPortablePrimaryKeyUpdateInput(model, operation, result.value);
   return result.value as T;
 }
 

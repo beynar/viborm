@@ -1,8 +1,8 @@
 // Update schema factories
 
 import type { AnyModel } from "@schema/model";
-import v, { type V } from "@validation";
-import type { FieldSchemas } from "../index";
+import v, { type V } from "../../primitives/v";
+import type { ScalarSchemas } from "../index";
 
 // =============================================================================
 // SCALAR UPDATE
@@ -13,21 +13,12 @@ import type { FieldSchemas } from "../index";
  */
 export type ScalarUpdateSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = V.FromObject<
-  F["scalars"],
-  "update"
->;
-export const getScalarUpdate = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
-  fieldSchemas: F,
+  F extends ScalarSchemas<M>,
+> = V.FromObject<F["scalars"], "update">;
+export const getScalarUpdate = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  fieldSchemas: F
 ): ScalarUpdateSchema<M, F> => {
-  return v.fromObject<F["scalars"], "update">(
-    fieldSchemas.scalars,
-    "update"
-  );
+  return v.fromObject<F["scalars"], "update">(fieldSchemas.scalars, "update");
 };
 
 // =============================================================================
@@ -39,16 +30,13 @@ export const getScalarUpdate = <
  */
 export type RelationUpdateSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
-> = V.FromObject<
-  F["relations"],
-  "update"
->;
+  F extends ScalarSchemas<M>,
+> = V.FromObject<F["relations"], "update">;
 export const getRelationUpdate = <
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 >(
-  fieldSchemas: F,
+  fieldSchemas: F
 ): RelationUpdateSchema<M, F> => {
   return v.fromObject<F["relations"], "update">(
     fieldSchemas.relations,
@@ -65,15 +53,12 @@ export const getRelationUpdate = <
  */
 export type UpdateSchema<
   M extends AnyModel,
-  F extends FieldSchemas<M>,
+  F extends ScalarSchemas<M>,
 > = V.Object<
   ScalarUpdateSchema<M, F>["entries"] & RelationUpdateSchema<M, F>["entries"]
 >;
-export const getUpdateSchema = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
-  fieldSchemas: F,
+export const getUpdateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  fieldSchemas: F
 ): UpdateSchema<M, F> => {
   const scalarUpdate = v.fromObject<F["scalars"], "update">(
     fieldSchemas.scalars,

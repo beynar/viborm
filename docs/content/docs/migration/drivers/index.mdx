@@ -16,76 +16,45 @@ icon: Cpu
 | Driver | Database | Native Enums | Native Arrays | Index Types |
 |--------|----------|--------------|---------------|-------------|
 | [PostgreSQL](/docs/migration/drivers/postgresql) | PostgreSQL | Yes | Yes | btree, hash, gin, gist |
+| [MySQL](/docs/migration/drivers/mysql) | MySQL | Yes (inline `ENUM`) | No (JSON) | btree, fulltext, spatial |
 | [SQLite](/docs/migration/drivers/sqlite) | SQLite, LibSQL | No (CHECK) | No (JSON) | btree |
 
 ## Driver Capabilities
 
-Each driver declares its capabilities:
-
-```ts
-interface MigrationCapabilities {
-  supportsNativeEnums: boolean;
-  supportsAddEnumValueInTransaction: boolean;
-  supportsIndexTypes: string[];
-  supportsNativeArrays: boolean;
-}
-```
-
-### PostgreSQL
-
-```ts
-{
-  supportsNativeEnums: true,
-  supportsAddEnumValueInTransaction: false,
-  supportsIndexTypes: ["btree", "hash", "gin", "gist"],
-  supportsNativeArrays: true
-}
-```
-
-### SQLite
-
-```ts
-{
-  supportsNativeEnums: false,
-  supportsAddEnumValueInTransaction: true,
-  supportsIndexTypes: ["btree"],
-  supportsNativeArrays: false
-}
-```
+Each driver declares what its database can do: whether enums and arrays are native, which index types exist, and whether enum values can be added inside a transaction. PostgreSQL has native enum types and arrays but can't run `ALTER TYPE ... ADD VALUE` inside a transaction. MySQL defines enums inline on the column (changing one is a `MODIFY COLUMN`, which implicitly commits) and stores arrays as JSON. SQLite emulates enums with CHECK constraints and stores arrays as JSON.
 
 ## Supported Operations
 
 Migration drivers generate DDL for these operations:
 
-| Operation | PostgreSQL | SQLite |
-|-----------|------------|--------|
-| `createTable` | Direct | Direct |
-| `dropTable` | Direct | Direct |
-| `renameTable` | Direct | Direct |
-| `addColumn` | Direct | Direct |
-| `dropColumn` | Direct | Direct (3.35.0+) |
-| `renameColumn` | Direct | Direct (3.25.0+) |
-| `alterColumn` | Direct | Table recreation |
-| `createIndex` | Direct | Direct |
-| `dropIndex` | Direct | Direct |
-| `addForeignKey` | Direct | Table recreation |
-| `dropForeignKey` | Direct | Table recreation |
-| `addPrimaryKey` | Direct | Table recreation |
-| `dropPrimaryKey` | Direct | Table recreation |
-| `createEnum` | `CREATE TYPE` | No-op (TEXT) |
-| `dropEnum` | `DROP TYPE` | No-op |
-| `alterEnum` | `ALTER TYPE` | No-op |
+| Operation | PostgreSQL | MySQL | SQLite |
+|-----------|------------|-------|--------|
+| `createTable` | Direct | Direct | Direct |
+| `dropTable` | Direct | Direct | Direct |
+| `renameTable` | Direct | Direct | Direct |
+| `addColumn` | Direct | Direct | Direct |
+| `dropColumn` | Direct | Direct | Direct (3.35.0+) |
+| `renameColumn` | Direct | Direct | Direct (3.25.0+) |
+| `alterColumn` | Direct | `MODIFY COLUMN` | Table recreation |
+| `createIndex` | Direct | Direct | Direct |
+| `dropIndex` | Direct | Direct | Direct |
+| `addForeignKey` | Direct | Direct | Table recreation |
+| `dropForeignKey` | Direct | Direct | Table recreation |
+| `addPrimaryKey` | Direct | Direct | Table recreation |
+| `dropPrimaryKey` | Direct | Direct | Table recreation |
+| `createEnum` | `CREATE TYPE` | No-op (inline in column) | No-op (TEXT) |
+| `dropEnum` | `DROP TYPE` | No-op | No-op |
+| `alterEnum` | `ALTER TYPE` | `MODIFY COLUMN` per column | No-op |
 
 ## Automatic Driver Selection
 
 VibORM automatically selects the migration driver based on your database driver:
 
 ```ts
-import { createClient } from "viborm";
-import { PostgresDriver } from "viborm/drivers/postgres";
+import { createClient } from "viborm/postgres";
 
 const client = createClient({
-  driver: new PostgresDriver({ connectionString: "..." }),
+  databaseUrl: "...",
   schema: { User },
 });
 
@@ -95,20 +64,20 @@ await push(client);
 
 ## Type Mapping
 
-Each driver maps VibORM field types to database-specific types:
+Each driver maps VibORM scalar types to database-specific types:
 
 ### Common Mappings
 
-| VibORM Type | PostgreSQL | SQLite |
-|-------------|------------|--------|
-| `string()` | `text` | `TEXT` |
-| `int()` | `integer` | `INTEGER` |
-| `bigint()` | `bigint` | `INTEGER` |
-| `float()` | `double precision` | `REAL` |
-| `boolean()` | `boolean` | `INTEGER` |
-| `datetime()` | `timestamp` | `TEXT` |
-| `json()` | `jsonb` | `TEXT` |
-| `blob()` | `bytea` | `BLOB` |
+| VibORM Scalar | PostgreSQL | MySQL | SQLite |
+|-------------|------------|-------|--------|
+| `string()` | `text` | `TEXT` | `TEXT` |
+| `int()` | `integer` | `INT` | `INTEGER` |
+| `bigint()` | `bigint` | `BIGINT` | `INTEGER` |
+| `float()` | `double precision` | `DOUBLE` | `REAL` |
+| `boolean()` | `boolean` | `TINYINT(1)` | `INTEGER` |
+| `datetime()` | `timestamp` | `DATETIME(3)` | `TEXT` |
+| `json()` | `jsonb` | `JSON` | `TEXT` |
+| `blob()` | `bytea` | `BLOB` | `BLOB` |
 
 See individual driver pages for complete type mappings.
 
@@ -119,6 +88,11 @@ See individual driver pages for complete type mappings.
     title="PostgreSQL Driver"
     description="PostgreSQL-specific features"
     href="/docs/migration/drivers/postgresql"
+  />
+  <Card
+    title="MySQL Driver"
+    description="MySQL-specific features and limitations"
+    href="/docs/migration/drivers/mysql"
   />
   <Card
     title="SQLite Driver"

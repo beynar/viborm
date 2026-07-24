@@ -476,26 +476,23 @@ describe("ToMany Create - Required (Author.posts)", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects connectOrCreate array item %s",
-      (_, invalidItem) => {
-        const result = parse(schema, {
-          connectOrCreate: [
-            {
-              where: { id: "post-valid" },
-              create: {
-                id: "post-valid",
-                title: "Valid",
-                content: "World",
-                authorId: "a1",
-              },
+    ] as const)("runtime: rejects connectOrCreate array item %s", (_, invalidItem) => {
+      const result = parse(schema, {
+        connectOrCreate: [
+          {
+            where: { id: "post-valid" },
+            create: {
+              id: "post-valid",
+              title: "Valid",
+              content: "World",
+              authorId: "a1",
             },
-            invalidItem,
-          ],
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+          },
+          invalidItem,
+        ],
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: accepts combined create and connect", () => {
       const input = {

@@ -1,14 +1,10 @@
 /**
  * Schema Builder Exports
  *
- * Main API for defining models, fields, and relations.
+ * Main API for defining models, scalars, and relations.
  * Import from "viborm/schema"
  */
 
-export type { Field, NumberField } from "./fields";
-
-// Native database types (PG, MYSQL, SQLITE)
-export { MYSQL, type NativeType, PG, SQLITE } from "./fields/native-types";
 // Hydration utilities (for library authors)
 export {
   getFieldSqlName,
@@ -18,7 +14,7 @@ export {
 } from "./hydration";
 // Schema Builder API
 export { s } from "./index";
-// Model and field types for advanced usage
+// Model and scalar types for advanced usage
 export type { AnyModel, Model, ModelState } from "./model";
 export type {
   AnyRelation,
@@ -26,3 +22,6 @@ export type {
   ReferentialAction,
   RelationType,
 } from "./relation";
+export type { NumberScalar, Scalar } from "./scalars";
+// Native database types (PG, MYSQL, SQLITE)
+export { MYSQL, type NativeType, PG, SQLITE } from "./scalars/native-types";

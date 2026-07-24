@@ -1,5 +1,6 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
+import { createScalarInterner, scalarInternKey } from "./intern";
 
 // =============================================================================
 // BASE TYPES
@@ -102,7 +103,7 @@ const bigIntFilterBase = v.object({
 });
 
 const buildBigIntFilterSchema = <S extends V.Schema>(
-  schema: S,
+  schema: S
 ): BigIntFilterSchema<S> => {
   const filter = bigIntFilterBase.extend({
     equals: schema,
@@ -123,7 +124,7 @@ const bigIntListFilterBase = v.object({
 });
 
 const buildBigIntListFilterSchema = <S extends V.Schema>(
-  schema: S,
+  schema: S
 ): BigIntListFilterSchema<S> => {
   const filter = bigIntListFilterBase.extend({
     equals: schema,
@@ -139,7 +140,7 @@ const buildBigIntListFilterSchema = <S extends V.Schema>(
 // =============================================================================
 
 const buildBigIntUpdateSchema = <S extends V.Schema>(
-  schema: S,
+  schema: S
 ): BigIntUpdateSchema<S> =>
   v.union([
     v.shorthandUpdate(schema),
@@ -153,7 +154,7 @@ const buildBigIntUpdateSchema = <S extends V.Schema>(
   ]);
 
 const buildBigIntListUpdateSchema = <S extends V.Schema>(
-  schema: S,
+  schema: S
 ): BigIntListUpdateSchema<S> =>
   v.union([
     v.shorthandUpdate(schema),
@@ -168,7 +169,7 @@ const buildBigIntListUpdateSchema = <S extends V.Schema>(
 // BIGINT SCHEMA BUILDER
 // =============================================================================
 
-export interface BigIntSchemas<F extends FieldState<"bigint">> {
+export interface BigIntSchemas<F extends ScalarState<"bigint">> {
   base: F["base"];
   create: V.BigInt<F>;
   update: F["array"] extends true
@@ -179,17 +180,25 @@ export interface BigIntSchemas<F extends FieldState<"bigint">> {
     : BigIntFilterSchema<F["base"]>;
 }
 
-export const buildBigIntSchema = <F extends FieldState<"bigint">>(
-  state: F,
+const internFilter = createScalarInterner<unknown>();
+const internUpdate = createScalarInterner<unknown>();
+
+export const buildBigIntSchema = <F extends ScalarState<"bigint">>(
+  state: F
 ): BigIntSchemas<F> => {
+  const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
     create: v.bigint(state),
-    update: state.array
-      ? buildBigIntListUpdateSchema(state.base)
-      : buildBigIntUpdateSchema(state.base),
-    filter: state.array
-      ? buildBigIntListFilterSchema(state.base)
-      : buildBigIntFilterSchema(state.base),
+    update: internUpdate(key, () =>
+      state.array
+        ? buildBigIntListUpdateSchema(state.base)
+        : buildBigIntUpdateSchema(state.base)
+    ) as never,
+    filter: internFilter(key, () =>
+      state.array
+        ? buildBigIntListFilterSchema(state.base)
+        : buildBigIntFilterSchema(state.base)
+    ) as never,
   } as BigIntSchemas<F>;
 };

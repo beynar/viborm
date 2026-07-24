@@ -83,10 +83,7 @@ describe("date schema", () => {
     });
 
     test("rejects array with invalid dates", () => {
-      const result = parse(schema, [
-        new Date(),
-        new Date("invalid"),
-      ]);
+      const result = parse(schema, [new Date(), new Date("invalid")]);
       expect(result.issues).toBeDefined();
     });
   });

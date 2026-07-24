@@ -18,7 +18,7 @@ const users = await client.user.findMany({
 });
 ```
 
-## Multiple Fields
+## Multiple Scalars
 
 Sort by multiple fields:
 
@@ -60,9 +60,81 @@ const users = await client.user.findMany({
 });
 ```
 
+<Callout type="info">
+  `nulls: "first" | "last"` controls where null values land in the order, and works the same on every database.
+</Callout>
+
+## Vector Distance Sorting
+
+Sort vector scalars by distance to a query vector:
+
+```ts
+const queryEmbedding = [0.12, 0.34, 0.56];
+
+const nearest = await client.document.findMany({
+  select: { id: true, title: true },
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "cosine", // "l2" | "cosine"
+      },
+    },
+  },
+  take: 10,
+});
+```
+
+`sort` is optional. `"asc"` means nearest-first and is the default; `"desc"` means farthest-first:
+
+```ts
+const farthest = await client.document.findMany({
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "l2",
+        sort: "desc",
+      },
+    },
+  },
+  take: 10,
+});
+```
+
+Select the distance score with the same `_distance` object. The selected score is returned as `_distance: number`:
+
+```ts
+const results = await client.document.findMany({
+  select: {
+    id: true,
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "cosine",
+      },
+    },
+  },
+  orderBy: {
+    embedding: {
+      _distance: {
+        to: queryEmbedding,
+        metric: "cosine",
+      },
+    },
+  },
+});
+
+results[0]?._distance; // number | undefined
+```
+
+<Callout type="warning">
+  Vector distance sorting requires a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the `to` vector length must match the scalar dimension.
+</Callout>
+
 ## Relation Sorting
 
-Sort by related fields:
+Sort by a scalar field of a to-one relation:
 
 ```ts
 // Sort posts by author name
@@ -72,15 +144,30 @@ const posts = await client.post.findMany({
   },
 });
 
-// Sort by nested relation
+// Sort comments by a scalar on their post
 const comments = await client.comment.findMany({
   orderBy: {
-    post: {
-      author: { name: "asc" },
+    post: { title: "asc" },
+  },
+});
+
+// Sort posts by the author's company name through a to-one chain
+const posts = await client.post.findMany({
+  orderBy: {
+    author: {
+      team: {
+        company: { name: "asc" },
+      },
     },
   },
 });
 ```
+
+<Callout type="info">
+  Relation sorting follows to-one relations up to three relation hops.
+  To-many relations in the middle of a sort path are rejected; use `_count`
+  aggregate sorting for to-many relations instead.
+</Callout>
 
 ## Aggregate Sorting
 
@@ -117,95 +204,9 @@ const users = await client.user.findMany({
 });
 ```
 
-## Examples
-
-### User List
-
-```ts
-async function getUserList(sortBy: "name" | "createdAt" | "email", order: "asc" | "desc") {
-  return client.user.findMany({
-    orderBy: { [sortBy]: order },
-  });
-}
-```
-
-### Latest Posts
-
-```ts
-async function getLatestPosts(limit = 10) {
-  return client.post.findMany({
-    where: { published: true },
-    orderBy: { publishedAt: "desc" },
-    take: limit,
-  });
-}
-```
-
-### Popular Authors
-
-```ts
-async function getPopularAuthors() {
-  return client.user.findMany({
-    orderBy: {
-      posts: { _count: "desc" },
-    },
-    include: {
-      _count: { select: { posts: true } },
-    },
-    take: 10,
-  });
-}
-```
-
-### Alphabetical with Null Handling
-
-```ts
-async function getProductsSorted() {
-  return client.product.findMany({
-    orderBy: [
-      { category: { sort: "asc", nulls: "last" } },
-      { name: "asc" },
-    ],
-  });
-}
-```
-
-### Complex Sorting
-
-```ts
-async function getLeaderboard() {
-  return client.user.findMany({
-    orderBy: [
-      { points: "desc" },
-      { gamesWon: "desc" },
-      { createdAt: "asc" },  // Tiebreaker: oldest first
-    ],
-    take: 100,
-  });
-}
-```
-
 ## Sort Direction
 
 | Value | Description |
 |-------|-------------|
 | `"asc"` | Ascending (A-Z, 0-9, oldest-newest) |
 | `"desc"` | Descending (Z-A, 9-0, newest-oldest) |
-
-## Database Collation
-
-String sorting depends on database collation:
-
-```ts
-// PostgreSQL: Case-sensitive by default
-// MySQL: Depends on collation setting
-// SQLite: Case-sensitive by default
-
-// Use case-insensitive collation in PostgreSQL
-const users = await client.user.findMany({
-  orderBy: {
-    name: "asc",  // Uses database collation
-  },
-});
-```
-

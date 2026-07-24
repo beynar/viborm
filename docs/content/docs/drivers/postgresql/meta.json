@@ -1,0 +1,5 @@
+{
+  "title": "PostgreSQL",
+  "defaultOpen": false,
+  "pages": ["pg", "postgres", "pglite", "neon-http", "bun-sql"]
+}

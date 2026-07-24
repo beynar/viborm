@@ -1,5 +1,6 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
+import { createScalarInterner, scalarInternKey } from "./intern";
 
 // Base schemas
 const stringBase = v.string();
@@ -143,7 +144,7 @@ const buildStringListUpdateSchema = <S extends V.Schema>(
   ]);
 };
 
-export interface StringSchemas<F extends FieldState<"string">> {
+export interface StringSchemas<F extends ScalarState<"string">> {
   base: F["base"];
   create: V.String<F>;
   update: F["array"] extends true
@@ -154,17 +155,25 @@ export interface StringSchemas<F extends FieldState<"string">> {
     : StringFilterSchema<F["base"]>;
 }
 
-export const buildStringSchema = <F extends FieldState<"string">>(
+const internFilter = createScalarInterner<unknown>();
+const internUpdate = createScalarInterner<unknown>();
+
+export const buildStringSchema = <F extends ScalarState<"string">>(
   state: F
 ): StringSchemas<F> => {
+  const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
     create: v.string(state),
-    update: state.array
-      ? buildStringListUpdateSchema(state.base)
-      : buildStringUpdateSchema(state.base),
-    filter: state.array
-      ? buildStringListFilterSchema(state.base)
-      : buildStringFilterSchema(state.base),
+    update: internUpdate(key, () =>
+      state.array
+        ? buildStringListUpdateSchema(state.base)
+        : buildStringUpdateSchema(state.base)
+    ) as never,
+    filter: internFilter(key, () =>
+      state.array
+        ? buildStringListFilterSchema(state.base)
+        : buildStringFilterSchema(state.base)
+    ) as never,
   } as StringSchemas<F>;
 };

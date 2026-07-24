@@ -29,77 +29,25 @@ const profile = s.model({
 
 ## Which Side Owns the FK?
 
-In a one-to-one relation, one side must have the foreign key:
+The distinctive rule of one-to-one: exactly one side has the foreign key, and **the FK field must be `.unique()`** — that's what makes the relation 1:1 instead of many-to-one.
 
 | Side | Has FK | Configuration |
 |------|--------|---------------|
 | Owner (Profile) | Yes | `.fields("userId").references("id")` |
 | Non-owner (User) | No | `.optional()` if nullable, or nothing |
 
-## Chainable Methods
+## Configuration
 
-### `.fields(...fieldNames)`
-
-Specifies the FK field(s) on the current model:
-
-```ts
-s.oneToOne(() => user).fields("userId")
-```
-
-### `.references(...fieldNames)`
-
-Specifies the referenced field(s) on the target model:
+One-to-one relations use the shared to-one methods — see the [relation method reference](/docs/schema/relations) for details and [referential actions](/docs/schema/relations#referential-actions):
 
 ```ts
 s.oneToOne(() => user)
-  .fields("userId")
-  .references("id")
-```
-
-### `.optional()`
-
-Makes the relation optional (can be null):
-
-```ts
-// User may or may not have a profile
-profile: s.oneToOne(() => profile).optional()
-```
-
-### `.onDelete(action)`
-
-Referential action when the related record is deleted:
-
-```ts
-s.oneToOne(() => user)
-  .fields("userId")
-  .references("id")
-  .onDelete("cascade")  // Delete profile when user is deleted
-```
-
-| Action | Effect |
-|--------|--------|
-| `cascade` | Delete this record too |
-| `setNull` | Set FK to null (requires `.optional()`) |
-| `restrict` | Prevent deletion |
-| `noAction` | Database default |
-
-### `.onUpdate(action)`
-
-Referential action when the referenced field is updated:
-
-```ts
-s.oneToOne(() => user)
-  .fields("userId")
-  .references("id")
-  .onUpdate("cascade")
-```
-
-### `.name(relationName)`
-
-Set a custom relation name:
-
-```ts
-s.oneToOne(() => user).name("owner")
+  .fields("userId")     // FK field(s) on this model (owning side only)
+  .references("id")     // Referenced field(s) on the target
+  .optional()           // Relation can be null
+  .onDelete("cascade")  // Referential action on delete
+  .onUpdate("cascade")  // Referential action on update
+  .name("owner")        // Custom relation name
 ```
 
 ## Complete Example
@@ -144,22 +92,11 @@ const users = await client.user.findMany({
     }
   }
 });
-
-// Create user with profile
-const user = await client.user.create({
-  data: {
-    email: "alice@example.com",
-    profile: {
-      create: { bio: "Software developer" }
-    }
-  },
-  include: { profile: true },
-});
 ```
 
-## Common Patterns
+See [To-One Relation Filters](/docs/client/filtering/relations-to-one) for all operators and [Nested Writes](/docs/client/nested-writes) for creating related records.
 
-### Required vs Optional
+## Required vs Optional
 
 ```ts
 // Required: Every user MUST have a profile
@@ -168,18 +105,4 @@ profile: s.oneToOne(() => profile)
 
 // Optional: User MAY have a profile
 profile: s.oneToOne(() => profile).optional()
-```
-
-### Self-Referential
-
-```ts
-const employee = s.model({
-  id: s.string().id().ulid(),
-  name: s.string(),
-  managerId: s.string().nullable(),
-  manager: s.oneToOne(() => employee)
-    .fields("managerId")
-    .references("id")
-    .optional(),
-});
 ```

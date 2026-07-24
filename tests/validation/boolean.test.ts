@@ -138,12 +138,10 @@ describe("boolean schema", () => {
     test("default factory function", () => {
       let toggle = false;
       const schema = v.boolean({ default: () => (toggle = !toggle) });
-      expect(
-        (parse(schema, undefined) as { value: boolean }).value
-      ).toBe(true);
-      expect(
-        (parse(schema, undefined) as { value: boolean }).value
-      ).toBe(false);
+      expect((parse(schema, undefined) as { value: boolean }).value).toBe(true);
+      expect((parse(schema, undefined) as { value: boolean }).value).toBe(
+        false
+      );
     });
   });
 

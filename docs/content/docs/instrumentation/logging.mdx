@@ -7,10 +7,10 @@ icon: FileText
 ## Configuration
 
 ```typescript
-import { VibORM } from "viborm";
+import { createClient } from "viborm";
 
 // Simple: enable all levels with pretty console output
-const client = VibORM.create({
+const client = createClient({
   schema,
   driver,
   instrumentation: {
@@ -19,7 +19,7 @@ const client = VibORM.create({
 });
 
 // Custom: configure individual levels
-const clientCustom = VibORM.create({
+const clientCustom = createClient({
   schema,
   driver,
   instrumentation: {
@@ -41,9 +41,10 @@ const clientCustom = VibORM.create({
 |--------|------|---------|-------------|
 | `all` | `true \| LogCallback` | - | Catch-all handler for all levels |
 | `query` | `true \| LogCallback` | - | Query log handler |
+| `cache` | `true \| LogCallback` | - | Cache log handler |
 | `warning` | `true \| LogCallback` | - | Warning log handler |
 | `error` | `true \| LogCallback` | - | Error log handler |
-| `includeSql` | `boolean` | `true` | Include SQL query text in events |
+| `includeSql` | `boolean` | `false` | Include SQL query text in events |
 | `includeParams` | `boolean` | `false` | Include query parameters in events |
 
 ## Log Levels
@@ -57,6 +58,7 @@ Each level can be configured independently:
 | Level | Description |
 |-------|-------------|
 | `query` | Emitted for every database query |
+| `cache` | Emitted for cache hits, misses, and revalidation |
 | `warning` | Emitted for non-fatal issues |
 | `error` | Emitted when operations fail |
 
@@ -81,7 +83,7 @@ The formatter includes:
 - Timestamp in ISO format
 - Model and operation name (color-coded)
 - Duration with color based on speed (green < 10ms, yellow < 100ms, red >= 100ms)
-- SQL query (dimmed)
+- SQL query when `includeSql` is enabled (dimmed)
 - Parameters if enabled (dimmed)
 
 ## Custom Callbacks
@@ -138,17 +140,22 @@ Every log event contains the following fields:
 
 ```typescript
 interface LogEvent {
-  level: "query" | "warning" | "error";
+  level: "query" | "cache" | "warning" | "error";
   timestamp: Date;
   duration?: number;       // Query duration in milliseconds
   model?: string;          // Model name (e.g., "User")
   operation?: string;      // Operation (e.g., "findMany")
+  correlationId?: string;  // Stable identifier for this ORM operation
   error?: VibORMError;     // Error object (for error events)
   sql?: string;            // SQL query (if includeSql enabled)
   params?: unknown[];      // Query parameters (if includeParams enabled)
-  meta?: Record<string, unknown>; // Additional metadata
+  meta?: Record<string, unknown>; // Allowlisted, sanitized event metadata
 }
 ```
+
+Callbacks receive a sanitized snapshot, not the mutable event object produced
+inside the driver. See [Privacy & Security](/docs/instrumentation#privacy--security)
+for the full sanitization and redaction policy.
 
 ## Event Examples
 
@@ -173,28 +180,12 @@ Emitted for every successful database operation:
 Emitted for non-fatal issues that may need attention:
 
 ```typescript
-// Slow query warning
 {
   level: "warning",
   timestamp: new Date("2024-01-15T10:30:00.000Z"),
   model: "User",
   operation: "findMany",
-  duration: 5000,
-  meta: {
-    reason: "slow_query",
-    threshold: 1000
-  }
-}
-
-// Deprecation warning
-{
-  level: "warning",
-  timestamp: new Date("2024-01-15T10:30:00.000Z"),
-  meta: {
-    reason: "deprecated_feature",
-    feature: "rawQuery",
-    suggestion: "Use $queryRaw instead"
-  }
+  duration: 5000
 }
 ```
 
@@ -212,10 +203,7 @@ Emitted when operations fail:
   duration: 15,
   error: UniqueConstraintError,  // VibORMError with code V3001
   sql: 'INSERT INTO "users" ("email") VALUES ($1)',
-  meta: {
-    constraint: "users_email_key",
-    field: "email"
-  }
+  // Stable constraint/provider details are available on error.meta.
 }
 
 // Connection error
@@ -223,10 +211,7 @@ Emitted when operations fail:
   level: "error",
   timestamp: new Date("2024-01-15T10:30:00.000Z"),
   error: ConnectionError,  // VibORMError with code V1001
-  meta: {
-    host: "localhost",
-    port: 5432
-  }
+  // Raw connection messages and endpoints are redacted.
 }
 
 // Record not found (for findUniqueOrThrow)
@@ -316,21 +301,22 @@ logging: {
 
 ## SQL and Parameters
 
-By default, SQL is included but parameters are excluded:
+By default, both SQL and parameters are excluded:
 
 ```typescript
 logging: {
   query: true,
-  includeSql: true,      // SQL visible (default)
+  includeSql: false,     // SQL hidden (default)
   includeParams: false   // Params hidden (default)
 }
 ```
 
-To include parameters (development only):
+To include SQL or parameters (development only), opt in to each independently:
 
 ```typescript
 logging: {
   query: true,
+  includeSql: true,
   includeParams: true
 }
 ```
@@ -338,3 +324,6 @@ logging: {
 <Callout type="warn">
 Never enable `includeParams` in production. Query parameters may contain passwords, personal information, or other sensitive data.
 </Callout>
+
+These options affect logging only — tracing and error diagnostics have
+[independent disclosure policies](/docs/instrumentation#privacy--security).

@@ -1,0 +1,54 @@
+---
+title: aggregate
+description: Compute count, sum, average, min, and max across records
+icon: Sigma
+---
+
+Run one or more aggregate functions over the records matching a filter:
+
+```ts
+const stats = await client.post.aggregate({
+  where: { published: true },
+  _count: true,
+  _avg: { views: true },
+  _sum: { views: true },
+  _min: { createdAt: true },
+  _max: { views: true },
+});
+
+// Result:
+// {
+//   _count: 100,
+//   _avg: { views: 45.5 },
+//   _sum: { views: 4550 },
+//   _min: { createdAt: Date },
+//   _max: { views: 1000 }
+// }
+```
+
+## Functions
+
+| Function | Description | Applies to |
+|----------|-------------|------------|
+| `_count` | Count records | All fields, or `true` |
+| `_avg` | Average value | Numeric fields |
+| `_sum` | Sum of values | Numeric fields |
+| `_min` | Minimum value | Comparable fields |
+| `_max` | Maximum value | Comparable fields |
+
+## Options
+
+```ts
+await client.post.aggregate({
+  where: { ... },         // Filter
+  orderBy: { ... },       // Sort (for cursor)
+  cursor: { ... },        // Pagination cursor
+  take: 100,              // Limit records
+  skip: 0,                // Offset
+  _count: true | { ... },
+  _avg: { field: true },
+  _sum: { field: true },
+  _min: { field: true },
+  _max: { field: true },
+});
+```

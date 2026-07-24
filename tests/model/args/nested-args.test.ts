@@ -135,9 +135,9 @@ describe("Deeply Nested Includes", () => {
         expect(nestedOutput(result.value).include?.posts).toBeDefined();
         expect(nestedOutput(result.value).include?.posts?.take).toBe(5);
         // Boolean `author: true` is transformed to { select: {...} }
-        expect(nestedOutput(result.value).include?.posts?.include?.author).toHaveProperty(
-          "select"
-        );
+        expect(
+          nestedOutput(result.value).include?.posts?.include?.author
+        ).toHaveProperty("select");
       }
     });
   });
@@ -181,7 +181,8 @@ describe("Deeply Nested Includes", () => {
       expect(result.issues).toBeUndefined();
 
       if (!result.issues) {
-        const nestedPosts = nestedOutput(result.value).include?.author?.include?.posts;
+        const nestedPosts = nestedOutput(result.value).include?.author?.include
+          ?.posts;
         expect(nestedPosts?.take).toBe(5);
         expect(nestedPosts?.skip).toBe(2);
       }
@@ -250,7 +251,9 @@ describe("Deeply Nested Selects", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         expect(nestedOutput(result.value).select?.id).toBe(true);
-        expect(nestedOutput(result.value).select?.posts?.select?.title).toBe(true);
+        expect(nestedOutput(result.value).select?.posts?.select?.title).toBe(
+          true
+        );
       }
     });
   });
@@ -364,7 +367,9 @@ describe("Deeply Nested Creates", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Single object should be normalized to array
-        expect(Array.isArray(nestedOutput(result.value).data.posts?.create)).toBe(true);
+        expect(
+          Array.isArray(nestedOutput(result.value).data.posts?.create)
+        ).toBe(true);
       }
     });
 
@@ -401,21 +406,18 @@ describe("Deeply Nested Creates", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects nested to-many connectOrCreate envelope %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          data: {
-            id: "author-1",
-            name: "Alice",
-            posts: {
-              connectOrCreate: envelope,
-            },
+    ] as const)("runtime: rejects nested to-many connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        data: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            connectOrCreate: envelope,
           },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("output: normalizes connectOrCreate to array", () => {
       const result = parse(schema, {
@@ -436,10 +438,43 @@ describe("Deeply Nested Creates", () => {
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(Array.isArray(nestedOutput(result.value).data.posts?.connectOrCreate)).toBe(
-          true
-        );
+        expect(
+          Array.isArray(nestedOutput(result.value).data.posts?.connectOrCreate)
+        ).toBe(true);
       }
+    });
+
+    test.each([
+      "update",
+      "updateMany",
+      "upsert",
+      "deleteMany",
+    ] as const)("runtime: rejects planned update-branch operation '%s' in parent create", (operation) => {
+      const result = parse(schema, {
+        data: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            [operation]: {},
+          },
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
+
+    test("runtime: rejects relation envelopes in top-level createMany", () => {
+      const result = parse(authorSchemas.args.createMany, {
+        data: [
+          {
+            id: "author-1",
+            name: "Alice",
+            posts: {
+              create: { id: "post-1", title: "Post", authorId: "author-1" },
+            },
+          },
+        ],
+      });
+      expect(result.issues).toBeDefined();
     });
   });
 
@@ -502,22 +537,19 @@ describe("Deeply Nested Creates", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects nested to-one connectOrCreate envelope %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          data: {
-            id: "post-1",
-            title: "Hello World",
-            authorId: "author-1",
-            author: {
-              connectOrCreate: envelope,
-            },
+    ] as const)("runtime: rejects nested to-one connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        data: {
+          id: "post-1",
+          title: "Hello World",
+          authorId: "author-1",
+          author: {
+            connectOrCreate: envelope,
           },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
   });
 });
 
@@ -552,7 +584,7 @@ describe("Deeply Nested Updates", () => {
       }>().toMatchTypeOf<UpdateArgsInput>();
     });
 
-    test("type: nested update rejects unsupported relation mutations", () => {
+    test("type: nested update accepts supported relation mutations", () => {
       expectTypeOf<{
         where: { id: string };
         data: {
@@ -560,15 +592,18 @@ describe("Deeply Nested Updates", () => {
             update: { where: { id: string }; data: { title?: string } };
           };
         };
-      }>().not.toMatchTypeOf<UpdateArgsInput>();
+      }>().toMatchTypeOf<UpdateArgsInput>();
       expectTypeOf<{
         where: { id: string };
         data: {
           posts: {
-            updateMany: { where: { published?: boolean }; data: { published?: boolean } };
+            updateMany: {
+              where: { published?: boolean };
+              data: { published?: boolean };
+            };
           };
         };
-      }>().not.toMatchTypeOf<UpdateArgsInput>();
+      }>().toMatchTypeOf<UpdateArgsInput>();
       expectTypeOf<{
         where: { id: string };
         data: {
@@ -576,7 +611,7 @@ describe("Deeply Nested Updates", () => {
             deleteMany: { published?: boolean };
           };
         };
-      }>().not.toMatchTypeOf<UpdateArgsInput>();
+      }>().toMatchTypeOf<UpdateArgsInput>();
       expectTypeOf<{
         where: { id: string };
         data: {
@@ -588,10 +623,10 @@ describe("Deeply Nested Updates", () => {
             };
           };
         };
-      }>().not.toMatchTypeOf<UpdateArgsInput>();
+      }>().toMatchTypeOf<UpdateArgsInput>();
     });
 
-    test("runtime: rejects unsupported nested update operation", () => {
+    test("runtime: accepts supported nested update operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -604,10 +639,10 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues?.[0]?.message).toBe("Unknown key: update");
+      expect(result.issues).toBeUndefined();
     });
 
-    test("runtime: rejects unsupported nested update operation arrays", () => {
+    test("runtime: accepts supported nested update operation arrays", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -619,7 +654,7 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues?.[0]?.message).toBe("Unknown key: update");
+      expect(result.issues).toBeUndefined();
     });
 
     test("runtime: accepts nested createMany operation", () => {
@@ -639,8 +674,12 @@ describe("Deeply Nested Updates", () => {
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(nestedOutput(result.value).data.posts?.createMany?.data).toHaveLength(2);
-        expect(nestedOutput(result.value).data.posts?.createMany?.skipDuplicates).toBe(true);
+        expect(
+          nestedOutput(result.value).data.posts?.createMany?.data
+        ).toHaveLength(2);
+        expect(
+          nestedOutput(result.value).data.posts?.createMany?.skipDuplicates
+        ).toBe(true);
       }
     });
 
@@ -694,20 +733,17 @@ describe("Deeply Nested Updates", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects nested update connectOrCreate envelope %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          where: { id: "author-1" },
-          data: {
-            posts: {
-              connectOrCreate: envelope,
-            },
+    ] as const)("runtime: rejects nested update connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        where: { id: "author-1" },
+        data: {
+          posts: {
+            connectOrCreate: envelope,
           },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: rejects nested createMany without data", () => {
       const result = parse(schema, {
@@ -727,7 +763,7 @@ describe("Deeply Nested Updates", () => {
       ]);
     });
 
-    test("runtime: rejects unsupported updateMany operation", () => {
+    test("runtime: accepts planned updateMany operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -739,10 +775,10 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues?.[0]?.message).toBe("Unknown key: updateMany");
+      expect(result.issues).toBeUndefined();
     });
 
-    test("runtime: rejects unsupported upsert operation", () => {
+    test("runtime: accepts planned upsert operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -755,10 +791,10 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues?.[0]?.message).toBe("Unknown key: upsert");
+      expect(result.issues).toBeUndefined();
     });
 
-    test("runtime: rejects unsupported deleteMany operation", () => {
+    test("runtime: accepts planned deleteMany operation", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -767,10 +803,10 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues?.[0]?.message).toBe("Unknown key: deleteMany");
+      expect(result.issues).toBeUndefined();
     });
 
-    test("runtime: rejects unsupported operation in combined nested writes", () => {
+    test("runtime: accepts planned operation in combined nested writes", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
         data: {
@@ -781,7 +817,33 @@ describe("Deeply Nested Updates", () => {
           },
         },
       });
-      expect(result.issues?.[0]?.message).toBe("Unknown key: deleteMany");
+      expect(result.issues).toBeUndefined();
+    });
+
+    test.each([
+      ["update missing where", { update: { data: { title: "Updated" } } }],
+      ["update missing data", { update: { where: { id: "post-1" } } }],
+      [
+        "updateMany missing data",
+        { updateMany: { where: { published: false } } },
+      ],
+      [
+        "upsert missing create",
+        {
+          upsert: {
+            where: { id: "post-1" },
+            update: { title: "Updated" },
+          },
+        },
+      ],
+    ] as const)("runtime: rejects malformed planned operation %s", (_, envelope) => {
+      const result = parse(schema, {
+        where: { id: "author-1" },
+        data: {
+          posts: envelope,
+        },
+      });
+      expect(result.issues).toBeDefined();
     });
 
     test("output: preserves combined operations structure", () => {
@@ -797,9 +859,15 @@ describe("Deeply Nested Updates", () => {
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        expect(Array.isArray(nestedOutput(result.value).data.posts?.create)).toBe(true);
-        expect(Array.isArray(nestedOutput(result.value).data.posts?.connect)).toBe(true);
-        expect(Array.isArray(nestedOutput(result.value).data.posts?.disconnect)).toBe(true);
+        expect(
+          Array.isArray(nestedOutput(result.value).data.posts?.create)
+        ).toBe(true);
+        expect(
+          Array.isArray(nestedOutput(result.value).data.posts?.connect)
+        ).toBe(true);
+        expect(
+          Array.isArray(nestedOutput(result.value).data.posts?.disconnect)
+        ).toBe(true);
       }
     });
   });
@@ -884,7 +952,9 @@ describe("Complex Combined Queries", () => {
       if (!result.issues) {
         expect(nestedOutput(result.value).take).toBe(10);
         expect(nestedOutput(result.value).include?.posts?.take).toBe(3);
-        expect(nestedOutput(result.value).include?.posts?.orderBy).toEqual({ title: "asc" });
+        expect(nestedOutput(result.value).include?.posts?.orderBy).toEqual({
+          title: "asc",
+        });
       }
     });
   });
@@ -916,6 +986,47 @@ describe("Complex Combined Queries", () => {
       expect(result.issues).toBeUndefined();
     });
 
+    test("runtime: accepts planned nested operation in upsert update branch", () => {
+      const result = parse(schema, {
+        where: { id: "author-1" },
+        create: {
+          id: "author-1",
+          name: "Alice",
+        },
+        update: {
+          posts: {
+            updateMany: {
+              where: { published: false },
+              data: { published: true },
+            },
+          },
+        },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test.each([
+      "update",
+      "updateMany",
+      "upsert",
+      "deleteMany",
+    ] as const)("runtime: rejects planned update-branch operation '%s' in upsert create branch", (operation) => {
+      const result = parse(schema, {
+        where: { id: "author-1" },
+        create: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            [operation]: {},
+          },
+        },
+        update: {
+          name: "Alice Updated",
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
+
     test("output: preserves upsert nested create arrays", () => {
       const result = parse(schema, {
         where: { id: "author-1" },
@@ -935,8 +1046,12 @@ describe("Complex Combined Queries", () => {
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
         // Both should be normalized to arrays
-        expect(Array.isArray(nestedOutput(result.value).create.posts?.create)).toBe(true);
-        expect(Array.isArray(nestedOutput(result.value).update.posts?.create)).toBe(true);
+        expect(
+          Array.isArray(nestedOutput(result.value).create.posts?.create)
+        ).toBe(true);
+        expect(
+          Array.isArray(nestedOutput(result.value).update.posts?.create)
+        ).toBe(true);
       }
     });
   });

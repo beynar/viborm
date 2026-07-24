@@ -92,8 +92,10 @@ Complete argument schemas for each operation:
 | `args.findMany` | `findMany()` arguments |
 | `args.create` | `create()` arguments |
 | `args.createMany` | `createMany()` arguments |
+| `args.createManyAndReturn` | `createManyAndReturn()` arguments |
 | `args.update` | `update()` arguments |
 | `args.updateMany` | `updateMany()` arguments |
+| `args.updateManyAndReturn` | `updateManyAndReturn()` arguments |
 | `args.delete` | `delete()` arguments |
 | `args.deleteMany` | `deleteMany()` arguments |
 | `args.upsert` | `upsert()` arguments |
@@ -106,16 +108,16 @@ Complete argument schemas for each operation:
 Lower-level schemas for custom composition:
 
 ```typescript
-schemas.user.core.scalarFilter              // Scalar field filters
+schemas.user.core.scalarFilter              // Scalar filters
 schemas.user.core.uniqueFilter              // Unique constraint filters
 schemas.user.core.relationFilter            // Relation filters
 schemas.user.core.compoundConstraintFilter  // Compound constraint filters
 schemas.user.core.compoundIdFilter          // Compound ID filters
 
-schemas.user.core.scalarCreate              // Scalar field create
+schemas.user.core.scalarCreate              // Scalar create
 schemas.user.core.relationCreate            // Relation nested creates
 
-schemas.user.core.scalarUpdate              // Scalar field update
+schemas.user.core.scalarUpdate              // Scalar update
 schemas.user.core.relationUpdate            // Relation nested updates
 ```
 

@@ -1,0 +1,183 @@
+import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import { normalizeDriverError } from "@drivers/error-mapping";
+import {
+  createExecutionContext,
+  getExecutionInstrumentation,
+} from "@drivers/execution-context";
+import { sanitizeErrorForLogging } from "@errors";
+import {
+  ATTR_DB_COLLECTION,
+  ATTR_DB_OPERATION_NAME,
+  ATTR_VIBORM_CORRELATION_ID,
+  createErrorLogEvent,
+  SPAN_OPERATION,
+} from "@instrumentation";
+import type { InstrumentationContext } from "@instrumentation/context";
+import { ignoreObserverFailure } from "@instrumentation/ignore-observer-failure";
+import { runWithTracer } from "@instrumentation/run-with-tracer";
+import { getNoopTracer, type VibORMSpanOptions } from "@instrumentation/tracer";
+import { isCacheManagedExecution } from "./cache-flow";
+import type { PendingOperation } from "./pending-operation";
+import type { Operation } from "./types";
+
+/** Immutable ownership and attribution captured when an operation is created. */
+export interface OperationExecutionContext {
+  readonly clientId: symbol;
+  readonly scopeId: symbol;
+  readonly attribution: QueryExecutionContext;
+}
+
+export function createOperationExecutionContext(
+  model: string,
+  operation: Operation | string,
+  instrumentation?: InstrumentationContext
+): QueryExecutionContext {
+  return createExecutionContext(
+    { model, operation, correlationId: createCorrelationId() },
+    instrumentation
+  );
+}
+
+export function createPendingOperationContext(
+  model: string,
+  operation: Operation,
+  instrumentation: InstrumentationContext | undefined,
+  clientId: symbol,
+  scopeId: symbol
+): OperationExecutionContext {
+  return Object.freeze({
+    clientId,
+    scopeId,
+    attribution: createOperationExecutionContext(
+      model,
+      operation,
+      instrumentation
+    ),
+  });
+}
+
+type OperationSpanAttributes = VibORMSpanOptions["attributes"];
+
+/** Observe one operation without changing its execution or failure semantics. */
+export function observeOperationExecution<T>(
+  pending: PendingOperation<T>,
+  execute: (spanAttributes: OperationSpanAttributes) => Promise<T>
+): Promise<T> {
+  const { engine, model, operation, options } = pending;
+  const executionContext = pending.context.attribution;
+  const tracer = engine.instrumentation?.tracer;
+  const logger = engine.instrumentation?.logger;
+  const displayOperation = options.originalOperation ?? operation;
+  const spanAttributes = tracer
+    ? {
+        ...engine.driver.getBaseAttributes(),
+        [ATTR_DB_COLLECTION]: model["~"].names.sql ?? pending.modelName,
+        [ATTR_DB_OPERATION_NAME]: displayOperation,
+        [ATTR_VIBORM_CORRELATION_ID]: executionContext.correlationId,
+      }
+    : undefined;
+  const startedAt = Date.now();
+  const executeObserved = async (): Promise<T> => {
+    try {
+      return await execute(spanAttributes);
+    } catch (error) {
+      if (isUnloggedError(error)) {
+        try {
+          ignoreObserverFailure(
+            logger?.error(
+              createErrorLogEvent({
+                error: sanitizeErrorForLogging(error),
+                model: pending.modelName,
+                operation,
+                correlationId: executionContext.correlationId,
+                duration: Date.now() - startedAt,
+              })
+            )
+          );
+        } catch {
+          // Instrumentation is observational and cannot alter query behavior.
+        }
+      }
+      throw error;
+    }
+  };
+
+  if (!isCacheManagedExecution(options) && tracer) {
+    return runWithTracer(
+      tracer,
+      { name: SPAN_OPERATION, attributes: spanAttributes },
+      executeObserved
+    );
+  }
+  return executeObserved();
+}
+
+/** Observe native-batch preparation and parsing as one logical operation. */
+export async function observePendingBatchPhase<T, R>(
+  pending: PendingOperation<T>,
+  driver: AnyDriver,
+  execute: () => R | Promise<R>
+): Promise<R> {
+  const executionContext = pending.context.attribution;
+  const instrumentation = getExecutionInstrumentation(executionContext);
+  const startedAt = Date.now();
+  const run = async (): Promise<R> => {
+    try {
+      return await execute();
+    } catch (error) {
+      const attributed = normalizeDriverError(error, {
+        driverName: driver.driverName,
+        model: executionContext.model,
+        operation: executionContext.operation,
+        correlationId: executionContext.correlationId,
+        diagnostics: instrumentation?.config.diagnostics,
+        forceContext: true,
+      });
+      try {
+        ignoreObserverFailure(
+          instrumentation?.logger?.error(
+            createErrorLogEvent({
+              error: attributed,
+              model: executionContext.model,
+              operation: executionContext.operation,
+              correlationId: executionContext.correlationId,
+              duration: Date.now() - startedAt,
+            })
+          )
+        );
+      } catch {
+        // Instrumentation cannot replace the attributed operation failure.
+      }
+      throw attributed;
+    }
+  };
+
+  return runWithTracer(
+    instrumentation?.tracer ?? getNoopTracer(),
+    {
+      name: SPAN_OPERATION,
+      attributes: {
+        ...driver.getBaseAttributes(),
+        [ATTR_DB_COLLECTION]: pending.modelName,
+        [ATTR_DB_OPERATION_NAME]: pending.operation,
+        [ATTR_VIBORM_CORRELATION_ID]: executionContext.correlationId,
+      },
+    },
+    run
+  );
+}
+
+export function createCorrelationId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function isUnloggedError(error: unknown): error is Error {
+  try {
+    return error instanceof Error && !Reflect.has(error, "logged");
+  } catch {
+    return false;
+  }
+}

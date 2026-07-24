@@ -32,13 +32,20 @@ This works because:
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `types.ts` | Operation routing, Payload/Result types | ~200 |
-| `client.ts` | ORM client with recursive proxies | ~150 |
-| `result-types.ts` | InferSelectInclude, result adaptation | ~150 |
+| `types.ts` | Operation routing, Payload/Result types | ~230 |
+| `client.ts` | ORM client with recursive proxies | ~700 |
+| `result-types.ts` | InferSelectInclude, result adaptation | ~375 |
 
 ---
 
 ## Core Concepts
+
+### Field Taxonomy in Results
+
+Client result fields are model members. Scalar fields are returned by default;
+relation fields are returned when requested through `include` or relation
+selection. Keep `field` for result keys and select/include keys; use `scalar`
+or `relation` only when the result logic is specific to one concrete field kind.
 
 ### Recursive Proxy Pattern
 

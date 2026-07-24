@@ -1,15 +1,85 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
-import type {
-  CastType,
-  DatabaseAdapter,
-  QueryParts,
-} from "../../database-adapter";
+import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import { createMySqlBatchRefs } from "../../shared/batch-refs";
 import {
   normalizeCountResult,
   parseIntegerBoolean,
   tryParseJsonString,
 } from "../../shared/result-parsing";
+import {
+  assembleDistinctOnEmulation,
+  assembleSelectQuery,
+} from "../../shared/select-assembly";
+import {
+  buildJsonPath,
+  createAggregateFunctions,
+  createCastExpression,
+  createCommonExpressions,
+  createComparisonOperators,
+  createCoreJoins,
+  createCteBuilders,
+  createDirectionOrderBy,
+  createEmulatedNullsOrderBy,
+  createExistenceOperators,
+  createIdentifierQuoter,
+  createIdentifiers,
+  createInsertStatement,
+  createLateralJoins,
+  createLogicalOperators,
+  createMembershipOperators,
+  createMutationCommands,
+  createNullOperators,
+  createNumericSetOperations,
+  createRangeOperators,
+  createRawSql,
+  createRelationFilters,
+  createSetOperations,
+  createStandardClauses,
+  createStandardLiterals,
+  createSubqueries,
+  stringifyJson,
+} from "../../shared/standard-sql";
+
+const quoteIdent = createIdentifierQuoter("`");
+const ASCII_UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ASCII_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
+
+const asciiCaseFold = (expr: Sql): Sql => {
+  let folded = expr;
+  for (let index = 0; index < ASCII_UPPERCASE.length; index++) {
+    const upper = sql.raw`'${ASCII_UPPERCASE[index]}'`;
+    const lower = sql.raw`'${ASCII_LOWERCASE[index]}'`;
+    folded = sql`REPLACE(${folded}, ${upper}, ${lower})`;
+  }
+  return folded;
+};
+
+// MySQL DATETIME rejects ISO-8601's 'Z' suffix ("Incorrect datetime value"),
+// so datetimes are stored as naive UTC wall-clock 'YYYY-MM-DD HH:MM:SS.mmm'.
+const toMySqlDateTime = (iso: string): string =>
+  new Date(iso).toISOString().slice(0, 23).replace("T", " ");
+
+// Naive datetime string as it comes back from MySQL (top-level on string
+// drivers, or inside JSON_ARRAYAGG/JSON_OBJECT includes): no 'Z'/offset.
+const NAIVE_DATETIME_REGEX =
+  /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?$/;
+
+/** Reattach UTC to a naive MySQL datetime string so it parses as the stored instant. */
+const naiveDateTimeToIso = (value: string): string | undefined => {
+  const match = NAIVE_DATETIME_REGEX.exec(value);
+  if (!match) return undefined;
+  const fraction = match[3] ? match[3].padEnd(4, "0").slice(0, 4) : ".000";
+  return `${match[1]}T${match[2]}${fraction}Z`;
+};
+
+/** Replace a single-integer-parameter fragment with an inline literal. */
+const inlineIntegerLiteral = (fragment: Sql): Sql => {
+  const value = fragment.values.length === 1 ? fragment.values[0] : undefined;
+  return typeof value === "number" && Number.isInteger(value)
+    ? sql.raw`${String(value)}`
+    : fragment;
+};
 
 /**
  * MySQL Database Adapter
@@ -19,7 +89,7 @@ import {
  * Key MySQL features:
  * - Backtick identifier escaping: `table`.`column`
  * - No native ARRAY type - uses JSON for arrays
- * - LIKE is case-insensitive by default (with collation)
+ * - Portable string filters override the database collation explicitly
  * - JSON_OBJECT(), JSON_ARRAYAGG() for JSON operations
  * - No RETURNING clause (use LAST_INSERT_ID())
  * - No NULLS FIRST/LAST ordering
@@ -30,45 +100,29 @@ export class MySQLAdapter implements DatabaseAdapter {
   // RAW
   // ============================================================
 
-  raw = (sqlString: string): Sql => sql.raw`${sqlString}`;
+  raw = createRawSql();
 
   // ============================================================
   // IDENTIFIERS
   // ============================================================
 
-  identifiers = {
-    escape: (name: string): Sql => sql.raw`\`${name}\``,
-
-    column: (alias: string, field: string): Sql =>
-      alias ? sql.raw`\`${alias}\`.\`${field}\`` : sql.raw`\`${field}\``,
-
-    table: (tableName: string, alias: string): Sql =>
-      sql.raw`\`${tableName}\` AS \`${alias}\``,
-
-    aliased: (expression: Sql, alias: string): Sql =>
-      sql`${expression} AS ${sql.raw`\`${alias}\``}`,
-  };
+  identifiers = createIdentifiers(quoteIdent);
 
   // ============================================================
   // LITERALS
   // ============================================================
 
   literals = {
-    value: (v: unknown): Sql => sql`${v}`,
-
-    null: (): Sql => sql.raw`NULL`,
+    ...createStandardLiterals(),
 
     true: (): Sql => sql.raw`TRUE`,
 
     false: (): Sql => sql.raw`FALSE`,
 
-    list: (values: Sql[]): Sql => {
-      if (values.length === 0) return sql.raw`()`;
-      return sql`(${sql.join(values, ", ")})`;
-    },
-
     // MySQL requires JSON values to be stringified
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
+
+    dateTime: (iso: string): Sql => sql`${toMySqlDateTime(iso)}`,
   };
 
   // ============================================================
@@ -77,56 +131,42 @@ export class MySQLAdapter implements DatabaseAdapter {
 
   operators = {
     // Comparison
-    eq: (left: Sql, right: Sql): Sql => sql`${left} = ${right}`,
-    neq: (left: Sql, right: Sql): Sql => sql`${left} <> ${right}`,
-    lt: (left: Sql, right: Sql): Sql => sql`${left} < ${right}`,
-    lte: (left: Sql, right: Sql): Sql => sql`${left} <= ${right}`,
-    gt: (left: Sql, right: Sql): Sql => sql`${left} > ${right}`,
-    gte: (left: Sql, right: Sql): Sql => sql`${left} >= ${right}`,
+    ...createComparisonOperators(),
 
     // Pattern matching
-    like: (column: Sql, pattern: Sql): Sql => sql`${column} LIKE ${pattern}`,
+    // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder.
+    // The literal is doubled ('\\') because MySQL's default mode treats
+    // backslash as a string-literal escape; under NO_BACKSLASH_ESCAPES it
+    // fails loudly rather than silently matching wildcards.
+    like: (column: Sql, pattern: Sql): Sql =>
+      sql`${column} LIKE ${pattern} ESCAPE '\\\\'`,
     notLike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern}`,
-    // MySQL LIKE is case-insensitive by default with most collations
-    // Use BINARY for case-sensitive, or COLLATE for explicit control
+      sql`${column} NOT LIKE ${pattern} ESCAPE '\\\\'`,
     ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern} COLLATE utf8mb4_unicode_ci`,
+      sql`${asciiCaseFold(column)} LIKE ${asciiCaseFold(pattern)} ESCAPE '\\\\'`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern} COLLATE utf8mb4_unicode_ci`,
+      sql`${asciiCaseFold(column)} NOT LIKE ${asciiCaseFold(pattern)} ESCAPE '\\\\'`,
+    containsText: (column: Sql, value: Sql): Sql =>
+      sql`LOCATE(BINARY ${value}, BINARY ${column}) > 0`,
+    startsWithText: (column: Sql, value: Sql): Sql =>
+      sql`LEFT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
+    endsWithText: (column: Sql, value: Sql): Sql =>
+      sql`RIGHT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
 
     // Set membership
-    in: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
-    notIn: (column: Sql, values: Sql): Sql => sql`${column} NOT IN ${values}`,
+    ...createMembershipOperators(),
 
     // Null checks
-    isNull: (expr: Sql): Sql => sql`${expr} IS NULL`,
-    isNotNull: (expr: Sql): Sql => sql`${expr} IS NOT NULL`,
+    ...createNullOperators(),
 
     // Range
-    between: (column: Sql, min: Sql, max: Sql): Sql =>
-      sql`${column} BETWEEN ${min} AND ${max}`,
-    notBetween: (column: Sql, min: Sql, max: Sql): Sql =>
-      sql`${column} NOT BETWEEN ${min} AND ${max}`,
+    ...createRangeOperators(),
 
     // Logical
-    and: (...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.raw`TRUE`;
-      if (conditions.length === 1) return conditions[0]!;
-      return sql`(${sql.join(conditions, " AND ")})`;
-    },
-
-    or: (...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.raw`FALSE`;
-      if (conditions.length === 1) return conditions[0]!;
-      return sql`(${sql.join(conditions, " OR ")})`;
-    },
-
-    not: (condition: Sql): Sql => sql`NOT (${condition})`,
+    ...createLogicalOperators(this.literals.true, this.literals.false),
 
     // Subquery existence
-    exists: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+    ...createExistenceOperators(),
   };
 
   // ============================================================
@@ -134,11 +174,10 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   expressions = {
-    // Arithmetic
-    add: (left: Sql, right: Sql): Sql => sql`(${left} + ${right})`,
-    subtract: (left: Sql, right: Sql): Sql => sql`(${left} - ${right})`,
-    multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,
-    divide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
+    ...createCommonExpressions(),
+
+    asciiCaseFold,
+    caseSensitiveText: (expr: Sql): Sql => sql`BINARY ${expr}`,
 
     // String operations - MySQL uses CONCAT() function
     concat: (...parts: Sql[]): Sql => {
@@ -146,38 +185,26 @@ export class MySQLAdapter implements DatabaseAdapter {
       if (parts.length === 1) return parts[0]!;
       return sql`CONCAT(${sql.join(parts, ", ")})`;
     },
-    upper: (expr: Sql): Sql => sql`UPPER(${expr})`,
-    lower: (expr: Sql): Sql => sql`LOWER(${expr})`,
 
-    // Utility
-    coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
-    cast: (expr: Sql, type: CastType): Sql => {
-      // MySQL type mappings - MySQL doesn't support TEXT in CAST
-      const typeMap: Record<CastType, string> = {
-        text: "CHAR",
-        integer: "SIGNED",
-        boolean: "UNSIGNED",
-        numeric: "DECIMAL",
-      };
-      return sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
-    },
+
+    // MySQL type mappings - MySQL doesn't support TEXT in CAST
+    cast: createCastExpression({
+      text: "CHAR",
+      integer: "SIGNED",
+      boolean: "UNSIGNED",
+      numeric: "DECIMAL",
+    }),
+
+    blobToHex: (expr: Sql): Sql => sql`LOWER(HEX(${expr}))`,
   };
 
   // ============================================================
   // AGGREGATES
   // ============================================================
 
-  aggregates = {
-    count: (expr?: Sql): Sql =>
-      expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`,
-    countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
-    sum: (expr: Sql): Sql => sql`SUM(${expr})`,
-    avg: (expr: Sql): Sql => sql`AVG(${expr})`,
-    min: (expr: Sql): Sql => sql`MIN(${expr})`,
-    max: (expr: Sql): Sql => sql`MAX(${expr})`,
-  };
+  aggregates = createAggregateFunctions();
 
   // ============================================================
   // JSON
@@ -200,29 +227,28 @@ export class MySQLAdapter implements DatabaseAdapter {
     agg: (expr: Sql): Sql =>
       sql`COALESCE(JSON_ARRAYAGG(${expr}), JSON_ARRAY())`,
 
-    rowToJson: (alias: string): Sql => {
-      // MySQL 8.0+ doesn't have row_to_json, we need to explicitly build object
-      // This is a simplified version - real implementation would need column list
-      return sql`JSON_OBJECT(${sql.raw`'*', \`${alias}\`.*`})`;
-    },
-
     objectFromColumns: (columns: [string, Sql][]): Sql => {
       if (columns.length === 0) return sql.raw`JSON_OBJECT()`;
       const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
       return sql`JSON_OBJECT(${sql.join(args, ", ")})`;
     },
 
-    extract: (column: Sql, path: string[]): Sql => {
-      if (path.length === 0) return column;
-      const jsonPath = "$." + path.join(".");
-      return sql`JSON_EXTRACT(${column}, ${jsonPath})`;
-    },
+    // buildJsonPath quotes/escapes key segments and maps integer segments
+    // to array indices; '$' alone extracts the document root
+    extract: (column: Sql, path: string[]): Sql =>
+      sql`JSON_EXTRACT(${column}, ${buildJsonPath(path)})`,
 
-    extractText: (column: Sql, path: string[]): Sql => {
-      if (path.length === 0) return column;
-      const jsonPath = "$." + path.join(".");
-      return sql`JSON_UNQUOTE(JSON_EXTRACT(${column}, ${jsonPath}))`;
-    },
+    extractText: (column: Sql, path: string[]): Sql =>
+      sql`JSON_UNQUOTE(JSON_EXTRACT(${column}, ${buildJsonPath(path)}))`,
+
+    contains: (target: Sql, value: Sql): Sql =>
+      sql`JSON_CONTAINS(${target}, ${value})`,
+
+    lastElement: (target: Sql): Sql => sql`JSON_EXTRACT(${target}, '$[last]')`,
+
+    // Comparing a JSON column to a plain string coerces the string to a JSON
+    // string scalar (always-false for documents); CAST parses it as JSON
+    value: (v: unknown): Sql => sql`CAST(${stringifyJson(v)} AS JSON)`,
   };
 
   // ============================================================
@@ -236,10 +262,14 @@ export class MySQLAdapter implements DatabaseAdapter {
       return sql`JSON_ARRAY(${sql.join(items, ", ")})`;
     },
 
-    // Note: For proper type handling, the query engine should wrap string values
-    // with CAST(value AS JSON) or use JSON_QUOTE for strings
+    value: (values: unknown[]): Sql =>
+      sql`CAST(${stringifyJson(values)} AS JSON)`,
+
+    // JSON_CONTAINS requires a JSON document as candidate; a bare string
+    // parameter throws ER_INVALID_JSON_TEXT. JSON_ARRAY keeps the parameter's
+    // type (strings quoted, numbers not): [x] ⊆ column ⟺ x ∈ column
     has: (column: Sql, value: Sql): Sql =>
-      sql`JSON_CONTAINS(${column}, ${value})`,
+      sql`JSON_CONTAINS(${column}, JSON_ARRAY(${value}))`,
 
     hasEvery: (column: Sql, values: Sql): Sql =>
       sql`JSON_CONTAINS(${column}, ${values})`,
@@ -267,274 +297,118 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   orderBy = {
-    asc: (column: Sql): Sql => sql`${column} ASC`,
-    desc: (column: Sql): Sql => sql`${column} DESC`,
-    // MySQL doesn't support NULLS FIRST/LAST natively
-    // Workaround: ORDER BY ISNULL(col), col
-    nullsFirst: (expr: Sql): Sql => expr, // No-op, would need complex workaround
-    nullsLast: (expr: Sql): Sql => expr, // No-op, would need complex workaround
+    ...createDirectionOrderBy(),
+    // MySQL doesn't support NULLS FIRST/LAST natively - emulated
+    ...createEmulatedNullsOrderBy(),
   };
 
   // ============================================================
   // CLAUSES
   // ============================================================
 
+  // mysql2's binary protocol binds JS numbers as DOUBLE, which MySQL rejects
+  // in integer-only positions ("Incorrect arguments to mysqld_stmt_execute").
+  // Inline integer LIMIT/OFFSET values instead of parameterizing them.
   clauses = {
-    select: (columns: Sql): Sql => sql`SELECT ${columns}`,
-    selectDistinct: (columns: Sql): Sql => sql`SELECT DISTINCT ${columns}`,
-    from: (table: Sql): Sql => sql`FROM ${table}`,
-    where: (condition: Sql): Sql => sql`WHERE ${condition}`,
-    orderBy: (orders: Sql): Sql => sql`ORDER BY ${orders}`,
-    limit: (count: Sql): Sql => sql`LIMIT ${count}`,
-    offset: (count: Sql): Sql => sql`OFFSET ${count}`,
-    groupBy: (columns: Sql): Sql => sql`GROUP BY ${columns}`,
-    having: (condition: Sql): Sql => sql`HAVING ${condition}`,
+    ...createStandardClauses(),
+    limit: (count: Sql): Sql => sql`LIMIT ${inlineIntegerLiteral(count)}`,
+    offset: (count: Sql): Sql => sql`OFFSET ${inlineIntegerLiteral(count)}`,
   };
 
   // ============================================================
   // SET (UPDATE operations)
   // ============================================================
 
+  // JSON_MERGE_PRESERVE concatenates arrays element-wise; JSON_ARRAY_APPEND
+  // would append the whole param as a single (stringified) element.
   set = {
-    assign: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
+    ...createNumericSetOperations(),
 
-    increment: (column: Sql, by: Sql): Sql =>
-      sql`${column} = ${column} + ${by}`,
+    // MySQL `/` yields DECIMAL and rounds when assigned to an integer column.
+    // Truncate explicitly so integer division matches PostgreSQL and SQLite.
+    divide: (column: Sql, by: Sql, columnIsInteger?: boolean): Sql =>
+      columnIsInteger
+        ? sql`${column} = TRUNCATE(${column} / ${by}, 0)`
+        : sql`${column} = ${column} / ${by}`,
 
-    decrement: (column: Sql, by: Sql): Sql =>
-      sql`${column} = ${column} - ${by}`,
+    push: (column: Sql, values: unknown[]): Sql =>
+      sql`${column} = JSON_MERGE_PRESERVE(COALESCE(${column}, JSON_ARRAY()), CAST(${stringifyJson(values)} AS JSON))`,
 
-    multiply: (column: Sql, by: Sql): Sql => sql`${column} = ${column} * ${by}`,
-
-    divide: (column: Sql, by: Sql): Sql => sql`${column} = ${column} / ${by}`,
-
-    push: (column: Sql, value: Sql): Sql =>
-      sql`${column} = JSON_ARRAY_APPEND(${column}, '$', ${value})`,
-
-    unshift: (column: Sql, value: Sql): Sql =>
-      sql`${column} = JSON_ARRAY_INSERT(${column}, '$[0]', ${value})`,
+    unshift: (column: Sql, values: unknown[]): Sql =>
+      sql`${column} = JSON_MERGE_PRESERVE(CAST(${stringifyJson(values)} AS JSON), COALESCE(${column}, JSON_ARRAY()))`,
   };
 
   // ============================================================
   // FILTERS (Relation subquery wrappers)
   // ============================================================
 
-  filters = {
-    some: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    every: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-    none: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-    is: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    isNot: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-  };
+  filters = createRelationFilters();
 
   // ============================================================
   // SUBQUERIES
   // ============================================================
 
-  subqueries = {
-    scalar: (query: Sql): Sql => sql`(${query})`,
-
-    correlate: (query: Sql, alias: string): Sql =>
-      sql`(${query}) AS ${sql.raw`\`${alias}\``}`,
-
-    existsCheck: (from: Sql, where: Sql): Sql =>
-      sql`SELECT 1 FROM ${from} WHERE ${where}`,
-  };
+  subqueries = createSubqueries(quoteIdent);
 
   // ============================================================
   // ASSEMBLE (Build complete SQL statements)
   // ============================================================
 
+  // MySQL has no bare OFFSET; per the manual, use an all-ones LIMIT sentinel
+  noLimitValue = sql.raw`18446744073709551615`;
+
   assemble = {
-    select: (parts: QueryParts): Sql => {
+    select: (rawParts: QueryParts): Sql => {
+      // Inline integer LIMIT/OFFSET (see clauses above for why)
+      const parts: QueryParts = {
+        ...rawParts,
+        limit: rawParts.limit && inlineIntegerLiteral(rawParts.limit),
+        offset: rawParts.offset && inlineIntegerLiteral(rawParts.offset),
+      };
+
       // MySQL doesn't support DISTINCT ON natively
       // Simulate using ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)
       if (parts.distinct) {
-        return this.assembleDistinctOn(parts);
+        return assembleDistinctOnEmulation(
+          parts,
+          parts.distinct,
+          this.identifiers.escape,
+          this.noLimitValue
+        );
       }
 
-      const fragments: Sql[] = [
-        sql`SELECT ${parts.columns}`,
-        sql`FROM ${parts.from}`,
-      ];
-
-      if (parts.joins && parts.joins.length > 0) {
-        fragments.push(...parts.joins);
-      }
-
-      if (parts.where) {
-        fragments.push(sql`WHERE ${parts.where}`);
-      }
-
-      if (parts.groupBy) {
-        fragments.push(sql`GROUP BY ${parts.groupBy}`);
-      }
-
-      if (parts.having) {
-        fragments.push(sql`HAVING ${parts.having}`);
-      }
-
-      if (parts.orderBy) {
-        fragments.push(sql`ORDER BY ${parts.orderBy}`);
-      }
-
-      if (parts.limit) {
-        fragments.push(sql`LIMIT ${parts.limit}`);
-      }
-
-      if (parts.offset) {
-        fragments.push(sql`OFFSET ${parts.offset}`);
-      }
-
-      // FOR UPDATE must come after LIMIT/OFFSET
-      if (parts.forUpdate) {
-        fragments.push(sql.raw`FOR UPDATE`);
-      }
-
-      return sql.join(fragments, " ");
+      return assembleSelectQuery(sql`SELECT ${parts.columns}`, parts, {
+        forUpdate: "append",
+        noLimitValue: this.noLimitValue,
+      });
     },
   };
-
-  /**
-   * Simulate DISTINCT ON using ROW_NUMBER() window function.
-   *
-   * Generates:
-   * SELECT col1, col2, ... FROM (
-   *   SELECT columns, ROW_NUMBER() OVER (PARTITION BY distinct_cols ORDER BY order_cols) AS _rn
-   *   FROM table
-   *   WHERE ...
-   * ) AS _distinct_subquery
-   * WHERE _rn = 1
-   * ORDER BY ...
-   * LIMIT ... OFFSET ...
-   */
-  private assembleDistinctOn(parts: QueryParts): Sql {
-    // Build the ORDER BY for ROW_NUMBER() - use provided orderBy or default to distinct columns
-    const rowNumberOrder = parts.orderBy || parts.distinct!;
-
-    // Inner query with ROW_NUMBER()
-    const innerFragments: Sql[] = [
-      sql`SELECT ${parts.columns}, ROW_NUMBER() OVER (PARTITION BY ${parts.distinct} ORDER BY ${rowNumberOrder}) AS \`_rn\``,
-      sql`FROM ${parts.from}`,
-    ];
-
-    if (parts.joins && parts.joins.length > 0) {
-      innerFragments.push(...parts.joins);
-    }
-
-    if (parts.where) {
-      innerFragments.push(sql`WHERE ${parts.where}`);
-    }
-
-    if (parts.groupBy) {
-      innerFragments.push(sql`GROUP BY ${parts.groupBy}`);
-    }
-
-    if (parts.having) {
-      innerFragments.push(sql`HAVING ${parts.having}`);
-    }
-
-    const innerQuery = sql.join(innerFragments, " ");
-
-    // Build outer SELECT - use explicit column aliases to exclude _rn
-    let outerSelect: Sql;
-    if (parts.distinctColumnAliases && parts.distinctColumnAliases.length > 0) {
-      // Select only the original columns, excluding _rn
-      const aliasColumns = parts.distinctColumnAliases.map(
-        (alias) => sql.raw`\`${alias}\``
-      );
-      outerSelect = sql`SELECT ${sql.join(aliasColumns, ", ")} FROM (${innerQuery}) AS \`_distinct_subquery\``;
-    } else {
-      // Fallback to SELECT * (includes _rn)
-      outerSelect = sql`SELECT * FROM (${innerQuery}) AS \`_distinct_subquery\``;
-    }
-
-    // Outer query that filters for first row of each partition
-    const outerFragments: Sql[] = [outerSelect, sql.raw`WHERE \`_rn\` = 1`];
-
-    if (parts.orderBy) {
-      outerFragments.push(sql`ORDER BY ${parts.orderBy}`);
-    }
-
-    if (parts.limit) {
-      outerFragments.push(sql`LIMIT ${parts.limit}`);
-    }
-
-    if (parts.offset) {
-      outerFragments.push(sql`OFFSET ${parts.offset}`);
-    }
-
-    return sql.join(outerFragments, " ");
-  }
 
   // ============================================================
   // CTE (Common Table Expressions - MySQL 8.0+)
   // ============================================================
 
-  cte = {
-    with: (definitions: { name: string; query: Sql }[]): Sql => {
-      const defs = definitions.map(
-        ({ name, query }) => sql`${sql.raw`\`${name}\``} AS (${query})`
-      );
-      return sql`WITH ${sql.join(defs, ", ")}`;
-    },
-
-    recursive: (
-      name: string,
-      anchor: Sql,
-      recursive: Sql,
-      union: "all" | "distinct" = "all"
-    ): Sql => {
-      const unionKeyword =
-        union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
-      return sql`WITH RECURSIVE ${sql.raw`\`${name}\``} AS (
-        ${anchor}
-        ${unionKeyword}
-        ${recursive}
-      )`;
-    },
-  };
+  cte = createCteBuilders(quoteIdent);
 
   // ============================================================
   // MUTATIONS
   // ============================================================
 
   mutations = {
-    insert: (
-      table: Sql,
-      columns: string[],
-      values: Sql[][],
-      prefix?: Sql
-    ): Sql => {
-      const cols = columns.map((c) => sql.raw`\`${c}\``);
-      const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
-      const prefixPart = prefix ? sql`${prefix} ` : sql``;
-      return sql`INSERT ${prefixPart}INTO ${table} (${sql.join(
-        cols,
-        ", "
-      )}) VALUES ${sql.join(rows, ", ")}`;
-    },
+    skipDuplicatesStrategy: "recoverableUniqueError" as const,
+    insert: createInsertStatement(quoteIdent),
+    insertDefault: (table: Sql): Sql => sql`INSERT INTO ${table} () VALUES ()`,
 
-    update: (table: Sql, sets: Sql, where?: Sql): Sql => {
-      if (where) {
-        return sql`UPDATE ${table} SET ${sets} WHERE ${where}`;
-      }
-      return sql`UPDATE ${table} SET ${sets}`;
-    },
-
-    delete: (table: Sql, where?: Sql): Sql => {
-      if (where) {
-        return sql`DELETE FROM ${table} WHERE ${where}`;
-      }
-      return sql`DELETE FROM ${table}`;
-    },
+    ...createMutationCommands(),
 
     // MySQL doesn't support RETURNING - returns empty
     // Use LAST_INSERT_ID() or SELECT after mutation
     returning: (_columns: Sql): Sql => sql.empty,
 
-    // MySQL uses ON DUPLICATE KEY UPDATE syntax
-    // targetWhere/setWhere are handled by the query engine via transaction-based fallback
+    // This low-level MySQL primitive ignores `_target`: ON DUPLICATE KEY UPDATE
+    // fires on any unique collision. Public non-returning upserts therefore do
+    // not execute this primitive; the query engine uses a locked, target-aware
+    // branch so an unrelated unique collision still throws on every database.
     onConflict: (_target: Sql | null, action: Sql, _targetWhere?: Sql): Sql => {
       return sql`ON DUPLICATE KEY UPDATE ${action}`;
     },
@@ -542,7 +416,22 @@ export class MySQLAdapter implements DatabaseAdapter {
     // MySQL doesn't need UPDATE SET prefix - onConflict already includes UPDATE
     onConflictUpdate: (sets: Sql, _setWhere?: Sql): Sql => sets,
 
-    skipDuplicates: () => ({ prefix: sql`IGNORE`, suffix: sql`` }),
+    // A self-assignment reacts only to duplicate-key conflicts. Unlike
+    // INSERT IGNORE, unrelated constraint and conversion failures still abort.
+    skipDuplicates: (duplicateNoopColumn: string) => {
+      const column = sql.raw`${quoteIdent(duplicateNoopColumn)}`;
+      return {
+        prefix: sql.empty,
+        suffix: sql`ON DUPLICATE KEY UPDATE ${column} = ${column}`,
+      };
+    },
+  };
+
+  assertions = {
+    exists: (query: Sql): Sql =>
+      sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE JSON_EXTRACT('x', '$') END AS \`__viborm_assert__\``,
+    notExists: (query: Sql): Sql =>
+      sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE JSON_EXTRACT('x', '$') END AS \`__viborm_assert__\``,
   };
 
   // ============================================================
@@ -550,44 +439,26 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   joins = {
-    inner: (table: Sql, condition: Sql): Sql =>
-      sql`INNER JOIN ${table} ON ${condition}`,
+    ...createCoreJoins(),
 
-    left: (table: Sql, condition: Sql): Sql =>
-      sql`LEFT JOIN ${table} ON ${condition}`,
-
-    right: (table: Sql, condition: Sql): Sql =>
-      sql`RIGHT JOIN ${table} ON ${condition}`,
-
-    // MySQL doesn't support FULL OUTER JOIN directly
-    // Would need UNION of LEFT and RIGHT joins
-    full: (table: Sql, condition: Sql): Sql =>
-      sql`LEFT JOIN ${table} ON ${condition}`,
-
-    cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
+    // MySQL doesn't support FULL OUTER JOIN (would need a UNION of LEFT and
+    // RIGHT joins). Never silently downgrade to LEFT JOIN: that drops rows.
+    // The query engine never calls this today.
+    full: (_table: Sql, _condition: Sql): Sql => {
+      throw new Error(
+        "MySQL does not support FULL OUTER JOIN. Check adapter.capabilities.supportsFullOuterJoin before calling."
+      );
+    },
 
     // MySQL 8.0.14+ supports LATERAL
-    lateral: (subquery: Sql, alias: string): Sql =>
-      sql`JOIN LATERAL (${subquery}) AS ${sql.raw`\`${alias}\``} ON TRUE`,
-
-    lateralLeft: (subquery: Sql, alias: string): Sql =>
-      sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw`\`${alias}\``} ON TRUE`,
+    ...createLateralJoins(quoteIdent),
   };
 
   // ============================================================
   // SET OPERATIONS
   // ============================================================
 
-  setOperations = {
-    union: (...queries: Sql[]): Sql => sql.join(queries, " UNION "),
-
-    unionAll: (...queries: Sql[]): Sql => sql.join(queries, " UNION ALL "),
-
-    intersect: (...queries: Sql[]): Sql => sql.join(queries, " INTERSECT "),
-
-    // MySQL uses EXCEPT in 8.0.31+, older versions need workaround
-    except: (left: Sql, right: Sql): Sql => sql`${left} EXCEPT ${right}`,
-  };
+  setOperations = createSetOperations();
 
   // ============================================================
   // CAPABILITIES
@@ -598,10 +469,27 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsCteWithMutations: false, // MySQL CTEs are read-only
     supportsFullOuterJoin: false,
     supportsLateralJoins: true, // MySQL 8.0.14+
+    supportsVector: false,
     supportsUpsertWhere: false, // ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
+    // ERROR 1093: UPDATE/DELETE can't select from the mutated table in a
+    // subquery. The engine wraps relation-filter subqueries in a derived
+    // table when this is false (requires MySQL 8.0.14+ for outer references
+    // in derived tables).
+    supportsMutationTargetInSubquery: false,
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;
+
+  batchRefs = createMySqlBatchRefs({
+    table: sql.raw`\`__viborm_batch_refs\``,
+    batchIdColumn: sql.raw`\`batch_id\``,
+    keyColumn: sql.raw`\`ref_key\``,
+    valueColumn: sql.raw`\`ref_value\``,
+    duplicateValue: sql.raw`VALUES(\`ref_value\`)`,
+    createTable: sql.raw`CREATE TEMPORARY TABLE IF NOT EXISTS \`__viborm_batch_refs\` (\`batch_id\` VARCHAR(191) NOT NULL, \`ref_key\` VARCHAR(191) NOT NULL, \`ref_value\` TEXT, PRIMARY KEY (\`batch_id\`, \`ref_key\`))`,
+    castValue: (valueSql) => sql`CAST((${valueSql}) AS CHAR)`,
+    lastInsertId: () => this.lastInsertId(),
+  });
 
   // ============================================================
   // VECTOR (not natively supported in MySQL)
@@ -626,7 +514,7 @@ export class MySQLAdapter implements DatabaseAdapter {
       operation: import("../../../query-engine/types").Operation,
       next: (value?: unknown) => unknown
     ): unknown => {
-      // For count operation, normalize column name to _result
+      // Normalize raw count expressions to VibORM's private result carrier.
       if (operation === "count" || operation === "exist") {
         const normalized = normalizeCountResult(raw);
         if (normalized) {
@@ -651,14 +539,22 @@ export class MySQLAdapter implements DatabaseAdapter {
 
     parseField: (
       value: unknown,
-      fieldType: string,
+      scalarType: string,
       next: (value?: unknown) => unknown
     ): unknown => {
       // MySQL stores booleans as TINYINT(1) - 0/1
-      if (fieldType === "boolean") {
+      if (scalarType === "boolean") {
         const parsed = parseIntegerBoolean(value);
         if (parsed !== undefined) {
-          return parsed;
+          return next(parsed);
+        }
+      }
+      // Datetime strings are naive UTC wall-clock; without this, the default
+      // parser's new Date(str) would shift them by the process timezone
+      if (scalarType === "datetime" && typeof value === "string") {
+        const iso = naiveDateTimeToIso(value);
+        if (iso !== undefined) {
+          return next(iso);
         }
       }
       return next();

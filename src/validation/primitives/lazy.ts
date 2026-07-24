@@ -47,3 +47,48 @@ export function lazy<T extends VibSchema>(factory: () => T): T {
 
   return proxy;
 }
+
+/**
+ * Lightweight deferred schema reference.
+ *
+ * Unlike `lazy()` (a Proxy that resolves on ANY property access — including
+ * the object validator's duck-typing reads), `lazyRef` exposes a static
+ * `type` and a `~standard.validate` that only builds the wrapped schema when
+ * the validator is first CALLED. Used for args→core schema cross-references
+ * so an operation only constructs the core schemas its arguments actually
+ * use (e.g. `findUnique({ where })` never builds select/include).
+ *
+ * NOT a general-purpose wrapper: it reports no `acceptsUndefined`/default
+ * metadata, so it must only wrap schemas with no default value (true for all
+ * core schema references).
+ */
+export function lazyRef<T extends VibSchema>(factory: () => T): T {
+  let cached: T | undefined;
+  const resolve = (): T => (cached ??= factory());
+
+  return {
+    type: "lazyRef",
+    /** JSON-schema conversion unwraps through this (resolves on demand) */
+    get wrapped() {
+      return resolve();
+    },
+    // Introspection surface (resolves on demand). Deliberately NOT exposed:
+    // `options`/`acceptsUndefined`/`default` — the object validator
+    // duck-types those during resolve(), and resolving getters there would
+    // rebuild the wrapped schema eagerly, defeating the laziness.
+    get entries() {
+      return (resolve() as { entries?: unknown }).entries;
+    },
+    get parse() {
+      return (resolve() as { parse?: unknown }).parse;
+    },
+    "~standard": {
+      version: 1,
+      vendor: "viborm",
+      validate: (value: unknown) => resolve()["~standard"].validate(value),
+      get jsonSchema() {
+        return resolve()["~standard"].jsonSchema;
+      },
+    },
+  } as unknown as T;
+}

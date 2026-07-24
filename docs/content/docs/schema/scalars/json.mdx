@@ -1,0 +1,153 @@
+---
+title: JSON
+description: JSON scalar type for structured data — untyped or typed with a StandardSchema validator
+icon: Braces
+---
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.json(); // Required JSON (unknown type)
+s.json().nullable(); // JSON | null
+```
+
+JSON scalars support `.nullable()`, `.default()`, `.map()`, and `.schema()` — but **not** `.array()`, `.id()`, or `.unique()`. See the [support matrix](/docs/schema/scalars) and [Native Types](/docs/schema/native-types) for column types (`jsonb` vs `json` on PostgreSQL, etc.).
+
+## Typed JSON
+
+Provide a StandardSchema (Valibot, Zod, etc.) for type-safe JSON using the `.schema()` method:
+
+```ts
+import { object, picklist, boolean, string } from "valibot";
+
+const settingsSchema = object({
+  theme: picklist(["light", "dark"]),
+  notifications: boolean(),
+  language: string(),
+});
+
+s.json().schema(settingsSchema); // Typed as { theme: "light" | "dark"; ... }
+```
+
+## Examples
+
+### Untyped JSON
+
+```ts
+const metadata = s.json().default({});
+const tags = s.json().default([]);
+```
+
+### Typed with Valibot
+
+```ts
+import {
+  object,
+  picklist,
+  number,
+  boolean,
+  string,
+  pipe,
+  minValue,
+  maxValue,
+} from "valibot";
+
+// User preferences
+const preferencesSchema = object({
+  theme: picklist(["light", "dark", "system"]),
+  fontSize: pipe(number(), minValue(10), maxValue(24)),
+  notifications: object({
+    email: boolean(),
+    push: boolean(),
+  }),
+});
+
+const preferences = s
+  .json()
+  .schema(preferencesSchema)
+  .default({
+    theme: "system",
+    fontSize: 14,
+    notifications: { email: true, push: false },
+  });
+
+// Address structure
+const addressSchema = object({
+  street: string(),
+  city: string(),
+  country: string(),
+  postalCode: string(),
+});
+
+const address = s.json().schema(addressSchema).nullable();
+```
+
+### Complex Nested Types
+
+```ts
+import {
+  object,
+  string,
+  number,
+  array,
+  optional,
+  pipe,
+  minValue,
+  maxValue,
+  integer,
+  positive,
+} from "valibot";
+
+const orderItemSchema = object({
+  productId: string(),
+  quantity: pipe(integer(), positive()),
+  price: pipe(number(), positive()),
+  discount: optional(pipe(number(), minValue(0), maxValue(1))),
+});
+
+const orderSchema = object({
+  items: array(orderItemSchema),
+  shipping: addressSchema,
+  notes: optional(string()),
+});
+
+const orderData = s.json().schema(orderSchema);
+```
+
+## Querying JSON
+
+JSON scalars support path-based filtering — see [JSON Filters](/docs/client/filtering/json) for the full operator list and per-database caveats. **Note:** JSON scalars do not support shorthand syntax. You must use explicit operations:
+
+```ts
+// Filter by nested value (must use { equals: value })
+await client.user.findMany({
+  where: {
+    preferences: {
+      path: ["theme"],
+      equals: "dark",
+    },
+  },
+});
+
+// Updates must use { set: value }
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    preferences: {
+      set: { theme: "dark", fontSize: 16 },
+    },
+  },
+});
+```
+
+## JSON vs Separate Scalars
+
+| Approach         | Pros                       | Cons                            |
+| ---------------- | -------------------------- | ------------------------------- |
+| JSON scalar      | Flexible, no migrations    | Harder to query, no constraints |
+| Separate scalars | Type-safe queries, indexes | Schema changes need migrations  |
+| Related table    | Full SQL power             | More complex queries            |
+
+Use JSON for user preferences, per-record metadata, third-party API responses, and audit logs. Use separate scalars for data you filter or sort by, data with strict validation, and data referenced in relations.

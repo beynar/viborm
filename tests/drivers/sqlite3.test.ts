@@ -1,62 +1,81 @@
-/**
- * SQLite3 Driver Tests
- *
- * Tests the better-sqlite3 driver implementation with a simple schema.
- */
-
-import { VibORM } from "@client/client";
+import { createClient } from "@client/client";
+import { D1Driver } from "@drivers/d1";
+import { SQLite3Driver } from "@drivers/sqlite3";
+import type { BatchQuery, QueryResult } from "@drivers/types";
 import {
-  createClient as SQLite3CreateClient,
-  SQLite3Driver,
-} from "@drivers/sqlite3";
+  FeatureNotSupportedError,
+  ForeignKeyError,
+  NotNullConstraintError,
+  UniqueConstraintError,
+} from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import type Database from "better-sqlite3";
+import { vi } from "vitest";
+import { batchPrimaryKeyDataflowSchema } from "../fixtures/batch-primary-key-dataflow-schema";
+import {
+  createInMemorySQLite3Driver,
+  createSQLite3UserPostClient,
+  setupSQLite3UserPostDatabase,
+} from "../fixtures/drivers/sqlite3";
+import { seedWindowUserPosts } from "../fixtures/user-post-seed";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
+import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
+import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
+import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
+import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
+import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
+import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
+import { runClientRawBehavior } from "./client-raw-behavior";
+import { runCompoundKeyBehavior } from "./compound-key-behavior";
+import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
+import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
+import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
+import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runLikeEscapeBehavior } from "./like-escape-behavior";
+import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runManyAndReturnBehavior } from "./many-and-return-behavior";
+import { runManyToManyBehavior } from "./many-to-many-behavior";
+import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
+import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
+import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
+import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
+import { runPrismaParityBehavior } from "./prisma-parity-behavior";
+import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
+import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
+import {
+  runFullScalarRoundtripBehavior,
+  runScalarRoundtripBehavior,
+} from "./scalar-roundtrip-behavior";
+import { runUpsertAtomicityBehavior } from "./upsert-atomicity-behavior";
 
-// =============================================================================
-// SCHEMA DEFINITION
-// =============================================================================
+class BatchOnlySQLite3Driver extends SQLite3Driver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
 
-const user = s
-  .model({
-    id: s.string().id(),
-    name: s.string().nullable(),
-    email: s.string(),
-    age: s.int().nullable(),
-    posts: s.oneToMany(() => post),
-  })
-  .map("users");
+  protected override async executeBatch<T>(
+    client: Database.Database,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (tx) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(await this.executeRaw<T>(tx, query.sql, query.params));
+      }
+      return results;
+    });
+  }
+}
 
-const post = s
-  .model({
-    id: s.string().id(),
-    title: s.string(),
-    content: s.string().nullable(),
-    published: s.boolean().default(false),
-    authorId: s.string(),
-    author: s
-      .manyToOne(() => user)
-      .fields("authorId")
-      .references("id"),
-  })
-  .map("posts");
-
-const schema = { user, post };
-
-// =============================================================================
-// HELPER: Setup database using push() migration
-// =============================================================================
-
-async function setupDatabase(driver: SQLite3Driver) {
-  // Create a temporary client to use push() for migrations
-  const tempClient = VibORM.create({
-    schema,
-    driver,
+function createBatchOnlySQLite3Driver(): SQLite3Driver {
+  return new BatchOnlySQLite3Driver({
+    dataDir: ":memory:",
   });
-  await push(tempClient, { force: true });
-
-  // Clean up any existing data
-  await driver._executeRaw(`DELETE FROM "posts"`);
-  await driver._executeRaw(`DELETE FROM "users"`);
 }
 
 // =============================================================================
@@ -64,9 +83,39 @@ async function setupDatabase(driver: SQLite3Driver) {
 // =============================================================================
 
 describe("SQLite3 Driver", () => {
+  describe("Vector Support", () => {
+    test("throws FeatureNotSupported for vector distance orderBy", async () => {
+      const schema = {
+        doc: s.model({
+          id: s.string().id(),
+          embedding: s.vector().dimension(3),
+        }),
+      };
+      const driver = createInMemorySQLite3Driver();
+      const client = createClient({ schema, driver });
+
+      try {
+        await expect(
+          client.doc.findMany({
+            orderBy: {
+              embedding: {
+                _distance: {
+                  to: [1, 0, 0],
+                  metric: "l2",
+                },
+              },
+            },
+          })
+        ).rejects.toThrow(FeatureNotSupportedError);
+      } finally {
+        await client.$disconnect();
+      }
+    });
+  });
+
   describe("Driver Creation", () => {
     test("creates in-memory driver by default", async () => {
-      const driver = new SQLite3Driver();
+      const driver = createInMemorySQLite3Driver();
       expect(driver.dialect).toBe("sqlite");
       expect(driver.adapter).toBeDefined();
       await driver.disconnect();
@@ -86,10 +135,8 @@ describe("SQLite3 Driver", () => {
     let driver: SQLite3Driver;
 
     beforeEach(async () => {
-      driver = new SQLite3Driver({
-        dataDir: ":memory:",
-      });
-      await setupDatabase(driver);
+      driver = createInMemorySQLite3Driver();
+      await setupSQLite3UserPostDatabase(driver);
     });
 
     afterEach(async () => {
@@ -146,16 +193,109 @@ describe("SQLite3 Driver", () => {
 
       expect(result.rowCount).toBe(1);
     });
+
+    test("does not treat an identifier containing returning as a row-producing statement", async () => {
+      const result = await driver._executeRaw(
+        `CREATE TABLE "returning_events" ("id" TEXT PRIMARY KEY)`
+      );
+
+      expect(result.rows).toEqual([]);
+      expect(result.rowCount).toBe(0);
+    });
+
+    test("does not treat a comment containing returning as a row-producing statement", async () => {
+      const result = await driver._executeRaw(
+        `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?) /* returning is only a comment */`,
+        ["comment-user", "comment@example.com", "Comment User"]
+      );
+
+      expect(result.rows).toEqual([]);
+      expect(result.rowCount).toBe(1);
+    });
+
+    test("does not treat a string literal containing returning as a row-producing statement", async () => {
+      const result = await driver._executeRaw(
+        `INSERT INTO "users" ("id", "email", "name") VALUES ('literal-user', 'literal@example.com', 'contains returning text')`
+      );
+
+      expect(result.rows).toEqual([]);
+      expect(result.rowCount).toBe(1);
+    });
+
+    test("returns rows for a genuine mutation RETURNING clause", async () => {
+      const result = await driver._executeRaw<{
+        id: string;
+        email: string;
+        name: string;
+      }>(
+        `INSERT INTO "users" ("id", "email", "name") VALUES (?, ?, ?) RETURNING "id", "email", "name"`,
+        ["returned-user", "returned@example.com", "Returned User"]
+      );
+
+      expect(result.rows).toEqual([
+        {
+          id: "returned-user",
+          email: "returned@example.com",
+          name: "Returned User",
+        },
+      ]);
+      expect(result.rowCount).toBe(1);
+    });
+  });
+
+  describe("Worker-safe D1 binary parameters", () => {
+    test("binds Uint8Array blobs when Buffer is unavailable", async () => {
+      const boundValues: unknown[] = [];
+      const statement = {
+        bind(...values: unknown[]) {
+          boundValues.push(...values);
+          return statement;
+        },
+        async run() {
+          return { success: true, results: [], meta: { changes: 1 } };
+        },
+      };
+      // This fake intentionally implements only the D1 surface exercised here.
+      const database = {
+        prepare() {
+          return statement;
+        },
+      } as unknown as ConstructorParameters<typeof D1Driver>[0]["database"];
+      const driver = new D1Driver({ database });
+      const payload = new Uint8Array([1, 2, 3]);
+
+      vi.stubGlobal("Buffer", undefined);
+      try {
+        await driver._executeRaw(`INSERT INTO "blobs" ("payload") VALUES (?)`, [
+          payload,
+        ]);
+      } finally {
+        vi.unstubAllGlobals();
+        await driver.disconnect();
+      }
+
+      const [boundValue] = boundValues;
+      if (boundValue instanceof Uint8Array) {
+        expect(Object.getPrototypeOf(boundValue)).toBe(Uint8Array.prototype);
+        expect(Array.from(boundValue)).toEqual([1, 2, 3]);
+        return;
+      }
+      if (boundValue instanceof ArrayBuffer) {
+        expect(Array.from(new Uint8Array(boundValue))).toEqual([1, 2, 3]);
+        return;
+      }
+      throw new Error(
+        "D1 blob parameters must remain Worker-compatible binary"
+      );
+    });
   });
 
   describe("Transactions", () => {
     let driver: SQLite3Driver;
 
     beforeEach(async () => {
-      driver = new SQLite3Driver({
-        dataDir: ":memory:",
-      });
-      await setupDatabase(driver);
+      driver = createInMemorySQLite3Driver();
+      await setupSQLite3UserPostDatabase(driver);
     });
 
     afterEach(async () => {
@@ -226,12 +366,88 @@ describe("SQLite3 Driver", () => {
     });
   });
 
+  describe("Error Mapping", () => {
+    test("maps ORM unique constraint errors with model and operation context", async () => {
+      const client = createSQLite3UserPostClient();
+      await push(client, { force: true });
+
+      await client.user.create({
+        data: {
+          id: "duplicate-id",
+          email: "first@example.com",
+        },
+      });
+
+      await expect(
+        client.user.create({
+          data: {
+            id: "duplicate-id",
+            email: "second@example.com",
+          },
+        })
+      ).rejects.toMatchObject({
+        name: "UniqueConstraintError",
+        meta: {
+          driver: "sqlite3",
+          model: "user",
+          operation: "create",
+        },
+      });
+
+      await client.$disconnect();
+    });
+
+    test("maps raw not-null constraint errors", async () => {
+      const driver = createInMemorySQLite3Driver();
+      await setupSQLite3UserPostDatabase(driver);
+
+      await expect(
+        driver._executeRaw(`INSERT INTO "users" ("id") VALUES (?)`, [
+          "missing-email",
+        ])
+      ).rejects.toBeInstanceOf(NotNullConstraintError);
+
+      await driver.disconnect();
+    });
+
+    test("maps raw foreign key constraint errors", async () => {
+      const driver = createInMemorySQLite3Driver();
+      await setupSQLite3UserPostDatabase(driver);
+      await driver._executeRaw("PRAGMA foreign_keys = ON");
+
+      await expect(
+        driver._executeRaw(
+          `INSERT INTO "posts" ("id", "title", "authorId") VALUES (?, ?, ?)`,
+          ["orphan-post", "Orphan", "missing-user"]
+        )
+      ).rejects.toBeInstanceOf(ForeignKeyError);
+
+      await driver.disconnect();
+    });
+
+    test("maps raw unique constraint errors", async () => {
+      const driver = createInMemorySQLite3Driver();
+      await setupSQLite3UserPostDatabase(driver);
+
+      await driver._executeRaw(
+        `INSERT INTO "users" ("id", "email") VALUES (?, ?)`,
+        ["raw-duplicate", "raw@example.com"]
+      );
+
+      await expect(
+        driver._executeRaw(
+          `INSERT INTO "users" ("id", "email") VALUES (?, ?)`,
+          ["raw-duplicate", "other@example.com"]
+        )
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+      await driver.disconnect();
+    });
+  });
+
   describe("VibORM Client Integration", () => {
     test("creates client with schema", async () => {
-      const client = SQLite3CreateClient({
-        schema,
-        dataDir: ":memory:",
-      });
+      const client = createSQLite3UserPostClient();
 
       expect(client.user).toBeDefined();
       expect(client.post).toBeDefined();
@@ -242,10 +458,7 @@ describe("SQLite3 Driver", () => {
     });
 
     test("performs CRUD operations via client", async () => {
-      const client = SQLite3CreateClient({
-        schema,
-        dataDir: ":memory:",
-      });
+      const client = createSQLite3UserPostClient();
 
       // Push schema to create tables
       await push(client, { force: true });
@@ -310,10 +523,7 @@ describe("SQLite3 Driver", () => {
     });
 
     test("performs transactions via client", async () => {
-      const client = SQLite3CreateClient({
-        schema,
-        dataDir: ":memory:",
-      });
+      const client = createSQLite3UserPostClient();
 
       // Push schema to create tables
       await push(client, { force: true });
@@ -348,10 +558,7 @@ describe("SQLite3 Driver", () => {
     });
 
     test("rolls back failed transactions via client", async () => {
-      const client = SQLite3CreateClient({
-        schema,
-        dataDir: ":memory:",
-      });
+      const client = createSQLite3UserPostClient();
 
       // Push schema to create tables
       await push(client, { force: true });
@@ -380,53 +587,16 @@ describe("SQLite3 Driver", () => {
   });
 
   describe("Query Features", () => {
-    let client: ReturnType<
-      typeof SQLite3CreateClient<{ schema: typeof schema }>
-    >;
+    let client: ReturnType<typeof createSQLite3UserPostClient>;
 
     beforeEach(async () => {
-      client = SQLite3CreateClient({
-        schema,
-        dataDir: ":memory:",
-      });
+      client = createSQLite3UserPostClient();
 
       // Push schema to create tables
       await push(client, { force: true });
 
       // Seed data
-      await client.user.createMany({
-        data: [
-          { id: "u1", email: "alice@test.com", name: "Alice", age: 25 },
-          { id: "u2", email: "bob@test.com", name: "Bob", age: 30 },
-          { id: "u3", email: "charlie@test.com", name: "Charlie", age: 35 },
-        ],
-      });
-
-      await client.post.createMany({
-        data: [
-          {
-            id: "p1",
-            title: "Post 1",
-            content: "Content 1",
-            published: true,
-            authorId: "u1",
-          },
-          {
-            id: "p2",
-            title: "Post 2",
-            content: "Content 2",
-            published: false,
-            authorId: "u1",
-          },
-          {
-            id: "p3",
-            title: "Post 3",
-            content: "Content 3",
-            published: true,
-            authorId: "u2",
-          },
-        ],
-      });
+      await seedWindowUserPosts(client);
     });
 
     afterEach(async () => {
@@ -523,5 +693,199 @@ describe("SQLite3 Driver", () => {
       expect(result._max.age).toBe(35);
       expect(result._sum.age).toBe(90);
     });
+  });
+
+  runForwardFkOrderingBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+    fkNamesRoundTrip: false,
+  });
+
+  runCountAggregateWindowBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
+  runDistinctSkipWindowBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
+  runCursorPaginationBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
+  runNestedWriteBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runNestedWriteAdvancedBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runCompoundKeyBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runManyToManyBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runRelationFilterMutationBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runOrderingArrayCreateBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runManyAndReturnBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runListJsonFilterBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runReadPathRegressionBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runRelationReadAggregateBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runNestedOrderByBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runClientRawBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runScalarRoundtripBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runFullScalarRoundtripBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runLikeEscapeBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runPrismaParityBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
+  runOptionalRelationParityBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runUpsertAtomicityBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  test("transactional nested update divides an integer PK and propagates it", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({
+      schema: batchPrimaryKeyDataflowSchema,
+      driver,
+    });
+
+    try {
+      await push(client, { force: true });
+      await client.mutableUser.create({
+        data: { id: 330, name: "Divide operation" },
+      });
+
+      const updated = await client.mutableUser.update({
+        where: { id: 330 },
+        data: {
+          id: { divide: 3 },
+          name: "Divide operation updated",
+          posts: { create: { title: "Divide operation child" } },
+        },
+      });
+
+      const posts = await client.mutablePost.findMany();
+      expect(updated.id).toBe(110);
+      expect(posts).toHaveLength(1);
+      expect(posts[0]?.userId).toBe(110);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+  runBatchPrimaryKeyDataflowBehavior({
+    driverName: "SQLite3 batch-only",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+  runBatchRefSmokeBehavior({
+    driverName: "SQLite3 batch-only",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+  runCreateNestedUpsertBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runCreateNestedUpsertBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runUpdateNestedUpsertBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runUpdateNestedUpsertBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runUpdateFamilyBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runUpdateFamilyBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runUpsertFamilyBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runUpsertFamilyBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runNestedMutationBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runNestedMutationBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runReadBehavior({
+    name: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runBulkWriteBehavior({
+    name: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runCreateManyBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runCreateManyBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
   });
 });

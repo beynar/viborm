@@ -7,6 +7,9 @@
     "boolean",
     "datetime",
     "json",
-    "arrays"
+    "arrays",
+    "relations",
+    "relations-to-one",
+    "relations-to-many"
   ]
 }

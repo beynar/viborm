@@ -9,8 +9,8 @@ import { libsqlMigrationDriver } from "../../src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "../../src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "../../src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "../../src/migrations/drivers/sqlite";
-import type { FieldState, ScalarFieldType } from "../../src/schema/fields/common";
 import type { DiffOperation, SchemaSnapshot } from "../../src/migrations/types";
+import type { ScalarState, ScalarType } from "../../src/schema/scalars/common";
 
 // =============================================================================
 // SQLITE3 DRIVER TESTS
@@ -89,9 +89,8 @@ describe("SQLite3 DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      // SQLite INTEGER PRIMARY KEY is implicit with autoincrement
-      expect(ddl).toContain('"id" INTEGER NOT NULL');
-      // Should not have separate PRIMARY KEY clause for single INTEGER PK
+      expect(ddl).toContain('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
+      // Should not have separate table-level PRIMARY KEY clause for single INTEGER autoincrement PK
       expect(ddl).not.toMatch(/PRIMARY KEY \("id"\)/);
     });
 
@@ -825,7 +824,7 @@ describe("MySQL DDL Generation", () => {
 
       expect(ddl).toContain("ENGINE=InnoDB");
       expect(ddl).toContain("DEFAULT CHARSET=utf8mb4");
-      expect(ddl).toContain("COLLATE=utf8mb4_unicode_ci");
+      expect(ddl).toContain("COLLATE=utf8mb4_0900_bin");
     });
 
     it("should generate CREATE TABLE with AUTO_INCREMENT", () => {
@@ -1426,8 +1425,8 @@ describe("MySQL DDL Generation", () => {
     });
   });
 
-  describe("mapFieldType", () => {
-    const createMockField = (state: any) =>
+  describe("mapScalarType", () => {
+    const createMockScalar = (state: any) =>
       ({
         ["~"]: {
           state,
@@ -1435,10 +1434,10 @@ describe("MySQL DDL Generation", () => {
         },
       }) as any;
 
-    const createFieldState = <T extends ScalarFieldType>(
+    const createScalarState = <T extends ScalarType>(
       type: T,
-      overrides: Partial<FieldState<T>> = {}
-    ): FieldState<T> => ({
+      overrides: Partial<ScalarState<T>> = {}
+    ): ScalarState<T> => ({
       type,
       nullable: false,
       array: false,
@@ -1457,60 +1456,60 @@ describe("MySQL DDL Generation", () => {
 
     it("should map VibORM types to MySQL types", () => {
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("string")),
-          createFieldState("string")
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("string")),
+          createScalarState("string")
         )
       ).toBe("TEXT");
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("int")),
-          createFieldState("int")
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("int")),
+          createScalarState("int")
         )
       ).toBe("INT");
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("float")),
-          createFieldState("float")
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("float")),
+          createScalarState("float")
         )
       ).toBe("DOUBLE");
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("boolean")),
-          createFieldState("boolean")
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("boolean")),
+          createScalarState("boolean")
         )
       ).toBe("TINYINT(1)");
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("datetime")),
-          createFieldState("datetime")
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("datetime")),
+          createScalarState("datetime")
         )
       ).toBe("DATETIME(3)");
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("json")),
-          createFieldState("json")
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("json")),
+          createScalarState("json")
         )
       ).toBe("JSON");
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("bigint")),
-          createFieldState("bigint")
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("bigint")),
+          createScalarState("bigint")
         )
       ).toBe("BIGINT");
     });
 
     it("should use JSON for array types", () => {
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("string", { array: true })),
-          createFieldState("string", { array: true })
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("string", { array: true })),
+          createScalarState("string", { array: true })
         )
       ).toBe("JSON");
       expect(
-        mysqlMigrationDriver.mapFieldType(
-          createMockField(createFieldState("int", { array: true })),
-          createFieldState("int", { array: true })
+        mysqlMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("int", { array: true })),
+          createScalarState("int", { array: true })
         )
       ).toBe("JSON");
     });
@@ -2412,8 +2411,8 @@ describe("PostgreSQL DDL Generation", () => {
     });
   });
 
-  describe("mapFieldType", () => {
-    const createMockField = (
+  describe("mapScalarType", () => {
+    const createMockScalar = (
       state: any,
       nativeType?: { db: string; type: string }
     ) =>
@@ -2424,10 +2423,10 @@ describe("PostgreSQL DDL Generation", () => {
         },
       }) as any;
 
-    const createFieldState = <T extends ScalarFieldType>(
+    const createScalarState = <T extends ScalarType>(
       type: T,
-      overrides: Partial<FieldState<T>> = {}
-    ): FieldState<T> => ({
+      overrides: Partial<ScalarState<T>> = {}
+    ): ScalarState<T> => ({
       type,
       nullable: false,
       array: false,
@@ -2446,81 +2445,83 @@ describe("PostgreSQL DDL Generation", () => {
 
     it("should map VibORM types to PostgreSQL types", () => {
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("string")),
-          createFieldState("string")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("string")),
+          createScalarState("string")
         )
       ).toBe("text");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("int")),
-          createFieldState("int")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("int")),
+          createScalarState("int")
         )
       ).toBe("integer");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("float")),
-          createFieldState("float")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("float")),
+          createScalarState("float")
         )
       ).toBe("double precision");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("boolean")),
-          createFieldState("boolean")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("boolean")),
+          createScalarState("boolean")
         )
       ).toBe("boolean");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("datetime")),
-          createFieldState("datetime")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("datetime")),
+          createScalarState("datetime")
         )
       ).toBe("timestamp");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("json")),
-          createFieldState("json")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("json")),
+          createScalarState("json")
         )
       ).toBe("jsonb");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("bigint")),
-          createFieldState("bigint")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("bigint")),
+          createScalarState("bigint")
         )
       ).toBe("bigint");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("blob")),
-          createFieldState("blob")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("blob")),
+          createScalarState("blob")
         )
       ).toBe("bytea");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("date")),
-          createFieldState("date")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("date")),
+          createScalarState("date")
         )
       ).toBe("date");
     });
 
     it("should handle array types with native array syntax", () => {
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("string", { array: true })),
-          createFieldState("string", { array: true })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("string", { array: true })),
+          createScalarState("string", { array: true })
         )
       ).toBe("text[]");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("int", { array: true })),
-          createFieldState("int", { array: true })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("int", { array: true })),
+          createScalarState("int", { array: true })
         )
       ).toBe("integer[]");
     });
 
     it("should handle datetime with timezone", () => {
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("datetime", { withTimezone: true })),
-          createFieldState("datetime", { withTimezone: true })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(
+            createScalarState("datetime", { withTimezone: true })
+          ),
+          createScalarState("datetime", { withTimezone: true })
         )
       ).toBe("timestamptz");
     });
@@ -2528,9 +2529,9 @@ describe("PostgreSQL DDL Generation", () => {
     it("should use native type when specified for PostgreSQL", () => {
       const nativeType = { db: "pg", type: "citext" };
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("string"), nativeType),
-          createFieldState("string")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("string"), nativeType),
+          createScalarState("string")
         )
       ).toBe("citext");
     });
@@ -2538,9 +2539,9 @@ describe("PostgreSQL DDL Generation", () => {
     it("should ignore native type for other databases", () => {
       const nativeType = { db: "mysql", type: "VARCHAR(100)" };
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("string"), nativeType),
-          createFieldState("string")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("string"), nativeType),
+          createScalarState("string")
         )
       ).toBe("text");
     });

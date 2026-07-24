@@ -8,8 +8,38 @@
 
 import { VibORM } from "@client/client";
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
+import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
+import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
+import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
+import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
+import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
+import {
+  PgBatchForcedDriver,
+  PgBeforeFirstBatchDriver,
+  PgRacePlantingBatchDriver,
+} from "./batch-forced-pg";
+import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
+import { runClientRawBehavior } from "./client-raw-behavior";
+import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
+import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
+import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
+import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
+import {
+  runFullScalarRoundtripBehavior,
+  runScalarRoundtripBehavior,
+} from "./scalar-roundtrip-behavior";
+import { runUpsertAtomicityBehavior } from "./upsert-atomicity-behavior";
+import { runVectorBehavior } from "./vector-behavior";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -64,9 +94,31 @@ async function setupDatabase(driver: PgDriver) {
 
 // Skip tests if no PostgreSQL connection is available
 const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
+const PGVECTOR_TEST_CONNECTION_STRING =
+  process.env.PGVECTOR_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
+function requirePgvectorConnectionString(): string {
+  if (!PGVECTOR_TEST_CONNECTION_STRING) {
+    throw new Error("PGVECTOR_TEST_CONNECTION_STRING is required.");
+  }
+  return PGVECTOR_TEST_CONNECTION_STRING;
+}
+
 describeIf("pg Driver", () => {
+  // The shared behavior suites and client-integration tests assume a fresh
+  // database. PostgreSQL persists between tests, so drop everything first:
+  // pushing an empty schema diffs to dropTable for every existing table.
+  // (Same pattern as mysql2.test.ts.)
+  beforeEach(async () => {
+    const cleanupClient = PgCreateClient({
+      schema: {},
+      databaseUrl: TEST_CONNECTION_STRING,
+    });
+    await push(cleanupClient, { force: true });
+    await cleanupClient.$disconnect();
+  });
+
   describe("Driver Creation", () => {
     test("creates driver with connection string", async () => {
       const driver = new PgDriver({
@@ -83,7 +135,7 @@ describeIf("pg Driver", () => {
       const driver = new PgDriver({
         options: {
           host: url.hostname,
-          port: Number.parseInt(url.port) || 5432,
+          port: Number.parseInt(url.port, 10) || 5432,
           database: url.pathname.slice(1),
           user: url.username,
           password: url.password,
@@ -92,6 +144,34 @@ describeIf("pg Driver", () => {
       expect(driver.dialect).toBe("postgresql");
       await driver.disconnect();
     });
+  });
+
+  test("attributes a sequential atomic-batch failure to its exact statement", async () => {
+    const driver = new PgBatchForcedDriver({
+      databaseUrl: TEST_CONNECTION_STRING,
+    });
+    await setupDatabase(driver);
+
+    const error = await driver
+      ._executeBatch([
+        {
+          sql: `INSERT INTO "pg_test_users" ("id", "email") VALUES ($1, $2)`,
+          params: ["batch-user", "first@example.com"],
+        },
+        {
+          sql: `INSERT INTO "pg_test_users" ("id", "email") VALUES ($1, $2)`,
+          params: ["batch-user", "second@example.com"],
+        },
+      ])
+      .catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(UniqueConstraintError);
+    expect(error.meta).toMatchObject({
+      statementIndex: 1,
+      table: "pg_test_users",
+      constraint: "pg_test_users_pkey",
+    });
+    await driver.disconnect();
   });
 
   describe("Raw SQL Execution", () => {
@@ -189,7 +269,7 @@ describeIf("pg Driver", () => {
       const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "pg_test_users"`
       );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(2);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(2);
     });
 
     test("rolls back transaction on error", async () => {
@@ -206,7 +286,7 @@ describeIf("pg Driver", () => {
       const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "pg_test_users"`
       );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(0);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(0);
     });
 
     test("supports nested transactions with savepoints", async () => {
@@ -234,24 +314,20 @@ describeIf("pg Driver", () => {
         `SELECT COUNT(*) as count FROM "pg_test_users"`
       );
       // Only user-1 should exist (user-2 was rolled back by nested transaction)
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(1);
     });
 
-    test("supports isolation levels", async () => {
-      await driver.withTransaction(
-        async (txDriver) => {
-          await txDriver._executeRaw(
-            `INSERT INTO "pg_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
-            ["user-1", "test@example.com", "Test User"]
-          );
-        },
-        { isolationLevel: "serializable" }
-      );
-
-      const result = await driver._executeRaw<{ count: string }>(
-        `SELECT COUNT(*) as count FROM "pg_test_users"`
-      );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
+    test("rejects removed isolation before opening a transaction", async () => {
+      let callbackCalled = false;
+      await expect(
+        Reflect.apply(driver.withTransaction, driver, [
+          async () => {
+            callbackCalled = true;
+          },
+          { isolationLevel: "serializable" },
+        ])
+      ).rejects.toMatchObject({ name: "TransactionError", code: "V5005" });
+      expect(callbackCalled).toBe(false);
     });
   });
 
@@ -375,5 +451,208 @@ describeIf("pg Driver", () => {
 
       await client.$disconnect();
     });
+
+    test("rejects removed isolation at the client boundary", async () => {
+      const client = await PgCreateClient({
+        schema,
+        databaseUrl: TEST_CONNECTION_STRING,
+      });
+
+      await push(client, { force: true });
+
+      let callbackCalled = false;
+      await expect(
+        Reflect.apply(client.$transaction, client, [
+          async () => {
+            callbackCalled = true;
+          },
+          { isolationLevel: "serializable" },
+        ])
+      ).rejects.toMatchObject({ name: "TransactionError", code: "V5005" });
+      expect(callbackCalled).toBe(false);
+
+      await client.$disconnect();
+    });
   });
+
+  runForwardFkOrderingBehavior({
+    driverName: "pg (tx)",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runForwardFkOrderingBehavior({
+    driverName: "pg (batch)",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Real multi-connection driver: the concurrent upsert tests in this suite
+  // genuinely race two transactions, unlike single-session PGlite.
+  runUpsertAtomicityBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // M8 (§7.4, D7): the write-race retry unified above selectMode. Two real
+  // connections genuinely race; the batch-forced sibling exercises the PlannedMode
+  // converge-on-rerun that batch-only drivers lacked. Only runnable with a real
+  // multi-connection database, hence its home here.
+  runNestedWriteConcurrencyBehavior({
+    driverName: "pg",
+    createTxDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createBatchDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createRacePlantingBatchDriver: ({ plant, onBatchError }) =>
+      new PgRacePlantingBatchDriver(plant, onBatchError, {
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+  });
+
+  // M9 (§9, §5.5 Rule 3): the filtered-M2M-deleteMany staleness guards close the
+  // plan-time→execution window fail-closed. A member added on a real second
+  // connection after the plan-time read aborts the guard (raceable); the retry
+  // re-plans and converges. Docker-gated for the same reason as M8.
+  runM2mDeleteManyStalenessBehavior({
+    driverName: "pg",
+    createTxDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createStalePlanBatchDriver: ({ beforeFirstBatch, onBatchError }) =>
+      new PgBeforeFirstBatchDriver(beforeFirstBatch, onBatchError, {
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+  });
+
+  // Real pg param serialization for native array columns (array_cat push etc.)
+  runListJsonFilterBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runScalarRoundtripBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runFullScalarRoundtripBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Nested writes over real pooled connections (transactions span checkouts)
+  runNestedWriteBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runNestedWriteAdvancedBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Raw-string $queryRaw params and sql`` rendering go through the real pg
+  // wire protocol here ($n placeholders), unlike the PGlite in-memory run.
+  runClientRawBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Relation _count / relation orderBy / every-none read filters over the
+  // real driver (correlated-subquery results cross real result parsing).
+  runRelationReadAggregateBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runNestedOrderByBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runCreateNestedUpsertBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runCreateNestedUpsertBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  // T4b CLASS III — the batch updated/generated-PK dataflow on the RETURNING/lastval
+  // driver: updated-PK (compile-derived literal FK) and generated-PK (lastval batch-ref
+  // store) both proven on a real Postgres atomic batch.
+  runBatchPrimaryKeyDataflowBehavior({
+    driverName: "pg batch-only",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runUpdateNestedUpsertBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runUpdateNestedUpsertBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runUpdateFamilyBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runUpdateFamilyBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runUpsertFamilyBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runUpsertFamilyBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runNestedMutationBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runNestedMutationBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runReadBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runBulkWriteBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runCreateManyBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runCreateManyBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // The remaining behavior suites are not wired here: they are adapter-level
+  // and already run on PGlite, which shares the postgres adapter; this file
+  // covers what depends on the real driver (param serialization, pooling,
+  // transactions, races).
+});
+
+runVectorBehavior({
+  driverName: "pg",
+  enabled: Boolean(PGVECTOR_TEST_CONNECTION_STRING),
+  createDriver: () =>
+    new PgDriver({
+      databaseUrl: requirePgvectorConnectionString(),
+      pgvector: true,
+    }),
 });

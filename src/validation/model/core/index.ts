@@ -61,33 +61,37 @@ export {
 // =============================================================================
 
 import type { AnyModel } from "@schema/model";
-import type { FieldSchemas } from "../index";
+import { lazyRecord } from "../../lazy";
+import type { ScalarSchemas } from "../index";
 import {
+  type CreateSchema,
   getCreateSchema,
   getNestedScalarCreate,
-  getNestedScalarCreateWithOmittedRequiredKeys,
   getRelationCreate,
   getScalarCreate,
-  type CreateSchema,
   type NestedScalarCreateSchema,
-  type NestedScalarCreateWithOmittedRequiredKeys,
   type RelationCreateSchema,
   type ScalarCreateSchema,
 } from "./create";
 import {
+  type CompoundConstraintFilterSchema,
+  type CompoundIdFilterSchema,
   getCompoundConstraintFilter,
   getCompoundIdFilter,
   getRelationFilter,
   getScalarFilter,
   getUniqueFilter,
-  type CompoundConstraintFilterSchema,
-  type CompoundIdFilterSchema,
   type RelationFilterSchema,
   type ScalarFilterSchema,
   type UniqueFilterSchema,
 } from "./filter";
 import { getOrderBySchema, type OrderBySchema } from "./orderby";
-import { getIncludeSchema, getSelectSchema, type IncludeSchema, type SelectSchema } from "./select";
+import {
+  getIncludeSchema,
+  getSelectSchema,
+  type IncludeSchema,
+  type SelectSchema,
+} from "./select";
 import {
   getRelationUpdate,
   getScalarUpdate,
@@ -107,7 +111,7 @@ import {
  * Type representing all core schemas for a model.
  * Used by args factories to reference schema types.
  */
-export type CoreSchemas<M extends AnyModel, F extends FieldSchemas<M>> = {
+export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   scalarFilter: ScalarFilterSchema<M, F>;
   uniqueFilter: UniqueFilterSchema<M, F>;
   relationFilter: RelationFilterSchema<M, F>;
@@ -127,48 +131,30 @@ export type CoreSchemas<M extends AnyModel, F extends FieldSchemas<M>> = {
   orderBy: OrderBySchema<M, F>;
 };
 
-export const getCoreSchemas = <
-  M extends AnyModel,
-  F extends FieldSchemas<M>,
->(
+export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F,
+  fieldSchemas: F
 ): CoreSchemas<M, F> => {
-  const scalarFilter = getScalarFilter<M, F>(fieldSchemas);
-  const uniqueFilter = getUniqueFilter(model, fieldSchemas);
-  const relationFilter = getRelationFilter<M, F>(fieldSchemas);
-  const compoundIdFilter = getCompoundIdFilter(model);
-  const compoundConstraintFilter = getCompoundConstraintFilter(model);
-  const scalarCreate = getScalarCreate(model, fieldSchemas);
-  const nestedScalarCreate = getNestedScalarCreate(model, fieldSchemas);
-  const relationCreate = getRelationCreate<M, F>(fieldSchemas);
-  const scalarUpdate = getScalarUpdate<M, F>(fieldSchemas);
-  const relationUpdate = getRelationUpdate<M, F>(fieldSchemas);
-  const where = getWhereSchema<M, F>(fieldSchemas);
-  const whereUnique = getWhereUniqueSchema(model, fieldSchemas);
-  const create = getCreateSchema(model, fieldSchemas);
-  const update = getUpdateSchema<M, F>(fieldSchemas);
-  const select = getSelectSchema<M, F>(fieldSchemas);
-  const include = getIncludeSchema(fieldSchemas);
-  const orderBy = getOrderBySchema<M, F>(fieldSchemas);
-
-  return {
-    scalarFilter,
-    uniqueFilter,
-    relationFilter,
-    compoundIdFilter,
-    compoundConstraintFilter,
-    scalarCreate,
-    nestedScalarCreate,
-    relationCreate,
-    scalarUpdate,
-    relationUpdate,
-    where,
-    whereUnique,
-    create,
-    update,
-    select,
-    include,
-    orderBy,
-  };
+  // Each core schema is built on first access and memoized. Consumers only ever
+  // read individual keys (e.g. `core.where`, `core.whereUnique`), so a query
+  // pays only for the schemas its operation actually references.
+  return lazyRecord<CoreSchemas<M, F>>({
+    scalarFilter: () => getScalarFilter<M, F>(fieldSchemas),
+    uniqueFilter: () => getUniqueFilter(model, fieldSchemas),
+    relationFilter: () => getRelationFilter<M, F>(fieldSchemas),
+    compoundIdFilter: () => getCompoundIdFilter(model),
+    compoundConstraintFilter: () => getCompoundConstraintFilter(model),
+    scalarCreate: () => getScalarCreate(model, fieldSchemas),
+    nestedScalarCreate: () => getNestedScalarCreate(model, fieldSchemas),
+    relationCreate: () => getRelationCreate<M, F>(fieldSchemas),
+    scalarUpdate: () => getScalarUpdate<M, F>(fieldSchemas),
+    relationUpdate: () => getRelationUpdate<M, F>(fieldSchemas),
+    where: () => getWhereSchema<M, F>(fieldSchemas),
+    whereUnique: () => getWhereUniqueSchema(model, fieldSchemas),
+    create: () => getCreateSchema(model, fieldSchemas),
+    update: () => getUpdateSchema<M, F>(fieldSchemas),
+    select: () => getSelectSchema(model, fieldSchemas),
+    include: () => getIncludeSchema(fieldSchemas),
+    orderBy: () => getOrderBySchema<M, F>(model, fieldSchemas),
+  });
 };

@@ -6,11 +6,13 @@
  */
 
 import { type Sql, sql } from "@sql";
-import { buildOrderBy } from "../builders/orderby-builder";
+import { buildOrderByParts } from "../builders/orderby-builder";
 import { buildSelectWithAliases } from "../builders/select-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
-import { type QueryContext, QueryEngineError } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
+import { buildNormalizedOrderBy } from "./cursor-order";
+import { buildFindPagination } from "./find-pagination";
 
 /**
  * Common find arguments
@@ -23,6 +25,15 @@ export interface FindArgs {
   cursor?: Record<string, unknown>;
   skip?: number;
   distinct?: string[];
+  /** Add FOR UPDATE row locking (engine-internal, e.g. MySQL refetch flows) */
+  forUpdate?: boolean;
+}
+
+export type FindFirstArgs = FindArgs;
+
+export interface FindManyArgs extends FindArgs {
+  /** Maximum number of records to return. */
+  take?: number;
 }
 
 /**
@@ -42,12 +53,13 @@ export interface FindOptions {
  * @returns SQL statement
  */
 export function buildFind(
-  ctx: QueryContext,
+  ctx: QueryScope,
   args: FindArgs,
   options: FindOptions = {}
 ): Sql {
   const { adapter, rootAlias } = ctx;
   const tableName = getTableName(ctx.model);
+  const pagination = buildFindPagination(ctx, args, options.limit, rootAlias);
 
   // Build SELECT columns using buildSelectWithAliases to get:
   // - columns SQL
@@ -69,28 +81,24 @@ export function buildFind(
   // Build WHERE with cursor conditions
   let where = buildWhere(ctx, args.where, rootAlias);
 
-  // Add cursor condition if specified
-  if (args.cursor) {
-    const cursorCondition = buildCursorCondition(
-      ctx,
-      args.cursor,
-      args.orderBy,
-      rootAlias
-    );
-    if (cursorCondition) {
-      where = where
-        ? adapter.operators.and(where, cursorCondition)
-        : cursorCondition;
-    }
+  if (pagination.cursorCondition) {
+    where = where
+      ? adapter.operators.and(where, pagination.cursorCondition)
+      : pagination.cursorCondition;
   }
 
   // Build ORDER BY
-  const orderBy = buildOrderBy(ctx, args.orderBy, rootAlias);
+  const orderByParts = pagination.normalizedOrder
+    ? {
+        orderBy: buildNormalizedOrderBy(ctx, pagination.normalizedOrder),
+        joins: [],
+      }
+    : buildOrderByParts(ctx, pagination.orderBy, rootAlias);
 
   // Build LIMIT
   const limit =
     options.limit !== undefined
-      ? adapter.literals.value(options.limit)
+      ? adapter.literals.value(Math.abs(options.limit))
       : undefined;
 
   // Build OFFSET (skip)
@@ -108,9 +116,9 @@ export function buildFind(
     from,
   };
 
-  // Add lateral joins if any (for databases supporting LATERAL)
-  if (lateralJoins.length > 0) {
-    parts.joins = lateralJoins;
+  const joins = [...lateralJoins, ...orderByParts.joins];
+  if (joins.length > 0) {
+    parts.joins = joins;
   }
 
   if (distinct && columnAliases) {
@@ -120,192 +128,12 @@ export function buildFind(
     parts.distinct = distinct;
   }
   if (where) parts.where = where;
-  if (orderBy) parts.orderBy = orderBy;
+  if (orderByParts.orderBy) parts.orderBy = orderByParts.orderBy;
   if (limit) parts.limit = limit;
   if (offset) parts.offset = offset;
+  if (args.forUpdate) parts.forUpdate = true;
 
   return adapter.assemble.select(parts);
-}
-
-/**
- * Build cursor condition for Prisma-style cursor pagination.
- *
- * The cursor is a unique identifier (usually the ID field).
- * Prisma includes the cursor record by default (use skip: 1 to exclude).
- * We use >= / <= to include the cursor record.
- *
- * @param ctx - Query context
- * @param cursor - Cursor object (e.g., { id: "abc" })
- * @param orderBy - Order by specification
- * @param alias - Table alias
- * @returns SQL condition for cursor
- * @throws QueryEngineError if cursor contains null values
- */
-function buildCursorCondition(
-  ctx: QueryContext,
-  cursor: Record<string, unknown>,
-  orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
-  alias: string
-): Sql | undefined {
-  // Get cursor field and value, filtering out undefined values
-  // (validation layer adds undefined for optional fields not provided in input)
-  const cursorEntries = Object.entries(cursor).filter(
-    ([, value]) => value !== undefined
-  );
-  if (cursorEntries.length === 0) return undefined;
-
-  // Validate no null values in cursor (explicit null is not allowed)
-  for (const [field, value] of cursorEntries) {
-    if (value === null) {
-      throw new QueryEngineError(
-        `Cursor field '${field}' cannot be null. ` +
-          "Cursor must point to a specific record."
-      );
-    }
-  }
-
-  // Single field cursor (most common case)
-  if (cursorEntries.length === 1) {
-    const [cursorField, cursorValue] = cursorEntries[0]!;
-    return buildSingleFieldCursor(
-      ctx,
-      cursorField,
-      cursorValue,
-      orderBy,
-      alias
-    );
-  }
-
-  // Compound cursor - validate and build
-  // Build filtered cursor object from the filtered entries
-  const filteredCursor = Object.fromEntries(cursorEntries);
-  return buildCompoundCursor(ctx, filteredCursor, orderBy, alias);
-}
-
-/**
- * Build cursor condition for a single field cursor.
- * Uses >= / <= to include the cursor record (Prisma behavior).
- */
-function buildSingleFieldCursor(
-  ctx: QueryContext,
-  cursorField: string,
-  cursorValue: unknown,
-  orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
-  alias: string
-): Sql {
-  const { adapter } = ctx;
-  // Resolve field name to actual column name (handles .map() overrides)
-  const columnName = getColumnName(ctx.model, cursorField);
-  const column = adapter.identifiers.column(alias, columnName);
-  const value = adapter.literals.value(cursorValue);
-
-  // Determine direction from orderBy
-  const direction = getFieldDirection(cursorField, orderBy);
-
-  // Prisma includes cursor record by default:
-  // - For ascending order, we want records >= cursor
-  // - For descending order, we want records <= cursor
-  if (direction === "desc") {
-    return adapter.operators.lte(column, value);
-  }
-  return adapter.operators.gte(column, value);
-}
-
-/**
- * Build cursor condition for compound cursor (multiple fields).
- *
- * Validates that all fields have the same sort direction.
- * Throws error for mixed directions as they require complex tuple logic.
- *
- * Uses row value comparison: (a, b) >= (cursor_a, cursor_b)
- */
-function buildCompoundCursor(
-  ctx: QueryContext,
-  cursor: Record<string, unknown>,
-  orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
-  alias: string
-): Sql {
-  const { adapter } = ctx;
-  const entries = Object.entries(cursor);
-
-  // Validate all fields have same direction
-  const directions = entries.map(([field]) =>
-    getFieldDirection(field, orderBy)
-  );
-  const firstDirection = directions[0];
-  const hasMixedDirections = directions.some((d) => d !== firstDirection);
-
-  if (hasMixedDirections) {
-    throw new QueryEngineError(
-      "Compound cursor with mixed sort directions (asc/desc) is not supported. " +
-        "Either use a single-field cursor or ensure all orderBy fields use the same direction."
-    );
-  }
-
-  // Build column tuple (resolve field names to column names)
-  const columns = entries.map(([field]) => {
-    const columnName = getColumnName(ctx.model, field);
-    return adapter.identifiers.column(alias, columnName);
-  });
-
-  // Build value tuple
-  const values = entries.map(([, value]) => adapter.literals.value(value));
-
-  // Build: (col1, col2, ...) >= (val1, val2, ...) or <= for desc
-  // Prisma includes cursor record by default
-  const columnTuple = sql`(${sql.join(columns, ", ")})`;
-  const valueTuple = sql`(${sql.join(values, ", ")})`;
-
-  if (firstDirection === "desc") {
-    return sql`${columnTuple} <= ${valueTuple}`;
-  }
-  return sql`${columnTuple} >= ${valueTuple}`;
-}
-
-/**
- * Get sort direction for a field from orderBy specification
- *
- * Handles both formats:
- * - String: { field: "desc" }
- * - Object: { field: { sort: "desc", nulls: "last" } }
- */
-function getFieldDirection(
-  field: string,
-  orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined
-): "asc" | "desc" {
-  if (!orderBy) return "asc";
-
-  // Normalize to array
-  const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
-
-  // Find the field in orderBy
-  for (const order of orderByArray) {
-    if (field in order) {
-      const direction = order[field];
-
-      // String format: { field: "desc" }
-      if (typeof direction === "string") {
-        if (direction === "desc" || direction === "Desc") {
-          return "desc";
-        }
-        return "asc";
-      }
-
-      // Object format: { field: { sort: "desc", nulls: "last" } }
-      if (typeof direction === "object" && direction !== null) {
-        const sortValue = (direction as Record<string, unknown>).sort;
-        if (sortValue === "desc" || sortValue === "Desc") {
-          return "desc";
-        }
-        return "asc";
-      }
-
-      return "asc";
-    }
-  }
-
-  // Default to ascending
-  return "asc";
 }
 
 /**
@@ -320,7 +148,7 @@ function getFieldDirection(
  * @returns SQL for DISTINCT clause
  */
 function buildDistinct(
-  ctx: QueryContext,
+  ctx: QueryScope,
   distinct: string[],
   alias: string
 ): Sql | undefined {

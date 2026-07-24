@@ -64,35 +64,35 @@ export const User = s.model({
 // =============================================================================
 
 // Extract relation states from models for direct testing
-const authorFields = Author["~"].state.fields;
-const postFields = Post["~"].state.fields;
-const profileFields = Profile["~"].state.fields;
-const userFields = User["~"].state.fields;
+const authorShape = Author["~"].state.shape;
+const postShape = Post["~"].state.shape;
+const profileShape = Profile["~"].state.shape;
+const userShape = User["~"].state.shape;
 
 /**
  * Required manyToOne relation state (Post.author)
  */
-export const requiredManyToOneState = postFields.author["~"].state;
+export const requiredManyToOneState = postShape.author["~"].state;
 
 /**
  * Required oneToMany relation state (Author.posts)
  */
-export const requiredOneToManyState = authorFields.posts["~"].state;
+export const requiredOneToManyState = authorShape.posts["~"].state;
 
 /**
  * Optional oneToOne relation state (Profile.user)
  */
-export const optionalOneToOneState = profileFields.user["~"].state;
+export const optionalOneToOneState = profileShape.user["~"].state;
 
 /**
  * Optional manyToOne relation state (User.manager - self-referential)
  */
-export const optionalManyToOneState = userFields.manager["~"].state;
+export const optionalManyToOneState = userShape.manager["~"].state;
 
 /**
  * Self-referential oneToMany relation state (User.subordinates)
  */
-export const selfRefOneToManyState = userFields.subordinates["~"].state;
+export const selfRefOneToManyState = userShape.subordinates["~"].state;
 
 // =============================================================================
 // RELATION SCHEMAS (generated from states)
@@ -103,22 +103,26 @@ const schemaRegistry = createSchemaRegistry({ Author, Post, Profile, User });
 /**
  * Schemas for required manyToOne relation (Post.author)
  */
-export const requiredManyToOneSchemas = schemaRegistry.proxy.Post.relations.author;
+export const requiredManyToOneSchemas =
+  schemaRegistry.proxy.Post.relations.author;
 
 /**
  * Schemas for required oneToMany relation (Author.posts)
  */
-export const requiredOneToManySchemas = schemaRegistry.proxy.Author.relations.posts;
+export const requiredOneToManySchemas =
+  schemaRegistry.proxy.Author.relations.posts;
 
 /**
  * Schemas for optional oneToOne relation (Profile.user)
  */
-export const optionalOneToOneSchemas = schemaRegistry.proxy.Profile.relations.user;
+export const optionalOneToOneSchemas =
+  schemaRegistry.proxy.Profile.relations.user;
 
 /**
  * Schemas for optional manyToOne relation (User.manager)
  */
-export const optionalManyToOneSchemas = schemaRegistry.proxy.User.relations.manager;
+export const optionalManyToOneSchemas =
+  schemaRegistry.proxy.User.relations.manager;
 
 /**
  * Schemas for self-referential oneToMany relation (User.subordinates)

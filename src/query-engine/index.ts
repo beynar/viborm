@@ -14,9 +14,7 @@ export type {
 // Builders (for advanced usage)
 export {
   buildConnectFkValues,
-  buildConnectSubquery,
   buildCorrelation,
-  buildDisconnectFkNulls,
   buildInclude,
   buildInsert,
   buildInsertMany,
@@ -28,21 +26,17 @@ export {
   buildValues,
   buildWhere,
   buildWhereUnique,
-  canUseSubqueryOnly,
   getFkDirection,
   getPrimaryKeyField,
   getPrimaryKeyFields,
-  getSubqueryConnects,
   needsTransaction,
   // Relation data builders
   separateData,
 } from "./builders";
 // Context utilities
 export {
-  AliasGenerator,
-  createAliasGenerator,
-  createChildContext,
-  createQueryContext,
+  createChildScope,
+  createQueryScope,
   getRelationInfo,
   getRelationNames,
   getScalarFieldNames,
@@ -51,13 +45,6 @@ export {
   isScalarField,
 } from "./context";
 
-// Error utilities
-export {
-  createInvalidRelationError,
-  createMissingFieldError,
-  createNestedWriteError,
-  createQueryError,
-} from "./errors";
 export type {
   AggregateArgs,
   FindArgs,
@@ -65,9 +52,6 @@ export type {
   FindManyArgs,
   FindOptions,
   GroupByArgs,
-  NestedCreateResult,
-  TransactionContext,
-  TransactionStep,
 } from "./operations";
 // Operations (for advanced usage)
 export {
@@ -78,14 +62,11 @@ export {
   buildDelete,
   buildDeleteMany,
   buildFind,
-  buildFindFirst,
-  buildFindMany,
   buildFindUnique,
   buildGroupBy,
   buildUpdate,
   buildUpdateMany,
   buildUpsert,
-  executeNestedCreate,
 } from "./operations";
 // Main exports
 export {
@@ -94,13 +75,13 @@ export {
   QueryEngine,
 } from "./query-engine";
 // Result parsing
-export { parseMutationCount, parseResult } from "./result";
+export { parseMutationCount, parseResult, ResultParser } from "./result";
 // Types
 export type {
   ModelRegistry,
   Operation,
   PreparedQuery,
-  QueryContext,
+  QueryScope,
   RelationInfo,
 } from "./types";
 export {

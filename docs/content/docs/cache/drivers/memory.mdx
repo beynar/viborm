@@ -10,11 +10,8 @@ No additional dependencies required. `MemoryCache` is included in the core VibOR
 ## Configuration
 
 ```typescript
-// Direct import for optimal tree-shaking (recommended)
+import { createClient } from "viborm";
 import { MemoryCache } from "viborm/cache/memory";
-
-// Or import from main package
-import { createClient, MemoryCache } from "viborm";
 
 const client = createClient({
   schema: { user, post },
@@ -31,29 +28,21 @@ The `MemoryCache` constructor takes no arguments.
 |----------|-------|
 | Persistence | None - data lost on restart |
 | Distribution | Single instance only |
-| TTL Handling | Staleness checked at read time |
+| TTL Handling | Timer eviction at storage TTL; staleness checked at read time |
 | Dependencies | None |
 | Performance | Fastest (in-process) |
 
 ## Behavior
 
-### No Automatic Eviction
+### Automatic Eviction
 
-`MemoryCache` does not automatically evict expired entries. Instead, it checks staleness when reading:
+Each entry is stored with a per-key timer that deletes it once the storage TTL elapses (the TTL alone, or TTL plus the stale window when SWR is enabled). This keeps memory bounded. The timers are `unref`'d, so they never keep a Node.js process alive.
 
-- **Fresh entries** are returned immediately
-- **Stale entries** trigger revalidation (if SWR enabled) or are refetched
-- Entries remain in memory until explicitly invalidated or the process restarts
+Within the storage window, staleness is checked at read time:
 
-This design keeps the implementation simple and avoids timer overhead.
-
-### Memory Usage
-
-Since there's no automatic eviction, memory usage can grow over time. For long-running processes with many unique queries, consider:
-
-1. Using a production cache driver (Redis, Cloudflare KV)
-2. Implementing periodic cache clearing
-3. Using manual invalidation on mutations
+- **Fresh entries** (age < TTL) are returned immediately
+- **Stale entries** (past TTL, within the SWR window) are returned and revalidated in the background
+- **Evicted or missing entries** trigger a fresh query
 
 ## Use Cases
 
@@ -66,12 +55,12 @@ Since there's no automatic eviction, memory usage can grow over time. For long-r
 **Not recommended for:**
 - Multi-instance deployments (no cache sharing)
 - Serverless functions (cache lost between invocations)
-- Long-running processes with unbounded query patterns
 
 ## Example
 
 ```typescript
-import { createClient, MemoryCache } from "viborm";
+import { createClient } from "viborm";
+import { MemoryCache } from "viborm/cache/memory";
 
 const client = createClient({
   schema: { user },

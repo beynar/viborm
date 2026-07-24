@@ -18,8 +18,13 @@ import {
   type Transaction,
 } from "@electric-sql/pglite";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
-import { Driver } from "../driver";
-import type { QueryResult, TransactionOptions } from "../types";
+import { Driver, type QueryExecutionContext } from "../driver";
+import { normalizeProviderRowCount } from "../normalized-result";
+import {
+  nestedTransactionDispatchError,
+  runProviderManagedTransaction,
+} from "../shared";
+import type { QueryResult } from "../types";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -43,6 +48,7 @@ export type PGliteConfig<C extends DriverConfig> = PGliteDriverOptions & C;
 
 export class PGliteDriver extends Driver<PGlite, Transaction> {
   readonly adapter: DatabaseAdapter;
+  protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: PGliteDriverOptions;
 
@@ -55,6 +61,7 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     }
 
     const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     this.adapter = adapter;
@@ -62,7 +69,17 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 
   protected async initClient(): Promise<PGlite> {
     const dataDir = this.driverOptions.dataDir;
-    const options = this.driverOptions.options ?? {};
+    const userOptions = this.driverOptions.options ?? {};
+    const options: PGliteOptions = {
+      ...userOptions,
+      parsers: {
+        // TIMESTAMP WITHOUT TIME ZONE: PGlite builds process-local Dates,
+        // shifting the stored UTC wall clock. Keep the raw string — the
+        // shared result parser builds a UTC Date, matching other drivers.
+        1114: (value: string) => value,
+        ...userOptions.parsers,
+      },
+    };
 
     // PGlite.create accepts dataDir as first argument or in options
     if (dataDir) {
@@ -78,38 +95,54 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
   protected async execute<T>(
     client: PGlite | Transaction,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "execute";
     const result = await client.query<T>(sql, params);
+    const affectedRows = normalizeProviderRowCount(result.affectedRows, {
+      provider: "pglite",
+      operation,
+    });
     return {
       rows: result.rows,
-      rowCount: result.affectedRows ?? result.rows.length,
+      rowCount: result.rows.length > 0 ? result.rows.length : affectedRows,
     };
   }
 
   protected async executeRaw<T>(
     client: PGlite | Transaction,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "executeRaw";
     const result = await client.query<T>(sql, params);
+    const affectedRows = normalizeProviderRowCount(result.affectedRows, {
+      provider: "pglite",
+      operation,
+    });
     return {
       rows: result.rows,
-      rowCount: result.affectedRows ?? result.rows.length,
+      rowCount: result.rows.length > 0 ? result.rows.length : affectedRows,
     };
   }
 
   protected transaction<T>(
     client: PGlite | Transaction,
-    fn: (tx: Transaction) => Promise<T>,
-    _options?: TransactionOptions
+    fn: (tx: Transaction) => Promise<T>
   ): Promise<T> {
-    if (client instanceof PGlite) {
-      // Start a new transaction
-      return client.transaction(fn);
+    if (!(client instanceof PGlite)) {
+      throw nestedTransactionDispatchError(this.driverName);
     }
-    // Nested transactions not supported in PGlite
-    return fn(client);
+    return runProviderManagedTransaction({
+      run: (callback) => client.transaction(callback),
+      callback: fn,
+      close: async () => {
+        await client.close();
+        this.client = null;
+      },
+    });
   }
 }
 

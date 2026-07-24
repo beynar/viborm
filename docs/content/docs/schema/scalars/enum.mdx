@@ -1,0 +1,134 @@
+---
+title: Enum
+description: Enum scalar type that restricts values to a predefined set of options
+icon: List
+---
+
+import { Tabs, Tab } from "fumadocs-ui/components/tabs";
+import { Callout } from "fumadocs-ui/components/callout";
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.enum(["PENDING", "ACTIVE", "SUSPENDED"]); // Required enum
+s.enum(["PENDING", "ACTIVE"]).nullable(); // Enum | null
+s.enum(["USER", "ADMIN"]).default("USER"); // Default (must be in enum)
+```
+
+Enums support `.nullable()`, `.array()`, `.default()`, and `.map()` — but **not** `.id()`, `.unique()`, or `.schema()`. See the [support matrix](/docs/schema/scalars).
+
+## Naming Enums for Reuse
+
+By default, VibORM generates enum type names based on the table and column (e.g., `user_status_enum`). Use `.name()` to create a shared enum type that can be reused across multiple tables:
+
+```ts
+// Define a named enum at the top level
+const Status = s.enum(["PENDING", "ACTIVE", "INACTIVE"]).name("status");
+
+// Use it in multiple models - same PostgreSQL enum type
+const user = s.model({
+  id: s.string().id(),
+  status: Status.default("PENDING"), // Uses "status" enum type
+});
+
+const order = s.model({
+  id: s.string().id(),
+  status: Status.default("PENDING"), // Same "status" enum type
+});
+```
+
+Without `.name()`, each column would create its own enum type:
+- `user_status_enum` for users.status
+- `order_status_enum` for orders.status
+
+With `.name("status")`, both columns share the same `status` enum type.
+
+<Callout type="info" title="Migration Behavior">
+Named enums are tracked as a single type. When you modify the enum values, VibORM generates one `ALTER TYPE` instead of multiple.
+</Callout>
+
+## Type Inference
+
+The TypeScript type is automatically inferred as a union:
+
+```ts
+const role = s.enum(["USER", "ADMIN", "MODERATOR"]);
+// TypeScript type: "USER" | "ADMIN" | "MODERATOR"
+
+const status = s.enum(["draft", "published", "archived"]).nullable();
+// TypeScript type: "draft" | "published" | "archived" | null
+```
+
+## Database Behavior
+
+<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
+  <Tab value="PostgreSQL">
+PostgreSQL creates a native `ENUM` type, named `<table>_<column>_enum` unless overridden with `.name()`:
+
+```sql
+CREATE TYPE "users_role_enum" AS ENUM ('USER', 'ADMIN', 'MODERATOR');
+CREATE TABLE users (
+  role "users_role_enum" NOT NULL
+);
+```
+
+  </Tab>
+  <Tab value="MySQL">
+MySQL uses inline `ENUM`:
+
+```sql
+CREATE TABLE users (
+  role ENUM('USER', 'ADMIN', 'MODERATOR') NOT NULL
+);
+```
+
+  </Tab>
+  <Tab value="SQLite">
+SQLite stores as `TEXT` with check constraint:
+
+```sql
+CREATE TABLE users (
+  role TEXT CHECK(role IN ('USER', 'ADMIN', 'MODERATOR')) NOT NULL
+);
+```
+
+  </Tab>
+</Tabs>
+
+## Examples
+
+```ts
+// User role
+const role = s.enum(["USER", "ADMIN", "MODERATOR"]).default("USER");
+
+// Order status
+const orderStatus = s
+  .enum([
+    "PENDING",
+    "CONFIRMED",
+    "PROCESSING",
+    "SHIPPED",
+    "DELIVERED",
+    "CANCELLED",
+  ])
+  .default("PENDING");
+
+// Content visibility
+const visibility = s.enum(["PUBLIC", "PRIVATE", "UNLISTED"]).default("PUBLIC");
+
+// Priority level
+const priority = s.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
+```
+
+## Enum vs String
+
+| Aspect      | Enum                             | String                 |
+| ----------- | -------------------------------- | ---------------------- |
+| Type safety | Compile-time restricted          | Any string             |
+| Validation  | Database enforced                | Needs custom validator |
+| Flexibility | Fixed set                        | Any value              |
+| Migrations  | Requires migration to add values | No migration needed    |
+
+Use an enum for a fixed set of values that rarely changes (statuses, roles, tiers) and needs database-level enforcement. Use a string when values change frequently or are user-defined.

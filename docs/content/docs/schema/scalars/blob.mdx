@@ -1,0 +1,62 @@
+---
+title: Blob
+description: Blob scalar type for binary data like files, images, or encrypted content
+icon: FileCode2
+---
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.blob(); // Required Uint8Array
+s.blob().nullable(); // Uint8Array | null
+s.blob().default(new Uint8Array()); // With default
+```
+
+Blob scalars accept both `Uint8Array` and `Buffer` (Node.js). They support `.nullable()`, `.default()`, and `.map()` — but **not** `.array()`, `.id()`, `.unique()`, or `.schema()`. See the [support matrix](/docs/schema/scalars) and [Native Types](/docs/schema/native-types) for column types and MySQL size variants (`TINYBLOB` through `LONGBLOB`).
+
+## Examples
+
+```ts
+// File content
+const fileContent = s.blob();
+
+// Avatar image (nullable)
+const avatar = s.blob().nullable();
+
+// Encrypted data
+const encryptedData = s.blob();
+```
+
+## Working with Blobs
+
+```ts
+// Create with Uint8Array
+const fileBuffer = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]);
+
+await client.file.create({
+  data: {
+    name: "hello.txt",
+    content: fileBuffer,
+  },
+});
+
+// Read blob data
+const file = await client.file.findUnique({
+  where: { id: "file_123" },
+});
+
+// file.content is Uint8Array
+const text = new TextDecoder().decode(file.content);
+```
+
+## When to Use Blob
+
+| Use Case              | Recommendation                         |
+| --------------------- | -------------------------------------- |
+| Small files (&lt;1MB) | Blob scalar                            |
+| Large files (>1MB)    | Object storage (S3, etc.) + URL scalar |
+| Encryption keys       | Blob                                   |
+| Thumbnails            | Blob                                   |
+| Documents             | Object storage                         |

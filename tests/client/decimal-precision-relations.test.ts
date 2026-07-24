@@ -9,7 +9,7 @@
  * related data. Decimal values in JSON may lose precision due to JavaScript
  * number limitations (IEEE 754 double-precision).
  *
- * The fix: Cast Decimal fields to TEXT in SQL before JSON aggregation,
+ * The fix: Cast Decimal scalar columns to TEXT in SQL before JSON aggregation,
  * then convert back to number during result parsing.
  *
  * Key precision limits:
@@ -70,7 +70,7 @@ const HIGH_PRECISION_PATTERN = /^0\.1234/;
 const merchant = s.model({
   id: s.string().id(),
   name: s.string(),
-  // Decimal fields that will be fetched through relations
+  // Decimal scalars that will be fetched through relations
   totalRevenue: s.decimal(),
   averageRating: s.decimal().nullable(),
   transactions: s.oneToMany(() => transaction),
@@ -79,7 +79,7 @@ const merchant = s.model({
 const transaction = s.model({
   id: s.string().id(),
   description: s.string(),
-  // Decimal field on the child model
+  // Decimal scalar on the child model
   amount: s.decimal(),
   taxAmount: s.decimal().nullable(),
   // Foreign key

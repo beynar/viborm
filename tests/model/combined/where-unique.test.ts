@@ -19,6 +19,7 @@ import {
 
 describe("Where Unique Schema - Types (Simple Model)", () => {
   type Input = InferInput<typeof simpleSchemas.whereUnique>;
+  type EmptyObject = Record<keyof any, never>;
 
   test("type: includes id field", () => {
     expectTypeOf<Input>().toHaveProperty("id");
@@ -28,8 +29,8 @@ describe("Where Unique Schema - Types (Simple Model)", () => {
     expectTypeOf<Input>().toHaveProperty("email");
   });
 
-  test("type: all fields are optional", () => {
-    expectTypeOf<{}>().toMatchTypeOf<Input>();
+  test("type: rejects empty object", () => {
+    expectTypeOf<EmptyObject>().not.toMatchTypeOf<Input>();
   });
 });
 
@@ -63,6 +64,11 @@ describe("Where Unique Schema - Simple Model Runtime", () => {
     const result = parse(schema, { name: "Alice" });
     expect(result.issues).toBeDefined();
   });
+
+  test("runtime: rejects empty object", () => {
+    const result = parse(schema, {});
+    expect(result.issues?.[0]?.message).toBe("Object cannot be empty");
+  });
 });
 
 // =============================================================================
@@ -90,6 +96,11 @@ describe("Where Unique Schema - Compound ID Model Runtime", () => {
       orgId_memberId: { orgId: "org-1" }, // missing memberId
     });
     expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects empty object", () => {
+    const result = parse(schema, {});
+    expect(result.issues?.[0]?.message).toBe("Object cannot be empty");
   });
 });
 
@@ -124,5 +135,10 @@ describe("Where Unique Schema - Compound Unique Model Runtime", () => {
     // Schema is strict - only compound key names and id are valid
     const result = parse(schema, { email: "a@b.com" });
     expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects empty object", () => {
+    const result = parse(schema, {});
+    expect(result.issues?.[0]?.message).toBe("Object cannot be empty");
   });
 });

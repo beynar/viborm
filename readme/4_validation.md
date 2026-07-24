@@ -22,9 +22,9 @@ Validation ensures that data conforms to the schema before being persisted. Vali
 - All built-in validators must be in `/src/types/validators.ts`.
 - No code outside these directories may define or modify validation logic.
 
-### 2. Field Validation
+### 2. Scalar Validation
 
-- Each field must support attaching one or more validators via `.schema(fn)` or `.regex(pattern)`.
+- Each scalar must support attaching one or more validators via `.schema(fn)` or `.regex(pattern)`.
 - Validators must be composable and support both sync and async validation.
 - Built-in validators (regex, min/max, enum) must be provided.
 
@@ -59,7 +59,7 @@ const user = s
 
 ## Deliverables
 
-- `modelValidator.ts`, `fieldValidator.ts` in `/src/validation/`
+- `modelValidator.ts`, `scalarValidator.ts` in `/src/validation/`
 - All built-in validators in `/src/types/validators.ts`
 - Full TypeScript support and type inference
 - Unit tests for all validation features

@@ -87,12 +87,13 @@ adapter.operators.gte(left, right)     // → left >= right
 // Pattern matching
 adapter.operators.like(col, pattern)      // → col LIKE pattern
 adapter.operators.ilike(col, pattern)     // → col ILIKE pattern (PG)
-                                          // → col LIKE pattern COLLATE utf8mb4_unicode_ci (MySQL)
-                                          // → col LIKE pattern COLLATE NOCASE (SQLite)
+adapter.operators.containsText(col, value)   // exact literal substring
+adapter.operators.startsWithText(col, value) // exact literal prefix
+adapter.operators.endsWithText(col, value)   // exact literal suffix
 
 // Set membership
-adapter.operators.in(col, values)      // → col = ANY(values) (PG) or col IN values
-adapter.operators.notIn(col, values)   // → col <> ALL(values) (PG) or col NOT IN values
+adapter.operators.in(col, values)      // → col IN values
+adapter.operators.notIn(col, values)   // → col NOT IN values
 
 // Null checks
 adapter.operators.isNull(expr)         // → expr IS NULL
@@ -224,8 +225,8 @@ Ordering helpers.
 ```ts
 adapter.orderBy.asc(col)        // → col ASC
 adapter.orderBy.desc(col)       // → col DESC
-adapter.orderBy.nullsFirst(expr) // → expr NULLS FIRST (PG only, no-op elsewhere)
-adapter.orderBy.nullsLast(expr)  // → expr NULLS LAST (PG only, no-op elsewhere)
+adapter.orderBy.nullsFirst(col, direction) // → col NULLS FIRST (PG); (col IS NULL) DESC, col dir (MySQL/SQLite emulation)
+adapter.orderBy.nullsLast(col, direction)  // → col NULLS LAST (PG); (col IS NULL) ASC, col dir (MySQL/SQLite emulation)
 ```
 
 ### `clauses`
@@ -430,9 +431,8 @@ Full feature support. No limitations.
 - Query engine must execute a separate SELECT after INSERT/UPDATE to fetch mutated rows
 - Use `LAST_INSERT_ID()` for auto-increment IDs
 
-**NULLS FIRST/LAST not supported**
-- `adapter.orderBy.nullsFirst/Last()` returns the expression unchanged (no-op)
-- NULL ordering follows MySQL defaults (NULLs sort first in ASC)
+**NULLS FIRST/LAST emulated**
+- `adapter.orderBy.nullsFirst/Last()` emulates via `(col IS NULL)` sort-key ordering, not native syntax
 
 **FULL OUTER JOIN not supported**
 - `adapter.joins.full()` falls back to LEFT JOIN
@@ -448,8 +448,8 @@ Full feature support. No limitations.
 **RETURNING requires SQLite 3.35+**
 - Supported in modern SQLite versions
 
-**NULLS FIRST/LAST not supported**
-- Same as MySQL - returns no-op
+**NULLS FIRST/LAST emulated**
+- Same as MySQL - uses `(col IS NULL)` sort-key ordering, not native syntax
 
 **RIGHT JOIN not supported**
 - `adapter.joins.right()` falls back to LEFT JOIN
@@ -476,7 +476,9 @@ The adapter handles SQL syntax differences. The query engine must handle:
 1. **MySQL RETURNING workaround**: Execute SELECT after mutations
 2. **JSON result parsing**: MySQL/SQLite may return JSON as strings - parse if needed
 3. **Feature degradation**: Document features that don't work on all databases
-4. **Transaction management**: All databases support transactions, but syntax varies slightly
+4. **Atomic execution capabilities**: Drivers advertise callback-transaction
+   and atomic-batch support independently; unsupported forms reject instead of
+   executing non-atomically
 
 ---
 
@@ -502,4 +504,3 @@ const query = adapter.assemble.select({
   )
 });
 ```
-

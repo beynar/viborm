@@ -24,13 +24,17 @@ All builders follow the same pattern: pure function, context first, returns Sql.
 
 | File | Purpose | Complexity |
 |------|---------|------------|
-| `where-builder.ts` | WHERE clauses | High (~400 lines) |
-| `include-builder.ts` | Relation inclusion | High (~200 lines) |
-| `select-builder.ts` | SELECT columns | Low |
-| `orderby-builder.ts` | ORDER BY | Low |
-| `relation-filter-builder.ts` | some/every/none | Medium |
-| `set-builder.ts` | UPDATE SET | Medium |
-| `values-builder.ts` | INSERT VALUES | Medium |
+| `relation-data-builder.ts` | Nested-write data classification, FK direction | High (~800 lines) |
+| `include-builder.ts` | Relation inclusion (lateral + subquery strategies) | High (~630 lines) |
+| `where-builder.ts` | WHERE clauses, filter dispatch | High (~620 lines) |
+| `relation-filter-builder.ts` | some/every/none, is/isNot | Medium (~440 lines) |
+| `select-builder.ts` | SELECT columns, JSON pair building | Medium |
+| `correlation-utils.ts` | Inverse-relation resolution, PK fields | Medium |
+| `many-to-many-utils.ts` | Junction table identity and joins | Medium |
+| `values-builder.ts` | INSERT VALUES + the nested-write value carrier (`BatchValueRef`, `buildScalarSqlValue`) | Medium |
+| `sort-order-builder.ts`, `relation-orderby-builder.ts` | ORDER BY | Low |
+| `set-builder.ts` | UPDATE SET | Low |
+| `where-unique-builder.ts`, `relation-count-builder.ts`, `aggregate-utils.ts` | Unique WHERE, `_count`, aggregates | Low |
 
 ---
 
@@ -161,6 +165,24 @@ console.log("MySQL:", mysqlWhere.text);
 If outputs differ in structure (not just syntax), there's a bug in the builder using hardcoded SQL.
 
 ---
+
+## The Nested-Write Value Carrier (`values-builder.ts`)
+
+The nested-write interpreter (`../operations/nested-writes/`) threads a value
+across statement boundaries as one of three things: a literal known now, a
+pre-built `Sql` fragment (a connect target-PK subquery), or a `BatchValueRef` — a
+symbol the planned (batch-only) substrate defers through a scratch table. This
+carrier type (`BatchValueRef`, `BatchResolvableValue`, `isBatchValueRef`,
+`lowerBatchResolvableValue`) lives here in `values-builder.ts` because
+`buildScalarSqlValue` is the **one leaf** that lowers all three — a `BatchValueRef`
+becomes `batchRefs.read(...)` with the mandatory TEXT round-trip cast-back,
+everything else passes through.
+
+It lives beside the builder, not in a mode file, on purpose: both the interpreter
+and the shared FK/condition builders (`../operations/nested-writes/fk.ts`) speak
+it, and neither may depend on `planned-mode.ts`. The planned **store** that mints
+the refs (the scratch table lifecycle) lives entirely inside `planned-mode.ts`;
+only the carrier type and its lowering are here.
 
 ## Invisible Knowledge
 

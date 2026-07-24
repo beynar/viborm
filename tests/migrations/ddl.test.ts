@@ -3,9 +3,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { FieldState, ScalarFieldType } from "../../src/schema/fields/common";
 import { postgresMigrationDriver } from "../../src/migrations/drivers/postgres";
 import type { DiffOperation } from "../../src/migrations/types";
+import type { ScalarState, ScalarType } from "../../src/schema/scalars/common";
 
 // =============================================================================
 // HELPERS
@@ -727,7 +727,7 @@ describe("PostgreSQL DDL Generation", () => {
         '--   1. Add valueReplacements: { "archived": "newValue" }'
       );
       expect(ddl).toContain(
-        "--   2. Set defaultReplacement to your field's default value"
+        "--   2. Set defaultReplacement to your column's default value"
       );
     });
 
@@ -747,9 +747,9 @@ describe("PostgreSQL DDL Generation", () => {
     });
   });
 
-  describe("mapFieldType", () => {
-    // Helper to create mock field with minimal state
-    const createMockField = (state: any) =>
+  describe("mapScalarType", () => {
+    // Helper to create mock scalar with minimal state
+    const createMockScalar = (state: any) =>
       ({
         ["~"]: {
           state,
@@ -757,10 +757,10 @@ describe("PostgreSQL DDL Generation", () => {
         },
       }) as any;
 
-    const createFieldState = <T extends ScalarFieldType>(
+    const createScalarState = <T extends ScalarType>(
       type: T,
-      overrides: Partial<FieldState<T>> = {}
-    ): FieldState<T> => ({
+      overrides: Partial<ScalarState<T>> = {}
+    ): ScalarState<T> => ({
       type,
       nullable: false,
       array: false,
@@ -779,89 +779,103 @@ describe("PostgreSQL DDL Generation", () => {
 
     it("should map VibORM types to PostgreSQL types", () => {
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("string")),
-          createFieldState("string")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("string")),
+          createScalarState("string")
         )
       ).toBe("text");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("int")),
-          createFieldState("int")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("int")),
+          createScalarState("int")
         )
       ).toBe("integer");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("float")),
-          createFieldState("float")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("float")),
+          createScalarState("float")
         )
       ).toBe("double precision");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("boolean")),
-          createFieldState("boolean")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("boolean")),
+          createScalarState("boolean")
         )
       ).toBe("boolean");
       // datetime without timezone (default false) -> timestamp
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("datetime")),
-          createFieldState("datetime")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("datetime")),
+          createScalarState("datetime")
         )
       ).toBe("timestamp");
       // datetime with timezone -> timestamptz
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("datetime", { withTimezone: true })),
-          createFieldState("datetime", { withTimezone: true })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(
+            createScalarState("datetime", { withTimezone: true })
+          ),
+          createScalarState("datetime", { withTimezone: true })
         )
       ).toBe("timestamptz");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("json")),
-          createFieldState("json")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("json")),
+          createScalarState("json")
         )
       ).toBe("jsonb");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("bigint")),
-          createFieldState("bigint")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("bigint")),
+          createScalarState("bigint")
         )
       ).toBe("bigint");
+      expect(
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("vector")),
+          createScalarState("vector")
+        )
+      ).toBe("vector");
+      expect(
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("vector", { dimension: 3 })),
+          createScalarState("vector", { dimension: 3 })
+        )
+      ).toBe("vector(3)");
     });
 
     it("should handle array types", () => {
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("string", { array: true })),
-          createFieldState("string", { array: true })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("string", { array: true })),
+          createScalarState("string", { array: true })
         )
       ).toBe("text[]");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("int", { array: true })),
-          createFieldState("int", { array: true })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("int", { array: true })),
+          createScalarState("int", { array: true })
         )
       ).toBe("integer[]");
     });
 
     it("should handle auto-increment", () => {
-      // mapFieldType returns base type; DDL generator converts to serial/bigserial
+      // mapScalarType returns base type; DDL generator converts to serial/bigserial
       // based on ColumnDef.autoIncrement flag
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(
-            createFieldState("int", { autoGenerate: "increment" })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(
+            createScalarState("int", { autoGenerate: "increment" })
           ),
-          createFieldState("int", { autoGenerate: "increment" })
+          createScalarState("int", { autoGenerate: "increment" })
         )
       ).toBe("integer");
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(
-            createFieldState("bigint", { autoGenerate: "increment" })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(
+            createScalarState("bigint", { autoGenerate: "increment" })
           ),
-          createFieldState("bigint", { autoGenerate: "increment" })
+          createScalarState("bigint", { autoGenerate: "increment" })
         )
       ).toBe("bigint");
     });
@@ -869,16 +883,16 @@ describe("PostgreSQL DDL Generation", () => {
     it("should handle time with and without timezone", () => {
       // time without timezone (default) -> time
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("time")),
-          createFieldState("time")
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("time")),
+          createScalarState("time")
         )
       ).toBe("time");
       // time with timezone -> timetz
       expect(
-        postgresMigrationDriver.mapFieldType(
-          createMockField(createFieldState("time", { withTimezone: true })),
-          createFieldState("time", { withTimezone: true })
+        postgresMigrationDriver.mapScalarType(
+          createMockScalar(createScalarState("time", { withTimezone: true })),
+          createScalarState("time", { withTimezone: true })
         )
       ).toBe("timetz");
     });

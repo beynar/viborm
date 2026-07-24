@@ -40,7 +40,7 @@ async function getPage(page: number, pageSize: number) {
     }),
     client.user.count(),
   ]);
-  
+
   return {
     items,
     total,
@@ -71,6 +71,19 @@ const page2 = await client.user.findMany({
 });
 ```
 
+### Cursor queries are deterministic
+
+- Your `orderBy` keys apply in the order you declare them, and VibORM appends
+  the primary key as a final ascending tie-breaker — so every cursor query has
+  one deterministic order, and tied or null values never cause duplicated or
+  skipped records between pages.
+- A bare ascending order places `null` last; a bare descending order places
+  `null` first. Use `{ sort, nulls }` to choose explicitly.
+- A cursor that doesn't match an existing row returns an empty page.
+- Cursor pagination works with plain scalar `asc`/`desc` ordering only —
+  relation ordering and vector-distance ordering must be queried without a
+  cursor.
+
 ### Bi-directional Cursor
 
 Navigate forward and backward:
@@ -93,6 +106,9 @@ const prev = await client.user.findMany({
 });
 ```
 
+With a negative `take`, results still come back in the original order — don't
+reverse the returned page yourself.
+
 ## take and skip
 
 | Option | Description |
@@ -102,28 +118,6 @@ const prev = await client.user.findMany({
 | `cursor` | Start position for cursor pagination |
 
 ## Examples
-
-### Simple Paginator
-
-```ts
-async function paginate<T>(
-  findMany: (args: { take: number; skip: number }) => Promise<T[]>,
-  page: number,
-  pageSize: number
-) {
-  return findMany({
-    take: pageSize,
-    skip: (page - 1) * pageSize,
-  });
-}
-
-// Usage
-const users = await paginate(
-  (args) => client.user.findMany({ ...args, orderBy: { name: "asc" } }),
-  1,
-  20
-);
-```
 
 ### Infinite Scroll
 
@@ -137,10 +131,10 @@ async function loadMore(cursor?: string, limit = 20) {
     }),
     orderBy: { createdAt: "desc" },
   });
-  
+
   const hasMore = items.length > limit;
   const data = hasMore ? items.slice(0, -1) : items;
-  
+
   return {
     data,
     hasMore,
@@ -168,18 +162,22 @@ async function getConnection(
   last?: number,
   before?: string
 ): Promise<Connection<User>> {
-  const take = first ?? -(last ?? 10);
+  const pageSize = first ?? last ?? 10;
+  const take = first !== undefined ? pageSize + 1 : -(pageSize + 1);
   const cursor = after ?? before;
-  
+
   const items = await client.user.findMany({
-    take: Math.abs(take) + 1,
+    take,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { id: "asc" },
   });
-  
-  const hasMore = items.length > Math.abs(take);
-  const nodes = hasMore ? items.slice(0, -1) : items;
-  
+
+  const hasMore = items.length > pageSize;
+  let nodes = items;
+  if (hasMore) {
+    nodes = first !== undefined ? items.slice(0, -1) : items.slice(1);
+  }
+
   return {
     edges: nodes.map(node => ({
       node,
@@ -204,19 +202,6 @@ async function getConnection(
 | Random access | ✅ Any page | ❌ Sequential only |
 | Real-time data | ⚠️ Can skip/duplicate | ✅ Consistent |
 
-### When to Use Offset
-
-- Small datasets (&lt;10k records)
-- Need random page access
-- Simple admin interfaces
-
-### When to Use Cursor
-
-- Large datasets
-- Infinite scroll
-- Real-time feeds
-- Mobile apps
-
 ## distinct
 
 Return unique values:
@@ -233,4 +218,3 @@ const unique = await client.post.findMany({
   distinct: ["authorId", "categoryId"],
 });
 ```
-

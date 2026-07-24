@@ -5,11 +5,14 @@
  * - ToOne Select: true or { select }
  * - ToMany Select: true or { where, orderBy, take, skip, select }
  * - ToOne Include: true or { select, include }
- * - ToMany Include: true or { where, orderBy, take, skip, cursor, select, include }
+ * - ToMany Include: true or { where, orderBy, take, skip, select, include }
+ *
+ * Nested `cursor` and negative `take` are rejected: the include builder does
+ * not implement them, and accepting them silently returned wrong results.
  *
  * Note: Boolean values are transformed to explicit select objects:
  * - `true` becomes `{ select: { field1: true, field2: true, ... } }`
- * - `false` becomes `{ select: false }`
+ * - `false` stays `false` so the query engine omits the relation
  *
  * Covers:
  * - Type inference with expectTypeOf
@@ -21,6 +24,9 @@
 
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+const MUTUALLY_EXCLUSIVE = /mutually exclusive/i;
+
 import {
   optionalOneToOneSchemas,
   requiredManyToOneSchemas,
@@ -36,7 +42,6 @@ type RelationOutput = {
   readonly orderBy?: Record<string, unknown>;
   readonly take?: number;
   readonly skip?: number;
-  readonly cursor?: unknown;
 };
 
 const output = (value: unknown): RelationOutput => value as RelationOutput;
@@ -79,12 +84,12 @@ describe("ToOne Select (Post.author)", () => {
       }
     });
 
-    test("runtime: accepts boolean false - transforms to select false", () => {
+    test("runtime: accepts boolean false - stays false so the relation is omitted", () => {
       const result = parse(schema, false);
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        // Boolean false transforms to { select: false }
-        expect(output(result.value)).toHaveProperty("select", false);
+        // Prisma parity: false stays false; the query engine skips the relation
+        expect(result.value).toBe(false);
       }
     });
 
@@ -104,12 +109,12 @@ describe("ToOne Select (Post.author)", () => {
       }
     });
 
-    test("runtime: accepts empty object", () => {
+    test("runtime: accepts empty object - adds default select", () => {
       const result = parse(schema, {});
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
-        // Empty object passes through without transformation (no boolean)
-        expect(output(result.value)).toEqual({});
+        // No explicit select: the default all-scalars select is added
+        expect(output(result.value).select).toHaveProperty("id", true);
       }
     });
 
@@ -203,19 +208,15 @@ describe("ToOne Include (Post.author)", () => {
       }
     });
 
-    test("runtime: accepts combined select and include - preserves explicit select", () => {
+    test("runtime: rejects combined select and include on the same node", () => {
       const input = {
         select: { id: true },
         include: { posts: true },
       };
       const result = parse(schema, input);
-      expect(result.issues).toBeUndefined();
-      if (!result.issues) {
-        // Explicit select is preserved
-        expect(output(result.value).select?.id).toBe(true);
-        // Nested posts: true is transformed
-        expect(output(result.value).include?.posts).toHaveProperty("select");
-      }
+      // Prisma parity: select and include are mutually exclusive
+      expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toMatch(MUTUALLY_EXCLUSIVE);
     });
 
     test("runtime: accepts deeply nested include - all booleans transform", () => {
@@ -236,9 +237,9 @@ describe("ToOne Include (Post.author)", () => {
         // Nested posts gets select added
         expect(output(result.value).include?.posts).toHaveProperty("select");
         // Deeply nested author: true transforms
-        expect(output(result.value).include?.posts?.include?.author).toHaveProperty(
-          "select"
-        );
+        expect(
+          output(result.value).include?.posts?.include?.author
+        ).toHaveProperty("select");
       }
     });
   });
@@ -397,8 +398,8 @@ describe("ToMany Include (Author.posts)", () => {
       }>().toMatchTypeOf<IncludeInput>();
     });
 
-    test("type: accepts cursor option", () => {
-      expectTypeOf<{ cursor?: string }>().toMatchTypeOf<IncludeInput>();
+    test("type: rejects cursor option", () => {
+      expectTypeOf<{ cursor: string }>().not.toMatchTypeOf<IncludeInput>();
     });
   });
 
@@ -449,15 +450,18 @@ describe("ToMany Include (Author.posts)", () => {
       }
     });
 
-    test("runtime: accepts with cursor - adds default select", () => {
+    test("runtime: rejects cursor - not implemented for nested relations", () => {
       const input = { cursor: "cursor-value" };
       const result = parse(schema, input);
-      expect(result.issues).toBeUndefined();
-      if (!result.issues) {
-        expect(output(result.value).cursor).toBe("cursor-value");
-        // Default select is added
-        expect(output(result.value)).toHaveProperty("select");
-      }
+      expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toContain("cursor");
+    });
+
+    test("runtime: rejects negative take - not implemented for nested relations", () => {
+      const input = { take: -5 };
+      const result = parse(schema, input);
+      expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toContain("take");
     });
 
     test("runtime: accepts with nested include - transforms nested boolean", () => {
@@ -492,15 +496,13 @@ describe("ToMany Include (Author.posts)", () => {
       }
     });
 
-    test("runtime: accepts all options combined - transforms nested boolean", () => {
+    test("runtime: accepts all options combined - transforms nested values", () => {
       const input = {
         where: { published: true },
         orderBy: { title: "desc" },
         take: 10,
         skip: 0,
-        cursor: "cursor-123",
         select: { id: true },
-        include: { author: true },
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();
@@ -510,12 +512,19 @@ describe("ToMany Include (Author.posts)", () => {
         expect(output(result.value).orderBy?.title).toBe("desc");
         expect(output(result.value).take).toBe(10);
         expect(output(result.value).skip).toBe(0);
-        expect(output(result.value).cursor).toBe("cursor-123");
         // Explicit select is preserved
         expect(output(result.value).select?.id).toBe(true);
-        // Nested author: true transforms
-        expect(output(result.value).include?.author).toHaveProperty("select");
       }
+    });
+
+    test("runtime: rejects combined select and include on the same node", () => {
+      const result = parse(schema, {
+        select: { id: true },
+        include: { author: true },
+      });
+      // Prisma parity: select and include are mutually exclusive
+      expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toMatch(MUTUALLY_EXCLUSIVE);
     });
   });
 });
@@ -617,7 +626,9 @@ describe("Self-Referential Select/Include (User.subordinates)", () => {
         // Default select is added
         expect(output(result.value)).toHaveProperty("select");
         // Nested subordinates: true transforms
-        expect(output(result.value).include?.subordinates).toHaveProperty("select");
+        expect(output(result.value).include?.subordinates).toHaveProperty(
+          "select"
+        );
       }
     });
 
@@ -636,7 +647,9 @@ describe("Self-Referential Select/Include (User.subordinates)", () => {
       if (!result.issues) {
         // Default select is added at each level
         expect(output(result.value)).toHaveProperty("select");
-        expect(output(result.value).include?.subordinates).toHaveProperty("select");
+        expect(output(result.value).include?.subordinates).toHaveProperty(
+          "select"
+        );
         // Deeply nested subordinates: true transforms
         expect(
           output(result.value).include?.subordinates?.include?.subordinates

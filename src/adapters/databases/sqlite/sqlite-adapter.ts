@@ -1,10 +1,70 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
-import type {
-  CastType,
-  DatabaseAdapter,
-  QueryParts,
-} from "../../database-adapter";
+import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import { createOnConflictBatchRefs } from "../../shared/batch-refs";
+import {
+  assembleDistinctOnEmulation,
+  assembleSelectQuery,
+} from "../../shared/select-assembly";
+import {
+  createAggregateFunctions,
+  createCastExpression,
+  createCommonExpressions,
+  createComparisonOperators,
+  createCoreJoins,
+  createCteBuilders,
+  createDirectionOrderBy,
+  createEmulatedNullsOrderBy,
+  createExistenceOperators,
+  createIdentifierQuoter,
+  createIdentifiers,
+  createInsertStatement,
+  createLogicalOperators,
+  createMembershipOperators,
+  createMutationCommands,
+  createNullOperators,
+  createNumericSetOperations,
+  createOnConflictBuilders,
+  createRangeOperators,
+  createRawSql,
+  createRelationFilters,
+  createSetOperations,
+  createStandardClauses,
+  createStandardLiterals,
+  createSubqueries,
+  stringifyJson,
+} from "../../shared/standard-sql";
+
+const quoteIdent = createIdentifierQuoter('"');
+
+const JSON_ARRAY_INDEX_SEGMENT = /^\d+$/;
+const JSON_UNADDRESSABLE_LABEL = /["\\]/;
+
+// Each path segment binds as its own single-leg JSONPath ('$[N]' for
+// array indices, '$."seg"' otherwise) chained with -> , so segments can
+// never splice extra legs into the path. SQLite's path grammar has no
+// escape syntax inside quoted labels, so the portable query contract rejects
+// keys containing " or \ before adapter execution. This throw is defensive.
+const jsonPathLeg = (segment: string): string => {
+  if (JSON_ARRAY_INDEX_SEGMENT.test(segment)) {
+    return `$[${segment}]`;
+  }
+  if (JSON_UNADDRESSABLE_LABEL.test(segment)) {
+    throw new Error(
+      'SQLite JSON path segments containing " or \\ must be rejected by the portable query contract.'
+    );
+  }
+  return `$."${segment}"`;
+};
+
+/**
+ * Concatenate two JSON array texts by string surgery: strip `left`'s closing
+ * bracket and `right`'s opening bracket. SQLite has no JSON array-concat
+ * function, and json_insert('$[#]') can only append one element per pair.
+ * Both sides must be canonical JSON (json() output or JSON.stringify).
+ */
+const jsonArrayConcat = (left: Sql, right: Sql): Sql =>
+  sql`(CASE WHEN ${left} = '[]' THEN ${right} WHEN ${right} = '[]' THEN ${left} ELSE substr(${left}, 1, length(${left}) - 1) || ',' || substr(${right}, 2) END)`;
 
 /**
  * SQLite Database Adapter
@@ -14,7 +74,7 @@ import type {
  * Key SQLite features:
  * - Double-quote identifier escaping: "table"."column"
  * - No native ARRAY type - uses JSON for arrays
- * - LIKE is case-insensitive for ASCII by default
+ * - Portable text predicates do not depend on SQLite's LIKE behavior
  * - json_object(), json_group_array() for JSON operations (SQLite 3.38+)
  * - RETURNING clause supported (SQLite 3.35+)
  * - No NULLS FIRST/LAST ordering
@@ -27,43 +87,25 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // RAW
   // ============================================================
 
-  raw = (sqlString: string): Sql => sql.raw`${sqlString}`;
+  raw = createRawSql();
 
   // ============================================================
   // IDENTIFIERS
   // ============================================================
 
-  identifiers = {
-    escape: (name: string): Sql => sql.raw`"${name}"`,
-
-    column: (alias: string, field: string): Sql =>
-      alias ? sql.raw`"${alias}"."${field}"` : sql.raw`"${field}"`,
-
-    table: (tableName: string, alias: string): Sql =>
-      sql.raw`"${tableName}" AS "${alias}"`,
-
-    aliased: (expression: Sql, alias: string): Sql =>
-      sql`${expression} AS ${sql.raw`"${alias}"`}`,
-  };
+  identifiers = createIdentifiers(quoteIdent);
 
   // ============================================================
   // LITERALS
   // ============================================================
 
   literals = {
-    value: (v: unknown): Sql => sql`${v}`,
-
-    null: (): Sql => sql.raw`NULL`,
+    ...createStandardLiterals(),
 
     // SQLite uses 1/0 for booleans
     true: (): Sql => sql.raw`1`,
 
     false: (): Sql => sql.raw`0`,
-
-    list: (values: Sql[]): Sql => {
-      if (values.length === 0) return sql.raw`()`;
-      return sql`(${sql.join(values, ", ")})`;
-    },
 
     // SQLite requires JSON values to be stringified
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
@@ -75,56 +117,39 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   operators = {
     // Comparison
-    eq: (left: Sql, right: Sql): Sql => sql`${left} = ${right}`,
-    neq: (left: Sql, right: Sql): Sql => sql`${left} <> ${right}`,
-    lt: (left: Sql, right: Sql): Sql => sql`${left} < ${right}`,
-    lte: (left: Sql, right: Sql): Sql => sql`${left} <= ${right}`,
-    gt: (left: Sql, right: Sql): Sql => sql`${left} > ${right}`,
-    gte: (left: Sql, right: Sql): Sql => sql`${left} >= ${right}`,
+    ...createComparisonOperators(),
 
     // Pattern matching
-    like: (column: Sql, pattern: Sql): Sql => sql`${column} LIKE ${pattern}`,
+    // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder
+    like: (column: Sql, pattern: Sql): Sql =>
+      sql`${column} LIKE ${pattern} ESCAPE '\\'`,
     notLike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern}`,
-    // SQLite LIKE is case-insensitive for ASCII by default
-    // Use COLLATE NOCASE for explicit case-insensitivity
+      sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
     ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} LIKE ${pattern} COLLATE NOCASE`,
+      sql`lower(${column}) LIKE lower(${pattern}) ESCAPE '\\'`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`${column} NOT LIKE ${pattern} COLLATE NOCASE`,
+      sql`lower(${column}) NOT LIKE lower(${pattern}) ESCAPE '\\'`,
+    containsText: (column: Sql, value: Sql): Sql =>
+      sql`instr(${column}, ${value}) > 0`,
+    startsWithText: (column: Sql, value: Sql): Sql =>
+      sql`substr(${column}, 1, length(${value})) COLLATE BINARY = ${value}`,
+    endsWithText: (column: Sql, value: Sql): Sql =>
+      sql`CASE WHEN length(${value}) = 0 THEN 1 ELSE substr(${column}, -length(${value})) COLLATE BINARY = ${value} END`,
 
     // Set membership
-    in: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
-    notIn: (column: Sql, values: Sql): Sql => sql`${column} NOT IN ${values}`,
+    ...createMembershipOperators(),
 
     // Null checks
-    isNull: (expr: Sql): Sql => sql`${expr} IS NULL`,
-    isNotNull: (expr: Sql): Sql => sql`${expr} IS NOT NULL`,
+    ...createNullOperators(),
 
     // Range
-    between: (column: Sql, min: Sql, max: Sql): Sql =>
-      sql`${column} BETWEEN ${min} AND ${max}`,
-    notBetween: (column: Sql, min: Sql, max: Sql): Sql =>
-      sql`${column} NOT BETWEEN ${min} AND ${max}`,
+    ...createRangeOperators(),
 
-    // Logical
-    and: (...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.raw`1`;
-      if (conditions.length === 1) return conditions[0]!;
-      return sql`(${sql.join(conditions, " AND ")})`;
-    },
-
-    or: (...conditions: Sql[]): Sql => {
-      if (conditions.length === 0) return sql.raw`0`;
-      if (conditions.length === 1) return conditions[0]!;
-      return sql`(${sql.join(conditions, " OR ")})`;
-    },
-
-    not: (condition: Sql): Sql => sql`NOT (${condition})`,
+    // Logical (vacuous cases use SQLite's 1/0 booleans)
+    ...createLogicalOperators(this.literals.true, this.literals.false),
 
     // Subquery existence
-    exists: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
+    ...createExistenceOperators(),
   };
 
   // ============================================================
@@ -132,50 +157,39 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   expressions = {
-    // Arithmetic
-    add: (left: Sql, right: Sql): Sql => sql`(${left} + ${right})`,
-    subtract: (left: Sql, right: Sql): Sql => sql`(${left} - ${right})`,
-    multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,
-    divide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
+    ...createCommonExpressions(),
 
-    // String operations - SQLite uses || for concatenation
+    // SQLite lower() intentionally provides the portable ASCII-only contract.
+    asciiCaseFold: (expr: Sql): Sql => sql`lower(${expr})`,
+    caseSensitiveText: (expr: Sql): Sql => sql`${expr} COLLATE BINARY`,
+
+    // String concatenation via ||
     concat: (...parts: Sql[]): Sql => {
       if (parts.length === 0) return sql.raw`''`;
       if (parts.length === 1) return parts[0]!;
       return sql`(${sql.join(parts, " || ")})`;
     },
-    upper: (expr: Sql): Sql => sql`UPPER(${expr})`,
-    lower: (expr: Sql): Sql => sql`LOWER(${expr})`,
 
-    // Utility
-    coalesce: (...exprs: Sql[]): Sql => sql`COALESCE(${sql.join(exprs, ", ")})`,
+    // SQLite has no GREATEST/LEAST; multi-arg MAX/MIN are the scalar forms
     greatest: (...exprs: Sql[]): Sql => sql`MAX(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`MIN(${sql.join(exprs, ", ")})`,
-    cast: (expr: Sql, type: CastType): Sql => {
-      // SQLite type mappings
-      const typeMap: Record<CastType, string> = {
-        text: "TEXT",
-        integer: "INTEGER",
-        boolean: "INTEGER",
-        numeric: "NUMERIC",
-      };
-      return sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
-    },
+
+    // SQLite type mappings
+    cast: createCastExpression({
+      text: "TEXT",
+      integer: "INTEGER",
+      boolean: "INTEGER",
+      numeric: "NUMERIC",
+    }),
+
+    blobToHex: (expr: Sql): Sql => sql`lower(hex(${expr}))`,
   };
 
   // ============================================================
   // AGGREGATES
   // ============================================================
 
-  aggregates = {
-    count: (expr?: Sql): Sql =>
-      expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`,
-    countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
-    sum: (expr: Sql): Sql => sql`SUM(${expr})`,
-    avg: (expr: Sql): Sql => sql`AVG(${expr})`,
-    min: (expr: Sql): Sql => sql`MIN(${expr})`,
-    max: (expr: Sql): Sql => sql`MAX(${expr})`,
-  };
+  aggregates = createAggregateFunctions();
 
   // ============================================================
   // JSON (SQLite 3.38+ JSON functions)
@@ -200,31 +214,52 @@ export class SQLiteAdapter implements DatabaseAdapter {
     agg: (expr: Sql): Sql =>
       sql`COALESCE(json_group_array(json(${expr})), json_array())`,
 
-    rowToJson: (alias: string): Sql => {
-      // SQLite doesn't have row_to_json - would need to build manually
-      // This is a placeholder that returns the alias as a reference
-      return sql`json_object(${sql.raw`'row', "${alias}".*`})`;
-    },
-
     objectFromColumns: (columns: [string, Sql][]): Sql => {
       if (columns.length === 0) return sql.raw`json_object()`;
       const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
       return sql`json_object(${sql.join(args, ", ")})`;
     },
 
+    // `->` returns the value as canonical JSON text ('"str"', '2', 'null'),
+    // the same format json.value binds, so extracted values compare with
+    // plain equality (json_extract would return native SQL values instead)
     extract: (column: Sql, path: string[]): Sql => {
-      if (path.length === 0) return column;
-      const jsonPath = `$.${path.join(".")}`;
-      return sql`json_extract(${column}, ${jsonPath})`;
+      let expr = sql`${column} -> '$'`;
+      for (const segment of path) {
+        const leg = jsonPathLeg(segment);
+        expr = sql`${expr} -> ${leg}`;
+      }
+      return expr;
     },
 
+    // `->>` returns text with strings unquoted, for LIKE matching
     extractText: (column: Sql, path: string[]): Sql => {
-      // SQLite json_extract returns the value in native form
-      // For text, we can cast or use as-is
-      if (path.length === 0) return column;
-      const jsonPath = `$.${path.join(".")}`;
-      return sql`json_extract(${column}, ${jsonPath})`;
+      const legs: string[] = [];
+      for (const segment of path) {
+        const leg = jsonPathLeg(segment);
+        legs.push(leg);
+      }
+      const last = legs.pop();
+      if (last === undefined) {
+        return sql`${column} ->> '$'`;
+      }
+      let expr: Sql = column;
+      for (const leg of legs) {
+        expr = sql`${expr} -> ${leg}`;
+      }
+      return sql`${expr} ->> ${last}`;
     },
+
+    // json_each pairs match hasEvery; the json_type guard keeps scalar
+    // targets and NULLs from matching (mirrors PG @> / MySQL JSON_CONTAINS)
+    contains: (target: Sql, value: Sql): Sql =>
+      sql`(json_type(${target}) = 'array' AND (SELECT COUNT(*) FROM json_each(${value}) WHERE value IN (SELECT value FROM json_each(${target}))) = json_array_length(${value}))`,
+
+    lastElement: (target: Sql): Sql => sql`${target} -> '$[#-1]'`,
+
+    // Stored JSON is canonical (written via stringifyJson / SQLite json
+    // functions), so text equality against a canonical param is JSON equality
+    value: (v: unknown): Sql => sql`${stringifyJson(v)}`,
   };
 
   // ============================================================
@@ -237,6 +272,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
       if (items.length === 0) return sql.raw`json_array()`;
       return sql`json_array(${sql.join(items, ", ")})`;
     },
+
+    value: (values: unknown[]): Sql => sql`${stringifyJson(values)}`,
 
     // Check if value exists in JSON array using json_each
     has: (column: Sql, value: Sql): Sql =>
@@ -268,295 +305,118 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   orderBy = {
-    asc: (column: Sql): Sql => sql`${column} ASC`,
-    desc: (column: Sql): Sql => sql`${column} DESC`,
-    // SQLite doesn't support NULLS FIRST/LAST natively
-    nullsFirst: (expr: Sql): Sql => expr, // No-op
-    nullsLast: (expr: Sql): Sql => expr, // No-op
+    ...createDirectionOrderBy(),
+    // SQLite doesn't support NULLS FIRST/LAST in this grammar position - emulated
+    ...createEmulatedNullsOrderBy(),
   };
 
   // ============================================================
   // CLAUSES
   // ============================================================
 
-  clauses = {
-    select: (columns: Sql): Sql => sql`SELECT ${columns}`,
-    selectDistinct: (columns: Sql): Sql => sql`SELECT DISTINCT ${columns}`,
-    from: (table: Sql): Sql => sql`FROM ${table}`,
-    where: (condition: Sql): Sql => sql`WHERE ${condition}`,
-    orderBy: (orders: Sql): Sql => sql`ORDER BY ${orders}`,
-    limit: (count: Sql): Sql => sql`LIMIT ${count}`,
-    offset: (count: Sql): Sql => sql`OFFSET ${count}`,
-    groupBy: (columns: Sql): Sql => sql`GROUP BY ${columns}`,
-    having: (condition: Sql): Sql => sql`HAVING ${condition}`,
-  };
+  clauses = createStandardClauses();
 
   // ============================================================
   // SET (UPDATE operations)
   // ============================================================
 
   set = {
-    assign: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
+    ...createNumericSetOperations(),
 
-    increment: (column: Sql, by: Sql): Sql =>
-      sql`${column} = ${column} + ${by}`,
+    // SQLite drivers bind JS numbers as REAL, so `col / ?` runs real division
+    // and would persist a fractional value into an INTEGER column. Casting the
+    // divisor to INTEGER makes it native INT/INT division (truncating toward
+    // zero, matching Postgres) for integer columns; real columns keep real
+    // division since the column itself carries REAL affinity.
+    divide: (column: Sql, by: Sql, columnIsInteger?: boolean): Sql =>
+      columnIsInteger
+        ? sql`${column} = ${column} / CAST(${by} AS INTEGER)`
+        : sql`${column} = ${column} / ${by}`,
 
-    decrement: (column: Sql, by: Sql): Sql =>
-      sql`${column} = ${column} - ${by}`,
+    push: (column: Sql, values: unknown[]): Sql =>
+      sql`${column} = ${jsonArrayConcat(
+        sql`json(COALESCE(${column}, '[]'))`,
+        sql`${stringifyJson(values)}`
+      )}`,
 
-    multiply: (column: Sql, by: Sql): Sql => sql`${column} = ${column} * ${by}`,
-
-    divide: (column: Sql, by: Sql): Sql => sql`${column} = ${column} / ${by}`,
-
-    push: (column: Sql, value: Sql): Sql =>
-      sql`${column} = json_insert(${column}, '$[#]', ${value})`,
-
-    unshift: (column: Sql, value: Sql): Sql =>
-      sql`${column} = json('[' || json(${value}) || CASE WHEN COALESCE(${column}, '[]') = '[]' THEN ']' ELSE ',' || substr(${column}, 2) END)`,
+    unshift: (column: Sql, values: unknown[]): Sql =>
+      sql`${column} = ${jsonArrayConcat(
+        sql`${stringifyJson(values)}`,
+        sql`json(COALESCE(${column}, '[]'))`
+      )}`,
   };
 
   // ============================================================
   // FILTERS (Relation subquery wrappers)
   // ============================================================
 
-  filters = {
-    some: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    every: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-    none: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-    is: (subquery: Sql): Sql => sql`EXISTS (${subquery})`,
-    isNot: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
-  };
+  filters = createRelationFilters();
 
   // ============================================================
   // SUBQUERIES
   // ============================================================
 
-  subqueries = {
-    scalar: (query: Sql): Sql => sql`(${query})`,
-
-    correlate: (query: Sql, alias: string): Sql =>
-      sql`(${query}) AS ${sql.raw`"${alias}"`}`,
-
-    existsCheck: (from: Sql, where: Sql): Sql =>
-      sql`SELECT 1 FROM ${from} WHERE ${where}`,
-  };
+  subqueries = createSubqueries(quoteIdent);
 
   // ============================================================
   // ASSEMBLE (Build complete SQL statements)
   // ============================================================
+
+  // SQLite has no bare OFFSET; LIMIT -1 means "no limit"
+  noLimitValue = sql.raw`-1`;
 
   assemble = {
     select: (parts: QueryParts): Sql => {
       // SQLite doesn't support DISTINCT ON natively
       // Simulate using ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)
       if (parts.distinct) {
-        return this.assembleDistinctOn(parts);
-      }
-
-      const fragments: Sql[] = [
-        sql`SELECT ${parts.columns}`,
-        sql`FROM ${parts.from}`,
-      ];
-
-      if (parts.joins && parts.joins.length > 0) {
-        fragments.push(...parts.joins);
-      }
-
-      if (parts.where) {
-        fragments.push(sql`WHERE ${parts.where}`);
-      }
-
-      if (parts.groupBy) {
-        fragments.push(sql`GROUP BY ${parts.groupBy}`);
-      }
-
-      if (parts.having) {
-        fragments.push(sql`HAVING ${parts.having}`);
-      }
-
-      if (parts.orderBy) {
-        fragments.push(sql`ORDER BY ${parts.orderBy}`);
-      }
-
-      if (parts.limit) {
-        fragments.push(sql`LIMIT ${parts.limit}`);
-      }
-
-      if (parts.offset) {
-        fragments.push(sql`OFFSET ${parts.offset}`);
+        return assembleDistinctOnEmulation(
+          parts,
+          parts.distinct,
+          this.identifiers.escape,
+          this.noLimitValue
+        );
       }
 
       // SQLite uses database-level locking, so FOR UPDATE is a no-op
       // (ignoring parts.forUpdate intentionally)
-
-      return sql.join(fragments, " ");
+      return assembleSelectQuery(sql`SELECT ${parts.columns}`, parts, {
+        forUpdate: "omit",
+        noLimitValue: this.noLimitValue,
+      });
     },
   };
-
-  /**
-   * Simulate DISTINCT ON using ROW_NUMBER() window function.
-   *
-   * Generates:
-   * SELECT col1, col2, ... FROM (
-   *   SELECT columns, ROW_NUMBER() OVER (PARTITION BY distinct_cols ORDER BY order_cols) AS _rn
-   *   FROM table
-   *   WHERE ...
-   * ) AS _distinct_subquery
-   * WHERE _rn = 1
-   * ORDER BY ...
-   * LIMIT ... OFFSET ...
-   */
-  private assembleDistinctOn(parts: QueryParts): Sql {
-    // Build the ORDER BY for ROW_NUMBER() - use provided orderBy or default to distinct columns
-    const rowNumberOrder = parts.orderBy || parts.distinct!;
-
-    // Inner query with ROW_NUMBER()
-    const innerFragments: Sql[] = [
-      sql`SELECT ${parts.columns}, ROW_NUMBER() OVER (PARTITION BY ${parts.distinct} ORDER BY ${rowNumberOrder}) AS "_rn"`,
-      sql`FROM ${parts.from}`,
-    ];
-
-    if (parts.joins && parts.joins.length > 0) {
-      innerFragments.push(...parts.joins);
-    }
-
-    if (parts.where) {
-      innerFragments.push(sql`WHERE ${parts.where}`);
-    }
-
-    if (parts.groupBy) {
-      innerFragments.push(sql`GROUP BY ${parts.groupBy}`);
-    }
-
-    if (parts.having) {
-      innerFragments.push(sql`HAVING ${parts.having}`);
-    }
-
-    const innerQuery = sql.join(innerFragments, " ");
-
-    // Build outer SELECT - use explicit column aliases to exclude _rn
-    let outerSelect: Sql;
-    if (parts.distinctColumnAliases && parts.distinctColumnAliases.length > 0) {
-      // Select only the original columns, excluding _rn
-      const aliasColumns = parts.distinctColumnAliases.map(
-        (alias) => sql.raw`"${alias}"`
-      );
-      outerSelect = sql`SELECT ${sql.join(
-        aliasColumns,
-        ", "
-      )} FROM (${innerQuery}) AS "_distinct_subquery"`;
-    } else {
-      // Fallback to SELECT * (includes _rn)
-      outerSelect = sql`SELECT * FROM (${innerQuery}) AS "_distinct_subquery"`;
-    }
-
-    // Outer query that filters for first row of each partition
-    const outerFragments: Sql[] = [outerSelect, sql.raw`WHERE "_rn" = 1`];
-
-    if (parts.orderBy) {
-      outerFragments.push(sql`ORDER BY ${parts.orderBy}`);
-    }
-
-    if (parts.limit) {
-      outerFragments.push(sql`LIMIT ${parts.limit}`);
-    }
-
-    if (parts.offset) {
-      outerFragments.push(sql`OFFSET ${parts.offset}`);
-    }
-
-    return sql.join(outerFragments, " ");
-  }
 
   // ============================================================
   // CTE (Common Table Expressions)
   // ============================================================
 
-  cte = {
-    with: (definitions: { name: string; query: Sql }[]): Sql => {
-      const defs = definitions.map(
-        ({ name, query }) => sql`${sql.raw`"${name}"`} AS (${query})`
-      );
-      return sql`WITH ${sql.join(defs, ", ")}`;
-    },
-
-    recursive: (
-      name: string,
-      anchor: Sql,
-      recursive: Sql,
-      union: "all" | "distinct" = "all"
-    ): Sql => {
-      const unionKeyword =
-        union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
-      return sql`WITH RECURSIVE ${sql.raw`"${name}"`} AS (
-        ${anchor}
-        ${unionKeyword}
-        ${recursive}
-      )`;
-    },
-  };
+  cte = createCteBuilders(quoteIdent);
 
   // ============================================================
   // MUTATIONS
   // ============================================================
 
   mutations = {
-    insert: (
-      table: Sql,
-      columns: string[],
-      values: Sql[][],
-      prefix?: Sql
-    ): Sql => {
-      const cols = columns.map((c) => sql.raw`"${c}"`);
-      const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
-      const prefixPart = prefix ? sql`${prefix} ` : sql``;
-      return sql`INSERT ${prefixPart}INTO ${table} (${sql.join(
-        cols,
-        ", "
-      )}) VALUES ${sql.join(rows, ", ")}`;
-    },
+    skipDuplicatesStrategy: "sql" as const,
+    insert: createInsertStatement(quoteIdent),
+    insertDefault: (table: Sql): Sql =>
+      sql`INSERT INTO ${table} DEFAULT VALUES`,
 
-    update: (table: Sql, sets: Sql, where?: Sql): Sql => {
-      if (where) {
-        return sql`UPDATE ${table} SET ${sets} WHERE ${where}`;
-      }
-      return sql`UPDATE ${table} SET ${sets}`;
-    },
-
-    delete: (table: Sql, where?: Sql): Sql => {
-      if (where) {
-        return sql`DELETE FROM ${table} WHERE ${where}`;
-      }
-      return sql`DELETE FROM ${table}`;
-    },
+    ...createMutationCommands(),
 
     // SQLite 3.35+ supports RETURNING
     returning: (columns: Sql): Sql => sql`RETURNING ${columns}`,
 
-    // SQLite uses same syntax as PostgreSQL for ON CONFLICT
-    onConflict: (target: Sql | null, action: Sql, targetWhere?: Sql): Sql => {
-      if (target) {
-        if (targetWhere) {
-          // ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
-          return sql`ON CONFLICT (${target}) WHERE ${targetWhere} DO ${action}`;
-        }
-        return sql`ON CONFLICT (${target}) DO ${action}`;
-      }
-      return sql`ON CONFLICT DO ${action}`;
-    },
+    // SQLite uses same ON CONFLICT syntax as PostgreSQL (3.24+/3.35+)
+    ...createOnConflictBuilders(),
+  };
 
-    onConflictUpdate: (sets: Sql, setWhere?: Sql): Sql => {
-      if (setWhere) {
-        // UPDATE SET x = y WHERE <setWhere>
-        return sql`UPDATE SET ${sets} WHERE ${setWhere}`;
-      }
-      return sql`UPDATE SET ${sets}`;
-    },
-
-    skipDuplicates: () => ({
-      prefix: sql``,
-      suffix: sql`ON CONFLICT DO NOTHING`,
-    }),
+  assertions = {
+    exists: (query: Sql): Sql =>
+      sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
+    notExists: (query: Sql): Sql =>
+      sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
   };
 
   // ============================================================
@@ -564,21 +424,23 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   joins = {
-    inner: (table: Sql, condition: Sql): Sql =>
-      sql`INNER JOIN ${table} ON ${condition}`,
+    ...createCoreJoins(),
 
-    left: (table: Sql, condition: Sql): Sql =>
-      sql`LEFT JOIN ${table} ON ${condition}`,
+    // SQLite doesn't support RIGHT JOIN (before 3.39, and driver support varies).
+    // Never silently downgrade: emitting LEFT JOIN without swapping operands
+    // returns wrong rows. The query engine never calls this today.
+    right: (_table: Sql, _condition: Sql): Sql => {
+      throw new Error(
+        "SQLite does not support RIGHT JOIN. Restructure the query with joins.left and swapped operands."
+      );
+    },
 
-    // SQLite doesn't support RIGHT JOIN - use LEFT JOIN with tables swapped
-    right: (table: Sql, condition: Sql): Sql =>
-      sql`LEFT JOIN ${table} ON ${condition}`,
-
-    // SQLite doesn't support FULL OUTER JOIN
-    full: (table: Sql, condition: Sql): Sql =>
-      sql`LEFT JOIN ${table} ON ${condition}`,
-
-    cross: (table: Sql): Sql => sql`CROSS JOIN ${table}`,
+    // SQLite doesn't support FULL OUTER JOIN (before 3.39, and driver support varies).
+    full: (_table: Sql, _condition: Sql): Sql => {
+      throw new Error(
+        "SQLite does not support FULL OUTER JOIN. Check adapter.capabilities.supportsFullOuterJoin before calling."
+      );
+    },
 
     // SQLite does NOT support LATERAL joins
     // These methods should never be called - query engine should check capability first
@@ -599,15 +461,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // SET OPERATIONS
   // ============================================================
 
-  setOperations = {
-    union: (...queries: Sql[]): Sql => sql.join(queries, " UNION "),
-
-    unionAll: (...queries: Sql[]): Sql => sql.join(queries, " UNION ALL "),
-
-    intersect: (...queries: Sql[]): Sql => sql.join(queries, " INTERSECT "),
-
-    except: (left: Sql, right: Sql): Sql => sql`${left} EXCEPT ${right}`,
-  };
+  setOperations = createSetOperations();
 
   // ============================================================
   // CAPABILITIES
@@ -618,10 +472,22 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsCteWithMutations: true,
     supportsFullOuterJoin: false,
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
+    supportsVector: false,
     supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
+    supportsMutationTargetInSubquery: true,
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;
+
+  batchRefs = createOnConflictBatchRefs({
+    table: sql.raw`"__viborm_batch_refs"`,
+    batchIdColumn: sql.raw`"batch_id"`,
+    keyColumn: sql.raw`"ref_key"`,
+    valueColumn: sql.raw`"ref_value"`,
+    createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))`,
+    castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
+    lastInsertId: () => this.lastInsertId(),
+  });
 
   // ============================================================
   // VECTOR (not natively supported in SQLite)
@@ -635,9 +501,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   geospatial = unsupportedGeospatial;
 
-  // ============================================================
-  // RESULT PARSING
-  // ============================================================
   // RESULT PARSING
   // SQLite-specific parsing is handled by the driver (SQLite3Driver.result)
   // Adapter just passes through to default parsing
@@ -658,7 +521,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     parseField: (
       _value: unknown,
-      _fieldType: string,
+      _scalarType: string,
       next: (value?: unknown) => unknown
     ): unknown => next(),
   };

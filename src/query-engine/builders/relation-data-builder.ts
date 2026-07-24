@@ -2,32 +2,28 @@
  * Relation Data Builder
  *
  * Handles nested write operations: create, createMany, connect,
- * connectOrCreate, disconnect, delete, set.
+ * connectOrCreate, disconnect, delete, deleteMany, set, update,
+ * updateMany, and upsert.
  * Separates scalar and relation data, builds connect subqueries, and manages FK direction.
  */
 
 import type { Model } from "@schema/model";
-import type { AnyRelation } from "@schema/relation";
+import type { ReferentialAction } from "@schema/relation";
 import { type Sql, sql } from "@sql";
-import {
-  createChildContext,
-  getColumnName,
-  getRelationInfo,
-  getTableName,
-  isRelation,
-} from "../context";
+import { createChildScope, getColumnName, getTableName } from "../context";
 import {
   NestedWriteError,
-  type QueryContext,
   QueryEngineError,
+  type QueryScope,
   type RelationInfo,
 } from "../types";
-import { getPrimaryKeyFields } from "./correlation-utils";
 import {
-  hasSupportedNestedWriteInput,
-  SUPPORTED_NESTED_WRITE_KEYS,
-} from "./nested-write-detector";
-import { buildWhereUnique } from "./where-builder";
+  findInverseRelationState,
+  getPrimaryKeyFields,
+} from "./correlation-utils";
+import { buildWhereUnique } from "./where-unique-builder";
+
+export { separateData } from "./relation-mutation-parser";
 
 // ============================================================
 // TYPES
@@ -37,8 +33,8 @@ import { buildWhereUnique } from "./where-builder";
  * Separated scalar and relation data from input
  */
 export interface SeparatedData {
-  /** Scalar fields to INSERT/UPDATE directly */
-  scalar: Record<string, unknown>;
+  /** Scalar data to INSERT/UPDATE directly */
+  scalarData: Record<string, unknown>;
   /** Relation mutations to process */
   relations: Record<string, RelationMutation>;
 }
@@ -49,6 +45,31 @@ export interface SeparatedData {
 export interface CreateManyInput {
   data: Record<string, unknown>[];
   skipDuplicates?: boolean;
+}
+
+/**
+ * Targeted nested update input for to-many relations
+ */
+export interface NestedUpdateInput {
+  where: Record<string, unknown>;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Set-based nested update input for to-many relations
+ */
+export interface NestedUpdateManyInput {
+  where?: Record<string, unknown>;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Nested upsert input. To-one upserts do not use where; to-many upserts do.
+ */
+export interface NestedUpsertInput {
+  where?: Record<string, unknown>;
+  create: Record<string, unknown>;
+  update: Record<string, unknown>;
 }
 
 /**
@@ -71,6 +92,14 @@ export interface RelationMutation {
   delete?: boolean | Record<string, unknown> | Record<string, unknown>[];
   /** Set (replace) related records - only for to-many */
   set?: Record<string, unknown>[];
+  /** Update related record(s) */
+  update?: Record<string, unknown> | NestedUpdateInput | NestedUpdateInput[];
+  /** Update many related records */
+  updateMany?: NestedUpdateManyInput | NestedUpdateManyInput[];
+  /** Upsert related record(s). */
+  upsert?: NestedUpsertInput | NestedUpsertInput[];
+  /** Delete many related records */
+  deleteMany?: Record<string, unknown> | Record<string, unknown>[];
 }
 
 /**
@@ -95,176 +124,13 @@ export interface FkDirection {
   fkHolder: Model<any>;
   /** Which model is referenced */
   referenced: Model<any>;
-}
-
-// ============================================================
-// SEPARATING DATA
-// ============================================================
-
-/**
- * Separate scalar data from relation mutations
- *
- * @param ctx - Query context
- * @param data - Input data with mixed scalar and relation fields
- * @returns Separated scalar and relation data
- */
-export function separateData(
-  ctx: QueryContext,
-  data: Record<string, unknown>
-): SeparatedData {
-  const scalar: Record<string, unknown> = {};
-  const relations: Record<string, RelationMutation> = {};
-
-  for (const [key, value] of Object.entries(data)) {
-    if (value === undefined) {
-      continue;
-    }
-
-    if (isRelation(ctx.model, key)) {
-      const relationInfo = getRelationInfo(ctx, key);
-      if (!relationInfo) {
-        continue;
-      }
-
-      // Parse relation mutation
-      const mutation = parseRelationMutation(relationInfo, value);
-      if (mutation) {
-        relations[key] = mutation;
-      }
-    } else {
-      // Scalar field
-      scalar[key] = value;
-    }
-  }
-
-  return { scalar, relations };
-}
-
-/**
- * Parse a relation value into a RelationMutation
- */
-function parseRelationMutation(
-  relationInfo: RelationInfo,
-  value: unknown
-): RelationMutation | undefined {
-  if (!hasSupportedNestedWriteInput(value)) {
-    return undefined;
-  }
-
-  const input = value as Record<string, unknown>;
-  const mutation: RelationMutation = { relationInfo };
-
-  for (const key of SUPPORTED_NESTED_WRITE_KEYS) {
-    if (!(key in input)) {
-      continue;
-    }
-
-    switch (key) {
-      case "connect":
-        mutation.connect = input.connect as
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "disconnect":
-        mutation.disconnect = input.disconnect as
-          | boolean
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "create":
-        mutation.create = input.create as
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "createMany":
-        mutation.createMany = input.createMany as CreateManyInput;
-        break;
-      case "connectOrCreate":
-        mutation.connectOrCreate = input.connectOrCreate as
-          | ConnectOrCreateInput
-          | ConnectOrCreateInput[];
-        break;
-      case "delete":
-        mutation.delete = input.delete as
-          | boolean
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "set":
-        mutation.set = input.set as Record<string, unknown>[];
-        break;
-    }
-  }
-
-  return mutation;
+  /** Database action when the referenced key changes. */
+  onUpdate: ReferentialAction | undefined;
 }
 
 // ============================================================
 // FK DIRECTION
 // ============================================================
-
-/**
- * Find the FK fields on the target model by looking for the inverse relation
- *
- * Searches target model's relations for one pointing back to current model
- * and returns its fields (the actual FK columns).
- *
- * @param currentModel - Current model
- * @param targetModel - Target model to search in
- * @param relationName - Name of the relation (for error messages)
- * @returns FK field names on target model
- * @throws QueryEngineError if no inverse relation found
- */
-function findInverseFkFields(
-  currentModel: Model<any>,
-  relationInfo: RelationInfo
-): string[] {
-  const { targetModel, name } = relationInfo;
-  const currentRelationName = relationInfo.relation["~"].state.name;
-  const potentialInverses: Array<{
-    relationName?: string;
-    fields: string[];
-  }> = [];
-
-  // Look through target model's relations for those pointing back to current.
-  const targetRelations = targetModel["~"].state.relations;
-  if (targetRelations) {
-    for (const [, rel] of Object.entries(targetRelations)) {
-      const relInternals = (rel as AnyRelation)["~"];
-      const fields = relInternals.state?.fields;
-      const relTarget = relInternals.state?.getter?.();
-      if (relTarget === currentModel && fields?.length) {
-        potentialInverses.push({
-          relationName: relInternals.state.name,
-          fields,
-        });
-      }
-    }
-  }
-
-  if (potentialInverses.length === 1) {
-    return potentialInverses[0]!.fields;
-  }
-
-  if (currentRelationName) {
-    const namedInverse = potentialInverses.find(
-      (inverse) => inverse.relationName === currentRelationName
-    );
-    if (namedInverse) {
-      return namedInverse.fields;
-    }
-  }
-
-  if (potentialInverses.length > 0) {
-    return potentialInverses[0]!.fields;
-  }
-
-  // No inverse found - this is a schema issue
-  throw new QueryEngineError(
-    `Cannot determine FK fields for relation '${name}'. ` +
-      "Define the inverse relation with .fields([...]) or use explicit FK fields."
-  );
-}
 
 /**
  * Determine FK direction for a relation
@@ -278,10 +144,20 @@ function findInverseFkFields(
  * @returns FK direction info
  */
 export function getFkDirection(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo
 ): FkDirection {
-  const { fields, references, targetModel, name } = relationInfo;
+  // Must come before any inverse-FK scanning: a to-one relation on the target
+  // pointing back at this model (e.g. tag.featuredIn) would otherwise be
+  // mistaken for this relation's FK and get silently overwritten.
+  if (relationInfo.type === "manyToMany") {
+    throw new QueryEngineError(
+      `Relation '${relationInfo.name}' is many-to-many and has no FK direction. ` +
+        "Many-to-many writes must go through the junction table handlers."
+    );
+  }
+
+  const { fields, references, targetModel } = relationInfo;
 
   // If fields defined on this relation, current model holds the FK
   const holdsFK = !!(fields && fields.length > 0);
@@ -293,91 +169,39 @@ export function getFkDirection(
       pkFields: references ?? getPrimaryKeyFields(targetModel),
       fkHolder: ctx.model,
       referenced: targetModel,
+      onUpdate: relationInfo.relation["~"].state.onUpdate,
     };
   }
 
   // Otherwise, the target model holds the FK (to-many from current's perspective)
   // Look for the inverse relation to find the actual FK fields on target model
-  const inverseFkFields = findInverseFkFields(ctx.model, relationInfo);
+  const inverse = findInverseRelationState(ctx.model, relationInfo);
+  if (!inverse) {
+    throw new QueryEngineError(
+      `Cannot determine FK fields for relation '${relationInfo.name}'. ` +
+        "Define the inverse relation with .fields([...]) or use explicit FK fields."
+    );
+  }
 
   return {
     holdsFK: false,
-    fkFields: inverseFkFields,
-    pkFields: getPrimaryKeyFields(ctx.model),
+    fkFields: inverse.fields,
+    // Prefer the inverse relation's references: the fields on this model the
+    // FK actually points at. Falling back to getPrimaryKeyFields is only
+    // correct when the FK targets the PK.
+    pkFields:
+      inverse.references && inverse.references.length > 0
+        ? inverse.references
+        : getPrimaryKeyFields(ctx.model),
     fkHolder: targetModel,
     referenced: ctx.model,
+    onUpdate: inverse.onUpdate,
   };
 }
 
 // ============================================================
 // CONNECT SUBQUERY
 // ============================================================
-
-/**
- * Build a subquery to get FK value for a connect operation
- *
- * This allows connecting without a transaction:
- * INSERT INTO posts (title, author_id)
- * VALUES ('Hello', (SELECT id FROM users WHERE id = '123'))
- *
- * For compound FKs, this returns a subquery for a single field.
- * Use buildConnectFkValues() to get all FK field values.
- *
- * @param ctx - Query context
- * @param relationInfo - Relation metadata
- * @param connectInput - WhereUnique input for the record to connect
- * @param fieldIndex - Index of the FK field to get (default 0)
- * @returns Sql subquery that returns the FK value
- */
-export function buildConnectSubquery(
-  ctx: QueryContext,
-  relationInfo: RelationInfo,
-  connectInput: Record<string, unknown>,
-  fieldIndex = 0
-): Sql {
-  const { adapter } = ctx;
-  const { targetModel, name } = relationInfo;
-  const fkDir = getFkDirection(ctx, relationInfo);
-
-  if (!fkDir.holdsFK) {
-    throw new NestedWriteError(
-      `Cannot use connect subquery for relation '${name}' - ` +
-        "FK is on the related model. Use transaction-based connect instead.",
-      name
-    );
-  }
-
-  // Build the subquery to select PK from target
-  const targetTable = getTableName(targetModel);
-  const subAlias = ctx.nextAlias();
-  const childCtx = createChildContext(ctx, targetModel, subAlias);
-
-  // Build WHERE clause from connect input
-  const whereClause = buildWhereUnique(childCtx, connectInput, subAlias);
-  if (!whereClause) {
-    throw new NestedWriteError(
-      `Invalid connect input for relation '${name}': no conditions`,
-      name
-    );
-  }
-
-  // Select the PK field at the specified index
-  const pkFields = fkDir.pkFields;
-  if (fieldIndex >= pkFields.length) {
-    throw new NestedWriteError(
-      `Invalid field index ${fieldIndex} for relation '${name}' with ${pkFields.length} PK fields`,
-      name
-    );
-  }
-
-  const pkColumn = getColumnName(targetModel, pkFields[fieldIndex]!);
-  const pkSql = adapter.identifiers.column(subAlias, pkColumn);
-  const tableSql = adapter.identifiers.escape(targetTable);
-
-  return sql`(SELECT ${pkSql} FROM ${tableSql} ${sql.raw([
-    subAlias,
-  ])} WHERE ${whereClause})`;
-}
 
 /**
  * Build FK assignments for a connect operation
@@ -391,7 +215,7 @@ export function buildConnectSubquery(
  * @returns Map of FK field name to value/subquery
  */
 export function buildConnectFkValues(
-  ctx: QueryContext,
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   connectInput: Record<string, unknown>
 ): Record<string, Sql> {
@@ -457,8 +281,8 @@ export function buildConnectFkValues(
 /**
  * Build subquery to select a specific field for connect
  */
-function buildConnectSubqueryForField(
-  ctx: QueryContext,
+export function buildConnectSubqueryForField(
+  ctx: QueryScope,
   relationInfo: RelationInfo,
   connectInput: Record<string, unknown>,
   selectField: string
@@ -468,15 +292,9 @@ function buildConnectSubqueryForField(
 
   const targetTable = getTableName(targetModel);
   const subAlias = ctx.nextAlias();
-  const childCtx = createChildContext(ctx, targetModel, subAlias);
+  const childCtx = createChildScope(ctx, targetModel, subAlias);
 
   const whereClause = buildWhereUnique(childCtx, connectInput, subAlias);
-  if (!whereClause) {
-    throw new NestedWriteError(
-      `Invalid connect input for relation '${relationInfo.name}'`,
-      relationInfo.name
-    );
-  }
 
   const fieldColumn = getColumnName(targetModel, selectField);
   const fieldSql = adapter.identifiers.column(subAlias, fieldColumn);
@@ -486,38 +304,6 @@ function buildConnectSubqueryForField(
     subAlias,
   ])} WHERE ${whereClause})`;
 }
-
-// ============================================================
-// DISCONNECT
-// ============================================================
-
-/**
- * Build disconnect operation
- *
- * For to-one where current holds FK: SET FK to NULL
- * For to-many: handled via target model's FK
- *
- * @param ctx - Query context
- * @param relationInfo - Relation metadata
- * @param disconnectInput - true, or whereUnique for specific record
- * @returns FK field(s) to set to NULL, or undefined if FK is on other side
- */
-export function buildDisconnectFkNulls(
-  ctx: QueryContext,
-  relationInfo: RelationInfo,
-  _disconnectInput: boolean | Record<string, unknown>
-): string[] | undefined {
-  const fkDir = getFkDirection(ctx, relationInfo);
-
-  if (!fkDir.holdsFK) {
-    // FK is on the other side - disconnect needs to UPDATE the related records
-    return undefined;
-  }
-
-  // Current model holds FK - return FK field names to set to NULL
-  return fkDir.fkFields;
-}
-
 // ============================================================
 // ANALYSIS HELPERS
 // ============================================================
@@ -525,7 +311,7 @@ export function buildDisconnectFkNulls(
 /**
  * Check if the current model holds the FK for a relation
  *
- * Simplified check that doesn't require full QueryContext.
+ * Simplified check that doesn't require full QueryScope.
  * For to-many relations (oneToMany), FK is always on the related model.
  * For to-one relations (manyToOne), FK is on current model if fields defined.
  *
@@ -549,6 +335,7 @@ function currentHoldsFK(relationInfo: RelationInfo): boolean {
  * - connectOrCreate (check existence + create)
  * - disconnect/delete on to-many (update related records)
  * - set on to-many (delete existing + connect new)
+ * - update/updateMany/upsert/deleteMany on related records
  *
  * NOT needed for:
  * - connect when current model holds FK (use subquery)
@@ -582,48 +369,31 @@ export function needsTransaction(
       return true;
     }
 
+    // Multi-step nested operations must route through atomic nested-write
+    // handling instead of single-statement mutation building.
+    if (
+      mutation.update ||
+      mutation.updateMany ||
+      mutation.upsert ||
+      mutation.deleteMany
+    ) {
+      return true;
+    }
+
     // Disconnect where FK is on other side needs transaction
     if (mutation.disconnect && !currentHoldsFK(mutation.relationInfo)) {
       return true;
     }
-    // Connect where FK is on other side needs transaction
-    if (mutation.connect && !currentHoldsFK(mutation.relationInfo)) {
+    // Connect needs target existence checks before mutation.
+    if (mutation.connect) {
+      return true;
+    }
+
+    // Disconnect needs required-relation checks before mutation.
+    if (mutation.disconnect) {
       return true;
     }
   }
 
   return false;
-}
-
-/**
- * Check if relation mutations can be handled with subqueries only
- */
-export function canUseSubqueryOnly(
-  relations: Record<string, RelationMutation>
-): boolean {
-  return !needsTransaction(relations);
-}
-
-/**
- * Get connect operations that can be done via subquery (FK on current model)
- */
-export function getSubqueryConnects(
-  ctx: QueryContext,
-  relations: Record<string, RelationMutation>
-): Array<{ relationName: string; mutation: RelationMutation }> {
-  const result: Array<{ relationName: string; mutation: RelationMutation }> =
-    [];
-
-  for (const [relationName, mutation] of Object.entries(relations)) {
-    if (!mutation.connect) {
-      continue;
-    }
-
-    const fkDir = getFkDirection(ctx, mutation.relationInfo);
-    if (fkDir.holdsFK) {
-      result.push({ relationName, mutation });
-    }
-  }
-
-  return result;
 }

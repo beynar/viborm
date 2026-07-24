@@ -1,5 +1,6 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
+import { createScalarInterner, scalarInternKey } from "./intern";
 
 // =============================================================================
 // BASE TYPES
@@ -164,7 +165,7 @@ const buildFloatListUpdateSchema = <S extends V.Schema>(
 // FLOAT SCHEMA BUILDER
 // =============================================================================
 
-export interface FloatSchemas<F extends FieldState<"float">> {
+export interface FloatSchemas<F extends ScalarState<"float">> {
   base: F["base"];
   create: V.Number<F>;
   update: F["array"] extends true
@@ -175,17 +176,25 @@ export interface FloatSchemas<F extends FieldState<"float">> {
     : FloatFilterSchema<F["base"]>;
 }
 
-export const buildFloatSchema = <F extends FieldState<"float">>(
+const internFilter = createScalarInterner<unknown>();
+const internUpdate = createScalarInterner<unknown>();
+
+export const buildFloatSchema = <F extends ScalarState<"float">>(
   state: F
 ): FloatSchemas<F> => {
+  const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
     create: v.number(state),
-    update: state.array
-      ? buildFloatListUpdateSchema(state.base)
-      : buildFloatUpdateSchema(state.base),
-    filter: state.array
-      ? buildFloatListFilterSchema(state.base)
-      : buildFloatFilterSchema(state.base),
+    update: internUpdate(key, () =>
+      state.array
+        ? buildFloatListUpdateSchema(state.base)
+        : buildFloatUpdateSchema(state.base)
+    ) as never,
+    filter: internFilter(key, () =>
+      state.array
+        ? buildFloatListFilterSchema(state.base)
+        : buildFloatFilterSchema(state.base)
+    ) as never,
   } as FloatSchemas<F>;
 };

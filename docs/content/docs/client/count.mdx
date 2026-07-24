@@ -1,0 +1,31 @@
+---
+title: count
+description: Count records matching a filter
+icon: Hash
+---
+
+Count records matching a filter:
+
+```ts
+// Count all
+const total = await client.user.count();
+// Type: number
+
+// Count with filter
+const admins = await client.user.count({
+  where: { role: "ADMIN" },
+});
+
+// Count specific fields (non-null)
+const counts = await client.user.count({
+  select: {
+    _all: true,
+    email: true, // Count non-null emails
+  },
+});
+// Type: { _all: number; email: number }
+```
+
+<Callout type="info">
+  If you only need to know whether *any* record matches, use [`exist`](/docs/client/exist) — it's cheaper than counting.
+</Callout>

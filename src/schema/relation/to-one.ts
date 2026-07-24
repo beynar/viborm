@@ -97,11 +97,18 @@ export class ToOneRelation<State extends ToOneRelationState> {
   /**
    * Internal accessor for state and source binding.
    */
+  private _internal?: {
+    state: State;
+    setSource: (source: AnyModel) => void;
+  };
+
   get "~"() {
-    return {
+    return (this._internal ??= {
       state: this._state,
-      setSource: (source: AnyModel) => (this._state.source = source),
-    };
+      setSource: (source: AnyModel) => {
+        this._state.source = source;
+      },
+    });
   }
 }
 
@@ -114,9 +121,7 @@ export class ToOneRelation<State extends ToOneRelationState> {
  */
 export function oneToOne<const G>(
   getter: G
-): G extends Getter
-  ? ToOneRelation<{ type: "oneToOne"; getter: G }>
-  : never;
+): G extends Getter ? ToOneRelation<{ type: "oneToOne"; getter: G }> : never;
 export function oneToOne(getter: Getter) {
   return new ToOneRelation({ type: "oneToOne" as const, getter });
 }
@@ -126,9 +131,7 @@ export function oneToOne(getter: Getter) {
  */
 export function manyToOne<const G>(
   getter: G
-): G extends Getter
-  ? ToOneRelation<{ type: "manyToOne"; getter: G }>
-  : never;
+): G extends Getter ? ToOneRelation<{ type: "manyToOne"; getter: G }> : never;
 export function manyToOne(getter: Getter) {
   return new ToOneRelation({ type: "manyToOne" as const, getter });
 }

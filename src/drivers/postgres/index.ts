@@ -16,8 +16,13 @@ import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
 } from "postgres";
-import { Driver } from "../driver";
-import type { QueryResult, TransactionOptions } from "../types";
+import { Driver, type QueryExecutionContext } from "../driver";
+import {
+  nestedTransactionDispatchError,
+  normalizePostgresRowCount,
+  runProviderManagedTransaction,
+} from "../shared";
+import type { QueryResult } from "../types";
 
 export type PostgresOptions = PostgresOptionsType<
   Record<string, postgres.PostgresType>
@@ -43,6 +48,34 @@ const parseDatabaseUrl = (url: string): PostgresOptions => {
     password: parsed.password || undefined,
   };
 };
+
+const vibormTypes: Record<string, postgres.PostgresType> = {
+  // TIMESTAMP WITHOUT TIME ZONE (1114): postgres.js builds process-local
+  // Dates, shifting the stored UTC wall clock by the process timezone. Keep
+  // the raw string — the shared result parser builds a UTC Date from it,
+  // matching every other driver. (DATE already arrives as a string.)
+  timestamp: {
+    to: 1114,
+    from: [1114],
+    serialize: (value: unknown) => value as string,
+    parse: (value: string) => value,
+  },
+  // json/jsonb params arrive pre-serialized from the adapter; postgres.js
+  // would JSON.stringify them a second time once the server declares the
+  // param type, double-encoding the stored value
+  json: {
+    to: 114,
+    from: [114, 3802],
+    serialize: (value: unknown) =>
+      typeof value === "string" ? value : JSON.stringify(value),
+    parse: (value: string) => JSON.parse(value),
+  },
+};
+
+const withVibormTypes = (options: PostgresOptions = {}): PostgresOptions => ({
+  ...options,
+  types: { ...vibormTypes, ...options.types },
+});
 
 export type PostgresClientConfig<C extends DriverConfig> =
   PostgresDriverOptions & C;
@@ -76,13 +109,20 @@ export class PostgresDriver extends Driver<
     }
 
     const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     this.adapter = adapter;
   }
 
   protected async initClient(): Promise<PostgresClient> {
-    return postgres(this.driverOptions.options);
+    const { databaseUrl, options } = this.driverOptions;
+    if (databaseUrl) {
+      return postgres(
+        withVibormTypes({ ...parseDatabaseUrl(databaseUrl), ...options })
+      );
+    }
+    return postgres(withVibormTypes(options));
   }
 
   protected async closeClient(sql: PostgresClient): Promise<void> {
@@ -92,59 +132,65 @@ export class PostgresDriver extends Driver<
   protected async execute<T>(
     client: PostgresClient | PostgresTransaction,
     sqlStr: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "execute";
     // postgres.js unsafe() takes (query, parameters?, queryOptions?)
     // parameters must be cast as postgres expects specific types
     const result = await client.unsafe<T[]>(sqlStr, params);
     return {
       rows: result,
-      rowCount: result.count,
+      rowCount: normalizePostgresRowCount(
+        result.count,
+        result.command,
+        result,
+        {
+          provider: "postgres",
+          operation,
+        }
+      ),
     };
   }
 
   protected async executeRaw<T>(
     client: PostgresClient | PostgresTransaction,
     sqlStr: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? "executeRaw";
     const result = await client.unsafe<T[]>(sqlStr, params);
     return {
       rows: result,
-      rowCount: result.count,
+      rowCount: normalizePostgresRowCount(
+        result.count,
+        result.command,
+        result,
+        {
+          provider: "postgres",
+          operation,
+        }
+      ),
     };
   }
 
   protected async transaction<T>(
     client: PostgresClient | PostgresTransaction,
-    fn: (tx: PostgresTransaction) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: PostgresTransaction) => Promise<T>
   ): Promise<T> {
-    // postgres.js begin()/savepoint() return Promise<UnwrapPromiseArray<T>>
-    // Since we don't use pipelining (returning arrays of promises), cast to T
     if (isTransaction(client)) {
-      // Nested transaction - use savepoint
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      return client.savepoint(savepointName, fn) as Promise<T>;
+      throw nestedTransactionDispatchError(this.driverName);
     }
 
-    this.inTransaction = true;
-
-    // Handle isolation level if specified
-    if (options?.isolationLevel) {
-      // Map isolation levels to postgres.js format
-      const isolationMap = {
-        read_uncommitted: "read uncommitted",
-        read_committed: "read committed",
-        repeatable_read: "repeatable read",
-        serializable: "serializable",
-      } as const;
-      const level = isolationMap[options.isolationLevel];
-      return client.begin(level, fn) as Promise<T>;
-    }
-
-    return client.begin(fn) as Promise<T>;
-    // Note: this.inTransaction reset is handled by base Driver._transaction()
+    return runProviderManagedTransaction({
+      run: (callback) => client.begin(callback),
+      callback: fn,
+      close: async () => {
+        await client.end();
+        this.client = null;
+      },
+    });
   }
 }
 

@@ -1,5 +1,5 @@
-import type { FieldState } from "@schema/fields/common";
-import v, { type V } from "@validation";
+import type { ScalarState } from "@schema/scalars/common";
+import v, { type V } from "../primitives/v";
 
 // =============================================================================
 // FILTER TYPES
@@ -66,14 +66,14 @@ const buildJsonUpdateSchema = <S extends V.Schema>(
 // JSON SCHEMA BUILDER
 // =============================================================================
 
-export interface JsonSchemas<F extends FieldState<"json">> {
+export interface JsonSchemas<F extends ScalarState<"json">> {
   base: F["base"];
   create: V.Json<F>;
   update: JsonUpdateSchema<F["base"]>;
   filter: JsonFilterSchema<F["base"]>;
 }
 
-export const buildJsonSchema = <F extends FieldState<"json">>(
+export const buildJsonSchema = <F extends ScalarState<"json">>(
   state: F
 ): JsonSchemas<F> => {
   return {

@@ -1,6 +1,6 @@
 ---
 title: String Filters
-description: Filter operators for string fields
+description: Filter operators for string scalars
 icon: Type
 ---
 
@@ -12,34 +12,14 @@ icon: Type
 | `not` | Not equal |
 | `in` | Match any in array |
 | `notIn` | Match none in array |
+| `lt` / `lte` | Sorts before (exclusive / inclusive) |
+| `gt` / `gte` | Sorts after (exclusive / inclusive) |
 | `contains` | Contains substring |
 | `startsWith` | Starts with prefix |
 | `endsWith` | Ends with suffix |
 | `mode` | Case sensitivity |
 
-## equals / not
-
-```ts
-// Exact match
-where: { email: "alice@example.com" }
-where: { email: { equals: "alice@example.com" } }
-
-// Not equal
-where: { email: { not: "admin@example.com" } }
-
-// Not with nested conditions
-where: { email: { not: { contains: "spam" } } }
-```
-
-## in / notIn
-
-```ts
-// Match any
-where: { role: { in: ["ADMIN", "MODERATOR"] } }
-
-// Match none
-where: { status: { notIn: ["BANNED", "SUSPENDED"] } }
-```
+`equals`, `not`, `in`, and `notIn` work the same on every scalar type — see [Filtering](/docs/client/filtering).
 
 ## contains
 
@@ -64,6 +44,10 @@ where: { email: { endsWith: "@company.com" } }
 where: { email: { endsWith: "@company.com", mode: "insensitive" } }
 ```
 
+<Callout type="info">
+  `contains`, `startsWith`, and `endsWith` match the value as a literal substring. Wildcard characters (`%`, `_`, `\`) in the value are escaped automatically, so they are matched literally rather than acting as SQL `LIKE` wildcards.
+</Callout>
+
 ## mode (Case Sensitivity)
 
 ```ts
@@ -74,26 +58,14 @@ where: { name: { contains: "Alice" } }
 where: { name: { contains: "alice", mode: "insensitive" } }
 ```
 
-<Callout type="info">
-  PostgreSQL uses `ILIKE` for insensitive mode. MySQL uses collation settings.
-</Callout>
+`mode: "insensitive"` applies to `equals`, `not`, `in`, `notIn`, `contains`, `startsWith`, and `endsWith`.
 
-## Combined Example
+Insensitive mode folds ASCII `A`-`Z` only. Non-ASCII code points remain exact
+on every database, which keeps the result independent of provider collations
+and optional Unicode/ICU extensions.
 
-```ts
-// Search with multiple conditions
-const users = await client.user.findMany({
-  where: {
-    OR: [
-      { name: { contains: query, mode: "insensitive" } },
-      { email: { contains: query, mode: "insensitive" } },
-    ],
-    NOT: {
-      email: { endsWith: "@blocked.com" },
-    },
-  },
-});
-```
+Default string equality, membership, and substring filters are case-sensitive
+on every supported database, independent of its default collation.
 
 ## Examples
 
@@ -113,29 +85,3 @@ async function searchUsers(query: string) {
   });
 }
 ```
-
-### Email Domain Filter
-
-```ts
-async function getUsersByDomain(domain: string) {
-  return client.user.findMany({
-    where: {
-      email: { endsWith: `@${domain}` },
-    },
-  });
-}
-```
-
-### Username Validation
-
-```ts
-async function isUsernameAvailable(username: string) {
-  const existing = await client.user.findFirst({
-    where: {
-      username: { equals: username, mode: "insensitive" },
-    },
-  });
-  return !existing;
-}
-```
-

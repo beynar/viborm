@@ -14,7 +14,7 @@ describe("object schema", () => {
       const result = parse(schema, { name: "Alice", age: 30 });
       expect(result.issues).toBeUndefined();
       expect(
-        (result as { value: { name: string; age: number } }).value,
+        (result as { value: { name: string; age: number } }).value
       ).toEqual({
         name: "Alice",
         age: 30,
@@ -54,7 +54,7 @@ describe("object schema", () => {
     test("allows unknown keys with strict: false", () => {
       const looseSchema = v.object(
         { name: v.string(), age: v.number() },
-        { strict: false },
+        { strict: false }
       );
       const result = parse(looseSchema, {
         name: "Alice",
@@ -63,7 +63,7 @@ describe("object schema", () => {
       });
       expect(result.issues).toBeUndefined();
       expect(
-        (result as { value: { name: string; age: number } }).value,
+        (result as { value: { name: string; age: number } }).value
       ).toEqual({
         name: "Alice",
         age: 30,
@@ -80,7 +80,7 @@ describe("object schema", () => {
       const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
       expect(
-        (result as { value: { name?: string; age?: number } }).value,
+        (result as { value: { name?: string; age?: number } }).value
       ).toEqual({
         name: "Alice",
         age: undefined,
@@ -102,7 +102,7 @@ describe("object schema", () => {
           name: v.string(),
           age: v.number(),
         },
-        { partial: false },
+        { partial: false }
       );
       const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeDefined();
@@ -119,7 +119,7 @@ describe("object schema", () => {
       const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
       expect(
-        (result as { value: { name: string; age?: number } }).value,
+        (result as { value: { name: string; age?: number } }).value
       ).toEqual({
         name: "Alice",
         age: undefined,
@@ -140,9 +140,7 @@ describe("object schema", () => {
     test("optional object", () => {
       const schema = v.object({ name: v.string() }, { optional: true });
       expect(parse(schema, undefined).issues).toBeUndefined();
-      expect(
-        parse(schema, { name: "A" }).issues,
-      ).toBeUndefined();
+      expect(parse(schema, { name: "A" }).issues).toBeUndefined();
     });
 
     test("nullable object", () => {
@@ -152,10 +150,7 @@ describe("object schema", () => {
 
     test("array of objects", () => {
       const schema = v.object({ name: v.string() }, { array: true });
-      const result = parse(schema, [
-        { name: "A" },
-        { name: "B" },
-      ]);
+      const result = parse(schema, [{ name: "A" }, { name: "B" }]);
       expect(result.issues).toBeUndefined();
       expect((result as { value: { name: string }[] }).value).toEqual([
         { name: "A" },
@@ -166,7 +161,7 @@ describe("object schema", () => {
     test("object with default", () => {
       const schema = v.object(
         { name: v.string() },
-        { optional: true, default: { name: "Unknown" } },
+        { optional: true, default: { name: "Unknown" } }
       );
       const result = parse(schema, undefined);
       expect((result as { value: { name: string } }).value).toEqual({
@@ -182,7 +177,7 @@ describe("object schema", () => {
             const user = u as { name: string };
             return { ...user, name: user.name.toUpperCase() };
           },
-        },
+        }
       );
       const result = parse(schema, { name: "alice" });
       expect((result as { value: { name: string } }).value).toEqual({
@@ -227,7 +222,7 @@ describe("object schema", () => {
           name: v.string(),
           age: v.number(),
         },
-        { partial: false },
+        { partial: false }
       );
       const result = parse(schema, { name: "Alice" });
       expect(result.issues?.[0]?.path).toEqual(["age"]);
@@ -338,7 +333,7 @@ describe("object schema", () => {
     test("preserves options from parent schema", () => {
       const strictSchema = v.object(
         { name: v.string() },
-        { strict: true, partial: false },
+        { strict: true, partial: false }
       );
 
       const extended = strictSchema.extend({ age: v.number() });
@@ -407,7 +402,7 @@ describe("object schema", () => {
           age: v.number({ optional: true, default: 18 }),
           active: v.boolean({ optional: true, default: true }),
         },
-        { partial: false },
+        { partial: false }
       );
 
       // Provide only required field, optional fields should get defaults
@@ -427,7 +422,7 @@ describe("object schema", () => {
           age: v.number({ optional: true, default: 18 }),
           active: v.boolean({ optional: true, default: true }),
         },
-        { partial: false },
+        { partial: false }
       );
 
       const result = parse(schema, {
@@ -456,7 +451,7 @@ describe("object schema", () => {
             },
           }),
         },
-        { partial: false },
+        { partial: false }
       );
 
       const result = parse(schema, { name: "Test" });
@@ -474,7 +469,7 @@ describe("object schema", () => {
           name: v.string(),
           age: v.number({ optional: true, default: 18 }),
         },
-        { partial: false },
+        { partial: false }
       );
 
       // Missing required 'name' field
@@ -489,7 +484,7 @@ describe("object schema", () => {
           name: v.string(),
           age: v.number({ optional: true, default: 18 }),
         },
-        { partial: false },
+        { partial: false }
       );
 
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
@@ -507,7 +502,7 @@ describe("object schema", () => {
           email: v.string(),
           age: v.number(),
         },
-        { atLeast: ["id", "name"] },
+        { atLeast: ["id", "name"] }
       );
 
       // Valid: has required keys, missing optional keys
@@ -528,7 +523,7 @@ describe("object schema", () => {
           name: v.string(),
           email: v.string(),
         },
-        { atLeast: ["id"] },
+        { atLeast: ["id"] }
       );
 
       const result = parse(schema, {
@@ -551,7 +546,7 @@ describe("object schema", () => {
           name: v.string(),
           email: v.string(),
         },
-        { atLeast: ["id", "name"] },
+        { atLeast: ["id", "name"] }
       );
 
       // Missing required 'id' key
@@ -567,7 +562,7 @@ describe("object schema", () => {
           name: v.string(),
           email: v.string(),
         },
-        { atLeast: ["id", "name"] as const },
+        { atLeast: ["id", "name"] as const }
       );
 
       type Output = Prettify<StandardSchemaV1.InferOutput<typeof schema>>;
@@ -585,7 +580,7 @@ describe("object schema", () => {
           name: v.string(),
           age: v.number(),
         },
-        { atLeast: [] },
+        { atLeast: [] }
       );
 
       const result = parse(schema, {});
@@ -600,7 +595,7 @@ describe("object schema", () => {
           name: v.string(),
           email: v.string(),
         },
-        { partial: false, atLeast: ["id"] },
+        { partial: false, atLeast: ["id"] }
       );
 
       // Should fail because all fields are required with partial: false
@@ -617,13 +612,8 @@ describe("object schema", () => {
         author: v.string(),
       },
       {
-        requiresOneOfKeySets: [
-          [
-            ["authorId", "authorOrgId"],
-            ["author"],
-          ],
-        ],
-      },
+        requiresOneOfKeySets: [[["authorId", "authorOrgId"], ["author"]]],
+      }
     );
 
     test("rejects missing alternatives", () => {
@@ -674,13 +664,10 @@ describe("object schema", () => {
       },
       {
         requiresOneOfKeySets: [
-          [
-            ["authorId", "authorOrgId"],
-            ["author"],
-          ],
+          [["authorId", "authorOrgId"], ["author"]],
           [["categoryId"], ["category"]],
         ],
-      },
+      }
     );
 
     test("rejects when any key-set group is unsatisfied", () => {
@@ -721,7 +708,7 @@ describe("object schema", () => {
     test("rejects empty object when nonEmpty: true", () => {
       const schema = v.object(
         { name: v.string(), age: v.number() },
-        { nonEmpty: true, partial: true },
+        { nonEmpty: true, partial: true }
       );
       const result = parse(schema, {});
       expect(result.issues).toBeDefined();
@@ -731,7 +718,7 @@ describe("object schema", () => {
     test("accepts object with at least one key when nonEmpty: true", () => {
       const schema = v.object(
         { name: v.string(), age: v.number() },
-        { nonEmpty: true, partial: true },
+        { nonEmpty: true, partial: true }
       );
       const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
@@ -740,7 +727,7 @@ describe("object schema", () => {
     test("nonEmpty works with strict: false", () => {
       const schema = v.object(
         { name: v.string() },
-        { nonEmpty: true, strict: false, partial: true },
+        { nonEmpty: true, strict: false, partial: true }
       );
 
       // Empty object should fail
@@ -755,7 +742,7 @@ describe("object schema", () => {
     test("nonEmpty: false allows empty objects", () => {
       const schema = v.object(
         { name: v.string() },
-        { nonEmpty: false, partial: true },
+        { nonEmpty: false, partial: true }
       );
       const result = parse(schema, {});
       expect(result.issues).toBeUndefined();
@@ -764,7 +751,7 @@ describe("object schema", () => {
     test("nonEmpty works with array wrapper", () => {
       const schema = v.object(
         { name: v.string() },
-        { nonEmpty: true, array: true, partial: true },
+        { nonEmpty: true, array: true, partial: true }
       );
 
       // Array with empty object should fail
@@ -786,12 +773,73 @@ describe("object schema", () => {
       // With partial: false, all fields are required, so object can't be empty anyway
       const schema = v.object(
         { name: v.string() },
-        { nonEmpty: true, partial: false },
+        { nonEmpty: true, partial: false }
       );
 
       // Empty object fails because name is required (not because of nonEmpty)
       const result = parse(schema, {});
       expect(result.issues).toBeDefined();
+    });
+  });
+
+  describe("explicit undefined keys (Prisma parity)", () => {
+    test("partial: { f: undefined } behaves exactly like {}", () => {
+      const schema = v.object({ name: v.string(), age: v.number() });
+
+      const explicit = parse(schema, { name: undefined });
+      const absent = parse(schema, {});
+
+      expect(explicit.issues).toBeUndefined();
+      expect((explicit as { value: unknown }).value).toEqual(
+        (absent as { value: unknown }).value
+      );
+      expect("name" in (explicit as { value: object }).value).toBe(false);
+    });
+
+    test("partial: explicit undefined key is not materialized in output", () => {
+      const schema = v.object({ name: v.string(), age: v.number() });
+      const result = parse(schema, { name: undefined, age: 5 });
+
+      expect(result.issues).toBeUndefined();
+      const value = (result as { value: Record<string, unknown> }).value;
+      expect(value).toEqual({ age: 5 });
+      expect("name" in value).toBe(false);
+    });
+
+    test("partial: absent keys are not materialized in output", () => {
+      const schema = v.object({ name: v.string(), age: v.number() });
+      const result = parse(schema, { age: 5 });
+
+      const value = (result as { value: Record<string, unknown> }).value;
+      expect(Object.keys(value)).toEqual(["age"]);
+    });
+
+    test("partial: default still fires for explicitly-undefined key", () => {
+      const schema = v.object({
+        name: v.string({ default: "anon" }),
+        age: v.number(),
+      });
+      const result = parse(schema, { name: undefined, age: 5 });
+
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: unknown }).value).toEqual({
+        name: "anon",
+        age: 5,
+      });
+    });
+
+    test("slow path (partial: false) keeps dense output", () => {
+      // Documented contract: non-fully-partial schemas materialize all keys
+      const schema = v.object(
+        { name: v.string(), nickname: v.string({ optional: true }) },
+        { partial: false }
+      );
+      const result = parse(schema, { name: "Alice" });
+
+      expect(result.issues).toBeUndefined();
+      const value = (result as { value: Record<string, unknown> }).value;
+      expect("nickname" in value).toBe(true);
+      expect(value.nickname).toBeUndefined();
     });
   });
 });

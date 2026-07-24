@@ -1,4 +1,0 @@
-{
-  "title": "Relations",
-  "pages": ["index", "to-one", "to-many", "nested-writes"]
-}

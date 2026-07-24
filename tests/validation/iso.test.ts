@@ -22,18 +22,12 @@ describe("isoTimestamp schema", () => {
     test("rejects invalid formats", () => {
       expect(parse(schema, "2023-12-15").issues).toBeDefined();
       expect(parse(schema, "not-a-date").issues).toBeDefined();
-      expect(
-        parse(schema, "2023-12-15T10:30:00").issues
-      ).toBeDefined();
+      expect(parse(schema, "2023-12-15T10:30:00").issues).toBeDefined();
     });
 
     test("rejects invalid dates", () => {
-      expect(
-        parse(schema, "2023-13-15T10:30:00.000Z").issues
-      ).toBeDefined();
-      expect(
-        parse(schema, "2023-12-32T10:30:00.000Z").issues
-      ).toBeDefined();
+      expect(parse(schema, "2023-13-15T10:30:00.000Z").issues).toBeDefined();
+      expect(parse(schema, "2023-12-32T10:30:00.000Z").issues).toBeDefined();
     });
 
     test("type inference", () => {
@@ -73,9 +67,7 @@ describe("isoDate schema", () => {
     });
 
     test("rejects invalid formats", () => {
-      expect(
-        parse(schema, "2023-12-15T10:30:00Z").issues
-      ).toBeDefined();
+      expect(parse(schema, "2023-12-15T10:30:00Z").issues).toBeDefined();
       expect(parse(schema, "12/15/2023").issues).toBeDefined();
       expect(parse(schema, "2023-1-1").issues).toBeDefined();
     });

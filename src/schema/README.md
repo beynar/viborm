@@ -13,9 +13,9 @@ The schema module is the heart of VibORM — a fully type-safe, chainable API fo
 1. [Overview](#overview)
 2. [Quick Start](#quick-start)
 3. [Architecture](#architecture)
-4. [Fields](#fields)
-   - [Field Types](#field-types)
-   - [Field Modifiers](#field-modifiers)
+4. [Scalars](#scalars)
+   - [Scalar Types](#scalar-types)
+   - [Scalar Modifiers](#scalar-modifiers)
    - [Auto-generation](#auto-generation)
    - [Native Database Types](#native-database-types)
    - [Custom Validators](#custom-validators)
@@ -78,6 +78,12 @@ const post = s.model({
 | **Registry Validation** | Schema state feeds `SchemaRegistry` operation validation |
 | **Database Agnostic** | Core abstractions work across PostgreSQL, MySQL, and SQLite |
 
+For portable schemas, model keys, mapped table names, scalar and relation keys,
+and mapped column names must be ASCII SQL identifiers (letters, digits, and
+underscores, not starting with a digit) of at most 63 bytes. Names inherited
+from `Object.prototype`, such as `constructor` and `toString`, are reserved to
+prevent dictionary collisions at runtime.
+
 ---
 
 ## Quick Start
@@ -85,7 +91,7 @@ const post = s.model({
 ```ts
 import { s, validateSchemaOrThrow } from "viborm";
 
-// 1. Define fields
+// 1. Define a model with scalar fields
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
@@ -107,39 +113,39 @@ type User = typeof user["~"]["infer"];
 ```
 src/schema/
 ├── index.ts              # Main entry point, exports `s` builder
-├── fields/               # Scalar field implementations
-│   ├── base.ts           # Field union type & type guard
-│   ├── common.ts         # FieldState interface & helpers
+├── scalars/              # Scalar implementations
+│   ├── base.ts           # Scalar union type & type guard
+│   ├── common.ts         # ScalarState interface & helpers
 │   ├── native-types.ts   # PG, MYSQL, SQLITE type constants
-│   ├── string/           # StringField class + schemas
-│   ├── number/           # IntField, FloatField, DecimalField
-│   ├── boolean/          # BooleanField
-│   ├── datetime/         # DateTimeField
-│   ├── bigint/           # BigIntField
-│   ├── json/             # JsonField (with StandardSchema support)
-│   ├── blob/             # BlobField
-│   ├── enum/             # EnumField
-│   └── vector/           # VectorField (for embeddings)
-├── model/                # Model class & type infrastructure
+│   ├── string/           # StringScalar class + schemas
+│   ├── int/, float/, decimal/, number/  # Numeric scalar classes
+│   ├── boolean/          # BooleanScalar
+│   ├── datetime/         # DateTimeScalar
+│   ├── bigint/           # BigIntScalar
+│   ├── json/             # JsonScalar (with StandardSchema support)
+│   ├── blob/             # BlobScalar
+│   ├── enum/             # EnumScalar
+│   ├── point/            # PointScalar (geo)
+│   └── vector/           # VectorScalar (for embeddings)
+├── model/                # Model class & structural metadata
 │   ├── model.ts          # Model class implementation
-│   ├── types/            # TypeScript type definitions
-│   │   ├── helpers.ts    # Core type helpers (FieldRecord, extraction)
-│   │   ├── input-types.ts    # Create, Where, Update inputs
-│   │   ├── result-types.ts   # Query result types
-│   │   ├── args-types.ts     # Operation argument types
-│   │   └── ...
-│   └── runtime/          # ArkType schema builders
-│       ├── core-schemas.ts   # Base, filter, create schemas
-│       ├── args-schemas.ts   # Operation args validation
-│       └── mutation-schemas.ts
+│   └── helper.ts         # ModelShape, extraction helpers (ScalarKeys, RelationKeys, etc.)
 ├── relation/             # Relation class hierarchy
-│   ├── relation.ts       # ToOneRelation, OneToManyRelation, ManyToManyRelation
-│   └── schemas.ts        # Relation filter schemas
+│   ├── to-one.ts         # ToOneRelation (oneToOne, manyToOne)
+│   ├── to-many.ts        # OneToManyRelation
+│   ├── many-to-many.ts   # ManyToManyRelation
+│   └── helpers.ts        # Relation type helpers
 └── validation/           # Schema validation rules
     ├── validator.ts      # SchemaValidator class
     ├── types.ts          # ValidationError, ValidationResult
-    └── rules/            # Individual validation rules
+    └── rules/            # Individual validation rules (model, fk, relation, database)
 ```
+
+**Note:** Operation input/result types (`ModelWhereInput`, `ModelCreateInput`, result
+shapes, etc.) are no longer defined under `src/schema/`. That responsibility moved to
+`src/validation/` — see [validation/AGENTS.md](../validation/AGENTS.md) and
+`SchemaRegistry`. The "Input Types" / "Result Types" sections below describe the
+current validation-layer equivalents where paths differ from `src/schema/`.
 
 ### The `s` Builder
 
@@ -150,9 +156,9 @@ export const s = {
   // Model factory
   model,
 
-  // Scalar fields
+  // Scalars
   string, boolean, int, float, decimal, bigInt,
-  dateTime, json, blob, enum: enumField, vector,
+  dateTime, json, blob, enum: enumScalar, vector,
 
   // Relations
   oneToOne, oneToMany, manyToOne, manyToMany,
@@ -161,13 +167,13 @@ export const s = {
 
 ---
 
-## Fields
+## Scalars
 
-Fields represent scalar database columns. Each field type has its own class with type-safe chainable modifiers.
+Scalars represent database columns. Each scalar type has its own class with type-safe chainable modifiers.
 
-### Field Types
+### Scalar Types
 
-| Field | TypeScript Type | Database Type |
+| Scalar | TypeScript Type | Database Type |
 |-------|----------------|---------------|
 | `s.string()` | `string` | VARCHAR/TEXT |
 | `s.int()` | `number` | INTEGER |
@@ -181,9 +187,9 @@ Fields represent scalar database columns. Each field type has its own class with
 | `s.enum([...])` | Union type | ENUM |
 | `s.vector()` | `number[]` | VECTOR |
 
-### Field Modifiers
+### Scalar Modifiers
 
-All modifiers return a new field instance with updated state:
+All modifiers return a new scalar instance with updated state:
 
 ```ts
 s.string()
@@ -199,7 +205,7 @@ s.string()
 
 ### Auto-generation
 
-String fields support automatic ID generation:
+String scalars support automatic ID generation:
 
 ```ts
 s.string().id().uuid()    // Generate UUIDv4
@@ -208,13 +214,13 @@ s.string().id().nanoid()  // Generate NanoID (short)
 s.string().id().cuid()    // Generate CUID
 ```
 
-Integer fields support auto-increment:
+Integer scalars support auto-increment:
 
 ```ts
 s.int().id().increment()  // Auto-incrementing integer
 ```
 
-DateTime fields support automatic timestamps:
+DateTime scalars support automatic timestamps:
 
 ```ts
 s.dateTime().now()        // Default to current timestamp
@@ -246,7 +252,7 @@ s.float(TYPES.SQLITE.FLOAT.REAL)
 
 ### Custom Validators
 
-Fields accept any [StandardSchema](https://standardschema.dev/) compliant validator:
+Scalars accept any [StandardSchema](https://standardschema.dev/) compliant validator:
 
 ```ts
 import { z } from "zod";
@@ -255,13 +261,13 @@ s.string().schema(z.string().email())
 s.string().schema(z.string().min(8).max(100))
 ```
 
-### Field State
+### Scalar State
 
-Every field tracks its configuration in a `FieldState` object:
+Every scalar tracks its configuration in a `ScalarState` object:
 
 ```ts
-interface FieldState {
-  type: ScalarFieldType;        // "string" | "int" | etc.
+interface ScalarState {
+  type: ScalarType;        // "string" | "int" | etc.
   nullable: boolean;
   array: boolean;
   hasDefault: boolean;
@@ -277,9 +283,9 @@ interface FieldState {
 The state flows through the generic parameter, enabling compile-time type inference:
 
 ```ts
-class StringField<State extends FieldState<"string">> {
-  nullable(): StringField<UpdateState<State, { nullable: true }>> {
-    return new StringField({ ...this.state, nullable: true });
+class StringScalar<State extends ScalarState<"string">> {
+  nullable(): StringScalar<UpdateState<State, { nullable: true }>> {
+    return new StringScalar({ ...this.state, nullable: true });
   }
 }
 ```
@@ -288,7 +294,7 @@ class StringField<State extends FieldState<"string">> {
 
 ## Models
 
-Models represent database tables with fields and relations.
+Models represent database tables with fields: scalars and relations.
 
 ### Model Definition
 
@@ -315,7 +321,7 @@ s.model({ ... })
   })
   .id(["orgId", "userId"]) // Compound primary key
   .unique(["a", "b"])      // Compound unique constraint
-  .extends({ ... })        // Add more fields
+  .extends({ ... })        // Add more model members
 ```
 
 ### Compound Keys
@@ -381,8 +387,8 @@ VibORM uses a **config-first, getter-last** pattern for relations:
 ```ts
 // Owner side (has foreign key)
 s.manyToOne(() => user)
-  .fields("authorId")              // FK field on this model
-  .references("id")                // Referenced field on target
+  .fields("authorId")              // FK scalar field-key on this model
+  .references("id")                // Referenced scalar field-key on target
   .onDelete("cascade")             // cascade | setNull | restrict | noAction
   .onUpdate("cascade")
   .optional()                      // Allow NULL (to-one only)
@@ -423,21 +429,21 @@ The type system provides compile-time type inference without code generation.
 
 ### State-Based Generics
 
-Both fields and models use a single `State` generic pattern:
+Both scalars and models use a single `State` generic pattern:
 
 ```ts
-// Field state
-class StringField<State extends FieldState<"string">> { ... }
+// Scalar state
+class StringScalar<State extends ScalarState<"string">> { ... }
 
 // Model state
 class Model<State extends AnyModelState = ModelState> { ... }
 
 interface ModelState<
-  TFields extends FieldRecord,
+  TShape extends ModelShape,
   TCompoundId extends CompoundConstraint | undefined,
   TCompoundUniques extends readonly CompoundConstraint[]
 > {
-  fields: TFields;
+  shape: TShape;
   compoundId: TCompoundId;
   compoundUniques: TCompoundUniques;
 }
@@ -457,13 +463,13 @@ Located in `model/types/input-types.ts`:
 | `ModelCreateInput<T>` | Input for create operations |
 | `ModelUpdateInput<T>` | Input for update operations |
 | `ModelWhereInput<T>` | Filter conditions |
-| `ModelWhereUniqueInput<T>` | Unique identifier (single field) |
+| `ModelWhereUniqueInput<T>` | Unique identifier (single unique scalar field) |
 | `ModelWhereUniqueInputFull<M>` | Unique identifier (includes compound keys) |
 | `ModelOrderBy<T>` | Sort order specification |
 
 ```ts
 // Example: WhereInput
-type UserWhere = ModelWhereInput<typeof user["~"]["fields"]>;
+type UserWhere = ModelWhereInput<typeof user["~"]["state"]["shape"]>;
 // {
 //   id?: string | { equals?: string; not?: string; in?: string[]; ... };
 //   email?: string | { contains?: string; startsWith?: string; ... };
@@ -485,7 +491,7 @@ Located in `model/types/result-types.ts`:
 | `InferResult<T, Args>` | Dispatches based on select/include |
 
 ```ts
-// Without select/include → all scalars
+// Without select/include → all scalar fields
 type User = ModelBaseResult<UserFields>;
 // { id: string; email: string; name: string | null }
 
@@ -504,23 +510,23 @@ Located in `model/types/helpers.ts`:
 
 ```ts
 // Extract from Model
-ExtractFields<M>           // Get field definitions
+ExtractScalarMap<M>        // Get scalar definitions
 ExtractCompoundId<M>       // Get compound ID constraint
 ExtractCompoundUniques<M>  // Get compound unique constraints
 
-// Field analysis
-ScalarFieldKeys<T>         // Keys of scalar fields
+// Scalar analysis
+ScalarKeys<T>              // Scalar field keys
 RelationKeys<T>            // Keys of relations
-UniqueFieldKeys<T>         // Keys marked as id or unique
-NumericFieldKeys<T>        // Keys of numeric fields
+UniqueScalarKeys<T>         // Keys marked as id or unique
+NumericScalarKeys<T>       // Numeric scalar field keys
 
 // Relation analysis
-GetRelationFields<R>       // Target model's fields
+GetRelationMap<R>          // Target model relations
 GetRelationType<R>         // "oneToOne" | "oneToMany" | etc.
 GetRelationOptional<R>     // Is relation optional?
 
-// Field type inference
-InferFieldBase<F>          // Result type (what you get back)
+// Scalar type inference
+InferScalarBase<F>         // Result type (what you get back)
 InferFieldInput<F>         // Input type (what you can pass)
 InferFieldCreate<F>        // Create input (handles defaults)
 InferFieldFilter<F>        // Filter input type
@@ -538,26 +544,26 @@ The validation system checks schema correctness before runtime.
 | Code | Category | Description |
 |------|----------|-------------|
 | **M0xx** | Model | Basic model structure |
-| **F0xx** | Field | Field-level constraints |
+| **F0xx** | Scalar | Scalar-level constraints |
 | **I0xx** | Index | Index definitions |
 | **R0xx** | Relation | Relation configuration |
 | **JT0xx** | Junction | Many-to-many junction tables |
 | **SR0xx** | Self-ref | Self-referential relations |
 | **CM0xx** | Cross-model | Cross-model dependencies |
-| **FK0xx** | Foreign Key | FK field validation |
+| **FK0xx** | Foreign Key | FK scalar field-key validation |
 | **RA0xx** | Referential Action | onDelete/onUpdate rules |
 | **DB0xx** | Database | Database-specific constraints |
 
 ### Key Validation Rules
 
 ```
-M001  Model must have at least one field
+M001  Model must have at least one scalar field
 M002  Model names must be unique
 M003  Model name cannot be empty or reserved
 
 F001  No duplicate field names
-F002  Model must have exactly one ID (field or compound)
-F003  Default value must match field type
+F002  Model must have exactly one ID (scalar field or compound ID)
+F003  Default value must match scalar type
 F004  Only certain types support arrays (DB-specific)
 
 I001  Index fields must exist in model
@@ -568,9 +574,9 @@ R001  Relation target model must exist
 R002  Bidirectional relations should have inverse
 R003  Relation names must be unique per model
 
-FK001 FK field must exist in model
-FK002 Referenced field must exist in target
-FK003 FK and reference types must match
+FK001 FK scalar field-key must exist in model
+FK002 Referenced scalar field-key must exist in target
+FK003 FK scalar and referenced scalar types must match
 ```
 
 ### Using the Validator
@@ -601,18 +607,18 @@ const result = validator.validate();
 
 ## Runtime Schemas
 
-The schema module owns database structure and base field schemas. Runtime operation schemas are built by `SchemaRegistry` in `src/validation/`.
+The schema module owns database structure and base scalar schemas. Runtime operation schemas are built by `SchemaRegistry` in `src/validation/`.
 
-### Field Base Schemas
+### Scalar Base Schemas
 
-Each field stores its base value schema in state:
+Each scalar stores its base value schema in state:
 
 | Schema | Purpose |
 |--------|---------|
 | `base` | The base value type |
 
 ```ts
-// Access the base field schema
+// Access the base scalar schema
 const base = s.string().nullable()["~"].state.base;
 
 // Validate at runtime
@@ -634,7 +640,7 @@ const schemas = registry.proxy.user;
 
 // Available schemas:
 schemas.core.create       // With required/optional handling
-schemas.core.update       // All fields optional + operations
+schemas.core.update       // All scalar fields optional + operations
 schemas.core.where        // Full filter object
 schemas.core.whereUnique  // id | email | compound_key
 schemas.core.orderBy      // { id?: "asc" | "desc"; ... }
@@ -650,14 +656,14 @@ The registry owns `filter`, `create`, `update`, relation, and model args schemas
 
 The `~` property exposes internal state for ORM machinery. It's not part of the public API and may change.
 
-### Field Internals
+### Scalar Internals
 
 ```ts
-const field = s.string().nullable().id();
+const scalar = s.string().nullable().id();
 
-field["~"].state        // FieldState object
-field["~"].state.base   // Base field schema
-field["~"].nativeType   // Optional native DB type
+scalar["~"].state        // ScalarState object
+scalar["~"].state.base   // Base scalar schema
+scalar["~"].nativeType   // Optional native DB type
 ```
 
 ### Model Internals
@@ -665,14 +671,14 @@ field["~"].nativeType   // Optional native DB type
 ```ts
 const model = s.model({ ... }).map("users");
 
-model["~"].fields        // Field definitions object
-model["~"].fieldMap      // Map<string, Field>
-model["~"].relations     // Map<string, Relation>
-model["~"].tableName     // "users"
-model["~"].indexes       // IndexDefinition[]
-model["~"].compoundId    // { fields: [...], name?: string } | undefined
-model["~"].compoundUniques // CompoundConstraint[]
-model["~"].infer         // Phantom type for inference
+model["~"].state.shape      // Model shape object
+model["~"].state.scalars    // Scalar definitions object
+model["~"].state.relations  // Relation definitions object
+model["~"].state.tableName  // "users"
+model["~"].state.indexes    // IndexDefinition[]
+model["~"].state.compoundId // { fields: [...], name?: string } | undefined
+model["~"].state.uniques    // CompoundConstraint[]
+model["~"].state.infer      // Phantom type for inference
 ```
 
 ### Relation Internals
@@ -685,7 +691,7 @@ rel["~"].relationType    // "manyToOne"
 rel["~"].isToMany        // false
 rel["~"].isToOne         // true
 rel["~"].isOptional      // false
-rel["~"].fields          // ["authorId"]
+rel["~"].fields          // FK scalar field keys, e.g. ["authorId"]
 rel["~"].references      // ["id"]
 rel["~"].onDelete        // undefined | ReferentialAction
 rel["~"].onUpdate        // undefined | ReferentialAction

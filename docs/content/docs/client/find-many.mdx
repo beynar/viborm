@@ -1,0 +1,110 @@
+---
+title: findMany
+description: Find multiple records matching your criteria with filtering and pagination
+icon: List
+---
+
+`findMany` returns every record matching a filter, as an array.
+
+```ts
+const users = await client.user.findMany();
+// Result: all users
+```
+
+## With Filtering
+
+```ts
+const activeAdmins = await client.user.findMany({
+  where: {
+    role: "ADMIN",
+    active: true,
+  },
+});
+```
+
+See [Filtering](/docs/client/filtering) for the full operator reference.
+
+## With Sorting
+
+```ts
+const users = await client.user.findMany({
+  orderBy: { createdAt: "desc" },
+});
+```
+
+See [Sorting](/docs/client/sorting) for multi-field, relation, and aggregate ordering.
+
+## With Pagination
+
+```ts
+const page2 = await client.user.findMany({
+  take: 10,
+  skip: 1,  // Skip the cursor itself
+  cursor: { id: lastId },
+  orderBy: { id: "asc" },
+});
+```
+
+See [Pagination](/docs/client/pagination) for offset and cursor pagination.
+
+## All Options
+
+```ts
+await client.user.findMany({
+  where: { ... },           // Filter conditions
+  orderBy: { ... },         // Sort order
+  take: 10,                 // Max records
+  skip: 0,                  // Offset
+  cursor: { id: "..." },    // Cursor for pagination
+  select: { ... },          // Fields to return
+  include: { ... },         // Relations to include
+  distinct: ["field"],      // Distinct by field
+});
+```
+
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
+
+At the top level, a negative `take` returns the last N records in the order. This "last N" form is top-level only — a negative `take` or a `cursor` inside a nested `include`/`select` isn't supported.
+
+## Return Type
+
+```ts
+// Default: all scalars
+const users = await client.user.findMany();
+// Type: { id: string; email: string; name: string; ... }[]
+
+// With select: only selected fields
+const users = await client.user.findMany({
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string }[]
+
+// With include: scalars + included relations
+const users = await client.user.findMany({
+  include: { posts: true },
+});
+// Type: { id: string; ...; posts: Post[] }[]
+```
+
+## Examples
+
+### Search with Filters
+
+```ts
+async function searchUsers(query: string, role?: string) {
+  return client.user.findMany({
+    where: {
+      AND: [
+        {
+          OR: [
+            { name: { contains: query, mode: "insensitive" } },
+            { email: { contains: query, mode: "insensitive" } },
+          ],
+        },
+        role ? { role } : {},
+      ],
+    },
+    take: 20,
+  });
+}
+```

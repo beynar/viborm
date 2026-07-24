@@ -41,10 +41,10 @@ Initialize your database client with your preferred database:
 <Tabs items={["postgres.js", "node-postgres", "SQLite", "PGlite"]}>
   <Tab value="postgres.js">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm/drivers/postgres";
+import { createClient } from "viborm/postgres";
 import * as schema from "./schema";
 
-export const db = createClient({
+export const client = createClient({
   schema,
   databaseUrl: process.env.DATABASE_URL,
 });
@@ -52,10 +52,10 @@ export const db = createClient({
   </Tab>
   <Tab value="node-postgres">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm/drivers/pg";
+import { createClient } from "viborm/pg";
 import * as schema from "./schema";
 
-export const db = createClient({
+export const client = createClient({
   schema,
   databaseUrl: process.env.DATABASE_URL,
 });
@@ -63,21 +63,21 @@ export const db = createClient({
   </Tab>
   <Tab value="SQLite">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm/drivers/sqlite3";
+import { createClient } from "viborm/sqlite3";
 import * as schema from "./schema";
 
-export const db = createClient({
+export const client = createClient({
   schema,
-  options: { filename: "./data.db" },
+  dataDir: "./data.db",
 });
 ```
   </Tab>
   <Tab value="PGlite">
 ```ts title="src/db/client.ts"
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 import * as schema from "./schema";
 
-export const db = createClient({
+export const client = createClient({
   schema,
   dataDir: "./data",
 });
@@ -85,15 +85,32 @@ export const db = createClient({
   </Tab>
 </Tabs>
 
-## 3. Query Your Data
+## 3. Create the Database Tables
+
+Your database is still empty. Create a `viborm.config.ts` in your project root and push the schema:
+
+```ts title="viborm.config.ts"
+import { defineConfig } from "viborm/config";
+import { client } from "./src/db/client";
+
+export default defineConfig({ client });
+```
+
+```bash
+bun viborm push
+```
+
+`push` syncs your models straight to the database without migration files — see [Push](/docs/migration/push) for details and [Configuration](/docs/getting-started/configuration) for config options.
+
+## 4. Query Your Data
 
 Now you can use the fully typed client:
 
 ```ts title="src/index.ts"
-import { db } from "./db/client";
+import { client } from "./db/client";
 
 // Create a user
-const newUser = await db.user.create({
+const newUser = await client.user.create({
   data: {
     email: "alice@example.com",
     name: "Alice",
@@ -101,7 +118,7 @@ const newUser = await db.user.create({
 });
 
 // Create a post for the user
-const newPost = await db.post.create({
+const newPost = await client.post.create({
   data: {
     title: "My First Post",
     content: "Hello, VibORM!",
@@ -110,7 +127,7 @@ const newPost = await db.post.create({
 });
 
 // Find users with their posts
-const users = await db.user.findMany({
+const users = await client.user.findMany({
   where: {
     email: { contains: "@example.com" },
   },
@@ -123,31 +140,31 @@ const users = await db.user.findMany({
 });
 
 // Update a post
-await db.post.update({
+await client.post.update({
   where: { id: newPost.id },
   data: { published: true },
 });
 
 // Delete unpublished posts
-await db.post.deleteMany({
+await client.post.deleteMany({
   where: { published: false },
 });
 ```
 
-## 4. Type Safety in Action
+## 5. Type Safety in Action
 
 VibORM provides full type inference:
 
 ```ts
 // ✅ TypeScript knows the exact shape
-const user = await db.user.findUnique({
+const user = await client.user.findUnique({
   where: { email: "alice@example.com" },
   select: { id: true, name: true },
 });
 // Type: { id: string; name: string } | null
 
 // ❌ TypeScript catches errors at compile time
-await db.user.create({
+await client.user.create({
   data: {
     email: "bob@example.com",
     // Error: 'name' is required
@@ -155,7 +172,7 @@ await db.user.create({
 });
 
 // ❌ Invalid field names are rejected
-await db.user.findMany({
+await client.user.findMany({
   where: { invalidField: "value" }, // Error: 'invalidField' does not exist
 });
 ```
@@ -165,7 +182,7 @@ await db.user.findMany({
 <Cards>
   <Card
     title="Schema Definition"
-    description="Learn about models, fields, and relations"
+    description="Learn about models and fields (scalars and relations)"
     href="/docs/schema"
   />
   <Card

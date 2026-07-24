@@ -6,13 +6,13 @@
  * All result types are inferred from result-types.ts.
  */
 
+import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model } from "@schema/model";
-import type { FieldRecord } from "@schema/model/helper";
+import type { ModelShape } from "@schema/model/helper";
 import type { Prettify } from "@validation";
 import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
 import type { CacheDriver } from "../cache/driver";
 import type { VibORMConfig } from "./client";
-import type { PendingOperation } from "./pending-operation";
 import type {
   AggregateResultType,
   BatchPayload,
@@ -21,12 +21,7 @@ import type {
   InferSelectInclude,
 } from "./result-types";
 
-/**
- * Callback to extend the lifetime of the request until the promise resolves.
- * Used in serverless environments (Cloudflare Workers, Vercel Edge) to keep
- * the runtime alive for background operations like SWR revalidation.
- */
-export type WaitUntilFn = (promise: Promise<unknown>) => void;
+export type { WaitUntilFn } from "../cache/cache-contract";
 
 export type Schema = Record<string, Model<any>>;
 
@@ -36,8 +31,10 @@ export type Operations =
   | "findUnique"
   | "create"
   | "createMany"
+  | "createManyAndReturn"
   | "update"
   | "updateMany"
+  | "updateManyAndReturn"
   | "delete"
   | "deleteMany"
   | "findUniqueOrThrow"
@@ -68,23 +65,25 @@ export type CacheableOperations =
 export type MutationOperations =
   | "create"
   | "createMany"
+  | "createManyAndReturn"
   | "update"
   | "updateMany"
+  | "updateManyAndReturn"
   | "delete"
   | "deleteMany"
   | "upsert";
 
 /**
- * Extract fields from a Model - works with Model<any>
+ * Extract shape from a Model - works with Model<any>
  */
 type ExtractFields<M> =
   M extends Model<infer S>
-    ? S extends { fields: infer F }
-      ? F extends FieldRecord
+    ? S extends { shape: infer F }
+      ? F extends ModelShape
         ? F
-        : FieldRecord
-      : FieldRecord
-    : FieldRecord;
+        : ModelShape
+      : ModelShape
+    : ModelShape;
 
 /**
  * Operation payload type - passes Model directly to args types
@@ -121,13 +120,24 @@ export type OperationPayload<
                           ? ModelOperationInput<M, "groupBy">
                           : O extends "createMany"
                             ? ModelOperationInput<M, "createMany">
-                            : O extends "updateMany"
-                              ? ModelOperationInput<M, "updateMany">
-                              : O extends "exist"
-                                ? {
-                                    where: ModelCoreInput<M, "where">;
-                                  }
-                                : never;
+                            : O extends "createManyAndReturn"
+                              ? ModelOperationInput<M, "createManyAndReturn">
+                              : O extends "updateMany"
+                                ? ModelOperationInput<M, "updateMany">
+                                : O extends "updateManyAndReturn"
+                                  ? ModelOperationInput<
+                                      M,
+                                      "updateManyAndReturn"
+                                    >
+                                  : O extends "exist"
+                                    ? // Optional like the runtime (count
+                                      // schema): exist() with no filter
+                                      // reports whether any row exists.
+                                        | {
+                                            where?: ModelCoreInput<M, "where">;
+                                          }
+                                        | undefined
+                                    : never;
 
 /**
  * Operation result type - infers result shape based on select/include args
@@ -146,17 +156,19 @@ export type OperationResult<
         ? Prettify<InferSelectInclude<S, Args>>[]
         : O extends "create" | "update" | "delete" | "upsert"
           ? Prettify<InferSelectInclude<S, Args>>
-          : O extends "createMany" | "updateMany" | "deleteMany"
-            ? BatchPayload
-            : O extends "count"
-              ? CountResultType<Args>
-              : O extends "exist"
-                ? boolean
-                : O extends "aggregate"
-                  ? AggregateResultType<ExtractFields<M>, Args>
-                  : O extends "groupBy"
-                    ? GroupByResultType<ExtractFields<M>, Args>[]
-                    : never
+          : O extends "createManyAndReturn" | "updateManyAndReturn"
+            ? Prettify<InferSelectInclude<S, Args>>[]
+            : O extends "createMany" | "updateMany" | "deleteMany"
+              ? BatchPayload
+              : O extends "count"
+                ? CountResultType<Args>
+                : O extends "exist"
+                  ? boolean
+                  : O extends "aggregate"
+                    ? AggregateResultType<ExtractFields<M>, Args>
+                    : O extends "groupBy"
+                      ? GroupByResultType<ExtractFields<M>, Args>[]
+                      : never
   : never;
 
 /**
@@ -175,6 +187,9 @@ type RemoveCacheKey<C extends VibORMConfig, T> = C["cache"] extends CacheDriver
     ? Omit<T, "cache"> & {}
     : T;
 
+type NoExtraOperationKeys<Arg, Payload> = Arg &
+  Record<Exclude<keyof Arg, keyof Payload>, never>;
+
 /**
  * Operation type - returns PendingOperation which implements PromiseLike
  * This allows operations to be:
@@ -188,10 +203,13 @@ type Operation<
   Payload = OperationPayload<O, M>,
 > = undefined extends Payload
   ? <Arg extends RemoveCacheKey<C, Payload>>(
-      args?: Exclude<Arg, undefined>
+      args?: NoExtraOperationKeys<
+        Exclude<Arg, undefined>,
+        Exclude<RemoveCacheKey<C, Payload>, undefined>
+      >
     ) => PendingOperation<OperationResult<O, M, Arg>>
   : <Arg extends RemoveCacheKey<C, Payload>>(
-      args: Arg
+      args: NoExtraOperationKeys<Arg, RemoveCacheKey<C, Payload>>
     ) => PendingOperation<OperationResult<O, M, Arg>>;
 
 /**
@@ -203,9 +221,14 @@ type CachedOperation<
   Payload = OperationPayload<O, M>,
 > = undefined extends Payload
   ? <Arg extends Payload>(
-      args?: Exclude<Arg, undefined>
+      args?: NoExtraOperationKeys<
+        Exclude<Arg, undefined>,
+        Exclude<Payload, undefined>
+      >
     ) => Promise<OperationResult<O, M, Arg>>
-  : <Arg extends Payload>(args: Arg) => Promise<OperationResult<O, M, Arg>>;
+  : <Arg extends Payload>(
+      args: NoExtraOperationKeys<Arg, Payload>
+    ) => Promise<OperationResult<O, M, Arg>>;
 
 /**
  * Cached client type - provides typed access to only cacheable (read) operations

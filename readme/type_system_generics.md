@@ -1,50 +1,50 @@
 # VibORM Generic Type System
 
-This document explains the generic type system implementation that enables full type inference from schema definitions with field-specific type safety.
+This document explains the generic type system implementation that enables full type inference from schema definitions with scalar-specific type safety.
 
 ## Overview
 
-VibORM uses a sophisticated generic type system combined with a hierarchical field class structure that provides:
+VibORM uses a sophisticated generic type system combined with a hierarchical scalar class structure that provides:
 
 1. Full TypeScript type inference without code generation
-2. Field-specific method availability (prevents `boolean().max()`)
+2. Scalar-specific method availability (prevents `boolean().max()`)
 3. Complete type safety with autocompletion and compile-time error checking
 
-## Field Class Hierarchy
+## Scalar Class Hierarchy
 
 ### Base Architecture
 
 ```typescript
-BaseField<T>               // Abstract base with common functionality
-├── StringField<T>        // String-specific methods (regex, min/max length)
-├── NumberField<T>        // Number-specific methods (min/max value)
-├── BooleanField          // Only common methods
-├── BigIntField           // Only common methods
-├── DateTimeField         // Date-specific auto-generation
-├── JsonField<T>          // JSON-specific functionality
-├── BlobField             // Binary data
-└── EnumField<TEnum>      // Enum values
+BaseScalar<T>               // Abstract base with common functionality
+├── StringScalar<T>        // String-specific methods (regex, min/max length)
+├── NumberScalar<T>        // Number-specific methods (min/max value)
+├── BooleanScalar          // Only common methods
+├── BigIntScalar           // Only common methods
+├── DateTimeScalar         // Date-specific auto-generation
+├── JsonScalar<T>          // JSON-specific functionality
+├── BlobScalar             // Binary data
+└── EnumScalar<TEnum>      // Enum values
 ```
 
-### Type-Safe Field Creation
+### Type-Safe Scalar Creation
 
-Each field type only exposes relevant methods:
+Each scalar type only exposes relevant methods:
 
 ```typescript
-// String fields - only string-relevant methods
+// String scalars - only string-relevant methods
 s.string()
   .min(5) // ✅ String length validation
   .max(100) // ✅ String length validation
   .regex(/\w+/) // ✅ String pattern validation
   .auto.uuid(); // ✅ String auto-generation
 
-// Number fields - only number-relevant methods
+// Number scalars - only number-relevant methods
 s.int()
   .min(0) // ✅ Numeric range validation
   .max(1000) // ✅ Numeric range validation
   .auto.increment(); // ✅ Numeric auto-generation
 
-// Boolean fields - only common methods
+// Boolean scalars - only common methods
 s.boolean()
   .default(true) // ✅ Common modifier
   .nullable(); // ✅ Common modifier
@@ -53,29 +53,29 @@ s.boolean()
 
 ## How Type Inference Works
 
-### 1. Field-Level Type Capture
+### 1. Scalar-Level Type Capture
 
-Each specific field class captures its TypeScript type:
+Each specific scalar class captures its TypeScript type:
 
 ```typescript
-s.string(); // StringField<string>
-s.string().nullable(); // StringField<string | null>
-s.int(); // NumberField<number>
-s.boolean(); // BooleanField<boolean>
-s.dateTime(); // DateTimeField<Date>
+s.string(); // StringScalar<string>
+s.string().nullable(); // StringScalar<string | null>
+s.int(); // NumberScalar<number>
+s.boolean(); // BooleanScalar<boolean>
+s.dateTime(); // DateTimeScalar<Date>
 ```
 
 ### 2. Model-Level Type Aggregation
 
-The `Model<TFields>` class aggregates all field types:
+The `Model<TFields>` class aggregates all field definitions:
 
 ```typescript
 const userModel = s.model({
-  id: s.string().auto.uuid(), // StringField<string>
-  name: s.string().nullable(), // StringField<string | null>
-  age: s.int().min(0), // NumberField<number>
-  isActive: s.boolean(), // BooleanField<boolean>
-  createdAt: s.dateTime(), // DateTimeField<Date>
+  id: s.string().auto.uuid(), // StringScalar<string>
+  name: s.string().nullable(), // StringScalar<string | null>
+  age: s.int().min(0), // NumberScalar<number>
+  isActive: s.boolean(), // BooleanScalar<boolean>
+  createdAt: s.dateTime(), // DateTimeScalar<Date>
 });
 ```
 
@@ -84,8 +84,8 @@ const userModel = s.model({
 The `ModelType<TFields>` utility extracts TypeScript types:
 
 ```typescript
-type ModelType<TFields extends Record<string, Field | Relation<any>>> = {
-  [K in keyof TFields]: TFields[K] extends BaseField<infer T>
+type ModelType<TFields extends Record<string, Scalar | Relation<any>>> = {
+  [K in keyof TFields]: TFields[K] extends BaseScalar<infer T>
     ? T
     : TFields[K] extends Relation<infer R>
     ? R
@@ -104,24 +104,24 @@ type UserType = {
 
 ## Advanced Type Features
 
-### Union Field Types
+### Union Scalar Types
 
-The `Field<T>` type is a union of all possible field types:
+The `Scalar<T>` type is a union of all possible scalar types:
 
 ```typescript
-export type Field<T = any> =
-  | BaseField<T>
-  | StringField<any>
-  | NumberField<any>
-  | BooleanField
-  | BigIntField
-  | DateTimeField
-  | JsonField<any>
-  | BlobField
-  | EnumField<any>;
+export type Scalar<T = any> =
+  | BaseScalar<T>
+  | StringScalar<any>
+  | NumberScalar<any>
+  | BooleanScalar
+  | BigIntScalar
+  | DateTimeScalar
+  | JsonScalar<any>
+  | BlobScalar
+  | EnumScalar<any>;
 ```
 
-This allows the type system to work with any field while maintaining specificity.
+This allows the type system to work with any scalar while maintaining specificity.
 
 ### Relation Type Integration
 
@@ -162,7 +162,7 @@ type UserRelations = ModelRelations<typeof userModel.fieldDefinitions>;
 
 ```typescript
 const user = s.model({
-  // ✅ All field-appropriate methods
+  // ✅ All scalar-appropriate methods
   name: s
     .string()
     .min(1)
@@ -199,7 +199,7 @@ const invalidModel = s.model({
 
 ### 2. Semantic Correctness
 
-- Field methods only available where they make sense
+- Scalar methods only available where they make sense
 - Impossible to create semantically invalid schemas
 - Self-documenting through available methods
 
@@ -293,4 +293,4 @@ For optimal experience, use these `tsconfig.json` settings:
 }
 ```
 
-This type system represents a significant advancement in ORM design, providing both compile-time safety and excellent developer experience while maintaining the familiar Prisma-like API.
+This type system aims to provide compile-time safety and a familiar Prisma-inspired API without cloning Prisma's generated helper type surface.

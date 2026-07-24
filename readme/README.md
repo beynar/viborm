@@ -5,19 +5,19 @@ This folder contains detailed specifications for each component of the VibORM pr
 ## Table of Contents
 
 1. [Schema Builder](1_schema_builder.md) - The foundation of the ORM
-2. [Field Class](2_field_class.md) - Type-safe field definitions with validation
-   - [Field Scalar Types](2.1_field_scalar_types.md) - Detailed reference for all field types
+2. [Scalar Class](1.2_scalar_class.md) - Type-safe scalar definitions with validation
+   - [Scalar Types](1.3_scalar_types.md) - Detailed reference for all scalar types
 3. [Relation Class](3_relation_class.md) - Relationships between models
-4. [Query Builder](4_query_builder.md) - Prisma-like API for data operations
+4. [Query Builder](4_query_builder.md) - Prisma-inspired API for data operations
 5. [Adapter API](5_adapter_api.md) - Database-specific implementations
-6. [Validation](6_validation.md) - Field and model validation
+6. [Validation](6_validation.md) - Scalar and model validation
 
 ## Project Overview
 
 VibORM is a TypeScript ORM for Postgres and MySQL with two main components:
 
-1. **Schema Builder** - A chainable API for defining models, fields, and relations
-2. **Query Builder** - A Prisma-like interface for querying and mutating data
+1. **Schema Builder** - A chainable API for defining models and fields (scalars and relations)
+2. **Query Builder** - A Prisma-inspired interface for querying and mutating data
 
 All components are designed to be fully type-safe, with TypeScript types inferred from schema definitions rather than generated.
 
@@ -25,7 +25,7 @@ All components are designed to be fully type-safe, with TypeScript types inferre
 
 - **Type Safety**: All components must be fully type-safe and leverage TypeScript's type inference.
 - **Chainable API**: All configuration must use a chainable, functional API (no decorators).
-- **Prisma-like Query API**: The query interface should match Prisma's for familiarity.
+- **Prisma-inspired Query API**: The query interface should feel familiar to Prisma users while documenting intentional differences.
 - **Modular Design**: Components should be loosely coupled and independently testable.
 - **MySQL/Postgres Support**: Focus on features supported by both databases.
 

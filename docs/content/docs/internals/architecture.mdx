@@ -58,15 +58,15 @@ This enables VibORM to support PostgreSQL, MySQL, and SQLite with a single codeb
 
 ### Rule 2: Immutable State for Type Tracking
 
-Every field modifier returns a NEW instance:
+Every scalar modifier returns a NEW instance:
 
 ```typescript
-s.string()           // StringField<{type: "string"}>
-  .nullable()        // StringField<{type: "string", nullable: true}>  ← NEW instance
-  .default("hello")  // StringField<{..., default: "hello"}>           ← NEW instance
+s.string()           // StringScalar<{type: "string"}>
+  .nullable()        // StringScalar<{type: "string", nullable: true}>  ← NEW instance
+  .default("hello")  // StringScalar<{..., default: "hello"}>           ← NEW instance
 ```
 
-TypeScript tracks the State generic through each transformation. If we mutated the field instead, the type system couldn't track changes.
+TypeScript tracks the State generic through each transformation. If we mutated the scalar instead, the type system couldn't track changes.
 
 ### Rule 3: Lazy Evaluation for Circular References
 
@@ -92,22 +92,28 @@ sequenceDiagram
     participant U as User
     participant C as Client
     participant V as Validator
-    participant Q as QueryEngine
+    participant P as PendingOperation
+    participant Q as OperationCompiler
     participant A as Adapter
+    participant R as OperationRuntime
     participant D as Driver
     participant DB as Database
+    participant O as OperationResults
 
     U->>C: orm.user.findMany({ where: { name: "Alice" } })
-    C->>V: Validate args against schema
-    V-->>C: Validated & normalized args
-    C->>Q: Execute operation
-    Q->>A: Build SQL via adapter methods
-    A-->>Q: Sql fragments
-    Q->>D: Execute SQL
+    C->>P: Create lazy operation
+    P->>V: Validate on execution
+    V-->>Q: Validated operation
+    Q->>A: Build adapter-backed Sql fragments
+    A-->>Q: Parameterized Sql
+    Q-->>R: OperationProgram
+    R->>D: Execute statement, transaction, or atomic batch
     D->>DB: Query
     DB-->>D: Raw results
-    D-->>Q: Transform results
-    Q-->>C: Typed results
+    D-->>R: Provider results
+    R->>O: Resolve declared program result
+    O-->>P: Typed result
+    P-->>C: Resolve Promise-like operation
     C-->>U: User[]
 ```
 
@@ -120,7 +126,7 @@ These layers handle **definition and validation** - no SQL generation.
 | Layer | Purpose |
 |-------|---------|
 | L1: Validation | Standard Schema V1 primitives (`v.*`) and `SchemaRegistry` |
-| L2: Fields | Field type definitions with State generic and base schemas |
+| L2: Scalars | Scalar type definitions with State generic and base schemas |
 | L3: Operation Schemas | Validation schemas for where/create/update |
 | L4: Relations | Relationship definitions between models |
 | L5: Schema Validation | Definition-time correctness checking |
@@ -131,7 +137,7 @@ These layers handle **query building and execution**.
 
 | Layer | Purpose |
 |-------|---------|
-| L6: Query Engine | Database-agnostic query structure (WHAT) |
+| L6: Query Engine | Compiles one database-agnostic operation program and resolves its declared result (WHAT) |
 | L7: Adapters | Database-specific SQL syntax (HOW) |
 | L8: Drivers | Connection management and execution |
 
@@ -139,23 +145,30 @@ These layers handle **query building and execution**.
 
 The client layer provides the **public API** and type inference.
 
-### Management Layer (L10)
+### Extension and Management Layers (L10-L12)
 
-Migrations handle **schema evolution** independently.
+| Layer | Purpose |
+|-------|---------|
+| L10: Cache | Caches read results and coordinates invalidation without owning query execution |
+| L11: Instrumentation | Observes operations through tracing, logging, and diagnostics without owning query logic |
+| L12: Migrations | Handles schema evolution through snapshots, diffs, and database-specific DDL |
 
 ## File Structure
 
 ```
 src/
 ├── validation/           # L1: Validation primitives
-├── schema/               # L2-L5: Schema system
-│   ├── fields/           # L2: Field types
-│   ├── model/schemas/    # L3: Query schemas
+│   ├── model/            # L3: Operation schemas (where/create/update/args)
+│   └── relations/        # L3: Relation operation schemas
+├── schema/               # L2, L4, L5: Schema system
+│   ├── scalars/          # L2: Scalar types
 │   ├── relation/         # L4: Relations
 │   └── validation/       # L5: Schema validation
 ├── query-engine/         # L6: Query engine
 ├── adapters/             # L7: Database adapters
 ├── drivers/              # L8: Database drivers
 ├── client/               # L9: ORM client
-└── migrations/           # L10: Schema migrations
+├── cache/                # L10: Query cache and invalidation
+├── instrumentation/      # L11: Tracing, logging, and diagnostics
+└── migrations/           # L12: Schema migrations
 ```

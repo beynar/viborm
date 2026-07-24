@@ -1,0 +1,85 @@
+---
+title: Scalars Overview
+description: Scalar types for database columns with chainable modifiers
+icon: Columns
+---
+
+## Scalar Types
+
+| Scalar          | TypeScript                          | Use for                            |
+| --------------- | ----------------------------------- | ---------------------------------- |
+| `s.string()`    | `string`                            | Text, IDs, emails                  |
+| `s.int()`       | `number`                            | Whole numbers, counts              |
+| `s.float()`     | `number`                            | Approximate decimals               |
+| `s.decimal()`   | `number`                            | Exact decimals, money              |
+| `s.bigInt()`    | `bigint`                            | Integers beyond `2^53`             |
+| `s.boolean()`   | `boolean`                           | Flags                              |
+| `s.dateTime()`  | `Date`                              | Timestamps                         |
+| `s.date()`      | `Date`                              | Calendar dates (no time)           |
+| `s.time()`      | `string`                            | Time of day (no date)              |
+| `s.json()`      | `unknown` (or inferred via `.schema()`) | Structured data                |
+| `s.blob()`      | `Uint8Array`                        | Binary data                        |
+| `s.enum([...])` | Union of the values                 | Fixed value sets                   |
+| `s.vector()`    | `number[]`                          | Embeddings (PostgreSQL pgvector)   |
+
+An `s.point()` scalar also exists but is experimental and not documented yet.
+
+Database column types for each scalar — defaults and per-database overrides — live on [Native Types](/docs/schema/native-types).
+
+## Modifier Reference
+
+Every modifier returns a new scalar instance, so they chain:
+
+```ts
+s.string()
+  .nullable()          // string | null
+  .unique()            // Unique constraint
+  .default("hello")    // Static default; .default(() => ...) for runtime defaults
+  .map("column_name"); // Custom database column name
+```
+
+| Method                            | Effect                                              | Type impact        |
+| --------------------------------- | --------------------------------------------------- | ------------------ |
+| `.nullable()`                     | Allow NULL                                          | `T \| null`        |
+| `.array()`                        | Array column (native on PG, JSON on MySQL/SQLite)   | `T[]`              |
+| `.id()`                           | Primary key                                         | —                  |
+| `.unique()`                       | Unique constraint                                   | —                  |
+| `.default(v)` / `.default(() => v)` | Default value                                     | Optional in create |
+| `.schema(s)`                      | Extra [Standard Schema](https://standardschema.dev/) validation | May narrow `T` |
+| `.map(name)`                      | Custom column name                                  | —                  |
+
+## Support Matrix
+
+Not every modifier exists on every scalar:
+
+| Scalar     | `.id()` | `.unique()` | `.array()` | `.schema()` | Scalar-specific methods |
+| ---------- | ------- | ----------- | ---------- | ----------- | ----------------------- |
+| `string`   | ✓       | ✓           | ✓          | ✓           | `.uuid()` `.ulid()` `.nanoid()` `.cuid()` |
+| `int`      | ✓       | ✓           | ✓          | ✓           | `.increment()`          |
+| `float`    | ✓       | ✓           | ✓          | ✓           | —                       |
+| `decimal`  | ✓       | ✓           | ✓          | ✓           | —                       |
+| `bigInt`   | ✓       | ✓           | ✓          | ✓           | `.increment()`          |
+| `boolean`  | —       | —           | ✓          | —           | —                       |
+| `dateTime` | ✓       | ✓           | ✓          | ✓           | `.now()` `.updatedAt()` `.withoutTimezone()` |
+| `date`     | ✓       | ✓           | ✓          | ✓           | `.now()` `.updatedAt()` |
+| `time`     | ✓       | ✓           | ✓          | ✓           | `.now()` `.updatedAt()` `.withoutTimezone()` |
+| `json`     | —       | —           | —          | ✓           | —                       |
+| `blob`     | —       | —           | —          | —           | —                       |
+| `enum`     | —       | —           | ✓          | —           | `.name()`               |
+| `vector`   | —       | —           | —          | —           | `.dimension()`          |
+
+`.nullable()`, `.default()`, and `.map()` are available on every scalar. The scalar pages below only document their scalar-specific methods.
+
+## Pages
+
+<Cards>
+  <Card title="String" href="/docs/schema/scalars/string" />
+  <Card title="Number" href="/docs/schema/scalars/number" />
+  <Card title="Boolean" href="/docs/schema/scalars/boolean" />
+  <Card title="DateTime" href="/docs/schema/scalars/datetime" />
+  <Card title="BigInt" href="/docs/schema/scalars/bigint" />
+  <Card title="JSON" href="/docs/schema/scalars/json" />
+  <Card title="Blob" href="/docs/schema/scalars/blob" />
+  <Card title="Enum" href="/docs/schema/scalars/enum" />
+  <Card title="Vector" href="/docs/schema/scalars/vector" />
+</Cards>

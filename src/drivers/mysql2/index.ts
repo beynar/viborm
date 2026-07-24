@@ -4,6 +4,7 @@
  * Driver implementation for mysql2/promise with connection pooling.
  */
 
+import { Buffer } from "node:buffer";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
@@ -11,15 +12,25 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
-import type {
-  Pool,
-  PoolConnection,
-  PoolOptions,
-  ResultSetHeader,
-} from "mysql2/promise";
-import { Driver, type DriverResultParser } from "../driver";
-import { mysqlResultParser, parseMySQLUrl } from "../shared";
-import type { QueryResult, TransactionOptions } from "../types";
+import { QueryError, TransactionError } from "@errors";
+import type { Pool, PoolConnection, PoolOptions } from "mysql2/promise";
+import {
+  Driver,
+  type DriverResultParser,
+  type QueryExecutionContext,
+} from "../driver";
+import {
+  isNormalizedResultRow,
+  normalizeProviderInsertId,
+  normalizeProviderRowCount,
+} from "../normalized-result";
+import {
+  mysqlResultParser,
+  nestedTransactionDispatchError,
+  parseMySQLUrl,
+  runTransactionLifecycle,
+} from "../shared";
+import type { QueryResult } from "../types";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -40,6 +51,82 @@ export type MySQL2ClientConfig<C extends DriverConfig> = MySQL2DriverOptions &
 // DRIVER IMPLEMENTATION
 // ============================================================
 
+/** mysql2 escapes plain Uint8Array as an object — convert to Buffer for blobs. */
+function convertValuesForMySQL(values: unknown[]): unknown[] {
+  return values.map((v) =>
+    v instanceof Uint8Array && !Buffer.isBuffer(v)
+      ? Buffer.from(v.buffer, v.byteOffset, v.byteLength)
+      : v
+  );
+}
+
+function isMultiStatementFields(fields: unknown): boolean {
+  return (
+    Array.isArray(fields) &&
+    fields.every(
+      (fieldSet) => fieldSet === undefined || Array.isArray(fieldSet)
+    )
+  );
+}
+
+function malformedMySQL2Result(operation: string, reason: string): QueryError {
+  return new QueryError(
+    `Driver "mysql2" returned a malformed result for operation "${operation}": ${reason}.`,
+    { meta: { driver: "mysql2", operation } }
+  );
+}
+
+/** SELECT returns a row array; mutations return a ResultSetHeader. */
+function toQueryResult<T>(
+  result: unknown,
+  fields: unknown,
+  operation: string
+): QueryResult<T> {
+  if (isMultiStatementFields(fields)) {
+    throw new QueryError(
+      `Driver "mysql2" returned multiple statement results for operation "${operation}"; VibORM requires exactly one statement result.`,
+      { meta: { driver: "mysql2", operation } }
+    );
+  }
+
+  if (Array.isArray(result)) {
+    if (
+      !Array.isArray(fields) ||
+      fields.some((field) => !isNormalizedResultRow(field))
+    ) {
+      throw malformedMySQL2Result(
+        operation,
+        "row arrays require one flat field metadata array"
+      );
+    }
+    return {
+      rows: result as T[],
+      rowCount: result.length,
+    };
+  }
+
+  if (fields !== undefined) {
+    throw malformedMySQL2Result(
+      operation,
+      "mutation results require undefined field metadata"
+    );
+  }
+  if (!isNormalizedResultRow(result)) {
+    throw malformedMySQL2Result(operation, "expected a mutation result object");
+  }
+  const context = { provider: "mysql2", operation };
+  const insertId = normalizeProviderInsertId(result.insertId, context, {
+    allowNumber: true,
+  });
+  return {
+    rows: [] as T[],
+    rowCount: normalizeProviderRowCount(result.affectedRows, context, {
+      allowDecimalString: true,
+    }),
+    ...(insertId === undefined ? {} : { insertId }),
+  };
+}
+
 export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   readonly adapter: DatabaseAdapter = new MySQLAdapter();
   readonly result: DriverResultParser = mysqlResultParser;
@@ -48,6 +135,12 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 
   constructor(options: MySQL2DriverOptions = {}) {
     super("mysql", "mysql2");
+    if (options.options?.multipleStatements === true) {
+      throw new QueryError(
+        'Driver "mysql2" does not support options.multipleStatements=true because VibORM operations require one result per statement.',
+        { meta: { driver: "mysql2", operation: "configuration" } }
+      );
+    }
     this.driverOptions = options;
 
     if (options.pool) {
@@ -58,7 +151,18 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   protected async initClient(): Promise<Pool> {
     const mysql = await import("mysql2/promise");
 
-    let options = this.driverOptions.options ?? {};
+    let options: PoolOptions = {
+      // DATETIME is stored as naive UTC wall-clock; read it back as UTC
+      // instead of shifting by the process timezone
+      timezone: "Z",
+      // BIGINT/DECIMAL values outside Number's safe range arrive as strings
+      // (the result parser converts them losslessly) instead of lossy numbers
+      supportBigNumbers: true,
+      // DATE as plain "YYYY-MM-DD" — the result parser builds a UTC-midnight
+      // Date, matching every other driver (mysql2 would build local midnight)
+      dateStrings: ["DATE"],
+      ...this.driverOptions.options,
+    };
 
     // Parse databaseUrl if provided (same logic as createClient)
     if (this.driverOptions.databaseUrl) {
@@ -78,101 +182,78 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   protected async execute<T>(
     client: Pool | PoolConnection,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const [result] = await client.execute(sql, params);
-
-    // Check if this is a SELECT query (returns rows) or mutation (returns ResultSetHeader)
-    if (Array.isArray(result)) {
-      return {
-        rows: result as T[],
-        rowCount: result.length,
-      };
-    }
-
-    // Mutation query - result is ResultSetHeader
-    const header = result as ResultSetHeader;
-    return {
-      rows: [] as T[],
-      rowCount: header.affectedRows,
-    };
+    const operation = context?.operation ?? "execute";
+    const [result, fields] = await client.execute(
+      sql,
+      convertValuesForMySQL(params)
+    );
+    return toQueryResult<T>(result, fields, operation);
   }
 
   protected async executeRaw<T>(
     client: Pool | PoolConnection,
     sql: string,
-    params?: unknown[]
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const [result] = await client.query(sql, params);
-
-    // Check if this is a SELECT query (returns rows) or mutation (returns ResultSetHeader)
-    if (Array.isArray(result)) {
-      return {
-        rows: result as T[],
-        rowCount: result.length,
-      };
-    }
-
-    // Mutation query - result is ResultSetHeader
-    const header = result as ResultSetHeader;
-    return {
-      rows: [] as T[],
-      rowCount: header.affectedRows,
-    };
+    const operation = context?.operation ?? "executeRaw";
+    const [result, fields] = await client.query(
+      sql,
+      params && convertValuesForMySQL(params)
+    );
+    return toQueryResult<T>(result, fields, operation);
   }
 
   protected async transaction<T>(
     client: Pool | PoolConnection,
-    fn: (tx: PoolConnection) => Promise<T>,
-    options?: TransactionOptions
+    fn: (tx: PoolConnection) => Promise<T>
   ): Promise<T> {
-    if (this.inTransaction) {
-      // Nested transaction - use savepoint
-      const connection = client as PoolConnection;
-      const savepointName = `sp_${crypto.randomUUID().replace(/-/g, "")}`;
-      await connection.query(`SAVEPOINT ${savepointName}`);
-
-      try {
-        const result = await fn(connection);
-        await connection.query(`RELEASE SAVEPOINT ${savepointName}`);
-        return result;
-      } catch (error) {
-        await connection.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-        throw error;
-      }
+    if (!("getConnection" in client)) {
+      throw nestedTransactionDispatchError(this.driverName);
     }
 
     // Start a new transaction from pool
     const pool = client as Pool;
     const connection = await pool.getConnection();
-
-    try {
-      if (options?.isolationLevel) {
-        const isolationMap: Record<string, string> = {
-          read_uncommitted: "READ UNCOMMITTED",
-          read_committed: "READ COMMITTED",
-          repeatable_read: "REPEATABLE READ",
-          serializable: "SERIALIZABLE",
-        };
-        const level = isolationMap[options.isolationLevel];
-        if (!level) {
-          throw new Error(`Unknown isolation level: ${options.isolationLevel}`);
-        }
-        await connection.query(`SET TRANSACTION ISOLATION LEVEL ${level}`);
+    let shouldDestroy = false;
+    const runOrDestroy = async (operation: () => Promise<void>) => {
+      try {
+        await operation();
+      } catch (error) {
+        shouldDestroy = true;
+        throw error;
       }
+    };
+    return runTransactionLifecycle({
+      begin: () => runOrDestroy(() => connection.beginTransaction()),
+      callback: () => fn(connection),
+      commit: () => runOrDestroy(() => connection.commit()),
+      rollback: () => runOrDestroy(() => connection.rollback()),
+      close: () => {
+        try {
+          if (shouldDestroy) {
+            connection.destroy();
+            return;
+          }
+          connection.release();
+        } catch (error) {
+          super.transactionCleanupFailed(
+            new TransactionError(
+              'Driver "mysql2" could not release an unsafe transaction connection.',
+              { meta: { driver: "mysql2", method: "$transaction" } }
+            )
+          );
+          throw error;
+        }
+      },
+    });
+  }
 
-      await connection.query("BEGIN");
-      this.inTransaction = true;
-      const result = await fn(connection);
-      await connection.query("COMMIT");
-      return result;
-    } catch (error) {
-      await connection.query("ROLLBACK");
-      throw error;
-    } finally {
-      connection.release();
-    }
-    // Note: this.inTransaction reset is handled by base Driver._transaction()
+  protected override transactionCleanupFailed(_error: Error): void {
+    // A connection with failed cleanup is destroyed; the pool remains usable.
   }
 }
 

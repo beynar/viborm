@@ -109,12 +109,8 @@ describe("array option vs wrapper comparison", () => {
     });
 
     test("both reject non-arrays", () => {
-      expect(
-        parse(optionsSchema, "not-array").issues
-      ).toBeDefined();
-      expect(
-        parse(wrapperSchema, "not-array").issues
-      ).toBeDefined();
+      expect(parse(optionsSchema, "not-array").issues).toBeDefined();
+      expect(parse(wrapperSchema, "not-array").issues).toBeDefined();
     });
 
     test("both reject invalid items", () => {

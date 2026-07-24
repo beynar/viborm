@@ -1,12 +1,10 @@
 ---
 title: Array Filters
-description: Filter operators for array fields (PostgreSQL only)
+description: Filter operators for array scalars
 icon: ListOrdered
 ---
 
-<Callout type="info">
-  Array fields are only supported in PostgreSQL. MySQL and SQLite don't have native array types.
-</Callout>
+Array scalars (`s.string().array()`, `s.int().array()`, etc.) work identically on every database.
 
 ## Operators
 
@@ -16,7 +14,7 @@ icon: ListOrdered
 | `hasEvery` | Array contains all values |
 | `hasSome` | Array contains any value |
 | `isEmpty` | Array is empty |
-| `equals` | Exact array match |
+| `equals` | Exact array match (order matters) |
 
 ## has
 
@@ -33,6 +31,8 @@ where: {
   roles: { has: "ADMIN" },
 }
 ```
+
+`has: null` never matches any row (SQL `NULL = element` is never true), matching Prisma semantics.
 
 ## hasEvery
 
@@ -82,96 +82,6 @@ where: {
 }
 ```
 
-## equals
-
-Exact array match (order matters):
-
-```ts
-// Exactly these tags in this order
-where: {
-  tags: { equals: ["featured", "top"] },
-}
-```
-
-## Examples
-
-### Tagged Content
-
-```ts
-async function getPostsByTag(tag: string) {
-  return client.post.findMany({
-    where: {
-      tags: { has: tag },
-      published: true,
-    },
-  });
-}
-```
-
-### Multiple Tags
-
-```ts
-async function getPostsWithAllTags(tags: string[]) {
-  return client.post.findMany({
-    where: {
-      tags: { hasEvery: tags },
-    },
-  });
-}
-
-async function getPostsWithAnyTag(tags: string[]) {
-  return client.post.findMany({
-    where: {
-      tags: { hasSome: tags },
-    },
-  });
-}
-```
-
-### Permission Check
-
-```ts
-async function getUsersWithPermission(permission: string) {
-  return client.user.findMany({
-    where: {
-      permissions: { has: permission },
-    },
-  });
-}
-
-async function getUsersWithAllPermissions(permissions: string[]) {
-  return client.user.findMany({
-    where: {
-      permissions: { hasEvery: permissions },
-    },
-  });
-}
-```
-
-### Untagged Content
-
-```ts
-async function getUntaggedPosts() {
-  return client.post.findMany({
-    where: {
-      tags: { isEmpty: true },
-    },
-  });
-}
-```
-
-### Role-Based Access
-
-```ts
-async function getAdminUsers() {
-  return client.user.findMany({
-    where: {
-      roles: { hasSome: ["ADMIN", "SUPERADMIN"] },
-    },
-  });
-}
-```
-
 ## Updating Arrays
 
 ```ts
@@ -180,6 +90,22 @@ await client.post.update({
   where: { id: "post_123" },
   data: {
     tags: { push: "new-tag" },
+  },
+});
+
+// Add several values (each appended as its own element)
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { push: ["tag-a", "tag-b"] },
+  },
+});
+
+// Prepend instead of append
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    tags: { unshift: "first-tag" },
   },
 });
 
@@ -192,22 +118,21 @@ await client.post.update({
 });
 ```
 
-## Alternative for MySQL/SQLite
+## JSON Columns as an Alternative
 
-Use JSON arrays instead of native arrays:
+If you need more flexibility than the array operators above (e.g. arrays of objects, or ad hoc JSON structures), you can still model a field as raw JSON and use the [JSON filter operators](/docs/client/filtering/json) instead:
 
 ```ts
 // Schema
 const post = s.model({
   id: s.string().id(),
-  tags: s.json().default([]),  // JSON array
+  metadata: s.json().default([]),
 });
 
-// Query with JSON operators
+// Query with JSON operators (array_contains only matches array values)
 where: {
-  tags: {
+  metadata: {
     array_contains: "featured",
   },
 }
 ```
-

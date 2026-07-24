@@ -74,7 +74,7 @@ async function main() {
   const driver = new PGliteDriver({ client: pglite });
   perf.end("client.driver.create");
 
-  // 2c. Hydrate schema names (tsName, sqlName for all models/fields/relations)
+  // 2c. Hydrate schema names (tsName, sqlName for all models/scalars/relations)
   perf.start("client.hydrateSchemaNames");
   hydrateSchemaNames(schema);
   perf.end("client.hydrateSchemaNames");

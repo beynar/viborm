@@ -13,6 +13,17 @@ import {
 } from "@drivers/postgres";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runClientRawBehavior } from "./client-raw-behavior";
+import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
+import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
+import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
+import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
+import {
+  runFullScalarRoundtripBehavior,
+  runScalarRoundtripBehavior,
+} from "./scalar-roundtrip-behavior";
+import { runVectorBehavior } from "./vector-behavior";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -67,9 +78,30 @@ async function setupDatabase(driver: PostgresDriver) {
 
 // Skip tests if no PostgreSQL connection is available
 const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
+const PGVECTOR_TEST_CONNECTION_STRING =
+  process.env.PGVECTOR_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
+function requirePgvectorConnectionString(): string {
+  if (!PGVECTOR_TEST_CONNECTION_STRING) {
+    throw new Error("PGVECTOR_TEST_CONNECTION_STRING is required.");
+  }
+  return PGVECTOR_TEST_CONNECTION_STRING;
+}
+
 describeIf("postgres.js Driver", () => {
+  // The tests below assume a fresh database. PostgreSQL persists between
+  // tests, so drop everything first: pushing an empty schema diffs to
+  // dropTable for every existing table. (Same pattern as mysql2.test.ts.)
+  beforeEach(async () => {
+    const cleanupClient = PostgresCreateClient({
+      schema: {},
+      databaseUrl: TEST_CONNECTION_STRING,
+    });
+    await push(cleanupClient, { force: true });
+    await cleanupClient.$disconnect();
+  });
+
   describe("Driver Creation", () => {
     test("creates driver with connection string", async () => {
       const driver = new PostgresDriver({
@@ -86,7 +118,7 @@ describeIf("postgres.js Driver", () => {
       const driver = new PostgresDriver({
         options: {
           host: url.hostname,
-          port: Number.parseInt(url.port) || 5432,
+          port: Number.parseInt(url.port, 10) || 5432,
           database: url.pathname.slice(1),
           username: url.username,
           password: url.password,
@@ -192,7 +224,7 @@ describeIf("postgres.js Driver", () => {
       const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(2);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(2);
     });
 
     test("rolls back transaction on error", async () => {
@@ -209,7 +241,7 @@ describeIf("postgres.js Driver", () => {
       const result = await driver._executeRaw<{ count: string }>(
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(0);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(0);
     });
 
     test("supports nested transactions with savepoints", async () => {
@@ -237,24 +269,20 @@ describeIf("postgres.js Driver", () => {
         `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
       );
       // Only user-1 should exist (user-2 was rolled back by nested transaction)
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
+      expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(1);
     });
 
-    test("supports isolation levels", async () => {
-      await driver.withTransaction(
-        async (txDriver) => {
-          await txDriver._executeRaw(
-            `INSERT INTO "postgresjs_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
-            ["user-1", "test@example.com", "Test User"]
-          );
-        },
-        { isolationLevel: "serializable" }
-      );
-
-      const result = await driver._executeRaw<{ count: string }>(
-        `SELECT COUNT(*) as count FROM "postgresjs_test_users"`
-      );
-      expect(Number.parseInt(result.rows[0]?.count ?? "0")).toBe(1);
+    test("rejects removed isolation before opening a transaction", async () => {
+      let callbackCalled = false;
+      await expect(
+        Reflect.apply(driver.withTransaction, driver, [
+          async () => {
+            callbackCalled = true;
+          },
+          { isolationLevel: "serializable" },
+        ])
+      ).rejects.toMatchObject({ name: "TransactionError", code: "V5005" });
+      expect(callbackCalled).toBe(false);
     });
   });
 
@@ -379,4 +407,71 @@ describeIf("postgres.js Driver", () => {
       await client.$disconnect();
     });
   });
+  // Real postgres.js param serialization for native array columns
+  runListJsonFilterBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runScalarRoundtripBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runFullScalarRoundtripBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Nested writes over real pooled connections (transactions span checkouts)
+  runNestedWriteBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runNestedWriteAdvancedBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Raw-string $queryRaw params and sql`` rendering go through the real
+  // postgres.js wire protocol here ($n placeholders), unlike the PGlite run.
+  runClientRawBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Relation _count / relation orderBy / every-none read filters over the
+  // real driver (correlated-subquery results cross real result parsing).
+  runRelationReadAggregateBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runNestedOrderByBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // The remaining behavior suites are not wired here: they are adapter-level
+  // and already run on PGlite, which shares the postgres adapter; this file
+  // covers what depends on the real driver (param serialization, pooling,
+  // transactions).
+});
+
+runVectorBehavior({
+  driverName: "postgres.js",
+  enabled: Boolean(PGVECTOR_TEST_CONNECTION_STRING),
+  createDriver: () =>
+    new PostgresDriver({
+      databaseUrl: requirePgvectorConnectionString(),
+      pgvector: true,
+    }),
 });

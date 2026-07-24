@@ -6,11 +6,13 @@
 
 // Errors
 export {
+  CheckConstraintError,
   ConnectionError,
   FeatureNotSupportedError,
   ForeignKeyError,
   isRetryableError,
   isUniqueConstraintError,
+  NotNullConstraintError,
   QueryError,
   TransactionError,
   UniqueConstraintError,
@@ -27,9 +29,6 @@ export { BunSQLiteDriver } from "./bun-sqlite";
 // D1 driver (Cloudflare Workers bindings)
 export type { D1DriverOptions } from "./d1";
 export { D1Driver } from "./d1";
-// D1 HTTP driver (Cloudflare REST API)
-export type { D1HTTPDriverOptions } from "./d1-http";
-export { D1HTTPDriver } from "./d1-http";
 export type {
   AnyDriver,
   DriverResultParser,
@@ -66,9 +65,8 @@ export type { SQLite3DriverOptions, SQLite3Options } from "./sqlite3";
 export { SQLite3Driver } from "./sqlite3";
 // Types
 export type {
+  BatchQuery,
   Dialect,
-  IsolationLevel,
   LogFunction,
   QueryResult,
-  TransactionOptions,
 } from "./types";

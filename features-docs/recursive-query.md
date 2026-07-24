@@ -66,7 +66,7 @@ Before diving into implementation phases, here's how recursive queries affect ea
 | Layer | Location | Affected? | Impact |
 |-------|----------|-----------|--------|
 | **L1: Validation** | `src/validation/` | ❌ No | Existing primitives (object, union, literal, integer) are sufficient |
-| **L2: Fields** | `src/schema/fields/` | ❌ No | Recurse is a query option, not a field type |
+| **L2: Scalars** | `src/schema/scalars/` | ❌ No | Recurse is a query option, not a scalar type |
 | **L3: Operation Schemas** | `src/validation/relations/` | ✅ Yes | Conditionally add `recurse` option to `toManyIncludeFactory` |
 | **L4: Relations** | `src/schema/relation/` | ✅ Yes | Add `isSelfReferencing()` helper |
 | **L5: Schema Validation** | `src/schema/validation/` | ❌ No | TypeScript prevents invalid usage at compile time |
@@ -80,7 +80,7 @@ Before diving into implementation phases, here's how recursive queries affect ea
 
 **Layers NOT affected:**
 - **L1: Validation** - Existing `v.integer()`, `v.literal()`, `v.union()`, `v.object()` are sufficient.
-- **L2: Fields** - Recurse is a query-time concept, not a schema/field definition.
+- **L2: Scalars** - Recurse is a query-time concept, not a schema/scalar definition.
 - **L5: Schema Validation** - The `recurse` option is conditionally included only for self-referencing relations. TypeScript prevents invalid usage at compile time.
 - **L7: Adapters** - The `cte.recursive()` method already exists on all database adapters.
 - **L8: Drivers** - Drivers execute raw SQL; no changes needed.

@@ -46,10 +46,10 @@ export const nullableBlob = s.blob().nullable();
 export const blobWithDefault = s.blob().default(new Uint8Array([1, 2, 3]));
 export const blobWithValidation = s.blob();
 
-export const enumField = s.enum(["a", "b"]);
-export const nullableEnumField = s.enum(["a", "b"]).nullable();
-export const enumFieldWithDefault = s.enum(["a", "b"]).default("a");
-export const enumFieldWithValidation = s.enum(["a", "b"]);
+export const enumScalar = s.enum(["a", "b"]);
+export const nullableEnumScalar = s.enum(["a", "b"]).nullable();
+export const enumScalarWithDefault = s.enum(["a", "b"]).default("a");
+export const enumScalarWithValidation = s.enum(["a", "b"]);
 
 export const model = s.model({
   id: s.string().id().ulid(),
@@ -80,10 +80,10 @@ export const model = s.model({
   blobWithDefault,
   blobWithValidation,
   nullableBlob,
-  enumField,
-  enumFieldWithDefault,
-  enumFieldWithValidation,
-  nullableEnumField,
+  enumScalar,
+  enumScalarWithDefault,
+  enumScalarWithValidation,
+  nullableEnumScalar,
   oneToOne: s.oneToOne(() => oneToOne),
   oneToMany: s.oneToMany(() => oneToMany),
   manyToMany: s.manyToMany(() => manyToMany),
@@ -196,67 +196,67 @@ const res1 = client.user.groupBy({
   where: {},
 });
 
-type Input = Prettify<
-  ModelOperationInput<typeof testUser, "findFirst">
->;
+type Input = Prettify<ModelOperationInput<typeof testUser, "findFirst">>;
 
 const res = await (
   client as unknown as {
     $withCache(options: { ttl: number }): typeof client;
   }
-).$withCache({ ttl: 1000 }).user.findFirst({
-  where: {
-    AND: [
-      {
-        age: 12,
-        posts: {
-          none: {
-            authorId: {
-              startsWith: "123",
+)
+  .$withCache({ ttl: 1000 })
+  .user.findFirst({
+    where: {
+      AND: [
+        {
+          age: 12,
+          posts: {
+            none: {
+              authorId: {
+                startsWith: "123",
+              },
             },
           },
+          createdAt: new Date("2025-01-01"),
+          email: {
+            equals: "ezk",
+          },
         },
-        createdAt: new Date("2025-01-01"),
-        email: {
-          equals: "ezk",
+        {
+          bio: "ezlk",
         },
-      },
-      {
-        bio: "ezlk",
-      },
-    ],
-  },
-  include: {
-    posts: true,
-    profile: {
-      include: {
-        user: {
-          include: {
-            posts: true,
+      ],
+    },
+    include: {
+      posts: true,
+      profile: {
+        include: {
+          user: {
+            include: {
+              posts: true,
+            },
           },
         },
       },
     },
-  },
-  // select: {
-  //   age: true,
-  //   posts: {
-  //     select: {
-  //       authorId: true,
-  //     },
-  //     where: {
-  //       AND: [
-  //         {
-  //           author: {
-  //             is: {
-  //               age: {
-  //                 gt: 120,
-  //               },
-  //             },
-  //           },
-  //         },
-  //       ],
-  //     },
-  //   },
-  // },
-});
+    // select: {
+    //   age: true,
+    //   posts: {
+    //     select: {
+    //       authorId: true,
+    //     },
+    //     where: {
+    //       AND: [
+    //         {
+    //           author: {
+    //             is: {
+    //               age: {
+    //                 gt: 120,
+    //               },
+    //             },
+    //           },
+    //         },
+    //       ],
+    //     },
+    //   },
+    // },
+  });

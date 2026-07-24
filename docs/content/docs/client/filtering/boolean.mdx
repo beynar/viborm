@@ -1,6 +1,6 @@
 ---
 title: Boolean Filters
-description: Filter operators for boolean fields
+description: Filter operators for boolean scalars
 icon: ToggleLeft
 ---
 
@@ -11,28 +11,19 @@ icon: ToggleLeft
 | `equals` | Exact match |
 | `not` | Negation |
 
-## equals
-
 ```ts
-// Direct value
+// Direct value (shorthand for equals)
 where: { active: true }
-where: { published: false }
 
-// Explicit equals
-where: { active: { equals: true } }
-```
-
-## not
-
-```ts
 // Negation
 where: { active: { not: true } }   // Same as active: false
-where: { deleted: { not: false } }  // Same as deleted: true
 ```
+
+Both operators work the same on every scalar type — see [Filtering](/docs/client/filtering).
 
 ## Nullable Booleans
 
-For nullable boolean fields:
+For nullable boolean scalars:
 
 ```ts
 // Only true
@@ -66,91 +57,4 @@ where: {
 }
 ```
 
-## Examples
-
-### Active Users
-
-```ts
-async function getActiveUsers() {
-  return client.user.findMany({
-    where: { active: true },
-  });
-}
-```
-
-### Published Posts
-
-```ts
-async function getPublishedPosts() {
-  return client.post.findMany({
-    where: {
-      published: true,
-      deleted: false,
-    },
-    orderBy: { publishedAt: "desc" },
-  });
-}
-```
-
-### Unverified Emails
-
-```ts
-async function getUnverifiedUsers() {
-  return client.user.findMany({
-    where: { emailVerified: false },
-  });
-}
-```
-
-### Feature Flags
-
-```ts
-async function getUsersWithBeta() {
-  return client.user.findMany({
-    where: {
-      settings: {
-        path: ["betaFeatures"],
-        equals: true,
-      },
-    },
-  });
-}
-```
-
-### Soft Delete Filter
-
-```ts
-// Get only non-deleted
-async function getActiveItems() {
-  return client.item.findMany({
-    where: { deleted: false },
-  });
-}
-
-// Get only deleted
-async function getDeletedItems() {
-  return client.item.findMany({
-    where: { deleted: true },
-  });
-}
-
-// Get all (including deleted)
-async function getAllItems() {
-  return client.item.findMany();
-}
-```
-
-### Status Combination
-
-```ts
-async function getReviewablePosts() {
-  return client.post.findMany({
-    where: {
-      published: false,
-      submitted: true,
-      rejected: false,
-    },
-  });
-}
-```
-
+For the soft-delete pattern (a `deleted` boolean instead of removing rows), see [delete](/docs/client/delete#soft-delete-pattern).

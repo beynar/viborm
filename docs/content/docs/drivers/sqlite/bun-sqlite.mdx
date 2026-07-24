@@ -1,0 +1,70 @@
+---
+title: Bun SQLite
+description: SQLite driver using Bun's built-in SQLite
+---
+
+## Requirements
+
+- Bun runtime
+
+## Configuration
+
+```typescript
+import { createClient } from "viborm/bun-sqlite";
+
+const client = createClient({
+  dataDir: "./database.sqlite",
+  schema,
+});
+```
+
+## Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `client` | `Database` | Existing Bun SQLite database |
+| `dataDir` | `string` | Path to SQLite file (`:memory:` for in-memory) |
+| `options` | `object` | SQLite options |
+
+### Options Object
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `readonly` | `boolean` | Open in read-only mode |
+| `create` | `boolean` | Create file if it doesn't exist |
+| `readwrite` | `boolean` | Open with read-write access |
+| `strict` | `boolean` | Enable strict mode |
+
+### In-Memory Database
+
+```typescript
+import { createClient } from "viborm/bun-sqlite";
+
+// Default is in-memory
+const client = createClient({
+  schema,
+});
+```
+
+### Read-Only Mode
+
+```typescript
+import { createClient } from "viborm/bun-sqlite";
+
+const client = createClient({
+  dataDir: "./database.sqlite",
+  options: { readonly: true },
+  schema,
+});
+```
+
+## Transactions
+
+Bun SQLite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
+
+## Limitations
+
+- Only available in Bun runtime
+- JSON columns are parsed automatically
+- Boolean values stored as integers (0/1)
+- Synchronous API internally (async wrapper)
