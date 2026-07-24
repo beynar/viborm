@@ -54,6 +54,19 @@ export class ResultParser {
     return this.driver?.driverName ?? "query-engine";
   }
 
+  /**
+   * True when the provider returns native scalar values through a passthrough
+   * middleware chain — the adapter declares {@link AdapterResultParser.nativeScalarPassthrough}
+   * AND no driver-level field middleware intercepts. Only then is the row
+   * parser's identity fast path byte-identical to the full typed parse.
+   */
+  get nativeScalarPassthrough(): boolean {
+    return (
+      this.adapter.result.nativeScalarPassthrough === true &&
+      !this.driver?.result?.parseField
+    );
+  }
+
   parse<T>(
     operation: Operation,
     raw: unknown,

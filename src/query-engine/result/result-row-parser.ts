@@ -28,6 +28,7 @@ import {
   normalizeResultRows,
   type RowValueParsers,
 } from "./result-parser-contract";
+import { type IdentityGuard, identityGuardFor } from "./scalar-identity-parser";
 import { parseFiniteProviderNumber } from "./scalar-structured-parser";
 
 function parseVectorDistanceValue(
@@ -177,11 +178,20 @@ export function createRowParser(
   const len = keys.length;
   const steps: ((result: Record<string, unknown>, value: unknown) => void)[] =
     new Array(len);
+  // The identity fast path (only on native-passthrough providers): a per-column
+  // guard for plain string/int/float/boolean scalars. `identityGuards` is dense
+  // (one entry per column) ONLY when every column is identity-eligible — the
+  // signal that the whole-row passthrough below is available. Any non-identity
+  // column clears it, falling the whole row back to the per-cell build.
+  const identityEnabled = ctx.nativeScalarPassthrough;
+  const identityGuards: IdentityGuard[] = new Array(len);
+  let allIdentity = identityEnabled && len > 0;
 
   for (let i = 0; i < len; i++) {
     const key = keys[i]!;
 
     if (key === EMPTY_ROW_RESULT_KEY) {
+      allIdentity = false;
       steps[i] = (_result, value) => {
         if (parseSafeCountValue(value) !== 1) {
           malformedResult(
@@ -195,6 +205,7 @@ export function createRowParser(
     }
 
     if (key === VECTOR_DISTANCE_RESULT_KEY) {
+      allIdentity = false;
       steps[i] = (result, value) => {
         result._distance = parseVectorDistanceValue(ctx, operation, value);
       };
@@ -203,13 +214,27 @@ export function createRowParser(
 
     const scalar = getOwnValue(scalars, key);
     if (scalar) {
-      steps[i] = (result, value) => {
-        result[key] = parsers.parseField(scalar, value, operation);
-      };
+      const guard = identityEnabled ? identityGuardFor(scalar) : undefined;
+      if (guard) {
+        identityGuards[i] = guard;
+        steps[i] = (result, value) => {
+          // A native value is returned unchanged; anything else (null, wrong
+          // type, unsafe int, non-finite float) defers to the full parser.
+          result[key] = guard(value)
+            ? value
+            : parsers.parseField(scalar, value, operation);
+        };
+      } else {
+        allIdentity = false;
+        steps[i] = (result, value) => {
+          result[key] = parsers.parseField(scalar, value, operation);
+        };
+      }
       continue;
     }
 
     if (key === RELATION_COUNTS_RESULT_KEY) {
+      allIdentity = false;
       const expectedRelations = shape?.relationCounts;
       if (!(expectedRelations && expectedRelations.size > 0)) {
         malformedResult(
@@ -232,6 +257,7 @@ export function createRowParser(
 
     const relation = getOwnValue(relations, key);
     if (relation) {
+      allIdentity = false;
       const relationShape = shape?.relations.get(key);
       steps[i] = (result, value) => {
         result[key] = parsers.parseRelation(
@@ -246,6 +272,7 @@ export function createRowParser(
 
     const aggregateName = getAggregateResultName(key);
     if (aggregateName) {
+      allIdentity = false;
       const aggregateShape = shape?.aggregates.get(key);
       steps[i] = (result, value) => {
         result[aggregateName] = parsers.parseAggregate(
@@ -266,11 +293,31 @@ export function createRowParser(
     );
   }
 
-  return (row) => {
+  const buildRow = (row: Record<string, unknown>): Record<string, unknown> => {
     const result: Record<string, unknown> = {};
     for (let i = 0; i < len; i++) {
       steps[i]!(result, row[keys[i]!]);
     }
     return result;
+  };
+
+  if (!allIdentity) {
+    return buildRow;
+  }
+
+  // Whole-row passthrough: every column is an identity-eligible scalar. When
+  // ALL cells are already native, the built object is byte-identical to the
+  // input row — same keys, same insertion order (the driver already aliased
+  // columns to field names and the full path assigns them in `keys` order),
+  // same values — so the fresh per-row allocation is skipped and the driver's
+  // row is returned as-is. Its keys were asserted to match the requested shape
+  // upstream. A single non-native cell falls the row back to the full build.
+  return (row) => {
+    for (let i = 0; i < len; i++) {
+      if (!identityGuards[i]!(row[keys[i]!])) {
+        return buildRow(row);
+      }
+    }
+    return row;
   };
 }
