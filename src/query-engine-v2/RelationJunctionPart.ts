@@ -15,6 +15,7 @@ import {
 import { ManyToManyStatements } from "../query-engine/ManyToManyStatements";
 import { manyToManyStatement } from "../query-engine/many-to-many-statement";
 import {
+  buildCreate,
   buildDelete,
   buildDeleteMany,
   buildFind,
@@ -27,6 +28,7 @@ import {
   childRacePin,
   nestedWriteFailure,
   presenceGuard,
+  referenceSql,
 } from "./fragment-builders";
 import {
   m2mDisconnectRequiresSelector,
@@ -180,11 +182,16 @@ interface BareSlot {
 }
 
 /** A `create` slot — INSERT the fresh child, then INSERT the join row. The
- *  target PK is validated present in the create data at construction (an
- *  auto-generated identity routes the whole tree to V1). */
+ *  target PK is a compile-time literal the create data carries, or — when the
+ *  target PK is a DB-generated auto-increment the data omits — a backward `Ref`
+ *  to the child INSERT's produced identity ({@link generatedField} set). */
 interface CreateSlot {
   readonly create: Record<string, unknown>;
   readonly createPk: unknown;
+  /** Set when the target PK is DB-generated: the child INSERT captures it
+   *  (`firstRowField` via RETURNING in tx mode on a returning driver, driver
+   *  `insertId` otherwise) and {@link createPk} is the cast-wrapped backward Ref. */
+  readonly generatedField?: string;
   readonly childId: string;
   readonly joinId: string;
   /** create (mechanism 2): the fresh target's own nested child Parts, folded one
@@ -201,6 +208,9 @@ interface AdoptSlot {
   readonly where: Record<string, unknown>;
   readonly create: Record<string, unknown>;
   readonly createPk: unknown;
+  /** Set when the target PK is DB-generated (see {@link CreateSlot.generatedField}):
+   *  the missing arm's INSERT captures the identity the join row references. */
+  readonly generatedField?: string;
   readonly probeId: string;
   readonly guardId: string;
   readonly childId: string;
@@ -239,6 +249,7 @@ interface UpsertSlot {
 export class RelationJunctionPart implements Part {
   private readonly config: RelationJunctionConfig;
   private readonly targetPkField: string;
+  private readonly sourcePkField: string;
   private readonly childScope: QueryScope;
   private readonly statements: ManyToManyStatements;
   private readonly targets: readonly TargetSlot[];
@@ -254,6 +265,7 @@ export class RelationJunctionPart implements Part {
     this.config = config;
     const join = getManyToManyJoinInfo(config.parentScope, config.relationInfo);
     this.targetPkField = join.targetPkField;
+    this.sourcePkField = join.sourcePkField;
     this.childScope = createQueryScope(
       config.engine.adapter,
       config.relationInfo.targetModel
@@ -567,7 +579,14 @@ export class RelationJunctionPart implements Part {
         );
         continue;
       }
-      steps.push(this.childInsert(slot.childId, slot.create));
+      steps.push(
+        this.childInsert(
+          slot.childId,
+          slot.create,
+          undefined,
+          slot.generatedField
+        )
+      );
       steps.push(
         this.junctionWrite(slot.joinId, "junctionInsert", {
           parentValue: parent,
@@ -599,7 +618,10 @@ export class RelationJunctionPart implements Part {
     // processes the array sequentially (branch ledger: "merge input N before
     // deciding input N+1"), so a duplicate target adopts the just-created row
     // instead of re-creating it. V2 decides that at compile from the fixed order.
-    const created = new Set<string>();
+    // The ledger maps the target's identity key (its literal create PK, or — for
+    // a DB-generated PK — its unique selector) to the join value the earlier
+    // item produced (a literal, or the earlier INSERT's backward Ref).
+    const created = new Map<string, unknown>();
     for (const slot of this.adopts) {
       const rows = known[planningKey(slot.probeId, "rows")];
       const found = Array.isArray(rows) && rows.length > 0;
@@ -611,14 +633,20 @@ export class RelationJunctionPart implements Part {
         steps.push(this.joinInsert(slot.joinId, parent, capturedPk));
         continue;
       }
-      if (created.has(pkKey(slot.createPk))) {
+      const key = adoptDedupKey(slot);
+      if (created.has(key)) {
         // Created by an earlier same-target item — adopt (the join is idempotent).
-        steps.push(this.joinInsert(slot.joinId, parent, slot.createPk));
+        steps.push(this.joinInsert(slot.joinId, parent, created.get(key)));
         continue;
       }
-      created.add(pkKey(slot.createPk));
+      created.set(key, slot.createPk);
       steps.push(
-        this.childInsert(slot.childId, slot.create, slot.where),
+        this.childInsert(
+          slot.childId,
+          slot.create,
+          slot.where,
+          slot.generatedField
+        ),
         this.joinInsert(slot.joinId, parent, slot.createPk)
       );
     }
@@ -786,10 +814,15 @@ export class RelationJunctionPart implements Part {
     index: number
   ): CreateSlot {
     const { childName } = this.config;
+    const childId = scope.allocate(`${childName}.create`);
+    const resolved = this.resolveCreatePk(create, childId);
     return {
       create,
-      createPk: this.requireCreatePk(create),
-      childId: scope.allocate(`${childName}.create`),
+      createPk: resolved.pk,
+      ...(resolved.generatedField
+        ? { generatedField: resolved.generatedField }
+        : {}),
+      childId,
       joinId: scope.allocate(`${childName}.junction.insert`),
       childParts: this.config.createChildParts?.[index] ?? [],
       delegated: this.config.createDelegated?.[index],
@@ -802,13 +835,18 @@ export class RelationJunctionPart implements Part {
   ): AdoptSlot {
     const { childName } = this.config;
     const probeId = scope.allocate(`${childName}.find`);
+    const childId = scope.allocate(`${childName}.create`);
+    const resolved = this.resolveCreatePk(item.create, childId);
     return {
       where: item.where,
       create: item.create,
-      createPk: this.requireCreatePk(item.create),
+      createPk: resolved.pk,
+      ...(resolved.generatedField
+        ? { generatedField: resolved.generatedField }
+        : {}),
       probeId,
       guardId: scope.allocate(`${childName}.guard.exists`),
-      childId: scope.allocate(`${childName}.create`),
+      childId,
       joinId: scope.allocate(`${childName}.junction.insert`),
       // Global lookup-and-adopt: an uncorrelated probe by the child unique.
       probe: {
@@ -951,36 +989,94 @@ export class RelationJunctionPart implements Part {
 
   /** INSERT the fresh child row. A `where` present (connectOrCreate/upsert create
    *  arm) means the missing premise is enforced by the child unique constraint —
-   *  its violation is the raceable signal (racePin), never a notExists guard. */
+   *  its violation is the raceable signal (racePin), never a notExists guard.
+   *  A `generatedField` (DB-generated target PK, {@link resolveCreatePk}) makes
+   *  the INSERT produce the identity the join row references: `firstRowField`
+   *  via `INSERT … RETURNING` on a returning driver in tx mode, the driver
+   *  `insertId` otherwise (scratch-threaded in batch mode by the executor). */
   private childInsert(
     id: string,
     create: Record<string, unknown>,
-    where?: Record<string, unknown>
+    where?: Record<string, unknown>,
+    generatedField?: string
   ): StatementStep {
+    const returningTx =
+      this.config.txMode &&
+      this.config.engine.adapter.capabilities.supportsReturning;
+    const statement =
+      generatedField && returningTx
+        ? buildCreate(this.childScope, {
+            data: create,
+            select: { [generatedField]: true },
+          })
+        : buildInsert(
+            this.childScope,
+            getTableName(this.childScope.model),
+            create
+          );
     const step: StatementStep = {
       id,
       kind: "write",
-      statement: buildInsert(
-        this.childScope,
-        getTableName(this.childScope.model),
-        create
-      ),
-      outputs: {},
+      statement,
+      outputs: generatedField
+        ? {
+            id: returningTx
+              ? { kind: "firstRowField", field: generatedField }
+              : { kind: "insertId" },
+          }
+        : {},
     };
     return where
       ? { ...step, racePin: childRacePin(this.childScope, where) }
       : step;
   }
 
-  /** The created child's primary key for the join row — a compile-time literal
-   *  the create data must carry (the M2M target unique). An auto-generated child
-   *  PK (absent from the create data) is create-through-junction with a produced
-   *  identity — V1's runtime; route the whole tree to V1. */
+  /**
+   * The created child's primary key for the join row (create / connectOrCreate
+   * slots). A compile-time literal the create data carries is used as-is. When
+   * the target PK is a DB-generated auto-increment the data omits, the child
+   * INSERT *produces* it: the slot's `childId` step declares an `id` output
+   * (`firstRowField` via `INSERT … RETURNING` on a returning driver in tx mode,
+   * the driver `insertId` otherwise — batch mode threads it through the
+   * adapter's insertId scratch store, exactly as the create root's generated
+   * identity), and the join row references it by a backward `Ref` wrapped in
+   * the destination cast ({@link referenceSql}). Any other absent PK (an
+   * explicit `null`, a non-increment generated PK) keeps the typed refusal.
+   */
+  private resolveCreatePk(
+    create: Record<string, unknown>,
+    childId: string
+  ): { pk: unknown; generatedField?: string } {
+    const pk = create[this.targetPkField];
+    if (pk !== undefined && pk !== null) return { pk };
+    const scalar = this.childScope.model["~"].state.scalars[this.targetPkField];
+    if (pk === undefined && scalar?.["~"].state.autoGenerate === "increment") {
+      return {
+        pk: referenceSql(
+          this.config.engine,
+          this.childScope.model,
+          this.targetPkField,
+          ref(childId, "id")
+        ),
+        generatedField: this.targetPkField,
+      };
+    }
+    throw new UnsupportedOperationError(
+      `query-engine-v2 create-through-junction for relation '${this.config.relationName}' requires the target primary key '${this.targetPkField}' in the create data.`
+    );
+  }
+
+  /** The upsert create arm's target primary key — still a compile-time literal
+   *  the create data must carry: the arm's compile-time dedup ledger and its
+   *  duplicate-item UPDATE address the target by this value, so a *produced*
+   *  (DB-generated) identity is an explicit typed refusal here, never silent
+   *  wrongness. (create / connectOrCreate support the generated identity via
+   *  {@link resolveCreatePk}.) */
   private requireCreatePk(create: Record<string, unknown>): unknown {
     const pk = create[this.targetPkField];
     if (pk === undefined || pk === null) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 create-through-junction for relation '${this.config.relationName}' requires the target primary key '${this.targetPkField}' in the create data.`
+        `query-engine-v2 upsert-through-junction for relation '${this.config.relationName}' requires the target primary key '${this.targetPkField}' in the create data.`
       );
     }
     return pk;
@@ -1225,13 +1321,21 @@ export class RelationJunctionPart implements Part {
     return ref(source.readStep, source.field);
   }
 
-  /** The located parent id inlined as a literal (compile-time write correlation). */
+  /** The compile-time parent value the junction writes correlate on: a located
+   *  (`planned`) row's literal, a compile-time `literal`, or — a FRESH parent
+   *  whose PK is DB-generated (create root, `ref` kind) — a backward `Ref` to
+   *  the parent INSERT's produced identity, cast at the interpolation site and
+   *  riding `Sql.values` exactly as the child-FK path does (materialized by the
+   *  executor in tx mode; scratch-threaded insertId in batch mode). */
   private parentLiteral(known: PlanningKnown): unknown {
     const source = this.config.parentId;
     if (source.kind === "literal") return source.value;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 junction for relation '${this.config.relationName}' requires a planned or literal parent id.`
+    if (source.kind === "ref") {
+      return referenceSql(
+        this.config.engine,
+        this.config.parentScope.model,
+        this.sourcePkField,
+        source.ref
       );
     }
     const rows = known[planningKey(source.readStep, "rows")];
@@ -1252,9 +1356,10 @@ export class RelationJunctionPart implements Part {
 // family create/connectOrCreate/upsert) becomes one Part carrying every item of
 // that kind; several kinds coexist on one relation as several Parts in the
 // linear fragment. The adopt family's create arm is INSERT-child + INSERT-join
-// (V1's junction SQL as leaves); its child PK must be carried in the create data
-// (an auto-generated identity is create-through-junction with a produced value —
-// still V1's, routed via UnsupportedOperationError).
+// (V1's junction SQL as leaves); its child PK is a literal the create data
+// carries or — for a DB-generated auto-increment target — the child INSERT's
+// produced identity, referenced backward by the join row (resolveCreatePk).
+// The upsert create arm still requires the literal (requireCreatePk).
 // ---------------------------------------------------------------------------
 
 export function buildJunctionParts(input: {
@@ -1343,7 +1448,10 @@ export function buildJunctionParts(input: {
     return entry.value;
   };
   // The literal PK a relation-carrying create arm supplies (mechanism 2's fresh
-  // target; an auto-generated identity routes to V1, as the scalar create already does).
+  // target). A scalar-only create supports a DB-generated identity (the slot's
+  // produced-Ref path, resolveCreatePk), but a RELATION-CARRYING one cannot: its
+  // deeper child Parts fold against a compile-time literalParentId, so a
+  // generated PK here stays an explicit typed refusal.
   const requireCreatePkValue = (
     create: Record<string, unknown>,
     foldKind: string
@@ -1404,8 +1512,10 @@ export function buildJunctionParts(input: {
       );
       return { ...folded, delegated: undefined };
     }
-    // Validate the fresh target's PK is present (a delegated create still keys the join
-    // row by the literal PK; an auto-generated identity routes to V1, as scalar does).
+    // Validate the fresh target's PK is present: a delegated create keys the join
+    // row by the literal PK (the delegated CreateOperation owns the INSERT, so the
+    // junction slot has no produced-Ref path here) — a generated identity on a
+    // relation-carrying target stays an explicit typed refusal.
     requireCreatePkValue(create, "create");
     return {
       scalar: separateData(childScope, create).scalarData,
@@ -1695,6 +1805,24 @@ function requireObject(
 /** A stable key for a target primary key value (dedup of same-op created targets). */
 function pkKey(value: unknown): string {
   return typeof value === "bigint" ? value.toString() : JSON.stringify(value);
+}
+
+/**
+ * The compile-time identity key of a connectOrCreate target for the same-op
+ * dedup ledger. A literal create PK keys by its value (the pre-existing
+ * behavior); a DB-generated PK has no literal, so same-target items are the
+ * ones naming the same unique selector — key by the sorted `where` entries.
+ */
+function adoptDedupKey(slot: {
+  readonly where: Record<string, unknown>;
+  readonly createPk: unknown;
+  readonly generatedField?: string;
+}): string {
+  if (!slot.generatedField) return `pk:${pkKey(slot.createPk)}`;
+  const entries = Object.keys(slot.where)
+    .sort()
+    .map((field) => [field, slot.where[field]] as const);
+  return `where:${JSON.stringify(entries, (_key, value) => (typeof value === "bigint" ? `${value}n` : value))}`;
 }
 
 function scalarOnly(

@@ -609,6 +609,17 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // `UnsupportedOperationError` routes; they carry no reachable behavior). No new route
   // site: the delegated sub-ops raise the update/create ROOT's OWN already-counted
   // refusals at depth. See PLAN "X1c" and ATOM §8.1.
+  //
+  // 76 -> 77 (M2M generated-PK junction create, the P6 regression fix): create /
+  // connectOrCreate through the junction now support a DB-generated (auto-increment)
+  // target primary key — the child INSERT *produces* the identity (firstRowField /
+  // insertId) and the join row references it by a backward Ref — so the shared
+  // `requireCreatePk` site NARROWED into two: `resolveCreatePk` (create/connectOrCreate;
+  // still refuses an explicit-null / non-increment absent PK) and `requireCreatePk`
+  // (the upsert create arm ONLY, whose compile-time dedup ledger and duplicate-item
+  // UPDATE address the target by a literal — an honest typed refusal, never silent
+  // wrongness). Net +1 site; the absorbed accept-and-execute shape is covered by the
+  // shared M2M behavior suite (generated-PK fixture) on every driver leg.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -619,7 +630,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(76);
+    expect(sites).toBe(77);
   });
 });
 

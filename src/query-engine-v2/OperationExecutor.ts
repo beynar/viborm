@@ -221,11 +221,14 @@ export class OperationExecutor {
    * merges with other pending operations into ONE driver batch. It exposes the
    * body queries, the guard index map (re-attributed by the client at the merge
    * offset), and a `parseResult` closure — the exact shape V1's batch runtime
-   * returns, so a mixed V1/V2 array batches through one uniform path. Routed V2
-   * operations never thread an `insertId` across a write boundary (only the
-   * un-routed insert-with-generated-id family does), so no shared scratch state
-   * is needed; a fragment that somehow does fails closed rather than emit a
-   * colliding batch.
+   * returns, so a mixed V1/V2 array batches through one uniform path. A fragment
+   * that threads an `insertId` across a write boundary (a DB-generated identity
+   * a later step consumes — a generated-PK row whose produced id feeds another
+   * write, including a junction row referencing it) uses per-operation scratch
+   * state the shared merged batch cannot isolate — it FAILS CLOSED with the
+   * typed refusal below rather than emit a colliding batch. Such an operation
+   * runs through its own atomic unit (`execute`), never the shared-batch merge,
+   * on batch-only drivers.
    */
   async prepareSharedBatch<T>(
     operation: ExecutableOperation,

@@ -1644,6 +1644,35 @@ an `ALTER … ADD CONSTRAINT` right after `CREATE TABLE` on Postgres) before the
 `addForeignKey` operations for Postgres/MySQL (SQLite/LibSQL keep inline FKs); the X1c oracles'
 referenced-model-first ordering was a convenience, not a requirement.
 
+**M2M generated-PK junction create — the P6 regression closed (no vocabulary change;
+freeze held).** P4.5's recorded bound — "an auto-generated M2M child identity is
+create-through-junction with a *produced* value and stays V1's" — became a TERMINAL
+refusal when V1 died at P6, and it was reachable: `post.create({ data: { …, tags: {
+create: { name } } } })` with an auto-increment target PK is an ordinary Prisma payload
+(every M2M fixture used explicit string PKs, which is why 6 000+ tests never saw it).
+The bound is now absorbed with the engine's own core primitive: the junction child
+INSERT *produces* the identity (`firstRowField` via `INSERT … RETURNING` on a returning
+driver in tx mode, driver `insertId` otherwise — batch mode threads it through the
+adapter's insertId scratch store, the same machinery as the create root), and the join
+row references it by a backward `Ref` cast at the interpolation site (`referenceSql`).
+A FRESH parent whose own PK is generated rides the same mechanism: the junction write
+correlation accepts the `ref`-kind `ParentIdSource` (previously only
+`planned`/`literal`), so both join-row columns may be produced values. Covers `create`
+(create root + update root + depth) and `connectOrCreate` (missing arm; the dedup
+ledger keys a generated target by its unique selector). Two honest boundaries remain,
+each an explicit typed refusal: **upsert-through-junction** with a generated create-arm
+PK (its compile-time dedup ledger and duplicate-item UPDATE address the target by a
+literal), and a **relation-carrying** junction create target with a generated PK (its
+deeper child Parts need a `literalParentId`). Throw-site census 76 → 77 (the shared
+`requireCreatePk` narrowed into `resolveCreatePk` + the upsert-only refusal). The
+shared-batch (`$transaction([...])`) merge on batch-only drivers keeps its insertId-
+scratch fail-closed refusal — a produced junction identity is per-operation scratch
+state the merged batch cannot isolate. Alongside: `UnsupportedOperationError` is now a
+PUBLIC, honest surface — its own `diagnosticName` and code (`V8003
+UNSUPPORTED_OPERATION`, distinct from `V9001 INTERNAL_ERROR`), defined in
+`src/errors/query.ts` (still `extends QueryEngineError`), exported from the package
+root, re-exported by `shared.ts` so the engine's import home is unchanged.
+
 ---
 
 ## 9. Invariants (the executable contract)

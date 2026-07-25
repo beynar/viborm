@@ -12,6 +12,10 @@ import { s } from "@schema";
  *   never touch it.
  * - alpha <-> beta: two .name()d M2M pairs between the same models — each
  *   pair must resolve its own junction table.
+ * - article <-> label: BOTH sides carry a DB-generated (auto-increment) primary
+ *   key — the regression class every string-PK fixture above missed: a junction
+ *   create whose target identity is *produced* by the INSERT (and a parent
+ *   whose own produced id the join row references).
  */
 export const manyToManySchema = (() => {
   const post = s
@@ -79,5 +83,21 @@ export const manyToManySchema = (() => {
     })
     .map("m2m_betas");
 
-  return { post, tag, category, user, alpha, beta };
+  const article = s
+    .model({
+      id: s.int().id().increment(),
+      title: s.string(),
+      labels: s.manyToMany(() => label),
+    })
+    .map("m2m_articles");
+
+  const label = s
+    .model({
+      id: s.int().id().increment(),
+      name: s.string().unique(),
+      articles: s.manyToMany(() => article),
+    })
+    .map("m2m_labels");
+
+  return { post, tag, category, user, alpha, beta, article, label };
 })();
