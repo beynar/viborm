@@ -54,6 +54,10 @@ export enum VibORMErrorCode {
   // Feature errors (8xxx)
   FEATURE_NOT_SUPPORTED = "V8001",
   DRIVER_NOT_SUPPORTED = "V8002",
+  /** A payload SHAPE the query engine deliberately does not express (a documented
+   *  capability boundary), distinct from FEATURE_NOT_SUPPORTED (a dialect/driver
+   *  capability gap). Carried by UnsupportedOperationError. */
+  UNSUPPORTED_OPERATION = "V8003",
 
   // Cache errors (10xxx)
   CACHE_INVALID_TTL = "V10001",

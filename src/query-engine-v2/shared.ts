@@ -1,4 +1,4 @@
-import { QueryEngineError, TransactionError } from "@errors";
+import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { ParentIdSource } from "./RelationUpsertPart";
@@ -156,8 +156,14 @@ export function noAtomicSubstrateError(
  * decline-surface gate proves no accept-and-execute shape raises it. Any other construction
  * error (a `ValidationError` from the parse boundary, the own-write preflight rejection) is a
  * real failure the schema / preflight raises and likewise propagates.
+ *
+ * The class itself lives in `src/errors/query.ts` (public surface: its own
+ * `diagnosticName` and `V8003 UNSUPPORTED_OPERATION` code, exported from the
+ * package root so users can `instanceof` a deliberate capability boundary
+ * instead of seeing a `V9001` engine crash); re-exported here so every engine
+ * throw site and test keeps one import home.
  */
-export class UnsupportedOperationError extends QueryEngineError {}
+export { UnsupportedOperationError } from "@errors";
 
 export function getStepModelName(model: Model<any>, fallback: string): string {
   return model["~"].names.ts ?? model["~"].names.sql ?? fallback;

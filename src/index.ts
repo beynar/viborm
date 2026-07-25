@@ -56,6 +56,7 @@ export {
   QueryError,
   TransactionError,
   UniqueConstraintError,
+  UnsupportedOperationError,
   ValidationError,
   // Base error
   VibORMError,

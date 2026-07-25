@@ -736,7 +736,11 @@ export function runManyToManyBehavior({
             },
           },
         })
-      ).rejects.toThrow(UPSERT_GENERATED_PK_REFUSAL);
+      ).rejects.toMatchObject({
+        name: "UnsupportedOperationError",
+        code: "V8003",
+        message: expect.stringMatching(UPSERT_GENERATED_PK_REFUSAL),
+      });
     });
   });
 }

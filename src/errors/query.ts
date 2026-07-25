@@ -265,7 +265,40 @@ export function isPendingOperationError(
  * Internal query engine error
  */
 export class QueryEngineError extends VibORMError {
-  static override readonly diagnosticName = "QueryEngineError";
+  // Annotated `string` (not the literal) so a subclass may narrow it — the
+  // pattern VibORMError itself uses for its subclasses.
+  static override readonly diagnosticName: string = "QueryEngineError";
+
+  constructor(
+    message: string,
+    options?: {
+      cause?: Error | undefined;
+      meta?: VibORMErrorMeta | undefined;
+      /** Subclass seam: a distinct taxonomy code (default INTERNAL_ERROR). */
+      code?: VibORMErrorCode | undefined;
+    }
+  ) {
+    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    if (options?.cause) opts.cause = options.cause;
+    if (options?.meta) opts.meta = options.meta;
+    super(message, options?.code ?? VibORMErrorCode.INTERNAL_ERROR, opts);
+  }
+}
+
+/**
+ * A payload SHAPE the query engine deliberately does not express — a documented
+ * capability boundary (a compound key or non-literal fold past a proven surface,
+ * an inexpressible sub-shape, a parity refusal), NOT an engine crash. Distinct
+ * from {@link FeatureNotSupportedError} (a dialect/driver capability gap): this
+ * is shape-capability. It extends {@link QueryEngineError} so pre-existing
+ * `instanceof QueryEngineError` handling keeps working, but carries its own
+ * name and code (`V8003 UNSUPPORTED_OPERATION`) so a deliberate refusal is
+ * distinguishable from `V9001 INTERNAL_ERROR` programmatically and in logs.
+ * Users can `instanceof UnsupportedOperationError` (exported from the package
+ * root) to branch on it.
+ */
+export class UnsupportedOperationError extends QueryEngineError {
+  static override readonly diagnosticName = "UnsupportedOperationError";
 
   constructor(
     message: string,
@@ -274,11 +307,20 @@ export class QueryEngineError extends VibORMError {
       meta?: VibORMErrorMeta | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.INTERNAL_ERROR, opts);
+    super(message, {
+      ...options,
+      code: VibORMErrorCode.UNSUPPORTED_OPERATION,
+    });
   }
+}
+
+/**
+ * Type guard for unsupported-operation (shape-capability) refusals
+ */
+export function isUnsupportedOperationError(
+  error: unknown
+): error is UnsupportedOperationError {
+  return error instanceof UnsupportedOperationError;
 }
 
 /**
