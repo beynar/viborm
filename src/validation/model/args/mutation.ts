@@ -159,7 +159,13 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 // =============================================================================
 
 /**
- * UpdateMany args: { where?, data: update }
+ * UpdateMany args: { where?, data: scalarUpdate }
+ *
+ * `data` binds to the SCALAR-ONLY update schema (Prisma parity:
+ * UpdateManyMutationInput excludes relation fields). A bulk UPDATE cannot
+ * express nested relation writes, so a relation key in `data` must reject
+ * loudly at the parse boundary (strict object → "Unknown key: <relation>")
+ * instead of ever reaching the SET builder, which skips relations.
  */
 export type UpdateManyArgs<
   M extends AnyModel,
@@ -167,7 +173,7 @@ export type UpdateManyArgs<
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
-    data: CoreSchemas<M, F>["update"];
+    data: CoreSchemas<M, F>["scalarUpdate"];
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
@@ -181,7 +187,7 @@ export const getUpdateManyArgs = <
   return v.object(
     {
       where: v.lazyRef(() => core.where),
-      data: v.lazyRef(() => core.update),
+      data: v.lazyRef(() => core.scalarUpdate),
       cache: cacheInvalidationSchema,
     },
     { atLeast: ["data"] }
@@ -193,9 +199,13 @@ export const getUpdateManyArgs = <
 // =============================================================================
 
 /**
- * UpdateManyAndReturn args: { where?, data: update, select? }
+ * UpdateManyAndReturn args: { where?, data: scalarUpdate, select? }
  * Like updateMany but returns the updated rows (select of scalars only;
  * include is not supported because rows are returned via RETURNING).
+ *
+ * `data` binds to the SCALAR-ONLY update schema for the same reason as
+ * updateMany: a relation key must fail validation loudly, never be silently
+ * discarded by the SET builder.
  */
 export type UpdateManyAndReturnArgs<
   M extends AnyModel,
@@ -203,7 +213,7 @@ export type UpdateManyAndReturnArgs<
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
-    data: CoreSchemas<M, F>["update"];
+    data: CoreSchemas<M, F>["scalarUpdate"];
     select: CoreSchemas<M, F>["select"];
     cache: CacheInvalidationSchema;
   },
@@ -218,7 +228,7 @@ export const getUpdateManyAndReturnArgs = <
   return v.object(
     {
       where: v.lazyRef(() => core.where),
-      data: v.lazyRef(() => core.update),
+      data: v.lazyRef(() => core.scalarUpdate),
       select: v.lazyRef(() => core.select),
       cache: cacheInvalidationSchema,
     },

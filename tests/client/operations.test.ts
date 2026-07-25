@@ -95,6 +95,19 @@ async function createTestMemberships() {
   });
 }
 
+/**
+ * Capture the error produced by an operation regardless of whether the client
+ * throws synchronously (eager validation) or rejects the awaited promise.
+ */
+async function captureThrown(fn: () => unknown): Promise<unknown> {
+  try {
+    await fn();
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 // =============================================================================
 // 1. FIND OPERATIONS
 // =============================================================================
@@ -655,6 +668,153 @@ describe("Update Operations", () => {
       });
 
       expect(result).toEqual({ count: 0 });
+    });
+
+    test("rejects relation data alongside scalars and leaves the DB unchanged", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateMany({
+          where: { id: alice.id },
+          // NOTE: no @ts-expect-error here — nested excess-property checking
+          // does not fire through the client's generic signature when another
+          // valid key is present (pre-existing surface-wide TS limitation, it
+          // affects typo'd scalar keys on every operation too). The runtime
+          // parse boundary is the enforced rejection for this shape; the
+          // relation-only test below proves the type-level exclusion.
+          data: {
+            name: "Smuggler",
+            posts: {
+              create: {
+                id: "post-smuggled",
+                title: "Smuggled",
+                authorId: alice.id,
+              },
+            },
+          },
+        })
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain("posts");
+
+      // Neither the scalar update nor the nested create was applied.
+      const user = await client.user.findUnique({ where: { id: alice.id } });
+      expect(user?.name).toBe("Alice");
+      const smuggled = await client.post.findUnique({
+        where: { id: "post-smuggled" },
+      });
+      expect(smuggled).toBeNull();
+    });
+
+    test("rejects relation-only data with a ValidationError naming the key", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateMany({
+          where: { id: alice.id },
+          data: {
+            // @ts-expect-error updateMany data is scalar-only; relation keys are rejected
+            posts: {
+              create: {
+                id: "post-smuggled",
+                title: "Smuggled",
+                authorId: alice.id,
+              },
+            },
+          },
+        })
+      );
+
+      // A loud ValidationError naming the relation key, not a misleading
+      // "No fields to update" QueryEngineError.
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain("posts");
+
+      const smuggled = await client.post.findUnique({
+        where: { id: "post-smuggled" },
+      });
+      expect(smuggled).toBeNull();
+    });
+  });
+
+  describe("updateManyAndReturn", () => {
+    test("scalar-only data updates and returns the affected rows", async () => {
+      await createStandardUserPostUsers(client);
+
+      const rows = await client.user.updateManyAndReturn({
+        where: { age: { gte: 25 } },
+        data: { name: "Returned" },
+      });
+
+      expect(rows.length).toBe(2);
+      for (const row of rows) {
+        expect(row.name).toBe("Returned");
+      }
+    });
+
+    test("rejects relation data alongside scalars and leaves the DB unchanged", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateManyAndReturn({
+          where: { id: alice.id },
+          // NOTE: no @ts-expect-error here — nested excess-property checking
+          // does not fire through the client's generic signature when another
+          // valid key is present (pre-existing surface-wide TS limitation).
+          // The runtime parse boundary is the enforced rejection for this
+          // shape; the relation-only test below proves the type-level
+          // exclusion.
+          data: {
+            name: "Smuggler",
+            posts: {
+              create: {
+                id: "post-smuggled",
+                title: "Smuggled",
+                authorId: alice.id,
+              },
+            },
+          },
+        })
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain("posts");
+
+      const user = await client.user.findUnique({ where: { id: alice.id } });
+      expect(user?.name).toBe("Alice");
+      const smuggled = await client.post.findUnique({
+        where: { id: "post-smuggled" },
+      });
+      expect(smuggled).toBeNull();
+    });
+
+    test("rejects relation-only data with a ValidationError naming the key", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateManyAndReturn({
+          where: { id: alice.id },
+          data: {
+            // @ts-expect-error updateManyAndReturn data is scalar-only; relation keys are rejected
+            posts: {
+              create: {
+                id: "post-smuggled",
+                title: "Smuggled",
+                authorId: alice.id,
+              },
+            },
+          },
+        })
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain("posts");
+
+      const smuggled = await client.post.findUnique({
+        where: { id: "post-smuggled" },
+      });
+      expect(smuggled).toBeNull();
     });
   });
 });

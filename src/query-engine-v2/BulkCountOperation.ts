@@ -23,10 +23,12 @@ type BulkCountKind = "updateMany" | "deleteMany";
  * public result is `{ count }` — one write step whose `rowCount` **source**
  * carries the count (ATOM §1). There is no planning read and no decision: the
  * `WHERE` filter is a scalar predicate, so the whole operation is one statement,
- * reusing V1's `buildUpdateMany` / `buildDeleteMany` verbatim. `updateMany` with
- * relation data is rejected by V1's own validation schema (reused here), so a
- * relation payload never reaches the builder — parity is inherited, not
- * re-derived.
+ * reusing V1's `buildUpdateMany` / `buildDeleteMany` verbatim. `updateMany`
+ * `data` binds to the model's SCALAR-ONLY update schema
+ * (`core.scalarUpdate`, see `getUpdateManyArgs`), so a relation key in `data`
+ * rejects at the parse boundary with a ValidationError naming the key
+ * ("Unknown key: <relation>") and never reaches the SET builder, which would
+ * silently skip it.
  */
 export class BulkCountOperation {
   readonly mode: ExecutionMode;
@@ -48,9 +50,10 @@ export class BulkCountOperation {
     this.kind = kind;
     this.mode = selectExecutionMode(engine, kind);
 
-    // V1's validator applies the model's updateMany/deleteMany arg schema (which
-    // forbids relation data on updateMany) and the portable-PK-update check, so
-    // an unsupported payload rejects with V1's exact ValidationError.
+    // The parse boundary applies the model's updateMany/deleteMany arg schema
+    // (updateMany `data` is scalar-only, so a relation key rejects as an
+    // unknown key) and the portable-PK-update check, so an unsupported payload
+    // rejects with a typed ValidationError before any statement is built.
     this.args = validate<Record<string, unknown>>(
       engine.schemaRegistry,
       model,

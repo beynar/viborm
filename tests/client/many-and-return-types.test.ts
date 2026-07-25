@@ -77,4 +77,52 @@ describe("updateManyAndReturn types", () => {
       "include" extends keyof NonNullable<Payload> ? true : false
     >().toEqualTypeOf<false>();
   });
+
+  test("data is scalar-only: relation keys are not admitted", () => {
+    type Payload = OperationPayload<"updateManyAndReturn", UserModel>;
+    type Data = NonNullable<NonNullable<Payload>["data"]>;
+
+    expectTypeOf<Data>().toHaveProperty("name");
+    expectTypeOf<Data>().toHaveProperty("age");
+    expectTypeOf<
+      "posts" extends keyof Data ? true : false
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      "profile" extends keyof Data ? true : false
+    >().toEqualTypeOf<false>();
+  });
+});
+
+describe("updateMany types", () => {
+  test("data is scalar-only: relation keys are not admitted", () => {
+    type Payload = OperationPayload<"updateMany", UserModel>;
+    type Data = NonNullable<NonNullable<Payload>["data"]>;
+
+    expectTypeOf<Data>().toHaveProperty("name");
+    expectTypeOf<Data>().toHaveProperty("age");
+    expectTypeOf<
+      "posts" extends keyof Data ? true : false
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      "profile" extends keyof Data ? true : false
+    >().toEqualTypeOf<false>();
+  });
+
+  test("nested relation-level updateMany data still admits relation keys (separate surface)", () => {
+    // The root updateMany restriction must NOT leak into the nested
+    // relation-level updateMany (user.update -> posts.updateMany.data), whose
+    // data binds to the target model's full update schema and whose engine
+    // path fails loudly at runtime.
+    type UpdatePayload = NonNullable<OperationPayload<"update", UserModel>>;
+    type PostsWrite = NonNullable<UpdatePayload["data"]>["posts"];
+    type NestedUpdateMany = Extract<
+      NonNullable<PostsWrite>["updateMany"],
+      { data?: unknown }
+    >;
+    type NestedData = NonNullable<NestedUpdateMany["data"]>;
+
+    expectTypeOf<
+      "author" extends keyof NestedData ? true : false
+    >().toEqualTypeOf<true>();
+  });
 });
