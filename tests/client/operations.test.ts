@@ -170,6 +170,44 @@ describe("Find Operations", () => {
       expect(result?.posts).toBeInstanceOf(Array);
       expect(result?.posts.length).toBe(3);
     });
+
+    // Regression witness: the old code hardcoded LIMIT 1 and ignored take, so
+    // take: -1 returned the FIRST row of the asc window (Bob) instead of the
+    // last (Alice), and take: 0 returned a row instead of null.
+    test("take -1 returns the last row of the orderBy window", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirst({
+        where: { age: { not: null } },
+        orderBy: { age: "asc" },
+        take: -1,
+      });
+      expect(result?.name).toBe("Alice"); // Alice is 30, Bob is 25
+    });
+
+    test("take -1 applies the where filter before taking from the end", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirst({
+        where: { name: { in: ["Alice", "Bob"] } },
+        orderBy: { name: "asc" },
+        take: -1,
+      });
+      expect(result?.name).toBe("Bob");
+    });
+
+    test("take 0 returns null even when rows match", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirst({ take: 0 });
+      expect(result).toBeNull();
+    });
+
+    test("positive take still returns the first row", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirst({
+        orderBy: { name: "asc" },
+        take: 5,
+      });
+      expect(result?.name).toBe("Alice");
+    });
   });
 
   describe("findFirstOrThrow", () => {
@@ -194,6 +232,28 @@ describe("Find Operations", () => {
           "No user record found for findFirstOrThrow"
         );
       }
+    });
+
+    test("take -1 returns the last row of the orderBy window", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirstOrThrow({
+        where: { age: { not: null } },
+        orderBy: { age: "asc" },
+        take: -1,
+      });
+      expect(result.name).toBe("Alice"); // Alice is 30, Bob is 25
+    });
+
+    test("take 0 throws NotFoundError even when rows match", async () => {
+      await createStandardUserPostUsers(client);
+      const error = await captureThrown(() =>
+        client.user.findFirstOrThrow({ take: 0 })
+      );
+      expect(error).toBeInstanceOf(NotFoundError);
+      expect(error).toHaveProperty(
+        "message",
+        "No user record found for findFirstOrThrow"
+      );
     });
   });
 

@@ -159,8 +159,20 @@ export class ReadOperation {
     switch (this.base) {
       case "findUnique":
         return buildFindUnique(ctx, requireFindUniqueArgs(args));
-      case "findFirst":
-        return buildFind(ctx, args, { limit: 1 });
+      case "findFirst": {
+        const take = args.take;
+        if (take !== undefined && typeof take !== "number") {
+          throw new QueryEngineError(
+            "query-engine-v2 findFirst received a non-numeric take value."
+          );
+        }
+        // Prisma parity: a negative take selects from the end of the window —
+        // the signed unit limit makes buildFind flip the order while still
+        // emitting LIMIT 1; take 0 is an empty window (LIMIT 0 → null).
+        return buildFind(ctx, args, {
+          limit: take === undefined ? 1 : Math.sign(take),
+        });
+      }
       case "findMany": {
         const take = args.take;
         if (take !== undefined && typeof take !== "number") {
