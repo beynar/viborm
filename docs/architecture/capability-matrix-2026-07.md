@@ -90,11 +90,11 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 2. **Raw SQL is inverted and partly unreachable.** `$queryRaw(sql: string, params?)` is really Prisma's `$queryRawUnsafe` — no tagged template, caller hand-writes `$1` vs `?` ([client.ts:148](../../src/client/client.ts:148)). `$executeRaw(query: Sql)` needs an `Sql` fragment, but **`sql` is not exported from any package entrypoint** ([sql.ts:221](../../src/sql/sql.ts:221) vs `tsdown.config.ts` / `package.json` exports) — package consumers cannot construct the argument. And `tx.$executeRaw` does not exist: the tx proxy is model-ops-only, so it resolves as a model lookup and throws `Model "$executeRaw" not found in schema`.
 3. **Transaction options are rejected, not ignored.** `isolationLevel`, `timeout`, `maxWait` all throw `V5005` — `assertNoTransactionOptions` ([transactions.ts:8](../../src/drivers/shared/transactions.ts:8)), pinned across all 11 drivers. No provider-native escape hatch.
 4. **Error codes don't port.** viborm has a real, driver-normalized taxonomy — but `V####`, not `P####`. `e.code === 'P2002'` becomes `V3001` ([base.ts:12](../../src/errors/base.ts:12)). No `P2000` mapping at all; PG `22001` / MySQL `1406` fall through to generic `QueryError`.
-5. **No field references, no full-text search.** Prisma's `{ field: { equals: prisma.model.fields.other } }` has no analog — every operand is a bound parameter ([where-builder.ts:324](../../src/query-engine/builders/where-builder.ts:324)). `search` / `_relevance` return zero hits repo-wide.
+5. ~~**No field references**~~ — **CLOSED by W2-B**: `client.$fields.<model>.<field>` is Prisma's `FieldRef` (see §1.3). **No full-text search** still stands: `search` / `_relevance` return zero hits repo-wide.
 6. **Extended `whereUnique` is absent.** Prisma ≥4.5 lets you mix non-unique filters and `AND`/`OR`/`NOT` into `findUnique`/`update`/`delete`. viborm rejects anything that is not a unique discriminator ([where-unique-builder.ts:72](../../src/query-engine/builders/where-unique-builder.ts:72)).
 7. **`Decimal` is a JS `number`.** `s.decimal()`'s runtime base is `v.number()` ([scalar.ts:11](../../src/schema/scalars/decimal/scalar.ts:11)) while the DDL is real `numeric` / `DECIMAL` — lossy round-trip. No Decimal.js/string-backed type exists.
 8. **Nested `create`/`createMany` under `update` is conditionally refused.** Works only when the referenced parent column is single-field *and* pinned by the unique `where` or rewritten by the root SET ([UpdateOperation.ts:1327-1382](../../src/query-engine-v2/UpdateOperation.ts:1327)). Inverse-side to-one nested `create`/`createMany`/`updateMany`/`deleteMany` are absent outright (`:1671-1676`). Prisma has no such condition.
-9. **No `omit`, no `_count: true`, no query-level projection sugar.** Query-level `omit` is a declared non-goal; only model-level `.omit()` exists ([model.ts:155](../../src/schema/model/model.ts:155)). `_count: true` shorthand fails strict validation — only `_count: { select: { rel: true } }` is accepted.
+9. **No `omit`, no query-level projection sugar.** Query-level `omit` is a declared non-goal; only model-level `.omit()` exists ([model.ts:155](../../src/schema/model/model.ts:155)). ~~`_count: true` shorthand fails strict validation~~ — **CLOSED by W1-B**: the shorthand desugars to `{ select: { <every to-many relation>: true } }` in validation (see §1.4).
 10. **Tooling is a fraction of Prisma's CLI.** Two commands: `viborm push` and `viborm migrate {generate,apply,down,status,drop}`. No Studio, no `db seed`, no `db pull` command, no drift detection, no shadow DB.
 
 ## 1.2 Model queries
@@ -103,7 +103,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 |---|---|---|
 | `findUnique` | ✅ | [find.ts:20-48](../../src/validation/model/args/find.ts:20); `routing.ts:32` |
 | `findUniqueOrThrow` | ✅ | [ReadOperation.ts:80](../../src/query-engine-v2/ReadOperation.ts:80) |
-| `findFirst` | 🟡 no `distinct`; **`take` accepted then silently dropped** | `find.ts:87` accepts `take`; [ReadOperation.ts:163](../../src/query-engine-v2/ReadOperation.ts:163) hardcodes `{ limit: 1 }` → `findFirst({take:-1})` returns the *first* row, Prisma returns the last |
+| `findFirst` | ✅ — `take` honored with Prisma's sign semantics (`f105500`); `distinct` accepted, array **or** bare-string form (W1-B unit 3) | `find.ts` `getDistinctSchema` feeds findMany and findFirst alike; `ReadOperation` passes the whole validated args to `buildFind` |
 | `findFirstOrThrow` | ✅ | `types.ts:113-114` |
 | `findMany` | ✅ | `find.ts:107-157` |
 | `create` | ✅ | `mutation.ts:19-45`; `CreateOperation.ts` |
@@ -154,7 +154,7 @@ Single compile path: [where-builder.ts](../../src/query-engine/builders/where-bu
 | **Extended whereUnique** | ❌ | `where-unique-builder.ts:72-74` throws `whereUnique field '<k>' is not a unique discriminator.` |
 | `_count` in `where` | ❌ — matches Prisma | `where-builder.ts:110` |
 
-**Reverse gap:** the engine implements `having: { AND | OR | NOT }` ([groupby-having.ts:17](../../src/query-engine/operations/groupby-having.ts:17)) but `getHavingSchema` builds entries only from scalar names and objects are strict by default, so `groupBy({ having: { OR: [...] } })` dies at validation with `Unknown key: OR` ([aggregate.ts:291](../../src/validation/model/args/aggregate.ts:291)). Implemented SQL, unreachable API.
+**Reverse gap — CLOSED by W1-B unit 1.** The engine had always implemented `having: { AND | OR | NOT }` ([groupby-having.ts:17](../../src/query-engine/operations/groupby-having.ts:17)) while `getHavingSchema` built entries only from scalar names, so `groupBy({ having: { OR: [...] } })` died at validation with `Unknown key: OR`. `getHavingSchema` now builds AND/OR/NOT through the same thunk self-reference `getWhereSchema` uses (AND/NOT object-or-array, OR array-only; scalar entries applied last, so a scalar literally named `AND` still wins — identical precedence to `where`). Field references are excluded from `having` by an explicit `v.noFieldRef` wrapper (W2-B), matching Prisma.
 
 ## 1.4 Selection, pagination, ordering
 
@@ -165,8 +165,8 @@ Single compile path: [where-builder.ts](../../src/query-engine/builders/where-bu
 | Arbitrary-depth nesting; select↔include alternation | ✅ | `relations/select-include.ts:114-196` |
 | `omit` (query-level + client config) | ❌ declared non-goal | model-level `.omit()` only |
 | `_count: { select: { rel: true } }`, filtered `_count` | ✅ in both select and include | `select.ts:128-133,181-189` |
-| `_count: true` shorthand | ❌ | strict object requires `select` |
-| `distinct` | 🟡 **array-only**; findMany + nested relation args (W3-A unit 3), not `findFirst`, not `groupBy` | `find.ts:152`, `relations/select-include.ts` |
+| `_count: true` shorthand | ✅ (W1-B unit 2) — desugars in validation to `{ select: { <every to-many relation>: true } }`, in both `select` and `include`; the engine still sees only the object form. A model with no to-many relations expands to `{ select: {} }` (Prisma emits no `_count` field at all there, so there is no runtime behavior to mirror) | `validation/model/core/select.ts` `getCountSchema`; `result-types.ts` `InferRelationCountSelection` |
+| `distinct` | ✅ findMany + `findFirst` + nested relation args, **array or bare-string** (W1-B unit 3 + W3-A unit 3); still not on `groupBy` | `find.ts` `getDistinctSchema`, `builders/distinct-builder.ts`, `relations/select-include.ts` |
 | `distinct` SQL strategy | ↔️ SQL-backed, not Prisma's in-memory: PG `DISTINCT ON` when no orderBy, else `ROW_NUMBER()` everywhere | `shared/select-assembly.ts:77-151` |
 | Relation args in include: `where`/`orderBy`/`take`/`skip`/`select`/`include` | ✅ (to-one correctly limited to select/include) | `relations/select-include.ts:114-185` |
 | Relation-level negative `take` | ✅ (W3-A unit 1) — same pipeline as the top level: reversed order + absolute limit in the relation subquery, logical order restored on the result | `builders/nested-read-window.ts` |
