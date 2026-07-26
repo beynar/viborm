@@ -4,7 +4,12 @@
  */
 
 import type { VibSchema } from "../types";
-import type { ConversionContext, JsonSchema, JsonSchemaTarget } from "./types";
+import type {
+  ConversionContext,
+  ConversionFrame,
+  JsonSchema,
+  JsonSchemaTarget,
+} from "./types";
 
 // =============================================================================
 // Helper Functions
@@ -38,12 +43,61 @@ function getSchemaName(schema: any): string | null {
   return name && typeof name === "string" ? name : null;
 }
 
+/**
+ * The `$ref` value for an open frame something has just referred back to,
+ * allocating it on first use.
+ *
+ * A cycle back to the document ROOT is the whole document, so it is spelled
+ * `#` and hoists nothing. Anything else gets a `$defs` entry: a schema that
+ * declares a name keeps it, an anonymous one — every recursive scalar filter,
+ * whose `not` arm points back at the filter object itself — gets a generated
+ * one. The key is reserved immediately so a second, concurrently-open frame
+ * cannot claim it; the placeholder is overwritten with the real body when the
+ * frame completes.
+ */
+function framePointer(
+  frame: ConversionFrame,
+  context: ConversionContext
+): string {
+  if (frame.pointer !== null) {
+    return frame.pointer;
+  }
+
+  if (frame.schema === context.rootSchema) {
+    frame.pointer = "#";
+    return frame.pointer;
+  }
+
+  const declared = (frame.schema as any)?.options?.name;
+  let name: string | undefined =
+    typeof declared === "string" && declared.length > 0 ? declared : undefined;
+
+  while (name === undefined || name in context.definitions) {
+    context.refCount += 1;
+    name = `Recursive${context.refCount}`;
+  }
+
+  frame.name = name;
+  frame.pointer = `#/$defs/${name}`;
+  // Reserve the key; the body lands here when the frame finishes converting.
+  context.definitions[name] = {};
+  return frame.pointer;
+}
+
 // =============================================================================
 // Main Converter
 // =============================================================================
 
 /**
  * Converts a VibORM schema to JSON Schema format.
+ *
+ * Cycle-aware: a schema graph may point back at itself (a scalar filter's
+ * `not` arm is the filter itself, a model's `where` comes back round through
+ * `AND`/`OR`/`NOT`). JSON Schema expresses that with `$ref`, so a schema
+ * reached again while its own conversion is still open emits a reference —
+ * `#` when it is the document root, otherwise a `$defs` entry holding its
+ * body. A schema nothing points back at is unaffected: it is still inlined,
+ * byte for byte as before.
  *
  * @param schema - The VibORM schema to convert
  * @param context - The conversion context for tracking references
@@ -58,15 +112,61 @@ export function convertSchema(
   context: ConversionContext,
   skipRef = false
 ): JsonSchema {
-  const jsonSchema: JsonSchema = {};
-
-  // Check for existing reference (circular schema support)
   if (!skipRef) {
+    // Check for existing reference (circular schema support)
     const existingRef = context.referenceMap.get(schema);
     if (existingRef) {
       return { $ref: `#/$defs/${existingRef}` };
     }
+
+    // Reached a schema that is still being converted further up the stack:
+    // the graph is cyclic. Close it with a $ref rather than recursing forever.
+    const openFrame = context.activeFrames.get(schema);
+    if (openFrame) {
+      return { $ref: framePointer(openFrame, context) };
+    }
   }
+
+  const shadowed = context.activeFrames.get(schema);
+  const frame: ConversionFrame = { schema, pointer: null, name: null };
+  context.activeFrames.set(schema, frame);
+
+  let body: JsonSchema;
+  try {
+    body = convertSchemaBody(schema, context);
+  } finally {
+    if (shadowed) {
+      context.activeFrames.set(schema, shadowed);
+    } else {
+      context.activeFrames.delete(schema);
+    }
+  }
+
+  if (frame.name === null) {
+    // Either nothing pointed back at this schema, or it IS the document root
+    // and the back-references already say `#`. Either way it stays inline.
+    return body;
+  }
+
+  context.definitions[frame.name] = body;
+  // Later occurrences of the same schema reuse the definition instead of
+  // re-emitting the body.
+  context.referenceMap.set(schema, frame.name);
+  return { $ref: frame.pointer as string };
+}
+
+/**
+ * The per-type conversion itself. Never call this directly — {@link convertSchema}
+ * wraps it with the cycle bookkeeping every recursive schema depends on.
+ */
+function convertSchemaBody(
+  schema: VibSchema<unknown, unknown> & {
+    type: string;
+    [key: string]: unknown;
+  },
+  context: ConversionContext
+): JsonSchema {
+  const jsonSchema: JsonSchema = {};
 
   // Get schema type
   const schemaType = schema.type as string;
@@ -301,6 +401,16 @@ export function convertSchema(
       return convertSchema(operand as any, context);
     }
 
+    case "lazyRef": {
+      // A deferred reference to a schema built elsewhere (args → core schemas,
+      // and a scalar filter's `not` arm pointing back at the filter itself).
+      // Resolving it here is what makes the reference transparent in JSON
+      // Schema; the cycle bookkeeping in convertSchema is what keeps a
+      // SELF-referential target from inlining forever.
+      const target = (schema as any).wrapped as VibSchema<unknown, unknown>;
+      return convertSchema(target as any, context);
+    }
+
     case "no_field_ref": {
       // The mirror image: this wrapper only REMOVES in-process tokens, which
       // have no JSON representation to remove in the first place, so the JSON
@@ -345,6 +455,8 @@ export function toJsonSchema(
   const context: ConversionContext = {
     definitions: {},
     referenceMap: new Map(),
+    activeFrames: new Map(),
+    rootSchema: schema,
     refCount: 0,
     target,
   };

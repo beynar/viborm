@@ -1,6 +1,12 @@
-import v from "@validation";
+import { s } from "@schema";
+import { getSchemas } from "@schema/schemas";
+import v, { toJsonSchema } from "@validation";
 import type { JsonSchema } from "@validation/json-schema";
+import type { VibSchema } from "@validation/types";
 import { describe, expect, test } from "vitest";
+
+const DEFS_PREFIX = "#/$defs/";
+const DEFS_POINTER = /^#\/\$defs\//;
 
 describe("JSON Schema conversion", () => {
   describe("primitive schemas", () => {
@@ -813,6 +819,264 @@ describe("JSON Schema conversion", () => {
       ).toMatchObject({
         type: "object",
         properties: { gt: { type: "integer" }, label: { type: "string" } },
+      });
+    });
+  });
+
+  /**
+   * Everything above converts a hand-built `v.*` schema. That was the blind
+   * spot: the schemas users actually reach for come off a MODEL, and one of
+   * them — every scalar filter — became recursive (`not` accepts a filter,
+   * tied with `v.lazyRef`) without the converter learning either the wrapper
+   * or the cycle. Emission threw for all 21 filters through both public entry
+   * points while the estate stayed green, because nothing here ever asked a
+   * model for a schema.
+   *
+   * @see {@link file://../../src/validation/scalars/negatable-filter.ts}
+   */
+  describe("model schemas", () => {
+    const kitchenSink = s.model({
+      id: s.string().id(),
+      str: s.string(),
+      strList: s.string().array(),
+      int: s.int(),
+      intList: s.int().array(),
+      float: s.float(),
+      floatList: s.float().array(),
+      big: s.bigInt(),
+      bigList: s.bigInt().array(),
+      dec: s.decimal(),
+      decList: s.decimal().array(),
+      bool: s.boolean(),
+      boolList: s.boolean().array(),
+      dt: s.dateTime(),
+      dtList: s.dateTime().array(),
+      day: s.date(),
+      dayList: s.date().array(),
+      clock: s.time(),
+      clockList: s.time().array(),
+      grade: s.enum(["a", "b"]),
+      gradeList: s.enum(["a", "b"]).array(),
+      bytes: s.blob(),
+      spot: s.point(),
+      embedding: s.vector().dimension(3),
+      doc: s.json(),
+    });
+
+    type FilterSchemas = Record<
+      string,
+      { filter: VibSchema<unknown, unknown> }
+    >;
+
+    const scalarSchemas = (): FilterSchemas =>
+      getSchemas({ kitchenSink }).kitchenSink.scalars;
+
+    /** The filter schema of one field, or a loud failure if it has none. */
+    const filterOf = (field: string): VibSchema<unknown, unknown> => {
+      const schemas = scalarSchemas()[field];
+      if (!schemas) {
+        throw new Error(`no scalar schemas for field '${field}'`);
+      }
+      return schemas.filter;
+    };
+
+    /** Follows a `#/$defs/x` pointer inside the document that emitted it. */
+    const deref = (document: JsonSchema, node: unknown): JsonSchema => {
+      const ref = (node as JsonSchema)?.$ref;
+      if (typeof ref !== "string" || !DEFS_POINTER.test(ref)) {
+        throw new Error(`not a $defs pointer: ${JSON.stringify(node)}`);
+      }
+      const target = document.$defs?.[ref.slice(DEFS_PREFIX.length)];
+      if (!target) {
+        throw new Error(`dangling pointer '${ref}'`);
+      }
+      return target;
+    };
+
+    /** The `not` arm of a filter object, whatever its other operators are. */
+    const notArm = (filterObject: JsonSchema): JsonSchema =>
+      filterObject.properties?.not as JsonSchema;
+
+    test("a scalar filter converts through toJsonSchema", () => {
+      const filter = filterOf("str");
+      const jsonSchema = toJsonSchema(filter) as JsonSchema;
+
+      expect(jsonSchema.$schema).toBe(
+        "http://json-schema.org/draft-07/schema#"
+      );
+      // Shorthand value OR the filter object.
+      expect(jsonSchema.anyOf).toHaveLength(2);
+      expect(jsonSchema.anyOf?.[0]).toEqual({ type: "string" });
+    });
+
+    test("a scalar filter converts through the Standard Schema surface", () => {
+      const filter = filterOf("str");
+      const viaStandard = filter["~standard"].jsonSchema.input({
+        target: "draft-07",
+      });
+
+      expect(viaStandard).toEqual(toJsonSchema(filter));
+    });
+
+    /**
+     * The recursion itself. `not` accepts the whole filter again, so the only
+     * honest JSON Schema for it is a `$ref` back into `$defs` — inlining would
+     * not terminate, and that is precisely how a naive "just unwrap lazyRef"
+     * converter hangs instead of throwing.
+     */
+    test("nested `not` is expressed as a $ref, not inlined", () => {
+      const document = toJsonSchema(filterOf("str")) as JsonSchema;
+
+      const filterObject = deref(document, document.anyOf?.[1]);
+      expect(filterObject.type).toBe("object");
+
+      // `not` is itself shorthand-or-object, and the object arm points back at
+      // the very definition we just resolved.
+      const notObject = notArm(filterObject);
+      expect(notObject.anyOf?.[0]).toEqual({ type: "string" });
+      expect(notObject.anyOf?.[1]).toEqual(document.anyOf?.[1]);
+
+      // Following the cycle a second time lands on the same definition, which
+      // is what makes `not: { not: { not: … } }` expressible at any depth.
+      expect(deref(document, notObject.anyOf?.[1])).toBe(filterObject);
+    });
+
+    test.each([
+      "draft-07",
+      "draft-2020-12",
+      "openapi-3.0",
+    ])("every scalar filter converts on target %s", (target) => {
+      const scalars = scalarSchemas();
+      expect(Object.keys(scalars).length).toBeGreaterThan(20);
+
+      for (const [field, schemas] of Object.entries(scalars)) {
+        const converted = () =>
+          schemas.filter["~standard"].jsonSchema.input({ target });
+        expect(converted, `${field} filter`).not.toThrow();
+        expect(converted(), `${field} filter`).toBeTypeOf("object");
+      }
+    });
+
+    /**
+     * The complement: a model's `where` is built out of those filters, so the
+     * cycle has to survive being nested inside an ordinary object — and the
+     * relation legs that come back round to the same model must not inline
+     * forever either.
+     */
+    test("a model's where schema converts", () => {
+      const where = getSchemas({ kitchenSink }).kitchenSink.core.where;
+      const document = toJsonSchema(where) as JsonSchema;
+      expect(document.type).toBe("object");
+      expect(document.properties?.str).toBeDefined();
+    });
+  });
+
+  /**
+   * The cycle machinery in isolation: it keys on schema IDENTITY, fires only
+   * when something actually points back, and leaves everything else inline.
+   */
+  describe("cycle handling", () => {
+    test("a lazyRef to a non-recursive schema is unwrapped inline", () => {
+      const target = v.object({ value: v.string() });
+      const schema = v.object({ ref: v.lazyRef(() => target) });
+
+      const jsonSchema = toJsonSchema(schema) as JsonSchema;
+      expect(jsonSchema.properties?.ref).toEqual({
+        type: "object",
+        properties: { value: { type: "string" } },
+        additionalProperties: false,
+      });
+      expect(jsonSchema.$defs).toBeUndefined();
+    });
+
+    /**
+     * A cycle back to the DOCUMENT ROOT is the whole document, so it is the
+     * root pointer `#` — no definition, and no `$ref` sitting at the root with
+     * `$schema`/`$defs` beside it (draft-07 ignores a `$ref`'s siblings).
+     */
+    test("a lazyRef pointing at the root terminates with the root pointer", () => {
+      const self: any = v.object({
+        value: v.string(),
+        next: v.lazyRef(() => self),
+      });
+
+      expect(toJsonSchema(self)).toEqual({
+        type: "object",
+        properties: { value: { type: "string" }, next: { $ref: "#" } },
+        additionalProperties: false,
+        $schema: "http://json-schema.org/draft-07/schema#",
+      });
+    });
+
+    test("a cycle below the root is hoisted into $defs", () => {
+      const inner: any = v.object({ next: v.lazyRef(() => inner) });
+      const outer = v.object({ child: inner });
+
+      const jsonSchema = toJsonSchema(outer) as JsonSchema;
+      const ref = (jsonSchema.properties?.child as JsonSchema).$ref;
+      expect(ref).toMatch(DEFS_POINTER);
+
+      const name = (ref as string).slice(DEFS_PREFIX.length);
+      // The definition is the inner object's own body, pointing back at itself.
+      expect(
+        (jsonSchema.$defs?.[name]?.properties?.next as JsonSchema).$ref
+      ).toBe(ref);
+    });
+
+    test("a lazyRef to a NAMED schema keeps that schema's name", () => {
+      const node: any = v.object(
+        { label: v.string(), child: v.lazyRef(() => node) },
+        { name: "Node" }
+      );
+
+      const jsonSchema = toJsonSchema(node) as JsonSchema;
+      expect((jsonSchema.properties?.child as JsonSchema).$ref).toBe(
+        "#/$defs/Node"
+      );
+      expect(jsonSchema.$defs?.Node).toBeDefined();
+    });
+
+    /**
+     * The regression guard for the whole fix: a schema nobody points back at
+     * must emit exactly what it emitted before cycles were understood at all —
+     * no stray `$defs`, no `$ref`, same key order. These two are spelled as
+     * whole-document equalities (not `toMatchObject`) on purpose.
+     */
+    test("a non-recursive object is byte-identical to its pre-cycle output", () => {
+      const schema = v.object({ a: v.string(), b: v.optional(v.number()) });
+      expect(toJsonSchema(schema)).toEqual({
+        type: "object",
+        properties: { a: { type: "string" }, b: { type: "number" } },
+        additionalProperties: false,
+        $schema: "http://json-schema.org/draft-07/schema#",
+      });
+    });
+
+    test("a named-but-acyclic reference is byte-identical too", () => {
+      const item = v.object({ value: v.string() }, { name: "Item" });
+      const container = v.object({
+        items: () => v.nullable(v.array(v.optional(item))),
+      });
+
+      expect(toJsonSchema(container)).toEqual({
+        type: "object",
+        properties: {
+          items: {
+            anyOf: [
+              { type: "array", items: { $ref: "#/$defs/Item" } },
+              { type: "null" },
+            ],
+          },
+        },
+        additionalProperties: false,
+        $schema: "http://json-schema.org/draft-07/schema#",
+        $defs: {
+          Item: {
+            type: "object",
+            properties: { value: { type: "string" } },
+            additionalProperties: false,
+          },
+        },
       });
     });
   });

@@ -68,7 +68,12 @@ export function lazyRef<T extends VibSchema>(factory: () => T): T {
 
   return {
     type: "lazyRef",
-    /** JSON-schema conversion unwraps through this (resolves on demand) */
+    /**
+     * JSON-schema conversion unwraps through this (resolves on demand) — see
+     * the `lazyRef` case in {@link file://../json-schema/converters.ts}. A
+     * reference that points BACK at a schema still being converted (a scalar
+     * filter's `not`) is closed there with a `$ref`, so unwrapping terminates.
+     */
     get wrapped() {
       return resolve();
     },

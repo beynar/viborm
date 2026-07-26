@@ -109,6 +109,25 @@ export interface JsonSchemaConverter {
 // =============================================================================
 
 /**
+ * One schema whose conversion is currently OPEN — i.e. sits somewhere on the
+ * conversion call stack. Reaching the same schema again (through a `lazyRef`
+ * or a thunk) means the schema graph is cyclic, and JSON Schema spells a cycle
+ * with `$ref` rather than by inlining forever.
+ *
+ * `pointer` is allocated LAZILY, the first time something actually refers back
+ * to the frame: a frame nobody points at emits its body inline, exactly as
+ * before cycles were understood at all.
+ */
+export interface ConversionFrame {
+  /** The schema this frame is converting (identity, not structure). */
+  schema: unknown;
+  /** The `$ref` value pointing at this frame, or null while unreferenced. */
+  pointer: string | null;
+  /** The `$defs` key holding the body — null when the frame is the root. */
+  name: string | null;
+}
+
+/**
  * Context for JSON Schema conversion.
  * Used to track definitions and references for circular schemas.
  */
@@ -117,6 +136,13 @@ export interface ConversionContext {
   definitions: Record<string, JsonSchema>;
   /** Map of schema objects to their reference IDs */
   referenceMap: Map<unknown, string>;
+  /** Schemas whose conversion is currently open, keyed by identity */
+  activeFrames: Map<unknown, ConversionFrame>;
+  /**
+   * The schema at the document root, if known. A cycle back to it is the whole
+   * document, so it is spelled `#` and needs no definition of its own.
+   */
+  rootSchema?: unknown;
   /** Counter for generating unique reference IDs */
   refCount: number;
   /** The target version being generated */
@@ -125,11 +151,20 @@ export interface ConversionContext {
 
 /**
  * Creates a new conversion context.
+ *
+ * @param target - The target JSON Schema version
+ * @param rootSchema - The schema being converted at the document root, so a
+ *   cycle back to it can be spelled as the root pointer `#`
  */
-export function createContext(target: JsonSchemaTarget): ConversionContext {
+export function createContext(
+  target: JsonSchemaTarget,
+  rootSchema?: unknown
+): ConversionContext {
   return {
     definitions: {},
     referenceMap: new Map(),
+    activeFrames: new Map(),
+    rootSchema,
     refCount: 0,
     target,
   };
