@@ -301,6 +301,14 @@ export function convertSchema(
       return convertSchema(operand as any, context);
     }
 
+    case "no_field_ref": {
+      // The mirror image: this wrapper only REMOVES in-process tokens, which
+      // have no JSON representation to remove in the first place, so the JSON
+      // shape is exactly the wrapped schema's.
+      const inner = (schema as any).wrapped as VibSchema<unknown, unknown>;
+      return convertSchema(inner as any, context);
+    }
+
     case "pipe": {
       // Pipe contains a base schema and actions - use the base schema
       const baseSchema = (schema as any).schema as VibSchema<unknown, unknown>;

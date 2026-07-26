@@ -19,6 +19,10 @@ const CROSS_MODEL_REFUSAL =
 const WRONG_TYPE_REFUSAL =
   /Field reference 'post\.views' is of type 'int', but a 'string' operand is required here/;
 const HAVING_REFUSAL = /is not supported in 'having'/;
+const JSON_FILTER_REFUSAL =
+  /Field reference 'post\.payload' is not supported in a JSON filter operand/;
+const JSON_DATA_REFUSAL =
+  /Field reference 'post\.payload' is not supported in JSON write data/;
 
 export interface FieldReferenceBehaviorOptions {
   driverName: string;
@@ -264,6 +268,61 @@ export function runFieldReferenceBehavior({
         having: { views: { not: { not: { not: { not: { gt: 7 } } } } } },
       });
       expect(groups.map((g) => g.views).sort((a, b) => a - b)).toEqual([100]);
+    });
+
+    /**
+     * JSON operands and JSON write data are closed to references, and the
+     * closure has to hold against a LIVE database because the failure mode was
+     * not an error: a token in a filter serialized to a parameter and matched
+     * nothing, and a token in `data` was WRITTEN into the user's column. Both
+     * are silent — only a real round-trip shows the difference between "refused"
+     * and "accepted and quietly wrong".
+     */
+    test("a reference is refused in JSON filters and JSON write data", async () => {
+      const ref = () => db().$fields.post.payload as never;
+
+      await expect(
+        db().post.findMany({ where: { payload: { equals: ref() } } })
+      ).rejects.toThrow(JSON_FILTER_REFUSAL);
+      await expect(
+        db().post.findMany({
+          where: { payload: { array_contains: ref() } },
+        })
+      ).rejects.toThrow(JSON_FILTER_REFUSAL);
+      await expect(
+        db().post.create({
+          data: {
+            id: "leak",
+            title: "leak",
+            slug: "leak",
+            payload: ref(),
+            authorId: "u1",
+          },
+        })
+      ).rejects.toThrow(JSON_DATA_REFUSAL);
+      await expect(
+        db().post.update({
+          where: { id: "hot" },
+          data: { payload: ref() },
+        })
+      ).rejects.toThrow(JSON_DATA_REFUSAL);
+
+      // Nothing was written by the refused create, and the refused update left
+      // the row alone — the refusal lands before any statement is issued.
+      expect(await db().post.findUnique({ where: { id: "leak" } })).toBeNull();
+      expect(
+        (await db().post.findUnique({ where: { id: "hot" } }))?.payload
+      ).toBeNull();
+
+      // The complement: ordinary JSON still round-trips, so the closure is
+      // about tokens and not about JSON.
+      await db().post.update({
+        where: { id: "hot" },
+        data: { payload: { seen: true } },
+      });
+      expect(
+        (await db().post.findUnique({ where: { id: "hot" } }))?.payload
+      ).toEqual({ seen: true });
     });
   });
 }

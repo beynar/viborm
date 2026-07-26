@@ -18,8 +18,27 @@ type JsonComparisonOperand = V.Union<readonly [V.Number, V.String]>;
  */
 type JsonPathOperand = V.Union<readonly [V.Array<V.String>, V.String]>;
 
+/**
+ * A whole-document JSON operand, re-closed to field references.
+ *
+ * JSON is the only surface in the schema layer that accepts an ARBITRARY
+ * object, so it is the only one where a field-reference token type-checks as a
+ * legal value: `{ [FIELD_REF_BRAND]: true, model, field, type, list }` is a
+ * perfectly ordinary JSON document as far as `v.json` is concerned. Left
+ * unguarded, `where: { data: { equals: $fields.thing.other } }` bound the ORM's
+ * internal token as a parameter and quietly matched nothing, and
+ * `create({ data: { data: ref } })` PERSISTED it as user data.
+ *
+ * References are not opened here for a reason, so the wrapper is a closure and
+ * not a gap: an operand of `equals`/`array_*` is compared as a whole JSON
+ * VALUE (`@>`, `#>`, `JSON_CONTAINS`), not as a column expression, so there is
+ * nothing for a column reference to mean. Failing closed is the doctrine;
+ * silently binding an ORM-internal object is the opposite of it.
+ */
+type JsonOperand<S extends V.Schema> = V.NoFieldRef<S>;
+
 type JsonFilterBase<S extends V.Schema> = {
-  equals: S;
+  equals: JsonOperand<S>;
   path: JsonPathOperand;
   mode: V.Enum<["default", "insensitive"]>;
   lt: JsonComparisonOperand;
@@ -29,10 +48,14 @@ type JsonFilterBase<S extends V.Schema> = {
   string_contains: V.String;
   string_starts_with: V.String;
   string_ends_with: V.String;
-  array_contains: S;
-  array_starts_with: S;
-  array_ends_with: S;
+  array_contains: JsonOperand<S>;
+  array_starts_with: JsonOperand<S>;
+  array_ends_with: JsonOperand<S>;
 };
+
+/** Where a refused reference is reported from, in the filter and write paths. */
+const JSON_FILTER_SITE = "a JSON filter operand";
+const JSON_DATA_SITE = "JSON write data";
 
 type JsonFilterSchema<S extends V.Schema> = V.Object<
   JsonFilterBase<S> & {
@@ -44,9 +67,8 @@ type JsonFilterSchema<S extends V.Schema> = V.Object<
 // UPDATE TYPES
 // =============================================================================
 
-type JsonUpdateSchema<S extends V.Schema> = V.Coerce<
-  S,
-  { set: S[" vibInferred"]["1"] }
+type JsonUpdateSchema<S extends V.Schema> = V.NoFieldRef<
+  V.Coerce<S, { set: S[" vibInferred"]["1"] }>
 >;
 
 // =============================================================================
@@ -57,8 +79,9 @@ const buildJsonFilterSchema = <S extends V.Schema>(
   schema: S
 ): JsonFilterSchema<S> => {
   const comparisonOperand = v.union([v.number(), v.string()]);
+  const operand = v.noFieldRef(schema, JSON_FILTER_SITE);
   const filter = v.object({
-    equals: schema,
+    equals: operand,
     path: v.union([v.array(v.string()), v.string()]),
     mode: v.enum(["default", "insensitive"]),
     lt: comparisonOperand,
@@ -68,9 +91,9 @@ const buildJsonFilterSchema = <S extends V.Schema>(
     string_contains: v.string(),
     string_starts_with: v.string(),
     string_ends_with: v.string(),
-    array_contains: schema,
-    array_starts_with: schema,
-    array_ends_with: schema,
+    array_contains: operand,
+    array_starts_with: operand,
+    array_ends_with: operand,
   });
   return filter.extend({
     not: filter,
@@ -80,11 +103,14 @@ const buildJsonFilterSchema = <S extends V.Schema>(
 const buildJsonUpdateSchema = <S extends V.Schema>(
   schema: S
 ): JsonUpdateSchema<S> =>
-  v.coerce(schema, (value: S[" vibInferred"]["0"]) => {
-    return {
-      set: value,
-    };
-  });
+  v.noFieldRef(
+    v.coerce(schema, (value: S[" vibInferred"]["0"]) => {
+      return {
+        set: value,
+      };
+    }),
+    JSON_DATA_SITE
+  );
 
 // =============================================================================
 // JSON SCHEMA BUILDER
@@ -92,7 +118,7 @@ const buildJsonUpdateSchema = <S extends V.Schema>(
 
 export interface JsonSchemas<F extends ScalarState<"json">> {
   base: F["base"];
-  create: V.Json<F>;
+  create: V.NoFieldRef<V.Json<F>>;
   update: JsonUpdateSchema<F["base"]>;
   filter: JsonFilterSchema<F["base"]>;
 }
@@ -102,7 +128,11 @@ export const buildJsonSchema = <F extends ScalarState<"json">>(
 ): JsonSchemas<F> => {
   return {
     base: state.base as F["base"],
-    create: v.json(state),
+    // `create`/`update` are closed for the same reason the filter operands are,
+    // with a worse failure mode: an unguarded token is not merely bound and
+    // ignored, it is WRITTEN — the ORM's own `{ model, field, type, list }`
+    // record lands in the user's JSON column as if it were their data.
+    create: v.noFieldRef(v.json(state), JSON_DATA_SITE),
     update: buildJsonUpdateSchema(state.base),
     filter: buildJsonFilterSchema(state.base),
   } as JsonSchemas<F>;

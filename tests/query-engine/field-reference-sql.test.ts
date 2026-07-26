@@ -71,6 +71,11 @@ const Post = s
     views: s.int(),
     likes: s.int().map("like_count"),
     tags: s.string().array(),
+    // Two JSON columns: JSON is the only operand position that accepts an
+    // arbitrary object, so it is the only one where a reference token is a
+    // structurally VALID value and has to be refused on purpose.
+    meta: s.json().nullable(),
+    meta2: s.json().nullable(),
     authorId: s.string(),
     author: s
       .manyToOne(() => User)
@@ -87,6 +92,10 @@ const WRONG_TYPE_REFUSAL =
   /is of type 'int', but a 'string' operand is required/;
 const LIST_REFUSAL = /is a list field/;
 const HAVING_REFUSAL = /is not supported in 'having'/;
+const JSON_FILTER_REFUSAL =
+  /Field reference 'Post\.meta2' is not supported in a JSON filter operand/;
+const JSON_DATA_REFUSAL =
+  /Field reference 'Post\.meta2' is not supported in JSON write data/;
 const UNKNOWN_MODEL_REFUSAL = /Unknown model "Nope"/;
 const UNKNOWN_FIELD_REFUSAL = /Unknown scalar field "nope"/;
 
@@ -357,6 +366,111 @@ describe("surfaces that stay closed to field references", () => {
         orderBy: { views: fields().Post.likes },
       })
     ).toThrow();
+  });
+});
+
+/**
+ * JSON is the one operand position that accepts an ARBITRARY object, so it is
+ * the only place where a reference token is a structurally valid value: to
+ * `v.json` the token is just `{ model, field, type, list }`, a perfectly
+ * ordinary document. Every other closed surface refuses a reference for free,
+ * because a token is not a string/number/date/blob — JSON has to refuse it
+ * deliberately, and until it did, the token was silently BOUND as a parameter
+ * in filters and silently PERSISTED as user data in create/update.
+ *
+ * TypeScript rejects all of these spellings, so they are only reachable through
+ * an untyped boundary (a dynamic query builder, an HTTP payload) — which is
+ * exactly the traffic the runtime parse boundary exists to police, and exactly
+ * why `as never` appears below.
+ */
+describe("JSON operands stay closed to field references", () => {
+  const engine = () => createEngine(dialectCases[0] as DialectCase);
+  const ref = () => fields().Post.meta2 as never;
+
+  test.each([
+    ["equals", () => ({ meta: { equals: ref() } })],
+    ["array_contains", () => ({ meta: { array_contains: ref() } })],
+    ["array_starts_with", () => ({ meta: { array_starts_with: ref() } })],
+    ["array_ends_with", () => ({ meta: { array_ends_with: ref() } })],
+    ["equals under a path", () => ({ meta: { path: ["k"], equals: ref() } })],
+    ["equals under not", () => ({ meta: { not: { equals: ref() } } })],
+    // The scan is exhaustive, not top-level: a token buried inside an
+    // otherwise-legal document is the same leak with a longer path to it.
+    ["buried inside a document", () => ({ meta: { equals: { a: [ref()] } } })],
+  ])("a JSON filter refuses a reference in %s", (_name, where) => {
+    expect(() =>
+      engine().build(Post, "findMany", { where: where() as never })
+    ).toThrow(JSON_FILTER_REFUSAL);
+  });
+
+  test.each([
+    ["a create data slot", () => ref()],
+    ["a create data slot, buried", () => ({ deep: { r: ref() } })],
+  ])("JSON write data refuses a reference in %s", (_name, value) => {
+    expect(() =>
+      engine().build(Post, "create", {
+        data: {
+          id: "p1",
+          title: "t",
+          views: 1,
+          likes: 1,
+          tags: [],
+          meta: value() as never,
+          authorId: "u1",
+        },
+      })
+    ).toThrow(JSON_DATA_REFUSAL);
+  });
+
+  test.each([
+    ["the shorthand form", () => ref()],
+    ["the { set } form", () => ({ set: ref() })],
+    ["a buried position", () => ({ deep: [ref()] })],
+  ])("JSON update data refuses a reference in %s", (_name, value) => {
+    expect(() =>
+      engine().build(Post, "update", {
+        where: { id: "p1" },
+        data: { meta: value() as never },
+      })
+    ).toThrow(JSON_DATA_REFUSAL);
+  });
+
+  /**
+   * The complement: the closure refuses TOKENS, not objects. Every ordinary
+   * JSON document — including ones whose keys spell a reference's own fields —
+   * still compiles, so the guard cannot be satisfied by rejecting JSON wholesale.
+   */
+  test("ordinary JSON documents still compile in filters and writes", () => {
+    const lookalike = { model: "Post", field: "meta2", type: "json" };
+    expect(() =>
+      engine().build(Post, "findMany", {
+        where: { meta: { equals: lookalike } },
+      })
+    ).not.toThrow();
+    expect(() =>
+      engine().build(Post, "findMany", {
+        where: { meta: { path: ["a", "b"], array_contains: [1, 2] } },
+      })
+    ).not.toThrow();
+    expect(() =>
+      engine().build(Post, "create", {
+        data: {
+          id: "p1",
+          title: "t",
+          views: 1,
+          likes: 1,
+          tags: [],
+          meta: lookalike,
+          authorId: "u1",
+        },
+      })
+    ).not.toThrow();
+    expect(() =>
+      engine().build(Post, "update", {
+        where: { id: "p1" },
+        data: { meta: { set: lookalike } },
+      })
+    ).not.toThrow();
   });
 });
 

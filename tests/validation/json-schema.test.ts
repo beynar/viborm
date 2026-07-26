@@ -786,4 +786,34 @@ describe("JSON Schema conversion", () => {
       expect(jsonSchema.$defs?.Item).toBeDefined();
     });
   });
+
+  /**
+   * The two field-reference wrappers carry no JSON shape of their own: a
+   * reference is an in-process token that cannot cross a JSON boundary in
+   * either direction, so both convert to exactly the schema they wrap. This
+   * matters because the converter's default branch THROWS on an unknown schema
+   * type — a wrapper the converter has never heard of does not degrade, it
+   * takes JSON-Schema emission down for every payload that contains one.
+   */
+  describe("field-reference wrappers", () => {
+    test("fieldRefOr converts to its literal operand", () => {
+      const schema = v.fieldRefOr("int", v.integer());
+      expect(
+        schema["~standard"].jsonSchema.output({ target: "draft-07" })
+      ).toMatchObject({ type: "integer" });
+    });
+
+    test("noFieldRef converts to the schema it re-closes", () => {
+      const schema = v.noFieldRef(
+        v.object({ gt: v.integer(), label: v.string() }),
+        "'having'"
+      );
+      expect(
+        schema["~standard"].jsonSchema.output({ target: "draft-07" })
+      ).toMatchObject({
+        type: "object",
+        properties: { gt: { type: "integer" }, label: { type: "string" } },
+      });
+    });
+  });
 });

@@ -25,6 +25,10 @@ export const fieldRefSchema = (() => {
       slug: s.string().map("slug_column"),
       views: s.int().default(0),
       likes: s.int().default(0),
+      // JSON is the only operand/data slot that accepts an arbitrary object,
+      // so it is the only one where a reference token is a structurally valid
+      // value and has to be refused deliberately rather than for free.
+      payload: s.json().nullable(),
       authorId: s.string(),
       author: s
         .manyToOne(() => user)
