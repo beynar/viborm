@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // BASE TYPES
@@ -23,17 +27,9 @@ type TimeFilterBase<S extends V.Schema> = {
   gte: V.IsoTime;
 };
 
-type TimeFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      TimeFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<TimeFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type TimeFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  TimeFilterBase<S>
 >;
 
 type TimeListFilterBase<S extends V.Schema> = {
@@ -44,17 +40,9 @@ type TimeListFilterBase<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type TimeListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      TimeListFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<TimeListFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type TimeListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  TimeListFilterBase<S>
 >;
 
 // =============================================================================
@@ -99,12 +87,7 @@ const buildTimeFilterSchema = <S extends V.Schema>(
   const filter = timeFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, TimeFilterBase<S>>(filter, schema);
 };
 
 const timeListFilterBase = v.object({
@@ -120,10 +103,7 @@ const buildTimeListFilterSchema = <S extends V.Schema>(
   const filter = timeListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, TimeListFilterBase<S>>(filter, schema);
 };
 
 const buildTimeUpdateSchema = <S extends V.Schema>(

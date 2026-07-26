@@ -1,5 +1,9 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // BASE TYPES
@@ -22,17 +26,9 @@ type DecimalFilterBase<S extends V.Schema> = {
   gte: V.Number;
 };
 
-type DecimalFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      DecimalFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<DecimalFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type DecimalFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  DecimalFilterBase<S>
 >;
 
 type DecimalListFilterBase<S extends V.Schema> = {
@@ -43,17 +39,9 @@ type DecimalListFilterBase<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type DecimalListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      DecimalListFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<DecimalListFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type DecimalListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  DecimalListFilterBase<S>
 >;
 
 // =============================================================================
@@ -107,12 +95,7 @@ const buildDecimalFilterSchema = <S extends V.Schema>(
   const filter = decimalFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, DecimalFilterBase<S>>(filter, schema);
 };
 
 const decimalListFilterBase = v.object({
@@ -128,10 +111,10 @@ const buildDecimalListFilterSchema = <S extends V.Schema>(
   const filter = decimalListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, DecimalListFilterBase<S>>(
+    filter,
+    schema
+  );
 };
 
 const buildDecimalUpdateSchema = <S extends V.Schema>(

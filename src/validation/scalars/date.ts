@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // BASE TYPES
@@ -23,17 +27,9 @@ type DateFilterBase<S extends V.Schema> = {
   gte: V.IsoDate;
 };
 
-type DateFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      DateFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<DateFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type DateFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  DateFilterBase<S>
 >;
 
 type DateListFilterBase<S extends V.Schema> = {
@@ -44,17 +40,9 @@ type DateListFilterBase<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type DateListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      DateListFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<DateListFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type DateListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  DateListFilterBase<S>
 >;
 
 // =============================================================================
@@ -99,12 +87,7 @@ const buildDateFilterSchema = <S extends V.Schema>(
   const filter = dateFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, DateFilterBase<S>>(filter, schema);
 };
 
 const dateListFilterBase = v.object({
@@ -120,10 +103,7 @@ const buildDateListFilterSchema = <S extends V.Schema>(
   const filter = dateListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, DateListFilterBase<S>>(filter, schema);
 };
 
 const buildDateUpdateSchema = <S extends V.Schema>(

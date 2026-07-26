@@ -112,6 +112,62 @@ describe("Scalar Filter - Simple Model Runtime", () => {
     const result = parse(schema, { unknownField: "value" });
     expect(result.issues).toBeDefined();
   });
+
+  // ---------------------------------------------------------------------------
+  // Arbitrarily nested NOT. `not` is lazily self-referential (see
+  // src/validation/scalars/negatable-filter.ts), so validation no longer caps
+  // nesting at one level — matching both Prisma and the where-builder, which
+  // has always recursed without a cap.
+  // ---------------------------------------------------------------------------
+
+  test("runtime: accepts doubly nested NOT", () => {
+    const result = parse(schema, {
+      name: { not: { not: { contains: "Admin" } } },
+    });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.name).toEqual({ not: { not: { contains: "Admin" } } });
+  });
+
+  test("runtime: accepts NOT nested five deep, shorthand at the leaf", () => {
+    const result = parse(schema, {
+      name: { not: { not: { not: { not: { not: "Admin" } } } } },
+    });
+    if (result.issues) throw new Error("Expected success");
+    expect(result.value.name).toEqual({
+      not: { not: { not: { not: { not: { equals: "Admin" } } } } },
+    });
+  });
+
+  test("runtime: nested NOT stays strict — unknown key at depth rejects", () => {
+    const result = parse(schema, {
+      name: { not: { not: { unknownOperator: "Admin" } } },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: nested NOT keeps per-scalar operators — int gets no contains", () => {
+    const result = parse(schema, {
+      age: { not: { not: { contains: 3 } } },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: nested NOT carries scalar type checks to the leaf", () => {
+    const result = parse(schema, {
+      age: { not: { not: { gt: "not-a-number" } } },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("type: accepts arbitrarily nested NOT", () => {
+    type FilterInput = InferInput<typeof simpleSchemas.scalarFilter>;
+    expectTypeOf<{
+      name: { not: { not: { not: { contains: string } } } };
+    }>().toExtend<FilterInput>();
+    expectTypeOf<{
+      age: { not: { not: { gt: number } } };
+    }>().toExtend<FilterInput>();
+  });
 });
 
 // =============================================================================

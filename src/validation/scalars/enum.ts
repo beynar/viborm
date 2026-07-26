@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
-import v, { type V } from "../primitives/v";
 import type { EnumSchema, EnumValues } from "@validation/primitives/enum";
+import v, { type V } from "../primitives/v";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // FILTER TYPES
@@ -12,18 +16,10 @@ type EnumFilterBase<S extends V.Schema, Values extends string[]> = {
   notIn: V.Enum<Values, { array: true }>;
 };
 
-type EnumFilterSchema<S extends V.Schema, Values extends string[]> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      EnumFilterBase<S, Values> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<EnumFilterBase<S, Values>>]
-        >;
-      }
-    >,
-  ]
->;
+type EnumFilterSchema<
+  S extends V.Schema,
+  Values extends string[],
+> = NegatableFilterSchema<S, EnumFilterBase<S, Values>>;
 
 type EnumListFilterBase<S extends V.Schema, Values extends string[]> = {
   equals: S;
@@ -36,21 +32,7 @@ type EnumListFilterBase<S extends V.Schema, Values extends string[]> = {
 type EnumListFilterSchema<
   S extends V.Schema,
   Values extends string[],
-> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      EnumListFilterBase<S, Values> & {
-        not: V.Union<
-          readonly [
-            V.ShorthandFilter<S>,
-            V.Object<EnumListFilterBase<S, Values>>,
-          ]
-        >;
-      }
-    >,
-  ]
->;
+> = NegatableFilterSchema<S, EnumListFilterBase<S, Values>>;
 
 // =============================================================================
 // UPDATE TYPES
@@ -103,12 +85,10 @@ const buildEnumFilterSchema = <S extends V.Schema, Values extends string[]>(
     in: list,
     notIn: list,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, EnumFilterBase<S, Values>>(
+    filter,
+    schema
+  );
 };
 
 const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
@@ -127,10 +107,10 @@ const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
   const filter = enumListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, EnumListFilterBase<S, Values>>(
+    filter,
+    schema
+  );
 };
 
 const buildEnumUpdateSchema = <S extends V.Schema>(

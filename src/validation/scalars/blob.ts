@@ -1,5 +1,9 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // FILTER TYPES
@@ -9,17 +13,9 @@ type BlobFilterBase<S extends V.Schema> = {
   equals: S;
 };
 
-type BlobFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      BlobFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<BlobFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type BlobFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  BlobFilterBase<S>
 >;
 
 // =============================================================================
@@ -40,12 +36,7 @@ const buildBlobFilterSchema = <S extends V.Schema>(
   const filter = v.object({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, BlobFilterBase<S>>(filter, schema);
 };
 
 const buildBlobUpdateSchema = <S extends V.Schema>(

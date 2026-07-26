@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // BASE TYPES
@@ -17,17 +21,9 @@ type BooleanFilterBase<S extends V.Schema> = {
   equals: S;
 };
 
-type BooleanFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      BooleanFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<BooleanFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type BooleanFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  BooleanFilterBase<S>
 >;
 
 type BooleanListFilterBase<S extends V.Schema> = {
@@ -38,17 +34,9 @@ type BooleanListFilterBase<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type BooleanListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      BooleanListFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<BooleanListFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type BooleanListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  BooleanListFilterBase<S>
 >;
 
 // =============================================================================
@@ -84,12 +72,7 @@ const buildBooleanFilterSchema = <S extends V.Schema>(
   const filter = v.object({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, BooleanFilterBase<S>>(filter, schema);
 };
 
 const booleanListFilterBase = v.object({
@@ -105,10 +88,10 @@ const buildBooleanListFilterSchema = <S extends V.Schema>(
   const filter = booleanListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, BooleanListFilterBase<S>>(
+    filter,
+    schema
+  );
 };
 
 // =============================================================================

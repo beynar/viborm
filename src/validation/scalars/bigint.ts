@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // BASE TYPES
@@ -23,17 +27,9 @@ type BigIntFilterBase<S extends V.Schema> = {
   gte: V.BigInt;
 };
 
-type BigIntFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      BigIntFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<BigIntFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type BigIntFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  BigIntFilterBase<S>
 >;
 
 type BigIntListFilterBase<S extends V.Schema> = {
@@ -44,17 +40,9 @@ type BigIntListFilterBase<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type BigIntListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      BigIntListFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<BigIntListFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type BigIntListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  BigIntListFilterBase<S>
 >;
 
 // =============================================================================
@@ -108,12 +96,7 @@ const buildBigIntFilterSchema = <S extends V.Schema>(
   const filter = bigIntFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, BigIntFilterBase<S>>(filter, schema);
 };
 
 const bigIntListFilterBase = v.object({
@@ -129,10 +112,7 @@ const buildBigIntListFilterSchema = <S extends V.Schema>(
   const filter = bigIntListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, BigIntListFilterBase<S>>(filter, schema);
 };
 
 // =============================================================================

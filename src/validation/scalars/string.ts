@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // Base schemas
 const stringBase = v.string();
@@ -30,17 +34,9 @@ type StringFilterBase<S extends V.Schema> = {
   mode: V.Enum<["default", "insensitive"]>;
 };
 
-type StringFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      StringFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<StringFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type StringFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  StringFilterBase<S>
 >;
 
 const buildStringFilterSchema = <S extends V.Schema>(
@@ -53,12 +49,7 @@ const buildStringFilterSchema = <S extends V.Schema>(
     gt: schema,
     gte: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, StringFilterBase<S>>(filter, schema);
 };
 
 type StringListFilterBaseSchema<S extends V.Schema> = {
@@ -69,20 +60,9 @@ type StringListFilterBaseSchema<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type StringListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      StringListFilterBaseSchema<S> & {
-        not: V.Union<
-          readonly [
-            V.ShorthandFilter<S>,
-            V.Object<StringListFilterBaseSchema<S>>,
-          ]
-        >;
-      }
-    >,
-  ]
+type StringListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  StringListFilterBaseSchema<S>
 >;
 
 const stringListFilterBase = v.object({
@@ -98,10 +78,10 @@ const buildStringListFilterSchema = <S extends V.Schema>(
   const filter = stringListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, StringListFilterBaseSchema<S>>(
+    filter,
+    schema
+  );
 };
 
 type StringUpdateSchema<S extends V.Schema> = V.Union<
