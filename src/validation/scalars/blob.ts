@@ -9,8 +9,15 @@ import {
 // FILTER TYPES
 // =============================================================================
 
+// `in`/`notIn` elements are plain (non-nullable) blobs even when the field
+// itself is nullable — a null can never be a member of a set under SQL's
+// three-valued logic, which is also how Prisma types `BytesNullableFilter`.
+const blobList = v.blob({ array: true });
+
 type BlobFilterBase<S extends V.Schema> = {
   equals: S;
+  in: V.Blob<{ array: true }>;
+  notIn: V.Blob<{ array: true }>;
 };
 
 type BlobFilterSchema<S extends V.Schema> = NegatableFilterSchema<
@@ -35,6 +42,8 @@ const buildBlobFilterSchema = <S extends V.Schema>(
 ): BlobFilterSchema<S> => {
   const filter = v.object({
     equals: schema,
+    in: blobList,
+    notIn: blobList,
   });
   return buildNegatableFilterSchema<S, BlobFilterBase<S>>(filter, schema);
 };

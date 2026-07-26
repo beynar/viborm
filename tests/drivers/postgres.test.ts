@@ -13,6 +13,7 @@ import {
 } from "@drivers/postgres";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
@@ -415,6 +416,13 @@ describeIf("postgres.js Driver", () => {
   });
 
   runScalarRoundtripBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Real postgres.js param serialization for a LIST of bytea bind params
+  runBlobFilterBehavior({
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),

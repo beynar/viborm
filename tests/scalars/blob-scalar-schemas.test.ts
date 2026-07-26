@@ -11,7 +11,7 @@
  * - base: The element/scalar type (Uint8Array | Buffer)
  * - create: Input type for creation + runtime validation
  * - update: Input type for updates + shorthand transforms
- * - filter: Input type for filtering + shorthand transforms (equals and not only)
+ * - filter: Input type for filtering + shorthand transforms (equals, not, in, notIn)
  */
 
 import { blob } from "@schema/scalars/blob/scalar";
@@ -191,6 +191,57 @@ describe("Raw Blob Scalar", () => {
       const result2 = parse(schemas.filter, { not: { equals: testBuffer } });
       if (result2.issues) throw new Error("Expected success");
       expect(result2.value).toEqual({ not: { equals: testBuffer } });
+    });
+
+    // -------------------------------------------------------------------------
+    // Set membership. Prisma's BytesFilter carries in/notIn; viborm used to fall
+    // back to the {equals, not} base set, so a byte-array list had no spelling.
+    // -------------------------------------------------------------------------
+
+    test("type: filter accepts in/notIn lists", () => {
+      type Filter = InferBlobInput<State, "filter">;
+      expectTypeOf<{ in: Uint8Array[] }>().toExtend<Filter>();
+      expectTypeOf<{ notIn: Uint8Array[] }>().toExtend<Filter>();
+      expectTypeOf<{ in: Buffer[] }>().toExtend<Filter>();
+    });
+
+    test("runtime: in list passes through", () => {
+      const result = parse(schemas.filter, { in: [testData1, testData2] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ in: [testData1, testData2] });
+    });
+
+    test("runtime: notIn list passes through, Buffers included", () => {
+      const result = parse(schemas.filter, { notIn: [testBuffer, emptyData] });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ notIn: [testBuffer, emptyData] });
+    });
+
+    test("runtime: empty in/notIn lists are accepted", () => {
+      // Not a no-op downstream: `in: []` matches nothing and `notIn: []`
+      // matches everything, so the schema must let them through rather than
+      // treating an empty list as absent.
+      const inResult = parse(schemas.filter, { in: [] });
+      if (inResult.issues) throw new Error("Expected success");
+      expect(inResult.value).toEqual({ in: [] });
+
+      const notInResult = parse(schemas.filter, { notIn: [] });
+      if (notInResult.issues) throw new Error("Expected success");
+      expect(notInResult.value).toEqual({ notIn: [] });
+    });
+
+    test("runtime: in/notIn reject non-blob members", () => {
+      expect(parse(schemas.filter, { in: ["not-bytes"] }).issues).toBeDefined();
+      expect(parse(schemas.filter, { notIn: [123] }).issues).toBeDefined();
+      expect(parse(schemas.filter, { in: [null] }).issues).toBeDefined();
+    });
+
+    test("runtime: in/notIn compose under a nested not", () => {
+      const result = parse(schemas.filter, {
+        not: { not: { in: [testData1] } },
+      });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ not: { not: { in: [testData1] } } });
     });
   });
 });

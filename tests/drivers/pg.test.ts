@@ -25,6 +25,7 @@ import {
   PgRacePlantingBatchDriver,
 } from "./batch-forced-pg";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -527,6 +528,12 @@ describeIf("pg Driver", () => {
   });
 
   runScalarRoundtripBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Real pg param serialization for a LIST of bytea bind params
+  runBlobFilterBehavior({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });

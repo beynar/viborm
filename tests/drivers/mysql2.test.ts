@@ -29,6 +29,7 @@ import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavi
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { MySQL2BatchForcedDriver } from "./batch-forced-mysql2";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
@@ -282,6 +283,11 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runLikeEscapeBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runBlobFilterBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });

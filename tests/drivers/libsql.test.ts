@@ -11,6 +11,7 @@ import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavi
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
@@ -119,6 +120,11 @@ describe("LibSQL Driver", () => {
   });
 
   runLikeEscapeBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+
+  runBlobFilterBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

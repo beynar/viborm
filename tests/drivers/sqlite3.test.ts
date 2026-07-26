@@ -29,6 +29,7 @@ import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
@@ -773,6 +774,11 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runLikeEscapeBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
+  runBlobFilterBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

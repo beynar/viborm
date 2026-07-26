@@ -9,6 +9,7 @@ import { windowUserPostSchema } from "../fixtures/user-post-schema";
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
@@ -114,6 +115,11 @@ describe("PGlite Driver", () => {
     createDriver: createInMemoryPGliteDriver,
   });
   runLikeEscapeBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+
+  runBlobFilterBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });
