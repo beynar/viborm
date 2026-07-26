@@ -136,7 +136,8 @@ export function buildUpdate(ctx: QueryScope, args: UpdateArgs): Sql {
  * @returns SQL statement
  */
 /**
- * Build SQL for updateManyAndReturn operation
+ * Build SQL for the row-returning arm of `updateMany` — internally named
+ * `updateManyAndReturn`; the client spells it `updateMany` with a `select`.
  *
  * UPDATE ... RETURNING on adapters that support it. On adapters without
  * RETURNING the operation program uses an atomic select/update/re-select

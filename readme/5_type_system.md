@@ -685,11 +685,9 @@ These generic types work with any model by taking the model schema as a type par
 - `FindFirstOrThrowArgs<TModel>` - Arguments for findFirstOrThrow operation
 - `FindManyArgs<TModel>` - Arguments for findMany operation
 - `CreateArgs<TModel>` - Arguments for create operation
-- `CreateManyArgs<TModel>` - Arguments for createMany operation
-- `CreateManyAndReturnArgs<TModel>` - Arguments for createManyAndReturn operation
+- `CreateManyArgs<TModel>` - Arguments for createMany operation (the optional `select` makes it return rows instead of `{ count }`)
 - `UpdateArgs<TModel>` - Arguments for update operation
-- `UpdateManyArgs<TModel>` - Arguments for updateMany operation
-- `UpdateManyAndReturnArgs<TModel>` - Arguments for updateManyAndReturn operation
+- `UpdateManyArgs<TModel>` - Arguments for updateMany operation (the optional `select` makes it return rows instead of `{ count }`)
 - `UpsertArgs<TModel>` - Arguments for upsert operation
 - `DeleteArgs<TModel>` - Arguments for delete operation
 - `DeleteManyArgs<TModel>` - Arguments for deleteMany operation

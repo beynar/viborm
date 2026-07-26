@@ -18,8 +18,9 @@ Everything in the API works the same on every database unless noted under [Datab
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
-| `createMany` / `createManyAndReturn` | ✅ | Returns `{ count }` (or the created rows). Relation nesting isn't supported inside `createMany`. |
-| `update` / `updateMany` / `updateManyAndReturn` | ✅ | `update` requires a unique `where` and throws when missing; the `Many` forms return `{ count }` (or rows). |
+| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. Relation nesting isn't supported inside `createMany`. |
+| `update` | ✅ | Requires a unique `where` and throws when missing. |
+| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. |
 | `delete` / `deleteMany` | ✅ | `delete` requires a unique `where` and throws when missing; `deleteMany` returns `{ count }`. |
 | `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. |
@@ -100,5 +101,6 @@ package does not rewrite deployed tables.
 | Type generation | Types are inferred from your schema — there's no `prisma generate` step. |
 | Prisma helper types | VibORM doesn't expose `XOR`, `Exact`, `SelectSubset`, or generated model helper types. |
 | Create/update inputs | A single blended input surface rather than Prisma's separate checked/unchecked variants. |
+| Bulk writes that return rows | Implicit: `createMany` / `updateMany` return rows when the call carries a `select`, and `{ count }` otherwise. Prisma's `createManyAndReturn` / `updateManyAndReturn` methods do not exist — migrate `createManyAndReturn(args)` to `createMany({ ...args, select })`, same for `updateManyAndReturn`. `include` is rejected on both (as it is on Prisma's `updateManyAndReturn`). |
 | `omit` | Model-level omit only; no per-query `omit`. |
 | Raw SQL | `$queryRaw(sql, params)` and `$executeRaw(sqlFragment)` use explicit shapes, not tagged templates, and return a `QueryResult`. |

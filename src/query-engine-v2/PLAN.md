@@ -1545,6 +1545,42 @@ was a convenience, not a requirement.
 
 ---
 
+## W3-B — implicit returning; the `*AndReturn` operations REMOVED *(delivered)*
+
+Maintainer decision D-1 (`docs/architecture/prisma-parity-v2-plan.md`):
+`createManyAndReturn` / `updateManyAndReturn` are **deleted from the public
+surface** — no alias, no deprecation shim, a deliberate breaking divergence from
+Prisma's method names. `createMany` / `updateMany` take an optional `select`, and
+its PRESENCE makes the SAME family return the affected rows (typed `T[]`) instead
+of `{ count }`.
+
+- **One discriminant, one home.** `returnsRows(args)` in `routing.ts`
+  (`args.select !== undefined`) chooses the arm; `BulkWriteResult<S, Args>` in
+  `@client/types` is its type-level twin (`Args extends { select: … }`). Both
+  treat an explicitly-`undefined` select as absent, so the spread-an-optional
+  idiom cannot type as rows and return a count.
+- **The machinery is untouched.** `ManyAndReturnOperation` keeps its file and its
+  two internal kind names; they are now INTERNAL names for the row-returning arm
+  (see the naming note in ATOM.md §1) and share the ONE public arg schema per
+  family — the validator maps both to it, so there is no second schema to drift.
+- **Both refusals survive, rescoped and reworded** to name the public form and to
+  say what still works: the ATOM §7 batch-only refusal is now
+  `cannot execute 'createMany' with 'select'` (the `{ count }` arm still runs
+  there), and the one deliberate route (`skipDuplicates` + `select` on a
+  non-returning driver) names both escapes. Nothing became silently permissive.
+- **Gates edited deliberately:** the route-inventory client surface pin 18 → 16
+  families (a smaller surface, not a smaller capability) and the REMAINING_ROUTE
+  case respelled in the implicit form and driven through the public routing seam.
+  The executor operation-token gate needed no edit — `OperationExecutor.ts` never
+  named either operation.
+
+Kill signal for a future phase: if the row-returning arm ever needs a *second*
+discriminant (a flag beside `select`, or a distinct operation name creeping back
+in), the implicit form has failed and the removal should be revisited as a
+decision, not patched around.
+
+---
+
 ## What failure looks like (so it can be seen early)
 
 Every kill signal above is a variant of one sentence: **the vocabulary, the

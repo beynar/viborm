@@ -40,12 +40,14 @@ A row containing only database-owned defaults cannot use `skipDuplicates`.
 VibORM rejects that shape before writing because no supported database shares a
 duplicate-only `DEFAULT VALUES` primitive.
 
-## createManyAndReturn
+## Getting the rows back
 
-Same as `createMany`, but returns the created rows instead of a count:
+Add a `select` and `createMany` returns the created rows instead of a count. The
+return type follows: with `select` it is an array of the projected rows, without
+it, `{ count }`.
 
 ```ts
-const users = await client.user.createManyAndReturn({
+const users = await client.user.createMany({
   data: [
     { email: "alice@example.com", name: "Alice" },
     { email: "bob@example.com", name: "Bob" },
@@ -55,11 +57,25 @@ const users = await client.user.createManyAndReturn({
 // Type: { id: string; email: string }[]
 ```
 
+<Callout type="info">
+  There is no separate `createManyAndReturn` method (Prisma has one). Passing
+  `select` **is** the returning form. `include` is not accepted: the rows come
+  straight out of the write statement, so a relation cannot be joined into them —
+  read relations in a follow-up query.
+</Callout>
+
+`select` and `skipDuplicates` can only be combined on a database with
+`RETURNING` (PostgreSQL, SQLite, LibSQL, D1). On MySQL the combination is
+refused with a typed error rather than guessed at, because a skipped insert
+cannot be told apart from a fresh one — drop `select` to get `{ count }`, or
+drop `skipDuplicates`.
+
 ## Options
 
 ```ts
 await client.user.createMany({
   data: [{ ... }],      // Required: array of records
   skipDuplicates: true, // Optional: skip duplicate-key conflicts
+  select: { ... },      // Optional: return the created rows instead of { count }
 });
 ```

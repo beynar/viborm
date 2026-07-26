@@ -98,6 +98,15 @@ interface Failure {
   rows concatenate) — `createManyAndReturn` on non-returning drivers, and
   SQLite `createMany` which compiles to several statements whose result is a
   *summed* `rowCount`.
+
+> **Naming note (W3-B, maintainer decision D-1).** `createManyAndReturn` and
+> `updateManyAndReturn` are **internal names only** throughout this document and
+> the engine. They were removed from the public client surface and replaced by
+> IMPLICIT RETURNING: `createMany` / `updateMany` take an optional `select`, and
+> its presence routes the tree to the row-returning arm these two names refer to
+> (`src/query-engine-v2/routing.ts`, `returnsRows`). Every user-facing message
+> spells the public form (`'createMany' with 'select'`); nothing below changes
+> mechanically, only what the client is allowed to type.
 - Postconditions are enforced where the substrate allows: tx mode checks the
   provider result before commit; batch mode lowers them to adapter-owned
   assertions inside the atomic unit.

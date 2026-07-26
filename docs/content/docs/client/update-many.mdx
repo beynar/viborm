@@ -37,12 +37,14 @@ await client.product.updateMany({
 });
 ```
 
-## updateManyAndReturn
+## Getting the rows back
 
-Same as `updateMany`, but returns the updated rows instead of a count:
+Add a `select` and `updateMany` returns the updated rows instead of a count. The
+return type follows: with `select` it is an array of the projected rows, without
+it, `{ count }`.
 
 ```ts
-const updated = await client.post.updateManyAndReturn({
+const updated = await client.post.updateMany({
   where: { published: false },
   data: { published: true },
   select: { id: true, title: true },
@@ -50,11 +52,22 @@ const updated = await client.post.updateManyAndReturn({
 // Type: { id: string; title: string }[]
 ```
 
+The rows are read **after** the update, so an atomic operation on the primary key
+returns the new identity, not the old one.
+
+<Callout type="info">
+  There is no separate `updateManyAndReturn` method (Prisma has one). Passing
+  `select` **is** the returning form. `include` is not accepted: the rows come
+  straight out of the write statement, so a relation cannot be joined into them —
+  read relations in a follow-up query.
+</Callout>
+
 ## Options
 
 ```ts
 await client.user.updateMany({
   where: { ... },       // Optional: filter (all rows if empty)
   data: { ... },        // Required: fields to update
+  select: { ... },      // Optional: return the updated rows instead of { count }
 });
 ```
