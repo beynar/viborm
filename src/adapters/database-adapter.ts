@@ -196,6 +196,25 @@ export interface DatabaseAdapter {
      */
     extractText: (column: Sql, path: string[]) => Sql;
     /**
+     * The value at `path` as a double-precision number, or SQL NULL when the
+     * path is absent or the JSON value there is NOT a JSON number. Every
+     * dialect gates the cast behind its own JSON type test (PG jsonb_typeof,
+     * MySQL JSON_TYPE, SQLite json_type) so a non-numeric value yields NULL
+     * instead of a cast error. Used by JSON lt/lte/gt/gte with number
+     * operands: NULL never satisfies a comparison, so mismatched types and
+     * absent paths never match and never error.
+     */
+    numberAtPath: (column: Sql, path: string[]) => Sql;
+    /**
+     * The value at `path` as unquoted text under a byte-ordered collation
+     * (PG COLLATE "C", MySQL VARBINARY, SQLite COLLATE BINARY), or SQL NULL
+     * when the path is absent or the JSON value there is NOT a JSON string.
+     * The forced collation makes `<`/`>` code-point ordering on every
+     * dialect instead of the database's default (locale) collation. Used by
+     * JSON lt/lte/gt/gte with string operands.
+     */
+    stringAtPath: (column: Sql, path: string[]) => Sql;
+    /**
      * JSON array containment: target is an array containing every element
      * of the candidate JSON array value (PG @>, MySQL JSON_CONTAINS,
      * SQLite json_each). Used by the array_contains filter.

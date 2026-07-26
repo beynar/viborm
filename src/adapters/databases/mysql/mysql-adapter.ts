@@ -241,6 +241,21 @@ export class MySQLAdapter implements DatabaseAdapter {
     extractText: (column: Sql, path: string[]): Sql =>
       sql`JSON_UNQUOTE(JSON_EXTRACT(${column}, ${buildJsonPath(path)}))`,
 
+    // JSON_TYPE spells numbers three ways depending on how the literal was
+    // stored; anything else (including an absent path, where JSON_TYPE is
+    // NULL) falls through the CASE to NULL
+    numberAtPath: (column: Sql, path: string[]): Sql => {
+      const jsonPath = buildJsonPath(path);
+      return sql`(CASE WHEN JSON_TYPE(JSON_EXTRACT(${column}, ${jsonPath})) IN ('INTEGER', 'DOUBLE', 'DECIMAL') THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(${column}, ${jsonPath})) AS DOUBLE) END)`;
+    },
+
+    // CAST(... AS BINARY) yields VARBINARY, so < / > compare bytes instead of
+    // the column's (case- and accent-insensitive by default) collation
+    stringAtPath: (column: Sql, path: string[]): Sql => {
+      const jsonPath = buildJsonPath(path);
+      return sql`(CASE WHEN JSON_TYPE(JSON_EXTRACT(${column}, ${jsonPath})) = 'STRING' THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(${column}, ${jsonPath})) AS BINARY) END)`;
+    },
+
     contains: (target: Sql, value: Sql): Sql =>
       sql`JSON_CONTAINS(${target}, ${value})`,
 

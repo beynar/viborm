@@ -63,6 +63,51 @@ function assertPortableJsonPath(fieldName: string, path: string[]): void {
   );
 }
 
+/**
+ * JSON lt/lte/gt/gte. THE PINNED SEMANTICS (identical on every dialect):
+ *
+ * - The operand's JS type picks the comparison class. A number compares
+ *   numerically and ONLY against JSON numbers; a string compares
+ *   lexicographically by code point and ONLY against JSON strings. A JSON
+ *   string "42" never satisfies `gt: 40`, and the number 42 never satisfies
+ *   `gt: "40"` — Prisma's JsonFilter has one operand slot per class, and
+ *   cross-class coercion is where the dialects diverge (MySQL coerces,
+ *   PG raises, SQLite type-orders).
+ * - A row whose path is absent, whose column is NULL, or whose value at the
+ *   path is of the other class (or bool/null/object/array) NEVER matches and
+ *   NEVER errors: `numberAtPath`/`stringAtPath` yield SQL NULL there, and
+ *   NULL fails every comparison.
+ * - Ordering is byte/code-point ordering, not the database's locale
+ *   collation — see the adapters' `stringAtPath`.
+ */
+function buildJsonComparison(
+  ctx: QueryScope,
+  fieldName: string,
+  column: Sql,
+  path: string[],
+  operation: "lt" | "lte" | "gt" | "gte",
+  value: unknown
+): Sql {
+  const { adapter } = ctx;
+  const compare = adapter.operators[operation];
+
+  if (typeof value === "number") {
+    return compare(
+      adapter.json.numberAtPath(column, path),
+      adapter.literals.value(value)
+    );
+  }
+  if (typeof value === "string") {
+    return compare(
+      adapter.json.stringAtPath(column, path),
+      adapter.literals.value(value)
+    );
+  }
+  throw new QueryEngineError(
+    `JSON filter '${operation}' for field '${fieldName}' requires a number or string operand.`
+  );
+}
+
 function buildJsonFilterOperation(
   ctx: QueryScope,
   fieldName: string,
@@ -110,6 +155,19 @@ function buildJsonFilterOperation(
         return adapter.operators.isNotNull(column);
       }
       return adapter.operators.neq(target, jsonValue(value));
+
+    case "lt":
+    case "lte":
+    case "gt":
+    case "gte":
+      return buildJsonComparison(
+        ctx,
+        fieldName,
+        column,
+        path,
+        operation,
+        value
+      );
 
     case "string_contains":
       return adapter.operators.containsText(

@@ -198,6 +198,18 @@ export class PostgresAdapter implements DatabaseAdapter {
     extractText: (column: Sql, path: string[]): Sql =>
       sql`${column}#>>${path}::text[]`,
 
+    // jsonb_typeof gates the cast: a non-number (or an absent path, where
+    // jsonb_typeof is NULL) short-circuits to NULL instead of raising
+    // "invalid input syntax for type double precision"
+    numberAtPath: (column: Sql, path: string[]): Sql =>
+      sql`(CASE WHEN jsonb_typeof(${column}#>${path}::text[]) = 'number' THEN (${column}#>>${path}::text[])::double precision END)`,
+
+    // COLLATE "C" pins byte (= code point) ordering; the database's default
+    // collation (en_US.UTF-8 and friends) orders 'a' before 'B', which would
+    // make < / > disagree with MySQL and SQLite
+    stringAtPath: (column: Sql, path: string[]): Sql =>
+      sql`((CASE WHEN jsonb_typeof(${column}#>${path}::text[]) = 'string' THEN ${column}#>>${path}::text[] END) COLLATE "C")`,
+
     contains: (target: Sql, value: Sql): Sql => sql`${target} @> ${value}`,
 
     lastElement: (target: Sql): Sql => sql`${target} -> -1`,

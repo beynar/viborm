@@ -5,9 +5,19 @@ import v, { type V } from "../primitives/v";
 // FILTER TYPES
 // =============================================================================
 
+/**
+ * lt/lte/gt/gte take a number OR a string operand; the operand's class picks
+ * numeric vs lexicographic comparison at the path (see json-filter-builder).
+ */
+type JsonComparisonOperand = V.Union<readonly [V.Number, V.String]>;
+
 type JsonFilterBase<S extends V.Schema> = {
   equals: S;
   path: V.Array<V.String>;
+  lt: JsonComparisonOperand;
+  lte: JsonComparisonOperand;
+  gt: JsonComparisonOperand;
+  gte: JsonComparisonOperand;
   string_contains: V.String;
   string_starts_with: V.String;
   string_ends_with: V.String;
@@ -38,9 +48,14 @@ type JsonUpdateSchema<S extends V.Schema> = V.Coerce<
 const buildJsonFilterSchema = <S extends V.Schema>(
   schema: S
 ): JsonFilterSchema<S> => {
+  const comparisonOperand = v.union([v.number(), v.string()]);
   const filter = v.object({
     equals: schema,
     path: v.array(v.string()),
+    lt: comparisonOperand,
+    lte: comparisonOperand,
+    gt: comparisonOperand,
+    gte: comparisonOperand,
     string_contains: v.string(),
     string_starts_with: v.string(),
     string_ends_with: v.string(),
