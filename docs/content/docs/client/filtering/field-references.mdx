@@ -1,0 +1,98 @@
+---
+title: Field references
+description: Compare two columns of the same row instead of comparing a column to a value
+icon: Columns3
+---
+
+Every ordinary filter operand becomes a bound parameter. A **field reference** becomes a
+column instead, so the comparison happens between two columns *of the same row*:
+
+```ts
+// posts that were viewed more often than they were liked
+const trending = await client.post.findMany({
+  where: { views: { gt: client.$fields.post.likes } },
+});
+// ... WHERE "t0"."views" > "t0"."likes"
+```
+
+`client.$fields.<model>.<field>` is available on every client. It is built lazily — nothing
+is walked until you actually read a field — so it costs nothing if you never use it.
+
+## Where references work
+
+| Position | Supported |
+|---|---|
+| `equals`, `not` | ✅ every non-list scalar |
+| `lt`, `lte`, `gt`, `gte` | ✅ int, float, decimal, bigint, string, datetime, date, time |
+| `contains`, `startsWith`, `endsWith` | ✅ string |
+| Bare shorthand `{ views: ref }` | ✅ (normalizes to `equals`) |
+| `in`, `notIn` | ❌ |
+| List operators (`has`, `hasEvery`, `hasSome`, `isEmpty`) | ❌ |
+| JSON, blob, vector, point operands | ❌ |
+| `orderBy`, `whereUnique`, `create`/`update` data | ❌ |
+| `having` / `groupBy` | ❌ (Prisma excludes them too) |
+
+Unsupported positions are rejected with an explicit message — a reference is never
+silently bound as a value.
+
+## Mixing with literals
+
+A reference sits beside ordinary operands in the same filter object:
+
+```ts
+await client.post.findMany({
+  where: { views: { gt: client.$fields.post.likes, lt: 10_000 } },
+});
+```
+
+## Same model only
+
+A reference may only be used while filtering the model it belongs to — that is what makes
+it a same-row comparison. Inside a nested relation filter, the scope is the *relation's
+target*, so the reference must name that model:
+
+```ts
+await client.user.findMany({
+  where: {
+    // scope here is `post`
+    posts: { some: { views: { gt: client.$fields.post.likes } } },
+  },
+});
+```
+
+Using a reference from another model is refused when the query is built, before any
+statement reaches the database:
+
+```ts
+await client.post.findMany({
+  where: { title: { equals: client.$fields.user.name } },
+});
+// Field reference 'user.name' cannot be used while filtering 'post':
+// a field reference may only compare columns of the same model.
+```
+
+## Types
+
+A reference carries its owning model and its scalar type, so the compiler rejects
+cross-type comparisons:
+
+```ts
+await client.post.findMany({
+  //                        ^ Type error: an int reference is not a string operand
+  where: { title: { equals: client.$fields.post.views } },
+});
+```
+
+## Writes
+
+References work in `updateMany` and `deleteMany` filters as well:
+
+```ts
+await client.post.updateMany({
+  where: { views: { gt: client.$fields.post.likes } },
+  data: { trending: true },
+});
+```
+
+They are **not** accepted in `data` — assigning one column from another is a separate
+feature and is not supported.

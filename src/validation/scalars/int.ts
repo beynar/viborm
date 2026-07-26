@@ -17,18 +17,21 @@ const intList = v.integer({ array: true });
 // FILTER TYPES
 // =============================================================================
 
+/** Comparison operand: a literal, or a field reference to another int column. */
+type IntOperand<S extends V.Schema> = V.FieldRefOr<"int", S>;
+
 type IntFilterBase<S extends V.Schema> = {
-  equals: S;
+  equals: IntOperand<S>;
   in: V.Integer<{ array: true }>;
   notIn: V.Integer<{ array: true }>;
-  lt: V.Integer;
-  lte: V.Integer;
-  gt: V.Integer;
-  gte: V.Integer;
+  lt: IntOperand<V.Integer>;
+  lte: IntOperand<V.Integer>;
+  gt: IntOperand<V.Integer>;
+  gte: IntOperand<V.Integer>;
 };
 
 type IntFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
+  IntOperand<S>,
   IntFilterBase<S>
 >;
 
@@ -84,19 +87,23 @@ type IntListUpdateSchema<S extends V.Schema> = V.Union<
 const intFilterBase = v.object({
   in: intList,
   notIn: intList,
-  lt: intBase,
-  lte: intBase,
-  gt: intBase,
-  gte: intBase,
+  lt: v.fieldRefOr("int", intBase),
+  lte: v.fieldRefOr("int", intBase),
+  gt: v.fieldRefOr("int", intBase),
+  gte: v.fieldRefOr("int", intBase),
 });
 
 const buildIntFilterSchema = <S extends V.Schema>(
   schema: S
 ): IntFilterSchema<S> => {
+  const operand = v.fieldRefOr("int", schema);
   const filter = intFilterBase.extend({
-    equals: schema,
+    equals: operand,
   });
-  return buildNegatableFilterSchema<S, IntFilterBase<S>>(filter, schema);
+  return buildNegatableFilterSchema<IntOperand<S>, IntFilterBase<S>>(
+    filter,
+    operand
+  );
 };
 
 const intListFilterBase = v.object({

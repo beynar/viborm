@@ -17,18 +17,21 @@ const timeList = v.isoTime({ array: true });
 // FILTER TYPES
 // =============================================================================
 
+/** Comparison operand: a literal, or a field reference to another time column. */
+type TimeOperand<S extends V.Schema> = V.FieldRefOr<"time", S>;
+
 type TimeFilterBase<S extends V.Schema> = {
-  equals: S;
+  equals: TimeOperand<S>;
   in: V.IsoTime<{ array: true }>;
   notIn: V.IsoTime<{ array: true }>;
-  lt: V.IsoTime;
-  lte: V.IsoTime;
-  gt: V.IsoTime;
-  gte: V.IsoTime;
+  lt: TimeOperand<V.IsoTime>;
+  lte: TimeOperand<V.IsoTime>;
+  gt: TimeOperand<V.IsoTime>;
+  gte: TimeOperand<V.IsoTime>;
 };
 
 type TimeFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
+  TimeOperand<S>,
   TimeFilterBase<S>
 >;
 
@@ -75,19 +78,23 @@ type TimeListUpdateSchema<S extends V.Schema> = V.Union<
 const timeFilterBase = v.object({
   in: timeList,
   notIn: timeList,
-  lt: timeBase,
-  lte: timeBase,
-  gt: timeBase,
-  gte: timeBase,
+  lt: v.fieldRefOr("time", timeBase),
+  lte: v.fieldRefOr("time", timeBase),
+  gt: v.fieldRefOr("time", timeBase),
+  gte: v.fieldRefOr("time", timeBase),
 });
 
 const buildTimeFilterSchema = <S extends V.Schema>(
   schema: S
 ): TimeFilterSchema<S> => {
+  const operand = v.fieldRefOr("time", schema);
   const filter = timeFilterBase.extend({
-    equals: schema,
+    equals: operand,
   });
-  return buildNegatableFilterSchema<S, TimeFilterBase<S>>(filter, schema);
+  return buildNegatableFilterSchema<TimeOperand<S>, TimeFilterBase<S>>(
+    filter,
+    operand
+  );
 };
 
 const timeListFilterBase = v.object({

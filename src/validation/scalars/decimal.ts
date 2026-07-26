@@ -16,18 +16,21 @@ const decimalList = v.number({ array: true });
 // FILTER TYPES
 // =============================================================================
 
+/** Comparison operand: a literal, or a field reference to another decimal column. */
+type DecimalOperand<S extends V.Schema> = V.FieldRefOr<"decimal", S>;
+
 type DecimalFilterBase<S extends V.Schema> = {
-  equals: S;
+  equals: DecimalOperand<S>;
   in: V.Number<{ array: true }>;
   notIn: V.Number<{ array: true }>;
-  lt: V.Number;
-  lte: V.Number;
-  gt: V.Number;
-  gte: V.Number;
+  lt: DecimalOperand<V.Number>;
+  lte: DecimalOperand<V.Number>;
+  gt: DecimalOperand<V.Number>;
+  gte: DecimalOperand<V.Number>;
 };
 
 type DecimalFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
+  DecimalOperand<S>,
   DecimalFilterBase<S>
 >;
 
@@ -83,19 +86,23 @@ type DecimalListUpdateSchema<S extends V.Schema> = V.Union<
 const decimalFilterBase = v.object({
   in: decimalList,
   notIn: decimalList,
-  lt: decimalBase,
-  lte: decimalBase,
-  gt: decimalBase,
-  gte: decimalBase,
+  lt: v.fieldRefOr("decimal", decimalBase),
+  lte: v.fieldRefOr("decimal", decimalBase),
+  gt: v.fieldRefOr("decimal", decimalBase),
+  gte: v.fieldRefOr("decimal", decimalBase),
 });
 
 const buildDecimalFilterSchema = <S extends V.Schema>(
   schema: S
 ): DecimalFilterSchema<S> => {
+  const operand = v.fieldRefOr("decimal", schema);
   const filter = decimalFilterBase.extend({
-    equals: schema,
+    equals: operand,
   });
-  return buildNegatableFilterSchema<S, DecimalFilterBase<S>>(filter, schema);
+  return buildNegatableFilterSchema<DecimalOperand<S>, DecimalFilterBase<S>>(
+    filter,
+    operand
+  );
 };
 
 const decimalListFilterBase = v.object({

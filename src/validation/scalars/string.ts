@@ -14,42 +14,49 @@ const stringList = v.string({ array: true });
 const stringFilterBase = v.object({
   in: stringList,
   notIn: stringList,
-  contains: stringBase,
-  startsWith: stringBase,
-  endsWith: stringBase,
+  contains: v.fieldRefOr("string", stringBase),
+  startsWith: v.fieldRefOr("string", stringBase),
+  endsWith: v.fieldRefOr("string", stringBase),
   mode: v.enum(["default", "insensitive"]),
 });
 
+/** Comparison operand: a literal, or a field reference to another string column. */
+type StringOperand<S extends V.Schema> = V.FieldRefOr<"string", S>;
+
 type StringFilterBase<S extends V.Schema> = {
-  equals: S;
-  lt: S;
-  lte: S;
-  gt: S;
-  gte: S;
+  equals: StringOperand<S>;
+  lt: StringOperand<S>;
+  lte: StringOperand<S>;
+  gt: StringOperand<S>;
+  gte: StringOperand<S>;
   in: V.String<{ array: true }>;
   notIn: V.String<{ array: true }>;
-  contains: V.String;
-  startsWith: V.String;
-  endsWith: V.String;
+  contains: StringOperand<V.String>;
+  startsWith: StringOperand<V.String>;
+  endsWith: StringOperand<V.String>;
   mode: V.Enum<["default", "insensitive"]>;
 };
 
 type StringFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
+  StringOperand<S>,
   StringFilterBase<S>
 >;
 
 const buildStringFilterSchema = <S extends V.Schema>(
   schema: S
 ): StringFilterSchema<S> => {
+  const operand = v.fieldRefOr("string", schema);
   const filter = stringFilterBase.extend({
-    equals: schema,
-    lt: schema,
-    lte: schema,
-    gt: schema,
-    gte: schema,
+    equals: operand,
+    lt: operand,
+    lte: operand,
+    gt: operand,
+    gte: operand,
   });
-  return buildNegatableFilterSchema<S, StringFilterBase<S>>(filter, schema);
+  return buildNegatableFilterSchema<StringOperand<S>, StringFilterBase<S>>(
+    filter,
+    operand
+  );
 };
 
 type StringListFilterBaseSchema<S extends V.Schema> = {

@@ -10,8 +10,11 @@ import {
 // FILTER TYPES
 // =============================================================================
 
+/** Equality operand: a literal, or a field reference to another enum column. */
+type EnumOperand<S extends V.Schema> = V.FieldRefOr<"enum", S>;
+
 type EnumFilterBase<S extends V.Schema, Values extends string[]> = {
-  equals: S;
+  equals: EnumOperand<S>;
   in: V.Enum<Values, { array: true }>;
   notIn: V.Enum<Values, { array: true }>;
 };
@@ -19,7 +22,7 @@ type EnumFilterBase<S extends V.Schema, Values extends string[]> = {
 type EnumFilterSchema<
   S extends V.Schema,
   Values extends string[],
-> = NegatableFilterSchema<S, EnumFilterBase<S, Values>>;
+> = NegatableFilterSchema<EnumOperand<S>, EnumFilterBase<S, Values>>;
 
 type EnumListFilterBase<S extends V.Schema, Values extends string[]> = {
   equals: S;
@@ -80,14 +83,15 @@ const buildEnumFilterSchema = <S extends V.Schema, Values extends string[]>(
   values: Values
 ): EnumFilterSchema<S, Values> => {
   const list = enumList(values);
+  const operand = v.fieldRefOr("enum", schema);
   const filter = v.object({
-    equals: schema,
+    equals: operand,
     in: list,
     notIn: list,
   });
-  return buildNegatableFilterSchema<S, EnumFilterBase<S, Values>>(
+  return buildNegatableFilterSchema<EnumOperand<S>, EnumFilterBase<S, Values>>(
     filter,
-    schema
+    operand
   );
 };
 

@@ -2,6 +2,7 @@
 // VibORM Validation - Runtime and Type-Level Namespace
 // =============================================================================
 
+import type { ScalarType } from "@schema/scalars/common";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -22,6 +23,8 @@ import type { DateSchema } from "./date";
 import { date } from "./date";
 import type { EnumSchema } from "./enum";
 import { enum_ } from "./enum";
+import type { FieldRefOrSchema, NoFieldRefSchema } from "./field-ref";
+import { fieldRefOr, noFieldRef } from "./field-ref";
 import type { ComputeEntriesFromObject } from "./from-object";
 import { fromObject } from "./from-object";
 import type { IsoDateSchema, IsoTimeSchema, IsoTimestampSchema } from "./iso";
@@ -126,6 +129,9 @@ export const v = {
   shorthandFilter,
   shorthandUpdate,
   shorthandArray,
+  // Field references (Prisma FieldRef parity)
+  fieldRefOr,
+  noFieldRef,
 } as const;
 
 export default v;
@@ -423,6 +429,23 @@ export namespace V {
     TWrapped,
     [TWrapped[" vibInferred"]["1"]]
   >;
+
+  /**
+   * Type-level comparison operand that also accepts a field reference of the
+   * given scalar type.
+   * @example V.FieldRefOr<"int", V.Integer>
+   */
+  export type FieldRefOr<
+    TType extends ScalarType,
+    TSchema extends VibSchema<any, any>,
+  > = FieldRefOrSchema<TType, TSchema>;
+
+  /**
+   * Type-level re-closing wrapper: same shape as the wrapped schema, but a
+   * field reference anywhere inside the parsed value is rejected.
+   */
+  export type NoFieldRef<TSchema extends VibSchema<any, any>> =
+    NoFieldRefSchema<TSchema>;
 
   export type SingleOrArray<TWrapped extends VibSchema<any, any>> = V.Union<
     readonly [

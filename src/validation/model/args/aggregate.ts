@@ -310,7 +310,15 @@ export const getHavingSchema = <F extends ScalarFilterBundle>(
   const entries: Record<string, V.Schema> = {};
 
   for (const [name, schemas] of Object.entries(scalarSchemas.scalars)) {
-    entries[name] = v.union([havingScalarSchema, schemas.filter]) as V.Schema;
+    // `having` reuses the model's own (shared, interned) scalar filter, which
+    // accepts a field reference in comparison positions. Prisma excludes field
+    // references from having/groupBy — a HAVING operand is an aggregate over a
+    // group, not a column of one row — so re-close the reused schema here
+    // instead of inheriting the operand by accident.
+    entries[name] = v.union([
+      havingScalarSchema,
+      v.noFieldRef(schemas.filter, "'having'"),
+    ]) as V.Schema;
   }
 
   // AND/OR/NOT recurse into the same schema through thunks — `.extend` returns

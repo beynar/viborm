@@ -294,6 +294,13 @@ export function convertSchema(
       return convertSchema(wrapped as any, context);
     }
 
+    case "field_ref_or": {
+      // A field reference is an in-process token with no JSON representation:
+      // only the literal operand it wraps can cross a JSON boundary.
+      const operand = (schema as any).wrapped as VibSchema<unknown, unknown>;
+      return convertSchema(operand as any, context);
+    }
+
     case "pipe": {
       // Pipe contains a base schema and actions - use the base schema
       const baseSchema = (schema as any).schema as VibSchema<unknown, unknown>;

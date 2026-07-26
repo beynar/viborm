@@ -33,6 +33,14 @@ export {
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./query-engine/pending-operation.js";
+// Field references (`client.$fields.<model>.<field>`) — column-to-column filters
+export {
+  type AnyFieldRef,
+  type FieldRef,
+  isFieldRef,
+  type ModelFieldRefs,
+  type SchemaFieldRefs,
+} from "./schema/field-ref.js";
 // Schema builder — every doc example teaches `import { s } from "viborm"`
 export { s } from "./schema/index.js";
 

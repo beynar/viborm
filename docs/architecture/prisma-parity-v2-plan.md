@@ -51,6 +51,42 @@ Everything in this wave is schema-layer work where the SQL engine already handle
 
 **Parallelism:** U1→U2 same file (`json-filter-builder.ts`) — serial pair. U3 disjoint (where-builder + client). U4 after U1. **2 lanes:** (U1→U2→U4), (U3).
 
+### W2-U3 — DELIVERED (lane W2-B)
+
+Surface: `client.$fields.<model>.<field>` returns a `Symbol.for("viborm.field-ref")`-branded,
+frozen token carrying `{ model, field, type, list }`. The whole surface is a lazy Proxy pair —
+nothing is walked until a model, then a field, is read — so a client that never compares columns
+pays one object allocation for it (`src/schema/field-ref.ts`, pinned by
+`tests/query-engine/field-reference-sql.test.ts`).
+
+**Where each rule is enforced, and why.** The two rules do not live in the same place, because
+they are not decidable in the same place:
+
+- **Scalar type** — validation. `v.fieldRefOr(<type>, operand)`
+  (`src/validation/primitives/field-ref.ts`) is a discriminating wrapper, not a `v.union`: a
+  non-reference value is handed straight to the wrapped operand schema, so every pre-existing
+  operand failure message is byte-identical to before.
+- **Same model** — the where-builder (`fieldRefColumn` in `where-builder.ts`). "The model being
+  filtered" is a property of the QUERY SCOPE, not of the schema: a nested relation `where`
+  re-scopes to the relation's target while reusing that model's filter schemas, and those schemas
+  are *interned across models* by design (`validation/scalars/intern.ts` — they deliberately carry
+  no model identity). The builder must resolve the reference against the current scope to emit a
+  column at all, so the check is intrinsic there rather than a duplicated guard. It raises at
+  SQL-build time — before any I/O — exactly like a validation failure from the caller's view.
+
+**In:** `equals`, `not`, `lt`, `lte`, `gt`, `gte` on int/float/decimal/bigint/string/datetime/
+date/time, `equals`/`not` on boolean/enum, and string `contains`/`startsWith`/`endsWith` (the
+adapters implement those with `POSITION`/`instr`/`LOCATE` + `LEFT`/`RIGHT`, never LIKE patterns,
+so a column operand composes exactly like a literal). Operands mirror the LHS's collation
+treatment (`caseSensitiveText` / `asciiCaseFold`), so `mode: "insensitive"` stays symmetric. The
+bare form `{ views: <ref> }` normalizes to `{ equals: <ref> }` like any other shorthand.
+
+**Out (fails closed, with a message):** `in`/`notIn`, list operators (`has`/`hasEvery`/`hasSome`/
+`isEmpty`), list-scalar references, JSON/blob/vector/point operands, `orderBy`, `whereUnique`,
+create/update data, and `having`/`groupBy`. The `having` exclusion is Prisma parity and needed an
+explicit re-close (`v.noFieldRef`): `getHavingSchema` reuses the model's own scalar filter, so it
+would otherwise have inherited the operand by accident.
+
 ---
 
 ## W3 — Read surface: nested pagination trio + implicit returns

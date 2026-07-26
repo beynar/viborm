@@ -6,6 +6,11 @@
  * and delegates relation filters to relation-filter-builder.
  */
 
+import {
+  type AnyFieldRef,
+  formatFieldRef,
+  isFieldRef,
+} from "@schema/field-ref";
 import type { ScalarState } from "@schema/scalars";
 import type { Sql } from "@sql";
 import {
@@ -287,6 +292,7 @@ function buildScalarFilter(
       column,
       op,
       opValue,
+      alias,
       mode
     );
     if (condition) {
@@ -303,12 +309,43 @@ function buildScalarFilter(
 }
 
 /**
+ * Resolve a field reference against the CURRENT query scope.
+ *
+ * This is where Prisma's same-model rule lives. It is a resolution constraint,
+ * not a re-validation: the scope model is the only thing that can turn
+ * `post.likes` into a column, and the scope is a property of the query (a nested
+ * relation `where` re-scopes to the relation target) that the interned, model-blind
+ * filter schemas cannot see. Runs at SQL-build time, before any I/O.
+ */
+function fieldRefColumn(ctx: QueryScope, ref: AnyFieldRef, alias: string): Sql {
+  const scopeModel = ctx.model["~"].names.ts;
+  if (ref.model !== scopeModel) {
+    throw new QueryEngineError(
+      `Field reference '${formatFieldRef(ref)}' cannot be used while filtering '${
+        scopeModel ?? "unknown"
+      }': a field reference may only compare columns of the same model.`
+    );
+  }
+  if (!isScalarField(ctx.model, ref.field)) {
+    throw new QueryEngineError(
+      `Field reference '${formatFieldRef(ref)}' does not name a scalar field of '${scopeModel}'.`
+    );
+  }
+  return ctx.adapter.identifiers.column(
+    alias,
+    getColumnName(ctx.model, ref.field)
+  );
+}
+
+/**
  * Build a single filter operation
  *
  * @param ctx - Query context
  * @param column - Column SQL expression
  * @param operation - Filter operation name
  * @param value - Filter value
+ * @param alias - Table alias the filtered column is qualified with; a field
+ *   reference operand resolves to a column on the SAME alias (same row)
  * @param mode - Case sensitivity mode (default or insensitive)
  */
 function buildFilterOperation(
@@ -318,10 +355,20 @@ function buildFilterOperation(
   column: Sql,
   operation: string,
   value: unknown,
+  alias: string,
   mode: FilterMode = "default"
 ): Sql {
   const { adapter } = ctx;
-  const lit = (v: unknown) => scalarValueLiteral(ctx, fieldName, v);
+  const lit = (v: unknown) => {
+    if (isFieldRef(v)) {
+      // Reached only from an operator the schemas do NOT open to references
+      // (in/notIn/has/hasEvery/hasSome). Fail closed rather than bind the token.
+      throw new QueryEngineError(
+        `Field reference '${formatFieldRef(v)}' is not supported by the '${operation}' filter on '${fieldName}'.`
+      );
+    }
+    return scalarValueLiteral(ctx, fieldName, v);
+  };
   const isInsensitive = mode === "insensitive";
   const isTextScalar =
     !scalarState.array &&
@@ -335,14 +382,37 @@ function buildFilterOperation(
       )
     : column;
 
+  // Operand builders. Each mirrors the treatment its LHS gets at the call site,
+  // so a referenced column is compared under the SAME collation/folding rules as
+  // a bound literal would be.
+  /** Raw operand — pairs with a bare `column` LHS (ordered comparisons, LIKE-free text predicates). */
+  const plainOperand = (v: unknown) =>
+    isFieldRef(v) ? fieldRefColumn(ctx, v, alias) : lit(v);
+  /** Exact-text operand — pairs with `exactTextColumn`. */
+  const exactOperand = (v: unknown) => {
+    if (!isFieldRef(v)) return lit(v);
+    const refColumn = fieldRefColumn(ctx, v, alias);
+    return isTextScalar
+      ? adapter.expressions.caseSensitiveText(refColumn)
+      : refColumn;
+  };
+  /** Case-folded operand — pairs with `foldedTextColumn`. */
+  const foldedOperand = (v: unknown) => {
+    if (!isFieldRef(v)) return adapter.expressions.asciiCaseFold(lit(v));
+    const refColumn = fieldRefColumn(ctx, v, alias);
+    return isTextScalar
+      ? adapter.expressions.caseSensitiveText(
+          adapter.expressions.asciiCaseFold(refColumn)
+        )
+      : refColumn;
+  };
+
   // Portable insensitive mode folds ASCII A-Z only, then uses exact text
   // predicates. This avoids provider-native Unicode/collation divergence.
-  const foldedLiteral = (v: unknown) =>
-    adapter.expressions.asciiCaseFold(lit(v));
   const insensitiveEq = (v: unknown) =>
-    adapter.operators.eq(foldedTextColumn, foldedLiteral(v));
+    adapter.operators.eq(foldedTextColumn, foldedOperand(v));
   const insensitiveNeq = (v: unknown) =>
-    adapter.operators.neq(foldedTextColumn, foldedLiteral(v));
+    adapter.operators.neq(foldedTextColumn, foldedOperand(v));
 
   switch (operation) {
     // Equality
@@ -364,7 +434,7 @@ function buildFilterOperation(
       if (isInsensitive && typeof value === "string") {
         return insensitiveEq(value);
       }
-      return adapter.operators.eq(exactTextColumn, lit(value));
+      return adapter.operators.eq(exactTextColumn, exactOperand(value));
 
     case "not":
       if (value === null) {
@@ -376,6 +446,13 @@ function buildFilterOperation(
       if (scalarState.array && Array.isArray(value)) {
         return adapter.operators.neq(column, adapter.arrays.value(value));
       }
+      // A field reference IS an object, so it must be recognized before the
+      // nested-filter branch — otherwise its own keys would read as operations.
+      if (isFieldRef(value)) {
+        return isInsensitive
+          ? insensitiveNeq(value)
+          : adapter.operators.neq(exactTextColumn, exactOperand(value));
+      }
       if (typeof value === "object" && value !== null) {
         // Nested filter: { not: { contains: "foo" } }
         const nested = buildScalarFilterObject(
@@ -383,6 +460,7 @@ function buildFilterOperation(
           fieldName,
           column,
           value as Record<string, unknown>,
+          alias,
           mode
         );
         return adapter.operators.not(nested);
@@ -390,20 +468,20 @@ function buildFilterOperation(
       if (isInsensitive && typeof value === "string") {
         return insensitiveNeq(value);
       }
-      return adapter.operators.neq(exactTextColumn, lit(value));
+      return adapter.operators.neq(exactTextColumn, exactOperand(value));
 
     // Comparison
     case "lt":
-      return adapter.operators.lt(column, lit(value));
+      return adapter.operators.lt(column, plainOperand(value));
 
     case "lte":
-      return adapter.operators.lte(column, lit(value));
+      return adapter.operators.lte(column, plainOperand(value));
 
     case "gt":
-      return adapter.operators.gt(column, lit(value));
+      return adapter.operators.gt(column, plainOperand(value));
 
     case "gte":
-      return adapter.operators.gte(column, lit(value));
+      return adapter.operators.gte(column, plainOperand(value));
 
     // Set membership
     case "in": {
@@ -446,27 +524,28 @@ function buildFilterOperation(
       );
     }
 
-    // String operations use adapter-owned exact substring predicates, so user
-    // values are always literal and database LIKE behavior cannot diverge.
+    // String operations use adapter-owned exact substring predicates (POSITION /
+    // instr / LOCATE + LEFT/RIGHT), never LIKE patterns, so the operand may be a
+    // referenced column as naturally as a bound literal.
     case "contains": {
       return isInsensitive
-        ? adapter.operators.containsText(foldedTextColumn, foldedLiteral(value))
-        : adapter.operators.containsText(column, lit(value));
+        ? adapter.operators.containsText(foldedTextColumn, foldedOperand(value))
+        : adapter.operators.containsText(column, plainOperand(value));
     }
 
     case "startsWith": {
       return isInsensitive
         ? adapter.operators.startsWithText(
             foldedTextColumn,
-            foldedLiteral(value)
+            foldedOperand(value)
           )
-        : adapter.operators.startsWithText(column, lit(value));
+        : adapter.operators.startsWithText(column, plainOperand(value));
     }
 
     case "endsWith": {
       return isInsensitive
-        ? adapter.operators.endsWithText(foldedTextColumn, foldedLiteral(value))
-        : adapter.operators.endsWithText(column, lit(value));
+        ? adapter.operators.endsWithText(foldedTextColumn, foldedOperand(value))
+        : adapter.operators.endsWithText(column, plainOperand(value));
     }
 
     // Array operations (for array/list scalars)
@@ -521,6 +600,7 @@ function buildScalarFilterObject(
   fieldName: string,
   column: Sql,
   filter: Record<string, unknown>,
+  alias: string,
   mode: FilterMode = "default"
 ): Sql {
   const scalarState = getScalarState(ctx, fieldName);
@@ -544,6 +624,7 @@ function buildScalarFilterObject(
       column,
       op,
       value,
+      alias,
       nestedMode
     );
     if (condition) {

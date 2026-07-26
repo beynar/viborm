@@ -17,18 +17,21 @@ const bigIntList = v.bigint({ array: true });
 // FILTER TYPES
 // =============================================================================
 
+/** Comparison operand: a literal, or a field reference to another bigint column. */
+type BigIntOperand<S extends V.Schema> = V.FieldRefOr<"bigint", S>;
+
 type BigIntFilterBase<S extends V.Schema> = {
-  equals: S;
+  equals: BigIntOperand<S>;
   in: V.BigInt<{ array: true }>;
   notIn: V.BigInt<{ array: true }>;
-  lt: V.BigInt;
-  lte: V.BigInt;
-  gt: V.BigInt;
-  gte: V.BigInt;
+  lt: BigIntOperand<V.BigInt>;
+  lte: BigIntOperand<V.BigInt>;
+  gt: BigIntOperand<V.BigInt>;
+  gte: BigIntOperand<V.BigInt>;
 };
 
 type BigIntFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
+  BigIntOperand<S>,
   BigIntFilterBase<S>
 >;
 
@@ -84,19 +87,23 @@ type BigIntListUpdateSchema<S extends V.Schema> = V.Union<
 const bigIntFilterBase = v.object({
   in: bigIntList,
   notIn: bigIntList,
-  lt: bigIntBase,
-  lte: bigIntBase,
-  gt: bigIntBase,
-  gte: bigIntBase,
+  lt: v.fieldRefOr("bigint", bigIntBase),
+  lte: v.fieldRefOr("bigint", bigIntBase),
+  gt: v.fieldRefOr("bigint", bigIntBase),
+  gte: v.fieldRefOr("bigint", bigIntBase),
 });
 
 const buildBigIntFilterSchema = <S extends V.Schema>(
   schema: S
 ): BigIntFilterSchema<S> => {
+  const operand = v.fieldRefOr("bigint", schema);
   const filter = bigIntFilterBase.extend({
-    equals: schema,
+    equals: operand,
   });
-  return buildNegatableFilterSchema<S, BigIntFilterBase<S>>(filter, schema);
+  return buildNegatableFilterSchema<BigIntOperand<S>, BigIntFilterBase<S>>(
+    filter,
+    operand
+  );
 };
 
 const bigIntListFilterBase = v.object({

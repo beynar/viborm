@@ -44,6 +44,7 @@ import {
 } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { PreparedBatchGuard } from "@query-engine/types";
+import { createSchemaFieldRefs, type SchemaFieldRefs } from "@schema/field-ref";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Sql } from "@sql";
 import { createSchemaRegistry } from "@validation";
@@ -140,6 +141,20 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
       $driver: AnyDriver;
       /** Access the schema (models) */
       $schema: C["schema"];
+      /**
+       * Field references — compare two columns of the SAME row in a filter.
+       *
+       * @example
+       * ```ts
+       * // posts whose view count exceeds their like count
+       * await client.post.findMany({
+       *   where: { views: { gt: client.$fields.post.likes } },
+       * });
+       * ```
+       *
+       * Built lazily: nothing is walked until a model (and then a field) is read.
+       */
+      $fields: SchemaFieldRefs<C["schema"]>;
       /** Execute a raw SQL query */
       $executeRaw: <T = Record<string, unknown>>(
         query: Sql
@@ -358,6 +373,10 @@ export class VibORM<C extends VibORMConfig> {
 
     const client = orm.createClient();
 
+    // Field references are built on first `$fields` access, then reused: a
+    // client that never compares columns pays nothing for the surface.
+    let fieldRefs: SchemaFieldRefs<C["schema"]> | undefined;
+
     // Create proxy that combines model operations with utility methods
     return new Proxy(client, {
       get(target, prop) {
@@ -368,6 +387,11 @@ export class VibORM<C extends VibORMConfig> {
 
         if (prop === "$schema") {
           return orm.schema;
+        }
+
+        if (prop === "$fields") {
+          fieldRefs ??= createSchemaFieldRefs(orm.schema);
+          return fieldRefs;
         }
 
         if (prop === "$executeRaw") {

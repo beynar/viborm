@@ -17,12 +17,15 @@ const booleanList = v.boolean({ array: true });
 // FILTER TYPES
 // =============================================================================
 
+/** Equality operand: a literal, or a field reference to another boolean column. */
+type BooleanOperand<S extends V.Schema> = V.FieldRefOr<"boolean", S>;
+
 type BooleanFilterBase<S extends V.Schema> = {
-  equals: S;
+  equals: BooleanOperand<S>;
 };
 
 type BooleanFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
+  BooleanOperand<S>,
   BooleanFilterBase<S>
 >;
 
@@ -69,10 +72,14 @@ type BooleanListUpdateSchema<S extends V.Schema> = V.Union<
 const buildBooleanFilterSchema = <S extends V.Schema>(
   schema: S
 ): BooleanFilterSchema<S> => {
+  const operand = v.fieldRefOr("boolean", schema);
   const filter = v.object({
-    equals: schema,
+    equals: operand,
   });
-  return buildNegatableFilterSchema<S, BooleanFilterBase<S>>(filter, schema);
+  return buildNegatableFilterSchema<BooleanOperand<S>, BooleanFilterBase<S>>(
+    filter,
+    operand
+  );
 };
 
 const booleanListFilterBase = v.object({

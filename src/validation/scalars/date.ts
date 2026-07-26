@@ -17,18 +17,21 @@ const dateList = v.isoDate({ array: true });
 // FILTER TYPES
 // =============================================================================
 
+/** Comparison operand: a literal, or a field reference to another date column. */
+type DateOperand<S extends V.Schema> = V.FieldRefOr<"date", S>;
+
 type DateFilterBase<S extends V.Schema> = {
-  equals: S;
+  equals: DateOperand<S>;
   in: V.IsoDate<{ array: true }>;
   notIn: V.IsoDate<{ array: true }>;
-  lt: V.IsoDate;
-  lte: V.IsoDate;
-  gt: V.IsoDate;
-  gte: V.IsoDate;
+  lt: DateOperand<V.IsoDate>;
+  lte: DateOperand<V.IsoDate>;
+  gt: DateOperand<V.IsoDate>;
+  gte: DateOperand<V.IsoDate>;
 };
 
 type DateFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
+  DateOperand<S>,
   DateFilterBase<S>
 >;
 
@@ -75,19 +78,23 @@ type DateListUpdateSchema<S extends V.Schema> = V.Union<
 const dateFilterBase = v.object({
   in: dateList,
   notIn: dateList,
-  lt: dateBase,
-  lte: dateBase,
-  gt: dateBase,
-  gte: dateBase,
+  lt: v.fieldRefOr("date", dateBase),
+  lte: v.fieldRefOr("date", dateBase),
+  gt: v.fieldRefOr("date", dateBase),
+  gte: v.fieldRefOr("date", dateBase),
 });
 
 const buildDateFilterSchema = <S extends V.Schema>(
   schema: S
 ): DateFilterSchema<S> => {
+  const operand = v.fieldRefOr("date", schema);
   const filter = dateFilterBase.extend({
-    equals: schema,
+    equals: operand,
   });
-  return buildNegatableFilterSchema<S, DateFilterBase<S>>(filter, schema);
+  return buildNegatableFilterSchema<DateOperand<S>, DateFilterBase<S>>(
+    filter,
+    operand
+  );
 };
 
 const dateListFilterBase = v.object({
