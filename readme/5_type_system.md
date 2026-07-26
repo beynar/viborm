@@ -690,7 +690,7 @@ These generic types work with any model by taking the model schema as a type par
 - `UpdateManyArgs<TModel>` - Arguments for updateMany operation (the optional `select` makes it return rows instead of `{ count }`)
 - `UpsertArgs<TModel>` - Arguments for upsert operation
 - `DeleteArgs<TModel>` - Arguments for delete operation
-- `DeleteManyArgs<TModel>` - Arguments for deleteMany operation
+- `DeleteManyArgs<TModel>` - Arguments for deleteMany operation (the optional `select` makes it return rows instead of `{ count }`)
 - `AggregateArgs<TModel>` - Arguments for aggregate operation
 - `GroupByArgs<TModel>` - Arguments for groupBy operation
 - `CountArgs<TModel>` - Arguments for count operation

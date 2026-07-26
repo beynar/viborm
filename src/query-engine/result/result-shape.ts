@@ -26,6 +26,7 @@ const MODEL_ROW_OPERATIONS = new Set<Operation>([
   "update",
   "updateManyAndReturn",
   "delete",
+  "deleteManyAndReturn",
   "upsert",
 ]);
 

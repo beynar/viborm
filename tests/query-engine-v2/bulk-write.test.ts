@@ -138,6 +138,23 @@ const scenarios: Scenario[] = [
     act: (c) => c.gadget!.deleteMany!({ where: { qty: { lt: 5 } } }),
   },
   {
+    name: "deleteMany with select returns the deleted rows",
+    routed: "deleteMany",
+    seed: (c) =>
+      c.gadget.createMany({
+        data: [
+          { id: "g1", code: "c1", name: "A", qty: 1 },
+          { id: "g2", code: "c2", name: "B", qty: 9 },
+          { id: "g3", code: "c3", name: "C", qty: 2 },
+        ],
+      }),
+    act: (c) =>
+      c.gadget!.deleteMany!({
+        where: { qty: { lt: 5 } },
+        select: { id: true, name: true },
+      }),
+  },
+  {
     name: "createMany with select (string PK) returns created rows",
     routed: "createMany",
     act: (c) =>

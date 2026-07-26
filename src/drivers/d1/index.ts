@@ -50,6 +50,7 @@ const ROW_PRODUCING_OPERATIONS = new Set([
   "create",
   "createManyAndReturn",
   "delete",
+  "deleteManyAndReturn",
   "exist",
   "findFirst",
   "findMany",

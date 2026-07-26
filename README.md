@@ -38,7 +38,7 @@ Status legend:
 | Update one | `update` by unique selector; returns updated row; supports atomic numeric ops and nested writes | Requires unique `where`; throws on missing row; supports scalar updates, atomic numeric ops, and documented nested writes | `Supported` |
 | Update many | `updateMany` returns `{ count }`; `updateManyAndReturn` is a separate provider-specific method | `updateMany` returns `{ count }`, or the updated rows when the call carries a `select` (implicit returning — there is no `updateManyAndReturn` method) | `Different` |
 | Upsert | `upsert` with unique `where`, `create`, `update`; returns row | Same core shape; supported nested writes are allowed in covered branches | `Supported` |
-| Delete | `delete` by unique selector returns deleted row; `deleteMany` returns `{ count }` | Same core shape; `delete` throws on missing row and non-returning dialects fetch before delete where safe | `Supported` |
+| Delete | `delete` by unique selector returns deleted row; `deleteMany` returns `{ count }` | Same core shape; `delete` throws on missing row and non-returning dialects fetch before delete where safe. `deleteMany` additionally returns the deleted rows when the call carries a `select` — a superset Prisma has no form of | `Different` |
 
 ### Advanced Queries
 

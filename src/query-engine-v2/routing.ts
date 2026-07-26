@@ -181,7 +181,11 @@ function constructOperation(
         ? new ManyAndReturnOperation(engine, model, "updateManyAndReturn", args)
         : new BulkCountOperation(engine, model, operation, args);
     case "deleteMany":
-      return new BulkCountOperation(engine, model, operation, args);
+      // Implicit returning past Prisma, which has no returning `deleteMany`:
+      // with `select` the rows are read (or RETURNED) as they are deleted.
+      return returnsRows(args)
+        ? new ManyAndReturnOperation(engine, model, "deleteManyAndReturn", args)
+        : new BulkCountOperation(engine, model, operation, args);
     default:
       return undefined;
   }

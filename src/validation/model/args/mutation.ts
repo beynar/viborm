@@ -219,7 +219,12 @@ export const getDeleteArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 // =============================================================================
 
 /**
- * DeleteMany args: { where? }
+ * DeleteMany args: { where?, select? }
+ *
+ * IMPLICIT RETURNING, extended past Prisma (which has no returning `deleteMany`
+ * at all): `select` is optional, and its PRESENCE makes the operation return the
+ * deleted rows instead of `{ count }`. `include` is rejected for the same reason
+ * as the other bulk writes.
  */
 export type DeleteManyArgs<
   M extends AnyModel,
@@ -227,6 +232,7 @@ export type DeleteManyArgs<
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
+    select: CoreSchemas<M, F>["select"];
     cache: CacheInvalidationSchema;
   },
   { optional: true }
@@ -237,12 +243,16 @@ export const getDeleteManyArgs = <
 >(
   core: CoreSchemas<M, F>
 ): DeleteManyArgs<M, F> => {
-  return v.object(
-    {
-      where: v.lazyRef(() => core.where),
-      cache: cacheInvalidationSchema,
-    },
-    { optional: true }
+  return rejectInclude(
+    v.object(
+      {
+        where: v.lazyRef(() => core.where),
+        select: v.lazyRef(() => core.select),
+        cache: cacheInvalidationSchema,
+      },
+      { optional: true }
+    ),
+    "deleteMany"
   );
 };
 

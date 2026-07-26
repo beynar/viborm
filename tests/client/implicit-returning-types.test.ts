@@ -161,16 +161,29 @@ describe("updateMany implicit returning", () => {
   });
 });
 
-describe("deleteMany keeps its count-only surface", () => {
-  test("no select on the payload, always { count }", () => {
+describe("deleteMany implicit returning (no Prisma counterpart)", () => {
+  test("without select the result is { count }", () => {
     type Args = { where: { name: string } };
     type Result = OperationResult<"deleteMany", UserModel, Args>;
 
     expectTypeOf<Result>().toEqualTypeOf<{ count: number }>();
+  });
 
+  test("with select the result is the deleted rows", () => {
+    type Args = { where: { name: string }; select: { id: true; email: true } };
+    type Result = OperationResult<"deleteMany", UserModel, Args>;
+
+    expectTypeOf<Result>().toBeArray();
+    expectTypeOf<keyof Result[number]>().toEqualTypeOf<"id" | "email">();
+  });
+
+  test("payload has where and select but not include", () => {
     type Payload = OperationPayload<"deleteMany", UserModel>;
+
+    expectTypeOf<NonNullable<Payload>>().toHaveProperty("where");
+    expectTypeOf<NonNullable<Payload>>().toHaveProperty("select");
     expectTypeOf<
-      "select" extends keyof NonNullable<Payload> ? true : false
+      "include" extends keyof NonNullable<Payload> ? true : false
     >().toEqualTypeOf<false>();
   });
 });

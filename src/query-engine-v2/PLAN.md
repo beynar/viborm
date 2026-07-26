@@ -1574,10 +1574,34 @@ of `{ count }`.
   The executor operation-token gate needed no edit — `OperationExecutor.ts` never
   named either operation.
 
+### W3-U5 — `deleteMany` with `select` (the superset Prisma has no form of)
+
+The same rule, applied to the one bulk family that never had a returning form
+anywhere: `deleteMany({ where, select })` returns the rows it removed. It fell
+out of the existing machinery with no new vocabulary and no new step kind —
+
+- **returning drivers:** one `DELETE … RETURNING` (`buildDeleteManyAndReturn`,
+  symmetric with the update builder);
+- **non-returning (MySQL):** the SAME planning capture as `updateMany` — the
+  target PKs, FOR UPDATE — and then, at compile, the two statements in the
+  **opposite order**: read the projection FIRST, delete second, both addressed by
+  the captured PK set inside one atomic scope. That order is the only real design
+  content here (after the DELETE there is nothing left to read), so it is pinned
+  structurally, without a database, in
+  `tests/query-engine-v2/non-returning-delete-plan.test.ts`; the behavioral proof
+  is the shared driver suite on the Docker MySQL leg.
+
+Count consistency needs no postcondition for the same reason `updateMany`'s
+doesn't: the captured rows are FOR-UPDATE-locked in the same transaction envelope
+as the DELETE, so the affected set cannot drift from the capture.
+
 Kill signal for a future phase: if the row-returning arm ever needs a *second*
 discriminant (a flag beside `select`, or a distinct operation name creeping back
 in), the implicit form has failed and the removal should be revisited as a
-decision, not patched around.
+decision, not patched around. A related one for W3-U5: if the delete arm ever
+needs a postcondition to stay honest, the FOR-UPDATE capture is not doing what
+this section claims and the claim — not the postcondition — is what should be
+re-examined first.
 
 ---
 

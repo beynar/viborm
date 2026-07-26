@@ -98,7 +98,14 @@ function constructOperation(
             args
           );
     case "deleteMany":
-      return new BulkCountOperation(engine, model, operation, args);
+      return args.select === undefined
+        ? new BulkCountOperation(engine, model, operation, args)
+        : new ManyAndReturnOperation(
+            engine,
+            model,
+            "deleteManyAndReturn",
+            args
+          );
     default:
       return undefined;
   }

@@ -5,6 +5,8 @@ import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils"
 import { createQueryScope } from "../query-engine/context/query-scope";
 import {
   buildCreateManyPlan,
+  buildDeleteMany,
+  buildDeleteManyAndReturn,
   buildFind,
   buildFindUnique,
   buildUpdateMany,
@@ -43,12 +45,16 @@ type ExecutionMode = "transaction" | "batch";
  * public surface (maintainer decision D-1) and replaced by implicit returning.
  * {@link PUBLIC_NAME} maps back for every user-facing message.
  */
-type AndReturnKind = "createManyAndReturn" | "updateManyAndReturn";
+type AndReturnKind =
+  | "createManyAndReturn"
+  | "updateManyAndReturn"
+  | "deleteManyAndReturn";
 
 /** The client-facing spelling of each internal row-returning kind. */
 const PUBLIC_NAME: Readonly<Record<AndReturnKind, string>> = {
   createManyAndReturn: "createMany",
   updateManyAndReturn: "updateMany",
+  deleteManyAndReturn: "deleteMany",
 };
 
 /**
@@ -67,6 +73,10 @@ const PUBLIC_NAME: Readonly<Record<AndReturnKind, string>> = {
  *   `updateManyAndReturn` captures the target PK set at planning (locked),
  *   applies one bulk `UPDATE`, then re-reads the (possibly PK-shifted) rows —
  *   the captured set is planning-time only and inlined at compile (§3 corollary).
+ *   `deleteManyAndReturn` is the same technique with the two statements SWAPPED:
+ *   the projection must be read BEFORE the `DELETE`, because a deleted row cannot
+ *   be read back. Both live in the same atomic scope and address the same
+ *   FOR-UPDATE-locked PK set, so the rows returned are exactly the rows deleted.
  *
  * - **non-returning drivers in forced batch**: refused, because public result
  *   parsing cannot be rolled back after an atomic batch commits. That refusal is
@@ -137,6 +147,31 @@ export class ManyAndReturnOperation {
       return;
     }
 
+    if (kind === "deleteManyAndReturn") {
+      this.updateData = undefined;
+      if (supportsReturning) {
+        const step: StatementStep = {
+          id: this.scope.allocate(`${this.modelName()}.deleteManyReturn`),
+          kind: "write",
+          statement: buildDeleteManyAndReturn(this.ctx(), {
+            ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+            ...(this.select ? { select: this.select } : {}),
+          }),
+          outputs: { result: { kind: "rows" } },
+        };
+        this.staticSteps = [step];
+        this.staticOutput = ref(step.id, "result");
+        this.captureRead = undefined;
+        return;
+      }
+      // Non-returning: lock the target PK set at planning, then read-then-delete
+      // that exact set at compile.
+      this.staticSteps = undefined;
+      this.staticOutput = undefined;
+      this.captureRead = this.buildPkCapture("deleteManyReturn");
+      return;
+    }
+
     // updateMany with select
     const data = requireRecord(this.args.data, "updateMany", "data");
     if (supportsReturning) {
@@ -162,8 +197,17 @@ export class ManyAndReturnOperation {
     this.staticSteps = undefined;
     this.staticOutput = undefined;
     this.updateData = data;
-    this.captureRead = {
-      id: this.scope.allocate(`${this.modelName()}.updateManyReturn.capture`),
+    this.captureRead = this.buildPkCapture("updateManyReturn");
+  }
+
+  /**
+   * The planning capture shared by both non-returning arms: the target primary
+   * keys, FOR UPDATE, so the affected set cannot drift between planning and the
+   * write inside the same transaction envelope.
+   */
+  private buildPkCapture(label: string): StatementStep {
+    return {
+      id: this.scope.allocate(`${this.modelName()}.${label}.capture`),
       kind: "read",
       statement: buildFind(this.ctx(), {
         ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
@@ -192,7 +236,9 @@ export class ManyAndReturnOperation {
         outputs: { result: this.staticOutput },
       };
     }
-    return this.compileCapturedUpdate(known);
+    return this.kind === "deleteManyAndReturn"
+      ? this.compileCapturedDelete(known)
+      : this.compileCapturedUpdate(known);
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {
@@ -213,26 +259,78 @@ export class ManyAndReturnOperation {
     ).parse<T>(this.kind as Operation, rows, this.args);
   }
 
-  private compileCapturedUpdate(
+  /**
+   * The planning capture's rows, or `undefined` when nothing matched (both
+   * non-returning arms then compile to an empty plan and parse to `[]`, the way
+   * V1's `requiresRowsFrom` skipped the write and the read).
+   */
+  private capturedRows(
     known: Readonly<Record<string, unknown>>
-  ): OperationFragment {
-    if (!(this.captureRead && this.updateData)) {
+  ): Record<string, unknown>[] | undefined {
+    if (!this.captureRead) {
       throw new QueryEngineError(
-        "query-engine-v2 updateMany with 'select' lost its capture plan."
+        `query-engine-v2 ${PUBLIC_NAME[this.kind]} with 'select' lost its capture plan.`
       );
     }
     const captured = known[planningKey(this.captureRead.id, "rows")];
     if (!Array.isArray(captured)) {
       throw new QueryEngineError(
-        "query-engine-v2 updateMany with 'select' planning did not expose the captured rows."
+        `query-engine-v2 ${PUBLIC_NAME[this.kind]} with 'select' planning did not expose the captured rows.`
       );
     }
-    // Nothing matched: no update, an empty result (V1 skips the write and read
-    // when the capture is empty — `requiresRowsFrom`).
-    if (captured.length === 0) return { steps: [], outputs: {} };
+    if (captured.length === 0) return undefined;
+    return captured as Record<string, unknown>[];
+  }
+
+  /**
+   * Non-returning `deleteMany` with `select`: read the projection of the locked
+   * PK set, THEN delete that same set, both in one atomic scope. The order is the
+   * whole point — after the DELETE there is nothing left to read — and addressing
+   * both statements by the captured PKs (not by the user's filter) is what makes
+   * "the rows returned are the rows deleted" true even if the filter is over a
+   * column the delete would have changed the visibility of.
+   */
+  private compileCapturedDelete(
+    known: Readonly<Record<string, unknown>>
+  ): OperationFragment {
+    const rows = this.capturedRows(known);
+    if (!rows) return { steps: [], outputs: {} };
 
     const ctx = this.ctx();
-    const rows = captured as Record<string, unknown>[];
+    const targetWhere = this.capturedFilterWhere(ctx, rows);
+    const readStep: StatementStep = {
+      id: this.scope.allocate(`${this.modelName()}.deleteManyReturn.read`),
+      kind: "read",
+      statement: buildFind(ctx, {
+        where: targetWhere,
+        ...(this.select ? { select: this.select } : {}),
+      }),
+      outputs: { result: { kind: "rows" } },
+    };
+    const writeStep: StatementStep = {
+      id: this.scope.allocate(`${this.modelName()}.deleteManyReturn.write`),
+      kind: "write",
+      statement: buildDeleteMany(ctx, { where: targetWhere }),
+      outputs: {},
+    };
+    return {
+      steps: [readStep, writeStep],
+      outputs: { result: ref(readStep.id, "result") },
+    };
+  }
+
+  private compileCapturedUpdate(
+    known: Readonly<Record<string, unknown>>
+  ): OperationFragment {
+    if (!this.updateData) {
+      throw new QueryEngineError(
+        "query-engine-v2 updateMany with 'select' lost its update data."
+      );
+    }
+    const rows = this.capturedRows(known);
+    if (!rows) return { steps: [], outputs: {} };
+
+    const ctx = this.ctx();
     const beforeWhere = this.capturedFilterWhere(ctx, rows);
     const afterWhere = this.capturedFilterWhere(ctx, rows, this.updateData);
 

@@ -137,6 +137,10 @@ export type OperationPayload<
  * `Args` is inferred from the call-site literal, and a call without `select`
  * simply has no such member.
  *
+ * The rule covers `deleteMany` too, which has no Prisma counterpart at all: the
+ * rows come back as they are removed, so a caller no longer has to read-then-
+ * delete and hope nothing moved in between.
+ *
  * `select: undefined` (an explicitly-absent select) deliberately lands on
  * `BatchPayload`, matching the runtime's `args.select !== undefined` routing.
  */
@@ -163,19 +167,17 @@ export type OperationResult<
         ? Prettify<InferSelectInclude<S, Args>>[]
         : O extends "create" | "update" | "delete" | "upsert"
           ? Prettify<InferSelectInclude<S, Args>>
-          : O extends "createMany" | "updateMany"
+          : O extends "createMany" | "updateMany" | "deleteMany"
             ? BulkWriteResult<S, Args>
-            : O extends "deleteMany"
-              ? BatchPayload
-              : O extends "count"
-                ? CountResultType<Args>
-                : O extends "exist"
-                  ? boolean
-                  : O extends "aggregate"
-                    ? AggregateResultType<ExtractFields<M>, Args>
-                    : O extends "groupBy"
-                      ? GroupByResultType<ExtractFields<M>, Args>[]
-                      : never
+            : O extends "count"
+              ? CountResultType<Args>
+              : O extends "exist"
+                ? boolean
+                : O extends "aggregate"
+                  ? AggregateResultType<ExtractFields<M>, Args>
+                  : O extends "groupBy"
+                    ? GroupByResultType<ExtractFields<M>, Args>[]
+                    : never
   : never;
 
 /**

@@ -77,3 +77,29 @@ export function buildDeleteMany(ctx: QueryScope, args: DeleteManyArgs): Sql {
   const table = adapter.identifiers.escape(tableName);
   return adapter.mutations.delete(table, whereSql);
 }
+
+/**
+ * Build SQL for the row-returning arm of `deleteMany` — internally named
+ * `deleteManyAndReturn`; the client spells it `deleteMany` with a `select`.
+ * (Prisma has no equivalent operation at all.)
+ *
+ * DELETE ... RETURNING on adapters that support it. On adapters without
+ * RETURNING this statement is never built: the operation reads the matching rows
+ * and deletes them inside one atomic scope instead, because a row cannot be read
+ * back after it is gone.
+ */
+export function buildDeleteManyAndReturn(
+  ctx: QueryScope,
+  args: DeleteManyArgs & { select?: Record<string, unknown> }
+): Sql {
+  const deleteSql = buildDeleteMany(ctx, args);
+
+  const returningCols = buildSelect(ctx, args.select, undefined, "");
+  const returningSql = ctx.adapter.mutations.returning(returningCols);
+
+  if (returningSql.strings.join("").trim() === "") {
+    return deleteSql;
+  }
+
+  return sql`${deleteSql} ${returningSql}`;
+}

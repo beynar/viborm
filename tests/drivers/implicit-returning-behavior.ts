@@ -108,16 +108,21 @@ export interface ImplicitReturningBehaviorOptions {
 /**
  * IMPLICIT RETURNING on the bulk writes, per driver. There is no
  * `createManyAndReturn` / `updateManyAndReturn` any more (maintainer decision
- * D-1): `createMany` / `updateMany` return `{ count }` unless the call carries a
- * `select`, in which case they return the affected rows. Because `select` is the
- * only way to ask for rows, a "return everything" assertion must name every
- * column — which is exactly what the surface promises.
+ * D-1): `createMany` / `updateMany` / `deleteMany` return `{ count }` unless the
+ * call carries a `select`, in which case they return the affected rows. Because
+ * `select` is the only way to ask for rows, a "return everything" assertion must
+ * name every column — which is exactly what the surface promises.
+ *
+ * `deleteMany` with `select` has no Prisma counterpart at all, and it is the case
+ * where the driver split actually matters: a returning driver deletes and returns
+ * in one statement, a non-returning one must READ the rows before removing them.
+ * The MySQL leg is what proves that ordering behaviorally.
  */
 export function runImplicitReturningBehavior({
   driverName,
   createDriver,
 }: ImplicitReturningBehaviorOptions) {
-  describe(`${driverName} createMany / updateMany implicit returning`, () => {
+  describe(`${driverName} bulk-write implicit returning`, () => {
     let client: ImplicitReturningClient | undefined;
     // `createMany` with BOTH `skipDuplicates` and `select` is the one documented
     // deliberate refusal on a NON-returning driver (route-inventory category ii):
@@ -611,6 +616,67 @@ export function runImplicitReturningBehavior({
           data: { qty: 99 },
         })
       ).resolves.toEqual({ count: 0 });
+    });
+
+    test("deleteMany without select returns { count }, with select returns the deleted rows", async () => {
+      await client!.gadget.createMany({
+        data: [
+          { id: "g1", code: "c1", name: "Alpha", qty: 1 },
+          { id: "g2", code: "c2", name: "Beta", qty: 2 },
+          { id: "g3", code: "c3", name: "Gamma", qty: 10 },
+        ],
+      });
+
+      const rows = await client!.gadget.deleteMany({
+        where: { qty: { lt: 5 } },
+        select: { id: true, name: true, qty: true },
+      });
+
+      expect(rows).toHaveLength(2);
+      expect(rows.map((r) => r.id).sort()).toEqual(["g1", "g2"]);
+      for (const row of rows) {
+        expect(Object.keys(row).sort()).toEqual(["id", "name", "qty"]);
+      }
+      // The returned rows are the rows that are GONE — the projection is read
+      // from the pre-delete state, and the delete really happened.
+      expect(await client!.gadget.findMany()).toHaveLength(1);
+      expect(
+        (await client!.gadget.findUnique({ where: { id: "g3" } }))?.name
+      ).toBe("Gamma");
+
+      const counted = await client!.gadget.deleteMany({ where: { qty: 10 } });
+      expect(counted).toEqual({ count: 1 });
+      expect(await client!.gadget.count()).toBe(0);
+    });
+
+    test("deleteMany with select returns [] when nothing matches and deletes nothing", async () => {
+      await client!.gadget.create({
+        data: { id: "g1", code: "c1", name: "Alpha" },
+      });
+
+      const rows = await client!.gadget.deleteMany({
+        where: { name: "Nope" },
+        select: { id: true },
+      });
+
+      expect(rows).toEqual([]);
+      expect(await client!.gadget.count()).toBe(1);
+    });
+
+    test("deleteMany with select over every row returns them all", async () => {
+      // No `where`: the captured set (non-returning path) and the RETURNING set
+      // must both cover the whole table.
+      await client!.ticket.createMany({
+        data: [{ label: "one" }, { label: "two" }, { label: "three" }],
+      });
+
+      const rows = await client!.ticket.deleteMany({
+        select: { id: true, label: true },
+      });
+
+      expect(rows.map((r) => r.label).sort()).toEqual(["one", "three", "two"]);
+      expect(new Set(rows.map((r) => r.id)).size).toBe(3);
+      expect(await client!.ticket.count()).toBe(0);
     });
   });
 }

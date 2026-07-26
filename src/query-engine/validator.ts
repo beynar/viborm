@@ -31,11 +31,11 @@ function getOperationSchema(
       return schemas.args.findUnique;
     case "create":
       return schemas.args.create;
-    // `createManyAndReturn` / `updateManyAndReturn` are INTERNAL names for the
-    // row-returning arm of `createMany` / `updateMany` (implicit returning: the
-    // caller passed a `select`). They are not client operations and have no arg
-    // schema of their own — the ONE public schema per family validates both arms,
-    // `select` being optional in it.
+    // `createManyAndReturn` / `updateManyAndReturn` / `deleteManyAndReturn` are
+    // INTERNAL names for the row-returning arm of `createMany` / `updateMany` /
+    // `deleteMany` (implicit returning: the caller passed a `select`). They are
+    // not client operations and have no arg schema of their own — the ONE public
+    // schema per family validates both arms, `select` being optional in it.
     case "createMany":
     case "createManyAndReturn":
       return schemas.args.createMany;
@@ -47,6 +47,7 @@ function getOperationSchema(
     case "delete":
       return schemas.args.delete;
     case "deleteMany":
+    case "deleteManyAndReturn":
       return schemas.args.deleteMany;
     case "upsert":
       return schemas.args.upsert;

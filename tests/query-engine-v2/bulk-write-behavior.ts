@@ -86,7 +86,7 @@ function runners(driver: AnyDriver) {
   /** Row-returning arm — the payload MUST carry a `select`. */
   const bulkRows = (
     modelName: BulkModel,
-    kind: "createMany" | "updateMany",
+    kind: "createMany" | "updateMany" | "deleteMany",
     args: Record<string, unknown> & { select: Record<string, unknown> }
   ) => routed(modelName, kind, args);
   return { bulkCount, bulkRows, routed };
@@ -214,6 +214,49 @@ export function runBulkWriteBehavior(options: {
           const result = await bulkCount("gadget", "deleteMany", {});
           expect(result).toEqual({ count: 3 });
           expect(await client.gadget.findMany()).toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "deleteMany with select returns the deleted rows and removes them",
+      { timeout: 30_000 },
+      async () => {
+        const { client, dispose, bulkRows } = await setup();
+        try {
+          await seedGadgets(client);
+          const rows = (await bulkRows("gadget", "deleteMany", {
+            where: { qty: { lt: 5 } },
+            select: { id: true, name: true },
+          })) as Record<string, unknown>[];
+          expect(rows.map((r) => r.id).sort()).toEqual(["g1", "g2"]);
+          for (const row of rows) {
+            expect(Object.keys(row).sort()).toEqual(["id", "name"]);
+          }
+          // The projection is the PRE-delete state and the delete really ran.
+          const survivors = await client.gadget.findMany();
+          expect(survivors.map((r) => r.id)).toEqual(["g3"]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "deleteMany with select matching nothing returns [] and deletes nothing",
+      { timeout: 30_000 },
+      async () => {
+        const { client, dispose, bulkRows } = await setup();
+        try {
+          await seedGadgets(client);
+          const rows = await bulkRows("gadget", "deleteMany", {
+            where: { name: "Nope" },
+            select: { id: true },
+          });
+          expect(rows).toEqual([]);
+          expect(await client.gadget.findMany()).toHaveLength(3);
         } finally {
           await dispose();
         }

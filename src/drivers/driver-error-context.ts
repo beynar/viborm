@@ -205,6 +205,7 @@ function isOperation(value: unknown): value is Operation {
       "createManyAndReturn",
       "delete",
       "deleteMany",
+      "deleteManyAndReturn",
       "exist",
       "findFirst",
       "findMany",
