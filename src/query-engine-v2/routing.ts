@@ -53,8 +53,6 @@ export const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
   "createMany",
   "updateMany",
   "deleteMany",
-  "createManyAndReturn",
-  "updateManyAndReturn",
 ]);
 
 /**
@@ -82,10 +80,11 @@ export function constructRoutedOperation(
   // operation constructor (it would regress them). It lives here, on the public
   // client path (this function is reached only through `client.ts` →
   // `PendingOperation.create`), while the executor keeps its capability for the
-  // direct-executor contracts. `*AndReturn` refuses in its own constructor (its
-  // identities need a post-commit read no in-batch SELECT can supply);
-  // `create*`/`updateMany`/`deleteMany` do not require atomic resolution and are
-  // unaffected.
+  // direct-executor contracts. A bulk write WITH `select` refuses in the
+  // row-returning constructor instead (its identities need a post-commit read no
+  // in-batch SELECT can supply); the `{ count }` arms of
+  // `createMany`/`updateMany`/`deleteMany` do not require atomic resolution and
+  // are unaffected.
   assertRoutedAtomicResolution(engine, operation);
   return constructOperation(engine, model, operation, args);
 }
@@ -166,15 +165,35 @@ function constructOperation(
       return new DeleteOperation(engine, model, args);
     case "upsert":
       return new UpsertOperation(engine, model, args);
+    // IMPLICIT RETURNING (maintainer decision D-1). One client family per bulk
+    // write; the presence of `select` — never a second operation name — chooses
+    // the arm. Without it the tree is the `{ count }` machinery exactly as
+    // before; with it the tree is the row-returning machinery the removed
+    // `createManyAndReturn` / `updateManyAndReturn` used to reach. `select`
+    // itself is validated by the ONE arg schema inside whichever arm is built,
+    // so a malformed `select` still rejects with a typed ValidationError.
     case "createMany":
-      return new CreateManyOperation(engine, model, args);
+      return returnsRows(args)
+        ? new ManyAndReturnOperation(engine, model, "createManyAndReturn", args)
+        : new CreateManyOperation(engine, model, args);
     case "updateMany":
+      return returnsRows(args)
+        ? new ManyAndReturnOperation(engine, model, "updateManyAndReturn", args)
+        : new BulkCountOperation(engine, model, operation, args);
     case "deleteMany":
       return new BulkCountOperation(engine, model, operation, args);
-    case "createManyAndReturn":
-    case "updateManyAndReturn":
-      return new ManyAndReturnOperation(engine, model, operation, args);
     default:
       return undefined;
   }
+}
+
+/**
+ * The implicit-returning discriminant, kept in ONE place so the runtime cannot
+ * drift from `BulkWriteResult` in @client/types: a bulk write returns rows iff
+ * the payload carries a `select`. `select: undefined` is an absent select (the
+ * spread-an-optional idiom), so it takes the `{ count }` arm — byte-identical to
+ * the type-level rule.
+ */
+function returnsRows(args: Record<string, unknown>): boolean {
+  return args.select !== undefined;
 }

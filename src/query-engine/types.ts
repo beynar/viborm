@@ -105,7 +105,15 @@ export interface PrepareOptions {
 }
 
 /**
- * All supported operations
+ * All supported operations.
+ *
+ * NOTE — `createManyAndReturn` / `updateManyAndReturn` are INTERNAL names, not
+ * client operations. The public surface removed both (maintainer decision D-1)
+ * in favour of implicit returning: `createMany` / `updateMany` take an optional
+ * `select`, and its presence routes the tree to the row-returning arm. These two
+ * tokens name that arm inside the SQL-building substrate (result shape, program
+ * lowering, identity helpers); the client never spells them, and they share the
+ * `createMany` / `updateMany` arg schemas.
  */
 export type Operation =
   | "findFirst"

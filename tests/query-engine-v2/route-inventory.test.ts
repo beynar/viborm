@@ -7,7 +7,6 @@ import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import { ManyAndReturnOperation } from "../../src/query-engine-v2/ManyAndReturnOperation";
 import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
@@ -24,8 +23,9 @@ import { manyToManySchema } from "../fixtures/many-to-many-schema";
  * the per-tree router hands to V1 — no I/O is needed to observe the route). The
  * absorbed shapes (M2M create/connectOrCreate/upsert; compound-FK
  * set/update/delete/upsert; a compound FK referencing a non-PK unique) must now
- * construct on V2; the ONE inexpressible sub-shape (createManyAndReturn
- * skipDuplicates on a non-returning driver) must still route.
+ * construct on V2; the ONE inexpressible sub-shape (`createMany` asking for its
+ * rows back — `select` — together with `skipDuplicates`, on a non-returning
+ * driver) must still route.
  *
  * The assertion is the whole point: the set of corpus shapes that still route is
  * EXACTLY the one documented boundary. It is the P4 `routedToV1StillRemaining`
@@ -58,10 +58,11 @@ import { manyToManySchema } from "../fixtures/many-to-many-schema";
  *         V1's byte-identical typed message (a nested `update`/`delete`/`set` in a
  *         create payload; an m2m upsert/disconnect/set under create; a to-one
  *         `delete`/`update` under create that mutates the referenced row; etc.).
- *   (ii)  THE ONE DELIBERATE REFUSAL — {@link REMAINING_ROUTE} (createManyAndReturn
- *         skipDuplicates on a non-returning driver): inexpressible (no portable
- *         ON CONFLICT DO NOTHING that reports a skipped-row count), maintainer-
- *         authorized.
+ *   (ii)  THE ONE DELIBERATE REFUSAL — {@link REMAINING_ROUTE} (`createMany` with
+ *         both `select` and `skipDuplicates`, on a non-returning driver):
+ *         inexpressible (no portable ON CONFLICT DO NOTHING that reports WHICH
+ *         rows it inserted), maintainer-authorized. The `{ count }` arm of the
+ *         same payload is fully supported everywhere.
  *   (iii) DOCUMENTED-DEGENERATE / NARROWER BOUNDARY — a shape one level DEEPER than an
  *         absorbed family's proven surface, whose fold value is not a compile-time
  *         literal (a deeper parent-held-FK to-one needing child-SET folding; a
@@ -76,7 +77,7 @@ import { manyToManySchema } from "../fixtures/many-to-many-schema";
  */
 
 const REMAINING_ROUTE =
-  "createManyAndReturn skipDuplicates on non-returning drivers";
+  "createMany with select + skipDuplicates on non-returning drivers";
 
 class BatchlessNonReturningMySQL2 extends MySQL2Driver {
   // Transaction-capable + non-returning: the skipDuplicates route decision is
@@ -240,21 +241,25 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
           }),
       },
       // --- The one remaining route: must still throw UnsupportedOperationError. ---
+      // Spelled through the PUBLIC routing seam, in the implicit form that is now
+      // the only way to reach it (`createManyAndReturn` was removed — D-1).
       {
         label: REMAINING_ROUTE,
-        construct: () =>
-          new ManyAndReturnOperation(
+        construct: () => {
+          constructRoutedOperation(
             nonReturning,
             refusalSchema.gadget,
-            "createManyAndReturn",
+            "createMany",
             {
               data: [
                 { id: "t1", name: "a" },
                 { id: "t2", name: "b" },
               ],
               skipDuplicates: true,
+              select: { id: true },
             }
-          ),
+          );
+        },
       },
     ];
   });
@@ -662,10 +667,19 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
  * must move together.
  */
 
-// The authoritative 18-family client operation surface (`Operations` in
+// The authoritative 16-family client operation surface (`Operations` in
 // @client/types). `satisfies` rejects a typo or a name that is not a real
 // operation; `MissingFromSurface` (below) rejects a NEW operation added to the
 // union but not listed here — together they force this list to track the union.
+//
+// DELIBERATE EDIT (W3-B, maintainer decision D-1): 18 -> 16. `createManyAndReturn`
+// and `updateManyAndReturn` were REMOVED from the client surface — no alias, no
+// deprecation shim — and replaced by implicit returning: `createMany` /
+// `updateMany` take an optional `select`, whose presence makes the SAME family
+// return rows instead of `{ count }`. The removal shrinks the operation surface
+// without shrinking capability, so this pin drops by exactly two while the
+// row-returning machinery stays reachable (see the REMAINING_ROUTE case above,
+// now spelled `createMany` + `select` + `skipDuplicates`).
 const CLIENT_OPERATION_SURFACE = [
   "findFirst",
   "findMany",
@@ -678,10 +692,8 @@ const CLIENT_OPERATION_SURFACE = [
   "exist",
   "create",
   "createMany",
-  "createManyAndReturn",
   "update",
   "updateMany",
-  "updateManyAndReturn",
   "upsert",
   "delete",
   "deleteMany",
@@ -709,7 +721,8 @@ const DOCUMENTED_V1_FALLBACK: ReadonlySet<string> = new Set([]);
 describe("query-engine-v2 full client operation surface (P6 precondition)", () => {
   test("_surfaceIsComplete type-guard holds (list covers the Operations union)", () => {
     expect(_surfaceIsComplete).toBe(true);
-    expect(CLIENT_OPERATION_SURFACE).toHaveLength(18);
+    // 16 since W3-B (was 18): see the DELIBERATE EDIT note on the list above.
+    expect(CLIENT_OPERATION_SURFACE).toHaveLength(16);
   });
 
   test("every client operation family routes to V2 except the documented V1 fallbacks", () => {
@@ -717,7 +730,7 @@ describe("query-engine-v2 full client operation surface (P6 precondition)", () =
       (operation) => !ROUTED_OPERATIONS.has(operation)
     );
     // The falsifiable positive assertion the P6 reviewers demanded: with the
-    // fallback set now empty, EVERY one of the 18 families must be in
+    // fallback set now empty, EVERY one of the 16 families must be in
     // ROUTED_OPERATIONS. Removing `create` from ROUTED_OPERATIONS (re-opening the
     // by-omission hole) makes fellBackByOmission = ['create'] ≠ ∅ and fails here.
     expect(new Set(fellBackByOmission)).toEqual(DOCUMENTED_V1_FALLBACK);

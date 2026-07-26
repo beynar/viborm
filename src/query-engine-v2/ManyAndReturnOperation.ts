@@ -36,13 +36,26 @@ import {
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
+/**
+ * INTERNAL names only (see {@link Operation} in query-engine/types). The client
+ * spells these as `createMany` / `updateMany` **with a `select`** — the
+ * `createManyAndReturn` / `updateManyAndReturn` operations were removed from the
+ * public surface (maintainer decision D-1) and replaced by implicit returning.
+ * {@link PUBLIC_NAME} maps back for every user-facing message.
+ */
 type AndReturnKind = "createManyAndReturn" | "updateManyAndReturn";
 
+/** The client-facing spelling of each internal row-returning kind. */
+const PUBLIC_NAME: Readonly<Record<AndReturnKind, string>> = {
+  createManyAndReturn: "createMany",
+  updateManyAndReturn: "updateMany",
+};
+
 /**
- * The `*AndReturn` batch mutations (PLAN P4 item 2a) — the named non-boring
- * stragglers. Both return the affected rows, and both are the consumer that
- * makes the census's **ordered source list whose rows concatenate** (ATOM §1)
- * live:
+ * The row-returning arm of the bulk mutations (PLAN P4 item 2a; W3-B made it
+ * implicit). Reached only when the client payload carries a `select`. Both kinds
+ * return the affected rows, and both are the consumer that makes the census's
+ * **ordered source list whose rows concatenate** (ATOM §1) live:
  *
  * - **returning drivers** (`supportsReturning`): `createManyAndReturn` is one
  *   `INSERT … RETURNING` per input row, whose rows concatenate in input order
@@ -55,10 +68,11 @@ type AndReturnKind = "createManyAndReturn" | "updateManyAndReturn";
  *   applies one bulk `UPDATE`, then re-reads the (possibly PK-shifted) rows —
  *   the captured set is planning-time only and inlined at compile (§3 corollary).
  *
- * - **non-returning drivers in forced batch**: V1 refuses because public result
+ * - **non-returning drivers in forced batch**: refused, because public result
  *   parsing cannot be rolled back after an atomic batch commits. That refusal is
- *   KEPT AS CONTRACT (ATOM §7): V2 refuses with the byte-identical typed
- *   `TransactionError` — never weakened into a route or a silent divergence.
+ *   KEPT AS CONTRACT (ATOM §7) and now names the public spelling — a bulk write
+ *   `with 'select'` — never weakened into a route or a silent divergence. The
+ *   `{ count }` arm of the same family is unaffected and still runs there.
  *
  * One operation, two leaves (WHY §4.1); no new step kind, no new executor branch.
  */
@@ -104,11 +118,11 @@ export class ManyAndReturnOperation {
     // happens after the atomic unit commits and cannot be rolled back.
     if (this.mode === "batch" && !supportsReturning) {
       throw new TransactionError(
-        `Driver '${engine.driver.driverName}' cannot execute '${kind}' because public result parsing cannot be rolled back.`,
+        `Driver '${engine.driver.driverName}' cannot execute '${PUBLIC_NAME[kind]}' with 'select' because public result parsing cannot be rolled back.`,
         {
           meta: {
             driver: engine.driver.driverName,
-            operation: kind,
+            operation: PUBLIC_NAME[kind],
           },
         }
       );
@@ -123,8 +137,8 @@ export class ManyAndReturnOperation {
       return;
     }
 
-    // updateManyAndReturn
-    const data = requireRecord(this.args.data, "updateManyAndReturn", "data");
+    // updateMany with select
+    const data = requireRecord(this.args.data, "updateMany", "data");
     if (supportsReturning) {
       const step: StatementStep = {
         id: this.scope.allocate(`${this.modelName()}.updateManyReturn`),
@@ -189,7 +203,7 @@ export class ManyAndReturnOperation {
     const rows = outputs.result;
     if (!Array.isArray(rows)) {
       throw new QueryEngineError(
-        `query-engine-v2 ${this.kind} did not expose its result rows.`
+        `query-engine-v2 ${PUBLIC_NAME[this.kind]} with 'select' did not expose its result rows.`
       );
     }
     return new ResultParser(
@@ -204,13 +218,13 @@ export class ManyAndReturnOperation {
   ): OperationFragment {
     if (!(this.captureRead && this.updateData)) {
       throw new QueryEngineError(
-        "query-engine-v2 updateManyAndReturn lost its capture plan."
+        "query-engine-v2 updateMany with 'select' lost its capture plan."
       );
     }
     const captured = known[planningKey(this.captureRead.id, "rows")];
     if (!Array.isArray(captured)) {
       throw new QueryEngineError(
-        "query-engine-v2 updateManyAndReturn planning did not expose the captured rows."
+        "query-engine-v2 updateMany with 'select' planning did not expose the captured rows."
       );
     }
     // Nothing matched: no update, an empty result (V1 skips the write and read
@@ -258,20 +272,22 @@ export class ManyAndReturnOperation {
     const data = this.args.data;
     if (!Array.isArray(data)) {
       throw new QueryEngineError(
-        "query-engine-v2 createManyAndReturn requires a data array."
+        "query-engine-v2 createMany with 'select' requires a data array."
       );
     }
     if (data.length === 0) return { steps: [], output: undefined };
 
     const skipDuplicates = this.args.skipDuplicates === true;
-    // Non-returning skipDuplicates cannot be expressed as linear steps: a skipped
-    // INSERT still refetches into an unconditional read, which would return the
-    // pre-existing row V1 correctly omits. This shape routes to V1 whole-tree —
-    // an honest per-tree route, not a weakened refusal (the refusal is ATOM §7's
-    // batch case, above).
+    // Non-returning `skipDuplicates` + `select` cannot be expressed as linear
+    // steps: a skipped INSERT still refetches into an unconditional read, which
+    // would hand back the PRE-EXISTING row as though it had just been created.
+    // There is no portable statement that reports which rows a skip actually
+    // inserted, so this is a typed V8003 refusal — never a silently wrong row set.
+    // (The `{ count }` arm of `createMany` supports `skipDuplicates` everywhere;
+    // only asking for the rows back is refused here.)
     if (skipDuplicates && !supportsReturning) {
       throw new UnsupportedOperationError(
-        "query-engine-v2 createManyAndReturn does not support skipDuplicates on a non-returning driver."
+        "createMany with 'select' does not support 'skipDuplicates' on a driver without RETURNING: the rows a skip actually inserted cannot be identified. Drop 'select' to get { count }, or drop 'skipDuplicates'."
       );
     }
 
@@ -295,7 +311,7 @@ export class ManyAndReturnOperation {
       const inputIndex = statement.inputIndexes[0];
       if (inputIndex === undefined || statement.inputIndexes.length !== 1) {
         throw new QueryEngineError(
-          "query-engine-v2 createManyAndReturn expected one input per statement."
+          "query-engine-v2 createMany with 'select' expected one input per statement."
         );
       }
       if (supportsReturning) {
@@ -337,7 +353,7 @@ export class ManyAndReturnOperation {
     for (const reference of resultRefs) {
       if (reference === undefined) {
         throw new QueryEngineError(
-          "query-engine-v2 createManyAndReturn left an input row without a result."
+          "query-engine-v2 createMany with 'select' left an input row without a result."
         );
       }
       output.push(reference);

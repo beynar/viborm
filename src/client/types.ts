@@ -7,7 +7,7 @@
  */
 
 import type { PendingOperation } from "@query-engine/pending-operation";
-import type { Model } from "@schema/model";
+import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
 import type { Prettify } from "@validation";
 import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
@@ -31,10 +31,8 @@ export type Operations =
   | "findUnique"
   | "create"
   | "createMany"
-  | "createManyAndReturn"
   | "update"
   | "updateMany"
-  | "updateManyAndReturn"
   | "delete"
   | "deleteMany"
   | "findUniqueOrThrow"
@@ -65,10 +63,8 @@ export type CacheableOperations =
 export type MutationOperations =
   | "create"
   | "createMany"
-  | "createManyAndReturn"
   | "update"
   | "updateMany"
-  | "updateManyAndReturn"
   | "delete"
   | "deleteMany"
   | "upsert";
@@ -120,24 +116,35 @@ export type OperationPayload<
                           ? ModelOperationInput<M, "groupBy">
                           : O extends "createMany"
                             ? ModelOperationInput<M, "createMany">
-                            : O extends "createManyAndReturn"
-                              ? ModelOperationInput<M, "createManyAndReturn">
-                              : O extends "updateMany"
-                                ? ModelOperationInput<M, "updateMany">
-                                : O extends "updateManyAndReturn"
-                                  ? ModelOperationInput<
-                                      M,
-                                      "updateManyAndReturn"
-                                    >
-                                  : O extends "exist"
-                                    ? // Optional like the runtime (count
-                                      // schema): exist() with no filter
-                                      // reports whether any row exists.
-                                        | {
-                                            where?: ModelCoreInput<M, "where">;
-                                          }
-                                        | undefined
-                                    : never;
+                            : O extends "updateMany"
+                              ? ModelOperationInput<M, "updateMany">
+                              : O extends "exist"
+                                ? // Optional like the runtime (count
+                                  // schema): exist() with no filter
+                                  // reports whether any row exists.
+                                    | {
+                                        where?: ModelCoreInput<M, "where">;
+                                      }
+                                    | undefined
+                                : never;
+
+/**
+ * IMPLICIT RETURNING (maintainer decision D-1: `createManyAndReturn` /
+ * `updateManyAndReturn` are removed, not aliased). A bulk write returns
+ * `{ count }` — UNLESS the call carries a `select`, in which case it returns the
+ * affected rows projected by that select. The discriminant is the *presence* of
+ * the key on the inferred argument type, so the conditional stays zero-codegen:
+ * `Args` is inferred from the call-site literal, and a call without `select`
+ * simply has no such member.
+ *
+ * `select: undefined` (an explicitly-absent select) deliberately lands on
+ * `BatchPayload`, matching the runtime's `args.select !== undefined` routing.
+ */
+type BulkWriteResult<S extends ModelState, Args> = Args extends {
+  select: Record<string, unknown>;
+}
+  ? Prettify<InferSelectInclude<S, Args>>[]
+  : BatchPayload;
 
 /**
  * Operation result type - infers result shape based on select/include args
@@ -156,9 +163,9 @@ export type OperationResult<
         ? Prettify<InferSelectInclude<S, Args>>[]
         : O extends "create" | "update" | "delete" | "upsert"
           ? Prettify<InferSelectInclude<S, Args>>
-          : O extends "createManyAndReturn" | "updateManyAndReturn"
-            ? Prettify<InferSelectInclude<S, Args>>[]
-            : O extends "createMany" | "updateMany" | "deleteMany"
+          : O extends "createMany" | "updateMany"
+            ? BulkWriteResult<S, Args>
+            : O extends "deleteMany"
               ? BatchPayload
               : O extends "count"
                 ? CountResultType<Args>

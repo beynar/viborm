@@ -270,8 +270,16 @@ describe("Relation Types Integration Test", () => {
     type ParentCreateManyArgs = Parameters<
       typeof client.parentModel.createMany
     >[0];
+    // Implicit returning: the result type is conditional on `select`, so probe
+    // it with a concrete select-LESS argument rather than the generic's
+    // constraint (which carries an OPTIONAL select and would answer for neither
+    // arm honestly).
     type ParentCreateManyResult = Awaited<
-      ReturnType<typeof client.parentModel.createMany>
+      ReturnType<
+        typeof client.parentModel.createMany<{
+          data: NonNullable<ParentCreateManyArgs["data"]>;
+        }>
+      >
     >;
 
     expectTypeOf<{
@@ -294,13 +302,36 @@ describe("Relation Types Integration Test", () => {
     expectTypeOf<ParentCreateManyResult>().toEqualTypeOf<BatchPayload>();
   });
 
-  test("type: createMany rejects select and include", () => {
+  test("type: createMany accepts select (implicit returning) and rejects include", () => {
     type ParentCreateManyArgs = Parameters<
       typeof client.parentModel.createMany
     >[0];
 
-    expectTypeOf<ParentCreateManyArgs>().not.toHaveProperty("select");
-    expectTypeOf<ParentCreateManyArgs>().not.toHaveProperty("include");
+    // `select` became part of the surface in W3-B: its presence is what makes a
+    // bulk write return rows. `include` stays out — a RETURNING row set cannot
+    // carry a joined relation.
+    expectTypeOf<
+      "select" extends keyof ParentCreateManyArgs ? true : false
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      "include" extends keyof ParentCreateManyArgs ? true : false
+    >().toEqualTypeOf<false>();
+  });
+
+  test("type: createMany with select returns rows, not BatchPayload", () => {
+    type ParentCreateManyArgs = Parameters<
+      typeof client.parentModel.createMany
+    >[0];
+    type ParentCreateManyRows = Awaited<
+      ReturnType<
+        typeof client.parentModel.createMany<{
+          data: NonNullable<ParentCreateManyArgs["data"]>;
+          select: { id: true };
+        }>
+      >
+    >;
+
+    expectTypeOf<ParentCreateManyRows>().toEqualTypeOf<{ id: string }[]>();
   });
 
   test("type: groupBy by accepts only scalar keys", () => {

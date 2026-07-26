@@ -19,9 +19,9 @@ import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
-import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
@@ -121,7 +121,7 @@ describe("LibSQL Driver", () => {
   // (float64), so `qty / 2` on an INT column yields 3.5 where better-sqlite3
   // (INTEGER binding, integer division) yields 3 — same dialect, different
   // driver binding.
-  runManyAndReturnBehavior({
+  runImplicitReturningBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

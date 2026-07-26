@@ -22,23 +22,19 @@ import {
 } from "./find";
 import type {
   CreateArgs,
-  CreateManyAndReturnArgs,
   CreateManyArgs,
   DeleteArgs,
   DeleteManyArgs,
   UpdateArgs,
-  UpdateManyAndReturnArgs,
   UpdateManyArgs,
   UpsertArgs,
 } from "./mutation";
 import {
   getCreateArgs,
-  getCreateManyAndReturnArgs,
   getCreateManyArgs,
   getDeleteArgs,
   getDeleteManyArgs,
   getUpdateArgs,
-  getUpdateManyAndReturnArgs,
   getUpdateManyArgs,
   getUpsertArgs,
 } from "./mutation";
@@ -55,12 +51,10 @@ export { getFindFirstArgs, getFindManyArgs, getFindUniqueArgs } from "./find";
 // Mutation exports
 export {
   getCreateArgs,
-  getCreateManyAndReturnArgs,
   getCreateManyArgs,
   getDeleteArgs,
   getDeleteManyArgs,
   getUpdateArgs,
-  getUpdateManyAndReturnArgs,
   getUpdateManyArgs,
   getUpsertArgs,
 } from "./mutation";
@@ -71,10 +65,8 @@ export type ArgsSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   findMany: FindManyArgs<M, F>;
   create: CreateArgs<M, F>;
   createMany: CreateManyArgs<M, F>;
-  createManyAndReturn: CreateManyAndReturnArgs<M, F>;
   update: UpdateArgs<M, F>;
   updateMany: UpdateManyArgs<M, F>;
-  updateManyAndReturn: UpdateManyAndReturnArgs<M, F>;
   delete: DeleteArgs<M, F>;
   deleteMany: DeleteManyArgs<M, F>;
   upsert: UpsertArgs<M, F>;
@@ -98,10 +90,8 @@ export const getArgsSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     findMany: () => getFindManyArgs(model, core),
     create: () => getCreateArgs(core),
     createMany: () => getCreateManyArgs(core),
-    createManyAndReturn: () => getCreateManyAndReturnArgs(core),
     update: () => getUpdateArgs(core),
     updateMany: () => getUpdateManyArgs(core),
-    updateManyAndReturn: () => getUpdateManyAndReturnArgs(core),
     delete: () => getDeleteArgs(core),
     deleteMany: () => getDeleteManyArgs(core),
     upsert: () => getUpsertArgs(core),

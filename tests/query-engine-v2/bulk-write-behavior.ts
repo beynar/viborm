@@ -7,15 +7,20 @@ import { s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { BulkCountOperation } from "../../src/query-engine-v2/BulkCountOperation";
-import { ManyAndReturnOperation } from "../../src/query-engine-v2/ManyAndReturnOperation";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
 
 /**
- * The P4 write stragglers across the driver matrix: root `updateMany`/`deleteMany`
- * returning `{ count }` (BulkCountOperation) and `createManyAndReturn`/
- * `updateManyAndReturn` returning the affected rows (ManyAndReturnOperation).
- * The AndReturn schema carries a string-PK model and an increment-PK model so the
+ * The P4 write stragglers across the driver matrix, exercised through the SAME
+ * routing seam the client uses (`constructRoutedOperation`) so the implicit
+ * discriminant is under test too, not just the machinery behind it:
+ *
+ *  - `updateMany` / `deleteMany` WITHOUT `select` -> `{ count }`;
+ *  - `createMany` / `updateMany` WITH `select` -> the affected rows
+ *    (`createManyAndReturn` / `updateManyAndReturn` are gone from the public
+ *    surface — maintainer decision D-1).
+ *
+ * The schema carries a string-PK model and an increment-PK model so the
  * non-returning refetch (MySQL) exercises both the provided-identity and
  * `lastInsertId()` paths of the mutation-identity technique.
  */
@@ -48,35 +53,43 @@ function runners(driver: AnyDriver) {
     createModelRegistry(bulkWriteSchema, schemas)
   );
   const executor = new OperationExecutor(engine);
+  /** Route exactly as the client does: one operation name, `select` decides. */
+  const routed = (
+    modelName: BulkModel,
+    operation: "createMany" | "updateMany" | "deleteMany",
+    args: Record<string, unknown>
+  ) => {
+    const operationInstance = constructRoutedOperation(
+      engine,
+      bulkWriteSchema[modelName] as Model<any>,
+      operation,
+      args
+    );
+    if (!operationInstance) {
+      throw new Error(`bulk-write-behavior: '${operation}' did not route`);
+    }
+    return executor.execute(
+      operationInstance,
+      createOperationExecutionContext(
+        modelName,
+        operation,
+        engine.instrumentation
+      )
+    );
+  };
+  /** `{ count }` arm — no `select` in the payload. */
   const bulkCount = (
     modelName: BulkModel,
     kind: "updateMany" | "deleteMany",
     args: Record<string, unknown>
-  ) =>
-    executor.execute(
-      new BulkCountOperation(
-        engine,
-        bulkWriteSchema[modelName] as Model<any>,
-        kind,
-        args
-      ),
-      createOperationExecutionContext(modelName, kind, engine.instrumentation)
-    );
-  const andReturn = (
+  ) => routed(modelName, kind, args);
+  /** Row-returning arm — the payload MUST carry a `select`. */
+  const bulkRows = (
     modelName: BulkModel,
-    kind: "createManyAndReturn" | "updateManyAndReturn",
-    args: Record<string, unknown>
-  ) =>
-    executor.execute(
-      new ManyAndReturnOperation(
-        engine,
-        bulkWriteSchema[modelName] as Model<any>,
-        kind,
-        args
-      ),
-      createOperationExecutionContext(modelName, kind, engine.instrumentation)
-    );
-  return { bulkCount, andReturn };
+    kind: "createMany" | "updateMany",
+    args: Record<string, unknown> & { select: Record<string, unknown> }
+  ) => routed(modelName, kind, args);
+  return { bulkCount, bulkRows, routed };
 }
 
 export function runBulkWriteBehavior(options: {
@@ -208,16 +221,17 @@ export function runBulkWriteBehavior(options: {
     );
 
     test(
-      "createManyAndReturn returns the created rows",
+      "createMany with select returns the created rows",
       { timeout: 30_000 },
       async () => {
-        const { client, dispose, andReturn } = await setup();
+        const { client, dispose, bulkRows } = await setup();
         try {
-          const rows = (await andReturn("gadget", "createManyAndReturn", {
+          const rows = (await bulkRows("gadget", "createMany", {
             data: [
               { id: "g1", code: "c1", name: "Alpha" },
               { id: "g2", code: "c2", name: "Beta", qty: 5 },
             ],
+            select: { id: true, code: true, name: true, qty: true },
           })) as Record<string, unknown>[];
           expect(rows).toHaveLength(2);
           const byId = new Map(rows.map((r) => [r.id, r]));
@@ -235,12 +249,12 @@ export function runBulkWriteBehavior(options: {
     );
 
     test(
-      "createManyAndReturn with select projects fields",
+      "createMany with a narrow select projects fields",
       { timeout: 30_000 },
       async () => {
-        const { dispose, andReturn } = await setup();
+        const { dispose, bulkRows } = await setup();
         try {
-          const rows = (await andReturn("gadget", "createManyAndReturn", {
+          const rows = (await bulkRows("gadget", "createMany", {
             data: [
               { id: "g1", code: "c1", name: "Alpha" },
               { id: "g2", code: "c2", name: "Beta" },
@@ -259,13 +273,14 @@ export function runBulkWriteBehavior(options: {
     );
 
     test(
-      "createManyAndReturn assigns and returns increment ids in input order",
+      "createMany with select assigns and returns increment ids in input order",
       { timeout: 30_000 },
       async () => {
-        const { dispose, andReturn } = await setup();
+        const { dispose, bulkRows } = await setup();
         try {
-          const rows = (await andReturn("ticket", "createManyAndReturn", {
+          const rows = (await bulkRows("ticket", "createMany", {
             data: [{ label: "one" }, { label: "two" }, { label: "three" }],
+            select: { id: true, label: true },
           })) as Record<string, unknown>[];
           expect(rows.map((r) => r.label)).toEqual(["one", "two", "three"]);
           expect(new Set(rows.map((r) => r.id)).size).toBe(3);
@@ -279,15 +294,19 @@ export function runBulkWriteBehavior(options: {
     );
 
     test(
-      "createManyAndReturn empty data returns []",
+      "createMany empty data returns [] with select and { count: 0 } without",
       { timeout: 30_000 },
       async () => {
-        const { dispose, andReturn } = await setup();
+        const { dispose, bulkRows, routed } = await setup();
         try {
-          const rows = await andReturn("gadget", "createManyAndReturn", {
+          const rows = await bulkRows("gadget", "createMany", {
             data: [],
+            select: { id: true },
           });
           expect(rows).toEqual([]);
+          expect(await routed("gadget", "createMany", { data: [] })).toEqual({
+            count: 0,
+          });
         } finally {
           await dispose();
         }
@@ -295,19 +314,19 @@ export function runBulkWriteBehavior(options: {
     );
 
     test(
-      "updateManyAndReturn returns the updated rows",
+      "updateMany with select returns the updated rows",
       { timeout: 30_000 },
       async () => {
-        const { dispose, andReturn } = await setup();
+        const { dispose, bulkRows, routed } = await setup();
         try {
-          await andReturn("gadget", "createManyAndReturn", {
+          await routed("gadget", "createMany", {
             data: [
               { id: "g1", code: "c1", name: "Alpha", qty: 1 },
               { id: "g2", code: "c2", name: "Beta", qty: 2 },
               { id: "g3", code: "c3", name: "Gamma", qty: 10 },
             ],
           });
-          const rows = (await andReturn("gadget", "updateManyAndReturn", {
+          const rows = (await bulkRows("gadget", "updateMany", {
             where: { qty: { lt: 5 } },
             data: { qty: { increment: 100 } },
             select: { id: true, qty: true },
@@ -326,21 +345,22 @@ export function runBulkWriteBehavior(options: {
     );
 
     test(
-      "updateManyAndReturn with a PK-mutating increment returns post-update ids",
+      "updateMany with select and a PK-mutating increment returns post-update ids",
       { timeout: 30_000 },
       async () => {
-        const { client, dispose, andReturn } = await setup();
+        const { client, dispose, bulkRows, routed } = await setup();
         try {
-          await andReturn("ticket", "createManyAndReturn", {
+          await routed("ticket", "createMany", {
             data: [{ label: "one" }, { label: "two" }, { label: "three" }],
           });
           // Fresh table: increment ids are 1, 2, 3. The non-returning refetch
           // must locate rows by their POST-update PKs (the DerivedValue
           // arithmetic, getUpdatedPrimaryKeyValues) — a before-image WHERE
           // would return [].
-          const rows = (await andReturn("ticket", "updateManyAndReturn", {
+          const rows = (await bulkRows("ticket", "updateMany", {
             where: { id: { gt: 1 } },
             data: { id: { increment: 100 } },
+            select: { id: true, label: true },
           })) as Record<string, unknown>[];
           expect(
             rows
@@ -361,17 +381,18 @@ export function runBulkWriteBehavior(options: {
     );
 
     test(
-      "updateManyAndReturn matching nothing returns []",
+      "updateMany with select matching nothing returns []",
       { timeout: 30_000 },
       async () => {
-        const { dispose, andReturn } = await setup();
+        const { dispose, bulkRows, routed } = await setup();
         try {
-          await andReturn("gadget", "createManyAndReturn", {
+          await routed("gadget", "createMany", {
             data: [{ id: "g1", code: "c1", name: "Alpha" }],
           });
-          const rows = await andReturn("gadget", "updateManyAndReturn", {
+          const rows = await bulkRows("gadget", "updateMany", {
             where: { name: "Nope" },
             data: { qty: 99 },
+            select: { id: true },
           });
           expect(rows).toEqual([]);
         } finally {

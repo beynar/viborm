@@ -212,12 +212,13 @@ describe("bulk insert row shapes", () => {
     driver.batchSizes.length = 0;
 
     const [created] = await client.$transaction([
-      client.batchRow.createManyAndReturn({
+      client.batchRow.createMany({
         data: [
           { code: "generated-1", label: "first" },
           { id: 50, code: "explicit", label: "second" },
           { code: "generated-2", label: "third" },
         ],
+        select: { id: true, code: true, label: true },
       }),
     ]);
 
@@ -307,11 +308,12 @@ describe("bulk insert row shapes", () => {
     driver.disableAtomicExecution();
 
     await expect(
-      client.batchRow.createManyAndReturn({
+      client.batchRow.createMany({
         data: [
           { code: "first", label: "first" },
           { code: "second", label: "second" },
         ],
+        select: { id: true },
       })
     ).rejects.toThrow("neither transactions nor atomic batch execution");
     expect(await client.batchRow.count()).toBe(0);

@@ -93,27 +93,36 @@ const schema = {
   constrainedInput,
 };
 
-type ManyAndReturnClientConfig = VibORMConfig & {
+type ImplicitReturningClientConfig = VibORMConfig & {
   schema: typeof schema;
   driver: AnyDriver;
 };
 
-type ManyAndReturnClient = VibORMClient<ManyAndReturnClientConfig>;
+type ImplicitReturningClient = VibORMClient<ImplicitReturningClientConfig>;
 
-export interface ManyAndReturnBehaviorOptions {
+export interface ImplicitReturningBehaviorOptions {
   driverName: string;
   createDriver: () => AnyDriver;
 }
 
-export function runManyAndReturnBehavior({
+/**
+ * IMPLICIT RETURNING on the bulk writes, per driver. There is no
+ * `createManyAndReturn` / `updateManyAndReturn` any more (maintainer decision
+ * D-1): `createMany` / `updateMany` return `{ count }` unless the call carries a
+ * `select`, in which case they return the affected rows. Because `select` is the
+ * only way to ask for rows, a "return everything" assertion must name every
+ * column — which is exactly what the surface promises.
+ */
+export function runImplicitReturningBehavior({
   driverName,
   createDriver,
-}: ManyAndReturnBehaviorOptions) {
-  describe(`${driverName} createManyAndReturn / updateManyAndReturn`, () => {
-    let client: ManyAndReturnClient | undefined;
-    // `createManyAndReturn` with `skipDuplicates` is the one documented deliberate
-    // refusal on a NON-returning driver (route-inventory category ii): there is no
-    // portable `ON CONFLICT DO NOTHING` that also reports which rows it inserted.
+}: ImplicitReturningBehaviorOptions) {
+  describe(`${driverName} createMany / updateMany implicit returning`, () => {
+    let client: ImplicitReturningClient | undefined;
+    // `createMany` with BOTH `skipDuplicates` and `select` is the one documented
+    // deliberate refusal on a NON-returning driver (route-inventory category ii):
+    // there is no portable `ON CONFLICT DO NOTHING` that also reports which rows
+    // it inserted. The `{ count }` arm supports skipDuplicates everywhere.
     const supportsReturning =
       createDriver().adapter.capabilities.supportsReturning;
 
@@ -130,12 +139,20 @@ export function runManyAndReturnBehavior({
       }
     });
 
-    test("createManyAndReturn returns the created rows", async () => {
-      const rows = await client!.gadget.createManyAndReturn({
+    test("createMany without select returns { count }, with select returns rows", async () => {
+      // The whole point of the implicit form: same operation, same payload plus
+      // one key, two different result shapes.
+      const counted = await client!.gadget.createMany({
+        data: [{ id: "g0", code: "c0", name: "Counted" }],
+      });
+      expect(counted).toEqual({ count: 1 });
+
+      const rows = await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha" },
           { id: "g2", code: "c2", name: "Beta", qty: 5 },
         ],
+        select: { id: true, code: true, name: true, qty: true },
       });
 
       expect(rows).toHaveLength(2);
@@ -149,8 +166,8 @@ export function runManyAndReturnBehavior({
       expect(byId.get("g2")).toMatchObject({ id: "g2", qty: 5 });
     });
 
-    test("createManyAndReturn with select returns only selected fields", async () => {
-      const rows = await client!.gadget.createManyAndReturn({
+    test("createMany with a narrow select returns only selected fields", async () => {
+      const rows = await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha" },
           { id: "g2", code: "c2", name: "Beta" },
@@ -165,9 +182,10 @@ export function runManyAndReturnBehavior({
       expect(rows.map((r) => r.name).sort()).toEqual(["Alpha", "Beta"]);
     });
 
-    test("createManyAndReturn assigns auto-increment ids", async () => {
-      const rows = await client!.ticket.createManyAndReturn({
+    test("createMany with select assigns auto-increment ids", async () => {
+      const rows = await client!.ticket.createMany({
         data: [{ label: "one" }, { label: "two" }, { label: "three" }],
+        select: { id: true, label: true },
       });
 
       expect(rows).toHaveLength(3);
@@ -199,14 +217,15 @@ export function runManyAndReturnBehavior({
       expect(idsByLabel.get("generated")).not.toBe(20);
     });
 
-    test("createManyAndReturn restores input order across increment row shapes", async () => {
-      const rows = await client!.ticket.createManyAndReturn({
+    test("createMany with select restores input order across increment row shapes", async () => {
+      const rows = await client!.ticket.createMany({
         data: [
           { id: 100, label: "explicit-first" },
           { label: "generated-first" },
           { id: 200, label: "explicit-second" },
           { label: "generated-second" },
         ],
+        select: { id: true, label: true },
       });
 
       expect(rows.map((row) => row.label)).toEqual([
@@ -220,13 +239,14 @@ export function runManyAndReturnBehavior({
       expect(new Set(rows.map((row) => row.id)).size).toBe(4);
     });
 
-    test("createManyAndReturn preserves bigint generation and order", async () => {
-      const rows = await client!.bigTicket.createManyAndReturn({
+    test("createMany with select preserves bigint generation and order", async () => {
+      const rows = await client!.bigTicket.createMany({
         data: [
           { id: 100n, label: "explicit" },
           { label: "generated" },
           { id: 200n, label: "explicit-later" },
         ],
+        select: { id: true, label: true },
       });
 
       expect(rows.map((row) => row.label)).toEqual([
@@ -241,12 +261,13 @@ export function runManyAndReturnBehavior({
     });
 
     test("application defaults remain values while increment defaults stay database-owned", async () => {
-      const rows = await client!.defaultTicket.createManyAndReturn({
+      const rows = await client!.defaultTicket.createMany({
         data: [
           {},
           { id: 50, label: "explicit" },
           { label: "application-default" },
         ],
+        select: { id: true, label: true },
       });
 
       expect(rows.map((row) => row.label)).toEqual([
@@ -260,8 +281,9 @@ export function runManyAndReturnBehavior({
     });
 
     test("default-only createMany rows use database generation", async () => {
-      const created = await client!.defaultOnlyTicket.createManyAndReturn({
+      const created = await client!.defaultOnlyTicket.createMany({
         data: [{}, {}],
+        select: { id: true },
       });
 
       expect(created).toHaveLength(2);
@@ -343,18 +365,19 @@ export function runManyAndReturnBehavior({
       expect(await client!.bigTicket.count()).toBe(0);
     });
 
-    test("createManyAndReturn skips only duplicate rows and returns inserted rows", async () => {
+    test("createMany with select skips only duplicate rows and returns inserted rows", async () => {
       await client!.gadget.create({
         data: { id: "g1", code: "c1", name: "Existing" },
       });
 
       const call = () =>
-        client!.gadget.createManyAndReturn({
+        client!.gadget.createMany({
           data: [
             { id: "g1", code: "c1", name: "Duplicate" },
             { id: "g3", code: "c3", name: "Fresh" },
           ],
           skipDuplicates: true,
+          select: { id: true, name: true },
         });
 
       if (!supportsReturning) {
@@ -362,8 +385,19 @@ export function runManyAndReturnBehavior({
         // non-returning driver cannot both skip duplicates and report the inserted
         // rows. Maintainer-authorized; its absorption is post-P6 backlog.
         await expect(call()).rejects.toThrow(
-          "does not support skipDuplicates on a non-returning driver"
+          "does not support 'skipDuplicates' on a driver without RETURNING"
         );
+        // The same payload WITHOUT `select` is the supported `{ count }` form —
+        // the refusal is scoped to asking for the rows back, not to skipping.
+        await expect(
+          client!.gadget.createMany({
+            data: [
+              { id: "g1", code: "c1", name: "Duplicate" },
+              { id: "g3", code: "c3", name: "Fresh" },
+            ],
+            skipDuplicates: true,
+          })
+        ).resolves.toEqual({ count: 1 });
         return;
       }
 
@@ -427,7 +461,7 @@ export function runManyAndReturnBehavior({
       expect(await client!.constrainedInput.count()).toBe(0);
     });
 
-    test("updateManyAndReturn returns the updated rows", async () => {
+    test("updateMany without select returns { count }, with select returns rows", async () => {
       await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha", qty: 1 },
@@ -436,9 +470,16 @@ export function runManyAndReturnBehavior({
         ],
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const counted = await client!.gadget.updateMany({
+        where: { qty: { lt: 5 } },
+        data: { qty: { increment: 0 } },
+      });
+      expect(counted).toEqual({ count: 2 });
+
+      const rows = await client!.gadget.updateMany({
         where: { qty: { lt: 5 } },
         data: { name: "Updated" },
+        select: { id: true, name: true },
       });
 
       expect(rows).toHaveLength(2);
@@ -453,7 +494,7 @@ export function runManyAndReturnBehavior({
       expect(untouched?.name).toBe("Gamma");
     });
 
-    test("updateManyAndReturn applies atomic operations and select", async () => {
+    test("updateMany with select applies atomic operations", async () => {
       await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha", qty: 1 },
@@ -461,7 +502,7 @@ export function runManyAndReturnBehavior({
         ],
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const rows = await client!.gadget.updateMany({
         data: { qty: { increment: 10 } },
         select: { id: true, qty: true },
       });
@@ -475,7 +516,7 @@ export function runManyAndReturnBehavior({
       }
     });
 
-    test("updateManyAndReturn applies atomic decrement and multiply", async () => {
+    test("updateMany with select applies atomic decrement and multiply", async () => {
       await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha", qty: 10 },
@@ -483,7 +524,7 @@ export function runManyAndReturnBehavior({
         ],
       });
 
-      const decremented = await client!.gadget.updateManyAndReturn({
+      const decremented = await client!.gadget.updateMany({
         data: { qty: { decrement: 3 } },
         select: { id: true, qty: true },
       });
@@ -492,7 +533,7 @@ export function runManyAndReturnBehavior({
       expect(decrementedById.get("g1")).toBe(7);
       expect(decrementedById.get("g2")).toBe(1);
 
-      const multiplied = await client!.gadget.updateManyAndReturn({
+      const multiplied = await client!.gadget.updateMany({
         data: { qty: { multiply: 5 } },
         select: { id: true, qty: true },
       });
@@ -507,12 +548,12 @@ export function runManyAndReturnBehavior({
       expect(persisted.map((r) => r.qty)).toEqual([35, 5]);
     });
 
-    test("updateManyAndReturn applies atomic divide (exact quotient)", async () => {
+    test("updateMany with select applies atomic divide (exact quotient)", async () => {
       await client!.gadget.create({
         data: { id: "g1", code: "c1", name: "Exact", qty: 8 },
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const rows = await client!.gadget.updateMany({
         data: { qty: { divide: 2 } },
         select: { id: true, qty: true },
       });
@@ -537,7 +578,7 @@ export function runManyAndReturnBehavior({
         data: { id: "g1", code: "c1", name: "Inexact", qty: 7 },
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const rows = await client!.gadget.updateMany({
         data: { qty: { divide: 2 } },
         select: { id: true, qty: true },
       });
@@ -551,17 +592,25 @@ export function runManyAndReturnBehavior({
       expect(persisted?.qty).toBe(3);
     });
 
-    test("updateManyAndReturn returns empty array when nothing matches", async () => {
+    test("updateMany with select returns empty array when nothing matches", async () => {
       await client!.gadget.create({
         data: { id: "g1", code: "c1", name: "Alpha" },
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const rows = await client!.gadget.updateMany({
         where: { name: "Nope" },
         data: { qty: 99 },
+        select: { id: true },
       });
 
       expect(rows).toEqual([]);
+      // The same no-match payload without `select` is `{ count: 0 }`.
+      await expect(
+        client!.gadget.updateMany({
+          where: { name: "Nope" },
+          data: { qty: 99 },
+        })
+      ).resolves.toEqual({ count: 0 });
     });
   });
 }

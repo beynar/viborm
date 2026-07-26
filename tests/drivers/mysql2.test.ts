@@ -36,9 +36,9 @@ import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavi
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
-import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
@@ -188,7 +188,7 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
 
-  runManyAndReturnBehavior({
+  runImplicitReturningBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });

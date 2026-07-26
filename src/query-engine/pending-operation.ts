@@ -16,6 +16,7 @@ import { OperationExecutor } from "../query-engine-v2/OperationExecutor";
 import {
   constructRoutedOperation,
   executeRoutedOperation,
+  ROUTED_OPERATIONS,
 } from "../query-engine-v2/routing";
 import {
   createPendingOperationContext,
@@ -114,8 +115,9 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * Construct (once) the V2 operation for this payload. Routing is decided here —
    * lazily, before any I/O — so a validation error surfaces at execution time
    * exactly as intended, never synchronously at client-dispatch time. Every client
-   * operation family constructs; a name outside the routed set (unreachable on the
-   * client path) is an internal error rather than a silent no-op.
+   * operation family constructs; a name outside the routed set (unreachable through
+   * the typed client, reachable through an untyped call or a removed method name)
+   * is a loud "unknown operation" error rather than a silent no-op.
    */
   private resolveOperation(): ExecutableOperation {
     if (this.operationResolved && this.operationInstance) {
@@ -128,8 +130,13 @@ export class PendingOperation<T> implements PromiseLike<T> {
       this.args
     );
     if (!operation) {
+      // The model proxy answers every property with a callable child, so a
+      // misspelled or REMOVED operation name (`createManyAndReturn`,
+      // `updateManyAndReturn` — see the implicit-returning surface) reaches here
+      // instead of failing as "undefined is not a function". Name it as what it
+      // is: an unknown operation, listing the surface it is missing from.
       throw new QueryEngineError(
-        `Operation '${this.operation}' has no execution path.`
+        `Unknown operation '${this.operation}' on model '${this.modelName}'. Known operations: ${[...ROUTED_OPERATIONS].sort().join(", ")}.`
       );
     }
     this.operationInstance = operation;

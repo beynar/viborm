@@ -77,14 +77,28 @@ function constructOperation(
       return new DeleteOperation(engine, model, args);
     case "upsert":
       return new UpsertOperation(engine, model, args);
+    // Implicit returning (mirrors src/query-engine-v2/routing.ts): `select` on a
+    // bulk write — never a second operation name — chooses the row-returning arm.
     case "createMany":
-      return new CreateManyOperation(engine, model, args);
+      return args.select === undefined
+        ? new CreateManyOperation(engine, model, args)
+        : new ManyAndReturnOperation(
+            engine,
+            model,
+            "createManyAndReturn",
+            args
+          );
     case "updateMany":
+      return args.select === undefined
+        ? new BulkCountOperation(engine, model, operation, args)
+        : new ManyAndReturnOperation(
+            engine,
+            model,
+            "updateManyAndReturn",
+            args
+          );
     case "deleteMany":
       return new BulkCountOperation(engine, model, operation, args);
-    case "createManyAndReturn":
-    case "updateManyAndReturn":
-      return new ManyAndReturnOperation(engine, model, operation, args);
     default:
       return undefined;
   }
@@ -99,8 +113,6 @@ const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
   "createMany",
   "updateMany",
   "deleteMany",
-  "createManyAndReturn",
-  "updateManyAndReturn",
 ]);
 
 export function createV2RoutedClient(options: {

@@ -798,13 +798,14 @@ describe("Update Operations", () => {
     });
   });
 
-  describe("updateManyAndReturn", () => {
+  describe("updateMany with select (implicit returning)", () => {
     test("scalar-only data updates and returns the affected rows", async () => {
       await createStandardUserPostUsers(client);
 
-      const rows = await client.user.updateManyAndReturn({
+      const rows = await client.user.updateMany({
         where: { age: { gte: 25 } },
         data: { name: "Returned" },
+        select: { id: true, name: true },
       });
 
       expect(rows.length).toBe(2);
@@ -813,12 +814,42 @@ describe("Update Operations", () => {
       }
     });
 
+    test("the same call without select returns { count }", async () => {
+      await createStandardUserPostUsers(client);
+
+      const result = await client.user.updateMany({
+        where: { age: { gte: 25 } },
+        data: { name: "Counted" },
+      });
+
+      expect(result).toEqual({ count: 2 });
+    });
+
+    test("include is rejected with a message naming the alternative", async () => {
+      await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateMany({
+          where: { age: { gte: 25 } },
+          data: { name: "Included" },
+          // @ts-expect-error include is not part of the bulk-write surface
+          include: { posts: true },
+        })
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain(
+        "'include' is not supported on 'updateMany'"
+      );
+    });
+
     test("rejects relation data alongside scalars and leaves the DB unchanged", async () => {
       const { alice } = await createStandardUserPostUsers(client);
 
       const error = await captureThrown(() =>
-        client.user.updateManyAndReturn({
+        client.user.updateMany({
           where: { id: alice.id },
+          select: { id: true },
           // NOTE: no @ts-expect-error here — nested excess-property checking
           // does not fire through the client's generic signature when another
           // valid key is present (pre-existing surface-wide TS limitation).
@@ -853,10 +884,11 @@ describe("Update Operations", () => {
       const { alice } = await createStandardUserPostUsers(client);
 
       const error = await captureThrown(() =>
-        client.user.updateManyAndReturn({
+        client.user.updateMany({
           where: { id: alice.id },
+          select: { id: true },
           data: {
-            // @ts-expect-error updateManyAndReturn data is scalar-only; relation keys are rejected
+            // @ts-expect-error updateMany data is scalar-only; relation keys are rejected
             posts: {
               create: {
                 id: "post-smuggled",

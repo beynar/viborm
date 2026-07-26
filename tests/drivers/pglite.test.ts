@@ -17,9 +17,9 @@ import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
-import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
@@ -113,7 +113,7 @@ describe("PGlite Driver", () => {
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });
-  runManyAndReturnBehavior({
+  runImplicitReturningBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

@@ -41,7 +41,8 @@ runBulkWriteBehavior({
 // Dual-run oracle: identical payloads through the real V1 client and the
 // V2-routed proxy (tx + forced batch), FRESH instance per arm, asserting
 // byte-identical persisted state + result + error class/message. The proof that
-// updateMany/deleteMany/createManyAndReturn/updateManyAndReturn match V1.
+// both arms of every bulk family agree: `{ count }` and the implicit
+// row-returning form reached by adding `select`.
 // ---------------------------------------------------------------------------
 
 type RoutedModel = Record<string, (args: Record<string, unknown>) => unknown>;
@@ -137,10 +138,31 @@ const scenarios: Scenario[] = [
     act: (c) => c.gadget!.deleteMany!({ where: { qty: { lt: 5 } } }),
   },
   {
-    name: "createManyAndReturn (string PK) returns created rows",
-    routed: "createManyAndReturn",
+    name: "createMany with select (string PK) returns created rows",
+    routed: "createMany",
     act: (c) =>
-      c.gadget!.createManyAndReturn!({
+      c.gadget!.createMany!({
+        data: [
+          { id: "g1", code: "c1", name: "Alpha" },
+          { id: "g2", code: "c2", name: "Beta", qty: 5 },
+        ],
+        select: { id: true, code: true, name: true, qty: true },
+      }),
+  },
+  {
+    name: "createMany with select (increment PK) preserves order",
+    routed: "createMany",
+    act: (c) =>
+      c.ticket!.createMany!({
+        data: [{ label: "one" }, { label: "two" }, { label: "three" }],
+        select: { id: true, label: true },
+      }),
+  },
+  {
+    name: "createMany without select returns { count }",
+    routed: "createMany",
+    act: (c) =>
+      c.gadget!.createMany!({
         data: [
           { id: "g1", code: "c1", name: "Alpha" },
           { id: "g2", code: "c2", name: "Beta", qty: 5 },
@@ -148,16 +170,8 @@ const scenarios: Scenario[] = [
       }),
   },
   {
-    name: "createManyAndReturn (increment PK) preserves order",
-    routed: "createManyAndReturn",
-    act: (c) =>
-      c.ticket!.createManyAndReturn!({
-        data: [{ label: "one" }, { label: "two" }, { label: "three" }],
-      }),
-  },
-  {
-    name: "updateManyAndReturn returns updated rows",
-    routed: "updateManyAndReturn",
+    name: "updateMany with select returns updated rows",
+    routed: "updateMany",
     seed: (c) =>
       c.gadget.createMany({
         data: [
@@ -167,25 +181,57 @@ const scenarios: Scenario[] = [
         ],
       }),
     act: (c) =>
-      c.gadget!.updateManyAndReturn!({
+      c.gadget!.updateMany!({
         where: { qty: { lt: 5 } },
         data: { qty: { increment: 100 } },
         select: { id: true, qty: true },
       }),
   },
   {
-    name: "updateManyAndReturn matching nothing returns []",
-    routed: "updateManyAndReturn",
+    name: "updateMany with select matching nothing returns []",
+    routed: "updateMany",
     seed: (c) => c.gadget.create({ data: { id: "g1", code: "c1", name: "A" } }),
     act: (c) =>
-      c.gadget!.updateManyAndReturn!({
+      c.gadget!.updateMany!({
         where: { name: "Nope" },
         data: { qty: 1 },
+        select: { id: true },
       }),
   },
 ];
 
-describe("query-engine-v2 bulk-write dual-run oracle (V1 vs V2)", () => {
+/**
+ * The REMOVAL, pinned at runtime (maintainer decision D-1). The typed client
+ * cannot spell `createManyAndReturn` (see
+ * tests/client/implicit-returning-types.test.ts); an untyped caller that reaches
+ * for it must get a LOUD, named error — not `undefined is not a function`, and
+ * never a silent no-op, because the model proxy answers every property with a
+ * callable child.
+ */
+describe("the removed *AndReturn method names (runtime)", () => {
+  for (const removed of ["createManyAndReturn", "updateManyAndReturn"]) {
+    test(`${removed} fails with a clear unknown-operation error`, async () => {
+      const db = new PGlite();
+      const client = makeClient(db);
+      await push(client, { force: true });
+      try {
+        const untyped = client as unknown as Record<string, RoutedModel>;
+        // The proxy still hands back a function — that is exactly why the error
+        // has to come from the engine, and has to name the operation.
+        expect(typeof untyped.gadget?.[removed]).toBe("function");
+        await expect(
+          untyped.gadget?.[removed]?.({
+            data: [{ id: "g1", code: "c1", name: "A" }],
+          }) as Promise<unknown>
+        ).rejects.toThrow(`Unknown operation '${removed}' on model 'gadget'`);
+      } finally {
+        await client.$disconnect();
+      }
+    });
+  }
+});
+
+describe("query-engine-v2 bulk-write dual-run oracle (both substrates)", () => {
   for (const scenario of scenarios) {
     test(scenario.name, { timeout: 30_000 }, async () => {
       const v1 = await runArm("v1", scenario);

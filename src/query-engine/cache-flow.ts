@@ -15,13 +15,14 @@ import type { PrepareOptions } from "./types";
 
 type WaitUntilFn = (promise: Promise<unknown>) => void;
 
+// The client-facing mutation families. `createMany` / `updateMany` cover both
+// their `{ count }` and their row-returning (`select`) arms — implicit returning
+// added no operation name to invalidate on.
 const MUTATION_OPERATIONS: Set<string> = new Set([
   "create",
   "createMany",
-  "createManyAndReturn",
   "update",
   "updateMany",
-  "updateManyAndReturn",
   "delete",
   "deleteMany",
   "upsert",

@@ -8,6 +8,7 @@ import type { AnyModel } from "@schema/model";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
+import { rejectInclude } from "./reject-include";
 import { rejectSelectInclude } from "./select-include-exclusivity";
 // =============================================================================
 // CREATE ARGS
@@ -49,45 +50,15 @@ export const getCreateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 // =============================================================================
 
 /**
- * CreateMany args: { data: create[], skipDuplicates? }
+ * CreateMany args: { data: create[], skipDuplicates?, select? }
+ *
+ * IMPLICIT RETURNING (the replacement for the removed `createManyAndReturn`):
+ * `select` is optional, and its PRESENCE is what makes the operation return the
+ * created rows instead of `{ count }`. `include` is rejected with a message
+ * naming the alternative — the rows come out of the write statement, so no
+ * relation can be joined into them.
  */
 export type CreateManyArgs<
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
-> = V.Object<
-  {
-    data: V.Array<CoreSchemas<M, F>["scalarCreate"]>;
-    skipDuplicates: V.Boolean<{ optional: true }>;
-    cache: CacheInvalidationSchema;
-  },
-  { atLeast: ["data"] }
->;
-export const getCreateManyArgs = <
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
->(
-  core: CoreSchemas<M, F>
-): CreateManyArgs<M, F> => {
-  return v.object(
-    {
-      data: v.lazyRef(() => v.array(core.scalarCreate)),
-      skipDuplicates: v.boolean({ optional: true }),
-      cache: cacheInvalidationSchema,
-    },
-    { atLeast: ["data"] }
-  );
-};
-
-// =============================================================================
-// CREATE MANY AND RETURN ARGS
-// =============================================================================
-
-/**
- * CreateManyAndReturn args: { data: create[], skipDuplicates?, select? }
- * Like createMany but returns the created rows (select of scalars only;
- * include is not supported because rows are returned via RETURNING).
- */
-export type CreateManyAndReturnArgs<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
@@ -99,20 +70,23 @@ export type CreateManyAndReturnArgs<
   },
   { atLeast: ["data"] }
 >;
-export const getCreateManyAndReturnArgs = <
+export const getCreateManyArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 >(
   core: CoreSchemas<M, F>
-): CreateManyAndReturnArgs<M, F> => {
-  return v.object(
-    {
-      data: v.lazyRef(() => v.array(core.scalarCreate)),
-      skipDuplicates: v.boolean({ optional: true }),
-      select: v.lazyRef(() => core.select),
-      cache: cacheInvalidationSchema,
-    },
-    { atLeast: ["data"] }
+): CreateManyArgs<M, F> => {
+  return rejectInclude(
+    v.object(
+      {
+        data: v.lazyRef(() => v.array(core.scalarCreate)),
+        skipDuplicates: v.boolean({ optional: true }),
+        select: v.lazyRef(() => core.select),
+        cache: cacheInvalidationSchema,
+      },
+      { atLeast: ["data"] }
+    ),
+    "createMany"
   );
 };
 
@@ -159,55 +133,21 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 // =============================================================================
 
 /**
- * UpdateMany args: { where?, data: scalarUpdate }
+ * UpdateMany args: { where?, data: scalarUpdate, select? }
  *
  * `data` binds to the SCALAR-ONLY update schema (Prisma parity:
  * UpdateManyMutationInput excludes relation fields). A bulk UPDATE cannot
  * express nested relation writes, so a relation key in `data` must reject
  * loudly at the parse boundary (strict object → "Unknown key: <relation>")
  * instead of ever reaching the SET builder, which skips relations.
+ *
+ * IMPLICIT RETURNING (the replacement for the removed `updateManyAndReturn`):
+ * `select` is optional, and its PRESENCE is what makes the operation return the
+ * updated rows instead of `{ count }`. `include` is rejected with a message
+ * naming the alternative — the rows come out of the write statement, so no
+ * relation can be joined into them.
  */
 export type UpdateManyArgs<
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
-> = V.Object<
-  {
-    where: CoreSchemas<M, F>["where"];
-    data: CoreSchemas<M, F>["scalarUpdate"];
-    cache: CacheInvalidationSchema;
-  },
-  { atLeast: ["data"] }
->;
-export const getUpdateManyArgs = <
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
->(
-  core: CoreSchemas<M, F>
-): UpdateManyArgs<M, F> => {
-  return v.object(
-    {
-      where: v.lazyRef(() => core.where),
-      data: v.lazyRef(() => core.scalarUpdate),
-      cache: cacheInvalidationSchema,
-    },
-    { atLeast: ["data"] }
-  );
-};
-
-// =============================================================================
-// UPDATE MANY AND RETURN ARGS
-// =============================================================================
-
-/**
- * UpdateManyAndReturn args: { where?, data: scalarUpdate, select? }
- * Like updateMany but returns the updated rows (select of scalars only;
- * include is not supported because rows are returned via RETURNING).
- *
- * `data` binds to the SCALAR-ONLY update schema for the same reason as
- * updateMany: a relation key must fail validation loudly, never be silently
- * discarded by the SET builder.
- */
-export type UpdateManyAndReturnArgs<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
@@ -219,20 +159,23 @@ export type UpdateManyAndReturnArgs<
   },
   { atLeast: ["data"] }
 >;
-export const getUpdateManyAndReturnArgs = <
+export const getUpdateManyArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 >(
   core: CoreSchemas<M, F>
-): UpdateManyAndReturnArgs<M, F> => {
-  return v.object(
-    {
-      where: v.lazyRef(() => core.where),
-      data: v.lazyRef(() => core.scalarUpdate),
-      select: v.lazyRef(() => core.select),
-      cache: cacheInvalidationSchema,
-    },
-    { atLeast: ["data"] }
+): UpdateManyArgs<M, F> => {
+  return rejectInclude(
+    v.object(
+      {
+        where: v.lazyRef(() => core.where),
+        data: v.lazyRef(() => core.scalarUpdate),
+        select: v.lazyRef(() => core.select),
+        cache: cacheInvalidationSchema,
+      },
+      { atLeast: ["data"] }
+    ),
+    "updateMany"
   );
 };
 
