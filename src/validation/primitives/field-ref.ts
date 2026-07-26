@@ -87,7 +87,7 @@ export function noFieldRef<TSchema extends VibSchema<any, any>>(
     (value) => {
       const result = validateSchema(wrapped, value);
       if (result.issues) return result as never;
-      const found = findFieldRef((result as { value: unknown }).value, 0);
+      const found = findFieldRef((result as { value: unknown }).value);
       if (found) {
         return fail(
           `Field reference '${found.model}.${found.field}' is not supported in ${where}.`
@@ -104,28 +104,52 @@ export function noFieldRef<TSchema extends VibSchema<any, any>>(
   return schema;
 }
 
-// Filter values nest at most a couple of levels ({ not: { gt: … } }); the cap
-// keeps a hostile payload from turning the scan into a deep walk.
-const MAX_SCAN_DEPTH = 4;
+/**
+ * Exhaustive, cycle-safe search for a field-reference token inside an
+ * already-validated value.
+ *
+ * There is deliberately NO depth cap. An earlier version stopped at four levels
+ * on the premise that "filter values nest at most a couple of levels" — false
+ * on this branch, where scalar `not` nests arbitrarily
+ * (`{ not: { not: { … { gt: ref } } } }`, see `buildNegatableFilterSchema`). A
+ * five-deep chain therefore walked straight past the guard and emitted the
+ * referenced column into HAVING: Postgres rejected the ungrouped column,
+ * SQLite/LibSQL accepted it and returned a silently wrong row. A guard that
+ * stops looking is accept-and-ignore, which is precisely what this wrapper
+ * exists to prevent.
+ *
+ * Termination comes from structure, not from a budget: every object and array
+ * is visited at most once (`seen`), so the walk is linear in the number of
+ * distinct nodes the caller already materialized — the same order the
+ * `validateSchema` call directly above just spent walking the very same value.
+ * The worklist is explicit rather than recursive so a pathologically deep
+ * payload cannot overflow the stack here. Binary payloads are skipped whole:
+ * bytes cannot be a reference, and `Object.keys` on a typed array would
+ * enumerate every index.
+ */
+function findFieldRef(root: unknown): AnyFieldRef | undefined {
+  const seen = new WeakSet<object>();
+  const pending: unknown[] = [root];
 
-function findFieldRef(value: unknown, depth: number): AnyFieldRef | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  if (isFieldRef(value)) return value;
-  if (depth >= MAX_SCAN_DEPTH) return undefined;
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findFieldRef(item, depth + 1);
-      if (found) return found;
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (typeof value !== "object" || value === null) continue;
+    if (isFieldRef(value)) return value;
+    if (seen.has(value)) continue;
+    seen.add(value);
+
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) continue;
+
+    if (Array.isArray(value)) {
+      for (const item of value) pending.push(item);
+      continue;
     }
-    return undefined;
+
+    for (const key of Object.keys(value)) {
+      pending.push((value as Record<string, unknown>)[key]);
+    }
   }
-  for (const key of Object.keys(value)) {
-    const found = findFieldRef(
-      (value as Record<string, unknown>)[key],
-      depth + 1
-    );
-    if (found) return found;
-  }
+
   return undefined;
 }
 

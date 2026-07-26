@@ -87,6 +87,19 @@ create/update data, and `having`/`groupBy`. The `having` exclusion is Prisma par
 explicit re-close (`v.noFieldRef`): `getHavingSchema` reuses the model's own scalar filter, so it
 would otherwise have inherited the operand by accident.
 
+**Correction (W2 review, fixed after the wave merged).** `v.noFieldRef` shipped with a
+four-level cap on its scan, justified by "filter values nest at most a couple of levels". The
+sibling W1 change on this same branch (94e0bb0, "Let scalar `not` filters nest arbitrarily") had
+already falsified that premise: `having: { views: { not: { not: { not: { not: { gt: ref }}}}}}`
+put the token at depth 5, the scan never saw it, and the reference was emitted into HAVING as a
+raw alias-qualified column — which Postgres rejects as an ungrouped column while SQLite and LibSQL
+accept it and return a silently wrong row. The cap is gone; the scan is now exhaustive, and
+terminates by structure (each object visited at most once) rather than by budget, with an explicit
+worklist so depth cannot overflow the stack. Pinned at both layers: the scanner itself in
+`tests/validation/field-ref.test.ts` (depths 0…500, cycles, shared subgraphs) and end-to-end
+through `groupBy` in `tests/query-engine/field-reference-sql.test.ts` (depths 0…64, plus each of
+`AND`/`OR`/`NOT`), with a live per-dialect pin in `tests/drivers/field-reference-behavior.ts`.
+
 ---
 
 ## W3 — Read surface: nested pagination trio + implicit returns

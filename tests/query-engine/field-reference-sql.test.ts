@@ -94,6 +94,13 @@ beforeAll(() => hydrateSchemaNames(schema));
 
 const fields = () => createSchemaFieldRefs(schema);
 
+/** `{ not: { not: … { <leaf> } } }`, `depth` levels of `not` deep. */
+function nestNot(depth: number, leaf: Record<string, unknown>) {
+  let out: Record<string, unknown> = leaf;
+  for (let i = 0; i < depth; i++) out = { not: out };
+  return out;
+}
+
 type DialectCase = {
   name: string;
   dialect: Dialect;
@@ -230,6 +237,57 @@ describe("surfaces that stay closed to field references", () => {
     ).toThrow(HAVING_REFUSAL);
   });
 
+  /**
+   * The `having` closure must hold at EVERY `not` nesting depth. Scalar `not`
+   * nests arbitrarily (see `buildNegatableFilterSchema`), so this is a
+   * reachable payload, not a hypothetical — and the guard that closes the
+   * surface shipped with a four-level cap: a five-deep chain emitted
+   * `HAVING NOT (NOT (NOT (NOT ("t0"."views" > "t0"."like_count"))))`, an
+   * ungrouped column inside a group predicate, which Postgres rejects and
+   * SQLite/LibSQL silently answer with a wrong row. Depths below and above the
+   * old cap are both pinned so a re-introduced bound fails here.
+   */
+  test.each([0, 1, 2, 3, 4, 5, 6, 12, 64])(
+    "groupBy having refuses a reference nested %i `not` levels deep",
+    (depth) => {
+      expect(() =>
+        engine().build(Post, "groupBy", {
+          by: ["views"],
+          having: { views: nestNot(depth, { gt: fields().Post.likes }) },
+        })
+      ).toThrow(HAVING_REFUSAL);
+    }
+  );
+
+  test.each(["AND", "OR", "NOT"])(
+    "groupBy having refuses a deeply nested reference under %s",
+    (combinator) => {
+      expect(() =>
+        engine().build(Post, "groupBy", {
+          by: ["views"],
+          having: {
+            [combinator]: [{ views: nestNot(6, { gt: fields().Post.likes }) }],
+          },
+        })
+      ).toThrow(HAVING_REFUSAL);
+    }
+  );
+
+  /**
+   * The complement of the sweep above: the refusal is scoped to `having`, not a
+   * blanket rejection of deep filters. The same chain in `where` still compiles
+   * to a same-row column comparison with nothing bound.
+   */
+  test("the same deep chain is still legal in `where`", () => {
+    const query = engine().build(Post, "findMany", {
+      where: { views: nestNot(6, { gt: fields().Post.likes }) },
+    });
+    const statement = query.toStatement("$n");
+    expect(statement).toContain('"like_count"');
+    expect(statement).toContain("NOT (NOT (NOT (NOT (NOT (NOT (");
+    expect(query.values).toHaveLength(0);
+  });
+
   test("having still accepts ordinary scalar and aggregate filters", () => {
     expect(() =>
       engine().build(Post, "groupBy", {
@@ -241,6 +299,14 @@ describe("surfaces that stay closed to field references", () => {
       engine().build(Post, "groupBy", {
         by: ["views"],
         having: { views: { _count: { gt: 1 } } },
+      })
+    ).not.toThrow();
+    // …including a deep `not` chain, as long as no reference hides in it: the
+    // scan refuses references, not depth.
+    expect(() =>
+      engine().build(Post, "groupBy", {
+        by: ["views"],
+        having: { views: nestNot(6, { gt: 3 }) },
       })
     ).not.toThrow();
   });

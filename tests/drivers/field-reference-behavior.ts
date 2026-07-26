@@ -18,6 +18,7 @@ const CROSS_MODEL_REFUSAL =
   /Field reference 'user\.name' cannot be used while filtering 'post'/;
 const WRONG_TYPE_REFUSAL =
   /Field reference 'post\.views' is of type 'int', but a 'string' operand is required here/;
+const HAVING_REFUSAL = /is not supported in 'having'/;
 
 export interface FieldReferenceBehaviorOptions {
   driverName: string;
@@ -233,6 +234,36 @@ export function runFieldReferenceBehavior({
           where: { views: { in: [db().$fields.post.likes] as never } },
         })
       ).rejects.toThrow();
+    });
+
+    /**
+     * `having` is closed to references on purpose (Prisma excludes them too:
+     * a HAVING operand is an aggregate over a group, not a column of one row),
+     * and the closure has to hold however deeply the reference is buried —
+     * scalar `not` nests arbitrarily. This runs on every dialect because the
+     * consequence of a leak is dialect-DEPENDENT: Postgres rejects the
+     * ungrouped column with a database error, while SQLite and LibSQL accept
+     * it and answer with a silently wrong row. The refusal must land before
+     * any statement is issued, so all dialects agree.
+     */
+    test("a reference is refused in `having`, however deeply nested", async () => {
+      const ref = () => db().$fields.post.likes;
+      for (const having of [
+        { views: { gt: ref() } },
+        { views: { not: { not: { not: { not: { gt: ref() } } } } } },
+        { OR: [{ views: { not: { not: { not: { not: { gt: ref() } } } } } }] },
+      ]) {
+        await expect(
+          db().post.groupBy({ by: ["views"], having: having as never })
+        ).rejects.toThrow(HAVING_REFUSAL);
+      }
+
+      // The same shape without a reference still groups normally.
+      const groups = await db().post.groupBy({
+        by: ["views"],
+        having: { views: { not: { not: { not: { not: { gt: 7 } } } } } },
+      });
+      expect(groups.map((g) => g.views).sort((a, b) => a - b)).toEqual([100]);
     });
   });
 }
