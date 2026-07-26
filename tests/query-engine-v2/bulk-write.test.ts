@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { ValidationError } from "@errors";
 import { push } from "@migrations";
 import { describe, expect, test } from "vitest";
 import { bulkWriteSchema, runBulkWriteBehavior } from "./bulk-write-behavior";
@@ -245,6 +246,86 @@ describe("the removed *AndReturn method names (runtime)", () => {
         await client.$disconnect();
       }
     });
+  }
+});
+
+/**
+ * The other half of the removal: a name the client REFUSES to route must never
+ * appear in an error the client itself produces. `ValidationError` used to be
+ * built from the INTERNAL operation token, so the very same client answered
+ *
+ *   createMany({ data, select: { nope: true } })
+ *     -> "Validation failed for createManyAndReturn: Unknown key: nope"
+ *   createManyAndReturn({ data })
+ *     -> "Unknown operation 'createManyAndReturn' on model 'gadget'"
+ *
+ * — telling a caller to fix an operation it says does not exist. The pre-existing
+ * regexes could not see it (`/Validation failed for createMany/` is a substring
+ * of the wrong string), so these assertions are anchored on the colon AND assert
+ * the absence of the internal token.
+ *
+ * The presence of `select` is the ONLY difference between the two arms, so each
+ * family is asserted twice: the row arm (which goes through
+ * ManyAndReturnOperation) and the `{ count }` arm, which must report the same
+ * name.
+ */
+describe("a validation error names the operation the caller spelled", () => {
+  const badPayloads: {
+    family: "createMany" | "updateMany" | "deleteMany";
+    withSelect: Record<string, unknown>;
+    withoutSelect: Record<string, unknown>;
+  }[] = [
+    {
+      family: "createMany",
+      withSelect: {
+        data: [{ id: "g1", code: "c1", name: "A" }],
+        select: { nope: true },
+      },
+      withoutSelect: { data: [{ id: "g1", code: "c1", nope: "A" }] },
+    },
+    {
+      family: "updateMany",
+      withSelect: { where: {}, data: { nope: 1 }, select: { id: true } },
+      withoutSelect: { where: {}, data: { nope: 1 } },
+    },
+    {
+      family: "deleteMany",
+      withSelect: { where: {}, select: { nope: true } },
+      withoutSelect: { where: { nope: true } },
+    },
+  ];
+
+  for (const { family, withSelect, withoutSelect } of badPayloads) {
+    for (const [arm, payload] of [
+      ["rows (select present)", withSelect],
+      ["count (select absent)", withoutSelect],
+    ] as const) {
+      test(`${family} — ${arm}`, async () => {
+        const db = new PGlite();
+        const client = makeClient(db);
+        await push(client, { force: true });
+        try {
+          const untyped = client as unknown as Record<string, RoutedModel>;
+          let thrown: unknown;
+          try {
+            await (untyped.gadget?.[family]?.(payload) as Promise<unknown>);
+          } catch (error) {
+            thrown = error;
+          }
+
+          expect(thrown).toBeInstanceOf(ValidationError);
+          const error = thrown as ValidationError;
+          expect(error.message).toContain(`Validation failed for ${family}:`);
+          expect(error.message).not.toContain("AndReturn");
+          // The programmatic surface agrees with the prose, and `meta` — which
+          // is what a logger or an error-reporting sink reads — agrees with both.
+          expect(error.operation).toBe(family);
+          expect(error.meta.operation).toBe(family);
+        } finally {
+          await client.$disconnect();
+        }
+      });
+    }
   }
 });
 

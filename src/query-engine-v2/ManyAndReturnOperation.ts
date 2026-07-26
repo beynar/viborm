@@ -1,5 +1,9 @@
 // biome-ignore-all lint/style/useFilenamingConvention: ManyAndReturnOperation is the architecture name.
-import { QueryEngineError, TransactionError } from "@errors";
+import {
+  publicOperationName,
+  QueryEngineError,
+  TransactionError,
+} from "@errors";
 import type { Model } from "@schema/model";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import { createQueryScope } from "../query-engine/context/query-scope";
@@ -43,19 +47,16 @@ type ExecutionMode = "transaction" | "batch";
  * spells these as `createMany` / `updateMany` **with a `select`** — the
  * `createManyAndReturn` / `updateManyAndReturn` operations were removed from the
  * public surface (maintainer decision D-1) and replaced by implicit returning.
- * {@link PUBLIC_NAME} maps back for every user-facing message.
+ *
+ * {@link publicOperationName} (the ONE map, in @errors, so `ValidationError`
+ * applies it too) maps back for every user-facing message. Nothing a caller can
+ * read may name one of these tokens: the same client answers
+ * `Unknown operation 'createManyAndReturn'` if one is actually spelled.
  */
 type AndReturnKind =
   | "createManyAndReturn"
   | "updateManyAndReturn"
   | "deleteManyAndReturn";
-
-/** The client-facing spelling of each internal row-returning kind. */
-const PUBLIC_NAME: Readonly<Record<AndReturnKind, string>> = {
-  createManyAndReturn: "createMany",
-  updateManyAndReturn: "updateMany",
-  deleteManyAndReturn: "deleteMany",
-};
 
 /**
  * The row-returning arm of the bulk mutations (PLAN P4 item 2a; W3-B made it
@@ -128,11 +129,11 @@ export class ManyAndReturnOperation {
     // happens after the atomic unit commits and cannot be rolled back.
     if (this.mode === "batch" && !supportsReturning) {
       throw new TransactionError(
-        `Driver '${engine.driver.driverName}' cannot execute '${PUBLIC_NAME[kind]}' with 'select' because public result parsing cannot be rolled back.`,
+        `Driver '${engine.driver.driverName}' cannot execute '${publicOperationName(kind)}' with 'select' because public result parsing cannot be rolled back.`,
         {
           meta: {
             driver: engine.driver.driverName,
-            operation: PUBLIC_NAME[kind],
+            operation: publicOperationName(kind),
           },
         }
       );
@@ -249,7 +250,7 @@ export class ManyAndReturnOperation {
     const rows = outputs.result;
     if (!Array.isArray(rows)) {
       throw new QueryEngineError(
-        `query-engine-v2 ${PUBLIC_NAME[this.kind]} with 'select' did not expose its result rows.`
+        `query-engine-v2 ${publicOperationName(this.kind)} with 'select' did not expose its result rows.`
       );
     }
     return new ResultParser(
@@ -269,13 +270,13 @@ export class ManyAndReturnOperation {
   ): Record<string, unknown>[] | undefined {
     if (!this.captureRead) {
       throw new QueryEngineError(
-        `query-engine-v2 ${PUBLIC_NAME[this.kind]} with 'select' lost its capture plan.`
+        `query-engine-v2 ${publicOperationName(this.kind)} with 'select' lost its capture plan.`
       );
     }
     const captured = known[planningKey(this.captureRead.id, "rows")];
     if (!Array.isArray(captured)) {
       throw new QueryEngineError(
-        `query-engine-v2 ${PUBLIC_NAME[this.kind]} with 'select' planning did not expose the captured rows.`
+        `query-engine-v2 ${publicOperationName(this.kind)} with 'select' planning did not expose the captured rows.`
       );
     }
     if (captured.length === 0) return undefined;
