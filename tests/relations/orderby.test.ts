@@ -23,6 +23,15 @@ import {
   selfRefOneToManySchemas,
 } from "./fixtures";
 
+/** `{ manager: { manager: … { username: "asc" } } }` with `levels` keys. */
+const managerChain = (levels: number): Record<string, unknown> => {
+  let chain: Record<string, unknown> = { username: "asc" };
+  for (let i = 0; i < levels; i++) {
+    chain = { manager: chain };
+  }
+  return chain;
+};
+
 // =============================================================================
 // TO-ONE ORDER BY
 // =============================================================================
@@ -137,12 +146,20 @@ describe("Nested ToOne OrderBy", () => {
       }
     });
 
-    test("runtime: rejects four-hop to-one relation ordering", () => {
+    test("runtime: accepts a chain up to the eight-hop cap", () => {
+      // This schema IS the `manager` relation's orderBy, so it already stands
+      // one hop in: N nested `manager` keys is N + 1 hops. MAX_RELATION_ORDER_DEPTH
+      // (src/validation/relations/order-by.ts) is 8, raised from 3 by D-5.
       const schema = optionalManyToOneSchemas.orderBy();
-      const result = parse(schema, {
-        manager: { manager: { manager: { username: "asc" } } },
-      });
+      const result = parse(schema, managerChain(7));
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("runtime: rejects a chain one hop past the cap", () => {
+      const schema = optionalManyToOneSchemas.orderBy();
+      const result = parse(schema, managerChain(8));
       expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toBe("Unknown key: manager");
     });
   });
 });

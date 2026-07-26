@@ -338,17 +338,32 @@ describe("FindMany Args - Nested Relation OrderBy Types", () => {
     expectTypeOf(input).toMatchTypeOf<CommentInput>();
   });
 
-  test("type: rejects four-hop to-one relation orderBy", () => {
+  test("type: accepts an eight-hop to-one relation orderBy", () => {
+    // MAX_RELATION_ORDER_DEPTH (src/validation/relations/order-by.ts) is 8.
     const input = {
       orderBy: {
-        manager: { manager: { manager: { username: "asc" } } },
+        manager: {
+          manager: {
+            manager: {
+              manager: {
+                manager: {
+                  manager: { manager: { manager: { username: "asc" } } },
+                },
+              },
+            },
+          },
+        },
       },
     } satisfies UserInput;
 
     expectTypeOf(input).toMatchTypeOf<UserInput>();
+  });
 
-    // @ts-expect-error relation orderBy is capped at three relation hops
-    const tooDeep: UserInput = { orderBy: { manager: { manager: { manager: { manager: { username: "asc" } } } } } };
+  test("type: rejects a nine-hop to-one relation orderBy", () => {
+    // Stays on ONE line (like the to-many case below): split across lines, the
+    // error is reported on an inner property and @ts-expect-error misses it.
+    // @ts-expect-error relation orderBy is capped at eight relation hops
+    const tooDeep: UserInput = { orderBy: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { username: "asc" } } } } } } } } } } };
     expect(tooDeep).toBeDefined();
   });
 

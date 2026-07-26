@@ -57,9 +57,38 @@ export const getTargetScalarOrderBySchema = <S extends RelationState>(
   );
 };
 
-const MAX_RELATION_ORDER_DEPTH = 3;
+/**
+ * Maximum number of to-one relation hops an `orderBy` chain may cross, e.g.
+ * `orderBy: { a: { b: { c: { name: 'asc' } } } }` is 3 hops.
+ *
+ * Raised 3 -> 8 by decision D-5 (docs/architecture/prisma-parity-v2-plan.md).
+ * Lifting it further, or removing it, needs a lazy self-reference in the
+ * orderBy schema rather than this bounded strict-schema recursion.
+ *
+ * This is the FRONT LINE: past the cap the schema simply stops offering
+ * relation keys, so an over-deep chain is rejected here as an unknown key.
+ * MIRRORED by MAX_RELATION_ORDER_DEPTH in
+ * src/query-engine/builders/relation-orderby-builder.ts, which re-checks the
+ * same cap while building joins. The two constants must stay equal;
+ * tests/query-engine/orderby-relation-depth.test.ts pins that they do.
+ */
+const MAX_RELATION_ORDER_DEPTH = 8;
 
-type RelationOrderDepth = [unknown, unknown, unknown];
+/**
+ * Type-level twin of MAX_RELATION_ORDER_DEPTH: one tuple element per allowed
+ * hop, consumed by ConsumeRelationHop as the schema type recurses. Derived
+ * from the constant so the two cannot drift.
+ */
+type BuildRelationOrderDepth<
+  N extends number,
+  Acc extends readonly unknown[] = [],
+> = Acc["length"] extends N
+  ? Acc
+  : BuildRelationOrderDepth<N, [...Acc, unknown]>;
+
+type RelationOrderDepth = BuildRelationOrderDepth<
+  typeof MAX_RELATION_ORDER_DEPTH
+>;
 
 type ConsumeRelationHop<Depth extends readonly unknown[]> =
   Depth extends readonly [unknown, ...infer Rest extends readonly unknown[]]

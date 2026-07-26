@@ -144,8 +144,32 @@ const nestedRelationOrderBySchema = (() => {
     })
     .map("nested_order_comments");
 
-  return { Country, Publisher, Author, NestedPost, Comment };
+  // Self-referential to-one chain: the only way to build an orderBy path
+  // deeper than MAX_RELATION_ORDER_DEPTH (8) without eight more models.
+  const Link = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      nextId: s.string().nullable(),
+      next: s
+        .manyToOne(() => Link)
+        .fields("nextId")
+        .references("id")
+        .optional(),
+    })
+    .map("nested_order_links");
+
+  return { Country, Publisher, Author, NestedPost, Comment, Link };
 })();
+
+/** `{ next: { next: … { label: "asc" } } }` with `hops` `next` levels. */
+function linkChainOrderBy(hops: number): Record<string, unknown> {
+  let chain: Record<string, unknown> = { label: "asc" };
+  for (let i = 0; i < hops; i++) {
+    chain = { next: chain };
+  }
+  return chain;
+}
 
 // =============================================================================
 // TEST SETUP
@@ -475,9 +499,12 @@ describe("Basic CRUD Operations", () => {
       );
     });
 
-    test("builder rejects relation orderBy past the depth cap", () => {
-      expect(() =>
-        getWhiteBoxOrderByParts(nestedRelationOrderBySchema.Comment, {
+    test("builder accepts a four-hop to-one relation orderBy", () => {
+      // Was the over-cap case while MAX_RELATION_ORDER_DEPTH was 3; decision
+      // D-5 raised the cap to 8, so this chain is now legal.
+      const parts = getWhiteBoxOrderByParts(
+        nestedRelationOrderBySchema.Comment,
+        {
           post: {
             author: {
               publisher: {
@@ -487,9 +514,31 @@ describe("Basic CRUD Operations", () => {
               },
             },
           },
-        })
+        }
+      );
+
+      expect(parts.joins).toHaveLength(4);
+      expect(parts.orderBy?.toStatement("$n")).toBe('"t4"."name" ASC');
+    });
+
+    test("builder accepts a to-one relation orderBy at the depth cap", () => {
+      const parts = getWhiteBoxOrderByParts(
+        nestedRelationOrderBySchema.Link,
+        linkChainOrderBy(8)
+      );
+
+      expect(parts.joins).toHaveLength(8);
+      expect(parts.orderBy?.toStatement("$n")).toBe('"t8"."label" ASC');
+    });
+
+    test("builder rejects relation orderBy past the depth cap", () => {
+      expect(() =>
+        getWhiteBoxOrderByParts(
+          nestedRelationOrderBySchema.Link,
+          linkChainOrderBy(9)
+        )
       ).toThrow(
-        "Relation orderBy path 'post.author.publisher.country' exceeds maximum depth of 3 relation hops."
+        "Relation orderBy path 'next.next.next.next.next.next.next.next.next' exceeds maximum depth of 8 relation hops."
       );
     });
 
