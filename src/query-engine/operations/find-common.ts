@@ -5,12 +5,13 @@
  * Handles cursor-based pagination and distinct.
  */
 
-import { type Sql, sql } from "@sql";
+import type { Sql } from "@sql";
+import { buildDistinctColumns } from "../builders/distinct-builder";
 import { buildOrderByParts } from "../builders/orderby-builder";
 import { buildSelectWithAliases } from "../builders/select-builder";
 import { buildWhere } from "../builders/where-builder";
-import { getColumnName, getScalarFieldNames, getTableName } from "../context";
-import { QueryEngineError, type QueryScope } from "../types";
+import { getTableName } from "../context";
+import type { QueryScope } from "../types";
 import { buildNormalizedOrderBy } from "./cursor-order";
 import { buildFindPagination } from "./find-pagination";
 
@@ -107,7 +108,7 @@ export function buildFind(
 
   // Handle DISTINCT
   const distinct = args.distinct
-    ? buildDistinct(ctx, args.distinct, rootAlias)
+    ? buildDistinctColumns(ctx, args.distinct, rootAlias)
     : undefined;
 
   // Assemble query parts
@@ -134,44 +135,4 @@ export function buildFind(
   if (args.forUpdate) parts.forUpdate = true;
 
   return adapter.assemble.select(parts);
-}
-
-/**
- * Build DISTINCT clause for find operations.
- *
- * PostgreSQL: DISTINCT ON (field1, field2, ...)
- * MySQL/SQLite: Simulated via ROW_NUMBER() in the adapter
- *
- * @param ctx - Query context
- * @param distinct - Array of field names for distinct
- * @param alias - Table alias
- * @returns SQL for DISTINCT clause
- */
-function buildDistinct(
-  ctx: QueryScope,
-  distinct: string[],
-  alias: string
-): Sql | undefined {
-  if (distinct.length === 0) return undefined;
-
-  const { adapter } = ctx;
-
-  // Validate distinct fields exist
-  const scalarFields = getScalarFieldNames(ctx.model);
-  for (const field of distinct) {
-    if (!scalarFields.includes(field)) {
-      throw new QueryEngineError(
-        `Distinct field '${field}' not found on model '${ctx.model["~"].state.name}'`
-      );
-    }
-  }
-
-  // Build column list for distinct (resolve field names to column names)
-  // The adapter will handle database-specific implementation
-  const columns = distinct.map((field) => {
-    const columnName = getColumnName(ctx.model, field);
-    return adapter.identifiers.column(alias, columnName);
-  });
-
-  return sql.join(columns, ", ");
 }

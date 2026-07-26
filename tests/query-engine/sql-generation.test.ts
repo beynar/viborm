@@ -1763,16 +1763,11 @@ describe("assembleInnerQuery helper", () => {
   const adapter = new PostgresAdapter();
 
   test("basic query: SELECT FROM WHERE", () => {
-    const result = assembleInnerQuery(
-      adapter,
-      sql`"id", "name"`,
-      sql`"users"`,
-      undefined, // no joins
-      sql`"active" = true`,
-      undefined, // no order
-      undefined, // no take
-      undefined // no skip
-    );
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`"id", "name"`,
+      from: sql`"users"`,
+      where: sql`"active" = true`,
+    });
 
     const statement = result.toStatement();
     expect(statement).toBe(
@@ -1781,48 +1776,36 @@ describe("assembleInnerQuery helper", () => {
   });
 
   test("with joins", () => {
-    const result = assembleInnerQuery(
-      adapter,
-      sql`"u"."id", "p"."title"`,
-      sql`"users" "u"`,
-      [sql`JOIN "posts" "p" ON "p"."userId" = "u"."id"`],
-      sql`1=1`,
-      undefined,
-      undefined,
-      undefined
-    );
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`"u"."id", "p"."title"`,
+      from: sql`"users" "u"`,
+      joins: [sql`JOIN "posts" "p" ON "p"."userId" = "u"."id"`],
+      where: sql`1=1`,
+    });
 
     const statement = result.toStatement();
     expect(statement).toContain('JOIN "posts" "p"');
   });
 
   test("with ORDER BY", () => {
-    const result = assembleInnerQuery(
-      adapter,
-      sql`*`,
-      sql`"users"`,
-      undefined,
-      sql`1=1`,
-      sql`"created_at" DESC`,
-      undefined,
-      undefined
-    );
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`*`,
+      from: sql`"users"`,
+      where: sql`1=1`,
+      orderBy: sql`"created_at" DESC`,
+    });
 
     const statement = result.toStatement();
     expect(statement).toContain('ORDER BY "created_at" DESC');
   });
 
   test("with LIMIT", () => {
-    const result = assembleInnerQuery(
-      adapter,
-      sql`*`,
-      sql`"users"`,
-      undefined,
-      sql`1=1`,
-      undefined,
-      10,
-      undefined
-    );
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`*`,
+      from: sql`"users"`,
+      where: sql`1=1`,
+      take: 10,
+    });
 
     const statement = result.toStatement();
     expect(statement).toContain("LIMIT");
@@ -1830,16 +1813,12 @@ describe("assembleInnerQuery helper", () => {
   });
 
   test("with OFFSET", () => {
-    const result = assembleInnerQuery(
-      adapter,
-      sql`*`,
-      sql`"users"`,
-      undefined,
-      sql`1=1`,
-      undefined,
-      undefined,
-      20
-    );
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`*`,
+      from: sql`"users"`,
+      where: sql`1=1`,
+      skip: 20,
+    });
 
     const statement = result.toStatement();
     expect(statement).toContain("OFFSET");
@@ -1847,16 +1826,15 @@ describe("assembleInnerQuery helper", () => {
   });
 
   test("full query: SELECT FROM JOIN WHERE ORDER LIMIT OFFSET", () => {
-    const result = assembleInnerQuery(
-      adapter,
-      sql`"u"."id", "u"."name"`,
-      sql`"users" "u"`,
-      [sql`LEFT JOIN "posts" "p" ON "p"."authorId" = "u"."id"`],
-      sql`"u"."active" = true`,
-      sql`"u"."name" ASC`,
-      5,
-      10
-    );
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`"u"."id", "u"."name"`,
+      from: sql`"users" "u"`,
+      joins: [sql`LEFT JOIN "posts" "p" ON "p"."authorId" = "u"."id"`],
+      where: sql`"u"."active" = true`,
+      orderBy: sql`"u"."name" ASC`,
+      take: 5,
+      skip: 10,
+    });
 
     const statement = result.toStatement();
 
@@ -1872,19 +1850,48 @@ describe("assembleInnerQuery helper", () => {
   });
 
   test("empty joins array is ignored", () => {
-    const result = assembleInnerQuery(
-      adapter,
-      sql`*`,
-      sql`"users"`,
-      [], // empty joins
-      sql`1=1`,
-      undefined,
-      undefined,
-      undefined
-    );
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`*`,
+      from: sql`"users"`,
+      joins: [], // empty joins
+      where: sql`1=1`,
+    });
 
     const statement = result.toStatement();
     expect(statement).not.toContain("JOIN");
+  });
+
+  test("distinct without an order uses PostgreSQL's DISTINCT ON", () => {
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`"payload" AS "_json"`,
+      from: sql`"posts" "t1"`,
+      where: sql`1=1`,
+      distinct: sql`"t1"."topic"`,
+      distinctColumnAliases: ["_json"],
+    });
+
+    expect(result.toStatement()).toContain('DISTINCT ON ("t1"."topic")');
+  });
+
+  test("distinct with an order uses the ROW_NUMBER partition emulation", () => {
+    const result = assembleInnerQuery(adapter, {
+      selectExpr: sql`"payload" AS "_json"`,
+      from: sql`"posts" "t1"`,
+      where: sql`1=1`,
+      orderBy: sql`"t1"."id" ASC`,
+      take: 2,
+      distinct: sql`"t1"."topic"`,
+      distinctColumnAliases: ["_json"],
+    });
+
+    const statement = result.toStatement();
+    expect(statement).toContain('PARTITION BY "t1"."topic"');
+    // the window applies to the deduplicated rows, not the raw ones
+    expect(statement).toContain('SELECT "_json" FROM (');
+    expect(statement).toContain('WHERE "_rn" = 1');
+    expect(statement.indexOf("LIMIT")).toBeGreaterThan(
+      statement.indexOf('"_rn" = 1')
+    );
   });
 });
 

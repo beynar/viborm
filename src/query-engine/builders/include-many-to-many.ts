@@ -66,16 +66,17 @@ export function buildManyToManyLateralInclude(
   const jsonColAlias = "_json";
   const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, jsonColAlias);
 
-  const innerQuery = assembleInnerQuery(
-    adapter,
-    aliasedJsonExpr,
-    fromClause,
-    innerJoins.length > 0 ? innerJoins : undefined,
-    window.where,
-    window.orderBy,
-    window.limit,
-    window.offset
-  );
+  const innerQuery = assembleInnerQuery(adapter, {
+    selectExpr: aliasedJsonExpr,
+    from: fromClause,
+    joins: innerJoins,
+    where: window.where,
+    orderBy: window.orderBy,
+    take: window.limit,
+    skip: window.offset,
+    distinct: window.distinct,
+    distinctColumnAliases: [jsonColAlias],
+  });
 
   // Wrap with aggregation inside the lateral subquery
   const innerAlias = ctx.nextAlias();
@@ -151,16 +152,17 @@ export function buildManyToManyInclude(
   const jsonColAlias = "_json";
   const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, jsonColAlias);
 
-  const innerQuery = assembleInnerQuery(
-    adapter,
-    aliasedJsonExpr,
-    fromClause,
-    window.joins.length > 0 ? window.joins : undefined,
-    window.where,
-    window.orderBy,
-    window.limit,
-    window.offset
-  );
+  const innerQuery = assembleInnerQuery(adapter, {
+    selectExpr: aliasedJsonExpr,
+    from: fromClause,
+    joins: window.joins,
+    where: window.where,
+    orderBy: window.orderBy,
+    take: window.limit,
+    skip: window.offset,
+    distinct: window.distinct,
+    distinctColumnAliases: [jsonColAlias],
+  });
 
   // Wrap with aggregation
   const subAlias = ctx.nextAlias();

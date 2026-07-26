@@ -166,12 +166,12 @@ Single compile path: [where-builder.ts](../../src/query-engine/builders/where-bu
 | `omit` (query-level + client config) | ❌ declared non-goal | model-level `.omit()` only |
 | `_count: { select: { rel: true } }`, filtered `_count` | ✅ in both select and include | `select.ts:128-133,181-189` |
 | `_count: true` shorthand | ❌ | strict object requires `select` |
-| `distinct` | 🟡 **array-only** and **findMany-only** (not `findFirst`, not `groupBy`, not nested) | `find.ts:152` |
+| `distinct` | 🟡 **array-only**; findMany + nested relation args (W3-A unit 3), not `findFirst`, not `groupBy` | `find.ts:152`, `relations/select-include.ts` |
 | `distinct` SQL strategy | ↔️ SQL-backed, not Prisma's in-memory: PG `DISTINCT ON` when no orderBy, else `ROW_NUMBER()` everywhere | `shared/select-assembly.ts:77-151` |
 | Relation args in include: `where`/`orderBy`/`take`/`skip`/`select`/`include` | ✅ (to-one correctly limited to select/include) | `relations/select-include.ts:114-185` |
 | Relation-level negative `take` | ✅ (W3-A unit 1) — same pipeline as the top level: reversed order + absolute limit in the relation subquery, logical order restored on the result | `builders/nested-read-window.ts` |
 | Relation-level `cursor` (incl. compound) | ✅ (W3-A unit 2) — the dialect-neutral cursor condition applied per parent inside the relation subquery; a cursor matching no row leaves that window empty | `builders/nested-read-window.ts`, `operations/cursor-condition.ts` |
-| Relation-level `distinct` | ❌ — rejected loudly, not ignored | `relations/select-include.ts` (strict object) |
+| Relation-level `distinct` | ✅ (W3-A unit 3) — array of related-model scalars; the relation subquery goes through the adapter's own DISTINCT assembly, so each parent's window is deduplicated in order and only then windowed by take/skip | `builders/nested-read-window.ts`, `builders/include-query.ts` |
 | `take`/negative `take`/`skip`/`cursor`/compound cursor | ✅ (top-level findMany) | `args/pagination.ts:6-17` |
 | `orderBy` object / array / asc / desc | ✅ | `orderby-builder.ts:63-109` |
 | `orderBy` nested to-one relation field | 🟡 **capped at 3 hops** (`MAX_RELATION_ORDER_DEPTH`); to-many mid-chain rejected | `relations/order-by.ts:60,117-125` |

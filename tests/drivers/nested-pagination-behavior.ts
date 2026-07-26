@@ -376,5 +376,142 @@ export function runNestedPaginationBehavior({
         expect(ids(found?.tags)).toEqual(["t2", "t3"]);
       });
     });
+
+    describe("distinct", () => {
+      test("keeps the first row of each group, per parent", async () => {
+        const authors = await client.author.findMany({
+          orderBy: { id: "asc" },
+          include: {
+            posts: { orderBy: { id: "asc" }, distinct: ["topic"] },
+          },
+        });
+
+        expect(authors.map((row) => ids(row.posts))).toEqual([
+          ["a1-p1", "a1-p3", "a1-p5"],
+          ["a2-p1", "a2-p2"],
+        ]);
+        expect(authors.map((row) => row.posts.map((p) => p.topic))).toEqual([
+          ["alpha", "beta", "gamma"],
+          ["alpha", "delta"],
+        ]);
+      });
+
+      test("honors the order when choosing the surviving row", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: { orderBy: { id: "desc" }, distinct: ["topic"] },
+          },
+        });
+
+        expect(ids(found?.posts)).toEqual(["a1-p5", "a1-p4", "a1-p2"]);
+      });
+
+      test("take windows the distinct set, not the raw rows", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: { orderBy: { id: "asc" }, distinct: ["topic"], take: 2 },
+          },
+        });
+
+        expect(ids(found?.posts)).toEqual(["a1-p1", "a1-p3"]);
+      });
+
+      test("skip windows the distinct set too", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: {
+              orderBy: { id: "asc" },
+              distinct: ["topic"],
+              take: 1,
+              skip: 1,
+            },
+          },
+        });
+
+        expect(ids(found?.posts)).toEqual(["a1-p3"]);
+      });
+
+      test("composes with a negative take", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: { orderBy: { id: "asc" }, distinct: ["topic"], take: -2 },
+          },
+        });
+
+        // distinct over the reversed order keeps p5/p4/p2; the last two of that
+        // set in logical order are p4 and p5
+        expect(ids(found?.posts)).toEqual(["a1-p4", "a1-p5"]);
+      });
+
+      test("composes with a nested where", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: {
+              where: { topic: { in: ["alpha", "beta"] } },
+              orderBy: { id: "asc" },
+              distinct: ["topic"],
+            },
+          },
+        });
+
+        expect(ids(found?.posts)).toEqual(["a1-p1", "a1-p3"]);
+      });
+
+      test("without an orderBy still deduplicates the group", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: { posts: { distinct: ["topic"] } },
+        });
+
+        expect(
+          (found?.posts ?? [])
+            .map((p) => p.topic)
+            .sort((a, b) => (a < b ? -1 : 1))
+        ).toEqual(["alpha", "beta", "gamma"]);
+      });
+
+      test("multi-field distinct groups by the combination", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: { orderBy: { id: "asc" }, distinct: ["topic", "title"] },
+          },
+        });
+
+        // every title is unique, so the combination keeps every row
+        expect(ids(found?.posts)).toEqual([
+          "a1-p1",
+          "a1-p2",
+          "a1-p3",
+          "a1-p4",
+          "a1-p5",
+        ]);
+      });
+
+      test("deduplicates a many-to-many relation through its junction", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: { tags: { orderBy: { id: "asc" }, distinct: ["label"] } },
+        });
+
+        expect(ids(found?.tags)).toEqual(["t1", "t2", "t3"]);
+      });
+
+      test("an unknown distinct field fails closed", async () => {
+        await expect(
+          client.author.findUnique({
+            where: { id: "a1" },
+            include: {
+              posts: { distinct: ["nope" as "topic"] },
+            },
+          })
+        ).rejects.toThrow();
+      });
+    });
   });
 }

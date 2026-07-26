@@ -1,6 +1,7 @@
 // Relation Select & Include Schemas
 
 import type { ModelState } from "@schema/model";
+import type { StringKeyOf } from "@schema/model/helper";
 import type { RelationState } from "@schema/relation/types";
 import {
   type PaginationSkipSchema,
@@ -10,16 +11,20 @@ import {
 } from "../model/args/pagination";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
 import v, { type V } from "../primitives/v";
-import type { GetTargetSchemas, SchemaGetter } from "./helpers";
+import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 
 // =============================================================================
 // TRANSFORM HELPERS
 // =============================================================================
 
+const getTargetState = <S extends RelationState>(
+  relationState: S
+): ModelState => relationState.getter()["~"].state as ModelState;
+
 const buildSelectionFromState = <S extends RelationState>(
   relationState: S
 ): Record<string, true> => {
-  const state = relationState.getter()["~"].state as ModelState;
+  const state = getTargetState(relationState);
   const select: Record<string, true> = {};
   const omits = new Set<string>(Object.keys(state.omit || {}));
   for (const field of Object.keys(state.scalars)) {
@@ -29,6 +34,26 @@ const buildSelectionFromState = <S extends RelationState>(
   }
   return select;
 };
+
+/**
+ * Nested `distinct`: scalar field names of the RELATED model, deduplicating
+ * that relation's ordered rows before `take`/`skip` window them (the same
+ * enum-of-scalars schema the top-level findMany args use).
+ */
+type NestedDistinctSchema<S extends RelationState> = V.Enum<
+  StringKeyOf<TargetModel<S>["~"]["state"]["scalars"]>[],
+  { array: true }
+>;
+
+const nestedDistinct = <S extends RelationState>(
+  relationState: S
+): NestedDistinctSchema<S> =>
+  v.enum(
+    Object.keys(getTargetState(relationState).scalars) as StringKeyOf<
+      TargetModel<S>["~"]["state"]["scalars"]
+    >[],
+    { array: true }
+  );
 
 type IncludeToField<Schema extends V.Object<any>> = V.Coerce<
   Schema,
@@ -115,14 +140,15 @@ export const toOneIncludeFactory = <
 
 /**
  * To-many include: true or nested
- * { where, orderBy, take, skip, cursor, select, include }
+ * { where, orderBy, take, skip, cursor, distinct, select, include }
  * `select` and `include` are mutually exclusive on the same node (Prisma parity)
  *
- * `take`/`skip`/`cursor` are the very schemas the top level uses: a negative
- * `take` is Prisma's "last N" (the relation subquery runs the reversed order
- * with an absolute limit and the parser restores the logical order), a
+ * `take`/`skip`/`cursor`/`distinct` are the very schemas the top level uses: a
+ * negative `take` is Prisma's "last N" (the relation subquery runs the reversed
+ * order with an absolute limit and the parser restores the logical order), a
  * non-integer take or a negative skip is refused with the top-level message,
- * and `cursor` is a whereUnique of the RELATED model applied per parent.
+ * `cursor` is a whereUnique of the RELATED model applied per parent, and
+ * `distinct` names scalars of the RELATED model.
  */
 export type ToManyIncludeSchema<S extends RelationState> = V.Union<
   readonly [
@@ -139,6 +165,7 @@ export type ToManyIncludeSchema<S extends RelationState> = V.Union<
         take: PaginationTakeSchema;
         skip: PaginationSkipSchema;
         cursor: () => GetTargetSchemas<S>["core"]["whereUnique"];
+        distinct: NestedDistinctSchema<S>;
         select: () => GetTargetSchemas<S>["core"]["select"];
         include: () => GetTargetSchemas<S>["core"]["include"];
       }>
@@ -165,6 +192,7 @@ export const toManyIncludeFactory = <
           take: paginationTake(),
           skip: paginationSkip(),
           cursor: () => targetSchemas().core.whereUnique,
+          distinct: nestedDistinct(state),
           select: () => targetSchemas().core.select,
           include: () => targetSchemas().core.include,
         })

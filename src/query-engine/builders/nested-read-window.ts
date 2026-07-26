@@ -17,6 +17,7 @@ import type { Sql } from "@sql";
 import { buildNormalizedOrderBy } from "../operations/cursor-order";
 import { buildFindPagination } from "../operations/find-pagination";
 import type { QueryScope } from "../types";
+import { buildDistinctColumns } from "./distinct-builder";
 import type { IncludeOptions } from "./include-query";
 import { buildOrderByParts } from "./orderby-builder";
 import { buildWhere } from "./where-builder";
@@ -29,6 +30,8 @@ export interface NestedReadWindow {
   /** Absolute row limit — a negative `take` is executed as a reversed window. */
   limit: number | undefined;
   offset: number | undefined;
+  /** DISTINCT columns, deduplicating the ordered rows before the window */
+  distinct: Sql | undefined;
 }
 
 /**
@@ -44,7 +47,7 @@ export function buildNestedReadWindow(
   baseConditions: readonly Sql[]
 ): NestedReadWindow {
   const { adapter } = ctx;
-  const { where, orderBy, cursor, take, skip } = options;
+  const { where, orderBy, cursor, take, skip, distinct } = options;
   const pagination = buildFindPagination(
     ctx,
     { orderBy, cursor, skip },
@@ -78,5 +81,10 @@ export function buildNestedReadWindow(
     joins: orderByParts.joins,
     limit: take === undefined ? undefined : Math.abs(take),
     offset: skip,
+    // Prisma order of application: distinct keeps the first row of each group in
+    // the ordered rows, then take/skip window the deduplicated set — which is
+    // what the adapter's DISTINCT assembly does (LIMIT/OFFSET are applied to the
+    // outer, already-deduplicated query).
+    distinct: distinct ? buildDistinctColumns(ctx, distinct, alias) : undefined,
   };
 }

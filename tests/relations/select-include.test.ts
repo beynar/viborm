@@ -473,6 +473,21 @@ describe("ToMany Include (Author.posts)", () => {
       }
     });
 
+    test("runtime: accepts distinct over related scalar fields", () => {
+      const input = { distinct: ["title"] };
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(output(result.value).distinct).toEqual(["title"]);
+      }
+    });
+
+    test("runtime: rejects a distinct field the related model does not have", () => {
+      const input = { distinct: ["nope"] };
+      const result = parse(schema, input);
+      expect(result.issues).toBeDefined();
+    });
+
     // Retargeted (W3-A unit 1): nested `take` is now the top-level take schema —
     // a negative value is Prisma's "last N", a non-integer is still refused.
     test("runtime: accepts negative take - Prisma 'last N' semantics", () => {
