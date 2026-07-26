@@ -667,6 +667,144 @@ export function runPrismaParityBehavior({
           { authorId: "u2", published: true, _sum: { views: 200 } },
         ]);
       });
+
+      // Grouped by authorId the seed yields exactly two groups, computed by
+      // hand: u1 = {p1 (100 views), p2 (50)} -> _count 2, _sum 150;
+      // u2 = {p3 (200)} -> _count 1, _sum 200. Every combinator below is
+      // asserted against those two groups, and each arm is chosen to match
+      // exactly ONE of them so AND/OR/NOT cannot be confused with each other.
+      describe("having boolean combinators", () => {
+        // matches u1 only
+        const countIsTwo = { id: { _count: { equals: 2 } } };
+        // matches u2 only
+        const sumIsTwoHundred = { views: { _sum: { equals: 200 } } };
+
+        test("OR of two single-group conditions matches both groups", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            _sum: { views: true },
+            having: { OR: [countIsTwo, sumIsTwoHundred] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([
+            { authorId: "u1", _count: 2, _sum: { views: 150 } },
+            { authorId: "u2", _count: 1, _sum: { views: 200 } },
+          ]);
+        });
+
+        test("OR with a single unmatchable arm keeps only the other", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { OR: [countIsTwo, { views: { _sum: { equals: 9999 } } }] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(["u1"]);
+        });
+
+        test("AND of the same two conditions matches nothing", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { AND: [countIsTwo, sumIsTwoHundred] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("AND accepts a bare object as well as an array", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { AND: countIsTwo },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u1", _count: 2 }]);
+        });
+
+        test("AND nested inside OR evaluates the inner conjunction", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _sum: { views: true },
+            having: {
+              OR: [
+                // u1: _count 2 AND _sum 150 -> true
+                { AND: [countIsTwo, { views: { _sum: { equals: 150 } } }] },
+                // u2: _sum 200 -> true
+                sumIsTwoHundred,
+              ],
+            },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([
+            { authorId: "u1", _sum: { views: 150 } },
+            { authorId: "u2", _sum: { views: 200 } },
+          ]);
+        });
+
+        test("AND nested inside OR fails the arm when one conjunct misses", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            // u1 satisfies _count 2 but not _sum 200; u2 the reverse
+            having: { OR: [{ AND: [countIsTwo, sumIsTwoHundred] }] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("NOT of an aggregate condition selects the complement", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { NOT: countIsTwo },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u2", _count: 1 }]);
+        });
+
+        test("NOT accepts an array and conjoins before negating", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            // NOT(_count = 2 AND _sum = 150) -> u1 out, u2 in
+            having: {
+              NOT: [countIsTwo, { views: { _sum: { equals: 150 } } }],
+            },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u2", _count: 1 }]);
+        });
+
+        test("NOT inside OR restores the excluded group", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { OR: [{ NOT: countIsTwo }, countIsTwo] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(["u1", "u2"]);
+        });
+
+        test("a combinator conjoins with sibling field-keyed conditions", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            // authorId is in `by`, so it filters directly; ANDed with the OR
+            having: {
+              authorId: "u2",
+              OR: [countIsTwo, sumIsTwoHundred],
+            },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(["u2"]);
+        });
+
+        test("a field-keyed condition inside an OR arm still requires `by`", async () => {
+          await expect(
+            requireClient(client).post.groupBy({
+              by: ["authorId"],
+              having: { OR: [{ title: "Post 1" }] },
+            })
+          ).rejects.toThrow(/must be included in 'by'/);
+        });
+      });
     });
   });
 }

@@ -256,8 +256,24 @@ export type HavingSchemaEntries<F extends ScalarFilterBundle> = {
   >;
 };
 
+/**
+ * Boolean combinators, mirroring Prisma's `<Model>ScalarWhereWithAggregatesInput`
+ * and viborm's own `WhereSchema`: `AND`/`NOT` take an object or an array, `OR`
+ * takes an array. Thunks defer the self-reference (same recursion device the
+ * where schema uses).
+ */
+export type HavingLogicalEntries<F extends ScalarFilterBundle> = {
+  AND: () => V.Optional<
+    V.Union<readonly [HavingSchema<F>, V.Array<HavingSchema<F>>]>
+  >;
+  OR: () => V.Optional<V.Array<HavingSchema<F>>>;
+  NOT: () => V.Optional<
+    V.Union<readonly [HavingSchema<F>, V.Array<HavingSchema<F>>]>
+  >;
+};
+
 export type HavingSchema<F extends ScalarFilterBundle> = V.Object<
-  HavingSchemaEntries<F>,
+  HavingLogicalEntries<F> & HavingSchemaEntries<F>,
   { optional: true }
 >;
 
@@ -291,13 +307,31 @@ const havingScalarSchema = v.object(
 export const getHavingSchema = <F extends ScalarFilterBundle>(
   scalarSchemas: F
 ): HavingSchema<F> => {
-  const entries: Record<string, unknown> = {};
+  const entries: Record<string, V.Schema> = {};
 
   for (const [name, schemas] of Object.entries(scalarSchemas.scalars)) {
-    entries[name] = v.union([havingScalarSchema, schemas.filter]);
+    entries[name] = v.union([havingScalarSchema, schemas.filter]) as V.Schema;
   }
 
-  return v.object(entries, { optional: true }) as HavingSchema<F>;
+  // AND/OR/NOT recurse into the same schema through thunks — `.extend` returns
+  // a NEW schema, so the thunks must close over the FINAL `havingSchema` const
+  // (identical device to `getWhereSchema`, scalar entries last so a scalar
+  // literally named `AND` still wins, exactly as it does in `where`). The engine
+  // already builds all three combinators (`groupby-having.ts:17-36`); these
+  // entries are what makes them reachable instead of dying on the strict-object
+  // "Unknown key: OR".
+  const havingSchema = v
+    .object(
+      {
+        AND: () => v.optional(v.union([havingSchema, v.array(havingSchema)])),
+        OR: () => v.optional(v.array(havingSchema)),
+        NOT: () => v.optional(v.union([havingSchema, v.array(havingSchema)])),
+      },
+      { optional: true }
+    )
+    .extend(entries) as unknown as HavingSchema<F>;
+
+  return havingSchema;
 };
 
 // =============================================================================

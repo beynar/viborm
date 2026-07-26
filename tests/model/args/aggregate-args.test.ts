@@ -462,3 +462,124 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     }
   });
 });
+
+// =============================================================================
+// GROUP BY HAVING - BOOLEAN COMBINATORS
+// =============================================================================
+
+describe("GroupBy Args - having AND/OR/NOT", () => {
+  const schema = simpleSchemas.args.groupBy;
+
+  test("type: accepts OR of aggregate conditions", () => {
+    type Input = InferInput<typeof simpleSchemas.args.groupBy>;
+    expectTypeOf<{
+      by: "active";
+      having: { OR: [{ age: { _avg: { gte: number } } }] };
+    }>().toMatchTypeOf<Input>();
+  });
+
+  test("type: accepts NOT as a bare object", () => {
+    type Input = InferInput<typeof simpleSchemas.args.groupBy>;
+    expectTypeOf<{
+      by: "active";
+      having: { NOT: { age: { _avg: { gte: number } } } };
+    }>().toMatchTypeOf<Input>();
+  });
+
+  test("runtime: accepts OR of aggregate conditions", () => {
+    const result = parse(schema, {
+      by: "active",
+      having: {
+        OR: [{ age: { _avg: { gte: 18 } } }, { name: { _count: { gt: 2 } } }],
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts AND as an array and as a bare object", () => {
+    const asArray = parse(schema, {
+      by: "active",
+      having: { AND: [{ age: { _avg: { gte: 18 } } }] },
+    });
+    expect(asArray.issues).toBeUndefined();
+
+    const asObject = parse(schema, {
+      by: "active",
+      having: { AND: { age: { _avg: { gte: 18 } } } },
+    });
+    expect(asObject.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts NOT as an array and as a bare object", () => {
+    const asArray = parse(schema, {
+      by: "active",
+      having: { NOT: [{ age: { _avg: { gte: 18 } } }] },
+    });
+    expect(asArray.issues).toBeUndefined();
+
+    const asObject = parse(schema, {
+      by: "active",
+      having: { NOT: { age: { _avg: { gte: 18 } } } },
+    });
+    expect(asObject.issues).toBeUndefined();
+  });
+
+  test("runtime: accepts AND nested inside OR (recursion)", () => {
+    const result = parse(schema, {
+      by: "active",
+      having: {
+        OR: [
+          {
+            AND: [
+              { age: { _avg: { gte: 18 } } },
+              { name: { _count: { gt: 2 } } },
+            ],
+          },
+          { NOT: { age: { _min: { equals: null } } } },
+        ],
+      },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: rejects OR that is not an array", () => {
+    const result = parse(schema, {
+      by: "active",
+      having: { OR: { age: { _avg: { gte: 18 } } } },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: rejects an unknown key inside an OR arm", () => {
+    const result = parse(schema, {
+      by: "active",
+      having: { OR: [{ nope: { _avg: { gte: 18 } } }] },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: scalar entries still validate alongside combinators", () => {
+    const result = parse(schema, {
+      by: "active",
+      having: { nope: { _count: { gt: 1 } } },
+    });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("output: preserves the combinator tree", () => {
+    const result = parse(schema, {
+      by: "active",
+      having: {
+        OR: [{ age: { _avg: { gte: 18 } } }, { name: { _count: { gt: 2 } } }],
+        NOT: { age: { _max: { lt: 99 } } },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value.having).toEqual({
+        OR: [{ age: { _avg: { gte: 18 } } }, { name: { _count: { gt: 2 } } }],
+        NOT: { age: { _max: { lt: 99 } } },
+      });
+    }
+  });
+});
