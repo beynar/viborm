@@ -70,8 +70,9 @@ change the set in between.
 <Callout type="info">
   Prisma has no returning `deleteMany` at all; this is an extension, spelled the
   same way as [`createMany`](/docs/client/create-many) and
-  [`updateMany`](/docs/client/update-many). `include` is not accepted — a deleted
-  row has no relations left to join.
+  [`updateMany`](/docs/client/update-many) — and restricted the same way: the
+  `select` takes **scalar fields only**, and a relation key inside it, `_count`,
+  or an `include` is refused with a typed error before anything is deleted.
 </Callout>
 
 ## Options
@@ -79,6 +80,7 @@ change the set in between.
 ```ts
 await client.user.deleteMany({
   where: { ... },       // Optional: filter (all rows if empty)
-  select: { ... },      // Optional: return the deleted rows instead of { count }
+  select: { ... },      // Optional (scalar fields only): return the deleted rows
+                        // instead of { count }
 });
 ```

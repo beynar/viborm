@@ -18,12 +18,12 @@ Everything in the API works the same on every database unless noted under [Datab
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
-| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. Relation nesting isn't supported inside `createMany`. |
+| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`). Relation nesting isn't supported inside `createMany`. |
 | `update` | ✅ | Requires a unique `where` and throws when missing. |
-| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. |
+| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. |
 | `delete` | ✅ | Requires a unique `where` and throws when missing. |
-| `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select`. Prisma has no returning `deleteMany`. |
+| `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. |
 | `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. |
 | `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
 | `$queryRaw` / `$executeRaw` | Different | Take an explicit `(sql, params)` / `Sql` fragment rather than Prisma's tagged template. See [Raw SQL differences](#type-and-api-differences). |
@@ -102,6 +102,6 @@ package does not rewrite deployed tables.
 | Type generation | Types are inferred from your schema — there's no `prisma generate` step. |
 | Prisma helper types | VibORM doesn't expose `XOR`, `Exact`, `SelectSubset`, or generated model helper types. |
 | Create/update inputs | A single blended input surface rather than Prisma's separate checked/unchecked variants. |
-| Bulk writes that return rows | Implicit: `createMany` / `updateMany` return rows when the call carries a `select`, and `{ count }` otherwise. Prisma's `createManyAndReturn` / `updateManyAndReturn` methods do not exist — migrate `createManyAndReturn(args)` to `createMany({ ...args, select })`, same for `updateManyAndReturn`. `deleteMany` takes `select` too, which Prisma has no form of. `include` is rejected on all three (as it is on Prisma's `updateManyAndReturn`). |
+| Bulk writes that return rows | Implicit: `createMany` / `updateMany` return rows when the call carries a `select`, and `{ count }` otherwise. Prisma's `createManyAndReturn` / `updateManyAndReturn` methods do not exist — migrate `createManyAndReturn(args)` to `createMany({ ...args, select })`, same for `updateManyAndReturn`. `deleteMany` takes `select` too, which Prisma has no form of. On all three the `select` is scalar-only and `include` is rejected: viborm does not project relations into a bulk write's returned rows, and refuses rather than answer wrongly. Prisma does accept relations on `createManyAndReturn`/`updateManyAndReturn`; read them in a separate query instead. |
 | `omit` | Model-level omit only; no per-query `omit`. |
 | Raw SQL | `$queryRaw(sql, params)` and `$executeRaw(sqlFragment)` use explicit shapes, not tagged templates, and return a `QueryResult`. |

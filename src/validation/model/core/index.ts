@@ -35,8 +35,10 @@ export {
 // Select/Include exports
 export {
   getIncludeSchema,
+  getScalarSelectSchema,
   getSelectSchema,
   type IncludeSchema,
+  type ScalarSelectSchema,
   type SelectSchema,
 } from "./select";
 // Update exports
@@ -88,8 +90,10 @@ import {
 import { getOrderBySchema, type OrderBySchema } from "./orderby";
 import {
   getIncludeSchema,
+  getScalarSelectSchema,
   getSelectSchema,
   type IncludeSchema,
+  type ScalarSelectSchema,
   type SelectSchema,
 } from "./select";
 import {
@@ -127,6 +131,8 @@ export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   create: CreateSchema<M, F>;
   update: UpdateSchema<M, F>;
   select: SelectSchema<M, F>;
+  /** The scalar-only projection used by the bulk writes (see `ScalarSelectSchema`). */
+  scalarSelect: ScalarSelectSchema<M>;
   include: IncludeSchema<F>;
   orderBy: OrderBySchema<M, F>;
 };
@@ -154,6 +160,7 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     create: () => getCreateSchema(model, fieldSchemas),
     update: () => getUpdateSchema<M, F>(fieldSchemas),
     select: () => getSelectSchema(model, fieldSchemas),
+    scalarSelect: () => getScalarSelectSchema(model),
     include: () => getIncludeSchema(model, fieldSchemas),
     orderBy: () => getOrderBySchema<M, F>(model, fieldSchemas),
   });

@@ -8,7 +8,7 @@ import type { AnyModel } from "@schema/model";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
-import { rejectInclude } from "./reject-include";
+import { restrictToScalarProjection } from "./bulk-write-projection";
 import { rejectSelectInclude } from "./select-include-exclusivity";
 // =============================================================================
 // CREATE ARGS
@@ -54,9 +54,12 @@ export const getCreateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  *
  * IMPLICIT RETURNING (the replacement for the removed `createManyAndReturn`):
  * `select` is optional, and its PRESENCE is what makes the operation return the
- * created rows instead of `{ count }`. `include` is rejected with a message
- * naming the alternative — the rows come out of the write statement, so no
- * relation can be joined into them.
+ * created rows instead of `{ count }`.
+ *
+ * That `select` is SCALAR-ONLY (`core.scalarSelect`), and `include` is refused
+ * outright: viborm does not project relations into a bulk write's returned rows.
+ * See `restrictToScalarProjection` for why — it replaces a projection that
+ * returned silently wrong values — and for the message both refusals carry.
  */
 export type CreateManyArgs<
   M extends AnyModel,
@@ -65,7 +68,7 @@ export type CreateManyArgs<
   {
     data: V.Array<CoreSchemas<M, F>["scalarCreate"]>;
     skipDuplicates: V.Boolean<{ optional: true }>;
-    select: CoreSchemas<M, F>["select"];
+    select: CoreSchemas<M, F>["scalarSelect"];
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
@@ -74,18 +77,20 @@ export const getCreateManyArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 >(
+  model: M,
   core: CoreSchemas<M, F>
 ): CreateManyArgs<M, F> => {
-  return rejectInclude(
+  return restrictToScalarProjection(
     v.object(
       {
         data: v.lazyRef(() => v.array(core.scalarCreate)),
         skipDuplicates: v.boolean({ optional: true }),
-        select: v.lazyRef(() => core.select),
+        select: v.lazyRef(() => core.scalarSelect),
         cache: cacheInvalidationSchema,
       },
       { atLeast: ["data"] }
     ),
+    model,
     "createMany"
   );
 };
@@ -143,9 +148,9 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  *
  * IMPLICIT RETURNING (the replacement for the removed `updateManyAndReturn`):
  * `select` is optional, and its PRESENCE is what makes the operation return the
- * updated rows instead of `{ count }`. `include` is rejected with a message
- * naming the alternative — the rows come out of the write statement, so no
- * relation can be joined into them.
+ * updated rows instead of `{ count }`. That `select` is SCALAR-ONLY and
+ * `include` is refused, exactly as on `createMany` (see
+ * `restrictToScalarProjection`).
  */
 export type UpdateManyArgs<
   M extends AnyModel,
@@ -154,7 +159,7 @@ export type UpdateManyArgs<
   {
     where: CoreSchemas<M, F>["where"];
     data: CoreSchemas<M, F>["scalarUpdate"];
-    select: CoreSchemas<M, F>["select"];
+    select: CoreSchemas<M, F>["scalarSelect"];
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
@@ -163,18 +168,20 @@ export const getUpdateManyArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 >(
+  model: M,
   core: CoreSchemas<M, F>
 ): UpdateManyArgs<M, F> => {
-  return rejectInclude(
+  return restrictToScalarProjection(
     v.object(
       {
         where: v.lazyRef(() => core.where),
         data: v.lazyRef(() => core.scalarUpdate),
-        select: v.lazyRef(() => core.select),
+        select: v.lazyRef(() => core.scalarSelect),
         cache: cacheInvalidationSchema,
       },
       { atLeast: ["data"] }
     ),
+    model,
     "updateMany"
   );
 };
@@ -223,8 +230,9 @@ export const getDeleteArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  *
  * IMPLICIT RETURNING, extended past Prisma (which has no returning `deleteMany`
  * at all): `select` is optional, and its PRESENCE makes the operation return the
- * deleted rows instead of `{ count }`. `include` is rejected for the same reason
- * as the other bulk writes.
+ * deleted rows instead of `{ count }`. That `select` is SCALAR-ONLY and
+ * `include` is refused, for the same reason as the other bulk writes (see
+ * `restrictToScalarProjection`).
  */
 export type DeleteManyArgs<
   M extends AnyModel,
@@ -232,7 +240,7 @@ export type DeleteManyArgs<
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
-    select: CoreSchemas<M, F>["select"];
+    select: CoreSchemas<M, F>["scalarSelect"];
     cache: CacheInvalidationSchema;
   },
   { optional: true }
@@ -241,17 +249,19 @@ export const getDeleteManyArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 >(
+  model: M,
   core: CoreSchemas<M, F>
 ): DeleteManyArgs<M, F> => {
-  return rejectInclude(
+  return restrictToScalarProjection(
     v.object(
       {
         where: v.lazyRef(() => core.where),
-        select: v.lazyRef(() => core.select),
+        select: v.lazyRef(() => core.scalarSelect),
         cache: cacheInvalidationSchema,
       },
       { optional: true }
     ),
+    model,
     "deleteMany"
   );
 };

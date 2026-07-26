@@ -59,9 +59,11 @@ const users = await client.user.createMany({
 
 <Callout type="info">
   There is no separate `createManyAndReturn` method (Prisma has one). Passing
-  `select` **is** the returning form. `include` is not accepted: the rows come
-  straight out of the write statement, so a relation cannot be joined into them —
-  read relations in a follow-up query.
+  `select` **is** the returning form. That `select` takes **scalar fields only**:
+  a relation key inside it, `_count`, and `include` are all refused with a typed
+  error before anything is written. Read relations in a follow-up query. (Prisma
+  divergence, deliberate: Prisma's `createManyAndReturn` does accept relations
+  there.)
 </Callout>
 
 `select` and `skipDuplicates` can only be combined on a database with
@@ -76,6 +78,7 @@ drop `skipDuplicates`.
 await client.user.createMany({
   data: [{ ... }],      // Required: array of records
   skipDuplicates: true, // Optional: skip duplicate-key conflicts
-  select: { ... },      // Optional: return the created rows instead of { count }
+  select: { ... },      // Optional (scalar fields only): return the created rows
+                        // instead of { count }
 });
 ```

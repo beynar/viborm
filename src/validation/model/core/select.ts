@@ -148,15 +148,15 @@ export type SelectSchema<
     }
 >;
 
-export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
-  model: M,
-  fieldSchemas: F
-): SelectSchema<M, F> => {
+/** The scalar half of a select schema, shared by both factories below. */
+const getScalarSelectEntries = <M extends AnyModel>(model: M) => {
   // Scalar fields: boolean selection, plus vector-only computed distance select
   const vectorScalarKeys: VectorScalarKeys<M>[] = [];
   const nonVectorScalarKeys: NonVectorScalarKeys<M>[] = [];
 
-  const scalarKeys = Object.keys(model["~"].state.scalars) as ModelScalarKey<M>[];
+  const scalarKeys = Object.keys(
+    model["~"].state.scalars
+  ) as ModelScalarKey<M>[];
   for (const fieldName of scalarKeys) {
     const scalar = model["~"].state.scalars[fieldName];
     if (scalar["~"].state.type === "vector") {
@@ -175,6 +175,45 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     typeof vectorScalarSelectSchema
   >(vectorScalarKeys, vectorScalarSelectSchema);
 
+  return { ...scalarEntries.entries, ...vectorEntries.entries };
+};
+
+/**
+ * The SCALAR-ONLY projection: {@link SelectSchema} without relation keys and
+ * without `_count`.
+ *
+ * This is the projection of a bulk write (`createMany` / `updateMany` /
+ * `deleteMany` with a `select`). Those rows come out of the write statement's
+ * `RETURNING` clause — an expression list with no table alias to correlate
+ * against — so a relation subquery embedded there binds its outer column
+ * reference by NAME and is silently captured by the inner table whenever the two
+ * share a column name. The observable result was wrong data, not an error: a
+ * to-many relation always came back `[]`, and a self-referencing to-one came
+ * back `null`, while the identical projection through `findMany` returned the
+ * real rows. Refusing the key is the fail-closed answer; read relations in a
+ * separate query, which is what the underlying implementation would have to do
+ * anyway.
+ *
+ * Prisma divergence, deliberate: Prisma's `createManyAndReturn` /
+ * `updateManyAndReturn` DO accept relations here — its generator emits dedicated
+ * `<Model>SelectCreateManyAndReturn` / `<Model>IncludeCreateManyAndReturn` types
+ * (prisma 6.8.2, `prisma-client/generator-build`, `Model.argsTypes`).
+ */
+export type ScalarSelectSchema<M extends AnyModel> = V.Object<
+  V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
+    V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"]
+>;
+
+export const getScalarSelectSchema = <M extends AnyModel>(
+  model: M
+): ScalarSelectSchema<M> => v.object(getScalarSelectEntries(model));
+
+export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  model: M,
+  fieldSchemas: F
+): SelectSchema<M, F> => {
+  const scalarEntries = getScalarSelectEntries(model);
+
   // Relations: use relation's select schema (supports boolean or nested)
   const relationEntries = v.fromObject<F["relations"], "select">(
     fieldSchemas.relations,
@@ -182,8 +221,7 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   );
 
   return v.object({
-    ...scalarEntries.entries,
-    ...vectorEntries.entries,
+    ...scalarEntries,
     ...relationEntries.entries,
     // Accepts `true` (count every to-many relation) or the explicit
     // { select: { <relation>: true | { where } } } object.

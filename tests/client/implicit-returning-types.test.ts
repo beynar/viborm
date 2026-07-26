@@ -347,3 +347,47 @@ describe("the discriminant at a real call site", () => {
     >().toEqualTypeOf<{ count: number }>();
   });
 });
+
+/**
+ * The bulk-write `select` is SCALAR-ONLY: it binds to `core.scalarSelect`, not
+ * `core.select`. Relations — and the relation-derived `_count` — are not keys of
+ * it on any of the three families. The runtime half of this contract (a
+ * ValidationError naming the offending key, in place of the wrong data the
+ * projection used to return) lives in
+ * tests/drivers/implicit-returning-behavior.ts.
+ */
+describe("a bulk write's select is scalar-only", () => {
+  type BulkSelectKeys<O extends "createMany" | "updateMany" | "deleteMany"> =
+    keyof NonNullable<NonNullable<OperationPayload<O, UserModel>>["select"]>;
+
+  test("createMany select carries no relation key and no _count", () => {
+    expectTypeOf<
+      Extract<BulkSelectKeys<"createMany">, "posts" | "profile" | "_count">
+    >().toEqualTypeOf<never>();
+    // …and the scalars really are there, so the assertion above is a narrowing
+    // rather than a vacuous claim about an empty key set.
+    expectTypeOf<
+      Extract<BulkSelectKeys<"createMany">, "name">
+    >().toEqualTypeOf<"name">();
+  });
+
+  test("updateMany and deleteMany agree", () => {
+    expectTypeOf<
+      Extract<BulkSelectKeys<"updateMany">, "posts" | "profile" | "_count">
+    >().toEqualTypeOf<never>();
+    expectTypeOf<
+      Extract<BulkSelectKeys<"deleteMany">, "posts" | "profile" | "_count">
+    >().toEqualTypeOf<never>();
+    expectTypeOf<
+      Extract<BulkSelectKeys<"deleteMany">, "name">
+    >().toEqualTypeOf<"name">();
+  });
+
+  test("a read still projects relations — the restriction is bulk-write-only", () => {
+    type FindSelectKeys = keyof NonNullable<
+      NonNullable<OperationPayload<"findMany", UserModel>>["select"]
+    >;
+    expectTypeOf<Extract<FindSelectKeys, "posts">>().toEqualTypeOf<"posts">();
+    expectTypeOf<Extract<FindSelectKeys, "_count">>().toEqualTypeOf<"_count">();
+  });
+});

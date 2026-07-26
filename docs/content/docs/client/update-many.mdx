@@ -57,9 +57,11 @@ returns the new identity, not the old one.
 
 <Callout type="info">
   There is no separate `updateManyAndReturn` method (Prisma has one). Passing
-  `select` **is** the returning form. `include` is not accepted: the rows come
-  straight out of the write statement, so a relation cannot be joined into them —
-  read relations in a follow-up query.
+  `select` **is** the returning form. That `select` takes **scalar fields only**:
+  a relation key inside it, `_count`, and `include` are all refused with a typed
+  error before the update runs. Read relations in a follow-up query. (Prisma
+  divergence, deliberate: Prisma's `updateManyAndReturn` does accept relations
+  there.)
 </Callout>
 
 ## Options
@@ -68,6 +70,7 @@ returns the new identity, not the old one.
 await client.user.updateMany({
   where: { ... },       // Optional: filter (all rows if empty)
   data: { ... },        // Required: fields to update
-  select: { ... },      // Optional: return the updated rows instead of { count }
+  select: { ... },      // Optional (scalar fields only): return the updated rows
+                        // instead of { count }
 });
 ```

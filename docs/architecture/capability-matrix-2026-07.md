@@ -108,10 +108,10 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 | `findMany` | ✅ | `find.ts:107-157` |
 | `create` | ✅ | `mutation.ts:19-45`; `CreateOperation.ts` |
 | `createMany` (+`skipDuplicates`) | ✅ | `mutation.ts:54-79` |
-| `createManyAndReturn` | 🟡 `select` only, **no `include`**; `+skipDuplicates` refused on non-returning drivers | `mutation.ts:90-117`; [ManyAndReturnOperation.ts:272](../../src/query-engine-v2/ManyAndReturnOperation.ts:272) |
+| ~~`createManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `createMany` with a `select` IS the returning form. That `select` is **scalar-only** — a relation key, `_count`, or `include` is refused at the parse boundary (W3 fix round: the projection used to be accepted and answered with wrong data). `+skipDuplicates` still refused on non-returning drivers | `mutation.ts` `getCreateManyArgs`; `args/bulk-write-projection.ts`; `ManyAndReturnOperation.ts` |
 | `update` | ✅ unique-`where` enforced | `mutation.ts:126-155` |
 | `updateMany` | 🟡 **no `limit`** (Prisma 6.x) — **and see defect 1** | `mutation.ts:164-189` |
-| `updateManyAndReturn` | 🟡 no `limit`, no `include` — **and see defect 1** | `mutation.ts:200-227`. (`README.md:39` claims it doesn't exist — stale.) |
+| ~~`updateManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `updateMany` with a `select`. Same scalar-only projection as `createMany`; still no `limit`. `deleteMany` with a `select` is the same shape, past Prisma, which has no returning `deleteMany` | `mutation.ts` `getUpdateManyArgs` / `getDeleteManyArgs`; `args/bulk-write-projection.ts` |
 | `upsert` | ✅ **+ superset** (`targetWhere`/`setWhere`) | `mutation.ts:309-346`; probe-first, not `ON CONFLICT` ([UpsertOperation.ts:79](../../src/query-engine-v2/UpsertOperation.ts:79)) |
 | `delete` | ✅ unique-`where` enforced | `mutation.ts:236-262` |
 | `deleteMany` | 🟡 no `limit` | `mutation.ts:271-294` |
@@ -575,7 +575,7 @@ But **73 comments across `src/` still say "routes to V1"**. See §0.2.
 
 **A8. `createMany.data` cannot nest relations.** Parity.
 
-**A9. `include` not allowed on `createManyAndReturn`/`updateManyAndReturn`.** Rows come back via `RETURNING`. Parity.
+**A9. No relation projection on a bulk write's returned rows** — neither `include` nor a relation key (or `_count`) inside `select`, on `createMany` / `updateMany` / `deleteMany`. DIVERGENCE, deliberate (W3 fix round): Prisma's `createManyAndReturn`/`updateManyAndReturn` do accept relations there (its generator emits `<Model>SelectCreateManyAndReturn` / `<Model>IncludeCreateManyAndReturn`). viborm refuses instead, because the projection it had was unsound — a relation subquery in a `RETURNING` list has no alias to correlate against, so it bound by name and was captured by the inner table: every to-many came back `[]`, a self-referencing to-one came back `null`, while the same projection through `findMany` returned the real rows. Read relations in a separate query. (`args/bulk-write-projection.ts`.)
 
 **A10. Relation `orderBy` supports only `_count`.** Parity, but viborm additionally rejects to-one relation ordering combined with cursor pagination.
 

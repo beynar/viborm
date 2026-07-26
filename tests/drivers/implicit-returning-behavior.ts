@@ -187,6 +187,124 @@ export function runImplicitReturningBehavior({
       expect(rows.map((r) => r.name).sort()).toEqual(["Alpha", "Beta"]);
     });
 
+    /**
+     * A bulk write's `select` is SCALAR-ONLY, on every driver, and both
+     * spellings of "give me a relation too" are refused at the parse boundary
+     * BEFORE anything is written.
+     *
+     * This is the fail-closed replacement for a projection that used to be
+     * accepted and answered with wrong data: a relation embedded in a
+     * `RETURNING` list has no alias to correlate against, so a to-many always
+     * came back `[]` and a self-referencing to-one came back `null`, while the
+     * same projection through `findMany` returned the real rows. The refusal is
+     * a ValidationError, so the write does not happen either.
+     */
+    test("a relation in a bulk write's select is refused, not silently emptied", async () => {
+      await client!.warehouse.create({ data: { id: "w1" } });
+
+      // Spelled through the untyped seam: nested excess-property checking does
+      // not fire through the client's generic signature when a valid sibling key
+      // is present (the same pre-existing TS limitation noted in
+      // tests/client/operations.test.ts). The type-level exclusion is asserted
+      // directly in tests/client/implicit-returning-types.test.ts; this test is
+      // about the RUNTIME parse boundary, which is the enforced one.
+      const untyped = client as unknown as Record<
+        string,
+        Record<string, (args: Record<string, unknown>) => Promise<unknown>>
+      >;
+      const refusals: (() => Promise<unknown>)[] = [
+        () =>
+          untyped.inventory!.createMany!({
+            data: [{ id: "i1", warehouseId: "w1" }],
+            select: { id: true, warehouse: { select: { id: true } } },
+          }),
+        () =>
+          untyped.inventory!.updateMany!({
+            where: {},
+            data: { warehouseId: "w1" },
+            select: { id: true, warehouse: true },
+          }),
+        () =>
+          untyped.warehouse!.deleteMany!({
+            where: {},
+            select: { id: true, inventory: { select: { id: true } } },
+          }),
+        () =>
+          untyped.warehouse!.updateMany!({
+            where: {},
+            data: { id: "w1" },
+            select: { id: true, _count: true },
+          }),
+      ];
+
+      for (const call of refusals) {
+        let thrown: unknown;
+        try {
+          await call();
+        } catch (error) {
+          thrown = error;
+        }
+        const message = (thrown as Error | undefined)?.message ?? "";
+        expect(message).toContain("is not supported on");
+        expect(message).toContain("Read the relation in a separate query.");
+      }
+
+      // Nothing was written, and the warehouse is still there: each refusal
+      // happened at the parse boundary.
+      expect(await client!.inventory.count()).toBe(0);
+      expect(await client!.warehouse.count()).toBe(1);
+
+      // The scalar projection of the same operations still works.
+      expect(
+        await client!.inventory.createMany({
+          data: [{ id: "i1", warehouseId: "w1" }],
+          select: { id: true, warehouseId: true },
+        })
+      ).toEqual([{ id: "i1", warehouseId: "w1" }]);
+    });
+
+    /**
+     * The `include` spelling, refused with a message that names the alternative.
+     * The message must NOT be the one the W3 wave shipped ("relations cannot be
+     * joined in" was offered as a property of the write statement, which was not
+     * the real reason and read as a capability claim); it points at a separate
+     * query, which is what the surface actually requires.
+     */
+    test("include is refused with a message that names the alternative", async () => {
+      const untyped = client as unknown as Record<
+        string,
+        Record<string, (args: Record<string, unknown>) => Promise<unknown>>
+      >;
+      for (const call of [
+        () =>
+          untyped.gadget!.createMany!({
+            data: [{ id: "g1", code: "c1", name: "A" }],
+            include: { nothing: true },
+          }),
+        () =>
+          untyped.gadget!.updateMany!({
+            where: {},
+            data: { name: "A" },
+            include: { nothing: true },
+          }),
+        () =>
+          untyped.gadget!.deleteMany!({
+            where: {},
+            include: { nothing: true },
+          }),
+      ]) {
+        let thrown: unknown;
+        try {
+          await call();
+        } catch (error) {
+          thrown = error;
+        }
+        const message = (thrown as Error | undefined)?.message ?? "";
+        expect(message).toContain("'include' is not supported on");
+        expect(message).toContain("read relations in a separate query");
+      }
+    });
+
     test("createMany with select assigns auto-increment ids", async () => {
       const rows = await client!.ticket.createMany({
         data: [{ label: "one" }, { label: "two" }, { label: "three" }],
