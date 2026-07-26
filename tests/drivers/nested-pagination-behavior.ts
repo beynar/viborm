@@ -129,11 +129,16 @@ export function runNestedPaginationBehavior({
         data: {
           id: "a1",
           name: "Ada",
+          // t1 and t2 DELIBERATELY share a label: it is the only duplicate in
+          // the m2m fixture, and without it the junction `distinct` test below
+          // has nothing to falsify (three distinct labels keep three rows, which
+          // is also what no distinct at all returns). The sibling m2m tests key
+          // on `id`, never on `label`, so they are unaffected.
           tags: {
             create: [
-              { id: "t1", label: "one" },
-              { id: "t2", label: "two" },
-              { id: "t3", label: "three" },
+              { id: "t1", label: "shared" },
+              { id: "t2", label: "shared" },
+              { id: "t3", label: "solo" },
             ],
           },
         },
@@ -494,12 +499,26 @@ export function runNestedPaginationBehavior({
       });
 
       test("deduplicates a many-to-many relation through its junction", async () => {
+        // The control: without `distinct` the junction hands back all three.
+        const all = await client.author.findUnique({
+          where: { id: "a1" },
+          include: { tags: { orderBy: { id: "asc" } } },
+        });
+        expect(ids(all?.tags)).toEqual(["t1", "t2", "t3"]);
+
+        // t1 and t2 share a label, so distinct must drop one of them — and the
+        // order decides WHICH one, exactly as on a non-junction relation.
         const found = await client.author.findUnique({
           where: { id: "a1" },
           include: { tags: { orderBy: { id: "asc" }, distinct: ["label"] } },
         });
+        expect(ids(found?.tags)).toEqual(["t1", "t3"]);
 
-        expect(ids(found?.tags)).toEqual(["t1", "t2", "t3"]);
+        const reversed = await client.author.findUnique({
+          where: { id: "a1" },
+          include: { tags: { orderBy: { id: "desc" }, distinct: ["label"] } },
+        });
+        expect(ids(reversed?.tags)).toEqual(["t3", "t2"]);
       });
 
       test("an unknown distinct field fails closed", async () => {
