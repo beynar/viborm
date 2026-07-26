@@ -106,6 +106,18 @@ beforeAll(() => hydrateSchemaNames(schema));
 
 const fields = () => createSchemaFieldRefs(schema);
 
+type Refusal = { name?: string; issues?: { path?: string }[] };
+
+/** Runs `build`, requiring it to throw, and hands back the thrown refusal. */
+function refusalOf(build: () => unknown): Refusal {
+  try {
+    build();
+  } catch (error) {
+    return error as Refusal;
+  }
+  throw new Error("expected the build to be refused, but it succeeded");
+}
+
 /** `{ not: { not: … { <leaf> } } }`, `depth` levels of `not` deep. */
 function nestNot(depth: number, leaf: Record<string, unknown>) {
   let out: Record<string, unknown> = leaf;
@@ -448,19 +460,39 @@ describe("surfaces that stay closed to field references", () => {
     ).toThrow();
   });
 
+  /**
+   * The payload is COMPLETE apart from the reference — the first version of
+   * this test omitted the required `slug`, so it threw whether or not a
+   * reference was there and proved nothing. The complement below is what makes
+   * the refusal attributable: swap the token for a literal and the very same
+   * payload compiles.
+   *
+   * Unlike JSON (which must refuse a token deliberately, and does so by name —
+   * see the JSON suite below), an `int` column refuses one for free: a
+   * reference token is simply not an integer. So the assertion pins the SLOT
+   * the refusal is reported against rather than a bespoke message.
+   */
   test("a reference is refused in create data", () => {
-    expect(() =>
+    const create = (views: unknown) =>
       engine().build(Post, "create", {
         data: {
           id: "p1",
           title: "t",
-          views: fields().Post.likes,
+          slug: "s",
+          views,
           likes: 1,
           tags: [],
           authorId: "u1",
-        },
-      })
-    ).toThrow();
+        } as never,
+      });
+
+    // Otherwise valid: with a literal in that one slot, the payload compiles.
+    expect(() => create(1)).not.toThrow();
+
+    const refusal = refusalOf(() => create(fields().Post.likes));
+    expect(refusal.name).toBe("ValidationError");
+    // …and the refusal is reported against the slot holding the reference.
+    expect(refusal.issues?.[0]?.path).toBe("data.views");
   });
 
   test("a reference is refused in update data", () => {
