@@ -761,13 +761,96 @@ export function runPrismaParityBehavior({
           expect(groups).toEqual([{ authorId: "u2", _count: 1 }]);
         });
 
-        test("NOT accepts an array and conjoins before negating", async () => {
+        // Prisma negates each NOT-array item individually and ANDs the
+        // negations (NOT c1 AND NOT c2 — "all conditions must return false"),
+        // never NOT (c1 AND c2). This is the same rule `where` follows; see
+        // the "NOT array negates each condition and ANDs them" case above and
+        // buildLogicalNot in src/query-engine/builders/where-builder.ts.
+        //
+        // Both arms below are DISCRIMINATING on purpose: each matches exactly
+        // one of the two groups, so the conjunction c1 AND c2 is empty and the
+        // wrong reading NOT (c1 AND c2) would widen to EVERY group — the exact
+        // opposite of the empty set Prisma returns. An array whose arms can be
+        // true together (e.g. two conditions both matching u1) agrees under
+        // both readings and pins nothing.
+        test("NOT array negates each arm and ANDs the negations (Prisma parity)", async () => {
           const groups = await requireClient(client).post.groupBy({
             by: ["authorId"],
             _count: true,
-            // NOT(_count = 2 AND _sum = 150) -> u1 out, u2 in
+            // NOT c1 AND NOT c2: u1 fails NOT c1, u2 fails NOT c2 -> {}.
+            // NOT (c1 AND c2) would be NOT(false) -> both groups.
+            having: { NOT: [countIsTwo, sumIsTwoHundred] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("NOT array with one unmatchable arm keeps the other complement", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            // NOT c1 AND NOT (unmatchable): only u2 survives.
+            // NOT (c1 AND unmatchable) would again be NOT(false) -> both.
             having: {
-              NOT: [countIsTwo, { views: { _sum: { equals: 150 } } }],
+              NOT: [countIsTwo, { views: { _sum: { equals: 9999 } } }],
+            },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u2", _count: 1 }]);
+        });
+
+        test("NOT array on a `by` field agrees with the same NOT array in where", async () => {
+          const c = requireClient(client);
+          const notArray = [{ authorId: "u1" }, { authorId: "u2" }];
+          // `having` and `where` must resolve the identical payload the same
+          // way — this is the cross-builder drift guard. Both exclude every
+          // author, so both come back empty; under NOT (c1 AND c2) `having`
+          // would return both groups while `where` returned nothing.
+          const groups = await c.post.groupBy({
+            by: ["authorId"],
+            having: { NOT: notArray },
+            orderBy: { authorId: "asc" },
+          });
+          const rows = await c.post.findMany({
+            where: { NOT: notArray },
+            select: { authorId: true },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(
+            rows.map((r) => r.authorId)
+          );
+          expect(groups).toEqual([]);
+        });
+
+        test("NOT array of a single item matches the object form", async () => {
+          const c = requireClient(client);
+          const asArray = await c.post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { NOT: [countIsTwo] },
+            orderBy: { authorId: "asc" },
+          });
+          const asObject = await c.post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { NOT: countIsTwo },
+            orderBy: { authorId: "asc" },
+          });
+          expect(asArray).toEqual(asObject);
+          expect(asArray).toEqual([{ authorId: "u2", _count: 1 }]);
+        });
+
+        test("NOT of a multi-key object negates that object's conjunction", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            // The OBJECT form is one item, so its own implicit AND is negated:
+            // NOT(_count = 2 AND _sum = 150) -> u1 out, u2 in. Per-arm
+            // negation applies to ARRAY items, not to keys within one item.
+            having: {
+              NOT: {
+                id: { _count: { equals: 2 } },
+                views: { _sum: { equals: 150 } },
+              },
             },
             orderBy: { authorId: "asc" },
           });

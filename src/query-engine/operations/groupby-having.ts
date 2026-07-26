@@ -116,6 +116,23 @@ function buildHavingLogicalOr(
 
 /**
  * Build NOT logical operator for HAVING
+ *
+ * Prisma semantics: NOT: [c1, c2] negates each item and ANDs the negations
+ * (NOT c1 AND NOT c2 — "all conditions must return false"), not
+ * NOT (c1 AND c2). The two readings only agree when the arms can be true
+ * together; when they are mutually exclusive — the ordinary case, since arms
+ * are usually written to exclude *different* groups — NOT (c1 AND c2) negates
+ * a contradiction and therefore returns EVERY group, i.e. exactly the ones the
+ * caller asked to exclude. This mirrors `buildLogicalNot` in
+ * ../builders/where-builder.ts so that the same payload resolves identically
+ * in `having` and in `where`.
+ *
+ * The object form NOT: { ... } is a single item, so it becomes NOT (that
+ * object's implicit AND) exactly as before — per-arm negation distributes over
+ * ARRAY items, never over the keys inside one item.
+ *
+ * A NOT of nothing is TRUE, which is what returning `undefined` (drop the key)
+ * already achieves, matching where-builder's empty-NOT arm.
  */
 function buildHavingLogicalNot(
   ctx: QueryScope,
@@ -124,7 +141,7 @@ function buildHavingLogicalNot(
   byFields: string[]
 ): Sql | undefined {
   const items = Array.isArray(value) ? value : [value];
-  const conditions: Sql[] = [];
+  const negations: Sql[] = [];
 
   for (const item of items) {
     const condition = buildHaving(
@@ -133,13 +150,12 @@ function buildHavingLogicalNot(
       alias,
       byFields
     );
-    if (condition) conditions.push(condition);
+    if (condition) negations.push(ctx.adapter.operators.not(condition));
   }
 
-  if (conditions.length === 0) return undefined;
+  if (negations.length === 0) return undefined;
 
-  const combined = ctx.adapter.operators.and(...conditions);
-  return ctx.adapter.operators.not(combined);
+  return ctx.adapter.operators.and(...negations);
 }
 
 /**
