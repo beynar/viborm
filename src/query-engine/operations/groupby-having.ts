@@ -79,6 +79,14 @@ function buildHavingLogicalAnd(
 
 /**
  * Build OR logical operator for HAVING
+ *
+ * A disjunction of nothing is FALSE, so an empty (or wholly vacuous) OR must
+ * emit the dialect FALSE literal rather than dropping the key — returning
+ * `undefined` here would silently widen the result to every group, which is
+ * accept-and-ignore of a payload the caller wrote deliberately. This mirrors
+ * `buildLogicalOr` in ../builders/where-builder.ts, so `having: { OR: [] }`
+ * and `where: { OR: [] }` agree. AND and NOT of nothing are TRUE, which is
+ * exactly what dropping the key already achieves, so only this arm differs.
  */
 function buildHavingLogicalOr(
   ctx: QueryScope,
@@ -86,7 +94,9 @@ function buildHavingLogicalOr(
   alias: string,
   byFields: string[]
 ): Sql | undefined {
-  if (!Array.isArray(value)) return undefined;
+  if (!Array.isArray(value)) {
+    throw new QueryEngineError("Logical OR requires an array value.");
+  }
 
   const conditions: Sql[] = [];
 
@@ -100,7 +110,7 @@ function buildHavingLogicalOr(
     if (condition) conditions.push(condition);
   }
 
-  if (conditions.length === 0) return undefined;
+  if (conditions.length === 0) return ctx.adapter.literals.false();
   return ctx.adapter.operators.or(...conditions);
 }
 

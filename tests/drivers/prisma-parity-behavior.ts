@@ -804,6 +804,97 @@ export function runPrismaParityBehavior({
             })
           ).rejects.toThrow(/must be included in 'by'/);
         });
+
+        // Empty-combinator identities. OR of nothing is FALSE, AND/NOT of
+        // nothing are TRUE — the same truth table `where` already compiles
+        // (where-builder.ts `buildLogicalOr` emits the dialect FALSE literal).
+        // These are asserted through real SQL rather than generated text
+        // because the failure mode being pinned is an accept-and-ignore: a
+        // dropped `OR` key produces a syntactically valid query with the
+        // wrong extension.
+        test("empty OR matches no group, exactly like empty OR in where", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { OR: [] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+
+          // The parity claim, asserted side by side so the two builders
+          // cannot drift: `where: { OR: [] }` is already FALSE today.
+          const rows = await requireClient(client).post.findMany({
+            where: { OR: [] },
+          });
+          expect(rows).toEqual([]);
+        });
+
+        test("empty OR is false, not absent, when conjoined with a sibling", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            // If the empty OR were dropped, this would degrade to the
+            // sibling alone and return u2.
+            having: { authorId: "u2", OR: [] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("empty OR nested in AND poisons the conjunction", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { AND: [{ OR: [] }, countIsTwo] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("empty OR nested in OR contributes nothing but is not vacuous", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { OR: [{ OR: [] }, countIsTwo] },
+            orderBy: { authorId: "asc" },
+          });
+          // FALSE OR (_count = 2) -> u1 only. An outer OR that swallowed the
+          // inner empty arm as "no condition" would also give u1 here, so the
+          // AND case above is the one that separates the two behaviors.
+          expect(groups).toEqual([{ authorId: "u1", _count: 2 }]);
+        });
+
+        test("empty OR under NOT is true and keeps every group", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { NOT: { OR: [] } },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(["u1", "u2"]);
+        });
+
+        test("empty AND and empty NOT stay true and keep every group", async () => {
+          const emptyAnd = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { AND: [] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(emptyAnd.map((g) => g.authorId)).toEqual(["u1", "u2"]);
+
+          const emptyNot = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { NOT: [] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(emptyNot.map((g) => g.authorId)).toEqual(["u1", "u2"]);
+        });
+
+        test("empty AND still conjoins its sibling rather than erasing it", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { AND: [], ...countIsTwo },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u1", _count: 2 }]);
+        });
       });
     });
   });

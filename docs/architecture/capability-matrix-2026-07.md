@@ -156,6 +156,8 @@ Single compile path: [where-builder.ts](../../src/query-engine/builders/where-bu
 
 **Reverse gap — CLOSED by W1-B unit 1.** The engine had always implemented `having: { AND | OR | NOT }` ([groupby-having.ts:17](../../src/query-engine/operations/groupby-having.ts:17)) while `getHavingSchema` built entries only from scalar names, so `groupBy({ having: { OR: [...] } })` died at validation with `Unknown key: OR`. `getHavingSchema` now builds AND/OR/NOT through the same thunk self-reference `getWhereSchema` uses (AND/NOT object-or-array, OR array-only; scalar entries applied last, so a scalar literally named `AND` still wins — identical precedence to `where`). Field references are excluded from `having` by an explicit `v.noFieldRef` wrapper (W2-B), matching Prisma.
 
+Opening that surface exposed one latent engine bug, fixed in review: `buildHavingLogicalOr` returned `undefined` on an empty disjunction, which dropped the key and silently widened the result to *every* group, while `where: { OR: [] }` had always compiled to the dialect FALSE literal. Unreachable before AND/OR/NOT existed in the schema; reachable the moment they did. The empty-combinator truth table is now identical on both sides of the boundary — OR of nothing is FALSE, AND and NOT of nothing are TRUE — and a non-array `OR` throws instead of being ignored, matching `buildLogicalOr`.
+
 ## 1.4 Selection, pagination, ordering
 
 | Feature | Status | Evidence |
