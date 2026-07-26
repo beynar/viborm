@@ -481,14 +481,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   generateAlterEnum(op: AlterEnumOperation, _context?: DDLContext): string {
-    const {
-      enumName,
-      addValues,
-      removeValues,
-      newValues,
-      dependentColumns,
-      valueReplacements,
-    } = op;
+    const { enumName, addValues, removeValues, newValues, dependentColumns } =
+      op;
     const statements: string[] = [];
 
     // Simple case: only adding values
@@ -518,27 +512,9 @@ export class PostgresMigrationDriver extends MigrationDriver {
         }
       }
 
-      // Step 2: Migrate data for removed values
-      if (dependentColumns && dependentColumns.length > 0) {
-        for (const removedValue of removeValues) {
-          let replacement: string | null | undefined;
-          if (valueReplacements && removedValue in valueReplacements) {
-            replacement = valueReplacements[removedValue];
-          } else if (op.defaultReplacement !== undefined) {
-            replacement = op.defaultReplacement;
-          }
-
-          if (replacement !== undefined) {
-            for (const { tableName, columnName } of dependentColumns) {
-              const newValue =
-                replacement === null ? "NULL" : this.escapeValue(replacement);
-              statements.push(
-                `UPDATE ${this.escapeIdentifier(tableName)} SET ${this.escapeIdentifier(columnName)} = ${newValue} WHERE ${this.escapeIdentifier(columnName)} = ${this.escapeValue(removedValue)}`
-              );
-            }
-          }
-        }
-      }
+      // Step 2: Migrate data for removed values (per-column mappings from
+      // interactive resolution take precedence over the flat map/default)
+      statements.push(...this.buildEnumReplacementUpdates(op));
 
       // Step 3: Drop old enum
       statements.push(`DROP TYPE ${this.escapeIdentifier(enumName)}`);
@@ -550,11 +526,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
 
       // Step 5: Convert columns back to enum
-      const unreplacedValues = removeValues.filter((v) => {
-        const hasExplicit = valueReplacements && v in valueReplacements;
-        const hasDefault = op.defaultReplacement !== undefined;
-        return !(hasExplicit || hasDefault);
-      });
+      const unreplacedValues = removeValues.filter((v) =>
+        (dependentColumns ?? []).some(
+          ({ tableName, columnName }) =>
+            this.getEnumValueReplacement(op, tableName, columnName, v) ===
+            undefined
+        )
+      );
 
       if (unreplacedValues.length > 0 && dependentColumns?.length) {
         const valuesList = unreplacedValues.map((v) => `'${v}'`).join(", ");

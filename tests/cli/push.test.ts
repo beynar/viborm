@@ -516,6 +516,62 @@ describe("push command", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // enum value removal: the interactive mapValues answer must reach the DDL
+  //
+  // Regression target: resolveWithCallback stores the answer in
+  // alterEnum.columnValueReplacements, which generateAlterEnum used to ignore —
+  // no UPDATE was emitted for the mapped rows, so casting the column back to
+  // the recreated enum failed on rows still holding the removed value.
+  //
+  // Same config-cache workaround as above: apply the schema (enum active |
+  // inactive), then widen the DB enum directly with an extra 'pending' value
+  // and seed a row holding it. The next push wants to remove 'pending' from a
+  // non-nullable column, which routes through the mapValues prompt.
+  // ---------------------------------------------------------------------------
+  const ENUM_MODEL = `
+    const user = s.model({
+      id: s.string().id(),
+      status: s.enum(["active", "inactive"]),
+    });
+    const schema = { user };
+  `;
+
+  it("honors a mapValues resolution: rows carry the mapped value after apply", async () => {
+    writePersistentConfig(project, ENUM_MODEL);
+    queueAnswers([true]);
+    await runPush([]);
+
+    await execOnDb(project, "ALTER TYPE user_status_enum ADD VALUE 'pending'");
+    await execOnDb(
+      project,
+      `INSERT INTO "user" (id, status) VALUES ('u1', 'pending'), ('u2', 'active')`
+    );
+
+    // Prompts: the `Map "pending" to:` select (options active | inactive — we
+    // pick the NON-first option so the mock's first-option default can't fake
+    // a pass), then the apply confirm. Trailing "active" is a tripwire: only
+    // an (illegal) apply-pass re-prompt consumes it, which would map to
+    // 'active' and fail the u1 assertion below.
+    queueAnswers(["inactive", true, "active"]);
+    const result = await runPush([]);
+
+    expect(result.thrown).toBeUndefined();
+    expect(result.exitCode).toBeNull();
+    expect(result.output).toContain("Applied");
+
+    // The decisive assertion: the seeded 'pending' row carries the MAPPED
+    // value, and the untouched row kept its own.
+    const rows = await withDb(project, async (query) => {
+      const res = await query(`SELECT id, status FROM "user" ORDER BY id`);
+      return res.rows;
+    });
+    expect(rows).toEqual([
+      { id: "u1", status: "inactive" },
+      { id: "u2", status: "active" },
+    ]);
+  });
+
+  // ---------------------------------------------------------------------------
   // --force-reset
   // ---------------------------------------------------------------------------
   it("--force-reset cancelled (NO): no reset, existing table kept", async () => {

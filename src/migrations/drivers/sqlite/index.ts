@@ -584,6 +584,12 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       return `-- SQLite: no dependent columns found for enum "${enumName}"`;
     }
 
+    // Migrate rows off removed values before recreating the table — copying
+    // a row that still holds a removed value would violate the new CHECK.
+    // Replacement targets must satisfy the OLD check (surviving values or
+    // NULL); mapping to a value added in the same alter is not supported.
+    statements.push(...this.buildEnumReplacementUpdates(op));
+
     // Generate new CHECK constraint
     const escapedValues = newValues
       .map((v) => `'${v.replace(/'/g, "''")}'`)

@@ -521,6 +521,12 @@ export class MySQLMigrationDriver extends MigrationDriver {
     const statements: string[] = [];
     const enumType = this.getEnumColumnType("", "", newValues);
 
+    // Migrate rows off removed values before MODIFY COLUMN — with rows still
+    // holding a removed value, MODIFY errors in strict mode. Replacement
+    // targets must already exist in the old enum (surviving values or NULL);
+    // mapping to a value added in the same alter is not supported.
+    statements.push(...this.buildEnumReplacementUpdates(op));
+
     for (const dep of dependentColumns) {
       const currentTable = context?.currentSchema?.tables.find(
         (t) => t.name === dep.tableName
