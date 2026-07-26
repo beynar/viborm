@@ -35,6 +35,7 @@ import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
+import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
@@ -194,6 +195,14 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runListJsonFilterBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  // MySQL's default collation is case- and accent-INSENSITIVE, so it is the
+  // only leg where the collation wrappers on a referenced operand can be
+  // observed to matter at all.
+  runFieldReferenceBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });

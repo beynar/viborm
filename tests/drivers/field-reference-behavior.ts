@@ -169,6 +169,88 @@ export function runFieldReferenceBehavior({
       ).toEqual(["matching"]);
     });
 
+    /**
+     * `mode: "insensitive"` against a REFERENCED column.
+     *
+     * Two separate things are on trial here, and only a live database settles
+     * either of them:
+     *
+     *  - DEFAULT mode must stay case-SENSITIVE even where the server's own
+     *    collation is not. MySQL's default (`utf8mb4_…_ai_ci`) makes
+     *    `title = slug` case-insensitive unless the builder wraps the operands,
+     *    so the first assertion below is the only thing standing between
+     *    "default mode" and "whatever the DBA configured".
+     *  - INSENSITIVE mode must fold the referenced column too. Folding only the
+     *    filtered side leaves a comparison between folded and unfolded text,
+     *    which quietly stops matching — the failure is missing rows, never an
+     *    error, so it is invisible to any assertion on generated SQL alone.
+     *
+     * Extra rows are created inside each test (the fixture is rebuilt per test)
+     * so the shared expectations above stay untouched.
+     */
+    describe("case folding against a referenced column", () => {
+      const slugRef = () => db().$fields.post.slug;
+
+      const addPost = (id: string, title: string, slug: string) =>
+        db().post.create({
+          data: { id, title, slug, views: 1, likes: 1, authorId: "u1" },
+        });
+
+      test("default mode compares case-sensitively, whatever the server collation", async () => {
+        await addPost("cased", "Same-Text", "same-text");
+        // "matching" holds identical text in both columns; "cased" differs only
+        // by case, and must NOT match.
+        expect(await postIds({ title: { equals: slugRef() } })).toEqual([
+          "matching",
+        ]);
+        expect(await postIds({ title: { contains: slugRef() } })).toEqual([
+          "matching",
+        ]);
+      });
+
+      test("insensitive mode folds both the filtered and the referenced column", async () => {
+        await addPost("cased", "Same-Text", "same-text");
+        expect(
+          await postIds({
+            title: { equals: slugRef(), mode: "insensitive" },
+          })
+        ).toEqual(["cased", "matching"]);
+      });
+
+      test.each([
+        "contains",
+        "startsWith",
+        "endsWith",
+      ])("insensitive %s folds the referenced column", async (operator) => {
+        // The UPPER case lives in the REFERENCED column, so a builder that
+        // folds only the filtered side finds nothing here.
+        await addPost("shout", "echo", "ECHO");
+        expect(
+          await postIds({
+            title: { [operator]: slugRef(), mode: "insensitive" },
+          })
+        ).toEqual(["matching", "shout"]);
+      });
+
+      test("insensitive `not` complements the folded comparison", async () => {
+        await addPost("cased", "Same-Text", "same-text");
+        expect(
+          await postIds({ title: { not: slugRef(), mode: "insensitive" } })
+        ).toEqual(["beloved", "even", "hot"]);
+      });
+
+      test("insensitive mode folds ASCII only", async () => {
+        // Portable insensitive mode is an ASCII A-Z fold, deliberately not the
+        // provider's Unicode-aware collation: 'É' and 'é' stay distinct on
+        // every dialect, including MySQL, whose accent-insensitive default
+        // collation would otherwise call them equal.
+        await addPost("accented", "École", "école");
+        expect(
+          await postIds({ title: { equals: slugRef(), mode: "insensitive" } })
+        ).toEqual(["matching"]);
+      });
+    });
+
     test("a reference mixes with literal operands in one filter object", async () => {
       expect(
         await postIds({ views: { gt: db().$fields.post.likes, lt: 1000 } })

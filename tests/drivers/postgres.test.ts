@@ -15,6 +15,7 @@ import { push } from "@migrations";
 import { s } from "@schema";
 import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
+import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
@@ -410,6 +411,12 @@ describeIf("postgres.js Driver", () => {
   });
   // Real postgres.js param serialization for native array columns
   runListJsonFilterBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runFieldReferenceBehavior({
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),

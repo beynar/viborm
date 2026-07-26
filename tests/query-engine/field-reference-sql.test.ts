@@ -70,6 +70,9 @@ const Post = s
     title: s.string(),
     views: s.int(),
     likes: s.int().map("like_count"),
+    // A second, .map()ed string column: the operand of a text comparison, so
+    // the collation/folding wrappers can be pinned on BOTH sides.
+    slug: s.string().map("slug_col"),
     tags: s.string().array(),
     // Two JSON columns: JSON is the only operand position that accepts an
     // arbitrary object, so it is the only one where a reference token is a
@@ -110,11 +113,18 @@ function nestNot(depth: number, leaf: Record<string, unknown>) {
   return out;
 }
 
+const ASCII_UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ASCII_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
+
 type DialectCase = {
   name: string;
   dialect: Dialect;
   quote: '"' | "`";
   createAdapter: () => DatabaseAdapter;
+  /** The dialect's case-SENSITIVE text wrapper, spelled as it lands in SQL. */
+  exactText: (expr: string) => string;
+  /** The dialect's ASCII A-Z fold, spelled as it lands in SQL. */
+  asciiFold: (expr: string) => string;
 };
 
 const dialectCases: DialectCase[] = [
@@ -123,18 +133,32 @@ const dialectCases: DialectCase[] = [
     dialect: "postgresql",
     quote: '"',
     createAdapter: () => new PostgresAdapter(),
+    // Postgres needs no wrapper: `=` on text is already byte-exact there.
+    exactText: (expr) => expr,
+    asciiFold: (expr) =>
+      `TRANSLATE(${expr}, '${ASCII_UPPERCASE}', '${ASCII_LOWERCASE}')`,
   },
   {
     name: "MySQL",
     dialect: "mysql",
     quote: "`",
     createAdapter: () => new MySQLAdapter(),
+    exactText: (expr) => `BINARY ${expr}`,
+    asciiFold: (expr) => {
+      let folded = expr;
+      for (let i = 0; i < ASCII_UPPERCASE.length; i++) {
+        folded = `REPLACE(${folded}, '${ASCII_UPPERCASE[i]}', '${ASCII_LOWERCASE[i]}')`;
+      }
+      return folded;
+    },
   },
   {
     name: "SQLite",
     dialect: "sqlite",
     quote: '"',
     createAdapter: () => new SQLiteAdapter(),
+    exactText: (expr) => `${expr} COLLATE BINARY`,
+    asciiFold: (expr) => `lower(${expr})`,
   },
 ];
 
@@ -209,6 +233,94 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
     expect(query.values).toHaveLength(0);
   });
 
+  /**
+   * Collation and case folding on a REFERENCED operand.
+   *
+   * A column operand has to be wrapped exactly like the literal it replaces, or
+   * `mode` means different things on the two sides of the same `=`. These pin
+   * the emitted expression on both sides, per dialect, because behaviour cannot
+   * see all of it: MySQL's `BINARY` and SQLite's `COLLATE BINARY` govern the
+   * WHOLE comparison from either side, so once the left side carries the
+   * wrapper no query result can distinguish an operand that also carries it
+   * from one that does not. The fold is the opposite — dropping it on the
+   * operand really does change which rows come back, and
+   * {@link file://../drivers/field-reference-behavior.ts} discriminates that
+   * against live databases on every dialect.
+   */
+  describe("collation and folding of a referenced operand", () => {
+    const predicateOf = (args: Record<string, unknown>) => {
+      const { statement } = buildPostQuery(dialectCase, args);
+      return statement.slice(statement.indexOf("WHERE ") + "WHERE ".length);
+    };
+    const titleCol = () => `${q("t0")}.${q("title")}`;
+    const slugCol = () => `${q("t0")}.${q("slug_col")}`;
+    const exact = (expr: string) => dialectCase.exactText(expr);
+    const folded = (expr: string) =>
+      dialectCase.exactText(dialectCase.asciiFold(expr));
+
+    test("default mode compares both sides under the case-sensitive collation", () => {
+      expect(
+        predicateOf({ where: { title: { equals: fields().Post.slug } } })
+      ).toBe(`${exact(titleCol())} = ${exact(slugCol())}`);
+    });
+
+    test("insensitive mode folds AND collates both sides", () => {
+      expect(
+        predicateOf({
+          where: { title: { equals: fields().Post.slug, mode: "insensitive" } },
+        })
+      ).toBe(`${folded(titleCol())} = ${folded(slugCol())}`);
+    });
+
+    test("insensitive `not` negates the folded comparison", () => {
+      expect(
+        predicateOf({
+          where: { title: { not: fields().Post.slug, mode: "insensitive" } },
+        })
+      ).toBe(`NOT (${folded(titleCol())} = ${folded(slugCol())})`);
+    });
+
+    test.each([
+      "contains",
+      "startsWith",
+      "endsWith",
+    ])("insensitive %s carries the fold onto the referenced operand", (operator) => {
+      const predicate = predicateOf({
+        where: {
+          title: { [operator]: fields().Post.slug, mode: "insensitive" },
+        },
+      });
+      // The substring/prefix/suffix templates differ per dialect, so assert
+      // the two operand expressions rather than the whole predicate.
+      expect(predicate).toContain(folded(titleCol()));
+      expect(predicate).toContain(folded(slugCol()));
+    });
+
+    test("default mode leaves the string predicates unwrapped on both sides", () => {
+      // The complement of the case above: in default mode neither side is
+      // folded, so a fold appearing here would mean `mode` had leaked.
+      const predicate = predicateOf({
+        where: { title: { contains: fields().Post.slug } },
+      });
+      expect(predicate).toContain(titleCol());
+      expect(predicate).toContain(slugCol());
+      expect(predicate).not.toContain(dialectCase.asciiFold(titleCol()));
+    });
+
+    test("a literal operand is folded but not collation-wrapped", () => {
+      // Documents the one asymmetry between the literal and reference paths,
+      // and why it is inert: a one-sided wrapper already governs the whole
+      // comparison in every dialect here, so the extra wrapper the reference
+      // path emits cannot change a result — which is exactly why the tests
+      // above pin it as SQL and not as behaviour.
+      expect(
+        predicateOf({
+          where: { title: { equals: "x", mode: "insensitive" } },
+        })
+      ).toBe(`${folded(titleCol())} = ${dialectCase.asciiFold("$1")}`);
+    });
+  });
+
   test("a cross-model reference is refused at build time", () => {
     expect(() =>
       buildPostQuery(dialectCase, {
@@ -256,31 +368,31 @@ describe("surfaces that stay closed to field references", () => {
    * SQLite/LibSQL silently answer with a wrong row. Depths below and above the
    * old cap are both pinned so a re-introduced bound fails here.
    */
-  test.each([0, 1, 2, 3, 4, 5, 6, 12, 64])(
-    "groupBy having refuses a reference nested %i `not` levels deep",
-    (depth) => {
-      expect(() =>
-        engine().build(Post, "groupBy", {
-          by: ["views"],
-          having: { views: nestNot(depth, { gt: fields().Post.likes }) },
-        })
-      ).toThrow(HAVING_REFUSAL);
-    }
-  );
+  test.each([
+    0, 1, 2, 3, 4, 5, 6, 12, 64,
+  ])("groupBy having refuses a reference nested %i `not` levels deep", (depth) => {
+    expect(() =>
+      engine().build(Post, "groupBy", {
+        by: ["views"],
+        having: { views: nestNot(depth, { gt: fields().Post.likes }) },
+      })
+    ).toThrow(HAVING_REFUSAL);
+  });
 
-  test.each(["AND", "OR", "NOT"])(
-    "groupBy having refuses a deeply nested reference under %s",
-    (combinator) => {
-      expect(() =>
-        engine().build(Post, "groupBy", {
-          by: ["views"],
-          having: {
-            [combinator]: [{ views: nestNot(6, { gt: fields().Post.likes }) }],
-          },
-        })
-      ).toThrow(HAVING_REFUSAL);
-    }
-  );
+  test.each([
+    "AND",
+    "OR",
+    "NOT",
+  ])("groupBy having refuses a deeply nested reference under %s", (combinator) => {
+    expect(() =>
+      engine().build(Post, "groupBy", {
+        by: ["views"],
+        having: {
+          [combinator]: [{ views: nestNot(6, { gt: fields().Post.likes }) }],
+        },
+      })
+    ).toThrow(HAVING_REFUSAL);
+  });
 
   /**
    * The complement of the sweep above: the refusal is scoped to `having`, not a
@@ -412,6 +524,7 @@ describe("JSON operands stay closed to field references", () => {
         data: {
           id: "p1",
           title: "t",
+          slug: "s",
           views: 1,
           likes: 1,
           tags: [],
@@ -457,6 +570,7 @@ describe("JSON operands stay closed to field references", () => {
         data: {
           id: "p1",
           title: "t",
+          slug: "s",
           views: 1,
           likes: 1,
           tags: [],

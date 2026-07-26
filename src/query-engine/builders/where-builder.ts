@@ -385,6 +385,21 @@ function buildFilterOperation(
   // Operand builders. Each mirrors the treatment its LHS gets at the call site,
   // so a referenced column is compared under the SAME collation/folding rules as
   // a bound literal would be.
+  //
+  // Two halves of that mirroring differ in kind, and the tests reflect it:
+  //
+  //  - The FOLD is load-bearing and behavioral. A referenced column that is not
+  //    ASCII-folded compares against a folded LHS and stops matching, so
+  //    `tests/drivers/field-reference-behavior.ts` discriminates it on every
+  //    dialect with rows whose referenced column carries the upper case.
+  //  - `caseSensitiveText` on the OPERAND is structural symmetry, not a second
+  //    behavioral guard: all three dialects let a one-sided collation govern the
+  //    whole comparison (MySQL's `BINARY` coerces the comparison, SQLite takes
+  //    the left operand's explicit COLLATE, Postgres's is the identity), so with
+  //    the LHS already wrapped no query result can tell the operand's wrapper
+  //    apart. It is pinned as EMITTED SQL in
+  //    `tests/query-engine/field-reference-sql.test.ts` instead of being claimed
+  //    as behavior no test could actually witness.
   /** Raw operand — pairs with a bare `column` LHS (ordered comparisons, LIKE-free text predicates). */
   const plainOperand = (v: unknown) =>
     isFieldRef(v) ? fieldRefColumn(ctx, v, alias) : lit(v);
@@ -431,7 +446,13 @@ function buildFilterOperation(
       if (scalarState.type === "json") {
         return adapter.operators.eq(column, adapter.json.value(value));
       }
-      if (isInsensitive && typeof value === "string") {
+      // A reference is an OBJECT, so it has to be admitted to the insensitive
+      // path explicitly: gating on `typeof value === "string"` alone dropped a
+      // referenced-column operand straight through to the exact predicate and
+      // silently ignored `mode` — `equals` stayed case-sensitive while
+      // `contains`/`startsWith`/`endsWith` (which never had the guard) folded,
+      // so the two disagreed on the same filter object.
+      if (isInsensitive && (typeof value === "string" || isFieldRef(value))) {
         return insensitiveEq(value);
       }
       return adapter.operators.eq(exactTextColumn, exactOperand(value));

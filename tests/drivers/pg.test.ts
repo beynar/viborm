@@ -27,6 +27,7 @@ import {
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
+import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
@@ -523,6 +524,13 @@ describeIf("pg Driver", () => {
 
   // Real pg param serialization for native array columns (array_cat push etc.)
   runListJsonFilterBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Real Postgres, not PGlite: the server's own locale collation is what a
+  // column-to-column text comparison is decided under.
+  runFieldReferenceBehavior({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
