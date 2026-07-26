@@ -2,6 +2,7 @@
 
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
+import type { AnyRelation } from "@schema/relation";
 import type { ScalarState } from "@schema/scalars";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
@@ -38,6 +39,84 @@ type NonVectorScalarKeys<M extends AnyModel> = Exclude<
 const scalarSelectSchema = v.boolean({ optional: true });
 const vectorDistanceMetricSchema = v.enum(["l2", "cosine"]);
 
+// =============================================================================
+// _count SCHEMA (object form + Prisma's `_count: true` shorthand)
+// =============================================================================
+
+/** The desugared shorthand: one `true` entry per counted relation. */
+type CountAllSelection = Record<string, true>;
+
+/**
+ * `_count` accepts either Prisma's shorthand `true` or the explicit
+ * `{ select: { <relation>: true | { where } } }` object. The shorthand is
+ * desugared here, so everything downstream (query engine, result parser) only
+ * ever sees the object form.
+ */
+export type CountSchema<F extends { relations: Record<string, any> }> = V.Union<
+  readonly [
+    V.Coerce<V.Literal<true>, { select: CountAllSelection }>,
+    V.Object<
+      {
+        select: V.FromObject<F["relations"], "countFilter", { optional: true }>;
+      },
+      { optional: true }
+    >,
+  ]
+>;
+
+/**
+ * Prisma's `_count: true` means "count every LIST relation of this model": the
+ * generated `<Model>CountOutputType` contains only to-many (`oneToMany` /
+ * `manyToMany`) fields — a to-one relation never appears there. viborm's
+ * explicit object form is a deliberate superset (name a to-one relation and it
+ * will be counted), but the shorthand mirrors Prisma's rule exactly.
+ *
+ * A model with no to-many relations expands to `{ select: {} }` — exactly what
+ * the explicit empty object form does today (no relation-count key in the
+ * result). Prisma generates no `_count` at all for such a model, so there is no
+ * Prisma behavior to mirror; the pinned contract is that equivalence.
+ */
+const toManyRelationNames = (model: AnyModel): string[] => {
+  const relations: Record<string, AnyRelation> = model["~"].state.relations;
+  const names: string[] = [];
+  for (const name of Object.keys(relations)) {
+    const type = relations[name]?.["~"].state.type;
+    if (type === "oneToMany" || type === "manyToMany") {
+      names.push(name);
+    }
+  }
+  return names;
+};
+
+const getCountSchema = <F extends { relations: Record<string, any> }>(
+  model: AnyModel,
+  schemas: F
+): CountSchema<F> => {
+  const countAllNames = toManyRelationNames(model);
+
+  return v.union([
+    // A fresh object per parse — the desugared value is handed to the engine
+    // and must never alias a schema-level singleton.
+    v.coerce(v.literal(true), (): { select: CountAllSelection } => {
+      const select: CountAllSelection = {};
+      for (const name of countAllNames) {
+        select[name] = true;
+      }
+      return { select };
+    }),
+    v.object(
+      {
+        select: v.fromObject<F["relations"], "countFilter", { optional: true }>(
+          schemas.relations,
+          "countFilter",
+          { optional: true }
+        ),
+      },
+      { optional: true }
+    ),
+  ]) as CountSchema<F>;
+};
+
 export const vectorDistanceSelectSchema = v.object(
   {
     _distance: v.object(
@@ -65,16 +144,7 @@ export type SelectSchema<
   V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
     V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"] &
     V.FromObject<F["relations"], "select">["entries"] & {
-      _count: V.Object<
-        {
-          select: V.FromObject<
-            F["relations"],
-            "countFilter",
-            { optional: true }
-          >;
-        },
-        { optional: true }
-      >;
+      _count: CountSchema<F>;
     }
 >;
 
@@ -111,26 +181,13 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     "select"
   );
 
-  // _count entries: use a schema that accepts true or { where: ... }
-  // This is different from the relation's select schema - we only need the filter capability
-  const countSelectEntries = v.fromObject<
-    F["relations"],
-    "countFilter",
-    { optional: true }
-  >(fieldSchemas.relations, "countFilter", {
-    optional: true,
-  });
-
   return v.object({
     ...scalarEntries.entries,
     ...vectorEntries.entries,
     ...relationEntries.entries,
-    _count: v.object(
-      {
-        select: countSelectEntries,
-      },
-      { optional: true }
-    ),
+    // Accepts `true` (count every to-many relation) or the explicit
+    // { select: { <relation>: true | { where } } } object.
+    _count: getCountSchema(model, fieldSchemas),
   });
 };
 
@@ -146,16 +203,12 @@ type RelationSchemaBundle = { relations: Record<string, any> };
 
 export type IncludeSchema<F extends RelationSchemaBundle> = V.Object<
   V.FromObject<F["relations"], "include", { optional: true }>["entries"] & {
-    _count: V.Object<
-      {
-        select: V.FromObject<F["relations"], "countFilter", { optional: true }>;
-      },
-      { optional: true }
-    >;
+    _count: CountSchema<F>;
   }
 >;
 
 export const getIncludeSchema = <F extends RelationSchemaBundle>(
+  model: AnyModel,
   schemas: F
 ): IncludeSchema<F> => {
   // Relations: use relation's include schema (supports boolean or nested with where/orderBy/etc.)
@@ -167,24 +220,11 @@ export const getIncludeSchema = <F extends RelationSchemaBundle>(
     optional: true,
   });
 
-  // Prisma supports `_count` under include as well as select; mirror the
-  // select-schema entry so `include: { _count: { select: { posts: true } } }`
-  // validates (the query engine already builds _count in include position).
-  const countSelectEntries = v.fromObject<
-    F["relations"],
-    "countFilter",
-    { optional: true }
-  >(schemas.relations, "countFilter", {
-    optional: true,
-  });
-
   return v.object({
     ...relationEntries.entries,
-    _count: v.object(
-      {
-        select: countSelectEntries,
-      },
-      { optional: true }
-    ),
+    // Prisma supports `_count` under include as well as select — both the
+    // `true` shorthand and the explicit object; mirror the select-schema entry
+    // (the query engine already builds _count in include position).
+    _count: getCountSchema(model, schemas),
   });
 };

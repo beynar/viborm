@@ -170,3 +170,44 @@ describe("Select Schema - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 });
+
+// =============================================================================
+// _count: true SHORTHAND (Prisma sugar for "count every list relation")
+// =============================================================================
+
+describe("Select Schema - _count: true shorthand", () => {
+  test("type: accepts the boolean shorthand", () => {
+    type Input = InferInput<typeof authorSchemas.select>;
+    expectTypeOf<{ id: true; _count: true }>().toMatchTypeOf<Input>();
+  });
+
+  test("runtime: desugars to every to-many relation", () => {
+    const result = parse(authorSchemas.select, { id: true, _count: true });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value._count).toEqual({ select: { posts: true } });
+    }
+  });
+
+  test("runtime: the explicit object form is untouched", () => {
+    const result = parse(authorSchemas.select, {
+      id: true,
+      _count: { select: { posts: { where: { published: true } } } },
+    });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value._count).toEqual({
+        // the where shorthand normalizes to { equals: true } as it always has
+        select: { posts: { where: { published: { equals: true } } } },
+      });
+    }
+  });
+
+  test("runtime: a model whose only relation is to-one expands to nothing", () => {
+    const result = parse(postSchemas.select, { id: true, _count: true });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value._count).toEqual({ select: {} });
+    }
+  });
+});

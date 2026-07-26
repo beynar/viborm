@@ -274,6 +274,18 @@ type InferVectorDistanceSelection<
   ? {}
   : { _distance: number };
 
+/**
+ * To-many (list) relation keys — the exact set Prisma's `_count: true`
+ * shorthand expands to (`<Model>CountOutputType` holds only list relations).
+ */
+type ToManyRelationKeys<S extends ModelState> = {
+  [K in keyof S["relations"]]: S["relations"][K] extends AnyRelation
+    ? [GetRelationType<S["relations"][K]>] extends ["oneToMany" | "manyToMany"]
+      ? K
+      : never
+    : never;
+}[keyof S["relations"]];
+
 type InferRelationCountSelection<
   S extends ModelState,
   Selection,
@@ -286,7 +298,9 @@ type InferRelationCountSelection<
           : never]: number;
       };
     }
-  : {};
+  : Selection extends { _count: true }
+    ? { _count: { [K in ToManyRelationKeys<S>]: number } }
+    : {};
 
 /**
  * Result when include is provided - base result + included relations

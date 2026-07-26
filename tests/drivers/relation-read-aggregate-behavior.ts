@@ -250,6 +250,113 @@ export function runRelationReadAggregateBehavior({
       });
     });
 
+    // Prisma's `_count: true` is sugar for "count every LIST relation of this
+    // model" — `<Model>CountOutputType` holds only to-many fields. `user` has
+    // two (posts, the long-named archive relation) and no to-one relation;
+    // `post` has only the to-one `author`, so it is the zero-list-relation case.
+    describe("_count: true shorthand", () => {
+      const expectedCounts = [
+        { id: "u1", _count: { posts: 3, [LONG_RELATION_NAME]: 2 } },
+        { id: "u2", _count: { posts: 1, [LONG_RELATION_NAME]: 0 } },
+        { id: "u3", _count: { posts: 0, [LONG_RELATION_NAME]: 1 } },
+        { id: "u4", _count: { posts: 1, [LONG_RELATION_NAME]: 0 } },
+      ];
+
+      test("select _count: true counts every to-many relation", async () => {
+        const users = await client.user.findMany({
+          orderBy: { id: "asc" },
+          select: { id: true, _count: true },
+        });
+
+        expect(users).toEqual(expectedCounts);
+      });
+
+      test("select _count: true equals the explicit object form", async () => {
+        const shorthand = await client.user.findMany({
+          orderBy: { id: "asc" },
+          select: { id: true, _count: true },
+        });
+        const explicit = await client.user.findMany({
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            _count: { select: { posts: true, [LONG_RELATION_NAME]: true } },
+          },
+        });
+
+        expect(shorthand).toEqual(explicit);
+      });
+
+      test("include _count: true counts every to-many relation", async () => {
+        const users = await client.user.findMany({
+          orderBy: { id: "asc" },
+          include: { _count: true },
+        });
+
+        expect(
+          users.map((u) => ({ id: u.id, _count: u._count }))
+        ).toEqual(expectedCounts);
+      });
+
+      test("include _count: true sits alongside included relations", async () => {
+        const users = await client.user.findMany({
+          orderBy: { id: "asc" },
+          include: { posts: true, _count: true },
+        });
+
+        for (const user of users) {
+          expect(user._count.posts).toBe(user.posts.length);
+        }
+        expect(users.map((u) => u._count[LONG_RELATION_NAME])).toEqual([
+          2, 0, 1, 0,
+        ]);
+      });
+
+      test("_count: true on findUnique counts for the single row", async () => {
+        const cara = await client.user.findUnique({
+          where: { id: "u3" },
+          select: { id: true, _count: true },
+        });
+
+        expect(cara).toEqual({
+          id: "u3",
+          _count: { posts: 0, [LONG_RELATION_NAME]: 1 },
+        });
+      });
+
+      test("_count: true skips to-one relations (no list relation, no key)", async () => {
+        // `post.author` is manyToOne. Prisma generates no `_count` at all for
+        // such a model; viborm pins the shorthand as EXACTLY the explicit empty
+        // object form — accepted, expanding to nothing, so no _count key.
+        const shorthand = await client.post.findMany({
+          where: { id: "p1" },
+          select: { id: true, _count: true },
+        });
+        const explicitEmpty = await client.post.findMany({
+          where: { id: "p1" },
+          select: { id: true, _count: { select: {} } },
+        });
+
+        expect(shorthand).toEqual([{ id: "p1" }]);
+        expect(shorthand).toEqual(explicitEmpty);
+      });
+
+      test("_count: true inside a nested include", async () => {
+        const archives = await client.archive.findMany({
+          orderBy: { id: "asc" },
+          include: { user: { include: { _count: true } } },
+        });
+
+        expect(
+          archives.map((a) => ({ id: a.id, counts: a.user._count }))
+        ).toEqual([
+          { id: "a1", counts: { posts: 3, [LONG_RELATION_NAME]: 2 } },
+          { id: "a2", counts: { posts: 3, [LONG_RELATION_NAME]: 2 } },
+          { id: "a3", counts: { posts: 0, [LONG_RELATION_NAME]: 1 } },
+        ]);
+      });
+    });
+
     describe("relation orderBy", () => {
       test("orderBy posts._count desc yields exact order", async () => {
         const users = await client.user.findMany({
