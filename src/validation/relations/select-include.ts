@@ -114,13 +114,15 @@ export const toOneIncludeFactory = <
 };
 
 /**
- * To-many include: true or nested { where, orderBy, take, skip, select, include }
+ * To-many include: true or nested
+ * { where, orderBy, take, skip, cursor, select, include }
  * `select` and `include` are mutually exclusive on the same node (Prisma parity)
  *
- * `take`/`skip` are the very schemas the top level uses: a negative `take` is
- * Prisma's "last N" (the relation subquery runs the reversed order with an
- * absolute limit and the parser restores the logical order), a non-integer take
- * or a negative skip is refused with the top-level message.
+ * `take`/`skip`/`cursor` are the very schemas the top level uses: a negative
+ * `take` is Prisma's "last N" (the relation subquery runs the reversed order
+ * with an absolute limit and the parser restores the logical order), a
+ * non-integer take or a negative skip is refused with the top-level message,
+ * and `cursor` is a whereUnique of the RELATED model applied per parent.
  */
 export type ToManyIncludeSchema<S extends RelationState> = V.Union<
   readonly [
@@ -136,6 +138,7 @@ export type ToManyIncludeSchema<S extends RelationState> = V.Union<
         >;
         take: PaginationTakeSchema;
         skip: PaginationSkipSchema;
+        cursor: () => GetTargetSchemas<S>["core"]["whereUnique"];
         select: () => GetTargetSchemas<S>["core"]["select"];
         include: () => GetTargetSchemas<S>["core"]["include"];
       }>
@@ -161,6 +164,7 @@ export const toManyIncludeFactory = <
           },
           take: paginationTake(),
           skip: paginationSkip(),
+          cursor: () => targetSchemas().core.whereUnique,
           select: () => targetSchemas().core.select,
           include: () => targetSchemas().core.include,
         })

@@ -8,8 +8,9 @@
  * (`buildFindPagination` + `buildNormalizedOrderBy`), so nested pagination
  * cannot drift from top-level pagination: the same total scalar order with the
  * same identity tie-breakers, the same negative-`take` inversion (order flipped
- * in SQL, absolute limit, logical order restored on the result), and the same
- * relation-order fallback when the requested order is not a direct scalar sort.
+ * in SQL, absolute limit, logical order restored on the result), the same
+ * dialect-neutral cursor condition, and the same relation-order fallback when
+ * the requested order is not a direct scalar sort.
  */
 
 import type { Sql } from "@sql";
@@ -43,13 +44,25 @@ export function buildNestedReadWindow(
   baseConditions: readonly Sql[]
 ): NestedReadWindow {
   const { adapter } = ctx;
-  const { where, orderBy, take, skip } = options;
-  const pagination = buildFindPagination(ctx, { orderBy, skip }, take, alias);
+  const { where, orderBy, cursor, take, skip } = options;
+  const pagination = buildFindPagination(
+    ctx,
+    { orderBy, cursor, skip },
+    take,
+    alias
+  );
 
   const conditions: Sql[] = [...baseConditions];
   const innerWhere = buildWhere(ctx, where, alias);
   if (innerWhere) {
     conditions.push(innerWhere);
+  }
+  // The cursor row is located once (by its own unique key) and compared against
+  // every candidate row of THIS parent's window, so the same cursor pages each
+  // parent independently — and a cursor that matches no row leaves an empty
+  // window, Prisma's semantics.
+  if (pagination.cursorCondition) {
+    conditions.push(pagination.cursorCondition);
   }
 
   const orderByParts = pagination.normalizedOrder

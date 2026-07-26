@@ -398,8 +398,14 @@ describe("ToMany Include (Author.posts)", () => {
       }>().toMatchTypeOf<IncludeInput>();
     });
 
-    test("type: rejects cursor option", () => {
+    // Retargeted (W3-A unit 2): `cursor` exists on to-many relation args now,
+    // but only as a whereUnique of the related model — never a bare scalar.
+    test("type: rejects a non-whereUnique cursor", () => {
       expectTypeOf<{ cursor: string }>().not.toMatchTypeOf<IncludeInput>();
+    });
+
+    test("type: accepts a whereUnique cursor", () => {
+      expectTypeOf<{ cursor: { id: string } }>().toMatchTypeOf<IncludeInput>();
     });
   });
 
@@ -450,11 +456,21 @@ describe("ToMany Include (Author.posts)", () => {
       }
     });
 
-    test("runtime: rejects cursor - not implemented for nested relations", () => {
+    // Retargeted (W3-A unit 2): nested `cursor` is a whereUnique of the RELATED
+    // model — accepted in that shape, still refused as a bare scalar.
+    test("runtime: rejects a cursor that is not a whereUnique object", () => {
       const input = { cursor: "cursor-value" };
       const result = parse(schema, input);
       expect(result.issues).toBeDefined();
-      expect(result.issues?.[0]?.message).toContain("cursor");
+    });
+
+    test("runtime: accepts a whereUnique cursor", () => {
+      const input = { cursor: { id: "post-1" } };
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(output(result.value).cursor).toEqual({ id: "post-1" });
+      }
     });
 
     // Retargeted (W3-A unit 1): nested `take` is now the top-level take schema —

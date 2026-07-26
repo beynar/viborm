@@ -249,5 +249,132 @@ export function runNestedPaginationBehavior({
         expect(ids(found?.posts)).toEqual([]);
       });
     });
+
+    describe("cursor", () => {
+      test("pages a relation forward, three pages, cursor inclusive", async () => {
+        const page = async (cursorId: string | undefined) =>
+          ids(
+            (
+              await client.author.findUnique({
+                where: { id: "a1" },
+                include: {
+                  posts: {
+                    orderBy: { id: "asc" },
+                    take: 2,
+                    ...(cursorId
+                      ? { cursor: { id: cursorId }, skip: 1 }
+                      : undefined),
+                  },
+                },
+              })
+            )?.posts
+          );
+
+        const first = await page(undefined);
+        expect(first).toEqual(["a1-p1", "a1-p2"]);
+
+        const second = await page(first.at(-1));
+        expect(second).toEqual(["a1-p3", "a1-p4"]);
+
+        const third = await page(second.at(-1));
+        expect(third).toEqual(["a1-p5"]);
+      });
+
+      test("cursor without skip includes the cursor row itself", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: { orderBy: { id: "asc" }, cursor: { id: "a1-p3" } },
+          },
+        });
+
+        expect(ids(found?.posts)).toEqual(["a1-p3", "a1-p4", "a1-p5"]);
+      });
+
+      test("pages each parent independently from one cursor", async () => {
+        // The cursor row belongs to a2 and sorts after every a1 post, so a1's
+        // window is empty while a2 pages from it — per-parent cursor semantics.
+        const authors = await client.author.findMany({
+          orderBy: { id: "asc" },
+          include: {
+            posts: { orderBy: { id: "asc" }, cursor: { id: "a2-p2" } },
+          },
+        });
+
+        expect(authors.map((row) => ids(row.posts))).toEqual([
+          [],
+          ["a2-p2", "a2-p3"],
+        ]);
+      });
+
+      test("a cursor row that does not exist yields an empty window", async () => {
+        const authors = await client.author.findMany({
+          orderBy: { id: "asc" },
+          include: {
+            posts: { orderBy: { id: "asc" }, cursor: { id: "nope" } },
+          },
+        });
+
+        expect(authors.map((row) => ids(row.posts))).toEqual([[], []]);
+      });
+
+      test("combines with a negative take (pages backward from the cursor)", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: {
+              orderBy: { id: "asc" },
+              cursor: { id: "a1-p4" },
+              skip: 1,
+              take: -2,
+            },
+          },
+        });
+
+        expect(ids(found?.posts)).toEqual(["a1-p2", "a1-p3"]);
+      });
+
+      test("combines with a nested where", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: {
+              where: { topic: "beta" },
+              orderBy: { id: "asc" },
+              cursor: { id: "a1-p3" },
+              take: 1,
+            },
+          },
+        });
+
+        expect(ids(found?.posts)).toEqual(["a1-p3"]);
+      });
+
+      test("accepts a compound unique cursor", async () => {
+        const found = await client.shelf.findUnique({
+          where: { id: "s1" },
+          include: {
+            chapters: {
+              orderBy: [{ volume: "asc" }, { page: "asc" }],
+              cursor: { volume_page: { volume: 1, page: 2 } },
+              take: 2,
+            },
+          },
+        });
+
+        expect(ids(found?.chapters)).toEqual(["s1-c2", "s1-c3"]);
+      });
+
+      test("pages a many-to-many relation through its junction", async () => {
+        const found = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            tags: { orderBy: { id: "asc" }, cursor: { id: "t2" }, take: 2 },
+          },
+        });
+
+        expect(ids(found?.tags)).toEqual(["t2", "t3"]);
+      });
+    });
   });
 }

@@ -9,6 +9,8 @@ export type IncludeOptions = {
   orderBy?: Record<string, unknown> | Record<string, unknown>[];
   take?: number;
   skip?: number;
+  /** whereUnique of the RELATED model — applied per parent inside the subquery */
+  cursor?: Record<string, unknown>;
 };
 
 /**
