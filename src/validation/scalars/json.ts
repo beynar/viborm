@@ -11,9 +11,16 @@ import v, { type V } from "../primitives/v";
  */
 type JsonComparisonOperand = V.Union<readonly [V.Number, V.String]>;
 
+/**
+ * Prisma spells a JSON path two ways: the portable array form and
+ * Prisma-MySQL's '$.a.b' string form. The builder parses the string form
+ * into the array form (see parseJsonStringPath).
+ */
+type JsonPathOperand = V.Union<readonly [V.Array<V.String>, V.String]>;
+
 type JsonFilterBase<S extends V.Schema> = {
   equals: S;
-  path: V.Array<V.String>;
+  path: JsonPathOperand;
   mode: V.Enum<["default", "insensitive"]>;
   lt: JsonComparisonOperand;
   lte: JsonComparisonOperand;
@@ -52,7 +59,7 @@ const buildJsonFilterSchema = <S extends V.Schema>(
   const comparisonOperand = v.union([v.number(), v.string()]);
   const filter = v.object({
     equals: schema,
-    path: v.array(v.string()),
+    path: v.union([v.array(v.string()), v.string()]),
     mode: v.enum(["default", "insensitive"]),
     lt: comparisonOperand,
     lte: comparisonOperand,

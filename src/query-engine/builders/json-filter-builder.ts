@@ -42,6 +42,93 @@ function resolveJsonFilterMode(
   return inherited;
 }
 
+const JSON_PATH_ARRAY_INDEX = /^\d+$/;
+
+function rejectJsonPathString(
+  fieldName: string,
+  raw: string,
+  reason: string
+): never {
+  throw new QueryEngineError(
+    `JSON filter for field '${fieldName}' has an unsupported path string '${raw}': ${reason}. The supported grammar is '$', '$.key', '$.key[0]' and nothing else; use the array form (path: ['a', 'b']) for keys containing '.', '[' or ']'.`
+  );
+}
+
+/**
+ * Parse Prisma-MySQL's string path form ('$.a.b', '$.arr[0]') into the array
+ * form the rest of the builder and every adapter already speak.
+ *
+ * The grammar is DELIBERATELY small: '$' root, '.key' object steps, '[N]'
+ * array indices. Quoted labels ('$."a b"'), wildcards ('$.*', '$**', '[*]'),
+ * '[last]' and negative indices are REFUSED rather than half-supported —
+ * SQLite's path grammar has no escape syntax inside quoted labels, so a
+ * larger grammar could not stay portable. A '.' inside a key is a separator
+ * here and can only be spelled with the array form (path: ['weird.key']).
+ * Segments carrying '"' or '\\' fall through to assertPortableJsonPath,
+ * which refuses them exactly as it does for the array form.
+ */
+function parseJsonStringPath(fieldName: string, raw: string): string[] {
+  if (!raw.startsWith("$")) {
+    rejectJsonPathString(fieldName, raw, "a path string must start with '$'");
+  }
+  const segments: string[] = [];
+  let index = 1;
+  while (index < raw.length) {
+    const char = raw[index];
+    if (char === ".") {
+      index += 1;
+      const start = index;
+      while (index < raw.length && raw[index] !== "." && raw[index] !== "[") {
+        index += 1;
+      }
+      const key = raw.slice(start, index);
+      if (key.length === 0) {
+        rejectJsonPathString(fieldName, raw, "an object key may not be empty");
+      }
+      if (key.includes("*")) {
+        // '$.*' means "any member" in MySQL's JSONPath. Reading it as a key
+        // literally named '*' would silently answer a different question,
+        // so refuse it; a real '*' key is addressable via the array form.
+        rejectJsonPathString(fieldName, raw, "wildcards are not supported");
+      }
+      segments.push(key);
+      continue;
+    }
+    if (char === "[") {
+      const close = raw.indexOf("]", index);
+      if (close === -1) {
+        rejectJsonPathString(fieldName, raw, "an unclosed '['");
+      }
+      const digits = raw.slice(index + 1, close);
+      if (!JSON_PATH_ARRAY_INDEX.test(digits)) {
+        rejectJsonPathString(
+          fieldName,
+          raw,
+          `'[${digits}]' is not a non-negative integer array index`
+        );
+      }
+      segments.push(digits);
+      index = close + 1;
+      continue;
+    }
+    rejectJsonPathString(fieldName, raw, `unexpected '${char}'`);
+  }
+  return segments;
+}
+
+/** Both Prisma path spellings normalize to the array form here. */
+function resolveJsonPath(
+  fieldName: string,
+  declared: unknown,
+  inherited: string[]
+): string[] {
+  if (Array.isArray(declared)) return declared.map(String);
+  if (typeof declared === "string") {
+    return parseJsonStringPath(fieldName, declared);
+  }
+  return inherited;
+}
+
 /**
  * Build a JSON scalar filter. `path` scopes every other operator in the
  * filter object to the value at that path (Prisma semantics); without a
@@ -57,7 +144,7 @@ export function buildJsonFilter(
   inherited: JsonFilterScope = ROOT_SCOPE
 ): Sql {
   const scope: JsonFilterScope = {
-    path: Array.isArray(filter.path) ? filter.path.map(String) : inherited.path,
+    path: resolveJsonPath(fieldName, filter.path, inherited.path),
     mode: resolveJsonFilterMode(filter.mode, inherited.mode),
   };
   assertPortableJsonPath(fieldName, scope.path);

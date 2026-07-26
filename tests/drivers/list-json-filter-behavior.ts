@@ -721,6 +721,19 @@ export function runListJsonFilterBehavior({
           ).toEqual(["dark", "light"]);
         });
 
+        test("string paths carry the mode too", async () => {
+          await seedJsonDocs();
+          expect(
+            await findNames({
+              metadata: {
+                path: "$.theme",
+                string_contains: "ARK",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["dark"]);
+        });
+
         test("an inert mode is refused, not ignored", async () => {
           await seedJsonDocs();
           await expect(
@@ -734,6 +747,125 @@ export function runListJsonFilterBehavior({
           ).rejects.toThrow("mode: 'insensitive'");
           expect(await requireClient(client).entry.count()).toBe(5);
         });
+      });
+    });
+
+    describe("json string paths ('$.a.b')", () => {
+      // Same corpus as the array-form path tests, so every assertion here
+      // can be read as "the string form is the array form"
+      async function seedStringPathDocs(): Promise<void> {
+        await requireClient(client).entry.createMany({
+          data: [
+            {
+              id: "p1",
+              name: "dark",
+              metadata: {
+                theme: "dark",
+                level: 2,
+                pet: { name: "Fido", toys: ["ball", "rope"] },
+                "weird.key": "gotcha",
+              },
+            },
+            { id: "p2", name: "string-root", metadata: "just a string" },
+            { id: "p3", name: "array-root", metadata: ["alpha", "beta"] },
+          ],
+        });
+      }
+
+      test("dot paths equal their array form", async () => {
+        await seedStringPathDocs();
+        expect(
+          await findNames({ metadata: { path: "$.theme", equals: "dark" } })
+        ).toEqual(
+          await findNames({ metadata: { path: ["theme"], equals: "dark" } })
+        );
+        expect(
+          await findNames({ metadata: { path: "$.pet.name", equals: "Fido" } })
+        ).toEqual(["dark"]);
+      });
+
+      test("bracket segments address array elements", async () => {
+        await seedStringPathDocs();
+        expect(
+          await findNames({
+            metadata: { path: "$.pet.toys[0]", equals: "ball" },
+          })
+        ).toEqual(["dark"]);
+        expect(
+          await findNames({ metadata: { path: "$[1]", equals: "beta" } })
+        ).toEqual(["array-root"]);
+      });
+
+      test("'$' alone is the document root", async () => {
+        await seedStringPathDocs();
+        expect(
+          await findNames({ metadata: { path: "$", string_contains: "just" } })
+        ).toEqual(["string-root"]);
+      });
+
+      test("every operator accepts the string form", async () => {
+        await seedStringPathDocs();
+        expect(
+          await findNames({ metadata: { path: "$.level", gte: 2 } })
+        ).toEqual(["dark"]);
+        expect(
+          await findNames({
+            metadata: { path: "$.pet.toys", array_contains: "rope" },
+          })
+        ).toEqual(["dark"]);
+        expect(
+          await findNames({
+            metadata: { path: "$.theme", not: { equals: "dark" } },
+          })
+        ).toEqual([]);
+      });
+
+      test("a dot is always a separator — literal dots need the array form", async () => {
+        await seedStringPathDocs();
+        // '$.weird.key' walks two steps and finds nothing; the array form is
+        // the only way to address a key that contains a dot
+        expect(
+          await findNames({
+            metadata: { path: "$.weird.key", equals: "gotcha" },
+          })
+        ).toEqual([]);
+        expect(
+          await findNames({
+            metadata: { path: ["weird.key"], equals: "gotcha" },
+          })
+        ).toEqual(["dark"]);
+      });
+
+      test("unsupported path grammar rejects before execution", async () => {
+        await seedStringPathDocs();
+        for (const path of [
+          "theme",
+          "$.",
+          "$.a.",
+          "$theme",
+          "$.a[",
+          "$.a[]",
+          "$.a[last]",
+          "$.a[-1]",
+          "$.a[*]",
+          "$.*",
+        ]) {
+          await expect(
+            findNames({ metadata: { path, equals: "dark" } })
+          ).rejects.toThrow("unsupported path string");
+        }
+        expect(await requireClient(client).entry.count()).toBe(3);
+      });
+
+      test("quoted labels keep the portable-path refusal", async () => {
+        await seedStringPathDocs();
+        // The parsed segment carries a '"', which no dialect can address
+        await expect(
+          findNames({ metadata: { path: '$."a b"', equals: "x" } })
+        ).rejects.toThrow("portable JSON path");
+        await expect(
+          findNames({ metadata: { path: "$.a\\b", equals: "x" } })
+        ).rejects.toThrow("portable JSON path");
       });
     });
 
