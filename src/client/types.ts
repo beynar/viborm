@@ -132,8 +132,7 @@ export type OperationPayload<
  * IMPLICIT RETURNING (maintainer decision D-1: `createManyAndReturn` /
  * `updateManyAndReturn` are removed, not aliased). A bulk write returns
  * `{ count }` — UNLESS the call carries a `select`, in which case it returns the
- * affected rows projected by that select. The discriminant is the *presence* of
- * the key on the inferred argument type, so the conditional stays zero-codegen:
+ * affected rows projected by that select. The conditional stays zero-codegen:
  * `Args` is inferred from the call-site literal, and a call without `select`
  * simply has no such member.
  *
@@ -141,14 +140,47 @@ export type OperationPayload<
  * rows come back as they are removed, so a caller no longer has to read-then-
  * delete and hope nothing moved in between.
  *
- * `select: undefined` (an explicitly-absent select) deliberately lands on
- * `BatchPayload`, matching the runtime's `args.select !== undefined` routing.
+ * The runtime discriminant is `args.select !== undefined` (routing.ts), so this
+ * type discriminates on the VALUE too, not on key presence. Three cases:
+ *
+ *  - no `select` member, or one whose type is exactly `undefined` — the
+ *    spread-an-optional idiom collapsed to a literal `undefined` — is
+ *    `BatchPayload`;
+ *  - a `select` that cannot be `undefined` is the projected rows;
+ *  - a `select` that MAY be `undefined` (`select?: …`, or a variable typed
+ *    `Sel | undefined`) is the honest UNION of both, because only the runtime
+ *    value decides. Collapsing it to either arm would be a lie in one
+ *    direction: it used to collapse to `BatchPayload`, so
+ *    `updateMany({ …, select: maybeSelect })` type-checked as `{ count }` and
+ *    then returned rows, with `result.count` silently `undefined`. A caller in
+ *    this position narrows (`Array.isArray(result)`) — which is exactly the
+ *    choice they deferred to runtime.
  */
-type BulkWriteResult<S extends ModelState, Args> = Args extends {
-  select: Record<string, unknown>;
-}
-  ? Prettify<InferSelectInclude<S, Args>>[]
+type BulkWriteResult<S extends ModelState, Args> = "select" extends keyof Args
+  ? [BulkSelect<Args>] extends [undefined]
+    ? BatchPayload
+    : undefined extends BulkSelect<Args>
+      ? BatchPayload | BulkWriteRows<S, Exclude<BulkSelect<Args>, undefined>>
+      : BulkWriteRows<S, BulkSelect<Args>>
   : BatchPayload;
+
+/**
+ * The declared type of a bulk write's `select`, optional or not. Indexed access
+ * rather than `Args extends { select?: infer Sel }`: inference to an OPTIONAL
+ * pattern property strips `undefined` from the source, which would erase the
+ * exact distinction this discriminant exists to make.
+ */
+type BulkSelect<Args> = Args[Extract<"select", keyof Args>];
+
+/**
+ * The row arm. `select` is the only key `InferSelectInclude` reads on a bulk
+ * write (`include` is refused at the parse boundary), so re-wrapping the
+ * narrowed selection is enough — and it keeps the `Sel | undefined` case from
+ * inferring an empty row through `keyof (Sel | undefined)`.
+ */
+type BulkWriteRows<S extends ModelState, Sel> = Prettify<
+  InferSelectInclude<S, { select: Sel }>
+>[];
 
 /**
  * Operation result type - infers result shape based on select/include args

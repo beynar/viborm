@@ -194,9 +194,16 @@ function constructOperation(
 /**
  * The implicit-returning discriminant, kept in ONE place so the runtime cannot
  * drift from `BulkWriteResult` in @client/types: a bulk write returns rows iff
- * the payload carries a `select`. `select: undefined` is an absent select (the
- * spread-an-optional idiom), so it takes the `{ count }` arm — byte-identical to
- * the type-level rule.
+ * the payload's `select` has a VALUE. `select: undefined` is an absent select
+ * (the spread-an-optional idiom), so it takes the `{ count }` arm — and it
+ * reaches here at all only because the parse boundary treats an explicitly-
+ * undefined key as absent on every path (see the dense-path rule in
+ * @validation/primitives/object); it used to reject with "Expected object".
+ *
+ * `BulkWriteResult` applies the same VALUE rule statically, and where a static
+ * type cannot decide it (a `select` whose type merely admits `undefined`) it
+ * yields the union of both arms rather than guessing — the one case where the
+ * two cannot be byte-identical, made explicit instead of silently wrong.
  */
 function returnsRows(args: Record<string, unknown>): boolean {
   return args.select !== undefined;
