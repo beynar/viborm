@@ -100,6 +100,40 @@ worklist so depth cannot overflow the stack. Pinned at both layers: the scanner 
 through `groupBy` in `tests/query-engine/field-reference-sql.test.ts` (depths 0…64, plus each of
 `AND`/`OR`/`NOT`), with a live per-dialect pin in `tests/drivers/field-reference-behavior.ts`.
 
+**Correction 2 (W2 adversarial review) — JSON was NOT out, it only looked out.** The "Out" list
+above claimed JSON operands were refused. They were not: every other closed surface refuses a
+reference *for free*, because a token is not a string/number/date/blob, but JSON accepts an
+arbitrary object, so `{ [FIELD_REF_BRAND]: true, model, field, type, list }` is an ordinary
+document to `v.json`. `where: { data: { equals: <ref> } }` bound the token as a parameter and
+matched nothing, `array_contains`/`array_starts_with`/`array_ends_with` did the same with or
+without a `path`, and — worse — `create`/`update` **persisted** the ORM's own token into the
+user's JSON column. Closed with the same `v.noFieldRef` wrapper `having` uses, on the four
+whole-document filter operands and on the json create/update schemas
+(`src/validation/scalars/json.ts`); the scan is exhaustive, so a token buried inside an otherwise
+legal document is refused too. The JSON-Schema converter gained the matching `no_field_ref` case —
+its default branch throws, so the wrapper would otherwise have taken JSON-Schema emission down for
+any payload containing one.
+
+**Correction 3 (W2 adversarial review) — `mode: "insensitive"` was accepted and ignored for a
+referenced `equals`/`not`.** The claim above that "operands mirror the LHS's collation treatment"
+was half true. The insensitive branch of `equals` gated on `typeof value === "string"`, and a
+reference is an object, so it fell through to the exact predicate: `equals` stayed case-sensitive
+while `contains`/`startsWith`/`endsWith` in the same filter object folded. `not: <ref>` inherited
+it through the shorthand coercion to `{ equals: <ref> }`. Fixed in `where-builder.ts` by admitting
+a reference to the insensitive path.
+
+The coverage gap behind it is worth recording, because the two halves of the "mirroring" are not
+the same kind of claim. The FOLD is behavioral — dropping it on the operand compares folded text
+against unfolded text and silently returns fewer rows — and is now discriminated on every dialect
+by rows that carry the upper case in the REFERENCED column. `caseSensitiveText` on the operand is
+NOT behavioral: all three dialects let a one-sided wrapper govern the whole comparison (checked on
+live MySQL 8.4: `'A' = BINARY 'a'` and `BINARY 'A' = 'a'` both answer 0; removing the operand
+wrapper leaves the whole Docker MySQL leg green). It is therefore pinned as emitted SQL per
+dialect rather than claimed as behavior no test could witness. The field-reference behavior suite
+is now wired into the MySQL, pg and postgres.js legs as well — MySQL is the only one whose own
+default collation is case- and accent-insensitive, so it is the only place "default mode is
+case-sensitive" is a claim about the builder rather than about the server.
+
 ---
 
 ## W3 — Read surface: nested pagination trio + implicit returns

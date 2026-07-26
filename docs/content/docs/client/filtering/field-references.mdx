@@ -33,7 +33,30 @@ is walked until you actually read a field — so it costs nothing if you never u
 | `having` / `groupBy` | ❌ (Prisma excludes them too) |
 
 Unsupported positions are rejected with an explicit message — a reference is never
-silently bound as a value.
+silently bound as a value. JSON is the one position that needs saying out loud: a JSON
+operand accepts any object, so a reference is a *structurally valid* JSON document there.
+It is refused anyway, in filters and in `create`/`update` data alike, because a JSON
+`equals`/`array_*` operand is compared as a whole document rather than as a column
+expression.
+
+## Case sensitivity
+
+`mode: "insensitive"` applies to a referenced column exactly as it applies to a literal:
+both sides of the comparison are folded, for `equals`/`not` and for
+`contains`/`startsWith`/`endsWith` alike.
+
+```ts
+// matches a row whose title is "Same-Text" and whose slug is "same-text"
+await client.post.findMany({
+  where: { title: { equals: client.$fields.post.slug, mode: "insensitive" } },
+});
+```
+
+The fold is ASCII `A-Z` only, and it is the same portable fold literal operands get —
+`'É'` and `'é'` stay distinct on every provider. Default mode is byte-exact on both sides
+regardless of the server's own collation, so a MySQL database configured with a
+case-insensitive default collation still answers a default-mode comparison
+case-sensitively.
 
 ## Mixing with literals
 
