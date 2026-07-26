@@ -532,8 +532,19 @@ function createObjectValidator(
     for (let i = 0; i < keyCount; i++) {
       const key = keys[i]!;
 
-      // Handle missing key
-      if (!(key in input)) {
+      // Handle an ABSENT key — which, per Prisma parity, includes a key that is
+      // present with an explicit `undefined`. This is the same rule the
+      // fully-partial fast path above applies, the same rule `requiresOneOf`
+      // already applies here (`input[key] !== undefined`), and the same rule the
+      // whole client surface is documented to follow: `{ f: undefined }` must
+      // behave exactly like `{}`, so the spread-an-optional idiom
+      // (`{ ...(sel && { select: sel }) }` collapsed to `{ select: sel }`) works.
+      // Testing `key in input` instead made an optional key spelled `undefined`
+      // validate `undefined` against a schema that does not accept it —
+      // `createMany({ data, select: undefined })` failed with "Expected object"
+      // while the identical `deleteMany` call (fully partial, fast path)
+      // returned `{ count }`.
+      if (input[key] === undefined) {
         // Key is required (partial: false OR in atLeast) and schema doesn't accept undefined
         if (isRequired[i] && !acceptsUndefined[i]) {
           return missingError(i);

@@ -248,6 +248,114 @@ describe("the removed *AndReturn method names (runtime)", () => {
   }
 });
 
+/**
+ * The RUNTIME half of "`select: undefined` is an absent select". The type-level
+ * half lives in tests/client/implicit-returning-types.test.ts, and for a while
+ * that was the ONLY half: `createMany`/`updateMany` actually threw
+ * "Validation failed … Expected object" on the spelling their own doc comments
+ * promised took the `{ count }` arm, while `deleteMany` — whose args schema is
+ * fully partial rather than `atLeast` — honored it. Three families, one
+ * documented surface, two answers. Fixed in the object primitive so the rule is
+ * the schema library's, not each operation's.
+ */
+const CREATE_MANY_VALIDATION_FAILURE = /Validation failed for createMany/;
+const DELETE_MANY_VALIDATION_FAILURE = /Validation failed for deleteMany/;
+
+describe("an explicitly-absent select takes the count arm (runtime)", () => {
+  test("all three bulk families agree on select: undefined", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    try {
+      const created = await client.gadget.createMany({
+        data: [
+          { id: "g1", code: "c1", name: "A" },
+          { id: "g2", code: "c2", name: "B" },
+        ],
+        select: undefined,
+      });
+      expect(created).toEqual({ count: 2 });
+
+      const updated = await client.gadget.updateMany({
+        where: { name: "A" },
+        data: { name: "A2" },
+        select: undefined,
+      });
+      expect(updated).toEqual({ count: 1 });
+
+      const deleted = await client.gadget.deleteMany({
+        where: { name: "B" },
+        select: undefined,
+      });
+      expect(deleted).toEqual({ count: 1 });
+
+      // …and the count arm really ran: nothing was projected away, and the
+      // writes landed.
+      expect(await client.gadget.findMany({ orderBy: { id: "asc" } })).toEqual([
+        { id: "g1", code: "c1", name: "A2", qty: 0 },
+      ]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("a present select still returns rows on all three", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    try {
+      // The control: the discriminant is the VALUE, so the same key spelled
+      // with a real select must still take the row arm.
+      expect(
+        await client.gadget.createMany({
+          data: [{ id: "g1", code: "c1", name: "A" }],
+          select: { id: true },
+        })
+      ).toEqual([{ id: "g1" }]);
+      expect(
+        await client.gadget.updateMany({
+          where: { id: "g1" },
+          data: { name: "A2" },
+          select: { name: true },
+        })
+      ).toEqual([{ name: "A2" }]);
+      expect(
+        await client.gadget.deleteMany({
+          where: { id: "g1" },
+          select: { code: true },
+        })
+      ).toEqual([{ code: "c1" }]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("a malformed select still rejects rather than falling back to count", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    try {
+      // Fail closed: "undefined is absent" must not become "anything falsy is
+      // absent", and a garbage select must not silently degrade to `{ count }`.
+      const untyped = client as unknown as Record<string, RoutedModel>;
+      await expect(
+        untyped.gadget?.createMany?.({
+          data: [{ id: "g1", code: "c1", name: "A" }],
+          select: "nope",
+        }) as Promise<unknown>
+      ).rejects.toThrow(CREATE_MANY_VALIDATION_FAILURE);
+      await expect(
+        untyped.gadget?.deleteMany?.({
+          where: { id: "g1" },
+          select: null,
+        }) as Promise<unknown>
+      ).rejects.toThrow(DELETE_MANY_VALIDATION_FAILURE);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
+
 describe("query-engine-v2 bulk-write dual-run oracle (both substrates)", () => {
   for (const scenario of scenarios) {
     test(scenario.name, { timeout: 30_000 }, async () => {
