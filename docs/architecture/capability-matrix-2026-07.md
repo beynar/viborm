@@ -169,7 +169,8 @@ Single compile path: [where-builder.ts](../../src/query-engine/builders/where-bu
 | `distinct` | 🟡 **array-only** and **findMany-only** (not `findFirst`, not `groupBy`, not nested) | `find.ts:152` |
 | `distinct` SQL strategy | ↔️ SQL-backed, not Prisma's in-memory: PG `DISTINCT ON` when no orderBy, else `ROW_NUMBER()` everywhere | `shared/select-assembly.ts:77-151` |
 | Relation args in include: `where`/`orderBy`/`take`/`skip`/`select`/`include` | ✅ (to-one correctly limited to select/include) | `relations/select-include.ts:114-185` |
-| Relation-level `cursor`, `distinct`, negative `take` | ❌ — rejected loudly, not ignored | `relations/select-include.ts:50-71` |
+| Relation-level negative `take` | ✅ (W3-A unit 1) — same pipeline as the top level: reversed order + absolute limit in the relation subquery, logical order restored on the result | `builders/nested-read-window.ts` |
+| Relation-level `cursor`, `distinct` | ❌ — rejected loudly, not ignored | `relations/select-include.ts` (strict object) |
 | `take`/negative `take`/`skip`/`cursor`/compound cursor | ✅ (top-level findMany) | `args/pagination.ts:6-17` |
 | `orderBy` object / array / asc / desc | ✅ | `orderby-builder.ts:63-109` |
 | `orderBy` nested to-one relation field | 🟡 **capped at 3 hops** (`MAX_RELATION_ORDER_DEPTH`); to-many mid-chain rejected | `relations/order-by.ts:60,117-125` |
@@ -562,7 +563,7 @@ But **73 comments across `src/` still say "routes to V1"**. See §0.2.
 
 **A5. Async validation is not supported, anywhere.** The whole validation layer is synchronous; any Standard Schema with an async refinement is rejected at runtime with `Async validation is not supported` — surfaced as a `ValidationError` issue, not a clear unsupported-feature signal ([validation/index.ts:73](../../src/validation/index.ts:73) and 8 more sites).
 
-**A6. Nested relation queries reject negative `take` and any `cursor`.** Prisma's "last N" works only at the top level. Deliberate fail-closed — the nested builder would pass the negative straight to `LIMIT`: a runtime error on Postgres, silently *all rows* on SQLite.
+**A6. Nested relation queries reject any `cursor`.** *(Amended by W3-A unit 1: negative nested `take` is now supported — the relation subquery runs the same `buildFindPagination` pipeline as the top level, so it flips the order, takes `|n|`, and the result parser restores the logical order. `cursor` remains rejected by strict-object omission.)*
 
 **A7. `updateMany` is scalar-only** — the engine's position ([relation-key-legality.ts:21](../../src/query-engine/relation-key-legality.ts:21)), which matches Prisma. **But validation doesn't enforce it — see [defect 1](#01-the-three-defects-worth-fixing-before-anything-else).**
 

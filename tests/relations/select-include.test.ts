@@ -457,11 +457,27 @@ describe("ToMany Include (Author.posts)", () => {
       expect(result.issues?.[0]?.message).toContain("cursor");
     });
 
-    test("runtime: rejects negative take - not implemented for nested relations", () => {
+    // Retargeted (W3-A unit 1): nested `take` is now the top-level take schema —
+    // a negative value is Prisma's "last N", a non-integer is still refused.
+    test("runtime: accepts negative take - Prisma 'last N' semantics", () => {
       const input = { take: -5 };
       const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(output(result.value).take).toBe(-5);
+      }
+    });
+
+    test("runtime: rejects a non-integer take", () => {
+      const input = { take: 1.5 };
+      const result = parse(schema, input);
       expect(result.issues).toBeDefined();
-      expect(result.issues?.[0]?.message).toContain("take");
+    });
+
+    test("runtime: rejects a negative skip", () => {
+      const input = { skip: -1 };
+      const result = parse(schema, input);
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: accepts with nested include - transforms nested boolean", () => {

@@ -24,6 +24,7 @@ import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
+import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
@@ -76,6 +77,11 @@ describe("LibSQL Driver", () => {
   });
 
   runCursorPaginationBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+
+  runNestedPaginationBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

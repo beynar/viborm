@@ -18,7 +18,7 @@ import {
   buildManyToManyLateralInclude,
 } from "./include-many-to-many";
 import { assembleInnerQuery, type IncludeOptions } from "./include-query";
-import { buildOrderByParts } from "./orderby-builder";
+import { buildNestedReadWindow } from "./nested-read-window";
 import { buildWhere } from "./where-builder";
 
 export { assembleInnerQuery } from "./include-query";
@@ -92,8 +92,8 @@ export function buildSubqueryInclude(
   }
 
   const { adapter } = ctx;
-  const { select, include, where, orderBy, take, skip } =
-    includeValue as IncludeOptions;
+  const options = includeValue as IncludeOptions;
+  const { select, include, where } = options;
 
   const relatedAlias = ctx.nextAlias();
   const childCtx = createChildScope(
@@ -112,30 +112,32 @@ export function buildSubqueryInclude(
     ctx.rootAlias,
     relatedAlias
   );
-  const innerWhere = buildWhere(childCtx, where, relatedAlias);
-  const whereCondition = innerWhere
-    ? adapter.operators.and(correlation, innerWhere)
-    : correlation;
 
   // Build FROM table
   const relatedTableName = getTableName(relationInfo.targetModel);
   const fromTable = adapter.identifiers.table(relatedTableName, relatedAlias);
 
   if (relationInfo.isToMany) {
-    const orderByParts = buildOrderByParts(childCtx, orderBy, relatedAlias);
+    const window = buildNestedReadWindow(childCtx, options, relatedAlias, [
+      correlation,
+    ]);
     return {
       column: buildToManySubquery(
         ctx,
         jsonExpr,
         fromTable,
-        whereCondition,
-        orderByParts.orderBy,
-        take,
-        skip,
-        orderByParts.joins.length > 0 ? orderByParts.joins : undefined
+        window.where,
+        window.orderBy,
+        window.limit,
+        window.offset,
+        window.joins.length > 0 ? window.joins : undefined
       ),
     };
   }
+  const innerWhere = buildWhere(childCtx, where, relatedAlias);
+  const whereCondition = innerWhere
+    ? adapter.operators.and(correlation, innerWhere)
+    : correlation;
   return {
     column: buildToOneSubquery(
       ctx,
@@ -168,8 +170,8 @@ export function buildLateralInclude(
   }
 
   const { adapter } = ctx;
-  const { select, include, where, orderBy, take, skip } =
-    includeValue as IncludeOptions;
+  const options = includeValue as IncludeOptions;
+  const { select, include, where } = options;
 
   const relatedAlias = ctx.nextAlias();
   const lateralAlias = ctx.nextAlias();
@@ -191,10 +193,6 @@ export function buildLateralInclude(
     ctx.rootAlias,
     relatedAlias
   );
-  const innerWhere = buildWhere(childCtx, where, relatedAlias);
-  const whereCondition = innerWhere
-    ? adapter.operators.and(correlation, innerWhere)
-    : correlation;
 
   // Build FROM table
   const relatedTableName = getTableName(relationInfo.targetModel);
@@ -203,8 +201,10 @@ export function buildLateralInclude(
   const resultColAlias = "_result";
 
   if (relationInfo.isToMany) {
-    const orderByParts = buildOrderByParts(childCtx, orderBy, relatedAlias);
-    const innerJoins = [...nestedJoins, ...orderByParts.joins];
+    const window = buildNestedReadWindow(childCtx, options, relatedAlias, [
+      correlation,
+    ]);
+    const innerJoins = [...nestedJoins, ...window.joins];
 
     // To-many: build lateral subquery with JSON aggregation
     const jsonColAlias = "_json";
@@ -216,10 +216,10 @@ export function buildLateralInclude(
       aliasedJsonExpr,
       fromTable,
       innerJoins.length > 0 ? innerJoins : undefined,
-      whereCondition,
-      orderByParts.orderBy,
-      take,
-      skip
+      window.where,
+      window.orderBy,
+      window.limit,
+      window.offset
     );
 
     // Build the lateral subquery that aggregates to JSON array
@@ -247,6 +247,10 @@ export function buildLateralInclude(
   }
 
   // To-one: build lateral subquery returning single JSON object or null
+  const innerWhere = buildWhere(childCtx, where, relatedAlias);
+  const whereCondition = innerWhere
+    ? adapter.operators.and(correlation, innerWhere)
+    : correlation;
   const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, resultColAlias);
   const lateralSubquery = assembleInnerQuery(
     adapter,

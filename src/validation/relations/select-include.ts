@@ -2,8 +2,13 @@
 
 import type { ModelState } from "@schema/model";
 import type { RelationState } from "@schema/relation/types";
+import {
+  type PaginationSkipSchema,
+  type PaginationTakeSchema,
+  paginationSkip,
+  paginationTake,
+} from "../model/args/pagination";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
-import { createSchema, fail, ok } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 
@@ -45,30 +50,6 @@ const includeToField =
       select,
     };
   };
-
-/**
- * Nested to-many `take`: non-negative numbers only.
- *
- * Prisma's negative-take ("last N") semantics are only implemented for
- * top-level queries (reverse order + reverse results). The nested include
- * builder would pass a negative value straight to LIMIT — a runtime error on
- * Postgres and silently ALL rows on SQLite — so reject it at validation.
- * Nested `cursor` is rejected the same way, by omission: strict objects fail
- * on unknown keys.
- */
-type NestedTakeSchema = V.Schema<number, number>;
-const nestedTake: NestedTakeSchema = createSchema("number", (value) => {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fail("Expected finite number");
-  }
-  if (value < 0) {
-    return fail(
-      "Negative 'take' is not supported in nested relation queries. " +
-        "Use a positive take with the opposite orderBy direction instead."
-    );
-  }
-  return ok(value);
-});
 
 type BooleanToSelect = V.Coerce<
   V.Boolean,
@@ -135,6 +116,11 @@ export const toOneIncludeFactory = <
 /**
  * To-many include: true or nested { where, orderBy, take, skip, select, include }
  * `select` and `include` are mutually exclusive on the same node (Prisma parity)
+ *
+ * `take`/`skip` are the very schemas the top level uses: a negative `take` is
+ * Prisma's "last N" (the relation subquery runs the reversed order with an
+ * absolute limit and the parser restores the logical order), a non-integer take
+ * or a negative skip is refused with the top-level message.
  */
 export type ToManyIncludeSchema<S extends RelationState> = V.Union<
   readonly [
@@ -148,8 +134,8 @@ export type ToManyIncludeSchema<S extends RelationState> = V.Union<
             V.Array<GetTargetSchemas<S>["core"]["orderBy"]>,
           ]
         >;
-        take: NestedTakeSchema;
-        skip: V.Number;
+        take: PaginationTakeSchema;
+        skip: PaginationSkipSchema;
         select: () => GetTargetSchemas<S>["core"]["select"];
         include: () => GetTargetSchemas<S>["core"]["include"];
       }>
@@ -173,8 +159,8 @@ export const toManyIncludeFactory = <
             const orderBySchema = targetSchemas().core.orderBy;
             return v.union([orderBySchema, v.array(orderBySchema)]);
           },
-          take: nestedTake,
-          skip: v.number(),
+          take: paginationTake(),
+          skip: paginationSkip(),
           select: () => targetSchemas().core.select,
           include: () => targetSchemas().core.include,
         })

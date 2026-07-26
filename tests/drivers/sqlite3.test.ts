@@ -42,6 +42,7 @@ import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
+import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
@@ -714,6 +715,11 @@ describe("SQLite3 Driver", () => {
   });
 
   runCursorPaginationBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
+  runNestedPaginationBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

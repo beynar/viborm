@@ -12,7 +12,6 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 const AMBIGUOUS_RELATION_PATTERN = /Ambiguous relation .*\.name\(\)/s;
 const CURSOR_PATTERN = /cursor/;
 const EMPTY_SELECT_PATTERN = /at least one truthy value/i;
-const TAKE_PATTERN = /take/i;
 
 // =============================================================================
 // Schema 1: two named relations between the same models + mapped FK column
@@ -177,7 +176,8 @@ export interface ReadPathRegressionBehaviorOptions {
  * 2. Relation is/isNot null must respect .map()-ed FK columns.
  * 3. Many-to-many joins must respect .map()-ed PK columns.
  * 4. String scalars containing JSON-looking text must round-trip as strings.
- * 5. Nested cursor / negative take must be rejected, not silently ignored.
+ * 5. Nested cursor is rejected, not silently ignored; a nested negative take
+ *    pages backward instead of mis-paginating.
  */
 export function runReadPathRegressionBehavior({
   driverName,
@@ -300,12 +300,21 @@ export function runReadPathRegressionBehavior({
         ).rejects.toThrow(CURSOR_PATTERN);
       });
 
-      test("nested negative take is rejected instead of mis-paginating", async () => {
-        await expect(
-          client.user.findMany({
-            include: { authored: { take: -1 } },
-          })
-        ).rejects.toThrow(TAKE_PATTERN);
+      // Retargeted (W3-A unit 1): a nested negative take is no longer refused —
+      // it pages backward and returns the window in logical order.
+      test("nested negative take pages backward in logical order", async () => {
+        await client.post.create({
+          data: { id: "p3", title: "Alice again", authorId: "u1" },
+        });
+        await client.post.create({
+          data: { id: "p4", title: "Alice once more", authorId: "u1" },
+        });
+
+        const alice = await client.user.findUnique({
+          where: { id: "u1" },
+          include: { authored: { orderBy: { id: "asc" }, take: -2 } },
+        });
+        expect(alice?.authored.map((p) => p.id)).toEqual(["p3", "p4"]);
 
         const limited = await client.user.findUnique({
           where: { id: "u2" },

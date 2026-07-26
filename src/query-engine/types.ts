@@ -173,6 +173,13 @@ export interface ExpectedResultShape {
   relations: ReadonlyMap<string, ExpectedResultShape>;
   aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;
   relationCounts: ReadonlySet<string>;
+  /**
+   * This relation was paged with a negative `take`: the subquery ran the
+   * reversed order with an absolute limit, so its rows arrive last-first and
+   * the parser restores the logical order — the nested mirror of what
+   * `ReadOperation.parse` does for a top-level negative `take`.
+   */
+  reversed?: boolean;
 }
 
 /** Minimal SQL-construction state shared by related model scopes. */
