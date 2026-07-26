@@ -545,3 +545,77 @@ describe("FindMany Args - Author Model Runtime (with relations)", () => {
     expect(result.issues).toBeUndefined();
   });
 });
+
+// =============================================================================
+// DISTINCT — findFirst support + bare-string shorthand
+// =============================================================================
+
+describe("Distinct Args - findMany and findFirst", () => {
+  const findMany = simpleSchemas.args.findMany;
+  const findFirst = simpleSchemas.args.findFirst;
+
+  test("type: findMany accepts a bare string and an array", () => {
+    type Input = InferInput<typeof simpleSchemas.args.findMany>;
+    expectTypeOf<{ distinct: "name" }>().toMatchTypeOf<Input>();
+    expectTypeOf<{ distinct: ["name", "email"] }>().toMatchTypeOf<Input>();
+  });
+
+  test("type: findFirst accepts distinct in both spellings", () => {
+    type Input = InferInput<typeof simpleSchemas.args.findFirst>;
+    expectTypeOf<{ distinct: "name" }>().toMatchTypeOf<Input>();
+    expectTypeOf<{ distinct: ["name"] }>().toMatchTypeOf<Input>();
+  });
+
+  test("type: a non-scalar name is not assignable", () => {
+    type Input = InferInput<typeof simpleSchemas.args.findFirst>;
+    expectTypeOf<{ distinct: "nope" }>().not.toMatchTypeOf<Input>();
+  });
+
+  test("runtime: findFirst accepts distinct as an array", () => {
+    const result = parse(findFirst, { distinct: ["name"] });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(argsOutput(result.value).distinct).toEqual(["name"]);
+    }
+  });
+
+  test("runtime: a bare string normalizes to a one-element array", () => {
+    for (const schema of [findMany, findFirst]) {
+      const result = parse(schema, { distinct: "name" });
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(argsOutput(result.value).distinct).toEqual(["name"]);
+      }
+    }
+  });
+
+  test("runtime: string and array spellings produce the same output", () => {
+    const fromString = parse(findFirst, { distinct: "email" });
+    const fromArray = parse(findFirst, { distinct: ["email"] });
+    expect(fromString.issues).toBeUndefined();
+    expect(fromArray.issues).toBeUndefined();
+    if (!(fromString.issues || fromArray.issues)) {
+      expect(argsOutput(fromString.value).distinct).toEqual(
+        argsOutput(fromArray.value).distinct
+      );
+    }
+  });
+
+  test("runtime: rejects an unknown field name in either spelling", () => {
+    expect(parse(findFirst, { distinct: "nope" }).issues).toBeDefined();
+    expect(parse(findFirst, { distinct: ["nope"] }).issues).toBeDefined();
+    expect(parse(findMany, { distinct: "nope" }).issues).toBeDefined();
+  });
+
+  test("runtime: findFirst still rejects unknown top-level keys", () => {
+    expect(parse(findFirst, { distinctt: ["name"] }).issues).toBeDefined();
+  });
+
+  test("runtime: findUnique does not accept distinct (Prisma parity)", () => {
+    const result = parse(simpleSchemas.args.findUnique, {
+      where: { id: "1" },
+      distinct: ["name"],
+    });
+    expect(result.issues).toBeDefined();
+  });
+});

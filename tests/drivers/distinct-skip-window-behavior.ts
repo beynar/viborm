@@ -150,6 +150,140 @@ export function runDistinctSkipWindowBehavior({
       });
     });
 
+    // Prisma accepts `distinct` on findFirst and accepts a bare scalar name in
+    // place of the array. findFirst compiles through the same
+    // findMany-with-limit path (ReadOperation), so the contract asserted here is
+    // exactly that: findFirst(args) === findMany(args)[0] ?? null, for every
+    // distinct/take/skip combination — including the signed-unit-limit order
+    // flip that a negative take triggers.
+    describe("findFirst distinct + string shorthand", () => {
+      test("findFirst distinct returns the first distinct row", async () => {
+        const c = requireClient(client);
+        const first = await c.post.findFirst({
+          distinct: "authorId",
+          orderBy: { views: "desc" },
+        });
+        const many = await c.post.findMany({
+          distinct: ["authorId"],
+          orderBy: { views: "desc" },
+        });
+
+        // p3 (u2, 200) then p1 (u1, 100) — p2 is u1's duplicate
+        expect(many.map((p) => p.id)).toEqual(["p3", "p1"]);
+        expect(first?.id).toBe("p3");
+        expect(first).toEqual(many[0]);
+      });
+
+      test("string and array spellings agree on findFirst", async () => {
+        const c = requireClient(client);
+        const fromString = await c.post.findFirst({
+          distinct: "published",
+          orderBy: { views: "asc" },
+        });
+        const fromArray = await c.post.findFirst({
+          distinct: ["published"],
+          orderBy: { views: "asc" },
+        });
+
+        expect(fromString).toEqual(fromArray);
+        expect(fromString?.id).toBe("p2");
+      });
+
+      test("string and array spellings agree on findMany", async () => {
+        const c = requireClient(client);
+        const fromString = await c.post.findMany({
+          distinct: "authorId",
+          orderBy: { views: "desc" },
+        });
+        const fromArray = await c.post.findMany({
+          distinct: ["authorId"],
+          orderBy: { views: "desc" },
+        });
+
+        expect(fromString).toEqual(fromArray);
+        expect(fromString.map((p) => p.id)).toEqual(["p3", "p1"]);
+      });
+
+      test("negative take flips the order before distinct, as on findMany", async () => {
+        const c = requireClient(client);
+        const first = await c.post.findFirst({
+          distinct: "authorId",
+          orderBy: { views: "desc" },
+          take: -1,
+        });
+        const many = await c.post.findMany({
+          distinct: ["authorId"],
+          orderBy: { views: "desc" },
+          take: -1,
+        });
+
+        // The window is reversed (views asc: p2 50, p1 100, p3 200) and only
+        // THEN deduplicated, so u1's surviving row is p2 — not p1, which is
+        // what "dedupe forward, take the last" would give. findFirst must
+        // compose exactly as findMany does.
+        expect(many.map((p) => p.id)).toEqual(["p2"]);
+        expect(first?.id).toBe("p2");
+        expect(first).toEqual(many[0]);
+      });
+
+      test("positive take keeps the forward window", async () => {
+        const first = await requireClient(client).post.findFirst({
+          distinct: "authorId",
+          orderBy: { views: "desc" },
+          take: 1,
+        });
+
+        expect(first?.id).toBe("p3");
+      });
+
+      test("take 0 is an empty window even with distinct", async () => {
+        const first = await requireClient(client).post.findFirst({
+          distinct: "authorId",
+          orderBy: { views: "desc" },
+          take: 0,
+        });
+
+        expect(first).toBeNull();
+      });
+
+      test("skip pages within the distinct set", async () => {
+        const c = requireClient(client);
+        const first = await c.post.findFirst({
+          distinct: "authorId",
+          orderBy: { views: "desc" },
+          skip: 1,
+        });
+        const many = await c.post.findMany({
+          distinct: ["authorId"],
+          orderBy: { views: "desc" },
+          skip: 1,
+        });
+
+        expect(first?.id).toBe("p1");
+        expect(first).toEqual(many[0]);
+      });
+
+      test("distinct composes with where on findFirst", async () => {
+        const first = await requireClient(client).post.findFirst({
+          where: { published: true },
+          distinct: "authorId",
+          orderBy: { views: "asc" },
+        });
+
+        // published rows are p1 (u1, 100) and p3 (u2, 200); asc keeps p1 first
+        expect(first?.id).toBe("p1");
+      });
+
+      test("distinct on findFirst with no matching rows returns null", async () => {
+        const first = await requireClient(client).post.findFirst({
+          where: { views: { gt: 10_000 } },
+          distinct: "authorId",
+        });
+
+        expect(first).toBeNull();
+      });
+    });
+
     describe("multi-column distinct", () => {
       beforeEach(async () => {
         await requireClient(client).post.create({

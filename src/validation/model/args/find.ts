@@ -17,6 +17,22 @@ import { rejectSelectInclude } from "./select-include-exclusivity";
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 
+/**
+ * `distinct` accepts a single scalar name or an array of them; the bare string
+ * is coerced to a one-element array so the engine only ever sees `string[]`.
+ * Prisma allows the shorthand on both `findMany` and `findFirst`.
+ */
+type DistinctSchema<M extends AnyModel> = V.SingleOrArray<
+  V.Enum<StringKeyOf<ModelStateOf<M>["scalars"]>[]>
+>;
+
+const getDistinctSchema = <M extends AnyModel>(model: M): DistinctSchema<M> => {
+  const fieldNames = Object.keys(model["~"].state.scalars) as StringKeyOf<
+    ModelStateOf<M>["scalars"]
+  >[];
+  return v.singleOrArray(v.enum(fieldNames)) as DistinctSchema<M>;
+};
+
 export type FindUniqueArgs<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
@@ -48,7 +64,7 @@ export const getFindUniqueArgs = <
 };
 
 /**
- * FindFirst args: { where?, orderBy?, take?, skip?, cursor?, select?, include? }
+ * FindFirst args: { where?, orderBy?, take?, skip?, cursor?, select?, include?, distinct? }
  */
 export type FindFirstArgs<
   M extends AnyModel,
@@ -67,6 +83,7 @@ export type FindFirstArgs<
     cursor: CoreSchemas<M, F>["whereUnique"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
+    distinct: DistinctSchema<M>;
   },
   { optional: true }
 >;
@@ -75,6 +92,7 @@ export const getFindFirstArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 >(
+  model: M,
   core: CoreSchemas<M, F>
 ): FindFirstArgs<M, F> => {
   return rejectSelectInclude(
@@ -89,6 +107,9 @@ export const getFindFirstArgs = <
         cursor: v.lazyRef(() => core.whereUnique),
         select: v.lazyRef(() => core.select),
         include: v.lazyRef(() => core.include),
+        // Prisma has distinct on findFirst too; it compiles through the same
+        // findMany-with-limit path (ReadOperation), so nothing else changes.
+        distinct: getDistinctSchema(model),
       },
       {
         optional: true,
@@ -121,10 +142,7 @@ export type FindManyArgs<
     cursor: CoreSchemas<M, F>["whereUnique"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
-    distinct: V.Enum<
-      StringKeyOf<ModelStateOf<M>["scalars"]>[],
-      { array: true }
-    >;
+    distinct: DistinctSchema<M>;
   },
   { optional: true }
 >;
@@ -132,11 +150,6 @@ export const getFindManyArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
   core: CoreSchemas<M, F>
 ): FindManyArgs<M, F> => {
-  // Build distinct schema - array of scalar field names
-  const fieldNames = Object.keys(model["~"].state.scalars) as StringKeyOf<
-    ModelStateOf<M>["scalars"]
-  >[];
-
   return rejectSelectInclude(
     v.object(
       {
@@ -149,7 +162,7 @@ export const getFindManyArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
         cursor: v.lazyRef(() => core.whereUnique),
         select: v.lazyRef(() => core.select),
         include: v.lazyRef(() => core.include),
-        distinct: v.enum(fieldNames, { array: true }),
+        distinct: getDistinctSchema(model),
       },
       { optional: true }
     )
