@@ -48,6 +48,7 @@ const JSON_FILTER_OPERATORS = new Set([
   "equals",
   "not",
   "path",
+  "mode",
   "lt",
   "lte",
   "gt",

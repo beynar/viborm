@@ -14,6 +14,7 @@ type JsonComparisonOperand = V.Union<readonly [V.Number, V.String]>;
 type JsonFilterBase<S extends V.Schema> = {
   equals: S;
   path: V.Array<V.String>;
+  mode: V.Enum<["default", "insensitive"]>;
   lt: JsonComparisonOperand;
   lte: JsonComparisonOperand;
   gt: JsonComparisonOperand;
@@ -52,6 +53,7 @@ const buildJsonFilterSchema = <S extends V.Schema>(
   const filter = v.object({
     equals: schema,
     path: v.array(v.string()),
+    mode: v.enum(["default", "insensitive"]),
     lt: comparisonOperand,
     lte: comparisonOperand,
     gt: comparisonOperand,

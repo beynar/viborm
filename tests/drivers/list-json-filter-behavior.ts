@@ -607,6 +607,134 @@ export function runListJsonFilterBehavior({
           })
         ).toEqual(["light"]);
       });
+
+      describe("mode: insensitive", () => {
+        test("folds ASCII A-Z on all three string operators", async () => {
+          await seedJsonDocs();
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                string_contains: "ARK",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["dark"]);
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                string_starts_with: "LIGHT",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["light"]);
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                string_ends_with: "ISH",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["light"]);
+        });
+
+        test("mode: default keeps the exact-text contract", async () => {
+          await seedJsonDocs();
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                string_contains: "ARK",
+                mode: "default",
+              },
+            })
+          ).toEqual([]);
+        });
+
+        test("folds ASCII only — accents are never case-folded", async () => {
+          await seedJsonDocs();
+          // 'Écl' folds to 'Écl' (É is outside A-Z), so it still matches
+          expect(
+            await findNames({
+              metadata: {
+                path: ["accent"],
+                string_starts_with: "ÉCL",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["dark"]);
+          // 'écl' does NOT fold to 'Écl' — same ASCII-only contract the
+          // scalar insensitive filters pin in prisma-parity-behavior
+          expect(
+            await findNames({
+              metadata: {
+                path: ["accent"],
+                string_starts_with: "écl",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual([]);
+        });
+
+        test("wildcards stay literal under the fold", async () => {
+          await seedJsonDocs();
+          expect(
+            await findNames({
+              metadata: {
+                path: ["literal"],
+                string_contains: "%_\\DONE",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["dark"]);
+        });
+
+        test("a nested not inherits the mode", async () => {
+          await seedJsonDocs();
+          // Only rows that HAVE $.theme and do not contain 'ark' survive
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                mode: "insensitive",
+                not: { string_contains: "ARK" },
+              },
+            })
+          ).toEqual(["light"]);
+        });
+
+        test("a nested not may override the inherited mode", async () => {
+          await seedJsonDocs();
+          // The inner arm is case-sensitive, so 'ARK' matches nothing and
+          // NOT(false) keeps every row that has $.theme
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                mode: "insensitive",
+                string_contains: "",
+                not: { string_contains: "ARK", mode: "default" },
+              },
+            })
+          ).toEqual(["dark", "light"]);
+        });
+
+        test("an inert mode is refused, not ignored", async () => {
+          await seedJsonDocs();
+          await expect(
+            findNames({
+              metadata: {
+                path: ["theme"],
+                equals: "dark",
+                mode: "insensitive",
+              },
+            })
+          ).rejects.toThrow("mode: 'insensitive'");
+          expect(await requireClient(client).entry.count()).toBe(5);
+        });
+      });
     });
 
     describe("json comparison filters (lt/lte/gt/gte)", () => {
