@@ -23,6 +23,7 @@ import { sql } from "@sql";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
@@ -356,6 +357,16 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runUpdateFamilyBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+
+  // TRANSACTION mode only. This suite drives the CLIENT, and a batch-only MySQL
+  // is non-returning: `assertRoutedAtomicResolution` refuses update / delete /
+  // upsert before any I/O there (the same boundary noted for CLASS III below).
+  // The batch-substrate leg of extended whereUnique is carried by the
+  // RETURNING-capable batch-only drivers (PGlite, SQLite3, LibSQL, pg).
+  runExtendedWhereUniqueBehavior({
     name: "MySQL2 transaction",
     createDriver: createMySQL2Driver,
   });

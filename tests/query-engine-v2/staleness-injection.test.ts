@@ -623,3 +623,123 @@ describe("query-engine-v2 staleness injection (M2M adopt premises)", () => {
     await client.$disconnect();
   });
 });
+
+// ---------------------------------------------------------------------------
+// W4-U1 — the EXTENDED unique `where` (Prisma >= 4.5).
+//
+// Two premises, injected separately, because they are pinned by different
+// machinery and must both hold:
+//
+//  - the FILTER half. Planning locates `K ∧ filters`; the hook makes the filter
+//    stop matching. Batch mode addresses the row by the original `where`, so the
+//    root-presence guard carries the filter INTO the atomic unit — a stale
+//    filter must abort the batch typed, not fall through to an UPDATE that
+//    matches zero rows and silently reports success.
+//  - the DISCRIMINATOR half. The existing protection (a concurrent delete) must
+//    fire exactly as it does for a plain `where` — extending the selector must
+//    not have loosened it.
+//
+// The falsification for the Pin Rule lives with the pins themselves
+// (extended-where-unique.test.ts asserts the create-arm racePin is present for a
+// plain `where` and withheld for an extended one, and the conformance suite
+// proves a filter naming the referenced parent column pins nothing).
+// ---------------------------------------------------------------------------
+
+describe("query-engine-v2 staleness injection (extended whereUnique)", () => {
+  test("filter premise (update): a stale extra filter aborts the batch typed", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "f@x", count: 5 } });
+
+    // Planning matches `email = 'f@x' AND count > 0`; the hook drives count to 0
+    // before the batch. The row still EXISTS on the discriminator — only the
+    // filter went stale — so this is precisely the case a discriminator-only
+    // guard would miss.
+    const injector = makeClient(db);
+    const rejected = await runUpdate(
+      db,
+      async () => {
+        await injector.user.update({
+          where: { email: "f@x" },
+          data: { count: { set: 0 } },
+        });
+      },
+      "user",
+      updateFamilySchema.user,
+      {
+        where: { email: "f@x", count: { gt: 0 } },
+        data: { count: { increment: 10 } },
+        select: { email: true, count: true },
+      }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(NotFoundError);
+
+    // The batch aborted whole: the injector's 0 stands, our +10 never landed.
+    await expect(
+      client.user.findUnique({
+        where: { email: "f@x" },
+        select: { count: true },
+      })
+    ).resolves.toEqual({ count: 0 });
+    await client.$disconnect();
+  });
+
+  test("filter premise (delete): a stale extra filter aborts the batch typed", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "fd@x", count: 5 } });
+
+    const injector = makeClient(db);
+    const rejected = await runDelete(
+      db,
+      async () => {
+        await injector.user.update({
+          where: { email: "fd@x" },
+          data: { count: { set: 0 } },
+        });
+      },
+      "user",
+      updateFamilySchema.user,
+      { where: { email: "fd@x", count: { gt: 0 } }, select: { email: true } }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(NotFoundError);
+
+    // The row survives — a stale filter must not delete the row it no longer
+    // describes.
+    await expect(
+      client.user.findUnique({
+        where: { email: "fd@x" },
+        select: { count: true },
+      })
+    ).resolves.toEqual({ count: 0 });
+    await client.$disconnect();
+  });
+
+  test("discriminator premise still fires under an extended where", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "fk@x", count: 5 } });
+
+    const injector = makeClient(db);
+    const rejected = await runUpdate(
+      db,
+      async () => {
+        await injector.user.delete({ where: { email: "fk@x" } });
+      },
+      "user",
+      updateFamilySchema.user,
+      {
+        where: { email: "fk@x", count: { gt: 0 } },
+        data: { count: { increment: 1 } },
+        select: { email: true, count: true },
+      }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(NotFoundError);
+
+    await expect(client.user.findMany()).resolves.toEqual([]);
+    await client.$disconnect();
+  });
+});

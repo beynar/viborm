@@ -5,6 +5,7 @@ import { createInMemoryLibSQLDriver } from "../fixtures/drivers/libsql";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
@@ -220,6 +221,15 @@ describe("LibSQL Driver", () => {
     createDriver: createInMemoryLibSQLDriver,
   });
   runUpdateFamilyBehavior({
+    name: "LibSQL atomic batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
+  });
+
+  runExtendedWhereUniqueBehavior({
+    name: "LibSQL transaction",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runExtendedWhereUniqueBehavior({
     name: "LibSQL atomic batch",
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });
