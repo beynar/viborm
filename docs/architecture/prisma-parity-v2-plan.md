@@ -597,11 +597,11 @@ bulk write, for a guarantee Prisma does not make).
 
 | Unit | Size | What | Acceptance |
 |---|---|---|---|
-| W5-U1 | M | **Raw SQL overhaul.** `$queryRaw` becomes a tagged template (safe-by-construction); the current `(string, params)` form moves to `$queryRawUnsafe` (keep an overload on `$queryRaw` detecting a plain string for one release, with a deprecation warning in the `warning` log channel). Add `$executeRaw` tagged + `$executeRawUnsafe`. Export `sql`/`join`/`empty`/`raw` from the package root (`Sql` class already dialect-renders via `toStatement`). Wire `tx.$queryRaw`/`tx.$executeRaw` into the tx proxy (today it throws `Model "$executeRaw" not found`). | tagged interpolation parameterizes on all dialects; `join` accepts plain values (Prisma parity); tx raw runs inside the open transaction (single-connection drivers verified) |
-| W5-U2 | S/M | **Prisma error-code compatibility.** Add `prismaCode` to `VibORMError` (V3001→`P2002`, V3002→`P2003`, V3003→`P2011`, V6001→`P2025`, V4001→validation, per the matrix table); map the missing **P2000** (PG `22001`, MySQL `1406` value-too-long) to a typed error instead of generic `QueryError`; add a typed client-construction error (PrismaClientInitializationError-equivalent). | `e.prismaCode === 'P2002'` works in a catch written for Prisma; P2000 mapping covered in the error-mapping suite for all dialects |
+| W5-U1 ✅ | M | **DELIVERED.** See "W5-U1 — delivered" below. **Raw SQL overhaul.** `$queryRaw` becomes a tagged template (safe-by-construction); the current `(string, params)` form moves to `$queryRawUnsafe` (keep an overload on `$queryRaw` detecting a plain string for one release, with a deprecation warning in the `warning` log channel). Add `$executeRaw` tagged + `$executeRawUnsafe`. Export `sql`/`join`/`empty`/`raw` from the package root (`Sql` class already dialect-renders via `toStatement`). Wire `tx.$queryRaw`/`tx.$executeRaw` into the tx proxy (today it throws `Model "$executeRaw" not found`). | tagged interpolation parameterizes on all dialects; `join` accepts plain values (Prisma parity); tx raw runs inside the open transaction (single-connection drivers verified) |
+| W5-U2 ✅ | S/M | **DELIVERED.** See "W5-U2 — delivered" below. **Prisma error-code compatibility.** Add `prismaCode` to `VibORMError` (V3001→`P2002`, V3002→`P2003`, V3003→`P2011`, V6001→`P2025`, V4001→validation, per the matrix table); map the missing **P2000** (PG `22001`, MySQL `1406` value-too-long) to a typed error instead of generic `QueryError`; add a typed client-construction error (PrismaClientInitializationError-equivalent). | `e.prismaCode === 'P2002'` works in a catch written for Prisma; P2000 mapping covered in the error-mapping suite for all dialects |
 | W5-U3 ✅ | M | **DELIVERED.** See "W5-U3 delivered" below. **Transaction options (per D-2).** Accept `{ isolationLevel, timeout, maxWait }` on both `$transaction` forms. Honor isolationLevel (SET TRANSACTION ISOLATION LEVEL per dialect) + timeout (driver-side timer aborting/rolling back) on transaction-capable drivers; V8003 typed refusal on D1/Neon HTTP and for unsupported levels (SQLite has only its journal modes — map or refuse, pin the choice). Replaces `assertNoTransactionOptions` and its 11-driver pinned tests deliberately. | Serializable conflict produces the dialect's serialization error, mapped; timeout rolls back cleanly; refusals typed, never silent |
-| W5-U4 | M | **`omit`** — query-level (`omit: { field: true }` on every read/write-returning op, exclusive with `select`) and client-level (`createClient({ omit: { user: { password: true } } })`), matching Prisma's local-overrides-global rule (`omit: { field: false }` re-includes). Composes with the existing model-level `.omit()`. | type-level result excludes omitted keys; nested omit in include; global+local precedence matrix tested |
-| W5-U5 | S (optional) | **`$metrics`** — expose the internal `PerfTracker` counters in Prisma's json/prometheus shapes. | `$metrics.json()` returns counters; no-op cost when unused |
+| W5-U4 ✅ | M | **DELIVERED.** See "W5-U4 — DELIVERED" below. **`omit`** — query-level (`omit: { field: true }` on every read/write-returning op, exclusive with `select`) and client-level (`createClient({ omit: { user: { password: true } } })`), matching Prisma's local-overrides-global rule (`omit: { field: false }` re-includes). Composes with the existing model-level `.omit()`. | type-level result excludes omitted keys; nested omit in include; global+local precedence matrix tested |
+| W5-U5 ❌ | S (optional) | **NOT SHIPPED — false premise.** "Expose the internal `PerfTracker` counters" assumes counters that do not exist: `src/instrumentation/perf-tracker.ts` is a start/end tree timer with no counters, gauges or histograms, and `createPerfTracker` is called only from `scripts/perf-test.ts` — never by the client, engine or any driver, so nothing collects at runtime. A Prisma-shaped `$metrics.json()` would need the counter substrate built first (always-on instrumentation in the execution and connection paths, an overhead budget, and per-driver pool introspection the driver interface does not expose). Shipping an empty or fabricated `$metrics` would be accept-and-ignore, so nothing shipped. Honest path if wanted: the logging pipeline already emits per-query durations (`LogEvent.duration`), enough to back `queries_total` + a duration histogram; pool gauges have no source today. | — |
 
 ### W5-U1 — delivered (raw SQL overhaul)
 
@@ -664,6 +664,55 @@ removing the raw-in-batch refusal, splicing instead of binding, and pointing
 tx raw at the root driver each turn the suite red. Docs:
 `docs/content/docs/client/raw-sql.mdx` (new page), compatibility matrix rows,
 README.
+### W5-U2 — delivered (Prisma error codes)
+
+`VibORMError` gained a `prismaCode` getter backed by
+`PRISMA_CODE_BY_VIBORM_CODE` in `src/errors/base.ts` — a `ReadonlyMap` keyed by
+`VibORMErrorCode`, so a typo'd code fails `tsc` rather than silently never
+matching. Claimed: V3001→P2002, V3002→P2003, V3003→P2011, V3004→P2004,
+V3005→P2000, V6001→P2025, V4001→P2009, V1001→P1001, V1002→P1002, V1003→P1017,
+V1004→P1012.
+
+**Partial on purpose.** Everything else reports `undefined`. The transaction
+family (V5xxx), nested writes (V7xxx), cache, migration, pending-operation,
+V8xxx (including `UnsupportedOperationError`) and the generic `QueryError` are
+viborm concepts Prisma has no code for; inventing one would be a lie a catch
+block would act on. `tests/errors/prisma-codes.test.ts` carries an
+**exhaustiveness tripwire**: every `VibORMErrorCode` must be either claimed or
+listed in `EXPECTED_UNMAPPED`, so a new code fails the suite until someone
+writes down its Prisma disposition.
+
+Serialization carries the code through the *trusted snapshot*
+(`src/errors/diagnostics.ts`) rather than reading it off the instance, so
+`toJSON()` and the sanitized clone handed to logging callbacks both have it, and
+the key is omitted entirely when unclaimed. `sanitizeTrustedPrismaCode`
+(`/^P\d{4}$/`) drops anything else.
+
+**P2000** is a new `ValueTooLongError` (V3005), mapped from PG SQLSTATE `22001`
+and MySQL errno `1406` / `ER_DATA_TOO_LONG` (including PlanetScale's
+errno-in-message shape). **SQLite is a documented absence, not an omission**:
+SQLite does not enforce declared column lengths, and `SQLITE_TOOBIG` is the
+~1 GB `SQLITE_MAX_LENGTH` cap — a different failure. Prisma agrees (quaint's
+SQLite error module has no arm for it). A test pins `SQLITE_TOOBIG` →
+`QueryError` with `prismaCode === undefined`.
+
+**`ClientInitializationError`** (V1004 → P1012) is thrown at three
+construction-time sites in `src/client/client.ts`: unknown-model access on the
+plain and cached surfaces, and `VibORM.create` (a new missing-driver guard plus
+`assertConstructed`, which re-types bare failures from schema hydration and
+registry construction while letting already-typed VibORM errors through). Note
+the behavior change: `createClient({ schema })` with no driver now throws at
+construction instead of failing later.
+
+Two judgment calls worth re-reading: V1003 `CONNECTION_CLOSED` claims **P1017**
+("server has closed the connection"), not P1001/P1002 as the unit table above
+sketched; and `TransactionError` stays unclaimed rather than taking P2034,
+because the family also carries `SQLITE_BUSY` and timeouts — use
+`isRetryable()`.
+
+**W5-U5 (`$metrics`) was not shipped from this unit either** — see the table row
+above for why the premise was false.
+
 ### W5-U3 delivered — the transaction-option contract
 
 `assertNoTransactionOptions` and its 11-driver "rejects every removed option"

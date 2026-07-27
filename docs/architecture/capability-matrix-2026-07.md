@@ -72,7 +72,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 
 ### 0.4 One-paragraph verdict on each deliverable
 
-- **Prisma parity:** the query, filter, write and nested-write surfaces are close to complete and in several places a genuine superset. The gaps are ecosystem-shaped, not query-shaped: no `$extends`, no `$use`, raw SQL inverted and partly unreachable, `V####` instead of `P####` error codes, no field references, no full-text search, `Decimal` is a JS `number`, and the CLI is two commands.
+- **Prisma parity:** the query, filter, write and nested-write surfaces are close to complete and in several places a genuine superset. The gaps are ecosystem-shaped, not query-shaped: no `$extends`, no `$use`, no field references (W2-B), no full-text search, `Decimal` is a JS `number`, and the CLI is two commands. (W5 closed the raw-SQL, transaction-option, `omit` and — partly — the error-code items this bullet used to list.)
 - **Interoperability:** more portable than the README claims and less verified than it implies. The abstraction is real and carefully built; but "works in every provider" is currently a claim about **three embedded databases** extrapolated to eleven drivers. Five drivers have never executed a query against their real backend.
 - **Not-implemented:** 76 typed refusals, of which ~40 are *narrower boundaries* reached by zero tests **by construction** — the census gate is empty precisely because nothing reaches them. With V1 deleted, "unreached by the corpus" and "unreachable by a user" are no longer the same claim, and the docs conflate them.
 
@@ -89,7 +89,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 1. **No `$extends`, no `$use`.** Client extensions (result/model/query/client) and middleware are absent entirely — the client proxy is a closed `if (prop === …)` dispatch with no user-extensible slot ([client.ts:373-786](../../src/client/client.ts:373); [types.ts:178](../../src/client/types.ts:178)). Largest ecosystem gap.
 2. ~~**Raw SQL is inverted and partly unreachable.**~~ — **CLOSED by W5-U1**: `$queryRaw`/`$executeRaw` are tagged templates that bind every interpolation (returning `T[]` / the affected count), `$queryRawUnsafe`/`$executeRawUnsafe` carry Prisma's string signatures, `sql`/`join`/`empty`/`raw` are exported from the package root and from `viborm/sql`, and all four methods exist on the interactive transaction client bound to the open transaction. The pre-1.0 `(string, params?)` form survives one release behind a `warning`-channel deprecation notice; `$transaction([...])` refuses a raw operation with a typed V8003.
 3. ~~**Transaction options are rejected, not ignored.**~~ — **CLOSED by W5-U3** (decision D-2): `$transaction` accepts `{ isolationLevel, timeout, maxWait }`. `assertNoTransactionOptions` is retired; each driver declares a contract in `transactionOptionSupport()` and the resolver ([transaction-options.ts](../../src/drivers/shared/transaction-options.ts)) either builds an executable plan or refuses with `UnsupportedOperationError` (V8003); a malformed options object is still `V5005`. Per-driver cells are pinned in `tests/drivers/transaction-portability.test.ts` and tabulated in [transactions.mdx](../content/docs/client/transactions.mdx).
-4. **Error codes don't port.** viborm has a real, driver-normalized taxonomy — but `V####`, not `P####`. `e.code === 'P2002'` becomes `V3001` ([base.ts:12](../../src/errors/base.ts:12)). No `P2000` mapping at all; PG `22001` / MySQL `1406` fall through to generic `QueryError`.
+4. ~~**Error codes don't port.**~~ — **PARTLY CLOSED by W5-U2**: every error still carries its own `V####` `code`, and now also a `prismaCode` where a Prisma counterpart exists (`e.prismaCode === 'P2002'` works in a catch written for Prisma). P2000 is mapped (`ValueTooLongError` V3005, from PG `22001` / MySQL `1406`) and client construction throws `ClientInitializationError` (V1004 → P1012). Deliberately partial: viborm-only families (transactions, nested writes, cache, migrations, V8003) report `undefined` rather than a code Prisma never defined — see the table in §1.8.
 5. ~~**No field references**~~ — **CLOSED by W2-B**: `client.$fields.<model>.<field>` is Prisma's `FieldRef` (see §1.3). **No full-text search** still stands: `search` / `_relevance` return zero hits repo-wide.
 6. ~~**Extended `whereUnique` is absent.**~~ — **CLOSED by W4-U1**: `findUnique`/`findUniqueOrThrow`/`update`/`delete`/`upsert` take Prisma ≥4.5's extended unique `where` (discriminator + non-unique scalar filters + `AND`/`OR`/`NOT`). Two divergences remain, both stated: relation filters inside a unique `where` are refused by name (the filter half compiles into UPDATE/DELETE, where MySQL rejects a subquery reading the mutated table), and nested relation-write target selectors / `cursor` keep the strict discriminator-only form.
 7. **`Decimal` is a JS `number`.** `s.decimal()`'s runtime base is `v.number()` ([scalar.ts:11](../../src/schema/scalars/decimal/scalar.ts:11)) while the DDL is real `numeric` / `DECIMAL` — lossy round-trip. No Decimal.js/string-backed type exists.
@@ -219,10 +219,10 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 |---|---|---|
 | Sequential `$transaction([...])` | ✅ operations are lazy `PromiseLike` | `client.ts:171-179,398-436` |
 | Interactive `$transaction(async tx => …)` + rollback | ✅ | `client.ts:640-741` |
-| Isolation levels | ❌ **actively rejected** (`V5005`) | [transactions.ts:8](../../src/drivers/shared/transactions.ts:8). `src/client/AGENTS.md:255-260` documents an `isolationLevel` option that does not exist |
-| `maxWait` / `timeout` | ❌ actively rejected | same gate |
+| Isolation levels | ✅ **CLOSED by W5-U3** — all four levels on the PG and MySQL families, `Serializable` honored by construction on SQLite, the weaker three refused there; D1 / Neon HTTP refuse outright | [transaction-options.ts](../../src/drivers/shared/transaction-options.ts); per-driver cells in `tests/drivers/transaction-portability.test.ts` |
+| `maxWait` / `timeout` | ✅ **CLOSED by W5-U3** — `timeout` honored on every transaction-capable driver (expiry drains, rolls back, `V5002`); `maxWait` honored where the acquisition can be bounded and abandoned, refused with a reason where it cannot | same module; behavior pinned in `tests/drivers/transaction-options-behavior.test.ts` |
 | Nested transactions / savepoints | ➕ Prisma has no nested `$transaction` | `driver.ts:450-462`; `savepoint-queue.ts` |
-| Raw SQL inside a tx | ❌ at the client surface | `client.ts:653-731` — tx proxy is model-ops only |
+| Raw SQL inside a tx | ✅ **CLOSED by W5-U1** — `tx.$queryRaw` / `tx.$executeRaw` and both Unsafe variants ride the transaction-bound driver, so they share its connection and roll back with it | `client/raw.ts`; tx proxy in `client.ts` |
 
 **Per-driver:** interactive + batch on pg, postgres.js, pglite, bun-sql, mysql2, planetscale (single-shard), sqlite3, libsql, bun-sqlite. **Batch-only (interactive throws):** neon-http, d1. `d1-http` is **not implemented** despite `AGENTS.md:184` listing it.
 
@@ -230,11 +230,11 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 
 | Feature | Status | Evidence |
 |---|---|---|
-| `$queryRaw` tagged template | ❌ / ↔️ signature is `(sql: string, params?) => QueryResult<T>` — i.e. Prisma's `$queryRawUnsafe`. Caller writes `$1` vs `?` by hand | `client.ts:148-151` |
-| `$executeRaw` | ↔️ takes a prebuilt `Sql`, returns `QueryResult<T>` (rows *and* rowCount) — the query/execute split is inverted vs Prisma | `client.ts:144-147` |
-| `$queryRawUnsafe` / `$executeRawUnsafe` / `$queryRawTyped` | ❌ names don't exist | — |
-| `Prisma.sql` / `join` / `empty` / `raw` | 🟡 **implemented but not publicly exported** | [sql.ts:221](../../src/sql/sql.ts:221) absent from `src/index.ts`, all `*/exports.ts`, `tsdown.config.ts`, `package.json` exports |
-| Helper signature deltas | 🟡 `join` requires `Sql[]`; `sql.raw` is a **tagged template**, not `Prisma.raw(string)` | `sql.ts:156-172` |
+| `$queryRaw` tagged template | ✅ **CLOSED by W5-U1** — tagged; every interpolation binds, rendered per dialect by `toStatement`. Returns `T[]`. The pre-1.0 `(sql: string, params?)` form survives one release behind a `warning`-channel deprecation notice | `client/raw.ts` |
+| `$executeRaw` | ✅ **CLOSED by W5-U1** — tagged (a prebuilt `Sql` is still accepted), returns the affected count as `number`, no row type parameter. **Breaking**: it used to answer `QueryResult<T>` | `client/raw.ts` |
+| `$queryRawUnsafe` / `$executeRawUnsafe` | ✅ **CLOSED by W5-U1** — Prisma's exact `(sql, ...params)` signatures. `$queryRawTyped` still does not exist (it is generated-client machinery viborm has no analogue for) | `client/raw.ts` |
+| `Prisma.sql` / `join` / `empty` / `raw` | ✅ **CLOSED by W5-U1** — exported from the package root and from a `viborm/sql` subpath, alongside `Sql` and `isSql` | `src/index.ts`, `package.json` exports, `tsdown.config.ts` |
+| Helper signature deltas | ✅ **CLOSED by W5-U1** — `join` takes `RawValue[]` (plain values bind, nested fragments splice), and `raw` gained Prisma's `raw(string)` splice alongside the tagged form the adapters use | `sql.ts` |
 | `Sql.toStatement("$n"|":n"|"?")` dialect renderer | ➕ | `sql.ts:99` |
 | Raw fails closed during an open tx on single-connection drivers | ➕ | `driver-transaction-base.ts:44-59` |
 
@@ -246,19 +246,19 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `$extends` | ❌ | `types.ts:178-182` |
 | `$on` events / `log: ['query']` | 🟡 different: constructor-config **callbacks**, levels `query\|cache\|warning\|error`; no emitter, no `target`, no `info`; sql/params stripped by default | `instrumentation/types.ts:13,18-39` |
 | `$connect` / `$disconnect` | ✅ | `client.ts:180-182,744-764` |
-| Error taxonomy | 🟡 real and driver-normalized, but `V####` not `P####` | below |
+| Error taxonomy | 🟡➕ **partly CLOSED by W5-U2** — every error keeps its `V####` `code`, and the ones with a Prisma counterpart now also publish `prismaCode` (`P####`). Partial by design: the families Prisma has no code for report `undefined` rather than inventing one | `errors/base.ts`; table below |
 | `datasources`/`datasourceUrl` | ↔️ connection lives on the driver | — |
 | `adapter` (driver adapters) | ✅ mandatory; 11 first-party drivers | `client.ts:122` |
 | `errorFormat` | ❌ (nearest: `diagnostics.{includeSql,includeParams}` — controls *disclosure*, not formatting) | `errors/diagnostics.ts:31-34` |
-| `transactionOptions` | ❌ rejected | §1.6 |
+| `transactionOptions` | 🟡 **per-call only (W5-U3)** — `$transaction(fn, { isolationLevel, timeout, maxWait })` is accepted per call; there is still no client-construction `transactionOptions` default | §1.6 |
 | Global `omit` config | ✅ (W5-U4) — `createClient({ omit: { user: { passwordHash: true } } })`, applied as an args rewrite; a query overrides per field with `false` or wholesale with `select`; never flips a bulk write's return shape | `client/omit.ts` |
 | Preview features / flags | ❌ by design | — |
 | OpenTelemetry tracing | ✅➕ **GA, not preview**; no separate instrumentation package; optional peer dep with no-op fallback | `instrumentation/tracer.ts:393` |
 | Query caching | ➕ built-in, pluggable, no Accelerate service | `cache/schema.ts:61-116` |
 | `$metrics` | ❌ | internal `PerfTracker` not in the published entrypoint |
 
-**Error mapping (viborm → Prisma):** `UniqueConstraintError V3001`→P2002 · `ForeignKeyError V3002`→P2003 · `NotNullConstraintError V3003`→P2011 · `CheckConstraintError V3004`≈P2004 · `NotFoundError V6001`→P2025 · `ConnectionError V1001/2/3`≈P1001/P1002 · `ValidationError V4001`→PrismaClientValidationError · `QueryError V2001`≈PrismaClientUnknownRequestError · `QueryEngineError V9001`≈RustPanic. Normalization is real and multi-dialect (PG SQLSTATE, MySQL errno + `ER_*`, SQLite `SQLITE_CONSTRAINT_*`, PlanetScale errno-in-message, D1 suffix stripping — [error-mapping.ts:23-226](../../src/drivers/error-mapping.ts:23)).
-**Missing:** P2000, `PrismaClientInitializationError` (client-construction failures are plain `Error`).
+**Error mapping (viborm → Prisma):** `UniqueConstraintError V3001`→P2002 · `ForeignKeyError V3002`→P2003 · `NotNullConstraintError V3003`→P2011 · `CheckConstraintError V3004`≈P2004 · `NotFoundError V6001`→P2025 · `ValueTooLongError V3005`→P2000 (W5-U2) · `ConnectionError V1001/V1002/V1003`→P1001/P1002/P1017 · `ClientInitializationError V1004`→P1012 (W5-U2) · `ValidationError V4001`→PrismaClientValidationError · `QueryError V2001`≈PrismaClientUnknownRequestError · `QueryEngineError V9001`≈RustPanic. Normalization is real and multi-dialect (PG SQLSTATE, MySQL errno + `ER_*`, SQLite `SQLITE_CONSTRAINT_*`, PlanetScale errno-in-message, D1 suffix stripping — [error-mapping.ts:23-226](../../src/drivers/error-mapping.ts:23)).
+**Closed by W5-U2:** P2000 is `ValueTooLongError` (V3005), mapped from PG `22001` and MySQL `1406`/`ER_DATA_TOO_LONG`; client-construction failures are `ClientInitializationError` (V1004). **Documented absence:** no SQLite P2000 — SQLite does not enforce declared column lengths, so there is no error to map (quaint agrees; `SQLITE_TOOBIG` is the ~1 GB size cap, a different failure, and stays a generic `QueryError`). **Still missing:** P2034 on the transaction family — no member is 1:1, since V5xxx also carries `SQLITE_BUSY` and timeouts; use `isRetryable()`.
 **viborm-only:** `TransactionError`, `NestedWriteError` (V7001-6), `FeatureNotSupportedError` (V8001), `PendingOperationError` (V12001-4), cache errors (V10001-4), `isRetryableError()`, and a SQL/param redaction layer.
 
 ## 1.9 Schema and types
@@ -444,7 +444,7 @@ Placeholder style is **dialect-derived, never driver-derived**: `$n` for postgre
 | `FOR UPDATE` | ✅ | ✅ | 🟡 **silently omitted** | SQLite locks at DB level; no signal |
 | aggregate / groupBy / having | ✅ | ✅ | ✅ | zero dialect branching in the builders |
 | `updateMany`/`deleteMany` with a self-relation filter | ✅ | ⚠️ derived-table wrapper (ERR 1093, needs 8.0.14+) | ✅ | — |
-| `$queryRaw` | ❌ not portable | ❌ | ❌ | you write `$1` or `?` yourself. No translation, no warning |
+| `$queryRaw` (tagged) | 🟡 values portable, text is not | 🟡 | 🟡 | **W5-U1**: interpolations bind and are rendered in each driver's own placeholder style, so a *value* is portable. The SQL text you write is still yours to keep portable. `$queryRawUnsafe` is verbatim — you write `$1` or `?` yourself |
 
 ## 2.6 Writes
 
@@ -709,8 +709,8 @@ Residual is V2's fixed per-call construction cost (fresh operation object + own-
 | # | Item | Effect |
 |---|---|---|
 | F1 | `exist` has no arg schema of its own | validated against the **`count`** schema; `orderBy`/`cursor`/`take`/`skip`/`select` accepted at runtime but invisible to types; runs a full `COUNT`, not an `EXISTS` |
-| F2 | `$transaction` accepts no options | JS callers get a runtime error, TS callers a compile error |
-| F3 | Raw SQL | no tagged templates, inverted naming, no `*Unsafe` variants, `sql` unexported |
+| F2 | ~~`$transaction` accepts no options~~ | **CLOSED by W5-U3** — both forms take options; each is honored or refused with a reason, never ignored |
+| F3 | ~~Raw SQL~~ | **CLOSED by W5-U1** — tagged templates, Prisma's return shapes, `*Unsafe` variants, helpers exported from the root and `viborm/sql` |
 | F4 | No extensions, middleware, or event hooks | only interception points are construction-time `InstrumentationConfig` and the internal-only `PendingOperation.wrapExecutor` |
 | F5 | Prepared statements are internal-only | `prepare()`/`prepareBatch()` are public on an exported class but no client API hands you a re-executable handle |
 | F6 | Per-query `cache` arg is stripped before validation | every mutation schema carries `cache: cacheInvalidationSchema`, but the client proxy destructures `cache` out **before** building the operation ([client.ts:244-253](../../src/client/client.ts:244)). Dead schema entry. Reads have no `cache` entry at all |

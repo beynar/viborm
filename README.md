@@ -55,7 +55,7 @@ Status legend:
 | `groupBy` | `by`, aggregates, `having`, `orderBy`, `skip`, `take`; no `select` | Supports scalar `by`, aggregate selections, `having`, order, `skip`, `take`; invalid group/having shapes reject | `Supported` |
 | Nested writes | Broad nested create/connect/update/delete/upsert matrix | Supports `create`, `createMany`, `connect`, `connectOrCreate`, nullable/correlated `disconnect`, `delete`, `set`, `update`, to-many `updateMany`, `upsert`, and to-many `deleteMany`; callback-transaction and atomic-batch paths propagate generated and updated primary keys where the shape is safe; create-branch update/delete-like shapes are excluded | `Subset` |
 | Transactions | Callback and array `$transaction` | Callback transactions on transactional drivers; batch mode on transactional or atomic-batch drivers | `Supported` |
-| Query-level `omit` | Prisma supports per-query `omit` | VibORM has model-level omit only; query-level Prisma `omit` is not part of this roadmap | `Unsupported` |
+| `omit` | Prisma supports per-query and client-level `omit` | Supports both, including `select`/`omit` exclusivity and the local `{ field: false }` override of a client default; VibORM additionally has a schema-level `.omit()` that is a hard exclusion no query can undo | `Supported` |
 | Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | Tagged `$queryRaw` (returns `T[]`) / `$executeRaw` (returns the affected count) plus `$queryRawUnsafe`/`$executeRawUnsafe`; also on the interactive transaction client. `sql`/`join`/`empty`/`raw` are exported from the package root | `Supported` |
 | Existence check | Emulated with `count`/`findFirst` in Prisma | `exist({ where })` is a VibORM extension returning `boolean`; no `exists` alias | `Different` |
 
@@ -545,7 +545,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - All scalar types (string, int, float, boolean, dateTime, json, enum, etc.)
 - PostgreSQL, MySQL, and SQLite adapters, including `push` migrations for all three
 - Query caching with TTL and SWR
-- Transactions (callback and batch modes)
+- Transactions (callback and batch modes), with Prisma's `{ isolationLevel, timeout, maxWait }` options honored or refused per driver — never ignored
 - OpenTelemetry instrumentation
 
 **Known limitations:**
@@ -553,6 +553,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Parent `create` and the create branch of parent `upsert` intentionally exclude update/delete-like nested operations.
 - Impossible or unsafe primary-key dataflow shapes reject before mutation instead of partially applying nested writes.
 - Raw queries are Prisma-shaped tagged templates; the pre-1.0 `$queryRaw(string, params?)` form still runs for one release behind a deprecation notice, and `$transaction([...])` takes model operations only (raw SQL goes in the interactive form).
+- Transaction options are honored where the driver can honor them and refused with a typed `UnsupportedOperationError` (naming the option and the reason) where it cannot; see the per-driver table in the Transactions docs.
 - Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1 binding and Neon HTTP need external runs before claiming hosted verification.
 
 **Future features** (documented in `features-docs/`):

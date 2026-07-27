@@ -175,6 +175,11 @@ const EXPECTED_UNMAPPED: VibORMErrorCode[] = [
   VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
   VibORMErrorCode.FEATURE_NOT_SUPPORTED,
   VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+  // V8003 is viborm's portability refusal — "this driver cannot honor what you
+  // asked, and here is why". Prisma has no user-facing equivalent: it either
+  // supports a thing on a provider or the method does not exist there, so there
+  // is no P-code to claim. Deliberately unclaimed.
+  VibORMErrorCode.UNSUPPORTED_OPERATION,
   VibORMErrorCode.CACHE_INVALID_TTL,
   VibORMErrorCode.CACHE_INVALID_KEY,
   VibORMErrorCode.CACHE_OPERATION_NOT_CACHEABLE,
