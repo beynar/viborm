@@ -56,7 +56,7 @@ Status legend:
 | Nested writes | Broad nested create/connect/update/delete/upsert matrix | Supports `create`, `createMany`, `connect`, `connectOrCreate`, nullable/correlated `disconnect`, `delete`, `set`, `update`, to-many `updateMany`, `upsert`, and to-many `deleteMany`; callback-transaction and atomic-batch paths propagate generated and updated primary keys where the shape is safe; create-branch update/delete-like shapes are excluded | `Subset` |
 | Transactions | Callback and array `$transaction` | Callback transactions on transactional drivers; batch mode on transactional or atomic-batch drivers | `Supported` |
 | Query-level `omit` | Prisma supports per-query `omit` | VibORM has model-level omit only; query-level Prisma `omit` is not part of this roadmap | `Unsupported` |
-| Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | `$queryRaw(sql, params?)` and `$executeRaw(Sql)` intentionally use VibORM's explicit shapes | `Different` |
+| Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | Tagged `$queryRaw` (returns `T[]`) / `$executeRaw` (returns the affected count) plus `$queryRawUnsafe`/`$executeRawUnsafe`; also on the interactive transaction client. `sql`/`join`/`empty`/`raw` are exported from the package root | `Supported` |
 | Existence check | Emulated with `count`/`findFirst` in Prisma | `exist({ where })` is a VibORM extension returning `boolean`; no `exists` alias | `Different` |
 
 ```typescript
@@ -552,7 +552,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Full Prisma parity is not complete; VibORM is Prisma-inspired.
 - Parent `create` and the create branch of parent `upsert` intentionally exclude update/delete-like nested operations.
 - Impossible or unsafe primary-key dataflow shapes reject before mutation instead of partially applying nested writes.
-- Raw query APIs intentionally differ from Prisma: `$queryRaw` uses `string, params?`, and `$executeRaw` uses a `Sql` fragment.
+- Raw queries are Prisma-shaped tagged templates; the pre-1.0 `$queryRaw(string, params?)` form still runs for one release behind a deprecation notice, and `$transaction([...])` takes model operations only (raw SQL goes in the interactive form).
 - Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1 binding and Neon HTTP need external runs before claiming hosted verification.
 
 **Future features** (documented in `features-docs/`):

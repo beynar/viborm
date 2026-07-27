@@ -46,8 +46,15 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { PreparedBatchGuard } from "@query-engine/types";
 import { createSchemaFieldRefs, type SchemaFieldRefs } from "@schema/field-ref";
 import { hydrateSchemaNames } from "@schema/hydration";
-import type { Sql } from "@sql";
 import { createSchemaRegistry } from "@validation";
+import {
+  createLegacyRawWarner,
+  createRawSurface,
+  isRawOperationPromise,
+  type LegacyRawWarner,
+  type RawSurface,
+  rawOperationInBatchError,
+} from "./raw";
 import type {
   CachedClient,
   Client,
@@ -97,6 +104,31 @@ function createModelProxy<S extends Schema, R>(
   });
 }
 
+const RAW_METHOD_NAMES = new Set<string>([
+  "$executeRaw",
+  "$executeRawUnsafe",
+  "$queryRaw",
+  "$queryRawUnsafe",
+]);
+
+/** The four raw methods the client and its transaction clients answer. */
+function isRawMethodName(prop: string | symbol): prop is keyof RawSurface {
+  return typeof prop === "string" && RAW_METHOD_NAMES.has(prop);
+}
+
+/**
+ * Every item of `$transaction([...])` must be a deferrable model operation. A
+ * raw query is not one — it already ran — so it gets its own refusal instead
+ * of the generic "not a pending operation".
+ */
+function assertBatchableOperation(
+  candidate: unknown
+): asserts candidate is PendingOperation<unknown> {
+  if (isPendingOperation(candidate)) return;
+  if (isRawOperationPromise(candidate)) throw rawOperationInBatchError();
+  throw new InvalidTransactionInputError();
+}
+
 function assertOperationOwnership(
   operation: PendingOperation<unknown>,
   engine: QueryEngine
@@ -132,9 +164,25 @@ export interface VibORMConfig {
 export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
 
 /**
+ * The client an interactive `$transaction(async (tx) => ...)` callback gets:
+ * every model operation, the raw SQL surface bound to the OPEN transaction,
+ * and nested `$transaction` (savepoints).
+ */
+export type TransactionClient<C extends VibORMConfig> = Client<C> &
+  RawSurface & {
+    $transaction: {
+      <T>(fn: (tx: TransactionClient<C>) => Promise<T>): Promise<T>;
+      <T extends PendingOperation<unknown>[]>(
+        operations: [...T]
+      ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
+    };
+  };
+
+/**
  * Extended client type with utility methods
  */
 export type VibORMClient<C extends VibORMConfig> = Client<C> &
+  RawSurface &
   Omit<
     {
       /** Access the underlying driver */
@@ -155,15 +203,6 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
        * Built lazily: nothing is walked until a model (and then a field) is read.
        */
       $fields: SchemaFieldRefs<C["schema"]>;
-      /** Execute a raw SQL query */
-      $executeRaw: <T = Record<string, unknown>>(
-        query: Sql
-      ) => Promise<QueryResult<T>>;
-      /** Execute a raw SQL string */
-      $queryRaw: <T = Record<string, unknown>>(
-        sql: string,
-        params?: unknown[]
-      ) => Promise<QueryResult<T>>;
       /**
        * Run operations in a transaction or batch
        *
@@ -185,7 +224,7 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
        */
       $transaction: {
         // Overload 1: Dynamic transaction (callback)
-        <T>(fn: (tx: Client<C>) => Promise<T>): Promise<T>;
+        <T>(fn: (tx: TransactionClient<C>) => Promise<T>): Promise<T>;
         // Overload 2: Batch of independent operations (Prisma-style)
         <T extends PendingOperation<unknown>[]>(
           operations: [...T]
@@ -212,6 +251,12 @@ export class VibORM<C extends VibORMConfig> {
   private readonly waitUntil: WaitUntilFn | undefined;
   private readonly cacheVersion: string | number | undefined;
   private readonly engine: QueryEngine;
+  /**
+   * One deprecation sink per client, shared with every transaction client it
+   * opens, so the legacy raw-string notice is announced once — not once per
+   * transaction.
+   */
+  private readonly legacyRawWarner: LegacyRawWarner;
 
   /**
    * Unique identifier for this client instance.
@@ -219,6 +264,18 @@ export class VibORM<C extends VibORMConfig> {
    */
   get clientId(): symbol {
     return this.engine.clientId;
+  }
+
+  /**
+   * The raw SQL surface bound to one driver — the client's own driver, or the
+   * transaction-bound driver inside an open interactive transaction.
+   */
+  private rawSurface(driver: AnyDriver): RawSurface {
+    return createRawSurface({
+      driver,
+      instrumentation: this.engine.instrumentation,
+      warnLegacyString: this.legacyRawWarner,
+    });
   }
 
   constructor(config: C) {
@@ -237,6 +294,7 @@ export class VibORM<C extends VibORMConfig> {
     const schemaRegistry = createSchemaRegistry(this.schema);
     const registry = createModelRegistry(this.schema, schemaRegistry);
     this.engine = new QueryEngine(config.driver, registry, instrumentation);
+    this.legacyRawWarner = createLegacyRawWarner(instrumentation);
   }
 
   /**
@@ -376,6 +434,8 @@ export class VibORM<C extends VibORMConfig> {
     // Field references are built on first `$fields` access, then reused: a
     // client that never compares columns pays nothing for the surface.
     let fieldRefs: SchemaFieldRefs<C["schema"]> | undefined;
+    // Same for the raw surface: built on first `$queryRaw`-family access.
+    let rawSurface: RawSurface | undefined;
 
     // Create proxy that combines model operations with utility methods
     return new Proxy(client, {
@@ -394,29 +454,9 @@ export class VibORM<C extends VibORMConfig> {
           return fieldRefs;
         }
 
-        if (prop === "$executeRaw") {
-          return <T>(query: Sql) =>
-            orm.engine.driver._execute<T>(
-              query,
-              createOperationExecutionContext(
-                "$raw",
-                "$executeRaw",
-                orm.engine.instrumentation
-              )
-            );
-        }
-
-        if (prop === "$queryRaw") {
-          return <T>(sql: string, params?: unknown[]) =>
-            orm.engine.driver._executeRaw<T>(
-              sql,
-              params,
-              createOperationExecutionContext(
-                "$raw",
-                "$queryRaw",
-                orm.engine.instrumentation
-              )
-            );
+        if (isRawMethodName(prop)) {
+          rawSurface ??= orm.rawSurface(orm.engine.driver);
+          return rawSurface[prop];
         }
 
         if (prop === "$transaction") {
@@ -445,9 +485,7 @@ export class VibORM<C extends VibORMConfig> {
 
               // Validate all items are PendingOperations from this client
               for (const op of operations) {
-                if (!isPendingOperation(op)) {
-                  throw new InvalidTransactionInputError();
-                }
+                assertBatchableOperation(op);
                 assertOperationOwnership(op, orm.engine);
               }
 
@@ -660,7 +698,7 @@ export class VibORM<C extends VibORMConfig> {
             }
 
             // Callback = dynamic transaction mode
-            const fn = input as (tx: Client<C>) => Promise<T>;
+            const fn = input as (tx: TransactionClient<C>) => Promise<T>;
             if (!orm.engine.driver.supportsTransactions) {
               throw new TransactionError(
                 `Driver "${orm.engine.driver.driverName}" does not support callback transactions.`,
@@ -674,17 +712,27 @@ export class VibORM<C extends VibORMConfig> {
             }
 
             // Helper to create a transaction client with $transaction support
-            const createTxClient = (txDriver: AnyDriver): Client<C> => {
+            const createTxClient = (
+              txDriver: AnyDriver
+            ): TransactionClient<C> => {
               const txEngine = orm.engine.bind(txDriver);
               const baseClient = orm.createClient(txEngine);
+              // Raw SQL inside the callback rides the transaction-bound driver,
+              // so it shares the single connection with the model operations
+              // and rolls back with them. Built on first access.
+              let txRawSurface: RawSurface | undefined;
 
               // Wrap with proxy to intercept $transaction
               return new Proxy(baseClient, {
                 get(target, prop) {
+                  if (isRawMethodName(prop)) {
+                    txRawSurface ??= orm.rawSurface(txDriver);
+                    return txRawSurface[prop];
+                  }
                   if (prop === "$transaction") {
                     return <NT>(
                       nestedInput:
-                        | ((nestedTx: Client<C>) => Promise<NT>)
+                        | ((nestedTx: TransactionClient<C>) => Promise<NT>)
                         | PendingOperation<unknown>[],
                       nestedUnsupportedOptions?: unknown
                     ): Promise<NT | unknown[]> => {
@@ -710,9 +758,7 @@ export class VibORM<C extends VibORMConfig> {
                           const nestedOperations =
                             nestedInput as PendingOperation<unknown>[];
                           for (const op of nestedOperations) {
-                            if (!isPendingOperation(op)) {
-                              throw new InvalidTransactionInputError();
-                            }
+                            assertBatchableOperation(op);
                             assertOperationOwnership(op, txEngine);
                           }
 
@@ -737,7 +783,9 @@ export class VibORM<C extends VibORMConfig> {
                               nestedTxDriver as AnyDriver
                             );
                             return (
-                              nestedInput as (tx: Client<C>) => Promise<NT>
+                              nestedInput as (
+                                tx: TransactionClient<C>
+                              ) => Promise<NT>
                             )(nestedClient);
                           },
                           undefined,
@@ -751,7 +799,7 @@ export class VibORM<C extends VibORMConfig> {
                   // Forward all other property access to the base client
                   return Reflect.get(target, prop);
                 },
-              }) as Client<C>;
+              }) as TransactionClient<C>;
             };
 
             return orm.engine.driver.withTransaction(

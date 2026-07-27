@@ -1343,51 +1343,62 @@ describe("Transaction & Raw SQL", () => {
   });
 
   describe("$executeRaw", () => {
-    test("executes raw SQL query", async () => {
+    test("returns the affected count for mutations", async () => {
       await createStandardUserPostUsers(client);
 
-      const result = await client.$executeRaw<{ name: string }>(
-        sql`SELECT "name" FROM "user" WHERE "name" = ${"Alice"}`
-      );
-
-      expect(result.rows.length).toBe(1);
-      expect(result.rows[0]?.name).toBe("Alice");
-    });
-
-    test("returns rowCount for mutations", async () => {
-      await createStandardUserPostUsers(client);
-
-      const result = await client.$executeRaw(
+      const affected = await client.$executeRaw(
         sql`UPDATE "user" SET "age" = ${99} WHERE "age" IS NOT NULL`
       );
 
-      expect(result.rowCount).toBe(2); // Alice and Bob
+      expect(affected).toBe(2); // Alice and Bob
+    });
+
+    test("binds a tagged interpolation", async () => {
+      await createStandardUserPostUsers(client);
+
+      const affected =
+        await client.$executeRaw`UPDATE "user" SET "age" = ${77} WHERE "name" = ${"Alice"}`;
+
+      expect(affected).toBe(1);
     });
   });
 
   describe("$queryRaw", () => {
-    test("executes raw SQL string with params", async () => {
+    test("binds tagged interpolations and returns the rows", async () => {
       await createStandardUserPostUsers(client);
 
-      const result = await client.$queryRaw<{ name: string }>(
-        'SELECT "name" FROM "user" WHERE "age" >= $1',
-        [25]
-      );
+      const rows = await client.$queryRaw<{
+        name: string;
+      }>`SELECT "name" FROM "user" WHERE "age" >= ${25}`;
 
-      expect(result.rows.length).toBe(2); // Alice (30) and Bob (25)
+      expect(rows.length).toBe(2); // Alice (30) and Bob (25)
     });
 
     test("returns all rows", async () => {
       await createStandardUserPostUsers(client);
 
-      const result = await client.$queryRaw<{ id: string; name: string }>(
-        'SELECT "id", "name" FROM "user" ORDER BY "name" ASC'
+      const rows = await client.$queryRaw<{
+        id: string;
+        name: string;
+      }>`SELECT "id", "name" FROM "user" ORDER BY "name" ASC`;
+
+      expect(rows.length).toBe(3);
+      expect(rows[0]?.name).toBe("Alice");
+      expect(rows[1]?.name).toBe("Bob");
+      expect(rows[2]?.name).toBe("Charlie");
+    });
+  });
+
+  describe("$queryRawUnsafe", () => {
+    test("executes a hand-written statement with positional params", async () => {
+      await createStandardUserPostUsers(client);
+
+      const rows = await client.$queryRawUnsafe<{ name: string }>(
+        'SELECT "name" FROM "user" WHERE "age" >= $1',
+        25
       );
 
-      expect(result.rows.length).toBe(3);
-      expect(result.rows[0]?.name).toBe("Alice");
-      expect(result.rows[1]?.name).toBe("Bob");
-      expect(result.rows[2]?.name).toBe("Charlie");
+      expect(rows.length).toBe(2); // Alice (30) and Bob (25)
     });
   });
 });

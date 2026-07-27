@@ -18,6 +18,10 @@
       "types": "./dist/driver.d.mts",
       "import": "./dist/driver.mjs"
     },
+    "./sql": {
+      "types": "./dist/sql.d.mts",
+      "import": "./dist/sql.mjs"
+    },
     "./pg": {
       "types": "./dist/pg.d.mts",
       "import": "./dist/pg.mjs"

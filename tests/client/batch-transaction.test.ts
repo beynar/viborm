@@ -140,8 +140,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean up data between tests
-  await client.$queryRaw(`DELETE FROM "post"`);
-  await client.$queryRaw(`DELETE FROM "user"`);
+  await client.$executeRawUnsafe(`DELETE FROM "post"`);
+  await client.$executeRawUnsafe(`DELETE FROM "user"`);
 });
 
 // =============================================================================

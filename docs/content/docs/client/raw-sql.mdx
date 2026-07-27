@@ -1,0 +1,159 @@
+---
+title: Raw SQL
+description: Tagged-template $queryRaw/$executeRaw, the Unsafe variants, and the sql composition helpers
+icon: Terminal
+---
+
+When the query builder cannot express what you need, drop to SQL. There are
+four methods, in two families.
+
+| Method | Argument | Returns |
+| --- | --- | --- |
+| `` $queryRaw`...` `` | tagged template (values are **bound**) | `T[]` — the rows |
+| `$queryRawUnsafe(sql, ...params)` | statement **string** + positional params | `T[]` — the rows |
+| `` $executeRaw`...` `` | tagged template (values are **bound**) | `number` — affected rows |
+| `$executeRawUnsafe(sql, ...params)` | statement **string** + positional params | `number` — affected rows |
+
+## Tagged templates bind, they never splice
+
+Every `${...}` in a tagged call becomes a **bound parameter**, rendered in the
+driver's own placeholder style (`$1` on PostgreSQL, `?` on MySQL and SQLite).
+The value can never reach the statement as text, so this is safe by
+construction:
+
+```ts
+const search = req.query.name; // untrusted
+
+const users = await client.$queryRaw<{ id: string; name: string }>`
+  SELECT id, name FROM "user" WHERE name = ${search}
+`;
+// → SELECT id, name FROM "user" WHERE name = $1   params: [search]
+```
+
+`$executeRaw` is the same, for statements that change rows:
+
+```ts
+const updated = await client.$executeRaw`
+  UPDATE "user" SET active = ${false} WHERE last_seen < ${cutoff}
+`;
+// updated: number
+```
+
+<Callout type="info">
+  `$queryRaw` returns the **rows**, `$executeRaw` returns the **affected
+  count** — Prisma's split. Neither returns a driver result envelope.
+</Callout>
+
+## The Unsafe variants
+
+Use these when the statement text itself is dynamic — a column name, an
+`ORDER BY` direction, a generated statement. The string is used **verbatim**;
+you own the escaping.
+
+```ts
+const rows = await client.$queryRawUnsafe<{ id: string }>(
+  'SELECT id FROM "user" WHERE age >= $1',
+  minimumAge
+);
+
+const deleted = await client.$executeRawUnsafe(
+  'DELETE FROM "session" WHERE expires_at < $1',
+  cutoff
+);
+```
+
+<Callout type="warn">
+  Never build an Unsafe statement out of user input. If the value is data, use
+  a tagged template or a positional parameter instead.
+</Callout>
+
+## Composing fragments
+
+`sql`, `join`, `empty` and `raw` are exported from the package root (also
+available as `viborm/sql`). They build `Sql` fragments that nest inside each
+other and inside a `$queryRaw`/`$executeRaw` call.
+
+```ts
+import { empty, join, raw, sql } from "viborm";
+
+// join binds plain values — one placeholder per value
+const ids = ["u1", "u2", "u3"];
+const rows = await client.$queryRaw<{ id: string }>(
+  sql`SELECT id FROM "user" WHERE id IN (${join(ids)})`
+);
+
+// join also splices nested fragments, keeping their bound values
+const filters = [sql`age >= ${18}`, sql`active = ${true}`];
+const adults = await client.$queryRaw<{ id: string }>(
+  sql`SELECT id FROM "user" WHERE ${join(filters, " AND ")}`
+);
+
+// empty contributes nothing — useful for an optional clause
+const clause = onlyActive ? sql`WHERE active = ${true}` : empty;
+await client.$queryRaw(sql`SELECT id FROM "user" ${clause}`);
+
+// raw(text) splices text with no binding — identifiers, keywords, directions
+await client.$queryRaw(
+  sql`SELECT id FROM "user" ${raw(`ORDER BY ${column} DESC`)}`
+);
+```
+
+A prebuilt fragment can be passed straight to either safe method:
+
+```ts
+const fragment = sql`SELECT id FROM "user" WHERE age >= ${18}`;
+const rows = await client.$queryRaw<{ id: string }>(fragment);
+```
+
+Passing a fragment **and** extra values is refused — the fragment already
+carries its parameters, so there is nowhere for the extras to go.
+
+## Raw SQL in a transaction
+
+The interactive transaction client carries the same four methods, bound to the
+open transaction. They travel the transaction's connection, see its
+uncommitted writes, and roll back with it:
+
+```ts
+await client.$transaction(async (tx) => {
+  await tx.user.create({ data: { id: "u1", name: "Alice" } });
+
+  // Sees the row the line above wrote, even though nothing is committed yet
+  const [row] = await tx.$queryRaw<{
+    name: string;
+  }>`SELECT name FROM "user" WHERE id = ${"u1"}`;
+
+  await tx.$executeRaw`UPDATE "user" SET active = ${true} WHERE id = ${"u1"}`;
+});
+```
+
+The **array** form of `$transaction` is model operations only. A raw query runs
+the moment you call it and returns a plain Promise, so there is no deferred
+operation left to batch — passing one is refused with a typed
+`UnsupportedOperationError`. Use the interactive form above.
+
+## Rows are driver-native
+
+Raw results are not passed through the ORM's typed read path. A column comes
+back exactly as the driver hands it over — for example LibSQL reads integer
+columns with `intMode: "bigint"`, so an `INTEGER` arrives as a `BigInt` where
+other drivers give a `number`. Convert at the call site when it matters.
+
+## Deprecated: the string form of `$queryRaw`/`$executeRaw`
+
+Before tagged templates, `$queryRaw` took `(sql: string, params?: unknown[])`.
+That shape still runs for one release, and announces itself once per method on
+the `warning` log channel.
+
+```ts
+// Deprecated — removed next release
+await client.$queryRaw('SELECT id FROM "user" WHERE age >= $1', [18]);
+
+// Replace with either:
+await client.$queryRaw`SELECT id FROM "user" WHERE age >= ${18}`;
+await client.$queryRawUnsafe('SELECT id FROM "user" WHERE age >= $1', 18);
+```
+
+The return type changed with it: these methods used to answer a
+`QueryResult<T>` envelope (`{ rows, rowCount }`). They now answer `T[]` and
+`number`.

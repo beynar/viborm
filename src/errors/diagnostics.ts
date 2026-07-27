@@ -111,7 +111,9 @@ const ERROR_META_KEYS = new Set([
   "timeout",
   "type",
 ]);
-const LOG_META_KEYS = new Set(["event", "status"]);
+// `deprecation` carries ORM-authored constant notice text (never user data or
+// query text), so it is disclosed on the warning channel unconditionally.
+const LOG_META_KEYS = new Set(["deprecation", "event", "status"]);
 const STRING_META_KEYS = new Set([
   "actualChecksum",
   "column",
@@ -119,6 +121,7 @@ const STRING_META_KEYS = new Set([
   "constraint",
   "context",
   "correlationId",
+  "deprecation",
   "dialect",
   "driver",
   "expectedChecksum",

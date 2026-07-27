@@ -38,7 +38,13 @@ timeouts, and access modes are provider-specific, so the portable client
 rejects them — see [Compatibility](/docs/client/compatibility). VibORM currently
 exposes no provider-native transaction-option escape hatch; use the database
 provider client directly when database-specific behavior is intentional.
-Ordinary raw SQL does not guarantee a pinned session on pooled or HTTP drivers.
+
+### Raw SQL inside a transaction
+
+Use the `tx` client's own raw methods — `tx.$queryRaw`, `tx.$executeRaw` and
+their Unsafe variants run on the transaction's connection and roll back with
+it. The originating `client.$queryRaw` does not guarantee a pinned session on
+pooled or HTTP drivers. See [Raw SQL](/docs/client/raw-sql).
 
 ### Use only the supplied transaction client
 
@@ -56,6 +62,11 @@ calls during the nested callback reject fail-closed.
 ## Batch Mode (Prisma-style)
 
 Use the array API for independent operations that should run together atomically. Sibling operations can't read each other's results, but a nested write inside a single operation works normally.
+
+The array takes **model operations only**. A raw query runs the moment you call
+it and returns a plain Promise, so there is nothing left to batch — passing one
+is refused with a typed `UnsupportedOperationError`. Run raw SQL inside the
+interactive form instead.
 
 ```ts
 const [users, posts, count] = await client.$transaction([

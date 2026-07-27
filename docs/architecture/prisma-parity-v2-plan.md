@@ -603,6 +603,68 @@ bulk write, for a guarantee Prisma does not make).
 | W5-U4 | M | **`omit`** — query-level (`omit: { field: true }` on every read/write-returning op, exclusive with `select`) and client-level (`createClient({ omit: { user: { password: true } } })`), matching Prisma's local-overrides-global rule (`omit: { field: false }` re-includes). Composes with the existing model-level `.omit()`. | type-level result excludes omitted keys; nested omit in include; global+local precedence matrix tested |
 | W5-U5 | S (optional) | **`$metrics`** — expose the internal `PerfTracker` counters in Prisma's json/prometheus shapes. | `$metrics.json()` returns counters; no-op cost when unused |
 
+### W5-U1 — delivered (raw SQL overhaul)
+
+Landed as `src/client/raw.ts` (the whole surface, one module) wired into the
+client proxy and the interactive-transaction proxy in `src/client/client.ts`.
+
+**The deliberate break: return types.** `$queryRaw` and `$executeRaw` used to
+answer the driver's `QueryResult<T>` envelope (`{ rows, rowCount, insertId? }`).
+They now answer Prisma's shapes:
+
+| Method | Before | After |
+|---|---|---|
+| `$queryRaw` | `Promise<QueryResult<T>>` | `Promise<T[]>` — the rows |
+| `$executeRaw` | `Promise<QueryResult<T>>` | `Promise<number>` — the affected count |
+
+`$executeRaw` also lost its type parameter (a count has no row type). Every
+call site in the repo was migrated deliberately, not shimmed:
+`tests/drivers/client-raw-behavior.ts` (the cross-driver suite, rewritten
+around the tagged forms and the new Unsafe ones), `tests/client/operations.test.ts`,
+`tests/client/batch-transaction.test.ts` and `tests/cli/migrate.test.ts`
+(string-form cleanups → `$executeRawUnsafe`/`$queryRawUnsafe`), and
+`tests/instrumentation/driver-context-concurrency.test.ts` (→ `$queryRawUnsafe`,
+so the pinned operation token is now `$queryRawUnsafe`).
+
+The rest of the unit as delivered:
+
+- **Tagged templates.** `$queryRaw`/`$executeRaw` detect a `TemplateStringsArray`
+  first argument and build an `Sql`, so every interpolation is a bound
+  parameter rendered per dialect by `toStatement`. A prebuilt `Sql` fragment is
+  accepted too; a fragment **plus** extra values is refused (`V4002`) rather
+  than silently dropping the extras.
+- **One release of compat.** A plain-string first argument still runs the old
+  `(sql, params?)` path — including its "one array argument is the parameter
+  list" spelling — and emits a deprecation notice once per method, per client,
+  on the `warning` log channel. That notice rides a new `deprecation` key added
+  to the log-metadata allowlist in `src/errors/diagnostics.ts` (ORM-authored
+  constant text, never user data).
+- **Unsafe variants.** `$queryRawUnsafe(sql, ...params)` /
+  `$executeRawUnsafe(sql, ...params)` with Prisma's exact signatures.
+- **Helpers exported.** `sql`, `join`, `empty`, `raw`, `Sql`, `isSql` from the
+  package root, plus a new `viborm/sql` subpath (`package.json` exports +
+  `tsdown.config.ts` entry). `join` now takes `RawValue[]`, so plain values
+  become bound parameters (Prisma parity) while nested fragments still splice.
+  `raw` gained Prisma's `raw(string)` unsafe-splice overload alongside the
+  tagged-template form the adapters already use.
+- **Transaction client.** `tx.$queryRaw` / `tx.$executeRaw` / both Unsafe
+  variants exist on the interactive tx proxy, bound to the **transaction-bound
+  driver**, so they share the single connection with model operations and roll
+  back with them. New exported type `TransactionClient<C>` names that surface.
+- **Array form stays model-only.** A raw promise is tagged with a symbol, and
+  `$transaction([...])` refuses it with a typed `UnsupportedOperationError`
+  (V8003) naming the interactive form — distinct from the generic
+  `InvalidTransactionInputError` a non-operation still gets.
+
+Coverage: `tests/client/raw-sql.test.ts` (40 tests, PGlite + better-sqlite3)
+probes the real query log to prove binding vs splicing, plus tx visibility and
+rollback, helper semantics, the once-per-method notice, the array-form refusal,
+and the type-level `T[]`/`number` contract. Falsified: removing the once-guard,
+removing the raw-in-batch refusal, splicing instead of binding, and pointing
+tx raw at the root driver each turn the suite red. Docs:
+`docs/content/docs/client/raw-sql.mdx` (new page), compatibility matrix rows,
+README.
+
 ---
 
 ## W6 — Type fidelity (breaking-change wave, own release)

@@ -58,6 +58,23 @@ export {
 export type { InputJsonValue, JsonValue } from "./validation/index.js";
 
 // =============================================================================
+// RAW SQL
+// =============================================================================
+
+// Tagged-template SQL and the composition helpers `$queryRaw`/`$executeRaw`
+// interpolations are built from. Also available as `viborm/sql`.
+export {
+  empty,
+  isSql,
+  join,
+  type RawValue,
+  raw,
+  Sql,
+  sql,
+  type Value,
+} from "./sql/sql.js";
+
+// =============================================================================
 // ERRORS
 // =============================================================================
 
