@@ -161,6 +161,54 @@ case-sensitive" is a claim about the builder rather than about the server.
 
 **Parallelism:** U1 exclusive first (its blast radius overlaps everything). Then U2, U3, U4 fully parallel (disjoint files).
 
+### W4-U1 — DELIVERED
+
+**Surface.** `getWhereUniqueExtendedSchema` (`src/validation/model/core/where.ts`) is the
+`where` of the five TOP-LEVEL operations only. It is the discriminator entries applied LAST over
+a scalar-only recursive `where`, so a unique field keeps Prisma's bare-value spelling at the top
+level and is an ordinary filter inside `AND`/`OR`/`NOT`. The at-least-one rule is the object
+schema's existing `requiresOneOf`, which its type level already renders as Prisma's `AtLeast<…>`
+union — **no new type machinery, so the recursive-model-inference landmine was never touched**
+(`tsc --noEmit` clean, and the client/model expectTypeOf suites pass unchanged). The strict
+`whereUnique` stays on `cursor` and every nested relation-write target selector.
+
+**Where the discriminator/filter split lives, and why there.** In the EXTRACTION function
+(`partitionWhereUnique`, `src/query-engine/builders/where-unique-builder.ts`), not at the call
+sites. `buildWhereUnique` compiles `discriminator ∧ filters`; `getWhereUniqueEntries` returns the
+discriminator alone. Every compile-time-literal consumer already went through that one door, so
+none of them changed:
+
+| Consumer | How it gets the discriminator now |
+|---|---|
+| Pin Rule — nested-create parent pin (`UpdateOperation.resolveLiteralCreateParent`, ×2 sites) | `getWhereUniqueEntries` — unchanged call, filters are simply not in the returned entries |
+| racePin attribution (`uniqueConflictTarget` → `racePinMatches`) | `partitionWhereUnique`; **fixed** — the constraint NAME was read from the first raw `where` key, which an extended `where` can make a filter |
+| Occupied-guard / referenced-key transition (`interpretReferencedKeyTransition`) | `getWhereUniqueEntries` — unchanged |
+| Own-write ledger target constraints (`TargetConstraint`, `getKnownSelectorValues`) | `getWhereUniqueEntries` — unchanged; a discriminator-only constraint is a SUPERSET of thetrue target, so overlap analysis stays conservative (fails closed) |
+| upsert probe-first locate (`buildConditionals`) | `getWhereUniqueEntries` for the equalities, **plus** the filter half ANDed in — a probe wants the same predicate the locate used |
+| upsert create-arm terminal read | **fixed** — fell back to the whole `where`; the created row satisfies the discriminator, not the filter that sent it down the create arm |
+| Cursor comparison (`find-pagination`) | unreachable — `cursor` keeps the strict schema |
+
+**The racePin decision.** With an extended `where`, upsert's create arm carries NO `racePin`. A
+racePin asserts "the locate proved key K free"; with filters the locate proved only that no row
+matches `K ∧ filters`, so a violation is a genuine conflict a re-plan cannot converge on. The
+`UniqueConstraintError` surfaces on the first attempt — the P2002-equivalent this unit's brief
+named — instead of buying one pointless retry and labelling it raceable.
+
+**Divergences from Prisma, both refused rather than half-answered** (stated in
+`docs/content/docs/client/{find-unique,update,delete,upsert,compatibility}.mdx`): relation
+filters inside a unique `where` (the filter half compiles into UPDATE/DELETE, where the target
+carries no alias and MySQL rejects a subquery reading the mutated table — error 1093), and nested
+target selectors / `cursor`, which keep the strict schema.
+
+**Evidence.** `tests/query-engine-v2/extended-where-unique-behavior.ts` — 16 cases × PGlite
+tx/batch, SQLite3 tx/batch, LibSQL tx/batch, pg tx/batch, MySQL2 tx (a batch-only MySQL is
+non-returning, so the routed layer refuses this write family before I/O). Three staleness
+injections in `staleness-injection.test.ts` (filter premise under update and delete, discriminator
+premise unchanged), both filter cases falsified by making the root-presence guard drop the
+filters — the update case then returned a successful no-op, which is the exact silence this unit
+forbade. The Pin Rule falsification is structural: the create-arm racePin asserted PRESENT for a
+plain `where` and ABSENT for an extended one.
+
 ---
 
 ## W5 — Client surface & errors (all units independent → fully parallel)

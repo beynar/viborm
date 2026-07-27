@@ -25,6 +25,23 @@ await client.user.delete({
 
 `select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
 
+## Conditional Deletes
+
+The `where` may narrow the unique lookup with non-unique scalar filters and
+`AND` / `OR` / `NOT`:
+
+```ts
+// delete this token, but only if it has already expired
+await client.token.delete({
+  where: { id: "tok_1", expiresAt: { lt: new Date() } },
+});
+```
+
+If the unique key matches but the filter excludes the row, the delete is a
+`NotFoundError` and the row survives. See
+[Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup)
+for the full `where` shape.
+
 ## Cascading Deletes
 
 When a record is deleted, related records are handled based on `onDelete`:

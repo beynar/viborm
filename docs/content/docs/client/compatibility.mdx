@@ -14,19 +14,34 @@ Everything in the API works the same on every database unless noted under [Datab
 
 | Operation | Status | Notes |
 |-----------|--------|-------|
-| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). |
+| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). The selector may also carry non-unique scalar filters and `AND`/`OR`/`NOT` (Prisma ≥ 4.5) — see [Unique selectors](#unique-selectors). |
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
 | `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`). Relation nesting isn't supported inside `createMany`. |
-| `update` | ✅ | Requires a unique `where` and throws when missing. |
+| `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
 | `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only. |
-| `upsert` | ✅ | Requires unique `where`, `create`, and `update`. |
-| `delete` | ✅ | Requires a unique `where` and throws when missing. |
+| `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
+| `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
 | `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. |
 | `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. |
 | `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
 | `$queryRaw` / `$executeRaw` | Different | Take an explicit `(sql, params)` / `Sql` fragment rather than Prisma's tagged template. See [Raw SQL differences](#type-and-api-differences). |
+
+## Unique selectors
+
+`findUnique`, `findUniqueOrThrow`, `update`, `delete` and `upsert` take Prisma
+≥ 4.5's extended unique `where`: at least one unique discriminator (a unique
+scalar, or a complete compound constraint) plus any non-unique **scalar** filters
+and `AND` / `OR` / `NOT`. Full semantics, per operation, are in
+[Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup).
+
+Two deliberate divergences:
+
+| | VibORM | Prisma |
+|--|--------|--------|
+| Relation filters inside a unique `where` | Refused by name — the same `where` compiles into the `UPDATE`/`DELETE` statement, where a correlated subquery cannot be answered identically on every database (MySQL error 1093). Use `findFirst` / `updateMany` / `deleteMany`. | Accepted |
+| Nested relation-write target selectors (`connect`, `disconnect`, `set`, nested `update`/`upsert`/`delete`) and `cursor` | Unique discriminators only | Extended there too |
 
 ## Relation filters
 

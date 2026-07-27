@@ -6,6 +6,17 @@ icon: Layers
 
 Nested writes let you create, connect, update, and delete related records in the same call as their parent. The whole operation is **atomic** — if any part fails, nothing is written — and generated IDs flow automatically from a parent to its children.
 
+<Callout type="info">
+Every `where` inside a nested write — `connect`, `disconnect`, `set`, and a
+nested `update` / `upsert` / `delete` — takes **unique discriminators only**: a
+unique scalar or a complete compound constraint. The extra scalar filters a
+top-level unique `where` accepts
+([Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup))
+are not available here, a deliberate divergence from Prisma: a nested target is
+located against its parent by primary key, and the extra predicate would collide
+with that correlation.
+</Callout>
+
 ## Create Operations
 
 ### create

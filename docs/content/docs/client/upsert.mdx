@@ -21,6 +21,18 @@ const user = await client.user.upsert({
 
 `upsert` is atomic and race-safe: concurrent upserts on the same key never fail with a duplicate error — one creates, the other updates.
 
+<Callout type="warn">
+The `where` may narrow the unique lookup with non-unique scalar filters (see
+[Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup)),
+but think twice before doing it here. When the unique key matches a row the
+filter excludes, there is nothing to update, so the **create** branch runs — and
+walks straight into the unique key that row already holds. The
+`UniqueConstraintError` surfaces immediately: it is a genuine conflict, not a
+race, so it is not retried. That is the same outcome a hand-written
+find-then-create would produce, and the P2002-equivalent Prisma reports for the
+same shape.
+</Callout>
+
 ## Options
 
 ```ts

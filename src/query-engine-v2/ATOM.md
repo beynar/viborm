@@ -162,6 +162,25 @@ materialized-set symmetric-difference guards (M2M `deleteMany`), which are
 `raceable: true`. (M2M `set` needs none: it is an unconditional delete-all plus
 probed inserts — no materialized set survives to go stale.)
 
+**A pin comes from the DISCRIMINATOR, never from a filter (W4-U1).** Since
+Prisma ≥ 4.5 a top-level unique `where` may carry non-unique scalar filters and
+`AND`/`OR`/`NOT` alongside its unique discriminator. Those filters narrow which
+row a statement touches; they name no row and no constraint, so nothing pinned
+may read them. The split is structural rather than a convention: the extraction
+function `getWhereUniqueEntries`
+(`src/query-engine/builders/where-unique-builder.ts`) returns the discriminator
+alone, and every pin site already went through it — `buildWhereUnique` is the
+only thing that compiles both halves.
+
+The rule extends past pins to the `racePin` itself. A `racePin` asserts *the
+locate proved unique key K free*; under an extended `where` the locate proved
+only that no row matches `K ∧ filters`, which is weaker. So an upsert whose
+`where` carries filters emits **no** create-arm `racePin`: its violation is a
+genuine conflict (a re-plan re-reads the same excluded row and creates again),
+and retrying it would both waste a round-trip and mis-classify a
+P2002-equivalent as raceable. Withholding a pin whose premise was not
+established is the same discipline as never emitting one the constraint owns.
+
 ---
 
 ## 3. The two flattening techniques

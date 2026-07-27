@@ -31,7 +31,7 @@ Status legend:
 
 | Area | Prisma Client | VibORM | Status |
 |------|---------------|--------|--------|
-| Single-record reads | `findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow` with `where`, `orderBy`, `select`, `include` | Same core operations; unique reads require real unique selectors and or-throw variants throw `NotFoundError` | `Supported` |
+| Single-record reads | `findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow` with `where`, `orderBy`, `select`, `include` | Same core operations; unique reads require a real unique discriminator (which may be narrowed by non-unique scalar filters and `AND`/`OR`/`NOT`, Prisma ≥4.5) and or-throw variants throw `NotFoundError` | `Supported` |
 | Multi-record reads | `findMany` with filters, ordering, pagination, `distinct`, `select`, `include` | Supports scalar/relation filters, scalar and supported relation ordering, cursor/offset pagination, negative `take`, `distinct`, `select`, `include` | `Supported` |
 | Create one | `create` with scalar data, nested writes, `select`, `include` | Supports scalar data and documented nested writes; unsupported nested write keys reject before parent mutation | `Supported` |
 | Create many | `createMany` returns `{ count }`; `createManyAndReturn` is a separate provider-specific method | `createMany` returns `{ count }`, or the inserted rows when the call carries a `select` (implicit returning — there is no `createManyAndReturn` method); `skipDuplicates` skips duplicate-key conflicts only, and combining it with `select` needs a `RETURNING` dialect | `Different` |

@@ -361,6 +361,15 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
 
+  runUpdateFamilyBehavior({
+    name: "MySQL2 atomic batch",
+    createDriver: () =>
+      new MySQL2BatchForcedDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+    createStateDriver: createMySQL2Driver,
+  });
+
   // TRANSACTION mode only. This suite drives the CLIENT, and a batch-only MySQL
   // is non-returning: `assertRoutedAtomicResolution` refuses update / delete /
   // upsert before any I/O there (the same boundary noted for CLASS III below).
@@ -369,14 +378,6 @@ describeIf("MySQL2 Driver", () => {
   runExtendedWhereUniqueBehavior({
     name: "MySQL2 transaction",
     createDriver: createMySQL2Driver,
-  });
-  runUpdateFamilyBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
   });
 
   runUpsertFamilyBehavior({
