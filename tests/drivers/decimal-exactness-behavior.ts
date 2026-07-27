@@ -512,25 +512,42 @@ export function runDecimalExactnessBehavior({
         expect(row?.amount).toBe("1.000000000000000000000000000001");
       });
 
-      test("_sum, _min and _max come back as exact strings", async () => {
+      test("_sum, _min, _max and _avg come back as exact strings", async () => {
         await active().ledger.create({
           data: { id: "a", amount: "0.1", bucket: "alpha", note: "a" },
         });
         await active().ledger.create({
           data: { id: "b", amount: "0.2", bucket: "alpha", note: "b" },
         });
+        // Past double precision, and chosen so the AVERAGE of the three is too:
+        // (1.000000000000000000000000000001 + 0.1 + 0.2) / 3 keeps digits a
+        // double throws away.
+        await active().ledger.create({
+          data: {
+            id: "c",
+            amount: "1.000000000000000000000000000001",
+            bucket: "alpha",
+            note: "c",
+          },
+        });
 
         const result = await active().ledger.aggregate({
           _sum: { amount: true },
           _min: { amount: true },
           _max: { amount: true },
+          _avg: { amount: true },
         });
 
         expect(typeof result._sum.amount).toBe("string");
-        // Float summation would give 0.30000000000000004
-        expect(result._sum.amount).toBe("0.3");
+        // Float summation would give 1.3000000000000003
+        expect(result._sum.amount).toBe("1.300000000000000000000000000001");
         expect(result._min.amount).toBe("0.1");
-        expect(result._max.amount).toBe("0.2");
+        expect(result._max.amount).toBe("1.000000000000000000000000000001");
+        // `_avg` is the one aggregate that would otherwise widen to a JS
+        // number: parsed as a double this is 0.43333333333333335, and every
+        // digit past the seventeenth is gone.
+        expect(typeof result._avg.amount).toBe("string");
+        expect(result._avg.amount).toBe("0.433333333333333333333333333334");
       });
     } else {
       test("ordered filters are REFUSED, never answered through a double", async () => {
