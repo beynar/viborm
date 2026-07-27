@@ -17,6 +17,10 @@ type EnumFilterBase<S extends V.Schema, Values extends string[]> = {
   equals: EnumOperand<S>;
   in: V.Enum<Values, { array: true }>;
   notIn: V.Enum<Values, { array: true }>;
+  lt: V.Schema<never, never>;
+  lte: V.Schema<never, never>;
+  gt: V.Schema<never, never>;
+  gte: V.Schema<never, never>;
 };
 
 type EnumFilterSchema<
@@ -73,6 +77,22 @@ type EnumListUpdateSchema<
 // SCHEMA BUILDERS
 // =============================================================================
 
+/**
+ * Ordered comparison on an enum has no portable answer, so it is refused —
+ * loudly, rather than by being quietly absent.
+ *
+ * PostgreSQL stores an enum as its own type and orders it by DECLARATION
+ * order; MySQL's `ENUM` compares as text once either side is coerced, and
+ * SQLite stores plain text. `role > 'moderator'` would therefore select
+ * different rows per provider, which is exactly the silent divergence a
+ * portable ORM must not ship. `equals`/`not`/`in`/`notIn` are unaffected:
+ * equality agrees everywhere.
+ */
+const orderedEnumRefusal = (operator: string) =>
+  v.refused(
+    `Filter operation '${operator}' is not supported on an enum field: PostgreSQL orders enum values by their declaration order while MySQL and SQLite compare them as text, so the same query would answer differently per provider. Use 'equals'/'in', or model the field as a string or int if you need ordering.`
+  );
+
 const enumBase = <Values extends string[]>(values: Values) => v.enum(values);
 
 const enumList = <Values extends string[]>(values: Values) =>
@@ -88,6 +108,10 @@ const buildEnumFilterSchema = <S extends V.Schema, Values extends string[]>(
     equals: operand,
     in: list,
     notIn: list,
+    lt: orderedEnumRefusal("lt"),
+    lte: orderedEnumRefusal("lte"),
+    gt: orderedEnumRefusal("gt"),
+    gte: orderedEnumRefusal("gte"),
   });
   return buildNegatableFilterSchema<EnumOperand<S>, EnumFilterBase<S, Values>>(
     filter,

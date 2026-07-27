@@ -73,6 +73,11 @@ const Post = s
     // A second, .map()ed string column: the operand of a text comparison, so
     // the collation/folding wrappers can be pinned on BOTH sides.
     slug: s.string().map("slug_col"),
+    // Two enum columns over the same values. On PostgreSQL each is its own
+    // type, so comparing them directly has no operator — the cast is what makes
+    // the comparison exist there, and it is pinned as SQL below.
+    status: s.enum(["draft", "review", "published"]),
+    reviewStatus: s.enum(["draft", "review", "published"]).map("review_status"),
     tags: s.string().array(),
     // Two JSON columns: JSON is the only operand position that accepts an
     // arbitrary object, so it is the only one where a reference token is a
@@ -137,6 +142,8 @@ type DialectCase = {
   exactText: (expr: string) => string;
   /** The dialect's ASCII A-Z fold, spelled as it lands in SQL. */
   asciiFold: (expr: string) => string;
+  /** The dialect's cast-to-text, spelled as it lands in SQL. */
+  toText: (expr: string) => string;
 };
 
 const dialectCases: DialectCase[] = [
@@ -149,6 +156,7 @@ const dialectCases: DialectCase[] = [
     exactText: (expr) => expr,
     asciiFold: (expr) =>
       `TRANSLATE(${expr}, '${ASCII_UPPERCASE}', '${ASCII_LOWERCASE}')`,
+    toText: (expr) => `CAST(${expr} AS TEXT)`,
   },
   {
     name: "MySQL",
@@ -163,6 +171,7 @@ const dialectCases: DialectCase[] = [
       }
       return folded;
     },
+    toText: (expr) => `CAST(${expr} AS CHAR)`,
   },
   {
     name: "SQLite",
@@ -171,6 +180,7 @@ const dialectCases: DialectCase[] = [
     createAdapter: () => new SQLiteAdapter(),
     exactText: (expr) => `${expr} COLLATE BINARY`,
     asciiFold: (expr) => `lower(${expr})`,
+    toText: (expr) => `CAST(${expr} AS TEXT)`,
   },
 ];
 
@@ -333,6 +343,53 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
     });
   });
 
+  /**
+   * An enum operand that is a COLUMN goes through text on every dialect.
+   *
+   * PostgreSQL gives each enum field its own type, so `status = review_status`
+   * had no operator there (42883) while SQLite and LibSQL — which store the
+   * value as text — answered it. The cast is what makes the comparison exist
+   * on Postgres, and it is spelled identically on all three so no dialect is
+   * quietly doing something else. A LITERAL operand keeps the bare column, so
+   * ordinary enum equality can still use the column's index.
+   */
+  describe("enum operands", () => {
+    const predicateOf = (args: Record<string, unknown>) => {
+      const { statement } = buildPostQuery(dialectCase, args);
+      return statement.slice(statement.indexOf("WHERE ") + "WHERE ".length);
+    };
+    const statusText = () =>
+      dialectCase.exactText(dialectCase.toText(`${q("t0")}.${q("status")}`));
+    const reviewText = () =>
+      dialectCase.exactText(
+        dialectCase.toText(`${q("t0")}.${q("review_status")}`)
+      );
+
+    test("equals against a reference casts both sides to text", () => {
+      expect(
+        predicateOf({
+          where: { status: { equals: fields().Post.reviewStatus } },
+        })
+      ).toBe(`${statusText()} = ${reviewText()}`);
+    });
+
+    test("not against a reference negates the same comparison", () => {
+      expect(
+        predicateOf({ where: { status: { not: fields().Post.reviewStatus } } })
+      ).toBe(`NOT (${statusText()} = ${reviewText()})`);
+    });
+
+    test("a literal operand leaves the column uncast and bound", () => {
+      const { values } = buildPostQuery(dialectCase, {
+        where: { status: { equals: "draft" } },
+      });
+      expect(predicateOf({ where: { status: { equals: "draft" } } })).toBe(
+        `${dialectCase.exactText(`${q("t0")}.${q("status")}`)} = $1`
+      );
+      expect(values).toEqual(["draft"]);
+    });
+  });
+
   test("a cross-model reference is refused at build time", () => {
     expect(() =>
       buildPostQuery(dialectCase, {
@@ -481,6 +538,8 @@ describe("surfaces that stay closed to field references", () => {
           slug: "s",
           views,
           likes: 1,
+          status: "draft",
+          reviewStatus: "published",
           tags: [],
           authorId: "u1",
         } as never,
@@ -559,6 +618,8 @@ describe("JSON operands stay closed to field references", () => {
           slug: "s",
           views: 1,
           likes: 1,
+          status: "draft",
+          reviewStatus: "published",
           tags: [],
           meta: value() as never,
           authorId: "u1",
@@ -605,6 +666,8 @@ describe("JSON operands stay closed to field references", () => {
           slug: "s",
           views: 1,
           likes: 1,
+          status: "draft",
+          reviewStatus: "published",
           tags: [],
           meta: lookalike,
           authorId: "u1",

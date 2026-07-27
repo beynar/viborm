@@ -362,6 +362,12 @@ function convertSchemaBody(
       // JSON accepts any valid JSON value - empty schema accepts anything
       break;
 
+    case "refused":
+      // A key that exists only to explain why it is refused: it accepts
+      // nothing, and `not: {}` is the JSON Schema that accepts nothing.
+      jsonSchema.not = {};
+      break;
+
     case "blob":
       jsonSchema.type = "string";
       jsonSchema.contentEncoding = "base64";

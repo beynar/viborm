@@ -22,11 +22,12 @@ is walked until you actually read a field — so it costs nothing if you never u
 
 | Position | Supported |
 |---|---|
-| `equals`, `not` | ✅ every non-list scalar |
+| `equals`, `not` | ✅ every non-list scalar, enums included |
 | `lt`, `lte`, `gt`, `gte` | ✅ int, float, decimal, bigint, string, datetime, date, time |
 | `contains`, `startsWith`, `endsWith` | ✅ string |
 | Bare shorthand `{ views: ref }` | ✅ (normalizes to `equals`) |
 | `in`, `notIn` | ❌ |
+| Ordered comparison on an **enum** | ❌ (no portable answer — see below) |
 | List operators (`has`, `hasEvery`, `hasSome`, `isEmpty`) | ❌ |
 | JSON, blob, vector, point operands | ❌ |
 | `orderBy`, `whereUnique`, `create`/`update` data | ❌ |
@@ -38,6 +39,37 @@ operand accepts any object, so a reference is a *structurally valid* JSON docume
 It is refused anyway, in filters and in `create`/`update` data alike, because a JSON
 `equals`/`array_*` operand is compared as a whole document rather than as a column
 expression.
+
+## Enums
+
+Two enum columns compare by their **spelling**, on every provider:
+
+```ts
+// posts whose editorial status has caught up with their review status
+await client.post.findMany({
+  where: { status: { equals: client.$fields.post.reviewStatus } },
+});
+// ... WHERE CAST("t0"."status" AS TEXT) = CAST("t0"."review_status" AS TEXT)
+```
+
+The cast is not cosmetic. PostgreSQL gives every enum field its own type, and there is
+no `=` between two different enum types — without it the query fails outright there
+while SQLite and MySQL, which compare the values as text, answer it. The cast only
+applies when the operand is a *column*: `{ status: "draft" }` still binds an enum-typed
+parameter against the bare column.
+
+Ordered comparison (`lt`/`lte`/`gt`/`gte`) on an enum is refused on every provider,
+with a reference or with a literal:
+
+```ts
+await client.post.findMany({ where: { status: { gt: "draft" } } });
+// Filter operation 'gt' is not supported on an enum field: PostgreSQL orders enum
+// values by their declaration order while MySQL and SQLite compare them as text, so
+// the same query would answer differently per provider.
+```
+
+There is no answer that agrees across providers, so there is no answer. Model the field
+as a string or an int if you need ordering.
 
 ## Case sensitivity
 

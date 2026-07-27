@@ -23,6 +23,8 @@ const JSON_FILTER_REFUSAL =
   /Field reference 'post\.payload' is not supported in a JSON filter operand/;
 const JSON_DATA_REFUSAL =
   /Field reference 'post\.payload' is not supported in JSON write data/;
+const ENUM_ORDER_REFUSAL =
+  /is not supported on an enum field: PostgreSQL orders enum values by their declaration order/;
 
 export interface FieldReferenceBehaviorOptions {
   driverName: string;
@@ -248,6 +250,104 @@ export function runFieldReferenceBehavior({
         expect(
           await postIds({ title: { equals: slugRef(), mode: "insensitive" } })
         ).toEqual(["matching"]);
+      });
+    });
+
+    /**
+     * Enum references, which used to be the one type that answered DIFFERENTLY
+     * per provider instead of answering or refusing everywhere.
+     *
+     * `status` and `reviewStatus` are separate PostgreSQL enum types, so
+     * `status = reviewStatus` had no operator there and the query died with
+     * 42883 — while SQLite and LibSQL, which store the values as text, returned
+     * rows. Accepted, typed and documented on one dialect, a hard error on
+     * another: exactly the silent divergence the portability rule forbids.
+     * Both sides now go through text, so all three answer the same question.
+     */
+    describe("enum references", () => {
+      const reviewRef = () => db().$fields.post.reviewStatus;
+
+      /** One row where the two enum columns agree; every seeded row differs. */
+      const addAgreeingPost = () =>
+        db().post.create({
+          data: {
+            id: "agreed",
+            title: "agreed",
+            slug: "agreed-slug",
+            status: "review",
+            reviewStatus: "review",
+            authorId: "u1",
+          },
+        });
+
+      test("equals compares two enum columns of the same row", async () => {
+        await addAgreeingPost();
+        expect(await postIds({ status: { equals: reviewRef() } })).toEqual([
+          "agreed",
+        ]);
+      });
+
+      test("not complements it", async () => {
+        await addAgreeingPost();
+        expect(await postIds({ status: { not: reviewRef() } })).toEqual([
+          "beloved",
+          "even",
+          "hot",
+          "matching",
+        ]);
+      });
+
+      test("a bare enum reference is the equals shorthand", async () => {
+        await addAgreeingPost();
+        expect(await postIds({ status: reviewRef() })).toEqual(["agreed"]);
+      });
+
+      test("the reference resolves through the .map()ed column name", async () => {
+        // `reviewStatus` is stored as "review_status": emitting the field key
+        // would not parse as SQL on any dialect.
+        await addAgreeingPost();
+        expect(
+          await postIds({ status: { not: { not: reviewRef() } } })
+        ).toEqual(["agreed"]);
+      });
+
+      /**
+       * Ordered comparison is refused on EVERY dialect rather than answered
+       * differently on each: PostgreSQL orders an enum by declaration order,
+       * MySQL and SQLite compare the text. There is no portable answer, so
+       * there is no answer — and the refusal says why.
+       */
+      test.each([
+        "lt",
+        "lte",
+        "gt",
+        "gte",
+      ])("%s on an enum is refused with the portability reason", async (op) => {
+        await expect(
+          db().post.findMany({
+            where: { status: { [op]: reviewRef() } } as never,
+          })
+        ).rejects.toThrow(ENUM_ORDER_REFUSAL);
+        // A literal operand is refused identically — the refusal is about the
+        // operator on an enum, not about references.
+        await expect(
+          db().post.findMany({
+            where: { status: { [op]: "review" } } as never,
+          })
+        ).rejects.toThrow(ENUM_ORDER_REFUSAL);
+      });
+
+      test("literal enum filters are untouched", async () => {
+        await addAgreeingPost();
+        expect(await postIds({ status: "draft" })).toEqual([
+          "beloved",
+          "even",
+          "hot",
+          "matching",
+        ]);
+        expect(await postIds({ status: { in: ["review"] } })).toEqual([
+          "agreed",
+        ]);
       });
     });
 

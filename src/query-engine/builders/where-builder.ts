@@ -403,13 +403,36 @@ function buildFilterOperation(
   /** Raw operand — pairs with a bare `column` LHS (ordered comparisons, LIKE-free text predicates). */
   const plainOperand = (v: unknown) =>
     isFieldRef(v) ? fieldRefColumn(ctx, v, alias) : lit(v);
-  /** Exact-text operand — pairs with `exactTextColumn`. */
-  const exactOperand = (v: unknown) => {
-    if (!isFieldRef(v)) return lit(v);
+  /**
+   * An enum column compared against ANOTHER COLUMN goes through text on every
+   * dialect.
+   *
+   * PostgreSQL gives each enum field its own type, and `enum_a = enum_b` for
+   * two different types has no operator — the comparison fails outright with
+   * 42883, while SQLite and MySQL (which store the value as text) answer it
+   * fine. That is a portability hole in the worst direction: the same query
+   * that works on SQLite crashes on Postgres. Casting BOTH sides to text makes
+   * every dialect answer the same question — enum values compare by their
+   * spelling, which is what a literal operand already does.
+   *
+   * Only the referenced-column path takes the cast: `role = $1` still binds an
+   * enum-typed parameter, so ordinary equality keeps using the column's index.
+   */
+  const isEnumScalar = !scalarState.array && scalarState.type === "enum";
+  const comparableText = (expr: Sql) =>
+    isEnumScalar ? adapter.expressions.cast(expr, "text") : expr;
+
+  /**
+   * The (LHS, operand) pair for an exact `equals`/`not` comparison. Both sides
+   * are built together because a referenced enum operand changes the LHS too.
+   */
+  const exactComparison = (v: unknown): [Sql, Sql] => {
+    if (!isFieldRef(v)) return [exactTextColumn, lit(v)];
     const refColumn = fieldRefColumn(ctx, v, alias);
-    return isTextScalar
-      ? adapter.expressions.caseSensitiveText(refColumn)
-      : refColumn;
+    if (!isTextScalar) return [column, refColumn];
+    const asExactText = (expr: Sql) =>
+      adapter.expressions.caseSensitiveText(comparableText(expr));
+    return [asExactText(column), asExactText(refColumn)];
   };
   /** Case-folded operand — pairs with `foldedTextColumn`. */
   const foldedOperand = (v: unknown) => {
@@ -455,7 +478,7 @@ function buildFilterOperation(
       if (isInsensitive && (typeof value === "string" || isFieldRef(value))) {
         return insensitiveEq(value);
       }
-      return adapter.operators.eq(exactTextColumn, exactOperand(value));
+      return adapter.operators.eq(...exactComparison(value));
 
     case "not":
       if (value === null) {
@@ -472,7 +495,7 @@ function buildFilterOperation(
       if (isFieldRef(value)) {
         return isInsensitive
           ? insensitiveNeq(value)
-          : adapter.operators.neq(exactTextColumn, exactOperand(value));
+          : adapter.operators.neq(...exactComparison(value));
       }
       if (typeof value === "object" && value !== null) {
         // Nested filter: { not: { contains: "foo" } }
@@ -489,7 +512,7 @@ function buildFilterOperation(
       if (isInsensitive && typeof value === "string") {
         return insensitiveNeq(value);
       }
-      return adapter.operators.neq(exactTextColumn, exactOperand(value));
+      return adapter.operators.neq(...exactComparison(value));
 
     // Comparison
     case "lt":

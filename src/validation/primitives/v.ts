@@ -49,6 +49,7 @@ import type { PointSchema } from "./point";
 import { point } from "./point";
 import type { ComputeEntriesFromKeys, RecordSchema } from "./record";
 import { fromKeys, record } from "./record";
+import { refused } from "./refused";
 import { shorthandArray, shorthandFilter, shorthandUpdate } from "./shorthand";
 import { singleOrArray } from "./single-or-array";
 import type { StringSchema } from "./string";
@@ -132,6 +133,8 @@ export const v = {
   // Field references (Prisma FieldRef parity)
   fieldRefOr,
   noFieldRef,
+  // Keys that exist only to explain why they are refused
+  refused,
 } as const;
 
 export default v;
