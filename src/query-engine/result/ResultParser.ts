@@ -44,10 +44,22 @@ export class ResultParser {
   private readonly relationChains = new WeakMap<AnyRelation, RelationParser>();
   private resultChain: ResultParserChain | undefined;
 
-  constructor(adapter: DatabaseAdapter, model: Model<any>, driver?: AnyDriver) {
+  /**
+   * TRANSITIONAL (W6-U1). `"number"` re-applies the pre-W6 lossy decode to
+   * decimal fields after the exact parse. See {@link QueryEngine.decimalDecode}.
+   */
+  readonly decimalDecode: "string" | "number";
+
+  constructor(
+    adapter: DatabaseAdapter,
+    model: Model<any>,
+    driver?: AnyDriver,
+    decimalDecode: "string" | "number" = "string"
+  ) {
     this.adapter = adapter;
     this.model = model;
     this.driver = driver;
+    this.decimalDecode = decimalDecode;
   }
 
   get providerName(): string {
@@ -246,6 +258,19 @@ export class ResultParser {
           )
       : (value: unknown) => adapterDecode(value, scalarType);
 
+    // TRANSITIONAL (W6-U1): the legacy `decimal: "number"` hatch. It runs AFTER
+    // the exact parse, so the lossy step is one clearly-marked conversion at the
+    // very edge rather than a second decode path threaded through the parser.
+    // It is a re-lossification of a value we already have exactly — which is
+    // precisely why it is temporary.
+    const legacyNumberDecimal =
+      scalarType === "decimal" && this.decimalDecode === "number";
+    const applyLegacy = (parsed: unknown): unknown => {
+      if (!legacyNumberDecimal || parsed === null) return parsed;
+      if (isList && Array.isArray(parsed)) return parsed.map(Number);
+      return typeof parsed === "string" ? Number(parsed) : parsed;
+    };
+
     return (value, operation) => {
       if (value === undefined) {
         return malformedScalarValue(
@@ -268,7 +293,7 @@ export class ResultParser {
           "provider scalar decoding failed"
         );
       }
-      return defaultParse(transformed, operation);
+      return applyLegacy(defaultParse(transformed, operation));
     };
   }
 }

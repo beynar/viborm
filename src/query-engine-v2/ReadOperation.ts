@@ -131,7 +131,8 @@ export class ReadOperation {
     const parsed = new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>(this.base as Operation, rows, this.args);
     // A negative `take` on findMany selects from the end but is executed as a
     // reversed positive limit; the row order is restored here, exactly as V1.

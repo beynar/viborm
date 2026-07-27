@@ -961,7 +961,8 @@ export class UpdateOperation {
     return new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>("update", outputs.result, this.resultArgs);
   }
 

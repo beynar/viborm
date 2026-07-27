@@ -180,6 +180,20 @@ export interface VibORMConfig {
    * `docs/content/docs/client/omit.mdx` for the full precedence.
    */
   omit?: ClientOmitConfig<Schema>;
+  /**
+   * **Transitional escape hatch — removed in the release after this one.**
+   *
+   * `"number"` restores the pre-W6 decimal decode, where a decimal read comes
+   * back as a JS `number`. It is RUNTIME ONLY: the static types still say
+   * `string`, so a client with this set is deliberately type-incoherent and
+   * your editor will keep telling you so.
+   *
+   * It exists for one thing — unblocking a deploy that cannot migrate every
+   * decimal read at once. It is not a supported mode. A `number` is a double
+   * and cannot hold what a `numeric` / `DECIMAL(65,30)` column holds, which is
+   * the entire reason decimals became strings.
+   */
+  decimal?: "string" | "number";
 }
 
 export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
@@ -340,7 +354,14 @@ export class VibORM<C extends VibORMConfig> {
     // Create registry and engine once, reuse for all operations
     const schemaRegistry = createSchemaRegistry(this.schema);
     const registry = createModelRegistry(this.schema, schemaRegistry);
-    this.engine = new QueryEngine(config.driver, registry, instrumentation);
+    this.engine = new QueryEngine(
+      config.driver,
+      registry,
+      instrumentation,
+      undefined,
+      undefined,
+      config.decimal ?? "string"
+    );
     this.legacyRawWarner = createLegacyRawWarner(instrumentation);
   }
 

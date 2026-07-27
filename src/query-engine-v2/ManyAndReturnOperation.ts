@@ -297,7 +297,8 @@ export class ManyAndReturnOperation {
     return new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>(this.kind as Operation, rows, this.args);
   }
 
