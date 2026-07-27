@@ -185,7 +185,7 @@ none of them changed:
 | Occupied-guard / referenced-key transition (`interpretReferencedKeyTransition`) | `getWhereUniqueEntries` — unchanged |
 | Own-write ledger target constraints (`TargetConstraint`, `getKnownSelectorValues`) | `getWhereUniqueEntries` — unchanged; a discriminator-only constraint is a SUPERSET of thetrue target, so overlap analysis stays conservative (fails closed) |
 | upsert probe-first locate (`buildConditionals`) | `getWhereUniqueEntries` for the equalities, **plus** the filter half ANDed in — a probe wants the same predicate the locate used |
-| upsert create-arm terminal read | **fixed** — fell back to the whole `where`; the created row satisfies the discriminator, not the filter that sent it down the create arm |
+| upsert create-arm terminal read | **fixed** — fell back to the whole `where`; the created row satisfies the discriminator, not the filter that sent it down the create arm. Reachable only when the `create` data carries no primary key, so the conformance model that pins it (`ticket`) has a **DB-generated** PK — a caller-supplied PK addresses the created row directly and never reaches the fallback |
 | Cursor comparison (`find-pagination`) | unreachable — `cursor` keeps the strict schema |
 
 **The racePin decision.** With an extended `where`, upsert's create arm carries NO `racePin`. A
@@ -200,7 +200,7 @@ filters inside a unique `where` (the filter half compiles into UPDATE/DELETE, wh
 carries no alias and MySQL rejects a subquery reading the mutated table — error 1093), and nested
 target selectors / `cursor`, which keep the strict schema.
 
-**Evidence.** `tests/query-engine-v2/extended-where-unique-behavior.ts` — 16 cases × PGlite
+**Evidence.** `tests/query-engine-v2/extended-where-unique-behavior.ts` — 19 cases × PGlite
 tx/batch, SQLite3 tx/batch, LibSQL tx/batch, pg tx/batch, MySQL2 tx (a batch-only MySQL is
 non-returning, so the routed layer refuses this write family before I/O). Three staleness
 injections in `staleness-injection.test.ts` (filter premise under update and delete, discriminator
@@ -208,6 +208,17 @@ premise unchanged), both filter cases falsified by making the root-presence guar
 filters — the update case then returned a successful no-op, which is the exact silence this unit
 forbade. The Pin Rule falsification is structural: the create-arm racePin asserted PRESENT for a
 plain `where` and ABSENT for an extended one.
+
+The create-arm terminal read is pinned behaviorally on the `ticket` model (DB-generated PK, the
+only shape that reaches the fallback): an upsert whose `create` deliberately writes a `status`
+the `where`'s filter half excludes must return the created row, once as a bare scalar filter and
+once smuggled through `AND`. Falsified by restoring the old `return this.parentWhere` — both
+cases then fail on both substrates (a `TransactionError` "expected exactly one row" in tx mode,
+the executor's malformed-result rejection in batch mode) while the rest of the estate stays
+green, which is exactly the hole the `account` model left: its caller-supplied `id` makes every
+upsert address its created row by PK. The third case is the counter-falsification — a MATCHING
+filter on the same generated-PK model still takes the update arm, so the discriminator-only
+read-back cannot be passing by turning every extended-`where` upsert into a create.
 
 ---
 

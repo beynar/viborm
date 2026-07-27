@@ -31,6 +31,12 @@ walks straight into the unique key that row already holds. The
 race, so it is not retried. That is the same outcome a hand-written
 find-then-create would produce, and the P2002-equivalent Prisma reports for the
 same shape.
+
+When the create branch runs and *succeeds* — no row held the unique key — the
+record you get back is the one that was just created, found by the unique
+discriminator alone. Your `create` payload does not have to satisfy the filter
+half of the `where`: the filter is what sent the call down the create branch in
+the first place, so re-applying it to the read-back would find nothing.
 </Callout>
 
 ## Options

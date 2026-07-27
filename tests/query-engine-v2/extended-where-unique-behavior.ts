@@ -26,7 +26,9 @@ import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
  *     state unchanged, and `findUnique` a `null` (`…OrThrow` a NotFoundError);
  *  3. an excluding filter sends `upsert` down its CREATE arm, whose unique
  *     violation surfaces as a UniqueConstraintError (V3001) — a genuine
- *     conflict, not a race;
+ *     conflict, not a race; and whose terminal read-back addresses the created
+ *     row by the DISCRIMINATOR alone, never by the filter that sent the upsert
+ *     down that arm (`ticket`, whose DB-generated PK forces the fallback);
  *  4. a nested create under an extended `where` pins its parent column from the
  *     DISCRIMINATOR only; a column named by the filter half pins nothing and the
  *     pre-existing refusal fires unchanged.
@@ -53,7 +55,20 @@ export const extendedWhereUniqueSchema = (() => {
         .optional(),
     })
     .map("ext_wu_logins");
-  return { account, login };
+  // Same shape as `account` but with a DB-GENERATED primary key: the create
+  // data cannot carry the PK, so upsert's create arm must fall back to
+  // addressing the created row by the `where` — which is exactly where the
+  // discriminator/filter distinction becomes load-bearing. `account`'s
+  // caller-supplied `id` can never reach that branch.
+  const ticket = s
+    .model({
+      id: s.int().id().increment(),
+      email: s.string().unique(),
+      status: s.string(),
+      score: s.int(),
+    })
+    .map("ext_wu_tickets");
+  return { account, login, ticket };
 })();
 
 hydrateSchemaNames(extendedWhereUniqueSchema);
@@ -78,6 +93,9 @@ export function runExtendedWhereUniqueBehavior(options: {
       });
       await client.account.create({
         data: { id: 2, email: "gone@x", status: "archived", score: 20 },
+      });
+      await client.ticket.create({
+        data: { email: "seed@x", status: "active", score: 7 },
       });
       return {
         client,
@@ -317,6 +335,79 @@ export function runExtendedWhereUniqueBehavior(options: {
             select: { score: true, status: true },
           })
         ).toEqual({ score: 20, status: "archived" });
+      })
+    );
+
+    // -- 4b. the create arm's terminal read, on a DB-GENERATED primary key ---
+    //
+    // Every `account` upsert above addresses its created row by the primary key
+    // the `create` data carries. `ticket`'s PK is DB-generated, so the create
+    // arm has no PK to address and falls back to the `where` — and THERE the
+    // two halves diverge. The filter half is precisely what sent the upsert
+    // down the create arm, so the created row need not satisfy it; re-applying
+    // it to the read-back would find nothing and fail the terminal read. Only
+    // the discriminator names the row that was actually inserted.
+
+    test(
+      "upsert: create arm reads the created row back by the DISCRIMINATOR alone",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // `status` in `create` deliberately differs from `status` in `where`:
+        // the created row does NOT satisfy the filter half.
+        const created = await client.ticket.upsert({
+          where: { email: "new@x", status: "active" },
+          create: { email: "new@x", status: "fresh", score: 3 },
+          update: { score: { increment: 1 } },
+          select: { email: true, status: true, score: true },
+        });
+        expect(created).toEqual({ email: "new@x", status: "fresh", score: 3 });
+        // Exactly one row was inserted, and the seeded row is untouched.
+        expect(
+          await client.ticket.findMany({
+            select: { email: true, status: true, score: true },
+            orderBy: { email: "asc" },
+          })
+        ).toEqual([
+          { email: "new@x", status: "fresh", score: 3 },
+          { email: "seed@x", status: "active", score: 7 },
+        ]);
+      })
+    );
+
+    test(
+      "upsert: create-arm read-back ignores a filter smuggled through AND",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // Same claim, but the excluded filter arrives as a boolean combinator
+        // rather than a bare scalar — the partition must strip it just the same.
+        const created = await client.ticket.upsert({
+          where: { email: "new@x", AND: [{ status: "active" }] },
+          create: { email: "new@x", status: "fresh", score: 3 },
+          update: { score: { increment: 1 } },
+          select: { email: true, status: true, score: true },
+        });
+        expect(created).toEqual({ email: "new@x", status: "fresh", score: 3 });
+      })
+    );
+
+    test(
+      "upsert: a matching filter still takes the UPDATE arm on a generated PK",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The falsification for the two cases above: the discriminator-only
+        // read-back must not turn every extended-`where` upsert into a create.
+        const updated = await client.ticket.upsert({
+          where: { email: "seed@x", status: "active" },
+          create: { email: "seed@x", status: "fresh", score: 0 },
+          update: { score: { increment: 1 } },
+          select: { email: true, status: true, score: true },
+        });
+        expect(updated).toEqual({
+          email: "seed@x",
+          status: "active",
+          score: 8,
+        });
+        expect(await client.ticket.count()).toBe(1);
       })
     );
 
