@@ -3,19 +3,80 @@
 import type { AnyModel } from "@schema/model";
 import type { RelationState } from "@schema/relation/types";
 import { getInverseRelationMap as getInverseRelationMapRuntime } from "@schema/relation/types";
-import v, { type V } from "../primitives/v";
 import type { ScalarSchemas } from "../model";
 import { getNestedScalarCreateWithOmittedRequiredKeys } from "../model/core/create";
+import { createSchema, validateSchema } from "../primitives/helpers";
+import v, { type V } from "../primitives/v";
+import type { VibSchema } from "../types";
 import type {
   CreateManyDataSchema,
   CreateWithOmittedFk,
   InverseRequiredKeys,
 } from "./create";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
+import { isToOneUpdateWrapper } from "./to-one-update-form";
 
 // =============================================================================
 // UPDATE FACTORY IMPLEMENTATIONS
 // =============================================================================
+
+/**
+ * The `{ where?, data }` wrapper spelling of a to-one nested `update` (Prisma 5).
+ * `where` is a NON-unique `WhereInput` — a to-one has exactly one connected record,
+ * so this filters that record rather than selecting among candidates.
+ */
+type ToOneUpdateWrapperSchema<S extends RelationState> = V.Object<
+  {
+    where: () => GetTargetSchemas<S>["core"]["where"];
+    data: () => GetTargetSchemas<S>["core"]["update"];
+  },
+  { atLeast: ["data"] }
+>;
+
+/**
+ * A to-one nested `update` payload: bare data OR the `{ where?, data }` wrapper.
+ * Dispatch is DETERMINISTIC and structural — an object carrying a `data` key whose
+ * value is an object is the wrapper, everything else is bare data — so a malformed
+ * wrapper surfaces the wrapper's own error rather than a union-wide miss, and the
+ * query engine can split the RAW payload it sees one level deeper by the identical
+ * rule. See {@link file://./to-one-update-form.ts} for the rule and its documented
+ * collision with a target model that owns a field named `data`.
+ */
+export type ToOneUpdateTargetSchema<S extends RelationState> = V.Union<
+  readonly [ToOneUpdateWrapperSchema<S>, GetTargetSchemas<S>["core"]["update"]]
+>;
+
+const toOneUpdateTargetFactory = <
+  S extends RelationState,
+  T extends SchemaGetter<S>,
+>(
+  targetSchemas: T
+): ToOneUpdateTargetSchema<S> => {
+  const wrapper = v.object(
+    {
+      where: () => targetSchemas().core.where,
+      data: () => targetSchemas().core.update,
+    },
+    { atLeast: ["data"] }
+  );
+  // The bare arm is reached through a thunk: building it here would resolve the
+  // target model's schemas while this one is still under construction, which never
+  // terminates for a self-referential relation.
+  const bare = v.lazy(() => targetSchemas().core.update);
+  const members: readonly VibSchema<unknown, unknown>[] = [
+    wrapper as unknown as VibSchema<unknown, unknown>,
+    bare as unknown as VibSchema<unknown, unknown>,
+  ];
+  const schema = createSchema<unknown, unknown>("union", (value) =>
+    isToOneUpdateWrapper(value)
+      ? validateSchema(wrapper, value)
+      : validateSchema(bare, value)
+  );
+  // Mirror `v.union`'s introspection surface so JSON-schema conversion sees the
+  // alternatives it expects (the same shape `toOneFilterFactory` publishes).
+  (schema as { options?: unknown }).options = members;
+  return schema as unknown as ToOneUpdateTargetSchema<S>;
+};
 
 /**
  * To-one update: { create?, connect?, connectOrCreate?, update?, upsert?, disconnect?, delete? }
@@ -35,7 +96,7 @@ type ToOneUpdateSchemaBase<
     },
     { partial: false }
   >;
-  update: () => GetTargetSchemas<S>["core"]["update"];
+  update: () => ToOneUpdateTargetSchema<S>;
   upsert: V.Object<
     {
       create: () => CreateWithOmittedFk<S, Source>;
@@ -94,7 +155,9 @@ export const toOneUpdateFactory = <
     create: getCreateSchema,
     connect: () => targetSchemas().core.whereUnique,
     connectOrCreate: connectOrCreateSchema,
-    update: () => targetSchemas().core.update,
+    // W4-U3: bare data OR `{ where?, data }` — the wrapper's `where` filters the
+    // currently connected record (see `toOneUpdateTargetFactory`).
+    update: () => toOneUpdateTargetFactory<S, T>(targetSchemas),
     upsert: upsertSchema,
   });
 

@@ -65,8 +65,8 @@ Nested writes are supported inside `create`, `update`, and both branches of `ups
 
 | Relation | Shape |
 |----------|-------|
-| To-one `update` | `update: { ...data }` |
-| To-many `update` | `update: { where, data }` (or an array of them) |
+| To-one `update` | `update: { ...data }` or `update: { where?, data }` — here `where` is a NON-unique filter the connected record must satisfy |
+| To-many `update` | `update: { where, data }` (or an array of them) — here `where` is a unique selector |
 | To-one `upsert` | `upsert: { create, update }` |
 | To-many `upsert` | `upsert: { where, create, update }` (or an array) |
 | To-many `updateMany` | `updateMany: { where?, data }` (or an array) |
@@ -75,6 +75,7 @@ Nested writes are supported inside `create`, `update`, and both branches of `ups
 **Behavior:**
 
 - A nested `update` or `delete` with a specific target throws if that record isn't found (or belongs to another parent).
+- A to-one `update: { where, data }` throws the same not-found error when the connected record fails the filter; the whole operation rolls back. The two spellings are told apart structurally — an object with a `data` key whose value is an object is the envelope — so a related model owning a field named `data` must use the envelope explicitly for it (Prisma's collision, resolved the same way).
 - Nested `updateMany` and `deleteMany` may match zero rows without throwing.
 - A nested `upsert` creates only when nothing matches `where`; if the match belongs to another parent, it's rejected rather than stolen or duplicated.
 - You can't `disconnect`, empty-`set`, or otherwise orphan records on a **required** relation.

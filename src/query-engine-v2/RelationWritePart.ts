@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationWritePart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
+import { splitToOneUpdateTarget } from "@validation/relations/to-one-update-form";
 import {
   getFkDirection,
   type RelationMutation,
@@ -97,6 +98,17 @@ export interface RelationWriteConfig {
   readonly data?: Record<string, unknown>;
   /** Bulk (`updateMany`/`deleteMany`): the user filter, correlated to the parent. */
   readonly filter?: Record<string, unknown>;
+  /**
+   * W4-U3 — an **inverse-side to-one** `update: { where, data }`: the NON-unique
+   * `WhereInput` the CURRENTLY CONNECTED record must satisfy. It is ANDed into the
+   * correlated probe and the batch presence guard, never into the write (which
+   * addresses the captured PK), so a connected row that fails it simply leaves the
+   * probe empty — already this family's `Cannot update … for this parent` abort,
+   * atomic on both substrates. Distinct from {@link filter}: a bulk filter selects a
+   * possibly-empty set and matching nothing is a silent success; this one is a
+   * precondition on the single connected row.
+   */
+  readonly targetFilter?: Record<string, unknown>;
   /**
    * Inverse-side one-to-one **upsert** (TO-ONE.md §7.2, family F): the create-arm
    * scalar data taken when the correlated probe finds NO child of this parent. When
@@ -487,6 +499,7 @@ export class RelationWritePart implements Part {
         where: {
           AND: [
             ...this.optionalWhereFilters(),
+            ...this.targetFilters(),
             ...this.correlationFilters(known, useRef),
             ...(capturedPk === undefined
               ? []
@@ -715,6 +728,16 @@ export class RelationWritePart implements Part {
    * the child by `filter: correlatedWhere(fk, parentValues)` alone). A to-many
    * targeted `update`/`delete` always supplies its unique `where`.
    */
+  /** W4-U3 — the inverse-side to-one `update: { where, data }` filter on the currently
+   *  connected record, as a single ordinary `WhereInput` term (not a unique
+   *  discriminator, so it is handed to the find builder whole). `[]` for the bare
+   *  `update: <data>` spelling and for every other kind, which keeps their probe and
+   *  guard SQL byte-identical to pre-W4-U3. */
+  private targetFilters(): Record<string, unknown>[] {
+    const filter = this.config.targetFilter;
+    return filter && Object.keys(filter).length > 0 ? [filter] : [];
+  }
+
   private optionalWhereFilters(): Record<string, unknown>[] {
     return this.config.where
       ? this.uniqueEqualityFilters(this.config.where)
@@ -1151,31 +1174,48 @@ export function buildToManyUpdateParts(
 
 /**
  * `update` on an **inverse-side one-to-one** (child-held FK) relation: one
- * targeted correlated part whose locator is the FK correlation alone — the to-one
- * `update: <data>` payload carries no unique `where` (TO-ONE.md §7.2, V1's
- * `normalizeUpdateInputs` yields `{ data }` for a to-one). The captured PK is the
- * single correlated child; the write addresses it (V1's mutation-identity).
+ * targeted correlated part whose locator is the FK correlation alone — a to-one
+ * `update` carries no UNIQUE `where` (TO-ONE.md §7.2, V1's `normalizeUpdateInputs`
+ * yields `{ data }` for a to-one). The captured PK is the single correlated child;
+ * the write addresses it (V1's mutation-identity).
+ *
+ * W4-U3: the payload is either bare data or Prisma 5's `{ where?, data }` wrapper,
+ * split by the one structural rule ({@link splitToOneUpdateTarget}). The wrapper's
+ * `where` is a NON-unique filter the connected record must satisfy; it joins the
+ * correlated probe (and the batch guard), so a filter-miss is the family's existing
+ * `Cannot update … for this parent` abort. The bare form yields no filter and every
+ * step is byte-identical to pre-W4-U3. `rawData` is the USER's payload, which the
+ * form is read off (an update ROOT hands the schema OUTPUT as `data`, and that
+ * output rewrites scalar shorthands); one level deeper the two are the same value.
  */
-export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
+export function buildToOneUpdatePart(
+  base: WritePartBase,
+  data: unknown,
+  rawData: unknown = data
+): Part {
   if (!(data && typeof data === "object" && !Array.isArray(data))) {
     throw new QueryEngineError(
       `query-engine-v2 update for relation '${base.relationName}' requires a data object.`
     );
   }
-  const updateData = data as Record<string, unknown>;
+  const target = splitToOneUpdateTarget(
+    data as Record<string, unknown>,
+    rawData
+  );
   // X1c: an inverse-side to-one target whose data carries a parent-held to-one write
   // (child-SET folding) or a D4 edge delegates its whole update to the update root,
   // located by the FK correlation alone (a to-one carries no unique `where`).
-  if (targetNeedsFullUpdate(base.childScope, updateData)) {
+  if (targetNeedsFullUpdate(base.childScope, target.data)) {
     return buildNestedTargetUpdatePart({
       scope: base.scope,
       engine: base.engine,
       targetModel: base.childScope.model,
-      data: updateData,
+      data: target.data,
       locate: {
         parentId: base.parentId,
         childFields: base.fkFields,
         parentFields: base.referencedFields,
+        ...(target.filter ? { filter: target.filter } : {}),
         relationName: base.relationName,
         notFoundMessage: relationTargetNotFound(base.relationInfo, "update"),
       },
@@ -1183,7 +1223,8 @@ export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
   }
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
-    data: updateData,
+    data: target.data,
+    ...(target.filter ? { targetFilter: target.filter } : {}),
   });
 }
 

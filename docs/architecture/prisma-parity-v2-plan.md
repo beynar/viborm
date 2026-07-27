@@ -296,6 +296,64 @@ cases; uncapping the MySQL planning capture fails 1. Each falsification has a pa
 `limit` ⇒ neither form appears; `limit: 1` ⇒ a write is compiled) so the assertions cannot pass
 vacuously.
 
+### W4-U3 — DELIVERED
+
+**Surface.** A to-one relation's nested `update` accepts bare data OR Prisma 5's
+`{ where?, data }` envelope. The envelope's `where` is the target model's ordinary
+(NON-unique) `where` — a to-one has exactly one connected record, so it is a
+**precondition on that record**, not a selector among candidates. A connected row that
+fails it makes the operation a `NestedWriteError` (`Cannot update relation '…': target
+record was not found for this parent.`, the P2025-equivalent this family already
+raises) and the whole tree — the root scalar SET and every sibling nested write — rolls
+back, identically in transaction and atomic-batch mode.
+
+**The one home for the discrimination rule** is `src/validation/relations/to-one-update-form.ts`:
+an object carrying a `data` key whose value is a plain object IS the envelope, anything
+else is bare data — Prisma's own rule, applied STRUCTURALLY rather than by union
+try-order. The relation update schema dispatches on it (`toOneUpdateTargetFactory`,
+mirroring `toOneFilterFactory`'s deterministic-dispatch union, so a malformed envelope
+reports the envelope's own error instead of a union-wide miss), and the engine splits
+every to-one `update` payload with `splitToOneUpdateTarget` at all three call sites.
+
+**The trap this unit had to disarm.** The rule may only be read off the USER's payload,
+never a schema output: `core.update` rewrites the scalar shorthand, so on a model that
+owns a field named `data` the BARE `{ data: 7 }` parses to `{ data: { set: 7 } }` —
+which the structural rule then reads as an envelope, silently dropping the assignment
+("No fields to update"). `splitToOneUpdateTarget(parsed, raw)` therefore takes the FORM
+from `raw` (`mutation.update` at an update root; the same value one level deeper, where
+no per-relation output exists) and the VALUES from `parsed`, and both halves must agree
+before the envelope reading is taken. Caught by the `data`-named-field witness before it
+could ship.
+
+**Documented collision, deliberate:** a target model owning a field named `data` cannot
+use the BARE spelling when that field's payload is an object; the escape is the explicit
+envelope (`update: { data: { data: { set: … } } }`). A non-object payload
+(`update: { data: 7 }`) is unambiguous and stays bare. Prisma has the same collision and
+resolves it the same way.
+
+**Where the filter is compiled.** Into the planning LOCATE, and in batch mode into the
+existing split-witness presence guard — never into the WRITE, which addresses the
+primary key the locate captured. No new step, no new guard, no fragment-vocabulary
+change: `NestedTargetLocate.filter` (the X1c delegated paths),
+`RelationWriteConfig.targetFilter` (the inverse-side in-place path) and
+`parentHeldProbeStatement`'s filter argument (the parent-held in-place path) all AND one
+extra `WhereInput` term into a read that already existed. Because it never reaches the
+write statement, a RELATION filter inside the envelope's `where` IS portable here —
+unlike inside a top-level extended unique `where`, which W4-U1 refuses for exactly that
+reason (MySQL error 1093 on a subquery reading the mutated table).
+
+**Evidence.** `tests/query-engine-v2/to-one-update-where-behavior.ts` — 13 cases ×
+PGlite tx/batch, SQLite3 tx/batch, LibSQL tx/batch, pg tx/batch, MySQL2 tx — covering
+all four engine paths a to-one `update` can take (parent-held in-place, parent-held
+delegated, inverse-side in-place, inverse-side delegated) plus the depth path, each with
+filter hit AND filter miss, the miss asserting a full-tree snapshot equal to the seed.
+Plus a relation filter in the envelope `where`, `AND`/`OR`/`NOT`, an empty `where`, the
+`data`-named-field collision and its escape, and bare-form regression witnesses on both
+directions and at depth. Two structural tests in `to-one-update-where.test.ts` pin WHERE
+the filter lands: present in the probe SQL, absent from the write SQL, with the bare form
+as the falsification (its probe carries no filter at all, and its write SQL is byte-equal
+to the envelope's).
+
 ---
 
 ## W5 — Client surface & errors (all units independent → fully parallel)

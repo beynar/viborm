@@ -26,6 +26,7 @@ import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-
 import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
@@ -382,6 +383,14 @@ describeIf("MySQL2 Driver", () => {
   // The batch-substrate leg of extended whereUnique is carried by the
   // RETURNING-capable batch-only drivers (PGlite, SQLite3, LibSQL, pg).
   runExtendedWhereUniqueBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+
+  // Same reason: MySQL is non-returning, so the batch-substrate leg of the to-one
+  // `update { where, data }` form is carried by the RETURNING-capable batch-only
+  // drivers (PGlite, SQLite3, LibSQL, pg).
+  runToOneUpdateWhereBehavior({
     name: "MySQL2 transaction",
     createDriver: createMySQL2Driver,
   });

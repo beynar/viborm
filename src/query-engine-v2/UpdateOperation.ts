@@ -3,6 +3,10 @@ import { NestedWriteError, NotFoundError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import {
+  splitToOneUpdateTarget,
+  type ToOneUpdateTarget,
+} from "@validation/relations/to-one-update-form";
+import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
@@ -191,6 +195,11 @@ type ParentHeldTarget =
       readonly writeId: string;
       readonly correlation: ParentHeldCorrelation;
       readonly probe: StatementStep;
+      /** W4-U3 — the `update: { where, data }` wrapper's NON-unique filter on the
+       *  currently connected record, ANDed into the locate probe AND the batch
+       *  split-witness guard (never the write, which addresses the captured PK).
+       *  Absent for the bare `update: <data>` spelling. */
+      readonly filter?: Record<string, unknown>;
       readonly data: Record<string, unknown>;
       // T3b family A-remainder — the located target's own child Parts, built from its
       // `data` relations and correlated to its captured PK (a `planned` source on this
@@ -1598,9 +1607,15 @@ export class UpdateOperation {
         return;
       case "update":
         // Correlated targeted update with NO unique selector — the FK correlation
-        // (fk = parent) is the whole locator (TO-ONE.md §7.2).
+        // (fk = parent) is the whole locator (TO-ONE.md §7.2). W4-U3's optional
+        // `{ where, data }` wrapper is read off the USER's payload (`mutation.update`)
+        // and narrows that locator; see `splitToOneUpdateTarget`.
         input.childParts.push(
-          buildToOneUpdatePart(writeBase, parsedRelation.update)
+          buildToOneUpdatePart(
+            writeBase,
+            parsedRelation.update,
+            input.mutation.update
+          )
         );
         return;
       case "upsert":
@@ -1940,6 +1955,18 @@ export class UpdateOperation {
         );
         return;
       case "update": {
+        // W4-U3: the to-one `update` payload is either bare data or Prisma's
+        // `{ where?, data }` wrapper, told apart by the one structural rule
+        // ({@link splitToOneUpdateTarget}) — read off the USER's payload
+        // (`mutation.update`), since the relation schema's output rewrites scalar
+        // shorthands and would misreport the form. The wrapper's `where` is a
+        // NON-unique filter on the currently connected record; it rides the locate,
+        // never the write. The bare form yields no filter and is byte-identical to
+        // pre-W4-U3.
+        const target = splitToOneUpdateTarget(
+          normalizeSingle(input.parsedRelation.update, relationName, "update"),
+          input.mutation.update
+        );
         // X1c: a parent-held to-one UPDATE target whose own data carries the
         // located-target projection of mechanism 1/2 (a deeper parent-held to-one —
         // child-SET folding on the referenced row — or a D4 edge) delegates its WHOLE
@@ -1949,14 +1976,21 @@ export class UpdateOperation {
           input,
           relationName,
           relationInfo,
-          fk
+          fk,
+          target
         );
         if (delegated) {
           input.childParts.push(delegated);
           return;
         }
         input.parentHeldTargets.push(
-          this.interpretParentHeldUpdate(input, relationName, relationInfo, fk)
+          this.interpretParentHeldUpdate(
+            input,
+            relationName,
+            relationInfo,
+            fk,
+            target
+          )
         );
         return;
       }
@@ -1993,28 +2027,25 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
-    fk: FkDirection
+    fk: FkDirection,
+    target: ToOneUpdateTarget
   ): Part | undefined {
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const data = normalizeSingle(
-      input.parsedRelation.update,
-      relationName,
-      "update"
-    );
-    if (!targetNeedsFullUpdate(childScope, data)) return undefined;
+    if (!targetNeedsFullUpdate(childScope, target.data)) return undefined;
     for (const field of fk.fkFields) input.parentFkLocateFields.add(field);
     return buildNestedTargetUpdatePart({
       scope: input.scope,
       engine: this.engine,
       targetModel: relationInfo.targetModel,
-      data,
+      data: target.data,
       locate: {
         parentId: input.parentIdSource,
         childFields: fk.pkFields,
         parentFields: fk.fkFields,
+        ...(target.filter ? { filter: target.filter } : {}),
         relationName,
         notFoundMessage: relationTargetNotFound(relationInfo, "update"),
       },
@@ -2082,7 +2113,8 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
-    fk: FkDirection
+    fk: FkDirection,
+    target: ToOneUpdateTarget
   ): ParentHeldTarget {
     const childScope = createQueryScope(
       this.engine.adapter,
@@ -2100,7 +2132,7 @@ export class UpdateOperation {
     const built = this.parentHeldUpdateData(
       input,
       childScope,
-      normalizeSingle(input.parsedRelation.update, relationName, "update"),
+      target.data,
       probeId,
       childPrimaryKey
     );
@@ -2121,7 +2153,9 @@ export class UpdateOperation {
         childPrimaryKey,
         correlation,
         undefined,
-        true
+        true,
+        undefined,
+        target.filter
       ),
       outputs: hasChildParts
         ? {
@@ -2155,6 +2189,7 @@ export class UpdateOperation {
       writeId: input.scope.allocate(`${childName}.update`),
       correlation,
       probe,
+      ...(target.filter ? { filter: target.filter } : {}),
       data: built.scalarData,
       childParts: built.childParts,
       reorderAfterChildren: built.reorderAfterChildren,
@@ -2365,14 +2400,19 @@ export class UpdateOperation {
   }
 
   /** The correlated locate probe for a parent-held `update`/`upsert`: `WHERE
-   *  <referenced> = <finalFk> [AND <pk> = <capturedPk>]`, one row, FOR UPDATE in tx. */
+   *  <referenced> = <finalFk> [AND <filter>] [AND <pk> = <capturedPk>]`, one row, FOR
+   *  UPDATE in tx. `filter` is W4-U3's non-unique `update: { where, data }` term on the
+   *  currently connected record — a plain `WhereInput` handed to the find builder whole;
+   *  a connected row that fails it leaves the probe empty, which is already this
+   *  family's target-not-found abort (`parentHeldCapturedPk`). */
   private parentHeldProbeStatement(
     childScope: QueryScope,
     childPrimaryKey: string,
     correlation: ParentHeldCorrelation,
     capturedPk: unknown,
     useRef: boolean,
-    known?: Readonly<Record<string, unknown>>
+    known?: Readonly<Record<string, unknown>>,
+    filter?: Record<string, unknown>
   ): Sql {
     return buildFind(
       childScope,
@@ -2386,6 +2426,7 @@ export class UpdateOperation {
               known,
               useRef
             ),
+            ...(filter && Object.keys(filter).length > 0 ? [filter] : []),
             ...(capturedPk === undefined
               ? []
               : [{ [childPrimaryKey]: { equals: capturedPk } }]),
@@ -2740,7 +2781,12 @@ export class UpdateOperation {
             target.correlation,
             capturedPk,
             false,
-            known
+            known,
+            // W4-U3: the batch guard re-asserts the wrapper's filter alongside the
+            // correlation and the captured PK — a concurrent write that makes the
+            // connected row fail the filter aborts the batch typed, exactly as the
+            // tx path's locked probe would have.
+            target.filter
           ),
           nestedWriteFailure(
             relationTargetNotFound(target.relationInfo, "update"),
@@ -3163,15 +3209,25 @@ export class UpdateOperation {
   }
 
   /** A nested target's own unique-selector equality filters (a child-held to-many
-   *  `update`); `[]` for a to-one / parent-held target located by correlation alone. */
+   *  `update`); `[]` for a to-one / parent-held target located by correlation alone.
+   *  W4-U3's non-unique `filter` (the to-one `{ where, data }` wrapper) rides along
+   *  verbatim — it is an ordinary `WhereInput`, not a unique discriminator, so it is
+   *  handed to the find builder whole rather than decomposed into equalities. */
   private nestedTargetWhereFilters(
     parent: QueryScope
   ): Record<string, unknown>[] {
+    const filters: Record<string, unknown>[] = [];
     const where = this.nestedTarget?.where;
-    if (!where) return [];
-    return getWhereUniqueEntries(parent, where).map(({ fieldName, value }) => ({
-      [fieldName]: { equals: value },
-    }));
+    if (where) {
+      filters.push(
+        ...getWhereUniqueEntries(parent, where).map(({ fieldName, value }) => ({
+          [fieldName]: { equals: value },
+        }))
+      );
+    }
+    const filter = this.nestedTarget?.filter;
+    if (filter && Object.keys(filter).length > 0) filters.push(filter);
+    return filters;
   }
 
   /** `child.<childField> = parent.<referenced>` per correlation field — a SQL `Ref` to

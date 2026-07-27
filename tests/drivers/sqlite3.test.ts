@@ -25,6 +25,7 @@ import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-
 import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
@@ -882,6 +883,15 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runExtendedWhereUniqueBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runToOneUpdateWhereBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runToOneUpdateWhereBehavior({
     name: "SQLite3 atomic batch",
     createDriver: createBatchOnlySQLite3Driver,
   });

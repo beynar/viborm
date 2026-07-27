@@ -32,6 +32,14 @@ export interface NestedTargetLocate {
   /** The enclosing parent's columns the correlation reads (child-held: the parent's
    *  referenced columns; parent-held: the parent's FK columns). */
   readonly parentFields: readonly string[];
+  /** W4-U3 — the to-one `update: { where, data }` wrapper's NON-unique filter on the
+   *  currently connected record. ANDed into the locate (and the batch presence guard)
+   *  alongside the correlation: a connected row that fails it makes the locate empty,
+   *  so the target's own not-found fires and the whole operation aborts atomically,
+   *  state unchanged. Absent for the bare `update: <data>` spelling — then the locate
+   *  is byte-identical to pre-W4-U3. Never compiled into the WRITE (which addresses
+   *  the captured primary key), so a relation filter here is portable. */
+  readonly filter?: Record<string, unknown>;
   readonly relationName: string;
   /** V1's byte-identical `Cannot … relation … for this parent` not-found message
    *  the enclosing caller sources from `relationTargetNotFound(info, "update")`. */

@@ -17,6 +17,7 @@ import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-
 import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
@@ -625,6 +626,16 @@ describeIf("pg Driver", () => {
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runExtendedWhereUniqueBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runToOneUpdateWhereBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runToOneUpdateWhereBehavior({
     name: "pg atomic batch",
     createDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
