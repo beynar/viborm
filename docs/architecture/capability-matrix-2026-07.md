@@ -205,7 +205,8 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | Atomic `set`/`increment`/`decrement`/`multiply`/`divide` | ✅ Int, Float, BigInt, Decimal | `set-builder.ts:106-134` |
 | Atomic arithmetic **on a primary key** | ➕ with a portability gate (one op per PK; float/decimal arithmetic and `divide: 0` rejected) | `mutation-identity.ts:190-236` |
 | Scalar-list `push`/`set` | ✅➕ also `unshift`, and on **all dialects** (Prisma: PG only) | `scalars/string.ts:127,142` |
-| Json field update | 🟡 `set` only; **no `DbNull`/`JsonNull`/`AnyNull` sentinels** | `scalars/json.ts:56-63` |
+| Json field update | ✅ `set` shorthand + `DbNull`/`JsonNull` sentinels (W4-U4); ↔️ a bare top-level `null` is **refused** in write position, as Prisma's `InputJsonValue` documents | `scalars/json.ts`, `primitives/json-null.ts` |
+| Json null filtering | ✅ `equals`/`not` take `DbNull`/`JsonNull`/`AnyNull`, same truth table on all 3 dialects; ↔️ a sentinel under a `path` is refused (use `path` + `equals: null`) | `json-filter-builder.ts` |
 | Nesting depth | ➕ **no engine limit**; only ceiling is TS literal inference (~31 rich levels) | `x1-depth-stress.test.ts`; `x1b-ts-ceiling.test.ts:139` |
 | Write-race retry | ➕ whole operation retried **exactly once** on a racePin-matched unique violation; fail-closed on missing attribution | `race-retry.ts:27-113` |
 | Implicit transaction around multi-statement writes | ✅ **stricter than Prisma** — a driver with neither transactions nor atomic batch is *rejected* | `OperationExecutor.ts:98-140` |

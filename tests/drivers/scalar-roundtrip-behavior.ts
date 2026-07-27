@@ -6,7 +6,7 @@ import {
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
 import { s } from "@schema";
-import type { JsonValue } from "@validation";
+import type { InputJsonValue } from "@validation";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const measurement = s
@@ -266,7 +266,9 @@ type FullValues = {
   localAt: Date;
   bornOn: Date;
   wakeAt: string;
-  meta: JsonValue;
+  // Write position: a JSON field takes any document except a bare
+  // top-level null, which needs the DbNull/JsonNull sentinels
+  meta: InputJsonValue;
   payload: Uint8Array;
   kind: "alpha" | "beta";
 };
@@ -396,7 +398,7 @@ export function runFullScalarRoundtripBehavior({
     });
 
     test("json primitives round-trip with exact types", async () => {
-      const cases: [string, JsonValue][] = [
+      const cases: [string, InputJsonValue][] = [
         ["j-string", "hello"],
         ["j-number", 42],
         ["j-boolean", true],

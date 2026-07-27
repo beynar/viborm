@@ -12,7 +12,7 @@ const enumRequired = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
-import { s } from "@schema";
+import { AnyNull, DbNull, JsonNull, s } from "@schema";
 import {
   afterAll,
   beforeAll,
@@ -580,7 +580,8 @@ describe("All Scalar Types Integration Test", () => {
         dateArrayNullable: null,
         timeNullable: null,
         timeArrayNullable: null,
-        jsonNullable: null,
+        // A JSON column has two nulls; `DbNull` names the database one
+        jsonNullable: DbNull,
         enumNullable: null,
         blobNullable: null,
       },
@@ -667,7 +668,8 @@ describe("All Scalar Types Integration Test", () => {
         datetimeNullable: null,
         dateNullable: null,
         timeNullable: null,
-        jsonNullable: null,
+        // A JSON column has two nulls; `DbNull` names the database one
+        jsonNullable: DbNull,
         enumNullable: null,
         blobNullable: null,
       },
@@ -1251,3 +1253,52 @@ describe("Compile-time type verification", () => {
     expectTypeOf(found.blobNullable).toEqualTypeOf<Uint8Array | null>();
   });
 });
+
+// =============================================================================
+// JSON NULL SENTINELS — the slots each token is (and is not) assignable to.
+// Compile-time only: these functions are never called; `tsc --noEmit` is the
+// assertion, and an `@ts-expect-error` that stops erroring fails the build.
+// =============================================================================
+
+type AllFieldsClient = Awaited<
+  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+>;
+type CreateArgs = Parameters<AllFieldsClient["allFieldsModel"]["create"]>[0];
+type UpdateArgs = Parameters<AllFieldsClient["allFieldsModel"]["update"]>[0];
+type FindArgs = Parameters<AllFieldsClient["allFieldsModel"]["findMany"]>[0];
+
+// biome-ignore lint/correctness/noUnusedVariables: compile-time assertions
+function jsonNullSentinelSlots() {
+  const writesNullable: CreateArgs["data"]["jsonNullable"][] = [
+    DbNull,
+    JsonNull,
+    { a: 1 },
+    undefined,
+  ];
+  const updatesNullable: NonNullable<UpdateArgs["data"]>["jsonNullable"][] = [
+    DbNull,
+    JsonNull,
+  ];
+  const filters: NonNullable<NonNullable<FindArgs>["where"]> = {
+    jsonNullable: { equals: AnyNull, not: DbNull },
+  };
+
+  // A bare null no longer names either null …
+  // @ts-expect-error - null is ambiguous in write position
+  const bareNull: CreateArgs["data"]["jsonNullable"] = null;
+  // … and AnyNull is a question, not a value.
+  // @ts-expect-error - AnyNull is filter-only
+  const anyNullWrite: CreateArgs["data"]["jsonNullable"] = AnyNull;
+  // A NOT NULL json column cannot hold the database NULL.
+  // @ts-expect-error - DbNull needs a nullable column
+  const dbNullRequired: CreateArgs["data"]["jsonRequired"] = DbNull;
+
+  return [
+    writesNullable,
+    updatesNullable,
+    filters,
+    bareNull,
+    anyNullWrite,
+    dbNullRequired,
+  ];
+}

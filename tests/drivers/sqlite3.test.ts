@@ -42,6 +42,7 @@ import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
+import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
@@ -760,6 +761,10 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runListJsonFilterBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runJsonNullSentinelBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

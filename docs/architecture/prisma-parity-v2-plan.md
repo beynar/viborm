@@ -19,6 +19,7 @@
 | D-3 | **Decimal representation.** `s.decimal()` is a lossy JS `number`. | String-backed by default (decode `numeric` → string, accept string \| number on write), with an optional `.as(DecimalClass)` hook for decimal.js users. Breaking change → needs a major-version flag or an opt-in `decimal: "string"` client option for one release. | W6-U1 |
 | D-4 | **Full-text search scope.** Currently a non-goal; Prisma ships it as preview. | Defer (W7, optional). If done: PG `tsvector` + MySQL `MATCH…AGAINST`, typed refusal on SQLite (FTS5 needs virtual tables — out of scope). | W7 |
 | D-5 | **`orderBy` to-one chain depth cap** (currently 3). | Lift to 8 with the existing strict-schema recursion; unbounded requires lazy self-reference in the orderBy schema — do that only if a user asks. | W1-U7 |
+| D-6 | **Bare `null` in JSON write position.** Before W4-U4 it meant "SQL NULL". With `DbNull`/`JsonNull` in the language it no longer says which null it means. Prisma refuses it (`InputJsonValue` disallows a top-level `null`, `@prisma/client` `runtime/client.d.ts`). | **SHIPPED AS REFUSED in W4-U4** (type-level + runtime, message names the sentinel to use) — the parity-exact and fail-closed reading. **This is a breaking change and wants explicit maintainer sign-off.** If the answer is "keep the old meaning", the reversal is small and localized: drop the `value === null` branch in `jsonWrite` ([validation/primitives/json-null.ts](../../src/validation/primitives/json-null.ts)) and widen `JsonWriteSchema`'s input back from `Exclude<…, null>`; the five estate call sites updated to `DbNull` can stay as they are. | W4-U4 (shipped) |
 
 ---
 
@@ -353,6 +354,66 @@ directions and at depth. Two structural tests in `to-one-update-where.test.ts` p
 the filter lands: present in the probe SQL, absent from the write SQL, with the bare form
 as the falsification (its probe carries no filter at all, and its write SQL is byte-equal
 to the envelope's).
+
+### W4-U4 — DELIVERED
+
+**Surface.** `DbNull` / `JsonNull` / `AnyNull` are exported from the package root and from
+`viborm/schema` ([src/schema/json-null.ts](../../src/schema/json-null.ts)). They are frozen
+CLASS instances, not plain objects, and that is load-bearing: `v.json()` accepts an arbitrary
+plain object, so a plain-object token would type-check as an ordinary document and could be
+PERSISTED — the same hazard field references have. A class prototype fails `isJsonValue`, so a
+sentinel nested anywhere inside a document (`{ a: DbNull }`) is refused structurally instead of
+landing in the column as `{}`. The `kind` is an own ENUMERABLE string key as well as a symbol
+brand, because the cache key builder walks `Object.keys`: three symbol-only tokens would all
+hash as `{}` and collide `equals: DbNull` with `equals: JsonNull` in one cache entry.
+
+**Where the two nulls part ways.** Exactly two places, both in the V1 SQL substrate.
+Writes: `jsonNullWriteValue` in [values-builder.ts](../../src/query-engine/builders/values-builder.ts)
+(`DbNull` → `literals.null()`, `JsonNull` → `literals.json(null)`), reached from the two value
+chokepoints `buildScalarSqlValue` and `scalarValueLiteral`, so create, createMany, update SET,
+upsert arms and nested writes all inherit it. Filters: `buildJsonNullSentinelFilter` in
+[json-filter-builder.ts](../../src/query-engine/builders/json-filter-builder.ts), which both
+`equals` and `not` consult BEFORE their generic branches (a sentinel is an object; the `not` arm
+would otherwise have read its keys as filter operations). The portability argument is one line:
+the filter compares against `adapter.json.value(null)` and the write stores
+`adapter.literals.json(null)` — the SAME `'null'` parameter on every dialect — pinned per dialect
+in `tests/query-engine/json-null-sentinel-sql.test.ts`.
+
+**The truth table** (identical on PG jsonb, MySQL JSON, SQLite TEXT-json): `equals: DbNull` →
+`IS NULL`; `equals: JsonNull` → `= 'null'`; `equals: AnyNull` → the disjunction; `not: DbNull` →
+`IS NOT NULL` (total — it matches JSON nulls); `not: JsonNull` → `<> 'null'` (SQL-NULL rows drop
+out, exactly as they already do for `not: { equals: <document> }`); `not: AnyNull` → the
+conjunction of both complements.
+
+**Deliberate refusals.** `AnyNull` in write position (Prisma: filter-only — "either null" is a
+question, not a value). `DbNull` on a non-nullable JSON field, by name, instead of deferring to a
+NOT NULL violation from the database. A sentinel combined with `path`: `DbNull` would have to
+ignore the path, and "JSON null at this path" already has a pinned spelling (`path` +
+`equals: null`), so answering a different question than the one asked is refused.
+
+**BREAKING (needs maintainer sign-off — see D-6): a bare top-level `null` in JSON write position
+is now refused**, at the type level and at runtime, with a message naming the sentinel to use.
+This is Prisma's own rule, verified against the shipped client rather than from memory:
+`@prisma/client`'s `runtime/client.d.ts` documents `InputJsonValue` as disallowing `null` at the
+top level because its meaning would be ambiguous, and directs callers to `Prisma.JsonNull` /
+`Prisma.DbNull`. Only the TOP level is affected — `{ a: null }` is an ordinary document. The
+write type is exported as `InputJsonValue`. Blast radius measured before the change: five estate
+call sites, all updated to `DbNull` (`list-json-filter-behavior.ts` ×2, `all-field-types.test.ts`
+×2, `relation-types.test.ts`), plus the `scalar-roundtrip` fixture retyped to `InputJsonValue`
+and the json scalar-schema pins rewritten to the new rule.
+
+**What did NOT change, and is pinned so it cannot drift:** a bare `null` in FILTER position keeps
+its pre-sentinel meaning — the SQL NULL at the root, the JSON null under a `path`. Regression
+witnesses were captured BEFORE any edit and kept, in all three suites (validation, per-dialect
+SQL, execution).
+
+**Evidence.** `tests/drivers/json-null-sentinel-behavior.ts` (19 tests, wired into pglite, pg,
+sqlite3, libsql and mysql2 — Docker legs pick up the last two);
+`tests/query-engine/json-null-sentinel-sql.test.ts` (30, three dialects including MySQL, which
+has no local execution leg); `tests/validation/json-null-sentinels.test.ts` (13, including the
+cache-key collision and the nested-sentinel hazard); type-level assertability in
+`tests/client/all-field-types.test.ts` (three `@ts-expect-error` directives, falsified by
+inverting one and watching `tsc` report the unused directive).
 
 ---
 

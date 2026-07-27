@@ -2,6 +2,7 @@
 // VibORM Validation - Runtime and Type-Level Namespace
 // =============================================================================
 
+import type { JsonNullKind } from "@schema/json-null";
 import type { ScalarType } from "@schema/scalars/common";
 import type {
   ComputeInput,
@@ -31,6 +32,8 @@ import type { IsoDateSchema, IsoTimeSchema, IsoTimestampSchema } from "./iso";
 import { isoDate, isoTime, isoTimestamp } from "./iso";
 import type { JsonSchema, JsonValue } from "./json";
 import { json } from "./json";
+import type { JsonNullOrSchema, JsonWriteSchema } from "./json-null";
+import { jsonNullOr, jsonWrite } from "./json-null";
 import { lazy, lazyRef } from "./lazy";
 import type { LiteralSchema, LiteralValue } from "./literal";
 import { literal } from "./literal";
@@ -133,6 +136,9 @@ export const v = {
   // Field references (Prisma FieldRef parity)
   fieldRefOr,
   noFieldRef,
+  // JSON null sentinels (Prisma DbNull/JsonNull/AnyNull parity)
+  jsonNullOr,
+  jsonWrite,
   // Keys that exist only to explain why they are refused
   refused,
 } as const;
@@ -449,6 +455,25 @@ export namespace V {
    */
   export type NoFieldRef<TSchema extends VibSchema<any, any>> =
     NoFieldRefSchema<TSchema>;
+
+  /**
+   * Type-level JSON filter operand that also accepts the named JSON null
+   * sentinels (`DbNull` / `JsonNull` / `AnyNull`).
+   * @example V.JsonNullOr<"DbNull" | "JsonNull" | "AnyNull", V.Json>
+   */
+  export type JsonNullOr<
+    TAllowed extends JsonNullKind,
+    TSchema extends VibSchema<any, any>,
+  > = JsonNullOrSchema<TAllowed, TSchema>;
+
+  /**
+   * Type-level JSON write slot: the sentinels in `TAllowed`, the whole JSON
+   * document language, and no bare top-level `null` (Prisma's rule).
+   */
+  export type JsonWrite<
+    TAllowed extends JsonNullKind,
+    TSchema extends VibSchema<any, any>,
+  > = JsonWriteSchema<TAllowed, TSchema>;
 
   export type SingleOrArray<TWrapped extends VibSchema<any, any>> = V.Union<
     readonly [

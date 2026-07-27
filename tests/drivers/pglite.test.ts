@@ -20,6 +20,7 @@ import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
+import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
@@ -123,6 +124,10 @@ describe("PGlite Driver", () => {
     createDriver: createInMemoryPGliteDriver,
   });
   runListJsonFilterBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runJsonNullSentinelBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

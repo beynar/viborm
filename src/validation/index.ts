@@ -38,7 +38,11 @@ export type {
   BaseIsoTimeSchema,
   BaseIsoTimestampSchema,
 } from "./primitives/iso";
-export type { BaseJsonSchema, JsonValue } from "./primitives/json";
+export type {
+  BaseJsonSchema,
+  InputJsonValue,
+  JsonValue,
+} from "./primitives/json";
 export type { BaseIntegerSchema, BaseNumberSchema } from "./primitives/number";
 export type { ObjectSchema } from "./primitives/object";
 export type { BasePointSchema } from "./primitives/point";

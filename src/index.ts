@@ -43,6 +43,19 @@ export {
 } from "./schema/field-ref.js";
 // Schema builder — every doc example teaches `import { s } from "viborm"`
 export { s } from "./schema/index.js";
+// JSON null sentinels (Prisma `DbNull` / `JsonNull` / `AnyNull` parity) — the
+// two nulls of a nullable JSON column, told apart by name
+export {
+  type AnyJsonNullSentinel,
+  AnyNull,
+  DbNull,
+  isJsonNullSentinel,
+  JsonNull,
+  type JsonNullKind,
+  JsonNullSentinel,
+} from "./schema/json-null.js";
+// The JSON write-position value type (no bare top-level `null` — use a sentinel)
+export type { InputJsonValue, JsonValue } from "./validation/index.js";
 
 // =============================================================================
 // ERRORS

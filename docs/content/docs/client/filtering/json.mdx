@@ -8,8 +8,8 @@ icon: Braces
 
 | Operator | Description |
 |----------|-------------|
-| `equals` | Match the JSON value exactly |
-| `not` | Negate a nested JSON filter |
+| `equals` | Match the JSON value exactly (or a [null sentinel](#the-two-nulls)) |
+| `not` | Negate a nested JSON filter (or a [null sentinel](#the-two-nulls)) |
 | `path` | Scope the other operators to a nested value |
 | `string_contains` | String at path contains substring |
 | `string_starts_with` | String at path starts with |
@@ -51,6 +51,46 @@ before SQL generation on every database.
 Rows where the path does not exist never match. Filtering `equals: null`
 with a `path` matches an explicit JSON `null` at that path (not missing
 keys); without a `path` it matches rows where the column is SQL `NULL`.
+
+## The two nulls
+
+A nullable JSON column can be null in two different ways, and SQL can tell
+them apart even though JavaScript cannot:
+
+- the **database NULL** — the column holds no document at all;
+- the **JSON null** — the column holds a document, and that document is the
+  JSON value `null`.
+
+Three exported sentinels name them (the same three Prisma exports):
+
+```ts
+import { AnyNull, DbNull, JsonNull } from "viborm";
+
+await client.entry.findMany({ where: { meta: { equals: DbNull } } });
+await client.entry.findMany({ where: { meta: { equals: JsonNull } } });
+await client.entry.findMany({ where: { meta: { equals: AnyNull } } });
+```
+
+The truth table is identical on PostgreSQL, MySQL and SQLite:
+
+| Filter | Matches |
+|--------|---------|
+| `equals: DbNull` | rows whose column is SQL `NULL` |
+| `equals: JsonNull` | rows whose column holds the JSON value `null` |
+| `equals: AnyNull` | either of the above |
+| `not: DbNull` | every row that holds a document, JSON nulls included |
+| `not: JsonNull` | rows holding a document other than `null` (SQL `NULL` rows are excluded, as for any value comparison) |
+| `not: AnyNull` | rows holding a document other than `null` |
+
+Both nulls read back as JavaScript `null`, so the sentinels are how you tell
+which one a row holds.
+
+A sentinel describes the whole column, so it cannot be combined with `path`;
+that combination is rejected before SQL is generated. To test for a JSON
+`null` at a path, use `path` with `equals: null`.
+
+`AnyNull` is filter-only — see [writing null](/docs/schema/scalars/json#writing-null)
+for the write side.
 
 ## Negation
 

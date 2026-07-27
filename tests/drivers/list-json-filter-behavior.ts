@@ -5,7 +5,7 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
-import { s } from "@schema";
+import { DbNull, s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const entry = s
@@ -382,7 +382,7 @@ export function runListJsonFilterBehavior({
             },
             { id: "j3", name: "string-root", metadata: "just a string" },
             { id: "j4", name: "array-root", metadata: ["alpha", "beta"] },
-            { id: "j5", name: "missing", metadata: null },
+            { id: "j5", name: "missing", metadata: DbNull },
           ],
         });
       }
@@ -886,7 +886,7 @@ export function runListJsonFilterBehavior({
             { id: "c8", name: "bool", metadata: { score: true } },
             { id: "c9", name: "json-null", metadata: { score: null } },
             { id: "c10", name: "absent", metadata: { other: 1 } },
-            { id: "c11", name: "null-column", metadata: null },
+            { id: "c11", name: "null-column", metadata: DbNull },
             {
               id: "c12",
               name: "nested",

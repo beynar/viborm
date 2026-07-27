@@ -8,7 +8,7 @@
 import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
-import { s } from "@schema";
+import { DbNull, s } from "@schema";
 import {
   afterAll,
   beforeAll,
@@ -370,7 +370,8 @@ describe("Relation Types Integration Test", () => {
         timeRequired: testTime,
         timeNullable: null,
         jsonRequired: { name: "test", value: 123 },
-        jsonNullable: null,
+        // A JSON column has two nulls; `DbNull` names the database one
+        jsonNullable: DbNull,
         status: "ACTIVE",
         blobNullable: null,
       },

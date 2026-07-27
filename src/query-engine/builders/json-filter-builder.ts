@@ -1,3 +1,4 @@
+import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { ScalarState } from "@schema/scalars";
 import type { Sql } from "@sql";
 import { QueryEngineError, type QueryScope } from "../types";
@@ -189,13 +190,19 @@ export function buildJsonFilter(
  * it; otherwise the engine would accept the key and silently do nothing.
  * Inherited modes are exempt — `{ mode, string_contains, not: { equals } }`
  * is legitimate, and only the arm that spelled `mode` has to justify it.
+ *
+ * A SENTINEL `not` (`not: DbNull`) is not an exemption: it inherits nothing
+ * and case-folds nothing, so a mode declared beside it governs exactly
+ * nothing and has to be refused like any other inert one.
  */
 function assertModeGovernsSomething(
   fieldName: string,
   filter: Record<string, unknown>
 ): void {
   if (filter.mode !== "insensitive") return;
-  if (filter.not !== undefined) return;
+  if (filter.not !== undefined && jsonNullKindOf(filter.not) === undefined) {
+    return;
+  }
   const governed = MODE_GOVERNED_OPERATORS.some(
     (operator) => filter[operator] !== undefined
   );
@@ -260,6 +267,72 @@ function buildJsonComparison(
   );
 }
 
+/**
+ * THE JSON NULL TRUTH TABLE (identical on PostgreSQL, MySQL and SQLite).
+ *
+ * A nullable JSON column has two nulls; these are the six predicates that tell
+ * them apart. `column IS NULL` is the SQL NULL; `column = <json null>` is the
+ * stored JSON document `null` (`'null'::jsonb`, `CAST('null' AS JSON)`, the
+ * canonical text `null` — whatever `adapter.json.value` binds, which is exactly
+ * what the write path stores for `JsonNull`).
+ *
+ *   equals: DbNull    ->  col IS NULL
+ *   equals: JsonNull  ->  col = 'null'
+ *   equals: AnyNull   ->  col IS NULL OR col = 'null'
+ *   not: DbNull       ->  col IS NOT NULL                (matches JSON nulls)
+ *   not: JsonNull     ->  col <> 'null'                  (SQL NULLs excluded)
+ *   not: AnyNull      ->  col IS NOT NULL AND col <> 'null'
+ *
+ * `not: JsonNull` excluding SQL-NULL rows is not an oversight: a value
+ * comparison against a SQL NULL is UNKNOWN, and this codebase already pins that
+ * for JSON (`not: { equals: <doc> }` excludes NULL rows too — see the shared
+ * driver suite). `not: DbNull` is the one that CAN be total, because
+ * `IS NOT NULL` is never unknown, and it is spelled that way.
+ *
+ * Under a `path` the sentinels are REFUSED rather than reinterpreted: `DbNull`
+ * would have to ignore the path (it is a property of the column, not of the
+ * value at the path), and "the value at this path is the JSON null" already has
+ * a pinned spelling — `path: [...], equals: null`. Answering a different
+ * question than the one asked is what the refusal exists to prevent.
+ */
+function buildJsonNullSentinelFilter(
+  ctx: QueryScope,
+  fieldName: string,
+  column: Sql,
+  path: string[],
+  kind: JsonNullKind,
+  negated: boolean
+): Sql {
+  if (path.length > 0) {
+    throw new QueryEngineError(
+      `JSON filter for field '${fieldName}' cannot combine 'path' with the ${kind} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`
+    );
+  }
+  const { adapter } = ctx;
+  const jsonNull = () => adapter.json.value(null);
+
+  switch (kind) {
+    case "DbNull":
+      return negated
+        ? adapter.operators.isNotNull(column)
+        : adapter.operators.isNull(column);
+    case "JsonNull":
+      return negated
+        ? adapter.operators.neq(column, jsonNull())
+        : adapter.operators.eq(column, jsonNull());
+    default:
+      return negated
+        ? adapter.operators.and(
+            adapter.operators.isNotNull(column),
+            adapter.operators.neq(column, jsonNull())
+          )
+        : adapter.operators.or(
+            adapter.operators.isNull(column),
+            adapter.operators.eq(column, jsonNull())
+          );
+  }
+}
+
 function buildJsonFilterOperation(
   ctx: QueryScope,
   fieldName: string,
@@ -287,8 +360,22 @@ function buildJsonFilterOperation(
   const textValue = (v: unknown) => fold(adapter.literals.value(v));
   const textTarget = () => fold(adapter.json.extractText(column, path));
 
+  // A sentinel IS an object, so both arms have to recognize it before the
+  // generic branches below would read its keys as filter operations.
+  const sentinel = jsonNullKindOf(value);
+
   switch (operation) {
     case "equals":
+      if (sentinel) {
+        return buildJsonNullSentinelFilter(
+          ctx,
+          fieldName,
+          column,
+          path,
+          sentinel,
+          false
+        );
+      }
       if (value === null && path.length === 0) {
         return adapter.operators.isNull(column);
       }
@@ -297,6 +384,16 @@ function buildJsonFilterOperation(
       return adapter.operators.eq(target, jsonValue(value));
 
     case "not":
+      if (sentinel) {
+        return buildJsonNullSentinelFilter(
+          ctx,
+          fieldName,
+          column,
+          path,
+          sentinel,
+          true
+        );
+      }
       if (
         typeof value === "object" &&
         value !== null &&

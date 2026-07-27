@@ -425,6 +425,19 @@ function convertSchemaBody(
       return convertSchema(inner as any, context);
     }
 
+    case "json_null_or":
+    case "json_write": {
+      // The JSON null sentinels are in-process tokens (class instances), so
+      // like a field reference they have no JSON representation: only the
+      // document operand they wrap can cross a JSON boundary. `json_write`
+      // additionally forbids a bare top-level null, which JSON Schema cannot
+      // express here without contradicting the wrapped scalar's own nullable
+      // shape — the runtime refusal is the enforcement, and this projection
+      // stays the document language.
+      const operand = (schema as any).wrapped as VibSchema<unknown, unknown>;
+      return convertSchema(operand as any, context);
+    }
+
     case "pipe": {
       // Pipe contains a base schema and actions - use the base schema
       const baseSchema = (schema as any).schema as VibSchema<unknown, unknown>;

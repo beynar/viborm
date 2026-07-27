@@ -9,6 +9,7 @@ import type {
   BatchReferenceSqlAdapter,
   CastType,
 } from "@adapters/database-adapter";
+import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
 import { getColumnName } from "../context";
@@ -186,6 +187,38 @@ function assertApplicationGeneratedValues(
 }
 
 /**
+ * Lower a JSON null sentinel to the value it names. This is the ONE place the
+ * two nulls of a JSON column part ways in write position:
+ *
+ *   - `DbNull`   -> SQL NULL: the column holds no document.
+ *   - `JsonNull` -> the JSON document `null`, serialized like any other
+ *     document, so PG stores `'null'::jsonb`, MySQL a JSON null, and SQLite
+ *     the canonical text `null` — the three spellings the filter side
+ *     compares against.
+ *
+ * `AnyNull` is filter-only and the validation layer refuses it in write
+ * position by name (see {@link file://../../validation/primitives/json-null.ts});
+ * the throw here is the fail-closed backstop for an untyped caller reaching
+ * the builder directly, not a second validation pass.
+ */
+function jsonNullWriteValue(
+  ctx: QueryScope,
+  fieldName: string,
+  kind: JsonNullKind
+): Sql {
+  switch (kind) {
+    case "DbNull":
+      return ctx.adapter.literals.null();
+    case "JsonNull":
+      return ctx.adapter.literals.json(null);
+    default:
+      throw new QueryEngineError(
+        `AnyNull matches both nulls, so it cannot be written to field '${fieldName}'. Use DbNull for the database NULL or JsonNull for the JSON value null.`
+      );
+  }
+}
+
+/**
  * Build value SQL for a single field, handling special types
  */
 export function buildScalarSqlValue(
@@ -196,6 +229,11 @@ export function buildScalarSqlValue(
 ): Sql {
   if (value === undefined || value === null) {
     return ctx.adapter.literals.null();
+  }
+
+  const sentinel = jsonNullKindOf(value);
+  if (sentinel) {
+    return jsonNullWriteValue(ctx, fieldName, sentinel);
   }
 
   const loweredValue = lowerBatchResolvableValue(ctx.adapter, value);
@@ -243,6 +281,10 @@ export function scalarValueLiteral(
   fieldName: string,
   value: unknown
 ): Sql {
+  const sentinel = jsonNullKindOf(value);
+  if (sentinel) {
+    return jsonNullWriteValue(ctx, fieldName, sentinel);
+  }
   const state = ctx.model["~"].state.scalars[fieldName]?.["~"].state;
   // Whole-list values (e.g. { set: [...] }) use the dialect's storage format
   if (state?.array && Array.isArray(value)) {
