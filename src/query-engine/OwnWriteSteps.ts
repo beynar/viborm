@@ -423,7 +423,9 @@ interface ToOneUpdateFootprint {
 
 function buildToOneUpdateFootprint(
   ctx: QueryScope,
-  mutation: RelationMutation,
+  // The footprint reads the relation's METADATA only — the caller synthesizes this
+  // from a step's context, not from a parsed payload, so it asks for exactly that.
+  mutation: Pick<RelationMutation, "relationInfo">,
   updateData: Readonly<Record<string, unknown>>,
   rootScalarData: Readonly<Record<string, unknown>> | undefined
 ): ToOneUpdateFootprint {

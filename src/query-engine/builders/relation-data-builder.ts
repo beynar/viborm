@@ -78,6 +78,16 @@ export interface NestedUpsertInput {
 export interface RelationMutation {
   /** Relation metadata */
   relationInfo: RelationInfo;
+  /**
+   * The relation's OWN mutation payload — the `data[relationName]` record this
+   * mutation was read from, narrowed once by `separateData`'s parser. The per-kind
+   * fields below are that record's entries after this parser's own normalization
+   * (a to-one `update` envelope, a to-many `{ where, data }` list); `payload` is the
+   * record itself, so a reader that must hand the WHOLE payload on — a validation
+   * schema, or a sub-operation that already holds it validated — does not narrow
+   * `unknown` a second time.
+   */
+  payload: Record<string, unknown>;
   /** Connect to existing record(s) */
   connect?: Record<string, unknown> | Record<string, unknown>[];
   /** Disconnect from related record(s) */

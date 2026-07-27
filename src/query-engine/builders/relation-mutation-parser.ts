@@ -82,7 +82,10 @@ function parseRelationMutation(
   }
 
   const input = value as Record<string, unknown>;
-  const mutation: RelationMutation = { relationInfo };
+  // `payload` keeps the narrowed record itself: this parser is the one place the
+  // relation payload stops being `unknown`, so a reader that needs the WHOLE payload
+  // (not one normalized kind) takes it from here rather than narrowing again.
+  const mutation: RelationMutation = { relationInfo, payload: input };
   for (const key of RELATION_MUTATION_KEYS) {
     if (!(key in input) || input[key] === undefined) continue;
     switch (key) {

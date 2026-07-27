@@ -49,6 +49,7 @@ import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runNestedWriteJsonEnvelopeBehavior } from "./nested-write-json-envelope-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -733,6 +734,10 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runNestedWriteAdvancedBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runNestedWriteJsonEnvelopeBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

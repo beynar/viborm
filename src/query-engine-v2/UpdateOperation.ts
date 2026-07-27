@@ -401,11 +401,14 @@ export class UpdateOperation {
     // INSIDE the taken whenTrue branch only — an invalid UNTAKEN update branch (the
     // create arm is taken) must not reject the whole tree — so the caller runs these
     // three legality analyses per-arm via `assertArmLegality()` instead.
-    // X1c: a nested UPDATE target subtree carries its ALREADY-VALIDATED update data
-    // (the enclosing op's whole-args parse validated the whole tree; a schema's
-    // transformed output is non-idempotent under re-parse, X2), locates + correlates
-    // to its enclosing parent, and emits no terminal read. Its own-write is covered by
-    // the enclosing operation's whole-tree preflight walk.
+    // X1c: a nested UPDATE target subtree carries its ALREADY-PARSED update data — the
+    // enclosing operation's relation-schema parse produced it, and that schema is the
+    // target's own `core.update`, so every scalar SET and every relation payload below
+    // is already in its post-transform form. It is therefore consumed AS-IS: no
+    // whole-args parse here, no `where`/`select` parse, and no per-field re-parse below
+    // (a transform is not idempotent — X2, and the lesson upsert's arms record). The
+    // subtree locates + correlates to its enclosing parent and emits no terminal read;
+    // its own-write is covered by the enclosing operation's whole-tree preflight walk.
     const nestedTarget = options.nestedTarget;
     this.nestedTarget = nestedTarget?.locate;
     this.suppressTerminal = nestedTarget !== undefined;
@@ -563,15 +566,25 @@ export class UpdateOperation {
           `No validation schema exists for relation '${relationName}'.`
         );
       }
-      // `data[relationName]` is already whole-args-validated (the `args.update` parse
-      // above) and `parseValidated` accepts `unknown`, so the pre-check is redundant —
-      // the relation schema re-parse is the one home that both narrows and validates.
-      const parsedRelation = parseValidated(
-        relationSchemas.update,
-        data[relationName],
-        "update",
-        `data.${relationName}`
-      );
+      // THE ONE transform of this relation payload. A standalone update holds the RAW
+      // `data` (the whole-args parse above validates and its output is discarded), and
+      // an upsert update arm has no whole-args parse at all, so for both the relation
+      // schema here is where the payload is narrowed AND transformed — exactly once.
+      // X1c: a nested target holds the ENCLOSING parse's OUTPUT, which already ran THIS
+      // schema over this key (a target's `core.update` carries its relations' `update`
+      // entries), so it is consumed as-is. Re-parsing a transformed value is not a
+      // no-op: a JSON write's `{ set: … }` envelope is itself a legal JSON document, so
+      // a second pass wraps it AGAIN and the ORM's envelope lands in the user's column,
+      // and a JSON null sentinel fails the second pass outright. Parse once (X2, and
+      // the same lesson upsert's arms record) — never re-parse parsed data.
+      const parsedRelation = nestedTarget
+        ? mutation.payload
+        : parseValidated(
+            relationSchemas.update,
+            data[relationName],
+            "update",
+            `data.${relationName}`
+          );
       this.interpretRelation({
         scope,
         parent,
@@ -603,12 +616,18 @@ export class UpdateOperation {
     if (Object.keys(separated.scalarData).length > 0) {
       Object.assign(
         parentSet,
-        parseValidated(
-          parentSchemas.core.scalarUpdate,
-          separated.scalarData,
-          "update",
-          "data"
-        )
+        // The same parse-once rule the relation payloads follow: a nested target's
+        // scalar SET is ALREADY this schema's output (the enclosing tree parse ran the
+        // target's `core.update` over it), so it is assigned as-is. A second pass over
+        // a JSON write's `{ set: … }` envelope re-wraps it into the column.
+        nestedTarget
+          ? separated.scalarData
+          : parseValidated(
+              parentSchemas.core.scalarUpdate,
+              separated.scalarData,
+              "update",
+              "data"
+            )
       );
     }
     for (const link of toOneLinks) Object.assign(parentSet, link.assignment);

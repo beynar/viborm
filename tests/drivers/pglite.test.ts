@@ -27,6 +27,7 @@ import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runNestedWriteJsonEnvelopeBehavior } from "./nested-write-json-envelope-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -102,6 +103,16 @@ describe("PGlite Driver", () => {
   runNestedWriteAdvancedBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
+  });
+  // Both substrates: the delegated update target must persist the same JSON
+  // document whether the fragment runs as a transaction or as one atomic batch.
+  runNestedWriteJsonEnvelopeBehavior({
+    driverName: "PGlite (tx)",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runNestedWriteJsonEnvelopeBehavior({
+    driverName: "PGlite (batch)",
+    createDriver: createBatchOnlyPGliteDriver,
   });
   runManyToManyBehavior({
     driverName: "PGlite",
