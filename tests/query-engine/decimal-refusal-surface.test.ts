@@ -47,6 +47,11 @@ const entry = s
     id: s.string().id(),
     bucket: s.string(),
     amount: s.decimal(),
+    // `.nullable()` REBUILDS the scalar state, and the gate recognizes a
+    // decimal by reading that state (`isDecimalScalar`). A nullable decimal is
+    // no less ordered than a required one, so it is enumerated separately
+    // rather than assumed to follow from `amount`.
+    optionalAmount: s.decimal().nullable(),
     accountId: s.string(),
     account: s
       .manyToOne(() => account)
@@ -71,7 +76,23 @@ const coupon = s
   })
   .map("decimal_surface_coupons");
 
-const schema = { account, entry, token, coupon };
+/**
+ * A decimal inside a COMPOUND primary key.
+ *
+ * The tie-breaker vector is resolved by a different branch than the single
+ * scalar `@id` above (`getCanonicalIdentityFields` falls through to the
+ * compound constraint), and that branch reaches the decimal just as unasked.
+ */
+const slot = s
+  .model({
+    serial: s.decimal(),
+    region: s.string(),
+    payload: s.string(),
+  })
+  .id(["serial", "region"])
+  .map("decimal_surface_slots");
+
+const schema = { account, entry, token, coupon, slot };
 
 type SurfaceClient = ReturnType<typeof createPGliteClient>;
 
@@ -90,13 +111,32 @@ const seed = async (client: SurfaceClient): Promise<void> => {
   await client.account.create({ data: { id: "a-lo", fee: "10" } });
 
   const entries = [
-    { id: "e1", bucket: "b", amount: "9", accountId: "a-hi" },
-    { id: "e2", bucket: "b", amount: "10", accountId: "a-lo" },
-    { id: "e3", bucket: "c", amount: "1", accountId: "a-hi" },
+    {
+      id: "e1",
+      bucket: "b",
+      amount: "9",
+      optionalAmount: "9",
+      accountId: "a-hi",
+    },
+    {
+      id: "e2",
+      bucket: "b",
+      amount: "10",
+      optionalAmount: "10",
+      accountId: "a-lo",
+    },
+    {
+      id: "e3",
+      bucket: "c",
+      amount: "1",
+      optionalAmount: null,
+      accountId: "a-hi",
+    },
     {
       id: "e4",
       bucket: "c",
       amount: "1.000000000000000000000000000001",
+      optionalAmount: "1.000000000000000000000000000001",
       accountId: "a-lo",
     },
   ];
@@ -109,6 +149,13 @@ const seed = async (client: SurfaceClient): Promise<void> => {
 
   await client.coupon.create({ data: { id: "c1", faceValue: "9" } });
   await client.coupon.create({ data: { id: "c2", faceValue: "10" } });
+
+  await client.slot.create({
+    data: { serial: "9", region: "eu", payload: "nine" },
+  });
+  await client.slot.create({
+    data: { serial: "10", region: "eu", payload: "ten" },
+  });
 };
 
 type Spelling = {
@@ -172,6 +219,10 @@ const REFUSED: Spelling[] = [
     name: "cursor on a unique decimal key",
     run: (c) => c.coupon.findMany({ cursor: { faceValue: "9" }, take: 1 }),
   },
+  {
+    name: "take on a model whose compound primary key contains a decimal",
+    run: (c) => c.slot.findMany({ take: 1 }),
+  },
   // --- ordering one hop away ---
   {
     name: "findMany orderBy through a to-one relation",
@@ -195,6 +246,39 @@ const REFUSED: Spelling[] = [
     run: (c) =>
       c.account.findMany({
         include: { entries: { orderBy: { amount: "asc" }, take: 1 } },
+      }),
+  },
+  {
+    name: "include with a nested orderBy THROUGH a relation",
+    // The two covered above are the nested-scalar path and the top-level
+    // relation path; this is their composition, which reaches the relation
+    // order builder on a CHILD scope and was covered by neither.
+    run: (c) =>
+      c.account.findMany({
+        include: { entries: { orderBy: { account: { fee: "asc" } } } },
+      }),
+  },
+  // --- the same operations on a NULLABLE decimal ---
+  {
+    name: "findMany orderBy a nullable decimal + take",
+    run: (c) =>
+      c.entry.findMany({ orderBy: { optionalAmount: "asc" }, take: 2 }),
+  },
+  {
+    name: "where gt on a nullable decimal",
+    run: (c) => c.entry.findMany({ where: { optionalAmount: { gt: "5" } } }),
+  },
+  {
+    name: "aggregate _max of a nullable decimal",
+    run: (c) => c.entry.aggregate({ _max: { optionalAmount: true } }),
+  },
+  {
+    name: "groupBy having _min of a nullable decimal",
+    run: (c) =>
+      c.entry.groupBy({
+        by: ["bucket"],
+        having: { optionalAmount: { _min: { lt: 5 } } },
+        _count: true,
       }),
   },
   // --- aggregate windows (count/aggregate share the pagination window) ---
@@ -369,6 +453,14 @@ const ALLOWED: Spelling[] = [
   {
     name: "findUnique by a decimal primary key",
     run: (c) => c.token.findUnique({ where: { serial: "9" } }),
+  },
+  {
+    name: "findMany where equals on a nullable decimal",
+    run: (c) => c.entry.findMany({ where: { optionalAmount: "9" } }),
+  },
+  {
+    name: "findMany where null on a nullable decimal",
+    run: (c) => c.entry.findMany({ where: { optionalAmount: null } }),
   },
   {
     name: "count",
