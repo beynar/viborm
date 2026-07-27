@@ -378,10 +378,30 @@ canonicalization**: `toOneUpdateTargetFactory` emits the SAME `{ data, where? }`
 for BOTH spellings, so the rule is applied exactly ONCE, at the only place that sees the
 user's payload, and no later reader re-derives it. `splitToOneUpdateTarget(parsed)` is now
 a projection of that envelope and fails closed on anything else. The envelope is also
-IDEMPOTENT under re-parse (it always takes the wrapper arm the second time), which is what
-makes the X1c nested-target delegation — which re-parses an already-parsed subtree —
-meaning-preserving. Witnessed by `a target field named 'data' reads the same way at depth`
-and `… under a delegated target`, both of which fail if the canonicalization is removed.
+SELF-DESCRIBING — on a `data`-owning target it carries the empty `where` marker, so it
+reads back as the envelope rather than as bare data, and no reader can resolve the form
+differently than the schema did. Witnessed by `a target field named 'data' reads the same
+way at depth` and `… under a delegated target`.
+
+**Superseded by the parse-once fix (X1c re-parse defect).** This paragraph used to justify
+the marker by IDEMPOTENCE — "the envelope always takes the wrapper arm the second time,
+which is what makes the X1c nested-target delegation, which re-parses an already-parsed
+subtree, meaning-preserving". Both halves are now wrong. The delegation no longer re-parses
+anything: re-parsing a parse OUTPUT is not a no-op, and doing it persisted the ORM's own
+`{ set: … }` JSON envelope as the user's data (fixed in `Parse the delegated update
+target's data once, not twice`; recorded in [ATOM §X1c](../../src/query-engine-v2/ATOM.md)
+and [PLAN §X1c](../../src/query-engine-v2/PLAN.md)). And idempotence at the ENVELOPE level
+never protected what was inside it — which is exactly why the JSON write broke through it.
+What keeps the two witnesses green is that the form is decided ONCE, at the parse boundary,
+from the user's payload; nothing re-derives it downstream.
+
+Consequently the `where: {}` marker is now INERT for the engine — nothing re-reads the
+envelope through the schema. **Measured, not assumed:** with `toOneUpdateEnvelope` mutated
+to drop the marker (`return { data }` unconditionally), `to-one-update-where.test.ts` still
+passes 38/38, both named witnesses included. So the old closing claim — "both of which fail
+if the canonicalization is removed" — no longer holds for the marker. The marker is kept
+because it keeps the output honest about its own form for any future reader, not because a
+compiled step depends on it; `splitToOneUpdateTarget` drops an empty `where`.
 
 **The collision, and why it is a REFUSAL (fix round 2).** On a target that owns an update
 key named `data`, the envelope's shape is ALSO how bare data spells that field. The first
@@ -413,11 +433,19 @@ the type level, because narrowing it would mean a conditional over the target's 
 input on a mutually-recursive model type.
 
 The canonical envelope for such a target carries an empty `where` marker (`{ where: {},
-data }`), which is what stops the X1c delegated re-parse from re-reading the schema's own
-output as the ambiguous spelling; `splitToOneUpdateTarget` drops an empty `where`, so not
-one compiled step changes. Falsified both ways: forcing the old "always the envelope"
-reading fails 8 cases, and dropping the marker fails the delegated-target case with the
-ambiguity refusal.
+data }`), so the output stays honest about its own form for any reader that meets it;
+`splitToOneUpdateTarget` drops an empty `where`, so not one compiled step changes.
+Falsified: forcing the old "always the envelope" reading fails 8 cases.
+
+**Amended by the parse-once fix.** This paragraph used to add that the marker "is what
+stops the X1c delegated re-parse from re-reading the schema's own output as the ambiguous
+spelling", falsified by "dropping the marker fails the delegated-target case with the
+ambiguity refusal". Neither survives: the delegation no longer re-parses (see the
+superseded-claim note under W4-U3 above), so there is no second read for the marker to
+protect, and the falsification no longer falsifies — **measured**, with
+`toOneUpdateEnvelope` returning `{ data }` unconditionally, `to-one-update-where.test.ts`
+passes 38/38. The marker is retained as an honest self-description, not as load-bearing
+machinery; only the "always the envelope" mutation above still bites.
 
 Prisma has the same collision and resolves it by fiat. This is a deliberate, documented
 divergence: under this repo's doctrine an accepted write that lands somewhere other than
