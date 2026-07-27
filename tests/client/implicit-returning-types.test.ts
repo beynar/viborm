@@ -409,12 +409,12 @@ describe("the bulk-write limit on the typed surface", () => {
     : false;
 
   test("updateMany and deleteMany take an optional number", () => {
-    expectTypeOf<
-      PayloadOf<"updateMany">["limit"]
-    >().toEqualTypeOf<number | undefined>();
-    expectTypeOf<
-      PayloadOf<"deleteMany">["limit"]
-    >().toEqualTypeOf<number | undefined>();
+    expectTypeOf<PayloadOf<"updateMany">["limit"]>().toEqualTypeOf<
+      number | undefined
+    >();
+    expectTypeOf<PayloadOf<"deleteMany">["limit"]>().toEqualTypeOf<
+      number | undefined
+    >();
   });
 
   test("it is not a key of the single-row or create families", () => {

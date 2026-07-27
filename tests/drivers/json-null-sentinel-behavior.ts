@@ -241,7 +241,8 @@ export function runJsonNullSentinelBehavior({
             data: {
               id: "x",
               name: "x",
-              // biome-ignore lint/suspicious/noExplicitAny: refusal is the point
+              // `as any` on purpose: the refusal is the point, and the type layer
+              // already forbids what this test hands the runtime.
               meta: null as any,
               required: { r: 1 },
             },
@@ -256,7 +257,8 @@ export function runJsonNullSentinelBehavior({
             data: {
               id: "x",
               name: "x",
-              // biome-ignore lint/suspicious/noExplicitAny: refusal is the point
+              // `as any` on purpose: the refusal is the point, and the type layer
+              // already forbids what this test hands the runtime.
               meta: AnyNull as any,
               required: { r: 1 },
             },
@@ -271,7 +273,8 @@ export function runJsonNullSentinelBehavior({
             data: {
               id: "x",
               name: "x",
-              // biome-ignore lint/suspicious/noExplicitAny: refusal is the point
+              // `as any` on purpose: the refusal is the point, and the type layer
+              // already forbids what this test hands the runtime.
               required: DbNull as any,
             },
           })
@@ -285,7 +288,8 @@ export function runJsonNullSentinelBehavior({
             data: {
               id: "x",
               name: "x",
-              // biome-ignore lint/suspicious/noExplicitAny: refusal is the point
+              // `as any` on purpose: the refusal is the point, and the type layer
+              // already forbids what this test hands the runtime.
               meta: { inner: DbNull } as any,
               required: { r: 1 },
             },
