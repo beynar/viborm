@@ -617,12 +617,41 @@ describe("Basic CRUD Operations", () => {
       );
     });
 
-    test("non-unique unique builder field fails closed", () => {
+    // W4-U1 retarget: a non-unique scalar in a unique `where` is no longer a
+    // rejected KEY — it is the extended `where`'s filter half (Prisma >= 4.5),
+    // which compiles alongside the discriminator. What stayed is the rule that
+    // makes the selector a selector: without a discriminator there is nothing to
+    // narrow, and the builder still refuses to emit a filter-only "unique" read.
+    test("a filter-only unique builder input fails closed", () => {
       const ctx = createQueryScope(adapter, Author);
 
       expect(() =>
-        buildWhereUnique(ctx, { name: "Alice" }, ctx.rootAlias)
-      ).toThrow("whereUnique field 'name' is not a unique discriminator");
+        buildWhereUnique(ctx, { name: { equals: "Alice" } }, ctx.rootAlias)
+      ).toThrow("whereUnique requires at least one unique discriminator");
+    });
+
+    test("an unknown field in the filter half still fails closed", () => {
+      const ctx = createQueryScope(adapter, Author);
+
+      expect(() =>
+        buildWhereUnique(
+          ctx,
+          { id: "author-1", unknownField: { equals: "x" } },
+          ctx.rootAlias
+        )
+      ).toThrow("Unknown where field 'unknownField'");
+    });
+
+    test("a relation filter in the filter half is refused by name", () => {
+      const ctx = createQueryScope(adapter, Author);
+
+      expect(() =>
+        buildWhereUnique(
+          ctx,
+          { id: "author-1", posts: { some: {} } },
+          ctx.rootAlias
+        )
+      ).toThrow("is not supported inside a unique 'where'");
     });
   });
 

@@ -7,7 +7,11 @@ import {
 } from "../query-engine/builders/correlation-utils";
 import { separateData } from "../query-engine/builders/relation-data-builder";
 import { buildInsert } from "../query-engine/builders/values-builder";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
+import {
+  getWhereUniqueDiscriminator,
+  getWhereUniqueEntries,
+  getWhereUniqueFilters,
+} from "../query-engine/builders/where-unique-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
@@ -109,6 +113,13 @@ export class UpsertOperation {
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
   private readonly parentWhere: Record<string, unknown>;
+  /**
+   * The extended `where`'s FILTER half (Prisma >= 4.5), or `undefined` for a
+   * plain unique `where`. Its presence changes one thing beyond the SQL the
+   * builder already emits: the create arm loses its `racePin` — see
+   * {@link UpsertOperation.createArmRacePin}.
+   */
+  private readonly whereFilters: Record<string, unknown> | undefined;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly createData: Record<string, unknown>;
   private readonly updateData: Record<string, unknown>;
@@ -202,11 +213,12 @@ export class UpsertOperation {
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     this.parentWhere = parseValidated(
-      parentSchemas.core.whereUnique,
+      parentSchemas.core.whereUniqueExtended,
       where,
       "upsert",
       "where"
     );
+    this.whereFilters = getWhereUniqueFilters(parent, this.parentWhere);
     // The scalar arms parse their own scalar data here; the delegated arms leave
     // it empty (the sub-op validates and builds the FULL payload itself).
     this.createData = createHasRelations
@@ -388,8 +400,9 @@ export class UpsertOperation {
       statement: buildInsert(parent, getTableName(this.model), this.createData),
       outputs: {},
       // The missing premise is enforced by the unique constraint the `where`
-      // targets; its violation is the raceable create-branch signal.
-      racePin: childRacePin(parent, this.parentWhere),
+      // targets; its violation is the raceable create-branch signal — but only
+      // when the locate actually PROVED that premise (see `createArmRacePin`).
+      ...this.createArmRacePin(parent),
     };
     // The created row is read back by its own primary key when the create data
     // carries it — the `where` may target a non-PK unique the create data does
@@ -407,13 +420,37 @@ export class UpsertOperation {
     steps: readonly OperationStep[]
   ): OperationStep[] {
     const parent = createQueryScope(this.engine.adapter, this.model);
-    const racePin = childRacePin(parent, this.parentWhere);
+    const pin = this.createArmRacePin(parent);
+    if (!pin.racePin) return [...steps];
+    const racePin = pin.racePin;
     const rootWriteStepId = this.createArmOp?.rootWriteStepId;
     return steps.map((step) =>
       step.id === rootWriteStepId && step.kind === "write" && !step.racePin
         ? { ...step, racePin }
         : step
     );
+  }
+
+  /**
+   * The create arm's raceable missing premise — present only for a PLAIN unique
+   * `where`.
+   *
+   * `racePin` claims "the locate proved unique key K was free, so a violation on
+   * K means someone else took it between our read and our write — re-plan and
+   * adopt". With an extended `where` the locate proves something weaker: no row
+   * matches `K ∧ filters`. A row on K may exist and be excluded by the filter,
+   * and then the INSERT's violation is a GENUINE CONFLICT, not a race: re-planning
+   * re-reads the same excluded row, takes the create arm again, and violates
+   * again. Pinning it would buy one pointless retry and mis-attribute a real
+   * P2002-equivalent as raceable, so the pin is withheld and the
+   * `UniqueConstraintError` surfaces on the first attempt — Prisma's behaviour for
+   * the same payload.
+   */
+  private createArmRacePin(parent: QueryScope): {
+    racePin?: ReturnType<typeof childRacePin>;
+  } {
+    if (this.whereFilters) return {};
+    return { racePin: childRacePin(parent, this.parentWhere) };
   }
 
   /** Present → skip (conditional no-match) or update (all conditionals match). */
@@ -645,7 +682,17 @@ export class UpsertOperation {
     const hasEveryPk = this.parentPrimaryKeys.every(
       (pk) => this.createData[pk] !== undefined
     );
-    if (!hasEveryPk) return this.parentWhere;
+    // DISCRIMINATOR ONLY. The fallback addresses the row the `where` NAMES, and
+    // the created row satisfies only that: an extended `where`'s filter half is
+    // precisely what sent this upsert down the create arm, so re-applying it to
+    // the read-back would find nothing (`{ email, archived: false }` on an
+    // archived row creates, and the created row need not be unarchived).
+    if (!hasEveryPk) {
+      return getWhereUniqueDiscriminator(
+        createQueryScope(this.engine.adapter, this.model),
+        this.parentWhere
+      );
+    }
     return buildPrimaryKeyWhereUnique(
       this.model,
       Object.fromEntries(
@@ -665,9 +712,15 @@ export class UpsertOperation {
   ): readonly Conditional[] {
     const txMode = this.mode === "transaction";
     const parentName = getStepModelName(this.model, "parent");
-    const uniqueFilters = getWhereUniqueEntries(parent, this.parentWhere).map(
-      ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
-    );
+    // The probe asks the SAME question the locate does — `where ∧ conditional` —
+    // so an extended `where`'s filter half rides along with the discriminator
+    // equalities. (It is a PREDICATE here, which is exactly what a probe wants;
+    // it still contributes no pin, because it never reaches `racePin`.)
+    const uniqueFilters: Record<string, unknown>[] = getWhereUniqueEntries(
+      parent,
+      this.parentWhere
+    ).map(({ fieldName, value }) => ({ [fieldName]: { equals: value } }));
+    if (this.whereFilters) uniqueFilters.push(this.whereFilters);
     const conditionals: Conditional[] = [];
     for (const field of ["targetWhere", "setWhere"] as const) {
       const raw = inputs[field];

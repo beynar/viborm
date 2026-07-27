@@ -468,11 +468,14 @@ export class UpdateOperation {
     // validated by the enclosing tree parse — re-parsing a transformed value is
     // non-idempotent (X2); a parent-held / to-one target has no `where` at all (it
     // locates by correlation alone), so `{}` is its non-selector. The standalone /
-    // upsert-arm path parses its user `where` through the whereUnique schema.
+    // upsert-arm path parses its user `where` through the EXTENDED whereUnique
+    // schema (W4-U1): a top-level `where` may carry non-unique scalar filters and
+    // AND/OR/NOT alongside its discriminator. A NESTED target keeps the strict
+    // one — and reaches this branch already validated by the enclosing parse.
     this.parentWhere = nestedTarget
       ? where
       : parseValidated(
-          parentSchemas.core.whereUnique,
+          parentSchemas.core.whereUniqueExtended,
           where,
           "update",
           "where"
