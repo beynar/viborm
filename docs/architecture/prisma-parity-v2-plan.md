@@ -415,6 +415,48 @@ cache-key collision and the nested-sentinel hazard); type-level assertability in
 `tests/client/all-field-types.test.ts` (three `@ts-expect-error` directives, falsified by
 inverting one and watching `tsc` report the unused directive).
 
+### W4-U2/U3/U4 — merge note
+
+The three lanes were developed in parallel worktrees and cherry-picked onto `prisma-parity-v2`
+in the order U2 → U3 → U4. They touch **disjoint** engine surfaces (bulk-write `LIMIT`
+realization; the to-one nested-`update` envelope; the JSON null sentinels), so the only
+conflicts were shared prose and shared test wiring:
+
+- **`prisma-parity-v2-plan.md`** — each lane appended its own `### W4-Ux — DELIVERED` section at
+  the same offset. Resolved by keeping all three, in unit order. No sentence from any lane was
+  dropped or rewritten.
+- **`capability-matrix-2026-07.md`, `compatibility.mdx`** — different rows of the same tables,
+  auto-merged; each lane's row was re-read after the merge and says what its lane shipped.
+- **`tests/drivers/{pglite,sqlite3,libsql,mysql2,pg,postgres}.test.ts`** — U2 and U4 both add a
+  `run…Behavior` import and registration to the same driver files; U3 adds one to four of them.
+  All registrations survive; the import blocks were re-sorted (`biome check --write`, assist
+  only) because the three-way merge left `bulk-write-limit-behavior` and
+  `json-null-sentinel-behavior` out of order, which `assist/source/organizeImports` reports as
+  an error. Import order only — no registration added, removed or reordered.
+
+Post-merge estate: `tsc --noEmit` clean, full `vitest run` **7238 passed / 0 failed** (215 files,
+3 skipped), `test:gates` **43/43**. Biome on the 46 touched files reports **31 errors, identical
+to the pre-merge baseline on the same files** (`noMisplacedAssertion` ×26 in
+`scalar-roundtrip-behavior.ts`, `noDelete` ×2, `useTopLevelRegex`, `useForOf` — all pre-existing),
+plus 4 `suppressions/unused` **warnings** in the new `json-null-sentinel-behavior.ts`
+(`biome-ignore lint/suspicious/noExplicitAny` comments over `as any` casts the rule does not
+actually flag there). The merge introduced no new Biome error.
+
+**Docker legs are NOT covered by the above** — none of the three lanes ran them, by instruction.
+MySQL carries the most unverified surface: it is the only dialect taking U2's native
+`UPDATE|DELETE … LIMIT` path (and the only place that cap has to coexist with the ERROR 1093
+derived-table wrapper), the only one needing an explicit `CAST(? AS JSON)` for U4's JSON-null
+operand, and it is transaction-only for U3. Real-pg carries U2's bound-`LIMIT`-inside-a-subquery
+parameter ordering.
+
+**Two open maintainer decisions carried in from the lanes, neither resolved by this merge:**
+D-6 (U4's breaking refusal of a bare top-level `null` in JSON write position — reversal is
+~10 lines, see the D-6 row); and U2's deliberately unspecified "which rows" contract for a
+capped bulk write (PG/SQLite pick the lowest PKs because the subquery inherits `buildFind`'s
+stability ordering, MySQL picks whatever it reaches first — an `ORDER BY pk` on MySQL's
+`UPDATE … LIMIT` would make the choice portable at the cost of a forced sort on every capped
+bulk write, for a guarantee Prisma does not make).
+
 ---
 
 ## W5 — Client surface & errors (all units independent → fully parallel)
