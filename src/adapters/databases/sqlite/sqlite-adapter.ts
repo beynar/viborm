@@ -137,6 +137,15 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     // SQLite requires JSON values to be stringified
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
+
+    // SQLite has no exact decimal type, so a decimal lives in a TEXT column as
+    // its canonical spelling and the operand stays text. Casting to NUMERIC or
+    // REAL here would put the comparison through a double — which is exactly
+    // what the TEXT column exists to avoid. Text equality is EXACT numeric
+    // equality precisely because both sides are canonical; the operators that
+    // text cannot answer (ordering, aggregation, arithmetic) are refused
+    // outright rather than answered approximately.
+    decimal: (canonical: string): Sql => sql`${canonical}`,
   };
 
   // ============================================================
@@ -495,6 +504,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // UPDATE/DELETE ... LIMIT needs SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which is
     // off in the builds this project targets (better-sqlite3, libSQL, D1).
     supportsMutationRowLimit: false,
+    // No exact decimal type exists in SQLite — see the flag's own docs.
+    supportsExactDecimal: false,
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;

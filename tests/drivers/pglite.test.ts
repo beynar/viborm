@@ -35,6 +35,7 @@ import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -189,6 +190,11 @@ describe("PGlite Driver", () => {
   runScalarRoundtripBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
+  });
+  runDecimalExactnessBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+    exactDecimal: true,
   });
   runFullScalarRoundtripBehavior({
     driverName: "PGlite",

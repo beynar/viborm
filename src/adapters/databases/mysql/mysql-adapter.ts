@@ -123,6 +123,15 @@ export class MySQLAdapter implements DatabaseAdapter {
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
 
     dateTime: (iso: string): Sql => sql`${toMySqlDateTime(iso)}`,
+
+    // The cast is load-bearing, not decoration. MySQL's comparison rules say
+    // that when one side is a number and the other a string, BOTH are converted
+    // to double and compared as floating point — so `amount = '0.1'` against a
+    // DECIMAL(65,30) column would silently answer at float precision on an
+    // otherwise exact column. Casting the operand keeps the whole comparison in
+    // MySQL's exact decimal domain, at the same 65/30 the DDL uses.
+    decimal: (canonical: string): Sql =>
+      sql`CAST(${canonical} AS DECIMAL(65,30))`,
   };
 
   // ============================================================
@@ -495,6 +504,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     // only portable spelling here: the PK-subquery form would re-read the
     // mutated table and trip the same ERROR 1093 as above.
     supportsMutationRowLimit: true,
+    supportsExactDecimal: true, // `DECIMAL(65,30)`: exact, fixed precision
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;

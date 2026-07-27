@@ -38,6 +38,7 @@ import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -197,6 +198,11 @@ describe("LibSQL Driver", () => {
   runScalarRoundtripBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
+  });
+  runDecimalExactnessBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+    exactDecimal: false,
   });
 
   runFullScalarRoundtripBehavior({

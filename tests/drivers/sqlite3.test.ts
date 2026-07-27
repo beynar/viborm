@@ -37,6 +37,7 @@ import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
@@ -802,6 +803,11 @@ describe("SQLite3 Driver", () => {
   runFullScalarRoundtripBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
+  });
+  runDecimalExactnessBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+    exactDecimal: false,
   });
   runLikeEscapeBehavior({
     driverName: "SQLite3",

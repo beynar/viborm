@@ -73,6 +73,18 @@ export interface DatabaseAdapter {
     json: (v: unknown) => Sql;
     /** Datetime value from a validated ISO-8601 string (PG/SQLite: as-is, MySQL: naive UTC 'YYYY-MM-DD HH:MM:SS.mmm') */
     dateTime: (iso: string) => Sql;
+    /**
+     * Decimal operand from a canonical decimal string.
+     *
+     * The value binds as text and the DIALECT decides how to read it, because
+     * the reading is where precision is won or lost. PG and MySQL cast it into
+     * their exact decimal type — MySQL in particular compares a `DECIMAL`
+     * column against an uncast string operand as a *double*, which would make
+     * an exact column compare inexactly with nothing to show for it. SQLite has
+     * no exact decimal type at all and stores the canonical text, so there the
+     * operand stays text and equality is exact by construction.
+     */
+    decimal: (canonical: string) => Sql;
   };
 
   /**

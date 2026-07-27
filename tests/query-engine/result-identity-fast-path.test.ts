@@ -129,7 +129,7 @@ describe("read fast path — identity decoders + whole-row passthrough", () => {
         meta: { k: 1, nested: { z: true } },
         born: new Date("2024-01-15T00:00:00.000Z"),
         big: 9_007_199_254_740_993n,
-        price: 12.34,
+        price: "12.34",
       },
       {
         id: "b",
@@ -142,7 +142,7 @@ describe("read fast path — identity decoders + whole-row passthrough", () => {
         meta: [1, 2, 3],
         born: new Date("2000-12-31T00:00:00.000Z"),
         big: -42n,
-        price: 0.5,
+        price: "0.5",
       },
     ]);
   });

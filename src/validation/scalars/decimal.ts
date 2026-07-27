@@ -9,8 +9,8 @@ import {
 // BASE TYPES
 // =============================================================================
 
-const decimalBase = v.number();
-const decimalList = v.number({ array: true });
+const decimalBase = v.decimal();
+const decimalList = v.decimal({ array: true });
 
 // =============================================================================
 // FILTER TYPES
@@ -21,12 +21,12 @@ type DecimalOperand<S extends V.Schema> = V.FieldRefOr<"decimal", S>;
 
 type DecimalFilterBase<S extends V.Schema> = {
   equals: DecimalOperand<S>;
-  in: V.Number<{ array: true }>;
-  notIn: V.Number<{ array: true }>;
-  lt: DecimalOperand<V.Number>;
-  lte: DecimalOperand<V.Number>;
-  gt: DecimalOperand<V.Number>;
-  gte: DecimalOperand<V.Number>;
+  in: V.Decimal<{ array: true }>;
+  notIn: V.Decimal<{ array: true }>;
+  lt: DecimalOperand<V.Decimal>;
+  lte: DecimalOperand<V.Decimal>;
+  gt: DecimalOperand<V.Decimal>;
+  gte: DecimalOperand<V.Decimal>;
 };
 
 type DecimalFilterSchema<S extends V.Schema> = NegatableFilterSchema<
@@ -36,9 +36,9 @@ type DecimalFilterSchema<S extends V.Schema> = NegatableFilterSchema<
 
 type DecimalListFilterBase<S extends V.Schema> = {
   equals: S;
-  has: V.Number;
-  hasEvery: V.Number<{ array: true }>;
-  hasSome: V.Number<{ array: true }>;
+  has: V.Decimal;
+  hasEvery: V.Decimal<{ array: true }>;
+  hasSome: V.Decimal<{ array: true }>;
   isEmpty: V.Boolean;
 };
 
@@ -56,10 +56,10 @@ type DecimalUpdateSchema<S extends V.Schema> = V.Union<
     V.ShorthandUpdate<S>,
     V.Object<{
       set: S;
-      increment: V.Number;
-      decrement: V.Number;
-      multiply: V.Number;
-      divide: V.Number;
+      increment: V.Decimal;
+      decrement: V.Decimal;
+      multiply: V.Decimal;
+      divide: V.Decimal;
     }>,
   ]
 >;
@@ -70,10 +70,10 @@ type DecimalListUpdateSchema<S extends V.Schema> = V.Union<
     V.Object<{
       set: S;
       push: V.Union<
-        readonly [V.ShorthandArray<V.Number>, V.Number<{ array: true }>]
+        readonly [V.ShorthandArray<V.Decimal>, V.Decimal<{ array: true }>]
       >;
       unshift: V.Union<
-        readonly [V.ShorthandArray<V.Number>, V.Number<{ array: true }>]
+        readonly [V.ShorthandArray<V.Decimal>, V.Decimal<{ array: true }>]
       >;
     }>,
   ]
@@ -156,7 +156,7 @@ const buildDecimalListUpdateSchema = <S extends V.Schema>(
 
 export interface DecimalSchemas<F extends ScalarState<"decimal">> {
   base: F["base"];
-  create: V.Number<F>;
+  create: V.Decimal<F>;
   update: F["array"] extends true
     ? DecimalListUpdateSchema<F["base"]>
     : DecimalUpdateSchema<F["base"]>;
@@ -170,7 +170,7 @@ export const buildDecimalSchema = <F extends ScalarState<"decimal">>(
 ): DecimalSchemas<F> => {
   return {
     base: state.base as F["base"],
-    create: v.number(state),
+    create: v.decimal(state),
     update: state.array
       ? buildDecimalListUpdateSchema(state.base)
       : buildDecimalUpdateSchema(state.base),

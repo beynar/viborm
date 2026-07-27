@@ -12,6 +12,7 @@ import type {
 import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
+import { canonicalizeDecimal } from "@validation/primitives/decimal";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
 import { shouldOmitInsertValue } from "./generated-scalar";
@@ -268,7 +269,34 @@ export function buildScalarSqlValue(
     return ctx.adapter.literals.dateTime(loweredValue);
   }
 
+  if (scalarType === "decimal") {
+    return decimalLiteral(ctx, fieldName, loweredValue);
+  }
+
   return ctx.adapter.literals.value(loweredValue);
+}
+
+/**
+ * Bind a decimal through the dialect's exact-decimal path.
+ *
+ * The value has already been canonicalized by the decimal schema on the way in;
+ * canonicalizing again here is cheap and closes the paths that reach a binding
+ * without one (a `set` inside an atomic update object, a connect-derived FK).
+ * A value that cannot be canonicalized is a bug upstream, not a value to bind —
+ * binding it would hand the database a float spelling for an exact column.
+ */
+function decimalLiteral(
+  ctx: QueryScope,
+  fieldName: string,
+  value: unknown
+): Sql {
+  const canonical = canonicalizeDecimal(value);
+  if (canonical === undefined) {
+    throw new QueryEngineError(
+      `Decimal field '${fieldName}' received a value that is not an exact decimal.`
+    );
+  }
+  return ctx.adapter.literals.decimal(canonical);
 }
 
 /**
@@ -296,6 +324,9 @@ export function scalarValueLiteral(
   // JSON scalars store serialized JSON, primitives included (see buildScalarSqlValue)
   if (state?.type === "json" && value !== null && value !== undefined) {
     return ctx.adapter.literals.json(value);
+  }
+  if (state?.type === "decimal" && value !== null && value !== undefined) {
+    return decimalLiteral(ctx, fieldName, value);
   }
   return ctx.adapter.literals.value(value);
 }

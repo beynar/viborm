@@ -78,6 +78,12 @@ export class PostgresAdapter implements DatabaseAdapter {
     // context. Stringifying (not raw binding) keeps primitives valid: a bare
     // 'hello' is not valid JSON input, '"hello"' is.
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
+
+    // `numeric` is exact and unconstrained, so the cast is all it takes. PG
+    // would usually infer `numeric` from the column context anyway; saying it
+    // makes the comparison independent of what the surrounding expression does
+    // to the operand's inferred type.
+    decimal: (canonical: string): Sql => sql`CAST(${canonical} AS NUMERIC)`,
   };
 
   // ============================================================
@@ -389,6 +395,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
     supportsMutationTargetInSubquery: true,
     supportsMutationRowLimit: false, // PostgreSQL has no UPDATE/DELETE ... LIMIT
+    supportsExactDecimal: true, // `numeric`: exact, unconstrained precision
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

@@ -476,8 +476,11 @@ describe("Relation Types Integration Test", () => {
     expect(parent.intNullable).toBeNull();
     expect(typeof parent.floatRequired).toBe("number");
     expect(parent.floatRequired).toBeCloseTo(3.14);
-    expect(typeof parent.decimalRequired).toBe("number");
-    expect(parent.decimalRequired).toBeCloseTo(99.99);
+    // W6-U1: a decimal comes back as its exact canonical string, through a
+    // relation as much as at the top level. `toBeCloseTo` was the tell that the
+    // old value was approximate — an exact one can be compared exactly.
+    expect(typeof parent.decimalRequired).toBe("string");
+    expect(parent.decimalRequired).toBe("99.99");
 
     // Boolean types
     expect(typeof parent.booleanRequired).toBe("boolean");
@@ -524,9 +527,10 @@ describe("Relation Types Integration Test", () => {
       number | null
     >();
     expectTypeOf(childWithParent.parent.floatRequired).toEqualTypeOf<number>();
+    // W6-U1: decimals read as exact strings, through relations too
     expectTypeOf(
       childWithParent.parent.decimalRequired
-    ).toEqualTypeOf<number>();
+    ).toEqualTypeOf<string>();
     expectTypeOf(
       childWithParent.parent.booleanRequired
     ).toEqualTypeOf<boolean>();

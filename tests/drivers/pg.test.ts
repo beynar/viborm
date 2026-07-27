@@ -41,6 +41,7 @@ import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
 import { runOmitBehavior } from "./omit-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -547,6 +548,12 @@ describeIf("pg Driver", () => {
   runScalarRoundtripBehavior({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runDecimalExactnessBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    exactDecimal: true,
   });
 
   // Real pg param serialization for a LIST of bytea bind params

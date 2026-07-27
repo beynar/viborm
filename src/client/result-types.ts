@@ -30,7 +30,9 @@ type ScalarResultTypeMap = {
   string: string;
   int: number;
   float: number;
-  decimal: number;
+  // A decimal reads back as its exact canonical spelling. A JS number could not
+  // carry the value a `numeric` / `DECIMAL(65,30)` column actually holds.
+  decimal: string;
   boolean: boolean;
   datetime: Date; // Database results are Date objects, not ISO strings
   date: Date;
@@ -428,6 +430,10 @@ type ScalarKeys<T extends ModelShape> = {
  */
 type InferScalarBase<F> = F extends Scalar ? InferScalarOutput<F> : never;
 
+/** True when the scalar is a decimal, whose aggregates stay exact strings. */
+type IsDecimalScalar<F> =
+  ExtractScalarState<F> extends { type: "decimal" } ? true : false;
+
 /**
  * Result type for aggregate operations
  * Dynamically typed based on which aggregates are requested
@@ -441,7 +447,18 @@ export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
         : never
     : K extends "_avg" | "_sum"
       ? Args[K] extends object
-        ? { [F in keyof Args[K]]: number | null }
+        ? {
+            // A sum or average OF decimals is still a decimal — the database
+            // computes it exactly, so it comes back as a string like the column
+            // does. Every other numeric aggregates to a JS number.
+            [F in keyof Args[K]]:
+              | (F extends ScalarKeys<T>
+                  ? IsDecimalScalar<T[F]> extends true
+                    ? string
+                    : number
+                  : number)
+              | null;
+          }
         : never
       : K extends "_min" | "_max"
         ? Args[K] extends object

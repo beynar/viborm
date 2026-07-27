@@ -1173,11 +1173,14 @@ describe("Compile-time type verification", () => {
     // =========================================================================
     // DECIMAL TYPES - Compile-time
     // =========================================================================
-    expectTypeOf(found.decimalRequired).toEqualTypeOf<number>();
-    expectTypeOf(found.decimalNullable).toEqualTypeOf<number | null>();
-    expectTypeOf(found.decimalArray).toEqualTypeOf<number[]>();
-    expectTypeOf(found.decimalArrayNullable).toEqualTypeOf<number[] | null>();
-    expectTypeOf(found.decimalWithDefault).toEqualTypeOf<number>();
+    // W6-U1: a decimal READS as its exact canonical string. A JS number cannot
+    // carry what a `numeric` / `DECIMAL(65,30)` column holds, so the result type
+    // is `string` on every dialect. Writes still accept `string | number`.
+    expectTypeOf(found.decimalRequired).toEqualTypeOf<string>();
+    expectTypeOf(found.decimalNullable).toEqualTypeOf<string | null>();
+    expectTypeOf(found.decimalArray).toEqualTypeOf<string[]>();
+    expectTypeOf(found.decimalArrayNullable).toEqualTypeOf<string[] | null>();
+    expectTypeOf(found.decimalWithDefault).toEqualTypeOf<string>();
 
     // =========================================================================
     // BIGINT TYPES - Compile-time

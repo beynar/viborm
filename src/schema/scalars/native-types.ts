@@ -260,8 +260,12 @@ export const SQLITE = {
     REAL: { db: "sqlite", type: "REAL" } as const,
   },
 
-  // Decimal types (stored as REAL or TEXT)
+  // Decimal types. TEXT is the default and the only exact one: REAL and
+  // NUMERIC both put the value in an IEEE-754 double the moment it has a
+  // fraction, so they lose digits on the way IN. They stay available for
+  // schemas that deliberately want SQLite's approximate numeric storage.
   DECIMAL: {
+    TEXT: { db: "sqlite", type: "TEXT" } as const,
     REAL: { db: "sqlite", type: "REAL" } as const,
     NUMERIC: { db: "sqlite", type: "NUMERIC" } as const,
   },

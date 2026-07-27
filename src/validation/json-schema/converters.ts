@@ -195,6 +195,18 @@ function convertSchemaBody(
       jsonSchema.type = "integer";
       break;
 
+    case "decimal":
+      // A decimal accepts a string or a number and always PRODUCES a string.
+      // The converter is direction-blind (see json-schema/factory.ts), so the
+      // union is described rather than one side of it. `type: "number"` alone
+      // would be the wrong half: it is the lossy spelling, and the exact one is
+      // the string — which is also the only form that survives JSON at all.
+      jsonSchema.anyOf = [
+        { type: "string", pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$" },
+        { type: "number" },
+      ];
+      break;
+
     case "literal": {
       const value = (schema as any).value;
       if (context.target === "openapi-3.0") {

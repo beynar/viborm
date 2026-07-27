@@ -23,6 +23,7 @@ import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runOmitBehavior } from "./omit-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -428,6 +429,13 @@ describeIf("postgres.js Driver", () => {
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runDecimalExactnessBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    exactDecimal: true,
   });
 
   // Real postgres.js param serialization for a LIST of bytea bind params

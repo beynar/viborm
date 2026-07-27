@@ -57,6 +57,7 @@ import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
@@ -294,6 +295,12 @@ describeIf("MySQL2 Driver", () => {
   runScalarRoundtripBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
+  });
+
+  runDecimalExactnessBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+    exactDecimal: true,
   });
 
   runFullScalarRoundtripBehavior({

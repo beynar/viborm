@@ -22,6 +22,8 @@ import type { BooleanSchema } from "./boolean";
 import { boolean } from "./boolean";
 import type { DateSchema } from "./date";
 import { date } from "./date";
+import type { DecimalInput, DecimalOutput, DecimalSchema } from "./decimal";
+import { decimal } from "./decimal";
 import type { EnumSchema } from "./enum";
 import { enum_ } from "./enum";
 import type { FieldRefOrSchema, NoFieldRefSchema } from "./field-ref";
@@ -94,6 +96,7 @@ export const v = {
   integer,
   boolean,
   bigint,
+  decimal,
   literal,
   enum: enum_,
   json,
@@ -198,6 +201,19 @@ export namespace V {
   export type Integer<
     Opts extends ScalarOptions<number, any> | undefined = undefined,
   > = IntegerSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>>;
+
+  /**
+   * Type-level decimal schema. Input and output differ on purpose: a decimal
+   * accepts `string | number` and always reads back as an exact `string`.
+   * @example V.Decimal - Required decimal
+   * @example V.Decimal<{ nullable: true }> - Nullable decimal
+   */
+  export type Decimal<
+    Opts extends ScalarOptions<DecimalInput, any> | undefined = undefined,
+  > = DecimalSchema<
+    ComputeInput<DecimalInput, Opts>,
+    ComputeOutput<DecimalOutput, Opts>
+  >;
 
   /**
    * Type-level boolean schema.

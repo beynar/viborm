@@ -21,6 +21,7 @@ import {
   isScalarField,
 } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import { assertExactDecimalOperation } from "./decimal-portability";
 import { buildJsonFilter } from "./json-filter-builder";
 import {
   type BuildNestedWhere,
@@ -514,17 +515,22 @@ function buildFilterOperation(
       }
       return adapter.operators.neq(...exactComparison(value));
 
-    // Comparison
+    // Comparison. Ordering a decimal needs an exact decimal type to order it
+    // WITH; where there is none the comparison is refused, never approximated.
     case "lt":
+      assertExactDecimalOperation(ctx, fieldName, operation);
       return adapter.operators.lt(column, plainOperand(value));
 
     case "lte":
+      assertExactDecimalOperation(ctx, fieldName, operation);
       return adapter.operators.lte(column, plainOperand(value));
 
     case "gt":
+      assertExactDecimalOperation(ctx, fieldName, operation);
       return adapter.operators.gt(column, plainOperand(value));
 
     case "gte":
+      assertExactDecimalOperation(ctx, fieldName, operation);
       return adapter.operators.gte(column, plainOperand(value));
 
     // Set membership

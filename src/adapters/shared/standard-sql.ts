@@ -6,7 +6,7 @@ export type IdentifierQuoter = (name: string) => string;
 
 type StandardLiterals = Pick<
   DatabaseAdapter["literals"],
-  "value" | "null" | "list" | "dateTime"
+  "value" | "null" | "list" | "dateTime" | "decimal"
 >;
 
 type ComparisonOperators = Pick<
@@ -76,6 +76,9 @@ export const createStandardLiterals = (): StandardLiterals => ({
   },
   // PG/SQLite accept ISO-8601 directly
   dateTime: (iso: string): Sql => sql`${iso}`,
+  // Bind the canonical text; each dialect that has an exact decimal type
+  // overrides this to cast into it.
+  decimal: (canonical: string): Sql => sql`${canonical}`,
 });
 
 export const createComparisonOperators = (): ComparisonOperators => ({
