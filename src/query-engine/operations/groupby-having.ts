@@ -1,7 +1,12 @@
 import type { Sql } from "@sql";
+import { assertExactDecimalAggregate } from "../builders/decimal-portability";
+import { scalarValueLiteral } from "../builders/values-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
+
+/** Turns a HAVING operand into bound SQL in the domain it is compared against. */
+type HavingOperand = (value: unknown) => Sql;
 
 export function buildHaving(
   ctx: QueryScope,
@@ -206,6 +211,12 @@ function buildFieldKeyedHaving(
     for (const [aggType, filter] of Object.entries(aggregateValue)) {
       if (filter === undefined) continue;
 
+      // Filtering groups by MIN/MAX/SUM/AVG of a decimal is the same ordered
+      // question `aggregate()` refuses; without this it was answered through
+      // SQLite's storage-class ordering, where a TEXT column compares constant
+      // against any number.
+      assertExactDecimalAggregate(ctx, fieldName, aggType);
+
       // Build the aggregate expression
       let aggExpr: Sql;
       switch (aggType) {
@@ -229,8 +240,17 @@ function buildFieldKeyedHaving(
           continue;
       }
 
-      // Build the comparison condition
-      const filterCondition = buildScalarHaving(ctx, aggExpr, filter);
+      // Build the comparison condition. `_count` compares against a row count,
+      // so it binds as a plain value; every other aggregate answers in the
+      // column's own domain and must bind through that domain's literal — a
+      // decimal operand bound as a plain string is compared as a double on
+      // MySQL, which is exactly what the CAST in `literals.decimal` exists to
+      // prevent.
+      const operand: HavingOperand =
+        aggType === "_count"
+          ? (operandValue) => adapter.literals.value(operandValue)
+          : (operandValue) => scalarValueLiteral(ctx, fieldName, operandValue);
+      const filterCondition = buildScalarHaving(ctx, aggExpr, filter, operand);
       if (filterCondition) conditions.push(filterCondition);
     }
 
@@ -258,13 +278,14 @@ function buildFieldKeyedHaving(
 function buildScalarHaving(
   ctx: QueryScope,
   column: Sql,
-  filter: unknown
+  filter: unknown,
+  operand: HavingOperand
 ): Sql | undefined {
   const { adapter } = ctx;
 
   // Direct value (equality)
   if (typeof filter !== "object" || filter === null) {
-    return adapter.operators.eq(column, adapter.literals.value(filter));
+    return adapter.operators.eq(column, operand(filter));
   }
 
   const conditions: Sql[] = [];
@@ -278,35 +299,27 @@ function buildScalarHaving(
         conditions.push(
           value === null
             ? adapter.operators.isNull(column)
-            : adapter.operators.eq(column, adapter.literals.value(value))
+            : adapter.operators.eq(column, operand(value))
         );
         break;
       case "not":
         conditions.push(
           value === null
             ? adapter.operators.isNotNull(column)
-            : adapter.operators.neq(column, adapter.literals.value(value))
+            : adapter.operators.neq(column, operand(value))
         );
         break;
       case "gt":
-        conditions.push(
-          adapter.operators.gt(column, adapter.literals.value(value))
-        );
+        conditions.push(adapter.operators.gt(column, operand(value)));
         break;
       case "gte":
-        conditions.push(
-          adapter.operators.gte(column, adapter.literals.value(value))
-        );
+        conditions.push(adapter.operators.gte(column, operand(value)));
         break;
       case "lt":
-        conditions.push(
-          adapter.operators.lt(column, adapter.literals.value(value))
-        );
+        conditions.push(adapter.operators.lt(column, operand(value)));
         break;
       case "lte":
-        conditions.push(
-          adapter.operators.lte(column, adapter.literals.value(value))
-        );
+        conditions.push(adapter.operators.lte(column, operand(value)));
         break;
       case "in": {
         if (!Array.isArray(value)) {
@@ -319,7 +332,7 @@ function buildScalarHaving(
           conditions.push(adapter.literals.false());
           break;
         }
-        const values = value.map((v) => adapter.literals.value(v));
+        const values = value.map((v) => operand(v));
         conditions.push(
           adapter.operators.in(column, adapter.literals.list(values))
         );
@@ -336,7 +349,7 @@ function buildScalarHaving(
           conditions.push(adapter.literals.true());
           break;
         }
-        const values = value.map((v) => adapter.literals.value(v));
+        const values = value.map((v) => operand(v));
         conditions.push(
           adapter.operators.notIn(column, adapter.literals.list(values))
         );

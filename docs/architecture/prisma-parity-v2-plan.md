@@ -930,9 +930,11 @@ contract alone does not say:
   by reading a 30-digit value back as `"1"`. Both are fixed.
 - **The refusal is capability-driven, not dialect-driven.** A new adapter flag
   `supportsExactDecimal` carries it, so the query engine never names SQLite (the
-  Rule 1 boundary holds). The four refusal sites are the where-builder's ordered
-  comparisons, the orderby-builder, the aggregate builder, and the set-builder's
-  arithmetic.
+  Rule 1 boundary holds). ~~The four refusal sites are the where-builder's
+  ordered comparisons, the orderby-builder, the aggregate builder, and the
+  set-builder's arithmetic.~~ **Corrected: those four were real but not
+  sufficient — six more were needed, and the six they missed carried the
+  common spellings. See "W6-U1 correction" below.**
 - **`_avg` had to move.** It normally widens to a JS number; for a decimal field
   it now routes through the typed field parser like `_sum`/`_min`/`_max`, since
   an average of decimals is still a decimal.
@@ -1008,6 +1010,11 @@ numeric equality, and it makes `"1.10"` and `"1.1"` the same value everywhere.
 | `lt`/`lte`/`gt`/`gte`, `orderBy`, `_min`/`_max` | ✅ exact | ✅ exact | ⛔ **typed refusal** |
 | `_sum`/`_avg`, `increment`/`decrement`/`multiply`/`divide` | ✅ exact, server-side | ✅ exact, server-side | ⛔ **typed refusal** |
 
+`orderBy` and the aggregates in that table mean **every spelling of them** — the
+paginated one, the relational one, and `groupBy`'s. The first shipped version
+gated only the bare spellings; see "W6-U1 correction" for the full list and the
+surface test that now pins it.
+
 **Why MySQL needs the cast.** Binding the operand as a plain string and letting MySQL
 compare it against a `DECIMAL` column does not work: when MySQL compares a number to a
 string it converts *both to double* and compares as floating point. The column is exact,
@@ -1073,6 +1080,75 @@ operation shape; that is when it started telling the truth.)*
 only**. The static types stay `string`, so the hatch is deliberately type-incoherent —
 it exists to unblock a deploy, not to be a supported mode, and it is removed in the
 release after this one.
+
+### W6-U1 correction — the refusal was present in the rare spelling and absent in the common one
+
+**Found by W6 review; fixed on top of the W6 head.** The contract above was
+written as a claim about *operations*; it shipped as a gate on four *call
+sites*. Anything that built its own ORDER BY or its own aggregate — which is
+most of the engine — walked past all four and answered lexicographically, with
+no error. Witnesses on better-sqlite3, with the numerically correct answer
+alongside (the first three re-run here against the pre-fix tree; the fourth is
+the review's, and follows from the same byte ordering the others demonstrate):
+
+| Query | SQLite answered | Correct |
+|---|---|---|
+| `findMany({ orderBy: { amount: "desc" }, take: 1 })` over `9`, `10`, `1` | `9` | `10` |
+| `groupBy({ by: ["amount"], orderBy: { amount: "asc" } })` over `9`, `10`, `1` | `1, 10, 9` | `1, 9, 10` |
+| `groupBy({ having: { amount: { _max: { gt: 5 } } } })`, group `c` = `{1}` | `c` returned | `c` excluded |
+| `findMany({ orderBy: { amount: "asc" }, skip: 1, take: 2 })` over `0.1`,`0.9`,`9`,`10` | `[0.9, 10]` | `[0.9, 9]` — a different row **set** |
+
+`take` is the ordinary spelling of a sorted list and `findFirst` is `take: 1`,
+so the refusal was missing from the common case and present only in the rare
+one. That is worse than no gate: the unwindowed query throws, the caller adds
+`take`, and the error disappears along with the correctness.
+
+**Cause.** Windowed reads (`take`/`skip`/`cursor`, `findFirst`, nested read
+windows, and the `count`/`aggregate` input window) do not call `buildOrderBy` at
+all — `buildFindPagination` hands off to `normalizeCursorOrder`, which builds
+its own ORDER BY. `groupBy` likewise builds its own, and `groupBy`'s `having`
+builds its own aggregates. Each private builder needed its own copy of the gate.
+
+**Six sites added**, every one falsified individually against the surface test
+(remove it → that spelling stops refusing):
+
+| Site | Spelling it covers |
+|---|---|
+| `cursor-order.ts` `parseRequestedScalarOrder` | `orderBy` under any window, `findFirst`, `count`/`aggregate` windows, nested reads |
+| `cursor-order.ts` `appendTieBreakers` | a decimal PK/unique added as the tie-breaker the caller never named |
+| `relation-orderby-builder.ts` leaf | `orderBy: { author: { fee: "asc" } }`, at any depth |
+| `groupby.ts` `buildGroupByOrderBy` | `groupBy({ orderBy: { amount } })` on a grouped decimal |
+| `groupby.ts` `buildOrderByAggregate` | `groupBy({ orderBy: { _max: { amount } } })` |
+| `groupby-having.ts` aggregate loop | `having: { amount: { _min/_max/_sum/_avg } }` |
+
+`_count` is exempt at every site — counting rows needs no ordering, so refusing
+it would be a false refusal. The shared rule lives in one helper,
+`assertExactDecimalAggregate`.
+
+**One binding hole closed with it.** `having` bound its operands with
+`literals.value`, bypassing `literals.decimal` — the very `CAST(? AS
+DECIMAL(65,30))` this section calls load-bearing. HAVING operands now route
+through `scalarValueLiteral`, the same lowering `where` uses, so every aggregate
+comparison lands in the column's own domain. (Scope note, measured not assumed:
+`havingScalarSchema` types every aggregate operand as `v.number()`, so today
+only JS numbers can reach it — the fix is exactness-preserving and consistent
+rather than a repair of a witnessed MySQL wrong answer. The inability to write
+an exact *string* bound in `having`, unlike `where`, is a separate gap and is
+not closed here.)
+
+**The test that would have caught it.** `tests/drivers/decimal-exactness-behavior.ts`
+had zero `groupBy` and zero relation-`orderBy` cases, so nothing in the estate
+could see any of this. Two things replace that:
+
+- `tests/query-engine/decimal-refusal-surface.test.ts` — 31 ordered/derived
+  spellings and 12 controls, each run on **both** PGlite and SQLite3. A refused
+  spelling must also *resolve* on PGlite, so a typo cannot masquerade as a
+  refusal; a control must resolve on both, so a gate that refuses everything
+  fails.
+- the shared driver suite gains windowed ordering, `groupBy` ordering and
+  `groupBy` `having` cases on every leg including docker MySQL — with a `9.5`
+  row added so `alpha`'s byte-max (`"9"`) and numeric max (`10`) straddle
+  another group's, making the group ordering itself discriminating.
 
 ### W6 — integration record (both lanes merged)
 

@@ -27,6 +27,7 @@ const ledger = s
   .model({
     id: s.string().id(),
     amount: s.decimal(),
+    bucket: s.string(),
     note: s.string(),
   })
   .map("decimal_exactness_ledger");
@@ -55,25 +56,71 @@ export interface DecimalExactnessOptions {
 const REFUSAL_NAMES_FIELD = /decimal field 'amount'/;
 const REFUSAL_SUGGESTS_FLOAT = /s\.float\(\)/;
 
-/** Values a double cannot hold, and values whose order byte-order gets wrong. */
+/**
+ * Values a double cannot hold, and values whose order byte-order gets wrong.
+ *
+ * `bucket` exists for the `groupBy` cases, and its assignment is chosen to
+ * DISCRIMINATE too: `alpha`'s MAX is 10 numerically but `"9"` byte-wise, while
+ * `beta`'s only value sits between them — so ordering the groups by `_max`
+ * swaps `alpha` and `beta` the moment the aggregate is taken over text.
+ */
 const ROWS = [
-  { id: "r-nine", amount: "9", note: "single digit" },
-  { id: "r-ten", amount: "10", note: "orders before 9 lexicographically" },
-  { id: "r-tenth", amount: "0.10", note: "canonicalizes to 0.1" },
-  { id: "r-ninetenths", amount: "0.9", note: "sorts before 0.10 as text" },
+  { id: "r-nine", amount: "9", bucket: "alpha", note: "single digit" },
+  {
+    id: "r-ten",
+    amount: "10",
+    bucket: "alpha",
+    note: "orders before 9 lexicographically",
+  },
+  {
+    id: "r-nineandhalf",
+    amount: "9.5",
+    bucket: "beta",
+    note: "between alpha's byte max (9) and its numeric max (10)",
+  },
+  {
+    id: "r-tenth",
+    amount: "0.10",
+    bucket: "gamma",
+    note: "canonicalizes to 0.1",
+  },
+  {
+    id: "r-ninetenths",
+    amount: "0.9",
+    bucket: "gamma",
+    note: "sorts before 0.10 as text",
+  },
   {
     id: "r-thirty",
     // 30 fraction digits — a double keeps about 15
     amount: "1.000000000000000000000000000001",
+    bucket: "gamma",
     note: "past double precision",
   },
   {
     id: "r-huge",
     // 2^53 + 1: the first integer a double cannot name
     amount: "9007199254740993",
+    bucket: "gamma",
     note: "past 2^53",
   },
-  { id: "r-neg", amount: "-2.5", note: "negative" },
+  { id: "r-neg", amount: "-2.5", bucket: "gamma", note: "negative" },
+] as const;
+
+/**
+ * Ascending by VALUE. Byte order would give
+ * -2.5, 0.1, 0.9, 1.000…001, 10, 9, 9.5, 9007199254740993 — the two orders
+ * disagree from the fifth row on, so any window that reaches it discriminates.
+ */
+const ASCENDING_BY_VALUE = [
+  "r-neg",
+  "r-tenth",
+  "r-ninetenths",
+  "r-thirty",
+  "r-nine",
+  "r-nineandhalf",
+  "r-ten",
+  "r-huge",
 ] as const;
 
 export function runDecimalExactnessBehavior({
@@ -144,7 +191,12 @@ export function runDecimalExactnessBehavior({
     test("a number operand is stored as the double the caller had", async () => {
       // The documented convenience, and its documented caveat, end to end.
       await active().ledger.create({
-        data: { id: "r-float", amount: 0.1 + 0.2, note: "float error in" },
+        data: {
+          id: "r-float",
+          amount: 0.1 + 0.2,
+          bucket: "alpha",
+          note: "float error in",
+        },
       });
 
       const row = await active().ledger.findUnique({
@@ -207,7 +259,7 @@ export function runDecimalExactnessBehavior({
       expect(inList.map((row) => row.id).sort()).toEqual(["r-huge", "r-tenth"]);
 
       const notIn = await active().ledger.findMany({
-        where: { amount: { notIn: ["9", "10", "0.1", "0.9", "-2.5"] } },
+        where: { amount: { notIn: ["9", "9.5", "10", "0.1", "0.9", "-2.5"] } },
         select: { id: true },
       });
       expect(notIn.map((row) => row.id).sort()).toEqual(["r-huge", "r-thirty"]);
@@ -239,6 +291,7 @@ export function runDecimalExactnessBehavior({
         });
         expect(overNine.map((row) => row.id).sort()).toEqual([
           "r-huge",
+          "r-nineandhalf",
           "r-ten",
         ]);
 
@@ -273,7 +326,11 @@ export function runDecimalExactnessBehavior({
           where: { amount: { gte: "9", lte: "10" } },
           select: { id: true },
         });
-        expect(rows.map((row) => row.id).sort()).toEqual(["r-nine", "r-ten"]);
+        expect(rows.map((row) => row.id).sort()).toEqual([
+          "r-nine",
+          "r-nineandhalf",
+          "r-ten",
+        ]);
       });
 
       test("orderBy sorts numerically", async () => {
@@ -284,20 +341,124 @@ export function runDecimalExactnessBehavior({
           select: { id: true },
         });
         // Byte order would put "10" before "9" and "0.10" before "0.9"
-        expect(rows.map((row) => row.id)).toEqual([
-          "r-neg",
-          "r-tenth",
-          "r-ninetenths",
+        expect(rows.map((row) => row.id)).toEqual([...ASCENDING_BY_VALUE]);
+      });
+
+      test("a WINDOW over that order is numeric too — take, skip and cursor", async () => {
+        await seed();
+
+        // The ordinary spelling of a sorted list. Byte order would answer
+        // "…, 10, 9" here, so the fifth and sixth rows discriminate.
+        const firstSix = await active().ledger.findMany({
+          orderBy: { amount: "asc" },
+          take: 6,
+          select: { id: true },
+        });
+        expect(firstSix.map((row) => row.id)).toEqual(
+          ASCENDING_BY_VALUE.slice(0, 6)
+        );
+
+        // skip + take selects a different SET, not merely a different order
+        const middle = await active().ledger.findMany({
+          orderBy: { amount: "asc" },
+          skip: 4,
+          take: 2,
+          select: { id: true },
+        });
+        expect(middle.map((row) => row.id)).toEqual([
+          "r-nine",
+          "r-nineandhalf",
+        ]);
+
+        // Second largest: 10 numerically, "9.5" by bytes
+        const secondLargest = await active().ledger.findFirst({
+          orderBy: { amount: "desc" },
+          skip: 1,
+          select: { id: true },
+        });
+        expect(secondLargest?.id).toBe("r-ten");
+
+        const page = await active().ledger.findMany({
+          orderBy: { amount: "asc" },
+          cursor: { id: "r-thirty" },
+          take: 3,
+          select: { id: true },
+        });
+        expect(page.map((row) => row.id)).toEqual([
           "r-thirty",
           "r-nine",
-          "r-ten",
-          "r-huge",
+          "r-nineandhalf",
         ]);
+      });
+
+      test("groupBy orders groups and aggregates numerically", async () => {
+        await seed();
+
+        const byAmount = await active().ledger.groupBy({
+          by: ["amount"],
+          orderBy: { amount: "asc" },
+          _count: true,
+        });
+        expect(byAmount.map((group) => group.amount)).toEqual([
+          "-2.5",
+          "0.1",
+          "0.9",
+          "1.000000000000000000000000000001",
+          "9",
+          "9.5",
+          "10",
+          "9007199254740993",
+        ]);
+
+        // MAX over text would rank alpha ("9") below beta ("9.5"); the values
+        // say alpha (10) is above it.
+        const byMax = await active().ledger.groupBy({
+          by: ["bucket"],
+          orderBy: { _max: { amount: "desc" } },
+          _count: true,
+        });
+        expect(byMax.map((group) => group.bucket)).toEqual([
+          "gamma",
+          "alpha",
+          "beta",
+        ]);
+      });
+
+      test("groupBy having filters on the exact aggregate", async () => {
+        await seed();
+
+        // alpha's MIN is 9 numerically and "10" by bytes; only beta's 9.5
+        // clears the bound, and a byte-order MIN would wrongly add alpha.
+        const minOverBound = await active().ledger.groupBy({
+          by: ["bucket"],
+          having: { amount: { _min: { gt: 9.2 } } },
+          _count: true,
+        });
+        expect(minOverBound.map((group) => group.bucket)).toEqual(["beta"]);
+
+        const sumOverBound = await active().ledger.groupBy({
+          by: ["bucket"],
+          having: { amount: { _sum: { gt: 100 } } },
+          _count: true,
+        });
+        expect(sumOverBound.map((group) => group.bucket)).toEqual(["gamma"]);
+
+        const maxUnderBound = await active().ledger.groupBy({
+          by: ["bucket"],
+          having: { amount: { _max: { lt: 9.6 } } },
+          _count: true,
+        });
+        expect(maxUnderBound.map((group) => group.bucket)).toEqual(["beta"]);
       });
 
       test("atomic arithmetic is exact and stays server-side", async () => {
         await active().ledger.create({
-          data: { id: "r-math", amount: "0.1", note: "arithmetic" },
+          data: {
+            id: "r-math",
+            amount: "0.1",
+            bucket: "alpha",
+            note: "arithmetic",
+          },
         });
 
         await active().ledger.update({
@@ -331,7 +492,12 @@ export function runDecimalExactnessBehavior({
 
       test("increment is exact past double precision", async () => {
         await active().ledger.create({
-          data: { id: "r-tiny", amount: "1", note: "tiny increment" },
+          data: {
+            id: "r-tiny",
+            amount: "1",
+            bucket: "alpha",
+            note: "tiny increment",
+          },
         });
 
         await active().ledger.update({
@@ -348,10 +514,10 @@ export function runDecimalExactnessBehavior({
 
       test("_sum, _min and _max come back as exact strings", async () => {
         await active().ledger.create({
-          data: { id: "a", amount: "0.1", note: "a" },
+          data: { id: "a", amount: "0.1", bucket: "alpha", note: "a" },
         });
         await active().ledger.create({
-          data: { id: "b", amount: "0.2", note: "b" },
+          data: { id: "b", amount: "0.2", bucket: "alpha", note: "b" },
         });
 
         const result = await active().ledger.aggregate({
@@ -399,6 +565,68 @@ export function runDecimalExactnessBehavior({
         await expect(
           active().ledger.findMany({ orderBy: { amount: "asc" } })
         ).rejects.toThrow(UnsupportedOperationError);
+      });
+
+      test("a WINDOW over that order is REFUSED too, not silently answered", async () => {
+        await seed();
+
+        // The gate used to live only on the unwindowed spelling above, so the
+        // paginated list — the spelling callers actually write — came back
+        // sorted by bytes with no error at all.
+        await expect(
+          active().ledger.findMany({ orderBy: { amount: "desc" }, take: 1 })
+        ).rejects.toThrow(UnsupportedOperationError);
+        await expect(
+          active().ledger.findMany({
+            orderBy: { amount: "asc" },
+            skip: 1,
+            take: 2,
+          })
+        ).rejects.toThrow(UnsupportedOperationError);
+        await expect(
+          active().ledger.findMany({
+            orderBy: { amount: "asc" },
+            cursor: { id: "r-thirty" },
+            take: 3,
+          })
+        ).rejects.toThrow(UnsupportedOperationError);
+        await expect(
+          active().ledger.findFirst({ orderBy: { amount: "desc" } })
+        ).rejects.toThrow(UnsupportedOperationError);
+      });
+
+      test("groupBy ordering on a decimal is REFUSED", async () => {
+        await seed();
+
+        await expect(
+          active().ledger.groupBy({
+            by: ["amount"],
+            orderBy: { amount: "asc" },
+            _count: true,
+          })
+        ).rejects.toThrow(UnsupportedOperationError);
+        await expect(
+          active().ledger.groupBy({
+            by: ["bucket"],
+            orderBy: { _max: { amount: "desc" } },
+            _count: true,
+          })
+        ).rejects.toThrow(UnsupportedOperationError);
+      });
+
+      test("groupBy having on a decimal aggregate is REFUSED", async () => {
+        await seed();
+
+        for (const having of [
+          { amount: { _max: { gt: 5 } } },
+          { amount: { _min: { lt: 5 } } },
+          { amount: { _sum: { gt: 5 } } },
+          { amount: { _avg: { gte: 5 } } },
+        ]) {
+          await expect(
+            active().ledger.groupBy({ by: ["bucket"], having, _count: true })
+          ).rejects.toThrow(UnsupportedOperationError);
+        }
       });
 
       test("atomic arithmetic on a decimal is REFUSED", async () => {

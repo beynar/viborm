@@ -129,6 +129,18 @@ before `"9"`, and the cast that would fix it goes through a double and starts
 losing digits past ~15 significant figures. A `gt` that silently skips a row is
 worse than an error, so it is an error.
 
+**"`orderBy`" means every spelling of it**, not just the bare one — an ordering
+you cannot get right paginated is not an ordering you can get right at all. So
+the refusal also covers `take` / `skip` / `cursor` windows and `findFirst`
+(which is `take: 1`), ordering through a to-one relation
+(`orderBy: { author: { fee: "asc" } }`), ordering inside a nested read
+(`include: { entries: { orderBy: { amount: "asc" } } }`), `groupBy`'s `orderBy`
+— by a grouped decimal or by `_min`/`_max`/`_sum`/`_avg` of one — and
+`groupBy`'s `having` on those same four aggregates. A decimal **primary key or
+unique key** is refused the moment a window is opened over it too, because
+pagination silently adds it as the tie-breaker that decides page boundaries.
+`_count` is never refused anywhere: counting rows needs no ordering.
+
 If you need ordered decimals on SQLite, the two honest options are
 [`s.float()`](/docs/schema/scalars/number) (approximate, and says so) or scaled
 integers in an [`s.bigInt()`](/docs/schema/scalars/bigint) — cents rather than
