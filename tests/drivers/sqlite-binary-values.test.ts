@@ -81,6 +81,8 @@ function createBunBinaryFixture() {
       bindings.push(values);
       return { changes: 1, lastInsertRowid: 1 };
     }),
+    // Real bun:sqlite statements carry this; see sqlite-integer-safety.test.ts
+    safeIntegers: vi.fn(() => statement),
     values: vi.fn(() => []),
   };
   const database = {

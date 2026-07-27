@@ -862,7 +862,62 @@ so a projection that still FETCHED the column would throw rather than pass.
 | Unit | Size | What |
 |---|---|---|
 | W6-U1 | L | **Decimal (per D-3).** String-backed decode for `numeric`/`DECIMAL(65,30)`; accept `string \| number` on write; filters compare via SQL (no JS float math); SQLite column type moves `REAL` → `TEXT`-with-numeric-affinity decision (pin with migration note). Migration path: one release with `decimal: "number"` legacy opt-in. |
-| W6-U2 | S | **BigInt hole on `bun-sqlite`** — add the missing safe-integers opt-in (matrix defect §2.9-6; belongs here since it's the same "types are exact" theme). |
+| W6-U2 ✅ | S | **DELIVERED.** See "W6-U2 — delivered" below. **BigInt hole on `bun-sqlite`** — add the missing safe-integers opt-in (matrix defect §2.9-6; belongs here since it's the same "types are exact" theme). |
+
+### W6-U2 — delivered (bun-sqlite integer safety, and the driver underneath it)
+
+**What shipped.** The typed read path opts each reader statement into
+`safeIntegers(true)`, byte-for-byte the arrangement `sqlite3` already had:
+`execute` opts in, `executeRaw` deliberately does not (raw rows bypass the
+result parser and stay driver-native), and a statement that decodes nothing is
+never switched. `bun-sqlite` now answers a `s.bigInt()` field with
+`9007199254740993n` — the same value the shared scalar round-trip suite pins on
+`sqlite3` and `libsql`.
+
+**Fail-closed, not optional.** `safeIntegers` landed in Bun 1.1.14. On an older
+build the method is absent, and the driver throws `FeatureNotSupportedError`
+(V8001) *before* fetching the row rather than returning a rounded number. The
+method is declared required on the internal `BunSQLiteStatement` interface, so
+a hand-written `client` object must now provide it — a deliberate break, small
+enough to belong in this wave, and the runtime guard catches the JS-only case
+the type cannot.
+
+**The blocker found on the way — this driver had never run.** `initClient`
+passed `options ?? {}` to `new Database(path, options)`, and bun:sqlite rejects
+an options object that names no access mode:
+`SQLITE_MISUSE — flags must include SQLITE_OPEN_READONLY or SQLITE_OPEN_READWRITE`.
+The documented default (`createClient({ schema })`, no options) therefore threw
+`ConnectionError` on connect and had **never executed a single query**. Fixed in
+the same unit: an options bag with no keys is omitted so Bun applies its own
+default (readwrite + create); a bag that says something is still passed through
+untouched. Nothing caught this because every `bun-sqlite` test was a `vi.fn()`
+fake — the exact failure mode the capability matrix's §2.10 warns about, caught
+the first time a real query ran.
+
+**Two matrix claims corrected** (§2.9-6): the loss was **not** silent for
+`bigint`-typed fields — a rounded value past 2^53 is not a canonical integer, so
+the shared result parser already rejected it with `QueryEngineError V9001`;
+silent rounding was confined to `int`-typed columns and raw reads. And
+`bun-sqlite` is no longer one of the five drivers that have never executed a
+real query.
+
+**Pinned by:**
+[tests/drivers/bun-sqlite-runtime.test.ts](../../tests/drivers/bun-sqlite-runtime.test.ts)
++ [its probe](../../tests/drivers/bun-sqlite-runtime-probe.ts) — spawns Bun
+(`test.runIf`, skipped when absent) on a script that drives the real client
+against a real in-memory `bun:sqlite`: push, create, findUnique, findMany,
+`include`, tagged `$queryRaw` (exact) and `$queryRawUnsafe` (rounded, the
+witness that the opt-in is what saves the typed path). vitest cannot load
+`bun:sqlite`, which is why the assertions live in a spawned script.
+[tests/drivers/sqlite-integer-safety.test.ts](../../tests/drivers/sqlite-integer-safety.test.ts)
+pins the same split at unit level — against a fake that rounds exactly like the
+real provider — plus the refusal, and asserts the `sqlite3` contract it matches
+side by side against a real better-sqlite3.
+
+**Falsified:** flipping the two opt-in flags fails 3 of the 5 unit assertions
+and the runtime probe; hoisting the call out of the reader branch fails the
+fourth. Before the constructor fix the probe failed with `ConnectionError`;
+before the `safeIntegers` fix it failed with `V9001 malformed bigint scalar`.
 
 ### W6-U1 — DELIVERED
 

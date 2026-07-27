@@ -11,6 +11,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import { FeatureNotSupportedError } from "@errors";
 import { Driver, type DriverResultParser } from "../driver";
 import {
   convertValuesForSQLite,
@@ -44,7 +45,32 @@ interface BunSQLiteStatement<T = unknown> {
     changes: number;
     lastInsertRowid: number | bigint;
   };
+  /**
+   * Reads INTEGER columns as BigInt instead of lossy JS numbers. Present on
+   * `bun:sqlite` statements since Bun 1.1.14; the driver refuses to read
+   * rather than return corrupted values when it is missing.
+   */
+  safeIntegers(safe: boolean): BunSQLiteStatement<T>;
   values(...params: unknown[]): unknown[][];
+}
+
+/**
+ * `safeIntegers()` is what keeps an INTEGER past 2^53 from being rounded on
+ * the way out of SQLite. A `bun:sqlite` old enough to lack it cannot answer
+ * the query truthfully, so the read is refused instead of silently returning
+ * a corrupted number — the one outcome that must never ship.
+ */
+function requireSafeIntegers<T>(
+  stmt: BunSQLiteStatement<T>
+): BunSQLiteStatement<T> {
+  if (typeof stmt.safeIntegers !== "function") {
+    throw new FeatureNotSupportedError(
+      "bun:sqlite",
+      "Statement.safeIntegers",
+      "This Bun build cannot read INTEGER columns as BigInt, so any value past 2^53 would come back silently rounded. Upgrade to Bun 1.1.14 or newer."
+    );
+  }
+  return stmt;
 }
 
 function convertValuesForBunSQLite(values: unknown[]): unknown[] {
@@ -104,7 +130,16 @@ export class BunSQLiteDriver extends Driver<
     const { Database } = await import("bun:sqlite");
 
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
-    const options = this.driverOptions.options ?? {};
+    const options = this.driverOptions.options;
+
+    // bun:sqlite derives its open flags from this object and rejects one that
+    // names no access mode: `new Database(path, {})` throws SQLITE_MISUSE
+    // ("flags must include SQLITE_OPEN_READONLY or SQLITE_OPEN_READWRITE").
+    // An options bag that says nothing must mean nothing, so the argument is
+    // omitted entirely and Bun applies its own default (readwrite + create).
+    if (options === undefined || Object.keys(options).length === 0) {
+      return new Database(dataDir) as unknown as BunSQLiteDatabase;
+    }
 
     return new Database(dataDir, options) as unknown as BunSQLiteDatabase;
   }
@@ -119,7 +154,7 @@ export class BunSQLiteDriver extends Driver<
     params: unknown[]
   ): Promise<QueryResult<T>> {
     const values = convertValuesForBunSQLite(params);
-    return this.runStatement<T>(client, sql, values);
+    return this.runStatement<T>(client, sql, values, true);
   }
 
   protected async executeRaw<T>(
@@ -128,17 +163,25 @@ export class BunSQLiteDriver extends Driver<
     params?: unknown[]
   ): Promise<QueryResult<T>> {
     const values = params ? convertValuesForBunSQLite(params) : undefined;
-    return this.runStatement<T>(client, sql, values);
+    // Raw results bypass the result parser — keep bun:sqlite's plain numbers
+    // instead of surfacing BigInt to raw callers, matching sqlite3
+    return this.runStatement<T>(client, sql, values, false);
   }
 
   private runStatement<T>(
     db: BunSQLiteDatabase,
     sql: string,
-    values?: unknown[]
+    values: unknown[] | undefined,
+    safeIntegers: boolean
   ): QueryResult<T> {
     const stmt = db.prepare(sql);
 
     if (stmt.columnNames.length > 0) {
+      if (safeIntegers) {
+        // INTEGER columns come back as BigInt so values >2^53 survive; the
+        // result parser converts int columns back to number
+        requireSafeIntegers(stmt).safeIntegers(true);
+      }
       const rows = (values ? stmt.all(...values) : stmt.all()) as T[];
       return { rows, rowCount: rows.length };
     }
