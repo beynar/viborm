@@ -284,18 +284,31 @@ export class UpsertOperation {
           "upsert",
           "update"
         );
-    this.parsedSelect = isRecord(args.select)
-      ? parseValidated(
-          parentSchemas.core.select,
-          args.select,
-          "upsert",
-          "select"
-        )
+    // The projection is parsed as ONE object rather than key by key, because
+    // `omit` is only meaningful next to `select`: the schema refuses the pair and
+    // rewrites a surviving `omit` into the `select` it denotes
+    // (@validation/model/args/omit). Everything else about upsert's deliberate
+    // no-whole-args-parse stance is unchanged — this schema carries the three
+    // projection keys and nothing else, so neither arm is validated here.
+    const projection = parseValidated(
+      parentSchemas.core.upsertProjection,
+      {
+        select: args.select,
+        include: args.include,
+        omit: args.omit,
+      },
+      "upsert",
+      ""
+    );
+    this.parsedSelect = isRecord(projection?.select)
+      ? projection.select
       : defaultSelect(model);
     // `include` rides alongside the projection (the `create`/`update` surface). A
     // relation projection forces the terminal-read path (lateral joins), never the
     // scalar RETURNING fold, on both the scalar and delegated arms.
-    this.parsedInclude = isRecord(args.include) ? args.include : undefined;
+    this.parsedInclude = isRecord(projection?.include)
+      ? projection.include
+      : undefined;
     this.resultArgs = {
       select: this.parsedSelect,
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
@@ -348,8 +361,18 @@ export class UpsertOperation {
     // The delegated arms shape their own terminal read, so they carry the same
     // `select`/`include` this upsert would apply (an explicit select, else the
     // sub-op defaults the scalar projection; `include` rides alongside).
+    // `select` is forwarded whenever the CALLER asked for a projection — either
+    // spelling. `omit` never reaches an arm as itself: it was already desugared
+    // into `this.parsedSelect`, so forwarding that is what makes an omit-only
+    // upsert project the same columns on both arms. Without a caller projection
+    // the key stays absent and each arm defaults its own scalar list, exactly as
+    // before.
+    const callerProjected =
+      args.select !== undefined || args.omit !== undefined;
     const subSelect: Record<string, unknown> = {
-      ...(isRecord(args.select) ? { select: args.select } : {}),
+      ...(callerProjected && this.parsedSelect
+        ? { select: this.parsedSelect }
+        : {}),
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
     };
     const subOptions: SubOperationOptions = { scope, skipOwnWrite: true };
@@ -999,13 +1022,19 @@ function defaultSelect(model: Model<any>): Record<string, unknown> {
 
 function assertUpsertKeys(value: Record<string, unknown>): void {
   const required = ["where", "create", "update"] as const;
-  const optional = new Set(["select", "include", "targetWhere", "setWhere"]);
+  const optional = new Set([
+    "select",
+    "include",
+    "omit",
+    "targetWhere",
+    "setWhere",
+  ]);
   const allowed = new Set<string>([...required, ...optional]);
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
   const missing = required.filter((key) => !Object.hasOwn(value, key));
   if (unexpected.length === 0 && missing.length === 0) return;
   throw new UnsupportedOperationError(
-    `upsert arguments require ${required.join(", ")} (optional select, include, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
+    `upsert arguments require ${required.join(", ")} (optional select, include, omit, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
   );
 }
 

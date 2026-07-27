@@ -413,8 +413,15 @@ export class UpdateOperation {
     this.nestedTarget = nestedTarget?.locate;
     this.suppressTerminal = nestedTarget !== undefined;
     const deferLegality = options.deferArmLegality === true;
-    if (!(deferLegality || nestedTarget))
-      parseValidated(parentSchemas.args.update, args, "update", "");
+    // The whole-args parse is ALSO where `omit` becomes the `select` it denotes
+    // (@validation/model/args/omit), so the projection below is read from ITS
+    // output: an omit-only payload has no raw `args.select` to find. Reading the
+    // parsed value additionally removes a double parse — `select` used to be
+    // parsed here, discarded, and parsed again from the raw args.
+    const validatedArgs =
+      deferLegality || nestedTarget
+        ? undefined
+        : parseValidated(parentSchemas.args.update, args, "update", "");
     const where = nestedTarget
       ? (nestedTarget.locate.where ?? {})
       : requireRecord(args.where, "update.where");
@@ -492,21 +499,24 @@ export class UpdateOperation {
           "update",
           "where"
         );
-    this.parsedSelect =
-      !nestedTarget && isRecord(args.select)
-        ? parseValidated(
-            parentSchemas.core.select,
-            args.select,
-            "update",
-            "select"
-          )
-        : defaultSelect(model);
+    // The projection comes from the whole-args parse when there was one — that
+    // parse is where `omit` became the `select` it denotes, so an omit-only
+    // payload has nothing to find in the raw args. The two paths that skip it
+    // read the args as given: an upsert update ARM is handed its parent's
+    // already-parsed projection, and a nested target carries none at all.
+    const projectionArgs = validatedArgs ?? (nestedTarget ? undefined : args);
+    const projectedSelect = projectionArgs?.select;
+    const projectedInclude = projectionArgs?.include;
+    this.parsedSelect = isRecord(projectedSelect)
+      ? projectedSelect
+      : defaultSelect(model);
     // `include` rides alongside the (default or explicit-scalar) projection —
     // the same result-shaping surface `create` owns. A relation projection forces
     // the proven terminal-read path (below): lateral joins, not the RETURNING fold.
     // A nested target emits no terminal read, so it carries no projection.
-    this.parsedInclude =
-      !nestedTarget && isRecord(args.include) ? args.include : undefined;
+    this.parsedInclude = isRecord(projectedInclude)
+      ? projectedInclude
+      : undefined;
     this.resultArgs = {
       select: this.parsedSelect,
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),

@@ -19,6 +19,7 @@
     "nested-writes",
     "filtering",
     "selecting",
+    "omit",
     "sorting",
     "pagination",
     "transactions",

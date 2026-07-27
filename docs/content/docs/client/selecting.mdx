@@ -33,6 +33,21 @@ const users = await client.user.findMany({
 // Type: { id: string; email: string; ...; posts: Post[]; profile: Profile | null }[]
 ```
 
+## omit
+
+`omit` is the inverse of `select` — every readable scalar except the ones you
+name. It cannot be combined with `select`, and it composes with `include`:
+
+```ts
+const users = await client.user.findMany({
+  omit: { passwordHash: true },
+  include: { posts: { omit: { draftBody: true } } },
+});
+```
+
+See [Omitting fields](/docs/client/omit) for the full surface, including the
+client-level default and how the three layers of omission rank.
+
 ## select vs include
 
 | Aspect | `select` | `include` |

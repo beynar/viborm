@@ -9,6 +9,7 @@ import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
 import { restrictToScalarProjection } from "./bulk-write-projection";
+import { type OmitSchema, withOmitProjection } from "./omit";
 import { type BulkWriteLimitSchema, bulkWriteLimit } from "./pagination";
 import { rejectSelectInclude } from "./select-include-exclusivity";
 // =============================================================================
@@ -26,23 +27,30 @@ export type CreateArgs<
     data: CoreSchemas<M, F>["create"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
+    omit: OmitSchema<M>;
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
 export const getCreateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  model: M,
   core: CoreSchemas<M, F>
 ): CreateArgs<M, F> => {
-  return rejectSelectInclude(
-    v.object(
-      {
-        data: v.lazyRef(() => core.create),
-        select: v.lazyRef(() => core.select),
-        include: v.lazyRef(() => core.include),
-        cache: cacheInvalidationSchema,
-      },
-      { atLeast: ["data"] }
-    )
+  return withOmitProjection(
+    rejectSelectInclude(
+      v.object(
+        {
+          data: v.lazyRef(() => core.create),
+          select: v.lazyRef(() => core.select),
+          include: v.lazyRef(() => core.include),
+          omit: v.lazyRef(() => core.omit),
+          cache: cacheInvalidationSchema,
+        },
+        { atLeast: ["data"] }
+      )
+    ),
+    model,
+    "create"
   );
 };
 
@@ -70,6 +78,7 @@ export type CreateManyArgs<
     data: V.Array<CoreSchemas<M, F>["scalarCreate"]>;
     skipDuplicates: V.Boolean<{ optional: true }>;
     select: CoreSchemas<M, F>["scalarSelect"];
+    omit: OmitSchema<M>;
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
@@ -81,15 +90,20 @@ export const getCreateManyArgs = <
   model: M,
   core: CoreSchemas<M, F>
 ): CreateManyArgs<M, F> => {
-  return restrictToScalarProjection(
-    v.object(
-      {
-        data: v.lazyRef(() => v.array(core.scalarCreate)),
-        skipDuplicates: v.boolean({ optional: true }),
-        select: v.lazyRef(() => core.scalarSelect),
-        cache: cacheInvalidationSchema,
-      },
-      { atLeast: ["data"] }
+  return withOmitProjection(
+    restrictToScalarProjection(
+      v.object(
+        {
+          data: v.lazyRef(() => v.array(core.scalarCreate)),
+          skipDuplicates: v.boolean({ optional: true }),
+          select: v.lazyRef(() => core.scalarSelect),
+          omit: v.lazyRef(() => core.omit),
+          cache: cacheInvalidationSchema,
+        },
+        { atLeast: ["data"] }
+      ),
+      model,
+      "createMany"
     ),
     model,
     "createMany"
@@ -117,25 +131,32 @@ export type UpdateArgs<
     data: CoreSchemas<M, F>["update"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
+    omit: OmitSchema<M>;
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["where", "data"] }
 >;
 
 export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  model: M,
   core: CoreSchemas<M, F>
 ): UpdateArgs<M, F> => {
-  return rejectSelectInclude(
-    v.object(
-      {
-        where: v.lazyRef(() => core.whereUniqueExtended),
-        data: v.lazyRef(() => core.update),
-        select: v.lazyRef(() => core.select),
-        include: v.lazyRef(() => core.include),
-        cache: cacheInvalidationSchema,
-      },
-      { atLeast: ["where", "data"] }
-    )
+  return withOmitProjection(
+    rejectSelectInclude(
+      v.object(
+        {
+          where: v.lazyRef(() => core.whereUniqueExtended),
+          data: v.lazyRef(() => core.update),
+          select: v.lazyRef(() => core.select),
+          include: v.lazyRef(() => core.include),
+          omit: v.lazyRef(() => core.omit),
+          cache: cacheInvalidationSchema,
+        },
+        { atLeast: ["where", "data"] }
+      )
+    ),
+    model,
+    "update"
   );
 };
 
@@ -170,6 +191,7 @@ export type UpdateManyArgs<
     where: CoreSchemas<M, F>["where"];
     data: CoreSchemas<M, F>["scalarUpdate"];
     select: CoreSchemas<M, F>["scalarSelect"];
+    omit: OmitSchema<M>;
     limit: BulkWriteLimitSchema;
     cache: CacheInvalidationSchema;
   },
@@ -182,16 +204,21 @@ export const getUpdateManyArgs = <
   model: M,
   core: CoreSchemas<M, F>
 ): UpdateManyArgs<M, F> => {
-  return restrictToScalarProjection(
-    v.object(
-      {
-        where: v.lazyRef(() => core.where),
-        data: v.lazyRef(() => core.scalarUpdate),
-        select: v.lazyRef(() => core.scalarSelect),
-        limit: bulkWriteLimit(),
-        cache: cacheInvalidationSchema,
-      },
-      { atLeast: ["data"] }
+  return withOmitProjection(
+    restrictToScalarProjection(
+      v.object(
+        {
+          where: v.lazyRef(() => core.where),
+          data: v.lazyRef(() => core.scalarUpdate),
+          select: v.lazyRef(() => core.scalarSelect),
+          omit: v.lazyRef(() => core.omit),
+          limit: bulkWriteLimit(),
+          cache: cacheInvalidationSchema,
+        },
+        { atLeast: ["data"] }
+      ),
+      model,
+      "updateMany"
     ),
     model,
     "updateMany"
@@ -215,23 +242,30 @@ export type DeleteArgs<
     where: CoreSchemas<M, F>["whereUniqueExtended"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
+    omit: OmitSchema<M>;
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["where"] }
 >;
 export const getDeleteArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  model: M,
   core: CoreSchemas<M, F>
 ): DeleteArgs<M, F> => {
-  return rejectSelectInclude(
-    v.object(
-      {
-        where: v.lazyRef(() => core.whereUniqueExtended),
-        select: v.lazyRef(() => core.select),
-        include: v.lazyRef(() => core.include),
-        cache: cacheInvalidationSchema,
-      },
-      { atLeast: ["where"] }
-    )
+  return withOmitProjection(
+    rejectSelectInclude(
+      v.object(
+        {
+          where: v.lazyRef(() => core.whereUniqueExtended),
+          select: v.lazyRef(() => core.select),
+          include: v.lazyRef(() => core.include),
+          omit: v.lazyRef(() => core.omit),
+          cache: cacheInvalidationSchema,
+        },
+        { atLeast: ["where"] }
+      )
+    ),
+    model,
+    "delete"
   );
 };
 
@@ -258,6 +292,7 @@ export type DeleteManyArgs<
   {
     where: CoreSchemas<M, F>["where"];
     select: CoreSchemas<M, F>["scalarSelect"];
+    omit: OmitSchema<M>;
     limit: BulkWriteLimitSchema;
     cache: CacheInvalidationSchema;
   },
@@ -270,15 +305,20 @@ export const getDeleteManyArgs = <
   model: M,
   core: CoreSchemas<M, F>
 ): DeleteManyArgs<M, F> => {
-  return restrictToScalarProjection(
-    v.object(
-      {
-        where: v.lazyRef(() => core.where),
-        select: v.lazyRef(() => core.scalarSelect),
-        limit: bulkWriteLimit(),
-        cache: cacheInvalidationSchema,
-      },
-      { optional: true }
+  return withOmitProjection(
+    restrictToScalarProjection(
+      v.object(
+        {
+          where: v.lazyRef(() => core.where),
+          select: v.lazyRef(() => core.scalarSelect),
+          omit: v.lazyRef(() => core.omit),
+          limit: bulkWriteLimit(),
+          cache: cacheInvalidationSchema,
+        },
+        { optional: true }
+      ),
+      model,
+      "deleteMany"
     ),
     model,
     "deleteMany"
@@ -308,6 +348,7 @@ export type UpsertArgs<
     update: CoreSchemas<M, F>["update"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
+    omit: OmitSchema<M>;
     cache: CacheInvalidationSchema;
     /** WHERE clause for partial unique index matching (PostgreSQL/SQLite only) */
     targetWhere: CoreSchemas<M, F>["where"];
@@ -318,21 +359,27 @@ export type UpsertArgs<
 >;
 
 export const getUpsertArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  model: M,
   core: CoreSchemas<M, F>
 ): UpsertArgs<M, F> => {
-  return rejectSelectInclude(
-    v.object(
-      {
-        where: v.lazyRef(() => core.whereUniqueExtended),
-        create: v.lazyRef(() => core.create),
-        update: v.lazyRef(() => core.update),
-        select: v.lazyRef(() => core.select),
-        include: v.lazyRef(() => core.include),
-        cache: cacheInvalidationSchema,
-        targetWhere: v.lazyRef(() => core.where),
-        setWhere: v.lazyRef(() => core.where),
-      },
-      { atLeast: ["where", "create", "update"] }
-    )
+  return withOmitProjection(
+    rejectSelectInclude(
+      v.object(
+        {
+          where: v.lazyRef(() => core.whereUniqueExtended),
+          create: v.lazyRef(() => core.create),
+          update: v.lazyRef(() => core.update),
+          select: v.lazyRef(() => core.select),
+          include: v.lazyRef(() => core.include),
+          omit: v.lazyRef(() => core.omit),
+          cache: cacheInvalidationSchema,
+          targetWhere: v.lazyRef(() => core.where),
+          setWhere: v.lazyRef(() => core.where),
+        },
+        { atLeast: ["where", "create", "update"] }
+      )
+    ),
+    model,
+    "upsert"
   );
 };

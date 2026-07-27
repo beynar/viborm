@@ -6,6 +6,10 @@ import type { AnyRelation } from "@schema/relation";
 import type { ScalarState } from "@schema/scalars";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
+import {
+  type ProjectableScalarKeys,
+  projectableScalarNames,
+} from "./projection";
 
 // =============================================================================
 // SELECT SCHEMA
@@ -22,7 +26,7 @@ type ScalarStateOf<F> = F extends { "~": { state: infer S } }
     ? S
     : never
   : never;
-type VectorScalarKeys<M extends AnyModel> = {
+type AnyVectorScalarKeys<M extends AnyModel> = {
   [K in keyof ModelScalars<M>]: ScalarStateOf<
     ModelScalars<M>[K]
   >["type"] extends "vector"
@@ -31,9 +35,20 @@ type VectorScalarKeys<M extends AnyModel> = {
       : never
     : never;
 }[keyof ModelScalars<M>];
+/**
+ * Both halves of the select schema are keyed on {@link ProjectableScalarKeys},
+ * so a model-level `.omit()`-ed scalar has no `select` entry at all: naming it
+ * is an "Unknown key" parse failure rather than a way around the schema's own
+ * exclusion. See `projection.ts` for why that layer is hard and the other two
+ * are not.
+ */
+type VectorScalarKeys<M extends AnyModel> = Extract<
+  ProjectableScalarKeys<M>,
+  AnyVectorScalarKeys<M>
+>;
 type NonVectorScalarKeys<M extends AnyModel> = Exclude<
-  ModelScalarKey<M>,
-  VectorScalarKeys<M>
+  ProjectableScalarKeys<M>,
+  AnyVectorScalarKeys<M>
 >;
 
 const scalarSelectSchema = v.boolean({ optional: true });
@@ -154,9 +169,7 @@ const getScalarSelectEntries = <M extends AnyModel>(model: M) => {
   const vectorScalarKeys: VectorScalarKeys<M>[] = [];
   const nonVectorScalarKeys: NonVectorScalarKeys<M>[] = [];
 
-  const scalarKeys = Object.keys(
-    model["~"].state.scalars
-  ) as ModelScalarKey<M>[];
+  const scalarKeys = projectableScalarNames(model) as ModelScalarKey<M>[];
   for (const fieldName of scalarKeys) {
     const scalar = model["~"].state.scalars[fieldName];
     if (scalar["~"].state.type === "vector") {

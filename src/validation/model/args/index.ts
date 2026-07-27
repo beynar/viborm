@@ -85,16 +85,16 @@ export const getArgsSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
   // operations are never constructed — and because each builder pulls from the
   // lazy `core` object, only the core schemas that operation needs get built.
   return lazyRecord<ArgsSchemas<M, F>>({
-    findUnique: () => getFindUniqueArgs(core),
+    findUnique: () => getFindUniqueArgs(model, core),
     findFirst: () => getFindFirstArgs(model, core),
     findMany: () => getFindManyArgs(model, core),
-    create: () => getCreateArgs(core),
+    create: () => getCreateArgs(model, core),
     createMany: () => getCreateManyArgs(model, core),
-    update: () => getUpdateArgs(core),
+    update: () => getUpdateArgs(model, core),
     updateMany: () => getUpdateManyArgs(model, core),
-    delete: () => getDeleteArgs(core),
+    delete: () => getDeleteArgs(model, core),
     deleteMany: () => getDeleteManyArgs(model, core),
-    upsert: () => getUpsertArgs(core),
+    upsert: () => getUpsertArgs(model, core),
     count: () => getCountArgs(model, core),
     aggregate: () => getAggregateArgs(model, core),
     groupBy: () => getGroupByArgs(model, _fieldSchemas, core),

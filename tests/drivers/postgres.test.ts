@@ -21,6 +21,7 @@ import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runOmitBehavior } from "./omit-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
 import {
   runFullScalarRoundtripBehavior,
@@ -471,6 +472,12 @@ describeIf("postgres.js Driver", () => {
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runNestedOrderByBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runOmitBehavior({
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),

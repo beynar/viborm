@@ -50,6 +50,7 @@ import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
 import { runNonReturningMutationAtomicityBehavior } from "./non-returning-mutation-atomicity-behavior";
+import { runOmitBehavior } from "./omit-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -246,6 +247,11 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
   runNestedOrderByBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runOmitBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });

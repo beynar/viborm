@@ -3,6 +3,7 @@ import type { StringKeyOf } from "@schema/model/helper";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
+import { type OmitSchema, withOmitProjection } from "./omit";
 import {
   type PaginationSkipSchema,
   type PaginationTakeSchema,
@@ -46,6 +47,7 @@ export type FindUniqueArgs<
     where: CoreSchemas<M, F>["whereUniqueExtended"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
+    omit: OmitSchema<M>;
   },
   { atLeast: ["where"] }
 >;
@@ -54,17 +56,23 @@ export const getFindUniqueArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 >(
+  model: M,
   core: CoreSchemas<M, F>
 ): FindUniqueArgs<M, F> => {
-  return rejectSelectInclude(
-    v.object(
-      {
-        where: v.lazyRef(() => core.whereUniqueExtended),
-        select: v.lazyRef(() => core.select),
-        include: v.lazyRef(() => core.include),
-      },
-      { atLeast: ["where"] }
-    )
+  return withOmitProjection(
+    rejectSelectInclude(
+      v.object(
+        {
+          where: v.lazyRef(() => core.whereUniqueExtended),
+          select: v.lazyRef(() => core.select),
+          include: v.lazyRef(() => core.include),
+          omit: v.lazyRef(() => core.omit),
+        },
+        { atLeast: ["where"] }
+      )
+    ),
+    model,
+    "findUnique"
   );
 };
 
@@ -88,6 +96,7 @@ export type FindFirstArgs<
     cursor: CoreSchemas<M, F>["whereUnique"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
+    omit: OmitSchema<M>;
     distinct: DistinctSchema<M>;
   },
   { optional: true }
@@ -100,26 +109,31 @@ export const getFindFirstArgs = <
   model: M,
   core: CoreSchemas<M, F>
 ): FindFirstArgs<M, F> => {
-  return rejectSelectInclude(
-    v.object(
-      {
-        where: v.lazyRef(() => core.where),
-        orderBy: v.lazyRef(() =>
-          v.union([core.orderBy, v.array(core.orderBy)])
-        ),
-        take: paginationTake(),
-        skip: paginationSkip(),
-        cursor: v.lazyRef(() => core.whereUnique),
-        select: v.lazyRef(() => core.select),
-        include: v.lazyRef(() => core.include),
-        // Prisma has distinct on findFirst too; it compiles through the same
-        // findMany-with-limit path (ReadOperation), so nothing else changes.
-        distinct: getDistinctSchema(model),
-      },
-      {
-        optional: true,
-      }
-    )
+  return withOmitProjection(
+    rejectSelectInclude(
+      v.object(
+        {
+          where: v.lazyRef(() => core.where),
+          orderBy: v.lazyRef(() =>
+            v.union([core.orderBy, v.array(core.orderBy)])
+          ),
+          take: paginationTake(),
+          skip: paginationSkip(),
+          cursor: v.lazyRef(() => core.whereUnique),
+          select: v.lazyRef(() => core.select),
+          include: v.lazyRef(() => core.include),
+          omit: v.lazyRef(() => core.omit),
+          // Prisma has distinct on findFirst too; it compiles through the same
+          // findMany-with-limit path (ReadOperation), so nothing else changes.
+          distinct: getDistinctSchema(model),
+        },
+        {
+          optional: true,
+        }
+      )
+    ),
+    model,
+    "findFirst"
   );
 };
 
@@ -147,6 +161,7 @@ export type FindManyArgs<
     cursor: CoreSchemas<M, F>["whereUnique"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
+    omit: OmitSchema<M>;
     distinct: DistinctSchema<M>;
   },
   { optional: true }
@@ -155,21 +170,26 @@ export const getFindManyArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
   core: CoreSchemas<M, F>
 ): FindManyArgs<M, F> => {
-  return rejectSelectInclude(
-    v.object(
-      {
-        where: v.lazyRef(() => core.where),
-        orderBy: v.lazyRef(() =>
-          v.union([core.orderBy, v.array(core.orderBy)])
-        ),
-        take: paginationTake(),
-        skip: paginationSkip(),
-        cursor: v.lazyRef(() => core.whereUnique),
-        select: v.lazyRef(() => core.select),
-        include: v.lazyRef(() => core.include),
-        distinct: getDistinctSchema(model),
-      },
-      { optional: true }
-    )
+  return withOmitProjection(
+    rejectSelectInclude(
+      v.object(
+        {
+          where: v.lazyRef(() => core.where),
+          orderBy: v.lazyRef(() =>
+            v.union([core.orderBy, v.array(core.orderBy)])
+          ),
+          take: paginationTake(),
+          skip: paginationSkip(),
+          cursor: v.lazyRef(() => core.whereUnique),
+          select: v.lazyRef(() => core.select),
+          include: v.lazyRef(() => core.include),
+          omit: v.lazyRef(() => core.omit),
+          distinct: getDistinctSchema(model),
+        },
+        { optional: true }
+      )
+    ),
+    model,
+    "findMany"
   );
 };

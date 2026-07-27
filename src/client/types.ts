@@ -162,7 +162,30 @@ type BulkWriteResult<S extends ModelState, Args> = "select" extends keyof Args
     : undefined extends BulkSelect<Args>
       ? BatchPayload | BulkWriteRows<S, Exclude<BulkSelect<Args>, undefined>>
       : BulkWriteRows<S, BulkSelect<Args>>
-  : BatchPayload;
+  : "omit" extends keyof Args
+    ? [BulkOmit<Args>] extends [undefined]
+      ? BatchPayload
+      : undefined extends BulkOmit<Args>
+        ? BatchPayload | BulkOmitRows<S, Exclude<BulkOmit<Args>, undefined>>
+        : BulkOmitRows<S, BulkOmit<Args>>
+    : BatchPayload;
+
+/**
+ * `omit` is the OTHER spelling of the same discriminant. It is a projection —
+ * "return every scalar except these" — so it selects the row-returning arm on
+ * exactly the same `!== undefined` rule `select` uses (`returnsRows`,
+ * @query-engine-v2/routing). Accepting it on the `{ count }` arm would be
+ * accepting a projection and then throwing it away.
+ *
+ * `select` is checked FIRST because a payload carrying both is refused at the
+ * parse boundary; the ordering only decides which arm an impossible payload
+ * reports, and `select`'s is the more informative one.
+ */
+type BulkOmit<Args> = Args[Extract<"omit", keyof Args>];
+
+type BulkOmitRows<S extends ModelState, O> = Prettify<
+  InferSelectInclude<S, { omit: O }>
+>[];
 
 /**
  * The declared type of a bulk write's `select`, optional or not. Indexed access

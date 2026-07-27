@@ -170,6 +170,47 @@ export type InferModelOutput<S extends ModelState> =
           : never;
       };
 
+// =============================================================================
+// OMIT
+// =============================================================================
+
+/**
+ * `omit` at the TYPE level.
+ *
+ * Three cases, mirroring what the runtime can and cannot know:
+ *  - `true` — the key is gone;
+ *  - `false` (or absent) — the key stays;
+ *  - a widened `boolean` (a variable, a spread, `cond ? true : false`) — only
+ *    the runtime decides, so the key becomes OPTIONAL rather than being guessed
+ *    into one arm. Claiming it is present would be a lie exactly when the flag
+ *    is `true`, which is the case a caller writes this for.
+ *
+ * Model-level `.omit()` never appears here: those fields are absent from
+ * `InferModelOutput` already, and the `omit` schema has no key to name them
+ * with (see `src/validation/model/core/projection.ts`).
+ */
+type DefinitelyOmittedKeys<O> = {
+  [K in keyof O]: [O[K]] extends [true] ? K : never;
+}[keyof O];
+
+type MaybeOmittedKeys<O> = {
+  [K in keyof O]: [O[K]] extends [true]
+    ? never
+    : [O[K]] extends [false]
+      ? never
+      : boolean extends O[K]
+        ? K
+        : never;
+}[keyof O];
+
+export type ApplyOmit<T, O> = [O] extends [undefined]
+  ? T
+  : Omit<T, Extract<DefinitelyOmittedKeys<O> | MaybeOmittedKeys<O>, keyof T>> &
+      Partial<Pick<T, Extract<MaybeOmittedKeys<O>, keyof T>>>;
+
+/** The `omit` a node carries, or `undefined` when it carries none. */
+type NodeOmit<Node> = Node extends { omit: infer O } ? O : undefined;
+
 /**
  * Get relation type (oneToMany, manyToMany, oneToOne, manyToOne)
  */
@@ -190,13 +231,24 @@ export type GetRelationOptional<R extends AnyRelation> =
  * - To-many relations return arrays
  * - To-one relations return single objects (nullable if optional)
  */
-export type InferRelationResult<R extends AnyRelation> = [
-  GetRelationType<R>,
-] extends ["oneToMany" | "manyToMany"]
-  ? InferModelOutput<GetTargetModelState<R>>[]
+/**
+ * The relation's cardinality wrapper, applied to an already-built element type:
+ * to-many is an array, an optional to-one is nullable, a required to-one is the
+ * bare object. Factored out so the omit-aware node inference below wraps the
+ * SAME way the three original helpers do.
+ */
+type WrapRelation<R extends AnyRelation, T> = [GetRelationType<R>] extends [
+  "oneToMany" | "manyToMany",
+]
+  ? T[]
   : [GetRelationOptional<R>] extends [true]
-    ? InferModelOutput<GetTargetModelState<R>> | null
-    : InferModelOutput<GetTargetModelState<R>>;
+    ? T | null
+    : T;
+
+export type InferRelationResult<R extends AnyRelation> = WrapRelation<
+  R,
+  InferModelOutput<GetTargetModelState<R>>
+>;
 
 // =============================================================================
 // SELECT/INCLUDE RESULT INFERENCE
@@ -213,11 +265,13 @@ export type InferSelectInclude<S extends ModelState, Args> = Args extends {
   include: unknown;
 }
   ? never
-  : Args extends { select: infer Selection }
-    ? InferSelectResult<S, Selection>
-    : Args extends { include: infer Include }
-      ? InferIncludeResult<S, Include>
-      : InferModelOutput<S>;
+  : Args extends { select: unknown; omit: unknown }
+    ? never
+    : Args extends { select: infer Selection }
+      ? InferSelectResult<S, Selection>
+      : Args extends { include: infer Include }
+        ? ApplyOmit<InferIncludeResult<S, Include>, NodeOmit<Args>>
+        : ApplyOmit<InferModelOutput<S>, NodeOmit<Args>>;
 
 /**
  * Result when select is provided - ONLY selected fields are returned
@@ -240,14 +294,9 @@ type InferSelectedFields<S extends ModelState, Selection> = {
     : S["shape"][K] extends AnyRelation
       ? Selection[K] extends true
         ? InferRelationResult<S["shape"][K]>
-        : Selection[K] extends { select: infer NS }
-          ? InferNestedSelectResult<S["shape"][K], NS>
-          : Selection[K] extends { include: infer NI }
-            ? InferNestedIncludeResult<S["shape"][K], NI>
-            : Selection[K] extends object
-              ? // Other object shapes (where, take, skip) - return base relation result
-                InferRelationResult<S["shape"][K]>
-              : never
+        : Selection[K] extends object
+          ? InferRelationNodeResult<S["shape"][K], Selection[K]>
+          : never
       : never;
 };
 
@@ -267,10 +316,9 @@ type SelectedVectorDistanceKeys<S extends ModelState, Selection> = {
     : never;
 }[keyof Selection & VectorScalarFieldKeys<S>];
 
-type InferVectorDistanceSelection<
-  S extends ModelState,
-  Selection,
-> = [SelectedVectorDistanceKeys<S, Selection>] extends [never]
+type InferVectorDistanceSelection<S extends ModelState, Selection> = [
+  SelectedVectorDistanceKeys<S, Selection>,
+] extends [never]
   ? {}
   : { _distance: number };
 
@@ -314,14 +362,9 @@ export type InferIncludeResult<S extends ModelState, Include> = Prettify<
       : never]: S["relations"][K] extends AnyRelation
       ? Include[K] extends true
         ? InferRelationResult<S["relations"][K]>
-        : Include[K] extends { select: infer NS }
-          ? InferNestedSelectResult<S["relations"][K], NS>
-          : Include[K] extends { include: infer NI }
-            ? InferNestedIncludeResult<S["relations"][K], NI>
-            : Include[K] extends object
-              ? // Other object shapes (where, take, skip) - return base relation result
-                InferRelationResult<S["relations"][K]>
-              : never
+        : Include[K] extends object
+          ? InferRelationNodeResult<S["relations"][K], Include[K]>
+          : never
       : never;
   } & InferRelationCountSelection<S, Include>
 >;
@@ -329,24 +372,44 @@ export type InferIncludeResult<S extends ModelState, Include> = Prettify<
 /**
  * Nested select result for a relation
  */
-export type InferNestedSelectResult<R extends AnyRelation, NS> = [
-  GetRelationType<R>,
-] extends ["oneToMany" | "manyToMany"]
-  ? InferSelectResult<GetTargetModelState<R>, NS>[]
-  : [GetRelationOptional<R>] extends [true]
-    ? InferSelectResult<GetTargetModelState<R>, NS> | null
-    : InferSelectResult<GetTargetModelState<R>, NS>;
+export type InferNestedSelectResult<R extends AnyRelation, NS> = WrapRelation<
+  R,
+  InferSelectResult<GetTargetModelState<R>, NS>
+>;
 
 /**
  * Nested include result for a relation
  */
-export type InferNestedIncludeResult<R extends AnyRelation, NI> = [
-  GetRelationType<R>,
-] extends ["oneToMany" | "manyToMany"]
-  ? InferIncludeResult<GetTargetModelState<R>, NI>[]
-  : [GetRelationOptional<R>] extends [true]
-    ? InferIncludeResult<GetTargetModelState<R>, NI> | null
-    : InferIncludeResult<GetTargetModelState<R>, NI>;
+export type InferNestedIncludeResult<R extends AnyRelation, NI> = WrapRelation<
+  R,
+  InferIncludeResult<GetTargetModelState<R>, NI>
+>;
+
+/**
+ * A relation node in `select`/`include` position: `{ select }`, `{ include }`,
+ * `{ omit }`, pagination-only (`{ where, take, … }`), or any combination the
+ * parse boundary accepts. `select` wins outright (it states the projection
+ * positively, and `select` + `omit` is refused); otherwise the node's `omit`
+ * reduces the relation's own scalars, with `include` still adding relations on
+ * top. Pagination-only nodes fall through to the full relation payload, which
+ * is what they always did.
+ */
+type InferRelationNodeResult<R extends AnyRelation, Node> = Node extends {
+  select: infer NS;
+}
+  ? InferNestedSelectResult<R, NS>
+  : Node extends { include: infer NI }
+    ? WrapRelation<
+        R,
+        ApplyOmit<
+          InferIncludeResult<GetTargetModelState<R>, NI>,
+          NodeOmit<Node>
+        >
+      >
+    : WrapRelation<
+        R,
+        ApplyOmit<InferModelOutput<GetTargetModelState<R>>, NodeOmit<Node>>
+      >;
 
 // =============================================================================
 // AGGREGATE RESULT TYPES

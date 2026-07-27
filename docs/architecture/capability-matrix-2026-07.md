@@ -94,7 +94,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 6. ~~**Extended `whereUnique` is absent.**~~ — **CLOSED by W4-U1**: `findUnique`/`findUniqueOrThrow`/`update`/`delete`/`upsert` take Prisma ≥4.5's extended unique `where` (discriminator + non-unique scalar filters + `AND`/`OR`/`NOT`). Two divergences remain, both stated: relation filters inside a unique `where` are refused by name (the filter half compiles into UPDATE/DELETE, where MySQL rejects a subquery reading the mutated table), and nested relation-write target selectors / `cursor` keep the strict discriminator-only form.
 7. **`Decimal` is a JS `number`.** `s.decimal()`'s runtime base is `v.number()` ([scalar.ts:11](../../src/schema/scalars/decimal/scalar.ts:11)) while the DDL is real `numeric` / `DECIMAL` — lossy round-trip. No Decimal.js/string-backed type exists.
 8. **Nested `create`/`createMany` under `update` is conditionally refused.** Works only when the referenced parent column is single-field *and* pinned by the unique `where` or rewritten by the root SET ([UpdateOperation.ts:1327-1382](../../src/query-engine-v2/UpdateOperation.ts:1327)). Inverse-side to-one nested `create`/`createMany`/`updateMany`/`deleteMany` are absent outright (`:1671-1676`). Prisma has no such condition.
-9. **No `omit`, no query-level projection sugar.** Query-level `omit` is a declared non-goal; only model-level `.omit()` exists ([model.ts:155](../../src/schema/model/model.ts:155)). ~~`_count: true` shorthand fails strict validation~~ — **CLOSED by W1-B**: the shorthand desugars to `{ select: { <every to-many relation>: true } }` in validation (see §1.4).
+9. ~~**No `omit`, no query-level projection sugar.**~~ — **CLOSED by W5-U4**: query-level `omit` (every returning operation, plus nested relation nodes) and client-level `omit` both ship, desugaring in validation into the `select` they denote ([args/omit.ts](../../src/validation/model/args/omit.ts), [client/omit.ts](../../src/client/omit.ts)). Model-level `.omit()` ([model.ts:155](../../src/schema/model/model.ts:155)) became a HARD exclusion in the same unit — the field has neither a `select` nor an `omit` key — so the three layers rank schema > client > query. ~~`_count: true` shorthand fails strict validation~~ — **CLOSED by W1-B**: the shorthand desugars to `{ select: { <every to-many relation>: true } }` in validation (see §1.4).
 10. **Tooling is a fraction of Prisma's CLI.** Two commands: `viborm push` and `viborm migrate {generate,apply,down,status,drop}`. No Studio, no `db seed`, no `db pull` command, no drift detection, no shadow DB.
 
 ## 1.2 Model queries
@@ -168,7 +168,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `select` / `include`; empty-or-all-false select throws | ✅ | `core/select.ts:81,158` |
 | `select`+`include` exclusivity | 🟡 enforced at **runtime** everywhere; at the **type** level it resolves the result to `never` rather than erroring | `select-include-exclusivity.ts:23`; `result-types.ts:211-215` |
 | Arbitrary-depth nesting; select↔include alternation | ✅ | `relations/select-include.ts:114-196` |
-| `omit` (query-level + client config) | ❌ declared non-goal | model-level `.omit()` only |
+| `omit` (query-level + client config) | ✅ (W5-U4) — on every returning operation and on nested relation nodes; exclusive with `select`; an `omit` that empties the projection is refused; on a bulk write it selects the row-returning arm | `validation/model/args/omit.ts`; `client/omit.ts` |
 | `_count: { select: { rel: true } }`, filtered `_count` | ✅ in both select and include | `select.ts:128-133,181-189` |
 | `_count: true` shorthand | ✅ (W1-B unit 2) — desugars in validation to `{ select: { <every to-many relation>: true } }`, in both `select` and `include`; the engine still sees only the object form. A model with no to-many relations expands to `{ select: {} }` (Prisma emits no `_count` field at all there, so there is no runtime behavior to mirror) | `validation/model/core/select.ts` `getCountSchema`; `result-types.ts` `InferRelationCountSelection` |
 | `distinct` | ✅ findMany + `findFirst` + nested relation args, **array or bare-string** (W1-B unit 3 + W3-A unit 3); still not on `groupBy` | `find.ts` `getDistinctSchema`, `builders/distinct-builder.ts`, `relations/select-include.ts` |
@@ -251,7 +251,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `adapter` (driver adapters) | ✅ mandatory; 11 first-party drivers | `client.ts:122` |
 | `errorFormat` | ❌ (nearest: `diagnostics.{includeSql,includeParams}` — controls *disclosure*, not formatting) | `errors/diagnostics.ts:31-34` |
 | `transactionOptions` | ❌ rejected | §1.6 |
-| Global `omit` config | ❌ (model-level only) | — |
+| Global `omit` config | ✅ (W5-U4) — `createClient({ omit: { user: { passwordHash: true } } })`, applied as an args rewrite; a query overrides per field with `false` or wholesale with `select`; never flips a bulk write's return shape | `client/omit.ts` |
 | Preview features / flags | ❌ by design | — |
 | OpenTelemetry tracing | ✅➕ **GA, not preview**; no separate instrumentation package; optional peer dep with no-op fallback | `instrumentation/tracer.ts:393` |
 | Query caching | ➕ built-in, pluggable, no Accelerate service | `cache/schema.ts:61-116` |
@@ -277,7 +277,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `dbgenerated()`, `auto()` | — | ❌ |
 | `@updatedAt` | `.updatedAt()` | ✅ |
 | `@map` / `@@map` | `.map()` | ✅ |
-| `@ignore` / `@@ignore` | `.omit({field:true})` | 🟡 **different semantic** — client-level projection exclusion, not "invisible to client but present in DB". No DB-only-field marker |
+| `@ignore` / `@@ignore` | `.omit({field:true})` | 🟡 **different semantic** — a SCHEMA-level projection exclusion (since W5-U4: hard, unnameable in `select`/`omit`), not "invisible to client but present in DB": the column is still writable and filterable. No DB-only-field marker |
 | `@@index` | `.index(fields, {name, unique, type, where})` | ✅➕ adds `unique`, `btree\|hash\|gin\|gist`, PG partial-index `where` |
 | `@@fulltext` | — | ❌ at schema level, though the migration layer supports it |
 | `@relation(fields, references)` | `.fields()` / `.references()` | ✅ |
@@ -649,7 +649,7 @@ These are ordinary Prisma payloads:
 
 **C8. Dead-but-implemented adapter capability surface.** Fully implemented across all three dialect adapters, **never called by the engine**: pgvector similarity filters (`l2`, `cosine`); PostGIS operators (`intersects`/`contains`/`within`/`crosses`/`overlaps`/`touches`/`covers`/`dWithin`); `greatest`/`least`; array `length`/index get/index set. Validation types are deliberately truncated to `equals`/`not` to match. Plan doc: `docs/architecture/vector-similarity-plan.md`.
 
-**C9. Genuinely unimplemented features with written specs.** Polymorphic relations (8 phases, "Large"); recursive queries (`WITH RECURSIVE`, "Medium"); Redis cache driver; query-level `omit`.
+**C9. Genuinely unimplemented features with written specs.** Polymorphic relations (8 phases, "Large"); recursive queries (`WITH RECURSIVE`, "Medium"); Redis cache driver. *(Query-level `omit` was on this list; shipped in W5-U4.)*
 
 **C10. A registered schema-validation rule that is an empty stub.** `enumValueValid` (rule **V001**) — [database.ts:93-108](../../src/schema/validation/rules/database.ts:93). The loop body contains only a comment. Registered and **can never report anything**. *(This is why the DB001/DB002 portability warnings in §2.9-7 are unreachable: `enumValueValid` is the only rule in the default set.)*
 

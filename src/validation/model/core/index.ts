@@ -68,6 +68,12 @@ export {
 
 import type { AnyModel } from "@schema/model";
 import { lazyRecord } from "../../lazy";
+import {
+  getOmitSchema,
+  getUpsertProjectionSchema,
+  type OmitSchema,
+  type UpsertProjectionSchema,
+} from "../args/omit";
 import type { ScalarSchemas } from "../index";
 import {
   type CreateSchema,
@@ -149,6 +155,17 @@ export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   create: CreateSchema<M, F>;
   update: UpdateSchema<M, F>;
   select: SelectSchema<M, F>;
+  /**
+   * The negative projection (see `src/validation/model/args/omit.ts`). Keyed on
+   * the scalars a query may project, so a model-level `.omit()`-ed field cannot
+   * even be named here.
+   */
+  omit: OmitSchema<M>;
+  /**
+   * `{ select?, include?, omit? }` on its own, for `upsert` — the one operation
+   * with no whole-args parse to desugar `omit` inside of.
+   */
+  upsertProjection: UpsertProjectionSchema<M, F>;
   /** The scalar-only projection used by the bulk writes (see `ScalarSelectSchema`). */
   scalarSelect: ScalarSelectSchema<M>;
   include: IncludeSchema<F>;
@@ -162,7 +179,7 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
   // Each core schema is built on first access and memoized. Consumers only ever
   // read individual keys (e.g. `core.where`, `core.whereUnique`), so a query
   // pays only for the schemas its operation actually references.
-  return lazyRecord<CoreSchemas<M, F>>({
+  const core: CoreSchemas<M, F> = lazyRecord<CoreSchemas<M, F>>({
     scalarFilter: () => getScalarFilter<M, F>(fieldSchemas),
     uniqueFilter: () => getUniqueFilter(model, fieldSchemas),
     relationFilter: () => getRelationFilter<M, F>(fieldSchemas),
@@ -180,8 +197,13 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     create: () => getCreateSchema(model, fieldSchemas),
     update: () => getUpdateSchema<M, F>(fieldSchemas),
     select: () => getSelectSchema(model, fieldSchemas),
+    omit: () => getOmitSchema(model),
+    // Self-referential, and safe: `lazyRecord` builds each entry on first
+    // access, long after `core` is bound.
+    upsertProjection: () => getUpsertProjectionSchema(model, core),
     scalarSelect: () => getScalarSelectSchema(model),
     include: () => getIncludeSchema(model, fieldSchemas),
     orderBy: () => getOrderBySchema<M, F>(model, fieldSchemas),
   });
+  return core;
 };

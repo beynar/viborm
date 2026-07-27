@@ -715,6 +715,97 @@ makes it safe on a pooled connection), and
 stale. Only the isolation *behavior* distinguishes them, so the live test proves
 the level with a dirty read.
 
+### W5-U4 — DELIVERED
+
+**Surface.** `omit: { field: boolean }` on every operation that returns a model
+row — the five reads, `create`/`update`/`upsert`/`delete`, and the three bulk
+writes — plus every relation node inside `select`/`include`. Client-level:
+`createClient({ omit: { user: { passwordHash: true } } })`.
+
+**`omit` never reaches the query engine.** `withOmitProjection`
+([validation/model/args/omit.ts](../../src/validation/model/args/omit.ts))
+wraps each args schema: it refuses `select` + `omit` on the RAW payload, then —
+after the payload validates — rewrites a surviving `omit` into the explicit
+`select` it denotes and drops the key. Downstream there is exactly one
+projection vocabulary, the engine's default-projection branch is untouched, and
+`include` is untouched: the result carries a scalar-only `select` NEXT TO the
+original `include`, which is the shape the V2 write operations already hand the
+read builder (`defaultSelect` + `parsedInclude`). The relation `include` nodes
+have desugared the same way since before this unit (`buildSelectionFromState`),
+so nested `omit` is the same wrapper applied to the node schema.
+
+**Two operations needed the parse output they were throwing away.**
+`UpdateOperation` validated the whole args and then read the projection from the
+RAW `args.select` — an omit-only payload has nothing there. It now reads the
+parsed value (which also removes a double parse). `UpsertOperation` has NO
+whole-args parse by design (its arms must receive the raw payload, and the
+untaken arm must not be validated), so it gained a three-key
+`core.upsertProjection` schema — `{ select?, include?, omit? }` through the same
+wrapper — rather than a second implementation of the rule inside the engine. Its
+delegated arms are forwarded the DESUGARED select whenever the caller projected
+at all, so both arms of an omit-carrying upsert answer the same columns.
+
+**Bulk writes: `omit` is a projection, so it returns rows.** `returnsRows`
+([query-engine-v2/routing.ts](../../src/query-engine-v2/routing.ts)) now reads
+`select !== undefined || omit !== undefined`, and `BulkWriteResult` discriminates
+on the same pair with the same three-case honesty (`undefined` → `{count}`,
+definite → rows, maybe-`undefined` → the union). Accepting a projection on the
+`{ count }` arm would have been accept-and-ignore.
+
+**Fail-closed edge:** an `omit` that names every projectable scalar denotes
+`select: {}`, which the read builder refuses. Answering it with the DEFAULT
+projection would return precisely the columns the caller asked to hide, so it is
+refused at the parse boundary, naming the model. Prisma refuses the same payload.
+
+**THE PRECEDENCE DECISION (new doctrine, documented in
+[client/omit.mdx](../content/docs/client/omit.mdx)).** Three layers can hide a
+field, and they are deliberately NOT the same kind of thing:
+
+| Layer | Kind | Undoable by a query? |
+|---|---|---|
+| model-level `.omit()` | schema truth | **no** |
+| client-level `omit` | this client's default | yes — `{ field: false }`, or an explicit `select` |
+| query-level `omit` | this call | — |
+
+Model-level is now a HARD exclusion, which is a **behavior change**: the field is
+removed from the `select` schema, from the `omit` schema, and from the result
+type, so `select: { secret: true }` is an "Unknown key" failure where it
+previously re-included the column. That is the only reading under which
+`.omit()` is usable for secrets — the feature's stated purpose — and the whole
+estate stayed green through the change (no test relied on the old permissiveness).
+One definition backs all of it: `projectableScalarNames` /
+`ProjectableScalarKeys` in
+[validation/model/core/projection.ts](../../src/validation/model/core/projection.ts).
+
+**Client-level is an ARGS REWRITE, not an engine default**
+([client/omit.ts](../../src/client/omit.ts)). The validation schemas are shared,
+so a per-client default that changed what VALIDATES would make two clients over
+the same models disagree about which payloads are legal. Instead the client walks
+the `select`/`include` tree once per query (only when configured — otherwise the
+resolver is never built and the walk never runs) and injects its defaults into
+each node's `omit`, where the caller's own flags override per field. It never
+injects into a node that carries an explicit `select`, and never into a bulk
+write with no projection of its own: a global default must not flip a return
+shape. A config naming an unknown model or field throws at construction (the
+config site cannot be typed per-model — `VibORMConfig` is not generic in the
+schema — so the check is runtime and eager).
+
+**Types.** `ApplyOmit` drops a literal-`true` key, keeps a literal-`false` one,
+and makes a WIDENED `boolean` flag OPTIONAL rather than guessing — the same
+"only the runtime knows" honesty `BulkWriteResult` already used. Relation nodes
+route through one `InferRelationNodeResult`, so `{ select }`, `{ include }`,
+`{ omit }` and pagination-only nodes are decided in one place.
+
+**Pinned by:** [tests/model/omit-validation.test.ts](../../tests/model/omit-validation.test.ts)
+(desugaring, refusals, model-level hardness),
+[tests/client/omit-result-types.test.ts](../../tests/client/omit-result-types.test.ts)
+(the type claims, including the optional-key case),
+[tests/drivers/omit-behavior.ts](../../tests/drivers/omit-behavior.ts) wired into
+every driver leg (live, cross-dialect, all three layers and their interaction).
+The live suite asserts whole objects with `toEqual`, which is load-bearing: the
+result parser refuses a row carrying a known scalar the request did not ask for,
+so a projection that still FETCHED the column would throw rather than pass.
+
 ---
 
 ## W6 — Type fidelity (breaking-change wave, own release)

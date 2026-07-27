@@ -1,0 +1,218 @@
+---
+title: Omitting Fields
+description: Hide scalar fields from results with omit — per query, per client, or once in the schema
+icon: EyeOff
+---
+
+`omit` is the inverse of [`select`](/docs/client/selecting): it returns every
+readable scalar EXCEPT the ones you name.
+
+```ts
+const users = await client.user.findMany({
+  omit: { passwordHash: true },
+});
+// Type: { id: string; email: string; name: string }[]
+```
+
+Use it when a model has one or two fields you want gone and a dozen you want
+kept — the `select` spelling of the same query has to list all twelve, and grows
+a hole every time someone adds a column.
+
+## Where it works
+
+`omit` is accepted on every operation that returns a model row:
+
+`findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow`, `findMany`,
+`create`, `update`, `upsert`, `delete`, and the bulk writes `createMany`,
+`updateMany`, `deleteMany`.
+
+On a bulk write, `omit` is a projection, so — exactly like `select` — its
+presence is what makes the operation return the affected **rows** instead of
+`{ count }`:
+
+```ts
+const rows = await client.note.updateMany({
+  where: { archived: false },
+  data: { archived: true },
+  omit: { draftBody: true },
+});
+// Type: { id: string; title: string; archived: boolean }[]
+```
+
+## omit and select are mutually exclusive
+
+`select` states the projection positively, `omit` states it negatively. A
+payload carrying both states it twice, so it is refused at the parse boundary,
+before any query runs:
+
+```ts
+await client.user.findMany({
+  select: { id: true },
+  omit: { passwordHash: true },
+});
+// ValidationError: Mutually exclusive fields cannot be used together: select, omit
+```
+
+An `omit` that names *every* readable field is refused for the same reason an
+empty `select: {}` is — there is no such result:
+
+```ts
+await client.tag.findMany({ omit: { id: true, label: true } });
+// ValidationError: 'omit' on 'findMany' excluded every readable field of model 'tag'.
+```
+
+## omit composes with include
+
+`include` adds relations on top of the reduced scalar set, and each relation
+node takes its own `omit`:
+
+```ts
+const users = await client.user.findMany({
+  omit: { passwordHash: true },
+  include: {
+    posts: {
+      omit: { draftBody: true },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    },
+  },
+});
+```
+
+The two are independent: the outer `omit` names fields of `user`, the inner one
+names fields of `post`. A nested node follows the same rules as the top level —
+`select` and `omit` cannot coexist on it, and it cannot empty its own
+projection.
+
+## The three layers, and which one wins
+
+There are three places a field can be hidden. They are not variants of one
+mechanism, and the difference is the whole story:
+
+| Layer | Where | What it means | Can a query undo it? |
+|---|---|---|---|
+| **Model-level** | `s.model({…}).omit({ passwordHash: true })` | Schema truth: this column does not leave the database | **No** |
+| **Client-level** | `createClient({ omit: { user: { passwordHash: true } } })` | This client's default | **Yes** |
+| **Query-level** | `findMany({ omit: { passwordHash: true } })` | This call | — |
+
+### Model-level `.omit()` is a hard exclusion
+
+It exists for secrets, so it is not overridable by anything downstream. The
+field has no `select` key and no `omit` key at all — naming it is a parse
+failure, not a silently empty column:
+
+```ts
+const vault = s
+  .model({ id: s.string().id(), label: s.string(), secret: s.string() })
+  .omit({ secret: true });
+
+await client.vault.findMany({});
+// { id: string; label: string }[] — `secret` is not in the SQL either
+
+await client.vault.findMany({ select: { secret: true } });
+// ValidationError: Unknown key: secret
+
+await client.vault.findMany({ omit: { secret: false } });
+// ValidationError: Unknown key: secret
+```
+
+A query-level `omit` still works on whatever remains:
+
+```ts
+await client.vault.findMany({ omit: { label: true } });
+// { id: string }[]
+```
+
+### Client-level `omit` is a default
+
+```ts
+const client = createClient({
+  schema: { user, note },
+  driver,
+  omit: {
+    user: { passwordHash: true },
+    note: { draftBody: true },
+  },
+});
+```
+
+It applies to every result of those models, including relation payloads reached
+through `include`:
+
+```ts
+await client.user.findMany({ include: { notes: true } });
+// user rows without passwordHash, note rows without draftBody
+```
+
+A query overrides it, per field, with `false`:
+
+```ts
+await client.user.findMany({ omit: { passwordHash: false } });
+// passwordHash is back, for this call only
+```
+
+…and adds to it with `true`:
+
+```ts
+await client.user.findMany({ omit: { email: true } });
+// email AND passwordHash are gone (the client default still applies)
+```
+
+An explicit `select` overrides it wholesale — naming a field is asking for it:
+
+```ts
+await client.user.findMany({ select: { id: true, passwordHash: true } });
+// { id: string; passwordHash: string }[]
+```
+
+<Callout type="info">
+  A client-level `omit` never changes a **return shape**. A bulk write with no
+  projection of its own still answers `{ count }` — only a projection the caller
+  wrote turns it into rows.
+</Callout>
+
+A client `omit` naming a model or a field that does not exist is rejected when
+the client is constructed, not silently ignored.
+
+## Types follow the runtime
+
+The result type drops the same keys the runtime does, so an omitted field is a
+compile error rather than an `undefined` at 3am:
+
+```ts
+const user = await client.user.findUnique({
+  where: { id },
+  omit: { passwordHash: true },
+});
+user.passwordHash;
+// Property 'passwordHash' does not exist
+```
+
+One case cannot be decided statically: a flag whose type is a widened `boolean`
+rather than a literal.
+
+```ts
+const hide: boolean = shouldHide();
+const rows = await client.user.findMany({ omit: { passwordHash: hide } });
+// passwordHash?: string — present or not, only the runtime knows
+```
+
+The key becomes **optional** instead of being guessed into one arm. The same
+honesty applies to a bulk write whose `omit` may be `undefined`: the result type
+is the union of `{ count }` and the row array, and the caller narrows.
+
+## Prisma compatibility
+
+Query-level and client-level `omit` match Prisma's semantics, including the
+`select`/`omit` exclusivity, the local-overrides-global rule, and the refusal of
+an `omit` that empties the result.
+
+Two deliberate differences:
+
+- **Model-level `.omit()` has no Prisma counterpart.** Prisma has only the
+  client-level default, which a `select` can always undo. viborm's schema-level
+  exclusion cannot be undone, which is what makes it usable for secrets.
+- **`omit` on a bulk write returns rows.** Prisma has no returning `deleteMany`
+  at all, and reaches the returning form of the others through the separate
+  `createManyAndReturn` / `updateManyAndReturn` methods, which viborm does not
+  have (see [compatibility](/docs/client/compatibility)).

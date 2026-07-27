@@ -31,6 +31,7 @@ import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runOmitBehavior } from "./omit-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -86,6 +87,11 @@ describe("LibSQL Driver", () => {
   });
 
   runNestedPaginationBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+
+  runOmitBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

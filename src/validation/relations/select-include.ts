@@ -1,8 +1,9 @@
 // Relation Select & Include Schemas
 
-import type { ModelState } from "@schema/model";
+import type { AnyModel, ModelState } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import type { RelationState } from "@schema/relation/types";
+import { withOmitProjection } from "../model/args/omit";
 import {
   type PaginationSkipSchema,
   type PaginationTakeSchema,
@@ -10,6 +11,7 @@ import {
   paginationTake,
 } from "../model/args/pagination";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
+import { projectableScalarNames } from "../model/core/projection";
 import v, { type V } from "../primitives/v";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 
@@ -21,19 +23,44 @@ const getTargetState = <S extends RelationState>(
   relationState: S
 ): ModelState => relationState.getter()["~"].state as ModelState;
 
+const getTargetModel = <S extends RelationState>(relationState: S): AnyModel =>
+  relationState.getter() as AnyModel;
+
 const buildSelectionFromState = <S extends RelationState>(
   relationState: S
 ): Record<string, true> => {
-  const state = getTargetState(relationState);
   const select: Record<string, true> = {};
-  const omits = new Set<string>(Object.keys(state.omit || {}));
-  for (const field of Object.keys(state.scalars)) {
-    if (!omits.has(field)) {
-      select[field] = true;
-    }
+  for (const field of projectableScalarNames(getTargetModel(relationState))) {
+    select[field] = true;
   }
   return select;
 };
+
+/**
+ * The label a nested node's `omit` failure carries. Relations name themselves
+ * when the schema disambiguated them (`.name()`); otherwise the message still
+ * names the target model, which is the part a caller needs.
+ */
+const nestedOmitLabel = <S extends RelationState>(relationState: S): string =>
+  relationState.name ? `include.${relationState.name}` : "a nested include";
+
+/**
+ * A relation node accepts `omit` exactly like a top-level operation does:
+ * exclusive with `select`, composable with `include`, and desugared into the
+ * explicit `select` it denotes before anything downstream sees it. Wrapping the
+ * node schema with the SAME helper the top level uses is what keeps the two
+ * surfaces from drifting — and it runs BEFORE `includeToField`, which then finds
+ * a `select` already in place and leaves it alone.
+ */
+const withNestedOmit = <S extends RelationState, Schema extends V.Object<any>>(
+  relationState: S,
+  schema: Schema
+): Schema =>
+  withOmitProjection(
+    schema as never,
+    getTargetModel(relationState),
+    nestedOmitLabel(relationState)
+  ) as never;
 
 /**
  * Nested `distinct`: scalar field names of the RELATED model, deduplicating
@@ -113,6 +140,7 @@ export type ToOneIncludeSchema<S extends RelationState> = V.Union<
       V.Object<{
         select: () => GetTargetSchemas<S>["core"]["select"];
         include: () => GetTargetSchemas<S>["core"]["include"];
+        omit: () => GetTargetSchemas<S>["core"]["omit"];
       }>
     >,
   ]
@@ -127,11 +155,15 @@ export const toOneIncludeFactory = <
   return v.union([
     booleanToSelect(state),
     v.coerce(
-      rejectSelectInclude(
-        v.object({
-          select: () => targetSchemas().core.select,
-          include: () => targetSchemas().core.include,
-        })
+      withNestedOmit(
+        state,
+        rejectSelectInclude(
+          v.object({
+            select: () => targetSchemas().core.select,
+            include: () => targetSchemas().core.include,
+            omit: () => targetSchemas().core.omit,
+          })
+        )
       ),
       includeToField(state)
     ),
@@ -168,6 +200,7 @@ export type ToManyIncludeSchema<S extends RelationState> = V.Union<
         distinct: NestedDistinctSchema<S>;
         select: () => GetTargetSchemas<S>["core"]["select"];
         include: () => GetTargetSchemas<S>["core"]["include"];
+        omit: () => GetTargetSchemas<S>["core"]["omit"];
       }>
     >,
   ]
@@ -182,20 +215,24 @@ export const toManyIncludeFactory = <
   return v.union([
     booleanToSelect(state),
     v.coerce(
-      rejectSelectInclude(
-        v.object({
-          where: () => targetSchemas().core.where,
-          orderBy: () => {
-            const orderBySchema = targetSchemas().core.orderBy;
-            return v.union([orderBySchema, v.array(orderBySchema)]);
-          },
-          take: paginationTake(),
-          skip: paginationSkip(),
-          cursor: () => targetSchemas().core.whereUnique,
-          distinct: nestedDistinct(state),
-          select: () => targetSchemas().core.select,
-          include: () => targetSchemas().core.include,
-        })
+      withNestedOmit(
+        state,
+        rejectSelectInclude(
+          v.object({
+            where: () => targetSchemas().core.where,
+            orderBy: () => {
+              const orderBySchema = targetSchemas().core.orderBy;
+              return v.union([orderBySchema, v.array(orderBySchema)]);
+            },
+            take: paginationTake(),
+            skip: paginationSkip(),
+            cursor: () => targetSchemas().core.whereUnique,
+            distinct: nestedDistinct(state),
+            select: () => targetSchemas().core.select,
+            include: () => targetSchemas().core.include,
+            omit: () => targetSchemas().core.omit,
+          })
+        )
       ),
       includeToField(state)
     ),

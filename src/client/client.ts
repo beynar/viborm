@@ -53,6 +53,12 @@ import { createSchemaFieldRefs, type SchemaFieldRefs } from "@schema/field-ref";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
 import {
+  applyClientOmit,
+  type ClientOmitConfig,
+  type ClientOmitResolver,
+  createClientOmitResolver,
+} from "./omit";
+import {
   createLegacyRawWarner,
   createRawSurface,
   isRawOperationPromise,
@@ -164,6 +170,16 @@ export interface VibORMConfig {
   waitUntil?: WaitUntilFn;
   /** Cache version for invalidating cache on schema changes */
   cacheVersion?: number | string;
+  /**
+   * Fields this client hides by default, per model:
+   * `omit: { user: { passwordHash: true } }`.
+   *
+   * A DEFAULT, not a rule. A query overrides it per field
+   * (`omit: { passwordHash: false }`) or wholesale by naming the field in an
+   * explicit `select`. Model-level `.omit()` is the rule — see
+   * `docs/content/docs/client/omit.mdx` for the full precedence.
+   */
+  omit?: ClientOmitConfig<Schema>;
 }
 
 export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
@@ -285,6 +301,8 @@ export class VibORM<C extends VibORMConfig> {
    * transaction.
    */
   private readonly legacyRawWarner: LegacyRawWarner;
+  /** `undefined` unless `config.omit` named at least one field to hide. */
+  private readonly clientOmit: ClientOmitResolver | undefined;
 
   /**
    * Unique identifier for this client instance.
@@ -317,6 +335,7 @@ export class VibORM<C extends VibORMConfig> {
         : undefined;
     this.waitUntil = config.waitUntil;
     this.cacheVersion = config.cacheVersion;
+    this.clientOmit = createClientOmitResolver(this.schema, config.omit);
 
     // Create registry and engine once, reuse for all operations
     const schemaRegistry = createSchemaRegistry(this.schema);
@@ -356,13 +375,19 @@ export class VibORM<C extends VibORMConfig> {
         cleanArgs = rest;
       }
 
+      // Client-level `omit` is a payload rewrite, applied once here so the rest
+      // of the stack only ever sees a query-level `omit` (see ./omit.ts).
+      const omitArgs = this.clientOmit
+        ? applyClientOmit(model, operation, cleanArgs, this.clientOmit)
+        : cleanArgs;
+
       // Engine handles OrThrow suffix internally. Routing to the V2 operation is
       // decided lazily — before any I/O — for the whole payload.
       const pendingOp = PendingOperation.create(
         engine,
         model,
         operation,
-        cleanArgs
+        omitArgs
       );
 
       // Wrap with cache invalidation for mutations (client-level concern)
@@ -428,11 +453,15 @@ export class VibORM<C extends VibORMConfig> {
 
       // Preparing remains lazy: it captures one immutable execution context
       // now, while validation, SQL building, and execution still wait for a miss.
+      const cacheableArgs = (args ?? {}) as Record<string, unknown>;
+      const omitArgs = this.clientOmit
+        ? applyClientOmit(model, operation, cacheableArgs, this.clientOmit)
+        : cacheableArgs;
       const pendingOperation = PendingOperation.create(
         this.engine,
         model,
         operation,
-        (args ?? {}) as Record<string, unknown>,
+        omitArgs,
         {
           skipSpan: true, // Cache driver provides its own SPAN_OPERATION
         }
@@ -441,7 +470,11 @@ export class VibORM<C extends VibORMConfig> {
         this.cache!,
         modelNameStr,
         operation,
-        args,
+        // The cache key is derived from the payload that will actually RUN, not
+        // the one the caller wrote: with a client-level `omit`, identical call
+        // sites on two differently-configured clients project different columns,
+        // and keying on the caller's args would let one serve the other's rows.
+        omitArgs,
         () => pendingOperation.execute(),
         {
           ...options,

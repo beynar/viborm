@@ -28,6 +28,7 @@ import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteJsonEnvelopeBehavior } from "./nested-write-json-envelope-behavior";
+import { runOmitBehavior } from "./omit-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -88,6 +89,11 @@ describe("PGlite Driver", () => {
   });
 
   runNestedPaginationBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+
+  runOmitBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

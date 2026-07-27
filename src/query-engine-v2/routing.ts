@@ -194,7 +194,11 @@ function constructOperation(
 /**
  * The implicit-returning discriminant, kept in ONE place so the runtime cannot
  * drift from `BulkWriteResult` in @client/types: a bulk write returns rows iff
- * the payload's `select` has a VALUE. `select: undefined` is an absent select
+ * the payload's `select` OR its `omit` has a VALUE. `omit` counts because it IS
+ * a projection — it desugars to the `select` of everything it did not name
+ * (@validation/model/args/omit) — and a projection on a write that answered
+ * `{ count }` would be accepted and then ignored. `select: undefined` is an
+ * absent select
  * (the spread-an-optional idiom), so it takes the `{ count }` arm — and it
  * reaches here at all only because the parse boundary treats an explicitly-
  * undefined key as absent on every path (see the dense-path rule in
@@ -206,5 +210,5 @@ function constructOperation(
  * two cannot be byte-identical, made explicit instead of silently wrong.
  */
 function returnsRows(args: Record<string, unknown>): boolean {
-  return args.select !== undefined;
+  return args.select !== undefined || args.omit !== undefined;
 }
