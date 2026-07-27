@@ -98,9 +98,13 @@ export interface SubOperationOptions {
    * projection of mechanism 1/2 (a parent-held to-one write needing child-SET
    * folding, or a non-PK / compound referenced edge — D4) is not folded in place by
    * the child-Part builder; the whole target UPDATE delegates to this operation, the
-   * update-root analogue of `nestedFresh`. It carries the ALREADY-VALIDATED update
-   * `data` (the enclosing op's whole-args parse validated the tree; no re-parse), it
-   * emits NO terminal read (the enclosing op owns the result), it shares the
+   * update-root analogue of `nestedFresh`. It carries the ALREADY-PARSED update
+   * `data` — the enclosing operation's relation-schema parse produced it, and that
+   * schema IS this target's `core.update`, so every scalar SET and relation payload
+   * below is already in post-transform form and NOTHING here parses again (a
+   * transform is not idempotent: a JSON write's `{ set: … }` envelope is itself a
+   * legal JSON document, so a second pass persists the ORM's envelope as the user's
+   * data). It emits NO terminal read (the enclosing op owns the result), it shares the
    * enclosing `StepScope`, and it LOCATES + CORRELATES the target to its enclosing
    * parent ({@link NestedTargetLocate}). Every mechanism the update ROOT already
    * carries — a parent-held to-one before-root write folded into the SET, a

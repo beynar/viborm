@@ -1543,6 +1543,36 @@ capability-gated on `supportsAddForeignKeyViaAlter`): forward-reference FKs are 
 SQLite/LibSQL keep FKs inline (lazy resolution). The X1c oracles' referenced-model-first ordering
 was a convenience, not a requirement.
 
+### X1c fix round — the delegated target parsed its data TWICE (silent wrong JSON data)
+
+The `nestedTarget` mode skipped the whole-args parse, the `where` parse and the `select` parse, but
+NOT the two per-field parses inside the constructor: it still ran `relationSchemas.update` over each
+nested relation payload and `core.scalarUpdate` over the scalar SET. The subtree it receives is the
+enclosing operation's parse OUTPUT, so those payloads were transformed a second time.
+
+For an idempotent transform that was only waste. **The JSON write is not idempotent, and it is the
+one write whose validated form is a legal INPUT of the same schema**: `payload: { z: 1 }` validates
+to `{ payload: { set: { z: 1 } } }`, and `{ set: { z: 1 } }` is an ordinary JSON document, so the
+second pass wrapped it again and `{"set":{"z":1}}` — the ORM's own envelope — was persisted as the
+user's data. Silently, on both substrates. Reachable from any delegated shape: the delegation seam
+itself, a depth-2 / depth-3 to-one chain, a delegated to-many target, and the `data`-column escape
+`nested-writes.mdx` documents (which landed the wrong VALUE by the same route). The same second pass
+also killed the W4-U4 JSON null sentinels with a misattributed `Expected JSON-compatible value`:
+`{ set: JsonNull }` is neither a sentinel (the brand is on the inner value) nor a JSON-compatible
+document.
+
+Fixed structurally, not with a JSON special case: the nested-target entry consumes the parsed tree
+directly (`separateData`'s parser now exposes the relation payload it already narrowed, so nothing
+narrows `unknown` twice and the X2 shape-check ceiling is unchanged). The standalone and upsert-arm
+paths are byte-identical — they hold RAW data, so their per-field parse remains their one and only
+transform, the same parse-once rule c5ee344 set when it reverted a re-parse on upsert args. Cleared
+by inspection: `nestedFresh` (create) already consumed its data as-is, upsert's arms are handed the
+RAW payload, and the Part builders hold no schema. Witnesses in
+`tests/drivers/nested-write-json-envelope-behavior.ts` (PGlite tx + PGlite atomic batch + SQLite3)
+pin the persisted VALUE at each shape, with a string and an `increment` riding the same payloads as
+controls; restoring the re-parse fails 27 of 30 and leaves exactly the 3 non-delegated controls
+green. The `nested-writes.mdx` escape guidance needed no rewording — the engine now honors it.
+
 ---
 
 ## W3-B — implicit returning; the `*AndReturn` operations REMOVED *(delivered)*

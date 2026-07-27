@@ -46,7 +46,7 @@ type ToOneUpdateWrapperSchema<S extends RelationState> = V.Object<
  * This is the ONE place the rule is applied, because it is the only place that sees
  * the USER's payload: both arms emit the same canonical `{ data, where? }` envelope,
  * so no later reader (the update root, a target one level deeper, the nested-target
- * re-parse) ever has to tell the spellings apart from an output that already
+ * delegation) ever has to tell the spellings apart from an output that already
  * rewrote scalar shorthands. See {@link file://./to-one-update-form.ts} for the rule,
  * and for the collision it REFUSES: on a target that owns a field named `data`, the
  * envelope's shape is also how bare data spells that field, and only the caller can

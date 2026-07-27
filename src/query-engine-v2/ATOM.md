@@ -1672,6 +1672,22 @@ an `ALTER … ADD CONSTRAINT` right after `CREATE TABLE` on Postgres) before the
 `addForeignKey` operations for Postgres/MySQL (SQLite/LibSQL keep inline FKs); the X1c oracles'
 referenced-model-first ordering was a convenience, not a requirement.
 
+**X1c fix round — PARSE ONCE means once, including the delegated target.** `nestedTarget` skipped the
+whole-args / `where` / `select` parses but still ran `relationSchemas.update` per nested relation and
+`core.scalarUpdate` over the scalar SET — over data that was ALREADY the enclosing parse's output.
+For an idempotent transform that was waste; for the JSON write it was **silent wrong data**, because
+JSON is the one write whose validated form is a legal INPUT of the same schema: `{ z: 1 }` becomes
+`{ set: { z: 1 } }`, `{ set: { z: 1 } }` is an ordinary JSON document, and the second pass wrapped it
+again — the ORM's envelope persisted as the user's data, on both substrates, at the delegation seam,
+at depth 2/3, on a delegated to-many target, and through the `data`-column escape `nested-writes.mdx`
+documents. The W4-U4 sentinels died on the same pass (`{ set: JsonNull }` is neither a sentinel nor a
+JSON document). The nested-target entry now consumes the parsed tree directly — the structural fix,
+not a JSON patch, since ANY non-idempotent transform must survive delegation; `separateData` exposes
+the relation payload it already narrowed so the X2 shape-check ceiling is unchanged. The standalone
+and upsert-arm paths keep their per-field parse: they hold RAW data, so it is their ONE transform.
+The rule, stated once: **a payload is parsed by exactly one parse, and delegation hands over the
+OUTPUT, never the schema.**
+
 **M2M generated-PK junction create — the P6 regression closed (no vocabulary change;
 freeze held).** P4.5's recorded bound — "an auto-generated M2M child identity is
 create-through-junction with a *produced* value and stays V1's" — became a TERMINAL

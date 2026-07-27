@@ -95,9 +95,11 @@ export function readToOneUpdateForm(
  * for BOTH spellings. The bare spelling yields `{ data }`; the wrapper additionally
  * carries its non-unique `where`.
  *
- * The envelope is IDEMPOTENT under re-parse (it always reads as the envelope the
- * second time round), which is what lets the X1c nested-target delegation re-parse
- * an already-parsed subtree without changing its meaning.
+ * The envelope is SELF-DESCRIBING: it reads back as the envelope rather than as bare
+ * data, so no reader can resolve the form differently than this schema did. Nothing
+ * re-reads it through the schema today — the X1c nested-target delegation consumes
+ * the parsed subtree as-is, because re-parsing a transformed value is not a no-op
+ * (a JSON write's `{ set: … }` envelope is itself a legal JSON document).
  */
 export interface ToOneUpdateEnvelope {
   readonly data: Record<string, unknown>;
@@ -108,10 +110,11 @@ export interface ToOneUpdateEnvelope {
  * Wrap a parsed BARE payload in the canonical envelope. The wrapper spelling is
  * already in envelope shape and is emitted as parsed.
  *
- * On a target that owns a `data` field the plain `{ data }` envelope would re-read
- * as AMBIGUOUS — the re-parse cannot see that this object is a schema OUTPUT rather
- * than a caller's payload. So for those targets the canonical envelope carries the
- * same `where` marker a caller would have to write: an empty, constraint-free one.
+ * On a target that owns a `data` field the plain `{ data }` envelope would read back
+ * as AMBIGUOUS — a reader cannot see that this object is a schema OUTPUT rather than
+ * a caller's payload. So for those targets the canonical envelope carries the same
+ * `where` marker a caller would have to write: an empty, constraint-free one. That
+ * keeps the output honest about its own form no matter who reads it.
  * {@link splitToOneUpdateTarget} drops an empty `where`, so not one compiled step
  * changes.
  */
@@ -138,10 +141,10 @@ export interface ToOneUpdateTarget {
  * This is a projection of the canonical envelope, NOT a second application of the
  * disambiguation rule — the form was decided once, at the parse boundary, from the
  * user's own payload. Every caller reaches this with a value the to-one relation
- * update schema produced (the update root parses `data.<relation>` per relation;
- * every deeper reader consumes that same output, and the nested-target delegation
- * re-parses it into an identical envelope), so a non-envelope here is a broken
- * invariant rather than a user error — it fails closed.
+ * update schema produced (the update root parses `data.<relation>` per relation, and
+ * every deeper reader — including the nested-target delegation — consumes that same
+ * output without parsing it again), so a non-envelope here is a broken invariant
+ * rather than a user error — it fails closed.
  */
 export function splitToOneUpdateTarget(parsed: unknown): ToOneUpdateTarget {
   if (!hasEnvelopeShape(parsed)) {

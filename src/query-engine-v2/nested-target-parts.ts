@@ -152,8 +152,9 @@ export function targetNeedsFullUpdate(
  * X1c — the located UPDATE target reuse: the target's WHOLE update (its SET ∪ every
  * relation it carries) delegates to an {@link UpdateOperation} in its `nestedTarget`
  * mode, the update-root analogue of X1b's `nestedFresh` create-root reuse. The op
- * shares the enclosing {@link StepScope} (no step-id collision), skips the whole-args
- * re-parse (the enclosing op validated the tree), emits no terminal read (the enclosing
+ * shares the enclosing {@link StepScope} (no step-id collision), parses NOTHING (the
+ * `data` handed over is the enclosing parse's output — already validated, already
+ * transformed), emits no terminal read (the enclosing
  * op owns the result), and LOCATES + CORRELATES the target to its enclosing parent
  * ({@link NestedTargetLocate}). Every mechanism the update root already carries falls
  * out unchanged at any depth: a parent-held to-one before-root write folded into the
