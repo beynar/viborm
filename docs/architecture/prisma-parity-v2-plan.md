@@ -861,7 +861,7 @@ so a projection that still FETCHED the column would throw rather than pass.
 
 | Unit | Size | What |
 |---|---|---|
-| W6-U1 | L | **Decimal (per D-3).** String-backed decode for `numeric`/`DECIMAL(65,30)`; accept `string \| number` on write; filters compare via SQL (no JS float math); SQLite column type moves `REAL` → `TEXT`-with-numeric-affinity decision (pin with migration note). Migration path: one release with `decimal: "number"` legacy opt-in. |
+| W6-U1 ✅ | L | **DELIVERED.** See "W6-U1 — DELIVERED" below. **Decimal (per D-3).** String-backed decode for `numeric`/`DECIMAL(65,30)`; accept `string \| number` on write; filters compare via SQL (no JS float math); SQLite column type moves `REAL` → `TEXT`-with-numeric-affinity decision (pin with migration note). Migration path: one release with `decimal: "number"` legacy opt-in. |
 | W6-U2 ✅ | S | **DELIVERED.** See "W6-U2 — delivered" below. **BigInt hole on `bun-sqlite`** — add the missing safe-integers opt-in (matrix defect §2.9-6; belongs here since it's the same "types are exact" theme). |
 
 ### W6-U2 — delivered (bun-sqlite integer safety, and the driver underneath it)
@@ -1073,6 +1073,38 @@ operation shape; that is when it started telling the truth.)*
 only**. The static types stay `string`, so the hatch is deliberately type-incoherent —
 it exists to unblock a deploy, not to be a supported mode, and it is removed in the
 release after this one.
+
+### W6 — integration record (both lanes merged)
+
+W6-U1 and W6-U2 were built in parallel worktrees, both from the W5 head
+(`b9f7814`), and cherry-picked onto `prisma-parity-v2` in that order —
+U1's five commits, then U2's one.
+
+**Code overlap: none.** U1 touches the decimal path (validation primitive,
+adapters, builders, result parsers, migrations type mapping); U2 touches
+`src/drivers/bun-sqlite/index.ts` and the sqlite driver tests. The only files
+both lanes edited are this plan and the capability matrix.
+
+**Conflicts, and how they were resolved — both intents kept, neither weakened:**
+
+| Where | U1's claim | U2's claim | Merged |
+|---|---|---|---|
+| matrix §0.4 *Prisma parity* | drops "`Decimal` is a JS `number`" from the gap list; credits W6-U1 | (unchanged text, still listing it) | U1's — the gap is closed |
+| matrix §0.4 *Interoperability* | "**Five** drivers have never executed a query" | "**Four** … (W6-U2 moved `bun-sqlite` out)" | U2's — the count changed under it |
+| matrix §2.4 *Decimal* row | `TEXT` on SQLite, exact everywhere, named SQLite refusals | still `REAL`/lossy | U1's |
+| matrix §2.4 *BigInt* row | notes `bun-sqlite` has no opt-in "at all" | `bun-sqlite` now opts in, proven on real Bun | U2's — U1's line was true only before U2 landed |
+
+**Two integration fixes** carried in the merge commit rather than rewriting
+either lane's history: the W6 table row for U1 was not marked delivered (U2's
+was), and the raw-SQL comment U2 flagged as inaccurate but out of its lane
+(`tests/drivers/client-raw-behavior.ts`) is corrected here — tagged
+`$queryRaw` routes through `driver._execute`, which is exactly the path that
+opts into `safeIntegers(true)`, so INTEGER columns arrive as `BigInt` on the
+whole sqlite3 family, not only on LibSQL. Only `$queryRawUnsafe` and the legacy
+string form take `_executeRaw` and stay driver-native.
+
+**Post-merge verification:** `tsc` clean; full estate green; `test:gates`
+43/43. Docker legs belong to the gate agent and were not run here.
 
 ---
 

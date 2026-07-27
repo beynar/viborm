@@ -81,10 +81,15 @@ export function runClientRawBehavior({
           qty: number | bigint;
         }>`SELECT id, label, qty FROM client_raw_items WHERE qty >= ${5} ORDER BY id`;
 
-        // Raw rows are driver-native: most drivers hand INTEGER columns back
-        // as JS numbers, but LibSQL reads with intMode "bigint" so they
-        // arrive as BigInt (the ORM's typed read path normalizes int fields;
-        // $queryRaw deliberately does not). Normalize before comparing.
+        // Raw rows are driver-native, and "native" is not one type. The TAGGED
+        // form routes through driver._execute — the same path that opts sqlite3
+        // and bun-sqlite into safeIntegers(true) — so INTEGER columns arrive as
+        // BigInt on the whole sqlite3 family, and LibSQL does the same via
+        // intMode "bigint". Postgres and MySQL hand back JS numbers. Either way
+        // nothing here normalizes: the ORM's typed read path converts int
+        // fields, $queryRaw deliberately does not. Normalize before comparing.
+        // (Only $queryRawUnsafe and the legacy string form take _executeRaw,
+        // which deliberately stays off the safe-integer opt-in.)
         expect(rows.map((r) => ({ ...r, qty: Number(r.qty) }))).toEqual([
           { id: "i2", label: "Beta", qty: 5 },
           { id: "i3", label: "Gamma", qty: 9 },
