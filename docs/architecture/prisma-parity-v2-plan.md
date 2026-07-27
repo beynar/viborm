@@ -864,6 +864,116 @@ so a projection that still FETCHED the column would throw rather than pass.
 | W6-U1 | L | **Decimal (per D-3).** String-backed decode for `numeric`/`DECIMAL(65,30)`; accept `string \| number` on write; filters compare via SQL (no JS float math); SQLite column type moves `REAL` → `TEXT`-with-numeric-affinity decision (pin with migration note). Migration path: one release with `decimal: "number"` legacy opt-in. |
 | W6-U2 | S | **BigInt hole on `bun-sqlite`** — add the missing safe-integers opt-in (matrix defect §2.9-6; belongs here since it's the same "types are exact" theme). |
 
+### W6-U1 — Decimal: the research, and the contract it pins
+
+#### What Prisma actually does
+
+| | Postgres | MySQL | SQLite |
+|---|---|---|---|
+| Column | `numeric` (unconstrained: exact, arbitrary precision) | `DECIMAL(65,30)` (exact, fixed 65-digit/30-scale) | `DECIMAL` — **a type SQLite does not have.** It parses to NUMERIC affinity, so every value is stored as `INTEGER` or, the moment a fraction appears, `REAL` (IEEE-754 double) |
+| Exact in the DB? | ✅ | ✅ | ❌ **no** |
+| Client value | `Prisma.Decimal` — a `decimal.js` instance | same | same |
+
+Prisma's client type is the important part: it is **not** a JS `number`. `Prisma.Decimal`
+is `decimal.js`, whose `toJSON`/`toString` produce a **string**, which is how a Prisma
+`Decimal` survives `JSON.stringify` and an HTTP boundary intact. Writes accept a
+`Decimal`, a string, or a number, and `new Prisma.Decimal(0.1 + 0.2)` famously carries
+the float error in — the number overload is a convenience that cannot undo damage its
+caller already did.
+
+**How Prisma avoids float corruption on SQLite: it does not.** There is no trick to
+find. `DECIMAL` on SQLite has NUMERIC affinity, values land in a double, and reads come
+back rounded — [prisma#20635](https://github.com/prisma/prisma/issues/20635) ("Decimal
+values are stored correctly but read values do not match", SQLite) is confirmed and open,
+and Prisma contributors have stated on the tracker that there is no reliable way to store
+a Decimal in SQLite. Prisma ships the lossy column and returns a `Decimal` object wrapped
+around an already-rounded double. **We are not copying that**: returning an
+arbitrary-precision-looking type over a value the database already destroyed is exactly
+the "accept-and-ignore" this codebase forbids.
+
+#### Why viborm's current state is a defect, not a trade-off
+
+`s.decimal()`'s runtime base is `v.number()` ([scalar.ts:11](../../src/schema/scalars/decimal/scalar.ts:11))
+while the DDL is a real `numeric` / `DECIMAL(65,30)`. The column is exact and the JS
+value is not, so the round-trip loses precision **silently** on the two dialects that
+were storing it perfectly. Anyone using `s.decimal()` for money is wrong today and gets
+no error.
+
+#### The pinned contract
+
+**Everywhere:** a decimal **reads as a `string`** — the canonical decimal spelling of the
+stored value, exact at any precision. Writes accept `string | number`. A string must be
+an exact numeric literal (`-?\d+(\.\d+)?`: optional sign, digits, at most one dot, **no
+exponent**); anything else is a typed validation refusal. A number is accepted as a
+convenience and documented as **already possibly carrying float error** — `0.1 + 0.2`
+binds as `0.30000000000000004` because that is the value the caller actually has. All
+comparison and all arithmetic happen **in the database**; no decimal ever passes through
+JS float math.
+
+Values are **canonicalized** before binding and after decoding (strip a leading `+`,
+strip insignificant leading/trailing zeros, normalize `-0` to `0`, `.5` to `0.5`), so one
+number has exactly one spelling. This is what makes text equality on SQLite equal
+numeric equality, and it makes `"1.10"` and `"1.1"` the same value everywhere.
+
+| | Postgres | MySQL | SQLite |
+|---|---|---|---|
+| Column | `numeric` (unchanged) | `DECIMAL(65,30)` (unchanged) | **`TEXT`** (was `REAL`) — **breaking, see migration note** |
+| Storage exact | ✅ | ✅ | ✅ (exact spelling, any precision) |
+| Read exact | ✅ | ✅ | ✅ |
+| `equals`/`not`/`in`/`notIn` | ✅ exact — operand bound as `CAST(? AS NUMERIC)` | ✅ exact — `CAST(? AS DECIMAL(65,30))` | ✅ exact — canonical **text** equality, which *is* numeric equality once canonicalized |
+| `lt`/`lte`/`gt`/`gte`, `orderBy`, `_min`/`_max` | ✅ exact | ✅ exact | ⛔ **typed refusal** |
+| `_sum`/`_avg`, `increment`/`decrement`/`multiply`/`divide` | ✅ exact, server-side | ✅ exact, server-side | ⛔ **typed refusal** |
+
+**Why MySQL needs the cast.** Binding the operand as a plain string and letting MySQL
+compare it against a `DECIMAL` column does not work: when MySQL compares a number to a
+string it converts *both to double* and compares as floating point. The column is exact,
+the comparison would not be, and nothing would say so. `CAST(? AS DECIMAL(65,30))` keeps
+the comparison in the exact domain. Postgres infers `numeric` from context but is cast
+explicitly for the same reason — so the emitted SQL states the intent instead of relying
+on inference that a `::text` in the wrong place would silently change.
+
+#### The SQLite decision, and the three alternatives it rejects
+
+SQLite has no exact decimal type and no exact decimal comparison. Any *ordered* answer it
+can give is a double comparison. So: **store the truth, and refuse the questions that
+cannot be answered truthfully.**
+
+- **`REAL` (today, and Prisma's behaviour).** Rejected: silently lossy in *storage*. The
+  value you wrote is not the value in the file. This is the defect being fixed.
+- **`TEXT` + lexicographic comparison.** Rejected outright, and explicitly ruled out by
+  the doctrine: `"9" > "10"` and `"0.10" < "0.9"` are wrong answers dressed as SQL.
+- **`TEXT` + `CAST(col AS REAL)` comparison.** Rejected. It *is* numeric, not
+  lexicographic, and it is exact for ordinary money — but it silently gives a wrong
+  answer past ~15 significant digits, and the wrongness is on the *stored* side where no
+  operand check can catch it (`amount > '1'` misses a stored `1.00000000000000000001`).
+  That is precisely "silent precision loss", which this codebase treats as a defect
+  rather than a compromise. Refusing loudly and being usable for exact storage beats
+  answering approximately and looking exact.
+- **`TEXT` in a sort-order-preserving encoding** (fixed-width zero-padded, ten's-complement
+  negatives) would make ordering exact and lexicographic at once. Rejected: it makes the
+  stored bytes unreadable to `$queryRaw`, to `sqlite3`, and to every other tool pointed at
+  the file. A database whose contents you cannot read is not honest either.
+
+The refusal is a typed `UnsupportedOperationError`, names the field and the dialect, and
+points at the two escapes: `s.float()` if approximate ordering is what you want, or a
+scaled `s.bigInt()` if you need exact ordered money on SQLite.
+
+#### Migration note (SQLite, breaking)
+
+The SQLite DDL for a decimal field changes `REAL` → `TEXT`. On an existing database the
+differ **sees a column type change and surfaces it** as an altered column in `push`/`diff`
+output — it is not silent. Existing `REAL` values migrate as SQLite converts them to text,
+which means **a value already corrupted by the old `REAL` storage stays corrupted**: the
+migration cannot recover digits the double already discarded. Re-import from the source
+of truth if the old rows carried more than ~15 significant digits.
+
+#### Legacy escape hatch (one release)
+
+`createClient({ decimal: "number" })` restores the old `number` decode at **runtime
+only**. The static types stay `string`, so the hatch is deliberately type-incoherent —
+it exists to unblock a deploy, not to be a supported mode, and it is removed in the
+release after this one.
+
 ---
 
 ## W7 — Ecosystem: extension system (XL) + optional stretch — **DEFERRED**
