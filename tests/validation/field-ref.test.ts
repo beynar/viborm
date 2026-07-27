@@ -47,13 +47,12 @@ function nest(depth: number, leaf: unknown): unknown {
 }
 
 describe("noFieldRef", () => {
-  test.each([0, 1, 3, 4, 5, 6, 50, 500])(
-    "finds a reference nested %i levels deep",
-    (depth) => {
-      const result = scan(nest(depth, { gt: ref("likes") }));
-      expect(result.issues?.[0]?.message).toBe(REFUSAL);
-    }
-  );
+  test.each([
+    0, 1, 3, 4, 5, 6, 50, 500,
+  ])("finds a reference nested %i levels deep", (depth) => {
+    const result = scan(nest(depth, { gt: ref("likes") }));
+    expect(result.issues?.[0]?.message).toBe(REFUSAL);
+  });
 
   test("finds a reference inside nested arrays", () => {
     const result = scan({ AND: [{ OR: [[{ gt: ref("likes") }]] }] });

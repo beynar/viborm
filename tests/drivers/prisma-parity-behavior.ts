@@ -20,6 +20,10 @@ const roleAccount = s
 
 const schema = { ...windowUserPostSchema, roleAccount };
 
+/** Refusal messages these checks match on, hoisted so no test rebuilds them. */
+const EMPTY_SELECT_REFUSAL = /needs at least one truthy value/;
+const UNGROUPED_COLUMN_REFUSAL = /must be included in 'by'/;
+
 type ParityClientConfig = VibORMConfig & {
   schema: typeof schema;
   driver: AnyDriver;
@@ -205,9 +209,7 @@ export function runPrismaParityBehavior({
 
       test("contains stays case-sensitive without mode", async () => {
         expect(await findIds({ name: { contains: "LI" } })).toEqual([]);
-        expect(await findIds({ name: { contains: "li" } })).toEqual([
-          "alice",
-        ]);
+        expect(await findIds({ name: { contains: "li" } })).toEqual(["alice"]);
       });
 
       test("startsWith stays case-sensitive without mode", async () => {
@@ -219,15 +221,11 @@ export function runPrismaParityBehavior({
 
       test("endsWith stays case-sensitive without mode", async () => {
         expect(await findIds({ name: { endsWith: "ICE" } })).toEqual([]);
-        expect(await findIds({ name: { endsWith: "ice" } })).toEqual([
-          "alice",
-        ]);
+        expect(await findIds({ name: { endsWith: "ice" } })).toEqual(["alice"]);
       });
 
       test("default substring filters treat wildcard characters literally", async () => {
-        expect(await findIds({ name: { contains: "%" } })).toEqual([
-          "percent",
-        ]);
+        expect(await findIds({ name: { contains: "%" } })).toEqual(["percent"]);
         expect(await findIds({ name: { startsWith: "100%" } })).toEqual([
           "percent",
         ]);
@@ -243,9 +241,7 @@ export function runPrismaParityBehavior({
       });
 
       test("default substring filters handle empty and non-ASCII values exactly", async () => {
-        expect(await findIds({ name: { contains: "Éc" } })).toEqual([
-          "accent",
-        ]);
+        expect(await findIds({ name: { contains: "Éc" } })).toEqual(["accent"]);
         expect(await findIds({ name: { contains: "éc" } })).toEqual([]);
         expect(await findIds({ name: { startsWith: "É" } })).toEqual([
           "accent",
@@ -463,13 +459,13 @@ export function runPrismaParityBehavior({
       test("empty select object throws", async () => {
         await expect(
           requireClient(client).user.findMany({ select: {} })
-        ).rejects.toThrow(/needs at least one truthy value/);
+        ).rejects.toThrow(EMPTY_SELECT_REFUSAL);
       });
 
       test("all-false select throws", async () => {
         await expect(
           requireClient(client).user.findMany({ select: { id: false } })
-        ).rejects.toThrow(/needs at least one truthy value/);
+        ).rejects.toThrow(EMPTY_SELECT_REFUSAL);
       });
     });
 
@@ -516,7 +512,7 @@ export function runPrismaParityBehavior({
             by: ["authorId"],
             orderBy: { views: "asc" },
           })
-        ).rejects.toThrow(/must be included in 'by'/);
+        ).rejects.toThrow(UNGROUPED_COLUMN_REFUSAL);
       });
 
       test("orderBy a grouped column still works", async () => {
@@ -885,7 +881,7 @@ export function runPrismaParityBehavior({
               by: ["authorId"],
               having: { OR: [{ title: "Post 1" }] },
             })
-          ).rejects.toThrow(/must be included in 'by'/);
+          ).rejects.toThrow(UNGROUPED_COLUMN_REFUSAL);
         });
 
         // Empty-combinator identities. OR of nothing is FALSE, AND/NOT of

@@ -1433,44 +1433,48 @@ describe("Multi-step writes", () => {
       `["\`]${getTableName(Author)}["\`]\\.["\`]id["\`]`
     );
 
-    test.each(dialectCases)(
-      "$name updateMany relation filter stays correlated to the target table",
-      ({ createAdapter, dialect }) => {
-        const dialectEngine = new QueryEngine(
-          new MockDriver(createAdapter(), dialect),
-          registry
-        );
-        const statement = dialectEngine
-          .build(Author, "updateMany", {
-            where: { posts: { some: { title: "Draft" } } },
-            data: { name: "Updated" },
-          })
-          .toStatement("$n");
+    test.each(
+      dialectCases
+    )("$name updateMany relation filter stays correlated to the target table", ({
+      createAdapter,
+      dialect,
+    }) => {
+      const dialectEngine = new QueryEngine(
+        new MockDriver(createAdapter(), dialect),
+        registry
+      );
+      const statement = dialectEngine
+        .build(Author, "updateMany", {
+          where: { posts: { some: { title: "Draft" } } },
+          data: { name: "Updated" },
+        })
+        .toStatement("$n");
 
-        expect(statement).toContain("UPDATE");
-        expect(statement).toContain("EXISTS");
-        expect(statement).toMatch(qualifiedAuthorId);
-      }
-    );
+      expect(statement).toContain("UPDATE");
+      expect(statement).toContain("EXISTS");
+      expect(statement).toMatch(qualifiedAuthorId);
+    });
 
-    test.each(dialectCases)(
-      "$name deleteMany relation filter stays correlated to the target table",
-      ({ createAdapter, dialect }) => {
-        const dialectEngine = new QueryEngine(
-          new MockDriver(createAdapter(), dialect),
-          registry
-        );
-        const statement = dialectEngine
-          .build(Author, "deleteMany", {
-            where: { posts: { some: { title: "Draft" } } },
-          })
-          .toStatement("$n");
+    test.each(
+      dialectCases
+    )("$name deleteMany relation filter stays correlated to the target table", ({
+      createAdapter,
+      dialect,
+    }) => {
+      const dialectEngine = new QueryEngine(
+        new MockDriver(createAdapter(), dialect),
+        registry
+      );
+      const statement = dialectEngine
+        .build(Author, "deleteMany", {
+          where: { posts: { some: { title: "Draft" } } },
+        })
+        .toStatement("$n");
 
-        expect(statement).toContain("DELETE");
-        expect(statement).toContain("EXISTS");
-        expect(statement).toMatch(qualifiedAuthorId);
-      }
-    );
+      expect(statement).toContain("DELETE");
+      expect(statement).toContain("EXISTS");
+      expect(statement).toMatch(qualifiedAuthorId);
+    });
   });
 });
 

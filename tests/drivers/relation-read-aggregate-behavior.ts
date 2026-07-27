@@ -293,9 +293,9 @@ export function runRelationReadAggregateBehavior({
           include: { _count: true },
         });
 
-        expect(
-          users.map((u) => ({ id: u.id, _count: u._count }))
-        ).toEqual(expectedCounts);
+        expect(users.map((u) => ({ id: u.id, _count: u._count }))).toEqual(
+          expectedCounts
+        );
       });
 
       test("include _count: true sits alongside included relations", async () => {
