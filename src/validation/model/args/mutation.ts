@@ -100,14 +100,19 @@ export const getCreateManyArgs = <
 // =============================================================================
 
 /**
- * Update args: { where: whereUnique, data: update, select?, include? }
+ * Update args: { where: whereUniqueExtended, data: update, select?, include? }
+ *
+ * `where` is the EXTENDED unique selector (Prisma >= 4.5): at least one unique
+ * discriminator, plus any non-unique scalar filters / AND / OR / NOT. A unique
+ * key that matches while an extra filter excludes the row is a NOT-FOUND, not a
+ * silent no-op — see `docs/content/docs/client/`.
  */
 export type UpdateArgs<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
   {
-    where: CoreSchemas<M, F>["whereUnique"];
+    where: CoreSchemas<M, F>["whereUniqueExtended"];
     data: CoreSchemas<M, F>["update"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
@@ -122,7 +127,7 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   return rejectSelectInclude(
     v.object(
       {
-        where: v.lazyRef(() => core.whereUnique),
+        where: v.lazyRef(() => core.whereUniqueExtended),
         data: v.lazyRef(() => core.update),
         select: v.lazyRef(() => core.select),
         include: v.lazyRef(() => core.include),
@@ -191,14 +196,16 @@ export const getUpdateManyArgs = <
 // =============================================================================
 
 /**
- * Delete args: { where: whereUnique, select?, include? }
+ * Delete args: { where: whereUniqueExtended, select?, include? }
+ *
+ * `where` is the EXTENDED unique selector (Prisma >= 4.5) — see UpdateArgs.
  */
 export type DeleteArgs<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
   {
-    where: CoreSchemas<M, F>["whereUnique"];
+    where: CoreSchemas<M, F>["whereUniqueExtended"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
     cache: CacheInvalidationSchema;
@@ -211,7 +218,7 @@ export const getDeleteArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   return rejectSelectInclude(
     v.object(
       {
-        where: v.lazyRef(() => core.whereUnique),
+        where: v.lazyRef(() => core.whereUniqueExtended),
         select: v.lazyRef(() => core.select),
         include: v.lazyRef(() => core.include),
         cache: cacheInvalidationSchema,
@@ -271,7 +278,7 @@ export const getDeleteManyArgs = <
 // =============================================================================
 
 /**
- * Upsert args: { where: whereUnique, create, update, select?, include?, cache?, targetWhere?, setWhere? }
+ * Upsert args: { where: whereUniqueExtended, create, update, select?, include?, cache?, targetWhere?, setWhere? }
  *
  * Additional options for advanced ON CONFLICT handling:
  * - targetWhere: WHERE clause for partial unique index matching
@@ -284,7 +291,7 @@ export type UpsertArgs<
   F extends ScalarSchemas<M>,
 > = V.Object<
   {
-    where: CoreSchemas<M, F>["whereUnique"];
+    where: CoreSchemas<M, F>["whereUniqueExtended"];
     create: CoreSchemas<M, F>["create"];
     update: CoreSchemas<M, F>["update"];
     select: CoreSchemas<M, F>["select"];
@@ -304,7 +311,7 @@ export const getUpsertArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   return rejectSelectInclude(
     v.object(
       {
-        where: v.lazyRef(() => core.whereUnique),
+        where: v.lazyRef(() => core.whereUniqueExtended),
         create: v.lazyRef(() => core.create),
         update: v.lazyRef(() => core.update),
         select: v.lazyRef(() => core.select),

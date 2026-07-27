@@ -21,6 +21,7 @@ type SchemaView<M extends AnyModel> = {
   readonly args: ModelStateSchemas<M>["args"];
   readonly where: ModelStateSchemas<M>["core"]["where"];
   readonly whereUnique: ModelStateSchemas<M>["core"]["whereUnique"];
+  readonly whereUniqueExtended: ModelStateSchemas<M>["core"]["whereUniqueExtended"];
   readonly uniqueFilter: ModelStateSchemas<M>["core"]["uniqueFilter"];
   readonly compoundIdFilter: ModelStateSchemas<M>["core"]["compoundIdFilter"];
   readonly compoundConstraintFilter: ModelStateSchemas<M>["core"]["compoundConstraintFilter"];
@@ -48,6 +49,9 @@ const createSchemaView = <M extends AnyModel>(
   },
   get whereUnique() {
     return getSchemas().core.whereUnique;
+  },
+  get whereUniqueExtended() {
+    return getSchemas().core.whereUniqueExtended;
   },
   get uniqueFilter() {
     return getSchemas().core.uniqueFilter;

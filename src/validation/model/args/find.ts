@@ -12,7 +12,12 @@ import {
 import { rejectSelectInclude } from "./select-include-exclusivity";
 
 /**
- * FindUnique args: { where: whereUnique, select?, include? }
+ * FindUnique args: { where: whereUniqueExtended, select?, include? }
+ *
+ * `where` is the EXTENDED unique selector (Prisma >= 4.5): at least one unique
+ * discriminator, plus any non-unique scalar filters / AND / OR / NOT. `cursor`
+ * below keeps the STRICT `whereUnique` — a cursor is an exact row address, not a
+ * filtered lookup.
  */
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
@@ -38,7 +43,7 @@ export type FindUniqueArgs<
   F extends ScalarSchemas<M>,
 > = V.Object<
   {
-    where: CoreSchemas<M, F>["whereUnique"];
+    where: CoreSchemas<M, F>["whereUniqueExtended"];
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
   },
@@ -54,7 +59,7 @@ export const getFindUniqueArgs = <
   return rejectSelectInclude(
     v.object(
       {
-        where: v.lazyRef(() => core.whereUnique),
+        where: v.lazyRef(() => core.whereUniqueExtended),
         select: v.lazyRef(() => core.select),
         include: v.lazyRef(() => core.include),
       },

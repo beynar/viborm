@@ -52,9 +52,13 @@ export {
 } from "./update";
 // Where exports
 export {
+  getScalarWhereSchema,
   getWhereSchema,
+  getWhereUniqueExtendedSchema,
   getWhereUniqueSchema,
+  type ScalarWhereSchema,
   type WhereSchema,
+  type WhereUniqueExtendedSchema,
   type WhereUniqueSchema,
 } from "./where";
 
@@ -106,8 +110,10 @@ import {
 } from "./update";
 import {
   getWhereSchema,
+  getWhereUniqueExtendedSchema,
   getWhereUniqueSchema,
   type WhereSchema,
+  type WhereUniqueExtendedSchema,
   type WhereUniqueSchema,
 } from "./where";
 
@@ -127,7 +133,19 @@ export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   scalarUpdate: ScalarUpdateSchema<M, F>;
   relationUpdate: RelationUpdateSchema<M, F>;
   where: WhereSchema<M, F>;
+  /**
+   * The STRICT unique selector: unique discriminators only. Used by `cursor` and
+   * by every NESTED relation-write target selector (`connect`, `disconnect`,
+   * `set`, nested `update`/`delete`/`upsert` `where`), which keep it deliberately
+   * (W4-U1 scope).
+   */
   whereUnique: WhereUniqueSchema<M, F>;
+  /**
+   * The EXTENDED unique selector (Prisma >= 4.5): discriminators PLUS non-unique
+   * scalar filters and AND/OR/NOT. Used ONLY by the TOP-LEVEL `findUnique` /
+   * `findUniqueOrThrow` / `update` / `delete` / `upsert` `where`.
+   */
+  whereUniqueExtended: WhereUniqueExtendedSchema<M, F>;
   create: CreateSchema<M, F>;
   update: UpdateSchema<M, F>;
   select: SelectSchema<M, F>;
@@ -157,6 +175,8 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     relationUpdate: () => getRelationUpdate<M, F>(fieldSchemas),
     where: () => getWhereSchema<M, F>(fieldSchemas),
     whereUnique: () => getWhereUniqueSchema(model, fieldSchemas),
+    whereUniqueExtended: () =>
+      getWhereUniqueExtendedSchema(model, fieldSchemas),
     create: () => getCreateSchema(model, fieldSchemas),
     update: () => getUpdateSchema<M, F>(fieldSchemas),
     select: () => getSelectSchema(model, fieldSchemas),
