@@ -373,25 +373,25 @@ describe("$transaction with callback", () => {
     expect(users).toHaveLength(0);
   });
 
-  test("rejects every callback option before inspecting it or running the callback", async () => {
+  /**
+   * REWRITTEN for decision D-2 (W5-U3). This test used to pin "every second
+   * argument is rejected", including `{}`. Options are now accepted, so the
+   * contract it defends changes shape: a *malformed* options object is still
+   * refused before the callback runs, an empty one asks for nothing and is
+   * simply allowed through, and a misspelling never passes for the real thing.
+   */
+  test("refuses a malformed options object before running the callback", async () => {
     let callbackCalled = false;
-    let getterCalled = false;
-    const accessorOptions = {};
-    Object.defineProperty(accessorOptions, "timeout", {
-      get() {
-        getterCalled = true;
-        return 5;
-      },
-    });
     const symbolOptions = { [Symbol("timeout")]: 5 };
     const transaction = withTransactions(client).$transaction;
 
     for (const options of [
-      {},
-      { timeout: 5 },
-      { isolationLevel: "serializable" },
-      accessorOptions,
-      symbolOptions,
+      { isolationLevel: "serializable" }, // Prisma spells it "Serializable"
+      { isolationLevels: "Serializable" }, // misspelled key
+      { timeout: 0 }, // not a positive duration
+      { timeout: "5s" }, // not a number
+      symbolOptions, // symbol keys are still keys, not free passes
+      42, // not an object at all
     ]) {
       await expect(
         Reflect.apply(transaction, client, [
@@ -406,10 +406,38 @@ describe("$transaction with callback", () => {
       });
     }
 
-    expect({ callbackCalled, getterCalled }).toEqual({
-      callbackCalled: false,
-      getterCalled: false,
-    });
+    expect(callbackCalled).toBe(false);
+  });
+
+  test("an empty options object asks for nothing and runs the callback", async () => {
+    let callbackCalled = false;
+    const transaction = withTransactions(client).$transaction;
+
+    await Reflect.apply(transaction, client, [
+      async () => {
+        callbackCalled = true;
+      },
+      {},
+    ]);
+
+    expect(callbackCalled).toBe(true);
+  });
+
+  test("an option this driver honors reaches the callback", async () => {
+    let callbackCalled = false;
+    const transaction = withTransactions(client).$transaction;
+
+    // PGlite honors all four levels; the typed refusals a driver *cannot*
+    // honor are pinned per driver in tests/drivers/transaction-portability and
+    // proved in tests/drivers/transaction-options-behavior.
+    await Reflect.apply(transaction, client, [
+      async () => {
+        callbackCalled = true;
+      },
+      { isolationLevel: "Serializable", timeout: 5000, maxWait: 5000 },
+    ]);
+
+    expect(callbackCalled).toBe(true);
   });
 
   test("rejects callback transactions for non-atomic drivers", async () => {
@@ -607,14 +635,31 @@ describe("$transaction with array (batch mode)", () => {
     await nonAtomicClient.$disconnect();
   });
 
-  test("rejects batch options before the empty-array fast path", async () => {
+  /**
+   * REWRITTEN for decision D-2 (W5-U3). The old pin asserted `{}` was rejected
+   * here. What must survive is the *ordering*: the empty-array fast path
+   * returns before any driver call, so an option that could not be honored has
+   * to be refused before that return — otherwise it would be accepted and
+   * ignored on exactly the path where nothing runs.
+   */
+  test("refuses an unhonorable batch option before the empty-array fast path", async () => {
     const transaction = withTransactions(client).$transaction;
+    // timeout is not on offer for the array form on any driver.
     await expect(
-      Reflect.apply(transaction, client, [[], {}])
+      Reflect.apply(transaction, client, [[], { timeout: 5 }])
     ).rejects.toMatchObject({
       name: "TransactionError",
       code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
     });
+    await expect(
+      Reflect.apply(transaction, client, [[], { isolationLevel: "bogus" }])
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
+    });
+    // An empty options object asks for nothing, so the fast path still applies.
+    await expect(Reflect.apply(transaction, client, [[], {}])).resolves.toEqual(
+      []
+    );
   });
 });
 

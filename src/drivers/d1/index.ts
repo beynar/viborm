@@ -24,6 +24,7 @@ import {
   classifySQLiteStatementResult,
   convertValuesForSQLite,
   sqliteResultParser,
+  type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
 import type { BatchQuery, QueryResult } from "../types";
@@ -194,6 +195,25 @@ export class D1Driver extends Driver<D1Database, D1Database> {
       params ?? [],
       context ?? { operation: "executeRaw" }
     );
+  }
+
+  /**
+   * D1 bindings expose `batch()` and no callback transaction. There is no
+   * BEGIN to configure, no interactive body to time out, and no slot to wait
+   * for — every option is refused rather than quietly dropped.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "unsupported",
+      isolationLevelReason:
+        "D1 bindings execute batches through batch(), which opens no transaction VibORM can set an isolation level on",
+      timeout: false,
+      timeoutReason:
+        "D1 bindings run a batch as one provider call with no interactive body to interrupt",
+      maxWait: "unsupported",
+      maxWaitReason:
+        "D1 bindings submit the batch immediately with no connection to acquire",
+    };
   }
 
   protected transaction<T>(

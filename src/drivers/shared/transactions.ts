@@ -1,17 +1,4 @@
-import { TransactionError, VibORMErrorCode } from "@errors";
-
-/**
- * Reject every public transaction option before any provider lookup, callback,
- * batch preparation, or savepoint creation. No option has one honest meaning
- * across every advertised database and transaction mode.
- */
-export function assertNoTransactionOptions(options: unknown): void {
-  if (options !== undefined) {
-    throw invalidTransactionOptions(
-      "Portable transactions do not accept transaction options."
-    );
-  }
-}
+import { TransactionError } from "@errors";
 
 export function nestedTransactionDispatchError(
   driverName: string
@@ -29,13 +16,6 @@ export function unsupportedCallbackTransactionError(
     `Driver "${driverName}" does not support callback transactions.`,
     { meta: { driver: driverName, method: "$transaction(callback)" } }
   );
-}
-
-function invalidTransactionOptions(message: string): TransactionError {
-  return new TransactionError(message, {
-    code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
-    meta: { method: "$transaction" },
-  });
 }
 
 type LifecycleStep = () => unknown | Promise<unknown>;

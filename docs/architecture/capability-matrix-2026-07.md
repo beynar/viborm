@@ -88,7 +88,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 
 1. **No `$extends`, no `$use`.** Client extensions (result/model/query/client) and middleware are absent entirely — the client proxy is a closed `if (prop === …)` dispatch with no user-extensible slot ([client.ts:373-786](../../src/client/client.ts:373); [types.ts:178](../../src/client/types.ts:178)). Largest ecosystem gap.
 2. ~~**Raw SQL is inverted and partly unreachable.**~~ — **CLOSED by W5-U1**: `$queryRaw`/`$executeRaw` are tagged templates that bind every interpolation (returning `T[]` / the affected count), `$queryRawUnsafe`/`$executeRawUnsafe` carry Prisma's string signatures, `sql`/`join`/`empty`/`raw` are exported from the package root and from `viborm/sql`, and all four methods exist on the interactive transaction client bound to the open transaction. The pre-1.0 `(string, params?)` form survives one release behind a `warning`-channel deprecation notice; `$transaction([...])` refuses a raw operation with a typed V8003.
-3. **Transaction options are rejected, not ignored.** `isolationLevel`, `timeout`, `maxWait` all throw `V5005` — `assertNoTransactionOptions` ([transactions.ts:8](../../src/drivers/shared/transactions.ts:8)), pinned across all 11 drivers. No provider-native escape hatch.
+3. ~~**Transaction options are rejected, not ignored.**~~ — **CLOSED by W5-U3** (decision D-2): `$transaction` accepts `{ isolationLevel, timeout, maxWait }`. `assertNoTransactionOptions` is retired; each driver declares a contract in `transactionOptionSupport()` and the resolver ([transaction-options.ts](../../src/drivers/shared/transaction-options.ts)) either builds an executable plan or refuses with `UnsupportedOperationError` (V8003); a malformed options object is still `V5005`. Per-driver cells are pinned in `tests/drivers/transaction-portability.test.ts` and tabulated in [transactions.mdx](../content/docs/client/transactions.mdx).
 4. **Error codes don't port.** viborm has a real, driver-normalized taxonomy — but `V####`, not `P####`. `e.code === 'P2002'` becomes `V3001` ([base.ts:12](../../src/errors/base.ts:12)). No `P2000` mapping at all; PG `22001` / MySQL `1406` fall through to generic `QueryError`.
 5. ~~**No field references**~~ — **CLOSED by W2-B**: `client.$fields.<model>.<field>` is Prisma's `FieldRef` (see §1.3). **No full-text search** still stands: `search` / `_relevance` return zero hits repo-wide.
 6. ~~**Extended `whereUnique` is absent.**~~ — **CLOSED by W4-U1**: `findUnique`/`findUniqueOrThrow`/`update`/`delete`/`upsert` take Prisma ≥4.5's extended unique `where` (discriminator + non-unique scalar filters + `AND`/`OR`/`NOT`). Two divergences remain, both stated: relation filters inside a unique `where` are refused by name (the filter half compiles into UPDATE/DELETE, where MySQL rejects a subquery reading the mutated table), and nested relation-write target selectors / `cursor` keep the strict discriminator-only form.
@@ -354,7 +354,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 
 There is **no driver-level capability interface**. `src/drivers/types.ts` defines no capability type; the driver capability surface is two booleans + one protected field on the base class ([driver-instrumentation.ts:112,120,135](../../src/drivers/driver-instrumentation.ts:112)). `supportsReturning` lives on the **adapter**, not the driver.
 
-`BatchOptions.atomic` (`src/drivers/types.ts:72-75`) is **dead code** — nothing reads it, and every transaction entry point calls `assertNoTransactionOptions`.
+`BatchOptions.atomic` (`src/drivers/types.ts:72-75`) is **dead code** — nothing reads it. (The second half of this claim, "every transaction entry point calls `assertNoTransactionOptions`", was retired by W5-U3; the entry points now resolve a `TransactionOptions` plan. `BatchOptions.atomic` is still unread.)
 
 | Driver | Dialect | `supportsTransactions` | `supportsBatch` | `serializeTransactions` | Declared at |
 |---|---|---|---|---|---|
@@ -391,7 +391,7 @@ Placeholder style is **dialect-derived, never driver-derived**: `$n` for postgre
 | Interactive `$transaction(cb)` | ✅ except ❌ `neon-http` | ✅ | ✅ except ❌ `d1` |
 | Batch `$transaction([...])` | ✅ | ✅ | ✅ |
 | Savepoints / nested tx | ⚠️ **hand-rolled, uniform** `SAVEPOINT sp_<uuid>` emitted as literal SQL for every dialect ([transactions.ts:227-253](../../src/drivers/shared/transactions.ts:227)) — deliberately bypasses postgres.js `sql.savepoint` and Bun SQL `savepoint`. Unavailable on `d1`/`neon-http` |
-| Isolation levels | ❌ **not exposed at all, on purpose** — `assertNoTransactionOptions` rejects any second argument. No provider-native escape hatch |
+| Isolation levels | ✅ **CLOSED by W5-U3** — `SET TRANSACTION ISOLATION LEVEL` after `BEGIN` on the PostgreSQL family, before `BEGIN` on the MySQL family; `Serializable` honored by construction on SQLite-family drivers with the weaker three refused; batch-only drivers (`d1`, `neon-http`) refuse all four. Per-driver table in [transactions.mdx](../content/docs/client/transactions.mdx) |
 | Concurrency | 🟡 pooled (`pg`, `postgres`, `bun-sql`); serialized (`pglite`) | 🟡 pooled | 🟡 **serialized** (`sqlite3`, `bun-sqlite`, in-memory `libsql`) |
 
 **The `requiresAtomicResolution` refusal — real code, currently unreachable in production.**

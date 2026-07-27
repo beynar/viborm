@@ -19,12 +19,15 @@ import {
 } from "../driver";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
+  acquireWithMaxWait,
   convertValuesForSQLite,
+  type DriverTransactionOptions,
   isSQLiteBinaryValue,
   nestedTransactionDispatchError,
   runTransactionLifecycle,
   sqliteBinaryToUint8Array,
   sqliteResultParser,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -159,9 +162,28 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
     };
   }
 
+  /**
+   * libSQL speaks SQLite, so `Serializable` is honored by construction and the
+   * weaker levels are refused. `maxWait` is honored on both shapes, by two
+   * different mechanisms: in-memory databases serialize through the connection
+   * queue, and every other database awaits `client.transaction("write")`, an
+   * acquisition we can bound and close if we stop waiting.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "serializable-only",
+      isolationLevelReason:
+        "libSQL serializes writers the way SQLite does and has no statement to weaken isolation, so only Serializable can be honored truthfully",
+      timeout: true,
+      maxWait: this.usesInMemoryDatabase() ? "queue" : "acquisition",
+    };
+  }
+
   protected async transaction<T>(
     client: Client | Transaction,
-    fn: (tx: Client | Transaction) => Promise<T>
+    fn: (tx: Client | Transaction) => Promise<T>,
+    _context?: QueryExecutionContext,
+    options?: DriverTransactionOptions
   ): Promise<T> {
     if ("commit" in client) {
       throw nestedTransactionDispatchError(this.driverName);
@@ -191,7 +213,12 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
       });
     }
 
-    const tx = await client.transaction("write");
+    const tx = await acquireWithMaxWait(
+      () => client.transaction("write"),
+      (acquired) => acquired.close(),
+      options?.maxWaitMs,
+      { driverName: this.driverName, form: "callback" }
+    );
     return runTransactionLifecycle({
       begin: () => undefined,
       callback: () => fn(tx),

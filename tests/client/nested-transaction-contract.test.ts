@@ -159,15 +159,32 @@ describe("nested public transaction contract", () => {
     expect(driver.statements).toEqual(["BEGIN", "COMMIT"]);
   });
 
-  test("removed options reject asynchronously before the empty fast path", async () => {
+  /**
+   * REWRITTEN for decision D-2 (W5-U3). The old pin asserted `{}` was rejected
+   * on the nested form. What must survive is that a nested refusal still
+   * arrives *through the Promise API* (never as a synchronous throw that would
+   * escape the callback's own error handling) and still lands before the empty
+   * fast path, without disturbing the outer transaction.
+   */
+  test("a nested refusal rejects asynchronously before the empty fast path", async () => {
     const driver = new RecordingTransactionDriver();
     const client = createContractClient(driver);
 
     await runTransaction(client, async (tx: object) => {
-      const nested = runTransaction(tx, [], {});
-      await expect(nested).rejects.toMatchObject({
+      // A nested $transaction is a SAVEPOINT: its isolation level is fixed by
+      // the outer transaction, so asking is a typed refusal.
+      const refused = runTransaction(tx, [], {
+        isolationLevel: "Serializable",
+      });
+      await expect(refused).rejects.toMatchObject({ code: "V8003" });
+
+      const malformed = runTransaction(tx, [], { timeout: 5 });
+      await expect(malformed).rejects.toMatchObject({
         code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
       });
+
+      // Asking for nothing still takes the empty fast path.
+      await expect(runTransaction(tx, [], {})).resolves.toEqual([]);
     });
     expect(driver.statements).toEqual(["BEGIN", "COMMIT"]);
   });

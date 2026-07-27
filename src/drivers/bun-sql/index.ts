@@ -17,6 +17,7 @@ import { normalizeProviderRowCount } from "../normalized-result";
 import {
   nestedTransactionDispatchError,
   runProviderManagedTransaction,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -153,6 +154,21 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
         provider: "bun-sql",
         operation,
       }),
+    };
+  }
+
+  /**
+   * Bun's `sql.begin()` owns BEGIN and connection acquisition, so the isolation
+   * level goes in as the transaction's first statement and there is no
+   * acquisition step VibORM can bound.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "post-begin",
+      timeout: true,
+      maxWait: "unsupported",
+      maxWaitReason:
+        "Bun SQL acquires the connection inside sql.begin(), which VibORM cannot observe or bound — the wait would be unbounded no matter what maxWait said",
     };
   }
 

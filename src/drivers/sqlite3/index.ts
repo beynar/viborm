@@ -20,6 +20,7 @@ import {
   runTransactionLifecycle,
   sqliteBinaryToUint8Array,
   sqliteResultParser,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -121,6 +122,23 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 
     const result = values ? stmt.run(...values) : stmt.run();
     return { rows: [] as T[], rowCount: result.changes };
+  }
+
+  /**
+   * SQLite has no isolation-level statement: one writer at a time on one
+   * connection makes every transaction serializable already. `Serializable` is
+   * therefore honored by construction, with no SQL to emit; the three weaker
+   * levels are refused because pretending to relax isolation we cannot relax
+   * would misreport what the transaction actually guarantees.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "serializable-only",
+      isolationLevelReason:
+        "SQLite serializes transactions on a single connection and has no statement to weaken isolation, so only Serializable can be honored truthfully",
+      timeout: true,
+      maxWait: "queue",
+    };
   }
 
   protected async transaction<T>(

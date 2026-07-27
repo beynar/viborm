@@ -17,12 +17,31 @@ import {
   assertNormalizedQueryResult,
 } from "./normalized-result";
 import {
-  assertNoTransactionOptions,
+  type BatchTransactionOptions,
+  parseTransactionOptions,
+  resolveTransactionPlan,
+  runWithTransactionTimeout,
+  type TransactionForm,
+  type TransactionOptionContext,
+  type TransactionOptions,
+  type TransactionPlan,
+  transactionMaxWaitError,
+} from "./shared/transaction-options";
+import {
   createTransactionCleanupError,
   readTransactionCleanupFailures,
 } from "./shared/transactions";
 import { normalizeTransactionLifecycleError } from "./transaction-lifecycle-error";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "./types";
+
+/** Forward every option except `timeout`, which the caller consumed itself. */
+function withoutTimeout(
+  options: TransactionOptions | undefined
+): TransactionOptions | undefined {
+  if (!options) return options;
+  const { timeout: _consumed, ...rest } = options;
+  return rest;
+}
 
 interface TransactionScopeDriver<TClient, TTransaction>
   extends Driver<TClient, TTransaction> {
@@ -67,6 +86,61 @@ export abstract class DriverTransactionBase<
     } finally {
       this.isConnectionTransactionActive = false;
     }
+  }
+
+  /**
+   * Validate the public options object and resolve it against this driver's
+   * declared contract. Throws `V5005` for a malformed object and `V8003` for a
+   * well-formed option this driver cannot honor — never returns a plan that
+   * quietly drops something the caller asked for.
+   *
+   * Entry points that delegate to another entry point (`withTransaction` ->
+   * `_transaction`, `_executeBatch` -> `_transaction`) resolve twice. The
+   * resolution is pure and driven by the same `transactionOptionSupport()`, so
+   * the second pass reaches the same verdict; resolving at each public entry is
+   * what guarantees a refusal happens before any provider work.
+   */
+  protected resolveTransactionOptions(
+    options: unknown,
+    form: TransactionForm
+  ): TransactionPlan | undefined {
+    const context: TransactionOptionContext = {
+      driverName: this.driverName,
+      form,
+    };
+    const parsed = parseTransactionOptions(options, context);
+    return resolveTransactionPlan(
+      parsed,
+      this.transactionOptionSupport(),
+      context
+    );
+  }
+
+  /**
+   * Validate options against this driver's contract without running anything.
+   *
+   * The client layer calls this before dispatching, so that paths which never
+   * reach a driver entry point — an empty operation array, most obviously —
+   * still refuse an option this driver could not have honored.
+   */
+  assertTransactionOptionsSupported(
+    options: unknown,
+    form: TransactionForm
+  ): void {
+    this.resolveTransactionOptions(options, form);
+  }
+
+  /**
+   * The `SET TRANSACTION ISOLATION LEVEL` statement to run as the first
+   * statement inside a freshly opened transaction, or undefined when this
+   * driver places the level elsewhere. PostgreSQL-family placement: the level
+   * must be set after BEGIN and before any other statement in the transaction.
+   */
+  private readPostBeginIsolationStatement(
+    plan: TransactionPlan | undefined
+  ): string | undefined {
+    if (plan?.isolationPlacement !== "post-begin") return undefined;
+    return plan.isolationStatement;
   }
 
   // ============================================================
@@ -175,13 +249,15 @@ export abstract class DriverTransactionBase<
    * to create a driver that executes all operations within this transaction.
    *
    * @param fn - Callback that receives the transaction object
+   * @param options - Prisma-shaped transaction options; each is honored or
+   *   refused per this driver's declared contract, never ignored
    */
   async _transaction<T>(
     fn: (tx: TTransaction) => Promise<T>,
-    unsupportedOptions?: undefined,
+    options?: TransactionOptions,
     context?: QueryExecutionContext
   ): Promise<T> {
-    assertNoTransactionOptions(unsupportedOptions);
+    const plan = this.resolveTransactionOptions(options, "callback");
     if (!this.supportsTransactions) {
       throw new TransactionError(
         `Driver "${this.driverName}" does not support callback transactions.`,
@@ -199,13 +275,35 @@ export abstract class DriverTransactionBase<
     );
     const noCallbackFailure = Symbol("noCallbackFailure");
     let callbackFailure: unknown = noCallbackFailure;
+    // `timeout` on this raw entry point races the callback and lets the
+    // lifecycle roll back. `withTransaction` applies its own timeout instead,
+    // because only there is there a transaction-bound scope whose in-flight
+    // statements can be drained before ROLLBACK — see its comment.
+    const bodyCallback =
+      plan?.timeoutMs === undefined
+        ? fn
+        : (tx: TTransaction) =>
+            runWithTransactionTimeout(() => fn(tx), plan.timeoutMs as number, {
+              driverName: this.driverName,
+              form: "callback",
+            });
     const trackedCallback = async (tx: TTransaction): Promise<T> => {
       try {
-        return await fn(tx);
+        return await bodyCallback(tx);
       } catch (error) {
         callbackFailure = error;
         throw error;
       }
+    };
+    const postBeginIsolation = this.readPostBeginIsolationStatement(plan);
+    const providerCallback = async (tx: TTransaction): Promise<T> => {
+      if (postBeginIsolation) {
+        await this.executeRaw(tx, postBeginIsolation, undefined, {
+          ...executionContext,
+          operation: "transaction",
+        });
+      }
+      return trackedCallback(tx);
     };
 
     const runTransaction = async () => {
@@ -213,8 +311,9 @@ export abstract class DriverTransactionBase<
       try {
         return await this.transaction(
           client,
-          trackedCallback,
-          executionContext
+          providerCallback,
+          executionContext,
+          plan?.driverOptions
         );
       } catch (error) {
         const normalizeTransactionFailure = (failure: unknown) =>
@@ -265,8 +364,20 @@ export abstract class DriverTransactionBase<
     // transaction-bound drivers use their own savepoint queue.
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      return this.connectionQueue.enqueue(() =>
-        this.runConnectionTransactionLease(execute)
+      // This queue wait is exactly what `maxWait` bounds on serialized drivers:
+      // a bounded-out transaction never reaches BEGIN, so nothing to roll back.
+      return this.connectionQueue.enqueue(
+        () => this.runConnectionTransactionLease(execute),
+        plan?.maxWaitMode === "queue" && plan.maxWaitMs !== undefined
+          ? {
+              maxWaitMs: plan.maxWaitMs,
+              onMaxWaitExceeded: () =>
+                transactionMaxWaitError(plan.maxWaitMs as number, {
+                  driverName: this.driverName,
+                  form: "callback",
+                }),
+            }
+          : undefined
       );
     }
     return execute();
@@ -294,10 +405,10 @@ export abstract class DriverTransactionBase<
    */
   async withTransaction<T>(
     fn: (txDriver: Driver<TClient, TTransaction>) => Promise<T>,
-    unsupportedOptions?: undefined,
+    options?: TransactionOptions,
     context?: QueryExecutionContext
   ): Promise<T> {
-    assertNoTransactionOptions(unsupportedOptions);
+    const plan = this.resolveTransactionOptions(options, "callback");
     const executionContext = this.resolveExecutionContext(
       context,
       "transaction"
@@ -313,12 +424,28 @@ export abstract class DriverTransactionBase<
         }
       );
     }
+    const timeoutMs = plan?.timeoutMs;
+    // `timeout` is consumed here rather than forwarded, so `_transaction` does
+    // not arm a second timer. This is the layer that can expire safely: when
+    // the race rejects, the abandoned body's in-flight statements are still
+    // tracked by `txDriver`, and the catch below closes the scope and drains
+    // them before the lifecycle issues ROLLBACK and releases the connection.
+    const forwardedOptions =
+      timeoutMs === undefined ? options : withoutTimeout(options);
     let txDriver: TransactionScopeDriver<TClient, TTransaction> | undefined;
     return this._transaction(
       async (tx) => {
         txDriver = this.createTransactionBoundDriver(tx, executionContext);
+        const boundDriver = txDriver;
+        const runBody = () =>
+          timeoutMs === undefined
+            ? fn(boundDriver)
+            : runWithTransactionTimeout(() => fn(boundDriver), timeoutMs, {
+                driverName: this.driverName,
+                form: "callback",
+              });
         try {
-          const result = await fn(txDriver);
+          const result = await runBody();
           txDriver.closeTransactionScope();
           await txDriver.waitForActiveOperations();
           txDriver.assertTransactionCommittable();
@@ -333,7 +460,7 @@ export abstract class DriverTransactionBase<
           throw error;
         }
       },
-      unsupportedOptions,
+      forwardedOptions,
       executionContext
     );
   }
@@ -409,10 +536,12 @@ export abstract class DriverTransactionBase<
    */
   async _executeBatch<T>(
     queries: BatchQuery[],
-    unsupportedOptions?: undefined,
+    options?: BatchTransactionOptions,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>[]> {
-    assertNoTransactionOptions(unsupportedOptions);
+    // Resolved with the batch contract: an array of operations has no
+    // interactive window, so only `isolationLevel` is on offer here.
+    this.resolveTransactionOptions(options, "batch");
     if (queries.length === 0) {
       return [];
     }
@@ -529,7 +658,8 @@ export abstract class DriverTransactionBase<
         );
         return results;
       }
-      // Otherwise, wrap in a new transaction
+      // Otherwise, wrap in a new transaction. The batch options travel with it
+      // so `isolationLevel` applies to the transaction the batch runs inside.
       return this._transaction(
         async (tx) => {
           const results = await this.executeBatch<T>(
@@ -544,7 +674,7 @@ export abstract class DriverTransactionBase<
           );
           return results;
         },
-        undefined,
+        options,
         executionContext
       );
     }

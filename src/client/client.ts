@@ -5,7 +5,10 @@ import type {
 } from "@cache";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { assertNormalizedBatchResults } from "@drivers/normalized-result";
-import { assertNoTransactionOptions } from "@drivers/shared/transactions";
+import type {
+  BatchTransactionOptions,
+  TransactionOptions,
+} from "@drivers/shared/transaction-options";
 import {
   CacheConfigurationError,
   ClientInitializationError,
@@ -173,9 +176,13 @@ export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
 export type TransactionClient<C extends VibORMConfig> = Client<C> &
   RawSurface & {
     $transaction: {
-      <T>(fn: (tx: TransactionClient<C>) => Promise<T>): Promise<T>;
+      <T>(
+        fn: (tx: TransactionClient<C>) => Promise<T>,
+        options?: TransactionOptions
+      ): Promise<T>;
       <T extends PendingOperation<unknown>[]>(
-        operations: [...T]
+        operations: [...T],
+        options?: BatchTransactionOptions
       ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
     };
   };
@@ -223,13 +230,32 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
        *   client.post.findMany(),
        * ]);
        * ```
+       *
+       * @example Options - honored or refused, never ignored
+       * ```ts
+       * await client.$transaction(async (tx) => { ... }, {
+       *   isolationLevel: "Serializable",
+       *   timeout: 10_000,
+       *   maxWait: 2000,
+       * });
+       * ```
+       *
+       * Each option is honored where the driver can honor it and rejected with
+       * a typed `UnsupportedOperationError` (V8003) where it cannot — see
+       * [Transactions](/docs/client/transactions) for the per-driver contract.
+       * The array form takes `isolationLevel` only: a preplanned array has no
+       * interactive window for `timeout` or `maxWait` to bound.
        */
       $transaction: {
         // Overload 1: Dynamic transaction (callback)
-        <T>(fn: (tx: TransactionClient<C>) => Promise<T>): Promise<T>;
+        <T>(
+          fn: (tx: TransactionClient<C>) => Promise<T>,
+          options?: TransactionOptions
+        ): Promise<T>;
         // Overload 2: Batch of independent operations (Prisma-style)
         <T extends PendingOperation<unknown>[]>(
-          operations: [...T]
+          operations: [...T],
+          options?: BatchTransactionOptions
         ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
       };
       /** Connect to the database */
@@ -482,9 +508,15 @@ export class VibORM<C extends VibORMConfig> {
             input:
               | ((tx: Client<C>) => Promise<T>)
               | PendingOperation<unknown>[],
-            unsupportedOptions?: unknown
+            options?: TransactionOptions | BatchTransactionOptions
           ): Promise<T | unknown[]> => {
-            assertNoTransactionOptions(unsupportedOptions);
+            // Refuse before dispatching, so that paths which never reach a
+            // driver entry point (an empty array, a driver without callback
+            // transactions) still reject an option that could not be honored.
+            orm.engine.driver.assertTransactionOptionsSupported(
+              options,
+              Array.isArray(input) ? "batch" : "callback"
+            );
             const transactionContext = createOperationExecutionContext(
               "$transaction",
               Array.isArray(input)
@@ -624,7 +656,7 @@ export class VibORM<C extends VibORMConfig> {
                   try {
                     batchResults = await driver._executeBatch(
                       batchQueries,
-                      undefined,
+                      options as BatchTransactionOptions | undefined,
                       transactionContext
                     );
                   } catch (error) {
@@ -710,7 +742,7 @@ export class VibORM<C extends VibORMConfig> {
 
                   return results;
                 },
-                undefined,
+                options as TransactionOptions | undefined,
                 transactionContext
               );
             }
@@ -752,10 +784,18 @@ export class VibORM<C extends VibORMConfig> {
                       nestedInput:
                         | ((nestedTx: TransactionClient<C>) => Promise<NT>)
                         | PendingOperation<unknown>[],
-                      nestedUnsupportedOptions?: unknown
+                      nestedOptions?:
+                        | TransactionOptions
+                        | BatchTransactionOptions
                     ): Promise<NT | unknown[]> => {
                       try {
-                        assertNoTransactionOptions(nestedUnsupportedOptions);
+                        // A nested $transaction is a SAVEPOINT: its option
+                        // contract differs from the outermost one, and the
+                        // transaction-bound driver declares that difference.
+                        txDriver.assertTransactionOptionsSupported(
+                          nestedOptions,
+                          Array.isArray(nestedInput) ? "batch" : "callback"
+                        );
                         if (
                           Array.isArray(nestedInput) &&
                           nestedInput.length === 0
@@ -790,7 +830,7 @@ export class VibORM<C extends VibORMConfig> {
                               }
                               return results;
                             },
-                            undefined,
+                            nestedOptions as TransactionOptions | undefined,
                             nestedTransactionContext
                           );
                         }
@@ -806,7 +846,7 @@ export class VibORM<C extends VibORMConfig> {
                               ) => Promise<NT>
                             )(nestedClient);
                           },
-                          undefined,
+                          nestedOptions as TransactionOptions | undefined,
                           nestedTransactionContext
                         );
                       } catch (error) {
@@ -825,7 +865,7 @@ export class VibORM<C extends VibORMConfig> {
                 const txClient = createTxClient(txDriver as AnyDriver);
                 return fn(txClient);
               },
-              undefined,
+              options as TransactionOptions | undefined,
               transactionContext
             );
           };

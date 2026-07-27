@@ -599,7 +599,7 @@ bulk write, for a guarantee Prisma does not make).
 |---|---|---|---|
 | W5-U1 | M | **Raw SQL overhaul.** `$queryRaw` becomes a tagged template (safe-by-construction); the current `(string, params)` form moves to `$queryRawUnsafe` (keep an overload on `$queryRaw` detecting a plain string for one release, with a deprecation warning in the `warning` log channel). Add `$executeRaw` tagged + `$executeRawUnsafe`. Export `sql`/`join`/`empty`/`raw` from the package root (`Sql` class already dialect-renders via `toStatement`). Wire `tx.$queryRaw`/`tx.$executeRaw` into the tx proxy (today it throws `Model "$executeRaw" not found`). | tagged interpolation parameterizes on all dialects; `join` accepts plain values (Prisma parity); tx raw runs inside the open transaction (single-connection drivers verified) |
 | W5-U2 | S/M | **Prisma error-code compatibility.** Add `prismaCode` to `VibORMError` (V3001→`P2002`, V3002→`P2003`, V3003→`P2011`, V6001→`P2025`, V4001→validation, per the matrix table); map the missing **P2000** (PG `22001`, MySQL `1406` value-too-long) to a typed error instead of generic `QueryError`; add a typed client-construction error (PrismaClientInitializationError-equivalent). | `e.prismaCode === 'P2002'` works in a catch written for Prisma; P2000 mapping covered in the error-mapping suite for all dialects |
-| W5-U3 | M | **Transaction options (per D-2).** Accept `{ isolationLevel, timeout, maxWait }` on both `$transaction` forms. Honor isolationLevel (SET TRANSACTION ISOLATION LEVEL per dialect) + timeout (driver-side timer aborting/rolling back) on transaction-capable drivers; V8003 typed refusal on D1/Neon HTTP and for unsupported levels (SQLite has only its journal modes — map or refuse, pin the choice). Replaces `assertNoTransactionOptions` and its 11-driver pinned tests deliberately. | Serializable conflict produces the dialect's serialization error, mapped; timeout rolls back cleanly; refusals typed, never silent |
+| W5-U3 ✅ | M | **DELIVERED.** See "W5-U3 delivered" below. **Transaction options (per D-2).** Accept `{ isolationLevel, timeout, maxWait }` on both `$transaction` forms. Honor isolationLevel (SET TRANSACTION ISOLATION LEVEL per dialect) + timeout (driver-side timer aborting/rolling back) on transaction-capable drivers; V8003 typed refusal on D1/Neon HTTP and for unsupported levels (SQLite has only its journal modes — map or refuse, pin the choice). Replaces `assertNoTransactionOptions` and its 11-driver pinned tests deliberately. | Serializable conflict produces the dialect's serialization error, mapped; timeout rolls back cleanly; refusals typed, never silent |
 | W5-U4 | M | **`omit`** — query-level (`omit: { field: true }` on every read/write-returning op, exclusive with `select`) and client-level (`createClient({ omit: { user: { password: true } } })`), matching Prisma's local-overrides-global rule (`omit: { field: false }` re-includes). Composes with the existing model-level `.omit()`. | type-level result excludes omitted keys; nested omit in include; global+local precedence matrix tested |
 | W5-U5 | S (optional) | **`$metrics`** — expose the internal `PerfTracker` counters in Prisma's json/prometheus shapes. | `$metrics.json()` returns counters; no-op cost when unused |
 
@@ -664,6 +664,56 @@ removing the raw-in-batch refusal, splicing instead of binding, and pointing
 tx raw at the root driver each turn the suite red. Docs:
 `docs/content/docs/client/raw-sql.mdx` (new page), compatibility matrix rows,
 README.
+### W5-U3 delivered — the transaction-option contract
+
+`assertNoTransactionOptions` and its 11-driver "rejects every removed option"
+pins are gone, replaced deliberately per D-2. The shape is:
+
+- **One parse boundary.** `src/drivers/shared/transaction-options.ts` validates
+  the raw options object (`V5005` for a non-object, unknown key, unknown level,
+  or non-positive duration) and resolves it against the driver's declared
+  contract, producing either an executable plan or an `UnsupportedOperationError`
+  (`V8003`) naming the option **and the reason**. Refusal always precedes
+  provider dispatch.
+- **Per-driver declarations.** Each driver overrides `transactionOptionSupport()`
+  with `{ isolationLevel: placement, timeout, maxWait: mode }` plus a reason for
+  anything it cannot fully honor. `TransactionBoundDriver` declares the *nested*
+  (savepoint) contract separately: `timeout` honored, `isolationLevel` and
+  `maxWait` refused.
+- **Placement is per-family, not per-driver-guesswork.** `post-begin` for the
+  PostgreSQL family (first statement inside the transaction, applied by the
+  base class), `pre-begin` for the MySQL family (threaded into the driver's own
+  `transaction()` because MySQL rejects the statement once a transaction is
+  open), `serializable-only` for SQLite (no SQL: honored by construction).
+- **`timeout`** is consumed by `withTransaction`, not forwarded to
+  `_transaction`, because only that layer can drain the transaction-bound
+  scope's in-flight statements before the lifecycle rolls back — which is what
+  keeps the connection reusable rather than poisoned.
+- **`maxWait`** is bounded either by the serialized connection queue (a
+  bounded-out transaction never reaches `BEGIN`) or by a pooled acquisition the
+  driver can abandon *and release*, so an over-waited transaction cannot leak a
+  checked-out connection. Drivers with neither refuse it.
+- **Array form takes `isolationLevel` only**, matching Prisma's sequential API:
+  an array of preplanned operations has no interactive window for `timeout` or
+  `maxWait` to bound, so both are refused there on every driver.
+
+Tests: `tests/drivers/transaction-portability.test.ts` (the pinned matrix —
+every driver × every option, declaration and refusal),
+`tests/drivers/transaction-options-behavior.test.ts` (statement placement,
+"honored by construction" meaning zero SQL, timeout rollback + post-probes,
+bounded queue wait, nested contract), `tests/drivers/transaction-options-live.test.ts`
+(Docker-gated: PostgreSQL Serializable write-skew conflict mapped to `V5004`
+with a ReadCommitted control; MySQL dirty-read proof that the level is really in
+force, plus a no-leak check on the pooled connection).
+
+One finding worth carrying forward: the obvious MySQL probes are both wrong.
+`@@transaction_isolation` reports the *session* default and shows
+`REPEATABLE-READ` no matter which level the transaction is running at (the
+next-transaction-only form deliberately leaves the session alone — which is what
+makes it safe on a pooled connection), and
+`information_schema.innodb_trx` is served from a snapshot this server hands back
+stale. Only the isolation *behavior* distinguishes them, so the live test proves
+the level with a dirty read.
 
 ---
 

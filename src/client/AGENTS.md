@@ -252,12 +252,26 @@ const [user, post] = await orm.$transaction([
 // Operations are PendingOperations, executed together in transaction
 ```
 
-**Transaction options:**
+**Transaction options** (Prisma's shape, Prisma's spellings):
 ```typescript
 await orm.$transaction(callback, {
-  isolationLevel: "serializable"  // Optional isolation level
+  isolationLevel: "Serializable",  // ReadUncommitted | ReadCommitted | RepeatableRead | Serializable
+  timeout: 10_000,                 // ms the callback may run before rollback
+  maxWait: 2000,                   // ms to wait for a transaction slot
 });
+
+// Array form takes isolationLevel only — no interactive window to bound.
+await orm.$transaction([orm.user.findMany()], { isolationLevel: "Serializable" });
 ```
+
+Every option is honored or refused, never ignored. Each driver declares its
+contract in `transactionOptionSupport()`; the resolver in
+`src/drivers/shared/transaction-options.ts` turns that into either an executable
+plan or a typed refusal — `UnsupportedOperationError` (V8003) for an option this
+driver cannot honor, `TransactionError` (V5005) for a malformed options object.
+`tests/drivers/transaction-portability.test.ts` pins every driver × option cell.
+See [Transactions](../../docs/content/docs/client/transactions.mdx) for the
+per-driver table.
 
 ---
 

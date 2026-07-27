@@ -31,13 +31,96 @@ await client.$transaction(async (tx) => {
 });
 ```
 
-### Portable option contract
+## Transaction options
 
-`$transaction` does not accept a second options argument. Isolation levels,
-timeouts, and access modes are provider-specific, so the portable client
-rejects them — see [Compatibility](/docs/client/compatibility). VibORM currently
-exposes no provider-native transaction-option escape hatch; use the database
-provider client directly when database-specific behavior is intentional.
+`$transaction` accepts a second argument with the same shape Prisma uses:
+
+```ts
+await client.$transaction(
+  async (tx) => {
+    /* ... */
+  },
+  {
+    isolationLevel: "Serializable", // "ReadUncommitted" | "ReadCommitted" | "RepeatableRead" | "Serializable"
+    timeout: 10_000,                // ms the callback may run before rollback
+    maxWait: 2000,                  // ms to wait for a transaction slot
+  }
+);
+```
+
+The array form takes `isolationLevel` only — a preplanned array has no
+interactive window for `timeout` or `maxWait` to bound:
+
+```ts
+await client.$transaction([client.user.findMany(), client.user.count()], {
+  isolationLevel: "Serializable",
+});
+```
+
+### Honored or refused, never ignored
+
+Each option is honored where the driver can honor it, and rejected with a typed
+`UnsupportedOperationError` (`V8003`) where it cannot. An option you pass never
+silently does nothing. A malformed options object — an unknown key, a
+misspelled level, a non-positive duration — is a `TransactionError` (`V5005`),
+raised before any provider work begins.
+
+| Driver | `isolationLevel` | `timeout` | `maxWait` |
+| --- | --- | --- | --- |
+| pg | all four levels, `SET TRANSACTION ISOLATION LEVEL` after `BEGIN` | honored | honored — bounds the pool acquisition |
+| postgres.js | all four levels, first statement in the transaction | honored | **refused** — `sql.begin()` owns acquisition; the wait cannot be bounded |
+| PGlite | all four levels, first statement in the transaction | honored | honored — bounds the connection queue |
+| Bun SQL | all four levels, first statement in the transaction | honored | **refused** — `sql.begin()` owns acquisition |
+| mysql2 | all four levels, `SET TRANSACTION ISOLATION LEVEL` before `BEGIN` | honored | honored — bounds the pool acquisition |
+| PlanetScale | all four levels, before `BEGIN` on the transaction's connection | honored | **refused** — each transaction opens its own HTTP connection with no wait |
+| SQLite3 | `Serializable` only | honored | honored — bounds the connection queue |
+| Bun SQLite | `Serializable` only | honored | honored — bounds the connection queue |
+| libSQL | `Serializable` only | honored | honored — queue (in-memory) or `transaction()` acquisition |
+| D1 binding | **refused** — batch-only, no transaction to configure | **refused** | **refused** |
+| Neon HTTP | **refused** — batch-only, no transaction to configure | **refused** | **refused** |
+
+### Isolation levels
+
+PostgreSQL-family drivers accept all four levels and apply them with
+`SET TRANSACTION ISOLATION LEVEL` as the transaction's first statement.
+PostgreSQL itself treats `ReadUncommitted` as `ReadCommitted` — that is the
+server's own documented behavior, and VibORM does not paper over it.
+
+MySQL-family drivers issue the same statement *before* `BEGIN`, where it binds
+to exactly the next transaction on that connection. It deliberately does not
+change the session default, so a pooled connection never carries one caller's
+isolation level over to the next.
+
+SQLite-family drivers (SQLite3, Bun SQLite, libSQL) have no isolation-level
+statement: a transaction on their single connection is already serializable.
+`Serializable` is therefore **honored by construction** — nothing is emitted,
+because nothing needs to be. The three weaker levels are refused rather than
+silently upgraded, since accepting them would misreport what the transaction
+actually guarantees.
+
+### timeout
+
+`timeout` bounds how long the callback body may run. On expiry the transaction
+is rolled back and the call rejects with a `TransactionError` (`V5002`). In-flight
+statements are drained before the rollback, so the connection is returned in a
+clean, reusable state and no partial write survives.
+
+### maxWait
+
+`maxWait` bounds the wait for a transaction *slot* — before the body starts. A
+transaction that exceeds it never reaches `BEGIN`, so there is nothing to roll
+back; the call rejects with a `TransactionError` (`V5002`). Drivers that cannot
+observe or safely abandon their acquisition refuse the option instead of
+accepting a bound they could not enforce.
+
+### Nested transactions
+
+A nested `$transaction` runs as a `SAVEPOINT` inside the outer transaction, so
+its option contract differs: `timeout` is honored (expiry rolls back to the
+savepoint), while `isolationLevel` and `maxWait` are refused. The outer
+transaction's isolation level is already fixed and cannot be changed
+mid-transaction, and a savepoint reuses the connection the outer transaction
+already holds. Set `isolationLevel` on the outermost `$transaction`.
 
 ### Raw SQL inside a transaction
 

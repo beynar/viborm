@@ -21,6 +21,7 @@ import {
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
   runProviderManagedTransaction,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -172,6 +173,22 @@ export class PostgresDriver extends Driver<
           operation,
         }
       ),
+    };
+  }
+
+  /**
+   * postgres.js owns BEGIN inside `client.begin()`, so the isolation level goes
+   * in as the transaction's first statement. It also owns connection
+   * acquisition inside that same call: there is no acquisition step VibORM can
+   * bound or abandon, so `maxWait` is refused rather than faked.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "post-begin",
+      timeout: true,
+      maxWait: "unsupported",
+      maxWaitReason:
+        "postgres.js acquires the connection inside client.begin(), which VibORM cannot observe or bound — the wait would be unbounded no matter what maxWait said",
     };
   }
 

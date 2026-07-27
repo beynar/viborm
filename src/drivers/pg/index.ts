@@ -19,9 +19,12 @@ import {
 import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
 import { Driver, type QueryExecutionContext } from "../driver";
 import {
+  acquireWithMaxWait,
+  type DriverTransactionOptions,
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
   runTransactionLifecycle,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -134,9 +137,24 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     };
   }
 
+  /**
+   * PostgreSQL takes the isolation level as the first statement inside the
+   * transaction, and node-postgres hands out a pooled client we can wait for
+   * with a bound (and release if we stop waiting).
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "post-begin",
+      timeout: true,
+      maxWait: "acquisition",
+    };
+  }
+
   protected async transaction<T>(
     client: Pool | PoolClient,
-    fn: (tx: PoolClient) => Promise<T>
+    fn: (tx: PoolClient) => Promise<T>,
+    _context?: QueryExecutionContext,
+    options?: DriverTransactionOptions
   ): Promise<T> {
     if ("release" in client) {
       throw nestedTransactionDispatchError(this.driverName);
@@ -144,7 +162,12 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 
     // Start a new transaction
     const pool = client as Pool;
-    const poolClient = await pool.connect();
+    const poolClient = await acquireWithMaxWait(
+      () => pool.connect(),
+      (acquired) => acquired.release(),
+      options?.maxWaitMs,
+      { driverName: this.driverName, form: "callback" }
+    );
     let releaseError: Error | boolean | undefined;
     const queryOrDiscard = async (statement: string) => {
       try {

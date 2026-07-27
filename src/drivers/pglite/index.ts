@@ -23,6 +23,7 @@ import { normalizeProviderRowCount } from "../normalized-result";
 import {
   nestedTransactionDispatchError,
   runProviderManagedTransaction,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -125,6 +126,19 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     return {
       rows: result.rows,
       rowCount: result.rows.length > 0 ? result.rows.length : affectedRows,
+    };
+  }
+
+  /**
+   * PGlite is a full PostgreSQL, so the isolation level is a real post-BEGIN
+   * statement. It is also single-connection, so top-level transactions queue —
+   * and that queue wait is exactly what `maxWait` bounds.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "post-begin",
+      timeout: true,
+      maxWait: "queue",
     };
   }
 
