@@ -185,7 +185,7 @@ none of them changed:
 | Occupied-guard / referenced-key transition (`interpretReferencedKeyTransition`) | `getWhereUniqueEntries` — unchanged |
 | Own-write ledger target constraints (`TargetConstraint`, `getKnownSelectorValues`) | `getWhereUniqueEntries` — unchanged; a discriminator-only constraint is a SUPERSET of thetrue target, so overlap analysis stays conservative (fails closed) |
 | upsert probe-first locate (`buildConditionals`) | `getWhereUniqueEntries` for the equalities, **plus** the filter half ANDed in — a probe wants the same predicate the locate used |
-| upsert create-arm terminal read | **fixed** — fell back to the whole `where`; the created row satisfies the discriminator, not the filter that sent it down the create arm. Reachable only when the `create` data carries no primary key, so the conformance model that pins it (`ticket`) has a **DB-generated** PK — a caller-supplied PK addresses the created row directly and never reaches the fallback |
+| upsert create-arm terminal read | **fixed — it does not read the `where` at all** (see the correction below). The row a write produced is addressed by the identity of that write: the literal PK the `create` data carries, or the DB-generated identity the INSERT captures |
 | Cursor comparison (`find-pagination`) | unreachable — `cursor` keeps the strict schema |
 
 **The racePin decision.** With an extended `where`, upsert's create arm carries NO `racePin`. A
@@ -200,7 +200,7 @@ filters inside a unique `where` (the filter half compiles into UPDATE/DELETE, wh
 carries no alias and MySQL rejects a subquery reading the mutated table — error 1093), and nested
 target selectors / `cursor`, which keep the strict schema.
 
-**Evidence.** `tests/query-engine-v2/extended-where-unique-behavior.ts` — 19 cases × PGlite
+**Evidence.** `tests/query-engine-v2/extended-where-unique-behavior.ts` — 21 cases × PGlite
 tx/batch, SQLite3 tx/batch, LibSQL tx/batch, pg tx/batch, MySQL2 tx (a batch-only MySQL is
 non-returning, so the routed layer refuses this write family before I/O). Three staleness
 injections in `staleness-injection.test.ts` (filter premise under update and delete, discriminator
@@ -209,16 +209,38 @@ filters — the update case then returned a successful no-op, which is the exact
 forbade. The Pin Rule falsification is structural: the create-arm racePin asserted PRESENT for a
 plain `where` and ABSENT for an extended one.
 
-The create-arm terminal read is pinned behaviorally on the `ticket` model (DB-generated PK, the
-only shape that reaches the fallback): an upsert whose `create` deliberately writes a `status`
-the `where`'s filter half excludes must return the created row, once as a bare scalar filter and
-once smuggled through `AND`. Falsified by restoring the old `return this.parentWhere` — both
-cases then fail on both substrates (a `TransactionError` "expected exactly one row" in tx mode,
-the executor's malformed-result rejection in batch mode) while the rest of the estate stays
-green, which is exactly the hole the `account` model left: its caller-supplied `id` makes every
-upsert address its created row by PK. The third case is the counter-falsification — a MATCHING
-filter on the same generated-PK model still takes the update arm, so the discriminator-only
-read-back cannot be passing by turning every extended-`where` upsert into a create.
+**Correction (review round U1) — the create-arm read-back reads the WRITE, not the `where`.**
+The first cut of this unit answered the create arm's terminal read with the unique DISCRIMINATOR
+of the `where`, on the premise that "the created row satisfies the discriminator, not the
+filter". That premise is false: Prisma never requires `create` to satisfy `where`, so a `create`
+that writes a *different* value for the discriminator's column produces a row the discriminator
+does not name. W4-U1 is what made the falsifying state reachable — with a plain `where` a
+discriminator matching a live row always takes the UPDATE arm, so the create arm could never
+coexist with a live row on that key; the extended `where` makes exactly that reachable (unique
+key matches, filter excludes → create arm), and the discriminator-only read-back then addressed
+the EXCLUDED row. The upsert returned a pre-existing row it had never touched, silently, on every
+dialect and both substrates. (With a plain `where` the same class failed loudly instead — the
+read matched zero rows.)
+
+The fix removes the `where` from this decision entirely. `UpsertOperation.createArmIdentity`
+decides, from the CREATE DATA, how the row about to be inserted will be addressed: its literal
+primary key when the create data carries every PK field, else — for a single DB-generated
+`increment` PK — the identity the INSERT captures (`… RETURNING pk` on a returning driver in
+transaction mode, the driver's `insertId` scratch-threaded by the executor in batch mode), which
+is the same capture `CreateOperation`'s root INSERT performs. Any other shape names no row this
+operation can read back and is refused with a typed `UnsupportedOperationError`, raised only when
+the create arm is actually taken. `getWhereUniqueDiscriminator` had no other consumer and is
+deleted, so the wrong door is gone rather than merely unused.
+
+Pinned behaviorally on the `ticket` model (DB-generated PK — the only shape that reaches the
+capture), four witnesses that the created row comes back whatever the `where` says: an extended
+`where` whose discriminator names a live row the filter excludes while `create` writes a
+different unique value (the wrong-row witness), the same with the filter smuggled through `AND`,
+a PLAIN `where` naming a unique the create data does not reproduce, and a `where` naming the
+generated PK itself. All four fail on both substrates when the discriminator read-back is
+restored, while the rest of the estate stays green. The counter-falsification is retained — a
+MATCHING filter on the same generated-PK model still takes the update arm, so the capture cannot
+be passing by turning every extended-`where` upsert into a create.
 
 ---
 

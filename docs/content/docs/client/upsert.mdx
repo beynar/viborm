@@ -32,11 +32,12 @@ race, so it is not retried. That is the same outcome a hand-written
 find-then-create would produce, and the P2002-equivalent Prisma reports for the
 same shape.
 
-When the create branch runs and *succeeds* — no row held the unique key — the
-record you get back is the one that was just created, found by the unique
-discriminator alone. Your `create` payload does not have to satisfy the filter
-half of the `where`: the filter is what sent the call down the create branch in
-the first place, so re-applying it to the read-back would find nothing.
+When the create branch runs and *succeeds*, the record you get back is the row
+that was just created — always. It is addressed by its own identity (the primary
+key you supplied, or the one the database generated), never by the `where`. Your
+`create` payload is under no obligation to satisfy any part of the `where`, not
+the filter half and not the unique key itself; whatever it writes is what comes
+back.
 </Callout>
 
 ## Options

@@ -23,6 +23,14 @@
  * Keeping the split in the extraction function rather than at each call site is
  * deliberate: a new consumer that reaches for the discriminator gets the right
  * half by default, and forgetting to strip filters is not a thing one can do.
+ *
+ * **What the discriminator is NOT.** It names the row the caller ASKED FOR — it
+ * does not name a row a statement WROTE. A write's own result must be addressed
+ * by the identity of that write (a literal primary key, or the identity the
+ * INSERT captured), never by the selector that chose its arm: `create` data is
+ * under no obligation to satisfy `where`, so the two can name different rows.
+ * That is why nothing here exposes "the discriminator as a where" — see
+ * `UpsertOperation.createArmIdentity`.
  */
 
 import type { Model } from "@schema/model";
@@ -136,19 +144,6 @@ export function partitionWhereUnique(
   }
 
   return { entries, discriminator, filters };
-}
-
-/**
- * The unique discriminator ONLY, as a `where` — for the statements that must
- * address the row the `where` NAMES rather than the row it SELECTS: upsert's
- * create-arm terminal read (the created row need not satisfy the filter that
- * sent the operation down the create arm in the first place).
- */
-export function getWhereUniqueDiscriminator(
-  ctx: WhereUniqueModelContext,
-  where: Record<string, unknown>
-): Record<string, unknown> {
-  return partitionWhereUnique(ctx, where).discriminator;
 }
 
 /** The extra (non-discriminator) filter half of a unique `where`, if any. */

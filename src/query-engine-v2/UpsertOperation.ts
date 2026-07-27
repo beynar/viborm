@@ -8,7 +8,6 @@ import {
 import { separateData } from "../query-engine/builders/relation-data-builder";
 import { buildInsert } from "../query-engine/builders/values-builder";
 import {
-  getWhereUniqueDiscriminator,
   getWhereUniqueEntries,
   getWhereUniqueFilters,
 } from "../query-engine/builders/where-unique-builder";
@@ -22,6 +21,7 @@ import {
   assertUpdateOwnWriteSafety,
 } from "../query-engine/OwnWriteAnalyzer";
 import {
+  buildCreate,
   buildFind,
   buildFindUnique,
   buildUpdate,
@@ -40,6 +40,7 @@ import {
   presenceGuard,
   queryFailure,
   raceableQueryFailure,
+  referenceSql,
 } from "./fragment-builders";
 import { upsertSkipPremiseChanged } from "./messages";
 import {
@@ -70,6 +71,22 @@ interface ArmResult {
   readonly steps: OperationStep[];
   readonly resultId: string;
 }
+
+/**
+ * How the scalar create arm addresses the row its INSERT actually writes.
+ *
+ * - `known` — every primary-key field is a literal in the create data, so the
+ *   read-back targets that primary key directly.
+ * - `generated` — the model's single primary key is a DB-generated identity
+ *   (`increment`) the create data omits, so the INSERT must CAPTURE the value the
+ *   database produced and the read-back addresses the row by it.
+ *
+ * There is deliberately no third shape: any other create payload names no row the
+ * upsert can read back, and `createArmIdentity` refuses instead of guessing.
+ */
+type CreateArmIdentity =
+  | { readonly kind: "known"; readonly where: Record<string, unknown> }
+  | { readonly kind: "generated"; readonly field: string };
 
 /** A validated conditional filter on the located row (`targetWhere`/`setWhere`). */
 interface Conditional {
@@ -394,21 +411,28 @@ export class UpsertOperation {
       return { steps, resultId: resultStepId(fragment, "upsert create arm") };
     }
     const parent = createQueryScope(this.engine.adapter, this.model);
+    // How this INSERT's row will be addressed afterwards — decided BEFORE the
+    // statement is built, because a DB-generated identity changes the statement
+    // itself (it has to capture the value the database produces).
+    const identity = this.createArmIdentity();
     const create: StatementStep = {
       id: this.createId,
       kind: "write",
-      statement: buildInsert(parent, getTableName(this.model), this.createData),
-      outputs: {},
+      ...this.createArmInsert(parent, identity),
       // The missing premise is enforced by the unique constraint the `where`
       // targets; its violation is the raceable create-branch signal — but only
       // when the locate actually PROVED that premise (see `createArmRacePin`).
       ...this.createArmRacePin(parent),
     };
-    // The created row is read back by its own primary key when the create data
-    // carries it — the `where` may target a non-PK unique the create data does
-    // not reproduce, so reading by `where` could miss the row it just inserted.
+    // The terminal read addresses the row this INSERT wrote — its literal primary
+    // key, or the identity the INSERT captured. Never the `where`: the `where` may
+    // target a unique the create data does not reproduce, and then reading by it
+    // answers with a DIFFERENT row (or none at all).
     return {
-      steps: [create, this.buildTerminal(this.createArmTerminalWhere())],
+      steps: [
+        create,
+        this.buildTerminal(this.createArmTerminalWhere(identity)),
+      ],
       resultId: this.terminalId,
     };
   }
@@ -673,32 +697,111 @@ export class UpsertOperation {
   }
 
   /**
-   * The create arm's terminal where: the created row's primary key when the
-   * create data carries every PK field (the common provided-PK case), else the
-   * original `where` — the fallback for an auto-generated identity, whose created
-   * row is addressable only by the unique `where` it was inserted to satisfy.
+   * How the scalar create arm addresses the row it is about to INSERT — decided
+   * from the CREATE DATA, never from the `where`.
+   *
+   * Prisma does not require `create` to satisfy `where`, so the `where` names a
+   * row that may not be the one the INSERT writes. Reading back by it is a silent
+   * wrong answer whenever the two diverge: with an extended `where` (unique key
+   * matches, filter excludes → create arm) the unique half addresses the very row
+   * the filter EXCLUDED, so the upsert would return a pre-existing row it never
+   * touched; with a plain `where` it addresses a row that does not exist and the
+   * terminal read fails. Both are fixed at the source — by addressing the row that
+   * was actually inserted:
+   *
+   * - every PK field is a literal in the create data → that primary key;
+   * - the model's single PK is a DB-generated `increment` identity the create data
+   *   omits → the INSERT captures what the database produced (see
+   *   {@link UpsertOperation.createArmInsert}) and the read-back references it,
+   *   exactly as {@link CreateOperation}'s root create does.
+   *
+   * Anything else names no row this operation can read back, so it is refused
+   * rather than guessed at — and only when the create arm is actually TAKEN (this
+   * runs at compile), so an upsert that updates is never affected.
    */
-  private createArmTerminalWhere(): Record<string, unknown> {
-    const hasEveryPk = this.parentPrimaryKeys.every(
-      (pk) => this.createData[pk] !== undefined
+  private createArmIdentity(): CreateArmIdentity {
+    const missing = this.parentPrimaryKeys.filter(
+      (pk) => this.createData[pk] === undefined
     );
-    // DISCRIMINATOR ONLY. The fallback addresses the row the `where` NAMES, and
-    // the created row satisfies only that: an extended `where`'s filter half is
-    // precisely what sent this upsert down the create arm, so re-applying it to
-    // the read-back would find nothing (`{ email, archived: false }` on an
-    // archived row creates, and the created row need not be unarchived).
-    if (!hasEveryPk) {
-      return getWhereUniqueDiscriminator(
-        createQueryScope(this.engine.adapter, this.model),
-        this.parentWhere
-      );
+    if (missing.length === 0) {
+      return {
+        kind: "known",
+        where: buildPrimaryKeyWhereUnique(
+          this.model,
+          Object.fromEntries(
+            this.parentPrimaryKeys.map((pk) => [pk, this.createData[pk]])
+          )
+        ),
+      };
     }
-    return buildPrimaryKeyWhereUnique(
-      this.model,
-      Object.fromEntries(
-        this.parentPrimaryKeys.map((pk) => [pk, this.createData[pk]])
-      )
+    const [only] = this.parentPrimaryKeys;
+    if (
+      this.parentPrimaryKeys.length === 1 &&
+      only !== undefined &&
+      this.model["~"].state.scalars[only]?.["~"].state.autoGenerate ===
+        "increment"
+    ) {
+      return { kind: "generated", field: only };
+    }
+    throw new UnsupportedOperationError(
+      `query-engine-v2 upsert cannot read back the row its create arm inserts for '${getStepModelName(this.model, "record")}': primary key '${missing.join(", ")}' is neither carried by the create data nor a single database-generated identity.`
     );
+  }
+
+  /**
+   * The create arm's INSERT statement and outputs. A `known` identity is a plain
+   * INSERT that produces nothing. A `generated` identity must CAPTURE what the
+   * database assigned: `INSERT … RETURNING pk` on a returning driver in
+   * transaction mode, else the driver's `insertId` (which the executor threads
+   * through its batch-ref scratch store in batch mode) — the same two shapes
+   * {@link CreateOperation}'s root INSERT uses.
+   */
+  private createArmInsert(
+    parent: QueryScope,
+    identity: CreateArmIdentity
+  ): Pick<StatementStep, "statement" | "outputs"> {
+    if (identity.kind === "known") {
+      return {
+        statement: buildInsert(
+          parent,
+          getTableName(this.model),
+          this.createData
+        ),
+        outputs: {},
+      };
+    }
+    const capture =
+      this.mode === "transaction" &&
+      this.engine.adapter.capabilities.supportsReturning;
+    return {
+      statement: capture
+        ? buildCreate(parent, {
+            data: this.createData,
+            select: { [identity.field]: true },
+          })
+        : buildInsert(parent, getTableName(this.model), this.createData),
+      outputs: {
+        id: capture
+          ? { kind: "firstRowField", field: identity.field }
+          : { kind: "insertId" },
+      },
+    };
+  }
+
+  /** The create arm's terminal where: the literal primary key the create data
+   *  carries, or a backward reference to the identity the INSERT captured. */
+  private createArmTerminalWhere(
+    identity: CreateArmIdentity
+  ): Record<string, unknown> {
+    if (identity.kind === "known") return identity.where;
+    return {
+      [identity.field]: referenceSql(
+        this.engine,
+        this.model,
+        identity.field,
+        ref(this.createId, "id")
+      ),
+    };
   }
 
   private pkSelect(): Record<string, boolean> {

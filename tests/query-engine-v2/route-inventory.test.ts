@@ -625,17 +625,32 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // UPDATE address the target by a literal — an honest typed refusal, never silent
   // wrongness). Net +1 site; the absorbed accept-and-execute shape is covered by the
   // shared M2M behavior suite (generated-PK fixture) on every driver leg.
+  //
+  // 77 -> 78 (upsert create-arm read-back addresses the WRITE, review round U1): the scalar
+  // create arm no longer reads its created row back through the `where`'s unique
+  // discriminator. `create` is under no obligation to satisfy `where`, so the discriminator
+  // could name a DIFFERENT live row — with an extended `where` (unique key matches, filter
+  // excludes → create arm) it named exactly the row the filter had excluded, and the upsert
+  // returned a record it never wrote. `UpsertOperation.createArmIdentity` now decides from the
+  // CREATE DATA: a literal primary key, or — for a single DB-generated `increment` PK — the
+  // identity the INSERT captures (firstRowField / insertId), the same capture
+  // `CreateOperation`'s root INSERT performs. Its `else` is the NEW site (+1): a create payload
+  // whose row has no determinable identity (a partially-supplied compound PK, a generated
+  // compound PK) names no row to read back, so it is an honest typed refusal raised only when
+  // the create arm is actually TAKEN — never a silently wrong row. No shape that previously
+  // ANSWERED is refused: every reachable model either carries its PK literally or has the
+  // single generated PK the capture covers. See PLAN "W4-U1 — Correction (review round U1)".
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
-    const dir = join(__dirname, "../../src/query-engine-v2");
+    const dir = join(import.meta.dirname, "../../src/query-engine-v2");
     const files = (await readdir(dir)).filter((f) => f.endsWith(".ts"));
     let sites = 0;
     for (const file of files) {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(77);
+    expect(sites).toBe(78);
   });
 });
 
