@@ -1,0 +1,196 @@
+---
+title: Decimal
+description: Exact decimal scalar — string-backed, never rounded through a float
+icon: Sigma
+---
+
+## Basic Usage
+
+```ts
+import { s } from "viborm";
+
+s.decimal(); // Required decimal
+s.decimal().nullable(); // string | null
+s.decimal().default("0"); // With default
+```
+
+A decimal **reads back as a `string`** — the exact canonical spelling of the
+value in the column, at any precision:
+
+```ts
+await db.invoice.create({ data: { total: "1234.56" } });
+
+const invoice = await db.invoice.findFirstOrThrow();
+invoice.total; // "1234.56"  (a string, not 1234.56)
+```
+
+This is not a stylistic choice. `numeric` on Postgres and `DECIMAL(65,30)` on
+MySQL hold values a JavaScript `number` cannot: a `number` is an IEEE-754
+double, good for about 15 significant digits. Handing you a `number` would mean
+handing you a value that quietly disagrees with the database — which is exactly
+what `s.decimal()` exists to prevent. Use [`s.float()`](/docs/schema/scalars/number)
+when approximate is genuinely fine.
+
+<Callout type="info">
+  Prisma solves this the same way underneath: its `Decimal` is a `decimal.js`
+  instance, and `decimal.js` serializes to a string. viborm returns the string
+  itself, so there is no extra type to import and nothing to convert before
+  `JSON.stringify`.
+</Callout>
+
+## Writing
+
+Writes accept a **`string` or a `number`**.
+
+```ts
+await db.invoice.create({ data: { total: "1234.56" } }); // exact
+await db.invoice.create({ data: { total: 1234.56 } }); // convenient
+```
+
+A **string** must be an exact decimal literal: an optional sign, digits, and at
+most one dot. No exponent, no whitespace, no `NaN` — anything else is a
+validation error rather than a guess.
+
+```ts
+"1234.56"; // ok
+"-0.000000000000000000000000000001"; // ok — 30 digits, all of them kept
+"1e3"; // rejected: exponent form is a float spelling
+"1,5"; // rejected
+```
+
+A **number** is accepted for convenience, with one caveat worth internalising:
+a JS number is already a double, so any float error your code made before
+handing it over travels in with it. viborm binds the double's own exact
+spelling rather than inventing a tidier value you never had.
+
+```ts
+await db.invoice.create({ data: { total: 0.1 + 0.2 } });
+// stored as 0.30000000000000004 — the value you actually passed
+```
+
+If the number came from user input or arithmetic, keep it a string end-to-end.
+
+### One value, one spelling
+
+Values are canonicalized on the way in and on the way out, so a number has
+exactly one representation:
+
+```ts
+"1.10"  ->  "1.1"
+"+1.5"  ->  "1.5"
+"007"   ->  "7"
+"-0.00" ->  "0"
+```
+
+`{ total: "1.1" }` and `{ total: "1.10" }` therefore match the same rows.
+
+## Comparison and arithmetic happen in the database
+
+No decimal ever passes through JavaScript float math. Filter operands are bound
+into the dialect's exact decimal type (`CAST(? AS NUMERIC)` on Postgres,
+`CAST(? AS DECIMAL(65,30))` on MySQL), and atomic updates run server-side:
+
+```ts
+await db.account.update({
+  where: { id },
+  data: { balance: { increment: "0.2" } }, // exact, in SQL
+});
+```
+
+Starting from `0.1`, that leaves `0.3` — not `0.30000000000000004`.
+
+Aggregates over decimals come back as exact strings too:
+
+```ts
+const { _sum } = await db.invoice.aggregate({ _sum: { total: true } });
+_sum.total; // "10450.75"  (string)
+```
+
+## SQLite: what is exact and what is refused
+
+SQLite has **no exact decimal type**. Its `DECIMAL` is a spelling with NUMERIC
+affinity, so any fractional value lands in a double. viborm therefore stores
+decimals in a **`TEXT`** column on SQLite, which keeps storage and reads exact
+at any precision — and **refuses** the operations it could only answer through a
+double, rather than answering them approximately.
+
+| Operation                                            | postgres | mysql | sqlite                    |
+| ---------------------------------------------------- | -------- | ----- | ------------------------- |
+| Read / write round-trip                              | exact    | exact | exact                     |
+| `equals`, `not`, `in`, `notIn`                       | exact    | exact | exact                     |
+| `lt` / `lte` / `gt` / `gte`, `orderBy`               | exact    | exact | **`UnsupportedOperationError`** |
+| `_min` / `_max` / `_sum` / `_avg`                    | exact    | exact | **`UnsupportedOperationError`** |
+| `increment` / `decrement` / `multiply` / `divide`    | exact    | exact | **`UnsupportedOperationError`** |
+| `set`, `count`, `distinct`, `groupBy` on the column  | exact    | exact | exact                     |
+
+Equality is exact on SQLite because every value has one canonical spelling, so
+text equality *is* numeric equality. Ordering is not: byte order puts `"10"`
+before `"9"`, and the cast that would fix it goes through a double and starts
+losing digits past ~15 significant figures. A `gt` that silently skips a row is
+worse than an error, so it is an error.
+
+If you need ordered decimals on SQLite, the two honest options are
+[`s.float()`](/docs/schema/scalars/number) (approximate, and says so) or scaled
+integers in an [`s.bigInt()`](/docs/schema/scalars/bigint) — cents rather than
+dollars.
+
+## Column types
+
+| | postgres  | mysql             | sqlite |
+| --- | --------- | ----------------- | ------ |
+| Default | `numeric` | `DECIMAL(65,30)` | `TEXT` |
+
+Bare `DECIMAL` on MySQL would mean `DECIMAL(10,0)` and silently truncate every
+fraction, so the default matches Prisma's `DECIMAL(65,30)`. Override any of
+them via [Native Types](/docs/schema/native-types).
+
+<Callout type="warn">
+  **Upgrading an existing SQLite database.** The column type moves `REAL` →
+  `TEXT`. `push`/`diff` surface this as an altered column — it is not silent.
+  Values already stored as `REAL` migrate as SQLite converts them to text, so a
+  value the old `REAL` column already rounded **stays rounded**: the migration
+  cannot recover digits the double discarded. Re-import from your source of
+  truth if any row carried more than ~15 significant digits.
+</Callout>
+
+## Migrating from `number` decimals
+
+Reads change from `number` to `string`. In most code that is
+`Number(row.total)` at the display edge, or nothing at all if the value was
+already being formatted. Comparisons in JS (`row.total > 100`) are the ones to
+look for — prefer pushing them into the query, where they are exact anyway.
+
+For a deploy that cannot change every read at once, there is a **transitional**
+client option:
+
+```ts
+const db = createClient({
+  schema,
+  driver,
+  decimal: "number", // legacy decode — removed next release
+});
+```
+
+It restores the old runtime shape **only**. The static types still say `string`,
+so your editor will keep flagging every site, and the precision loss comes back
+with it. Writes and filters stay exact underneath, so the digits remain in the
+database and turning the option off recovers them. Treat it as a migration aid
+with a deadline, not a supported mode.
+
+## Examples
+
+```ts
+import { pipe, string, regex } from "valibot";
+
+// Money
+const total = s.decimal().default("0");
+
+// A price that must carry exactly two decimal places
+const price = s.decimal().schema(pipe(string(), regex(/^\d+\.\d{2}$/)));
+
+// Nullable percentage
+const discountRate = s.decimal().nullable();
+```
+
+`.schema()` on a decimal refines the **string** form, since that is what the
+scalar produces.

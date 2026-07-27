@@ -10,14 +10,14 @@ icon: Hash
 | ------------- | ---------- | ---------------------- | ---------------------------------------------- |
 | `s.int()`     | `number`   | Whole numbers          | Counts, IDs, quantities                        |
 | `s.float()`   | `number`   | Approximate            | Scientific data, coordinates, ratings          |
-| `s.decimal()` | `number`   | Exact                  | Money, percentages, anything you'd audit       |
+| `s.decimal()` | `string`   | Exact, any precision   | Money, percentages, anything you'd audit — see [Decimal](/docs/schema/scalars/decimal) |
 
 ```ts
 import { s } from "viborm";
 
 s.int(); // Required integer
 s.float().nullable(); // number | null
-s.decimal().default(0); // With default
+s.decimal().default("0"); // With default — a decimal is a string
 ```
 
 All three support the full [modifier reference](/docs/schema/scalars) (`.nullable()`, `.array()`, `.id()`, `.unique()`, `.default()`, `.schema()`, `.map()`). Column types (`SMALLINT`, `DECIMAL(10,2)`, unsigned variants, ...) are configured via [Native Types](/docs/schema/native-types).

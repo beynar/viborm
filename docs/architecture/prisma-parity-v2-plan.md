@@ -864,6 +864,35 @@ so a projection that still FETCHED the column would throw rather than pass.
 | W6-U1 | L | **Decimal (per D-3).** String-backed decode for `numeric`/`DECIMAL(65,30)`; accept `string \| number` on write; filters compare via SQL (no JS float math); SQLite column type moves `REAL` → `TEXT`-with-numeric-affinity decision (pin with migration note). Migration path: one release with `decimal: "number"` legacy opt-in. |
 | W6-U2 | S | **BigInt hole on `bun-sqlite`** — add the missing safe-integers opt-in (matrix defect §2.9-6; belongs here since it's the same "types are exact" theme). |
 
+### W6-U1 — DELIVERED
+
+Shipped as pinned below. What landed, and the two things worth knowing that the
+contract alone does not say:
+
+- **A dead-code DDL bug surfaced.** `getSQLiteType()` routed `decimal` to the
+  FLOAT default, so `SQLITE_TYPE_DEFAULTS.decimal` had never been read. The
+  first `TEXT` mapping therefore did nothing, and the conformance test caught it
+  by reading a 30-digit value back as `"1"`. Both are fixed.
+- **The refusal is capability-driven, not dialect-driven.** A new adapter flag
+  `supportsExactDecimal` carries it, so the query engine never names SQLite (the
+  Rule 1 boundary holds). The four refusal sites are the where-builder's ordered
+  comparisons, the orderby-builder, the aggregate builder, and the set-builder's
+  arithmetic.
+- **`_avg` had to move.** It normally widens to a JS number; for a decimal field
+  it now routes through the typed field parser like `_sum`/`_min`/`_max`, since
+  an average of decimals is still a decimal.
+
+**Public breaks, all carried through internally and in tests:** decimal result
+types are `string` (including through relations, in `_min`/`_max`, and now in
+`_sum`/`_avg`); `.schema()` on a decimal refines the string form; the SQLite
+column type is `TEXT`.
+
+**Verification:** `tsc` clean; a new shared driver suite
+(`tests/drivers/decimal-exactness-behavior.ts`) wired into every driver leg
+including docker, with fixtures chosen to discriminate numeric from
+lexicographic ordering (`"9"` vs `"10"`, `"0.10"` vs `"0.9"`) and from float
+corruption (30-digit values, 2^53+1, `0.1 + 0.2`); gates 43/43.
+
 ### W6-U1 — Decimal: the research, and the contract it pins
 
 #### What Prisma actually does
