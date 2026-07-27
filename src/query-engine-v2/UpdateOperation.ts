@@ -1608,14 +1608,11 @@ export class UpdateOperation {
       case "update":
         // Correlated targeted update with NO unique selector — the FK correlation
         // (fk = parent) is the whole locator (TO-ONE.md §7.2). W4-U3's optional
-        // `{ where, data }` wrapper is read off the USER's payload (`mutation.update`)
-        // and narrows that locator; see `splitToOneUpdateTarget`.
+        // `{ where, data }` wrapper arrives already told apart from bare data by the
+        // relation schema, as its canonical envelope; the filter narrows that
+        // locator. See `splitToOneUpdateTarget`.
         input.childParts.push(
-          buildToOneUpdatePart(
-            writeBase,
-            parsedRelation.update,
-            input.mutation.update
-          )
+          buildToOneUpdatePart(writeBase, parsedRelation.update)
         );
         return;
       case "upsert":
@@ -1955,17 +1952,15 @@ export class UpdateOperation {
         );
         return;
       case "update": {
-        // W4-U3: the to-one `update` payload is either bare data or Prisma's
-        // `{ where?, data }` wrapper, told apart by the one structural rule
-        // ({@link splitToOneUpdateTarget}) — read off the USER's payload
-        // (`mutation.update`), since the relation schema's output rewrites scalar
-        // shorthands and would misreport the form. The wrapper's `where` is a
-        // NON-unique filter on the currently connected record; it rides the locate,
-        // never the write. The bare form yields no filter and is byte-identical to
-        // pre-W4-U3.
+        // W4-U3: the to-one `update` payload reaches here as the relation schema's
+        // canonical envelope — bare data and Prisma's `{ where?, data }` wrapper are
+        // told apart ONCE, at the parse, off the user's own payload (a schema output
+        // rewrites scalar shorthands and is not a faithful witness of the form). The
+        // wrapper's `where` is a NON-unique filter on the currently connected record;
+        // it rides the locate, never the write. The bare form yields no filter and is
+        // byte-identical to pre-W4-U3.
         const target = splitToOneUpdateTarget(
-          normalizeSingle(input.parsedRelation.update, relationName, "update"),
-          input.mutation.update
+          normalizeSingle(input.parsedRelation.update, relationName, "update")
         );
         // X1c: a parent-held to-one UPDATE target whose own data carries the
         // located-target projection of mechanism 1/2 (a deeper parent-held to-one —

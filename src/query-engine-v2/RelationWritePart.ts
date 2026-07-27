@@ -1179,29 +1179,16 @@ export function buildToManyUpdateParts(
  * yields `{ data }` for a to-one). The captured PK is the single correlated child;
  * the write addresses it (V1's mutation-identity).
  *
- * W4-U3: the payload is either bare data or Prisma 5's `{ where?, data }` wrapper,
- * split by the one structural rule ({@link splitToOneUpdateTarget}). The wrapper's
- * `where` is a NON-unique filter the connected record must satisfy; it joins the
- * correlated probe (and the batch guard), so a filter-miss is the family's existing
- * `Cannot update … for this parent` abort. The bare form yields no filter and every
- * step is byte-identical to pre-W4-U3. `rawData` is the USER's payload, which the
- * form is read off (an update ROOT hands the schema OUTPUT as `data`, and that
- * output rewrites scalar shorthands); one level deeper the two are the same value.
+ * W4-U3: the payload arrives as the relation update schema's canonical
+ * `{ data, where? }` envelope — the ONE place the bare/wrapper spellings are told
+ * apart is that parse, off the user's own payload ({@link splitToOneUpdateTarget}).
+ * The wrapper's `where` is a NON-unique filter the connected record must satisfy; it
+ * joins the correlated probe (and the batch guard), so a filter-miss is the family's
+ * existing `Cannot update … for this parent` abort. The bare form yields no filter
+ * and every step is byte-identical to pre-W4-U3, at the root and at every depth.
  */
-export function buildToOneUpdatePart(
-  base: WritePartBase,
-  data: unknown,
-  rawData: unknown = data
-): Part {
-  if (!(data && typeof data === "object" && !Array.isArray(data))) {
-    throw new QueryEngineError(
-      `query-engine-v2 update for relation '${base.relationName}' requires a data object.`
-    );
-  }
-  const target = splitToOneUpdateTarget(
-    data as Record<string, unknown>,
-    rawData
-  );
+export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
+  const target = splitToOneUpdateTarget(data);
   // X1c: an inverse-side to-one target whose data carries a parent-held to-one write
   // (child-SET folding) or a D4 edge delegates its whole update to the update root,
   // located by the FK correlation alone (a to-one carries no unique `where`).

@@ -313,18 +313,27 @@ an object carrying a `data` key whose value is a plain object IS the envelope, a
 else is bare data — Prisma's own rule, applied STRUCTURALLY rather than by union
 try-order. The relation update schema dispatches on it (`toOneUpdateTargetFactory`,
 mirroring `toOneFilterFactory`'s deterministic-dispatch union, so a malformed envelope
-reports the envelope's own error instead of a union-wide miss), and the engine splits
-every to-one `update` payload with `splitToOneUpdateTarget` at all three call sites.
+reports the envelope's own error instead of a union-wide miss).
 
-**The trap this unit had to disarm.** The rule may only be read off the USER's payload,
-never a schema output: `core.update` rewrites the scalar shorthand, so on a model that
-owns a field named `data` the BARE `{ data: 7 }` parses to `{ data: { set: 7 } }` —
-which the structural rule then reads as an envelope, silently dropping the assignment
-("No fields to update"). `splitToOneUpdateTarget(parsed, raw)` therefore takes the FORM
-from `raw` (`mutation.update` at an update root; the same value one level deeper, where
-no per-relation output exists) and the VALUES from `parsed`, and both halves must agree
-before the envelope reading is taken. Caught by the `data`-named-field witness before it
-could ship.
+**The trap this unit had to disarm, and how it is actually disarmed.** The rule may only
+be read off the USER's payload, never a schema output: `core.update` rewrites the scalar
+shorthand, so on a model that owns a field named `data` the BARE `{ data: 7 }` parses to
+`{ data: { set: 7 } }` — which the structural rule then reads as an envelope, silently
+dropping the assignment ("No fields to update"). The first delivery threaded the raw
+payload alongside the parsed one (`splitToOneUpdateTarget(parsed, raw)`) and took the
+FORM from `raw`. That works only where a raw payload exists, i.e. at an update ROOT: one
+level deeper the engine walks the enclosing whole-args parse OUTPUT, so `raw` defaulted
+to `parsed` and the two readings disagreed again — the `data`-named collision regressed
+at depth ≥ 2 (in-place, "No fields to update") and under an X1c delegated target
+(re-parse, "Unknown key: set"). **The fix round replaced the threading with
+canonicalization**: `toOneUpdateTargetFactory` emits the SAME `{ data, where? }` envelope
+for BOTH spellings, so the rule is applied exactly ONCE, at the only place that sees the
+user's payload, and no later reader re-derives it. `splitToOneUpdateTarget(parsed)` is now
+a projection of that envelope and fails closed on anything else. The envelope is also
+IDEMPOTENT under re-parse (it always takes the wrapper arm the second time), which is what
+makes the X1c nested-target delegation — which re-parses an already-parsed subtree —
+meaning-preserving. Witnessed by `a target field named 'data' reads the same way at depth`
+and `… under a delegated target`, both of which fail if the canonicalization is removed.
 
 **Documented collision, deliberate:** a target model owning a field named `data` cannot
 use the BARE spelling when that field's payload is an object; the escape is the explicit
@@ -343,17 +352,28 @@ write statement, a RELATION filter inside the envelope's `where` IS portable her
 unlike inside a top-level extended unique `where`, which W4-U1 refuses for exactly that
 reason (MySQL error 1093 on a subquery reading the mutated table).
 
-**Evidence.** `tests/query-engine-v2/to-one-update-where-behavior.ts` — 13 cases ×
+**Evidence.** `tests/query-engine-v2/to-one-update-where-behavior.ts` — 15 cases ×
 PGlite tx/batch, SQLite3 tx/batch, LibSQL tx/batch, pg tx/batch, MySQL2 tx — covering
 all four engine paths a to-one `update` can take (parent-held in-place, parent-held
 delegated, inverse-side in-place, inverse-side delegated) plus the depth path, each with
 filter hit AND filter miss, the miss asserting a full-tree snapshot equal to the seed.
 Plus a relation filter in the envelope `where`, `AND`/`OR`/`NOT`, an empty `where`, the
-`data`-named-field collision and its escape, and bare-form regression witnesses on both
-directions and at depth. Two structural tests in `to-one-update-where.test.ts` pin WHERE
-the filter lands: present in the probe SQL, absent from the write SQL, with the bare form
-as the falsification (its probe carries no filter at all, and its write SQL is byte-equal
-to the envelope's).
+`data`-named-field collision and its escape at the ROOT, at DEPTH and under a DELEGATED
+target, and bare-form regression witnesses on both directions and at depth.
+
+`to-one-update-where.test.ts` pins the mechanism per direction (parent-held and
+inverse-side build their guards from different code, so both are asserted):
+- WHERE the filter lands — present in the probe SQL, absent from the write SQL, with the
+  bare form as the falsification (its probe carries no filter at all, and its write SQL
+  is byte-equal to the envelope's);
+- that the batch guard's **premise** carries the filter (`guard.premise.statement`), not
+  merely that a guard exists — the count-only version of this assertion passed with the
+  filter deleted from the parent-held guard, so it was replaced;
+- a STALENESS-INJECTION witness (PLAN P2a instrument 3): a before-batch hook makes the
+  connected record stop matching the envelope `where` after planning decided it did, and
+  the batch must abort with the typed not-found failure, whole tree unchanged. This is
+  the only protection on the transaction-less drivers (MySQL, D1), and both it and the
+  premise assertion fail when the filter is dropped from the guard.
 
 ### W4-U4 — DELIVERED
 

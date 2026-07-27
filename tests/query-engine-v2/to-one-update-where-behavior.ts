@@ -151,6 +151,10 @@ export const toOneUpdateWhereSchema = (() => {
       id: s.int().id(),
       body: s.string(),
       visible: s.boolean(),
+      // The DEPTH collision witness: a `data`-named scalar on a model that is only
+      // reachable one level under another nested update target (`box` is the same
+      // witness at the root). See section 8.
+      data: s.int(),
       noteId: s.int().nullable().unique(),
       note: s
         .oneToOne(() => note)
@@ -233,7 +237,7 @@ export function runToOneUpdateWhereBehavior(options: {
         data: { id: 4, title: "title-0", ownerId: 1 },
       });
       await client.detail.create({
-        data: { id: 5, body: "body-0", visible: true, noteId: 4 },
+        data: { id: 5, body: "body-0", visible: true, data: 5, noteId: 4 },
       });
       return { client, dispose: () => client.$disconnect() };
     };
@@ -277,7 +281,7 @@ export function runToOneUpdateWhereBehavior(options: {
       }),
       detail: await client.detail.findUnique({
         where: { id: 5 },
-        select: { body: true },
+        select: { body: true, data: true },
       }),
     });
 
@@ -287,7 +291,7 @@ export function runToOneUpdateWhereBehavior(options: {
       badge: { label: "label-0", themeId: 20 },
       box: { data: 5 },
       note: { title: "title-0" },
-      detail: { body: "body-0" },
+      detail: { body: "body-0", data: 5 },
     };
 
     // -- 1. parent-held to-one, in place ------------------------------------
@@ -743,6 +747,99 @@ export function runToOneUpdateWhereBehavior(options: {
             data: 9,
           }
         );
+      })
+    );
+
+    // The SAME model-owns-`data` collision one level deeper, where the engine sees
+    // only the enclosing parse's OUTPUT. The form must read identically at every
+    // depth: the scalar shorthand is bare, the object payload is the wrapper, and
+    // the explicit wrapper is the escape. Before the canonical envelope the depth
+    // reading disagreed with the root's — the bare `{ data: 7 }` arrived as the
+    // rewritten `{ data: { set: 7 } }` and was misread as the wrapper.
+    test(
+      "a target field named `data` reads the same way at depth",
+      { timeout: 30_000 },
+      run(async (client) => {
+        const deep = (detailUpdate: unknown) => ({
+          where: { id: 1 },
+          data: {
+            notes: {
+              update: {
+                where: { id: 4 },
+                data: { detail: { update: detailUpdate } },
+              },
+            },
+          },
+        });
+
+        // BARE, scalar shorthand — unambiguous, and it must still be bare here.
+        await client.owner.update(deep({ data: 7 }) as never);
+        expect(
+          await client.detail.findUnique({ where: { id: 5 } })
+        ).toMatchObject({ data: 7 });
+
+        // OBJECT payload — the documented collision, identical to the root reading.
+        const error = await rejection(
+          client.owner.update(deep({ data: { set: 9 } }) as never)
+        );
+        expect(error).toBeInstanceOf(ValidationError);
+        expect(
+          await client.detail.findUnique({ where: { id: 5 } })
+        ).toMatchObject({ data: 7 });
+
+        // The documented escape, at depth.
+        await client.owner.update(
+          deep({ data: { data: { set: 9 } } }) as never
+        );
+        expect(
+          await client.detail.findUnique({ where: { id: 5 } })
+        ).toMatchObject({ data: 9 });
+
+        // …and the wrapper's filter still filters on that model, at depth.
+        const filtered = await rejection(
+          client.owner.update(
+            deep({ where: { data: 5 }, data: { data: 11 } }) as never
+          )
+        );
+        expect(filtered).toBeInstanceOf(NestedWriteError);
+        expect(
+          await client.detail.findUnique({ where: { id: 5 } })
+        ).toMatchObject({ data: 9 });
+      })
+    );
+
+    // The X1c DELEGATED depth path (the second site the parsed-output reading
+    // collapsed on): the note target holds a parent-held to-one write, so its WHOLE
+    // update delegates to an `UpdateOperation` in nested-target mode — which
+    // re-parses the ALREADY-parsed relation payload. Only a form that survives
+    // re-parse unchanged reads correctly here.
+    test(
+      "a target field named `data` reads the same way under a delegated target",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.owner.update({
+          where: { id: 1 },
+          data: {
+            notes: {
+              update: {
+                where: { id: 4 },
+                data: {
+                  // Re-binds note 4 to the owner it already has: harmless, and it
+                  // forces the X1c whole-target delegation.
+                  owner: { connect: { id: 1 } },
+                  title: "title-1",
+                  detail: { update: { data: 7 } },
+                },
+              },
+            },
+          },
+        });
+        expect(
+          await client.detail.findUnique({ where: { id: 5 } })
+        ).toMatchObject({ data: 7, body: "body-0" });
+        expect(
+          await client.note.findUnique({ where: { id: 4 } })
+        ).toMatchObject({ title: "title-1", ownerId: 1 });
       })
     );
 

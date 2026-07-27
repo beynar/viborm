@@ -5,7 +5,7 @@ import type { RelationState } from "@schema/relation/types";
 import { getInverseRelationMap as getInverseRelationMapRuntime } from "@schema/relation/types";
 import type { ScalarSchemas } from "../model";
 import { getNestedScalarCreateWithOmittedRequiredKeys } from "../model/core/create";
-import { createSchema, validateSchema } from "../primitives/helpers";
+import { createSchema, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import type {
@@ -14,7 +14,10 @@ import type {
   InverseRequiredKeys,
 } from "./create";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
-import { isToOneUpdateWrapper } from "./to-one-update-form";
+import {
+  isToOneUpdateWrapper,
+  toOneUpdateEnvelope,
+} from "./to-one-update-form";
 
 // =============================================================================
 // UPDATE FACTORY IMPLEMENTATIONS
@@ -37,10 +40,14 @@ type ToOneUpdateWrapperSchema<S extends RelationState> = V.Object<
  * A to-one nested `update` payload: bare data OR the `{ where?, data }` wrapper.
  * Dispatch is DETERMINISTIC and structural — an object carrying a `data` key whose
  * value is an object is the wrapper, everything else is bare data — so a malformed
- * wrapper surfaces the wrapper's own error rather than a union-wide miss, and the
- * query engine can split the RAW payload it sees one level deeper by the identical
- * rule. See {@link file://./to-one-update-form.ts} for the rule and its documented
- * collision with a target model that owns a field named `data`.
+ * wrapper surfaces the wrapper's own error rather than a union-wide miss.
+ *
+ * This is the ONE place the rule is applied, because it is the only place that sees
+ * the USER's payload: both arms emit the same canonical `{ data, where? }` envelope,
+ * so no later reader (the update root, a target one level deeper, the nested-target
+ * re-parse) ever has to tell the spellings apart from an output that already
+ * rewrote scalar shorthands. See {@link file://./to-one-update-form.ts} for the rule
+ * and its documented collision with a target model that owns a field named `data`.
  */
 export type ToOneUpdateTargetSchema<S extends RelationState> = V.Union<
   readonly [ToOneUpdateWrapperSchema<S>, GetTargetSchemas<S>["core"]["update"]]
@@ -67,11 +74,16 @@ const toOneUpdateTargetFactory = <
     wrapper as unknown as VibSchema<unknown, unknown>,
     bare as unknown as VibSchema<unknown, unknown>,
   ];
-  const schema = createSchema<unknown, unknown>("union", (value) =>
-    isToOneUpdateWrapper(value)
-      ? validateSchema(wrapper, value)
-      : validateSchema(bare, value)
-  );
+  const schema = createSchema<unknown, unknown>("union", (value) => {
+    if (isToOneUpdateWrapper(value)) return validateSchema(wrapper, value);
+    // The bare arm is CANONICALIZED into the same envelope the wrapper arm emits.
+    // Without it, `core.update`'s scalar-shorthand rewrite makes the bare output of
+    // a model owning a `data` field indistinguishable from a wrapper, and every
+    // reader downstream of this parse would resolve the form differently than the
+    // user wrote it.
+    const parsed = validateSchema(bare, value);
+    return parsed.issues ? parsed : ok(toOneUpdateEnvelope(parsed.value));
+  });
   // Mirror `v.union`'s introspection surface so JSON-schema conversion sees the
   // alternatives it expects (the same shape `toOneFilterFactory` publishes).
   (schema as { options?: unknown }).options = members;
