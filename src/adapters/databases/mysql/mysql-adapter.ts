@@ -204,6 +204,10 @@ export class MySQLAdapter implements DatabaseAdapter {
       integer: "SIGNED",
       boolean: "UNSIGNED",
       numeric: "DECIMAL",
+      // NOT the bare `DECIMAL` above: bare `DECIMAL` is `DECIMAL(10,0)`, which
+      // rounds every fraction away. The exact-decimal cast carries the same
+      // 65/30 the DDL and `literals.decimal` use.
+      decimal: "DECIMAL(65,30)",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`LOWER(HEX(${expr}))`,

@@ -155,6 +155,8 @@ export class PostgresAdapter implements DatabaseAdapter {
       integer: "INTEGER",
       boolean: "BOOLEAN",
       numeric: "NUMERIC",
+      // Same type `literals.decimal` casts into: exact and unconstrained.
+      decimal: "NUMERIC",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`encode(${expr}, 'hex')`,

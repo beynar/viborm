@@ -1182,6 +1182,90 @@ string form take `_executeRaw` and stay driver-native.
 **Post-merge verification:** `tsc` clean; full estate green; `test:gates`
 43/43. Docker legs belong to the gate agent and were not run here.
 
+### W6-U1 correction 2 — the exactness contract stopped at the foreign key
+
+**Found by W6 review; fixed on top of the W6 head.** W6-U1's contract says a
+decimal is *stored and compared through the dialect's exact-decimal path*, and
+it held for every column the caller names — except the one column the caller
+never names. A relation-correlated foreign key is lowered by `referenceSql`
+(`src/query-engine-v2/fragment-builders.ts`), which bound the value with
+`literals.value` under `getScalarCastType`. That function answered `"numeric"`
+for a decimal. So the PARENT key and the CHILD foreign key holding *the same
+logical value* were bound two different ways inside one statement pair:
+
+| Dialect | parent key | child FK | child's effective domain |
+|---|---|---|---|
+| PostgreSQL | `CAST($1 AS NUMERIC)` | `CAST($2 AS NUMERIC)` | exact — the control that passed |
+| MySQL | `CAST(? AS DECIMAL(65,30))` | `CAST(? AS DECIMAL)` | `DECIMAL(10,0)` |
+| SQLite | `?` (canonical TEXT) | `CAST(? AS NUMERIC)` | REAL |
+
+Two of three dialects wrote a lossy FK against a lossless key, so the two ends
+of one relation stopped matching. This was never confined to high-precision
+values: MySQL's bare `DECIMAL` is `DECIMAL(10,0)`
+(`src/migrations/drivers/type-mapping.ts`), which rounds away **every**
+fraction — a key of `9.5` lands as `10`.
+
+**How it presented depended on one PRAGMA, which is why it read as a rare edge
+case rather than a data-loss bug.** With foreign keys ON (sqlite3, libsql) a
+legal `parent.create({ data: { key, kids: { create: [...] } } })` threw
+`ForeignKeyError` against a parent row that demonstrably existed. With them OFF
+(bun:sqlite's default) the write reported success, the FK column held
+`1.23456789012346e+18`, and the parent's `include` answered `kids: []` — silent
+precision loss on the write plus a silently wrong read. `connect: { key }` failed
+the same way.
+
+**This was a W6 regression, and W6 is where it had to be fixed.** Before W6,
+SQLite mapped decimal to `REAL`, so parent and child rounded *identically* and
+the FK matched — consistently lossy, therefore consistently joinable. W6's
+REAL→TEXT move made the parent exact and left the child rounding, turning a
+uniformly-lossy pair into a mismatched one. (MySQL's `DECIMAL(10,0)` child was
+wrong before W6 too; nothing in the estate wrote a decimal relation key, so
+nothing saw it.)
+
+**Fix, in two halves — both falsified independently:**
+
+1. **`CastType` gains `"decimal"`, split off from `"numeric"`** — a deliberate
+   public-type break, taken in W6 because W6 is the breaking wave.
+   `"numeric"` remains the float cast (`float` still maps to it); `"decimal"` is
+   the exact-decimal domain and maps to what each adapter's `literals.decimal`
+   already casts into: `NUMERIC` on PG, `DECIMAL(65,30)` on MySQL, `TEXT` on
+   SQLite. `getScalarCastType` returns it for decimal fields. This fixes every
+   cast-path FK, including deferred `Ref` and batch-scratch values that cannot
+   be canonicalized at build time. **Blast radius:** `CastType` is exported from
+   `@adapters/database-adapter`; a third-party adapter's `createCastExpression`
+   type map must gain a `decimal` entry or fail to compile — which is the point,
+   since a silently-missing entry is exactly this defect.
+2. **`referenceSql` routes a CONCRETE decimal through `decimalLiteral`** — the
+   same exact-decimal literal, canonicalization included, that every other
+   decimal write uses. The cast alone is not sufficient: SQLite stores the
+   canonical spelling, so `connect: { key: "9.50" }` against a stored `9.5`
+   matches nothing however it is cast. `decimalLiteral` moved from private-to-
+   `values-builder` to exported (taking an adapter, not a `QueryScope`) so
+   there is exactly **one** decimal binding in the codebase; two spellings
+   drifting apart is what produced this.
+
+**Why it shipped green: nothing in the estate wrote a decimal relation key.**
+`s.decimal().id()` appeared in two test files, neither of which wrote an FK
+through a relation. `tests/query-engine/decimal-relation-key-write.test.ts`
+replaces that with 34 cases: live nested `create` / `createMany` / `connect` /
+`connectOrCreate` / non-canonical spelling on PGlite **and** SQLite3, asserting
+on the *link and the stored FK* (never on the absence of a throw — the
+bun:sqlite witness proves an absent throw means nothing); plus, for all three
+dialects including MySQL which has no local leg, that the FK expression is
+byte-identical to the referenced column's own write lowering. That is the
+invariant — *an FK is written like the key it references* — rather than a
+dialect spelling, so it survives a change to any adapter's decimal literal. Two
+further cases pin the deferred-`Ref` cast and pin that `float` was **not**
+dragged into the exact-decimal domain by the split.
+
+**Claims this restores to true** (they were false as shipped, and are now
+correct as written — no doc text needed changing, only the code beneath it):
+`src/query-engine/builders/decimal-portability.ts` "Reads, writes, and equality
+filters … stay exact"; the `docs/content/docs/schema/scalars/decimal.mdx` matrix
+row "Read / write round-trip | exact | exact | exact"; and
+`docs/architecture/capability-matrix-2026-07.md` "exact everywhere — decodes to
+a canonical string, never a double".
+
 ---
 
 ## W7 — Ecosystem: extension system (XL) + optional stretch — **DEFERRED**

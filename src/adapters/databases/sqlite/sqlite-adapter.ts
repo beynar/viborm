@@ -217,6 +217,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
       integer: "INTEGER",
       boolean: "INTEGER",
       numeric: "NUMERIC",
+      // TEXT, matching the storage column and `literals.decimal`. `CAST(x AS
+      // NUMERIC)` would put the canonical spelling through a double — the exact
+      // thing the TEXT column exists to avoid.
+      decimal: "TEXT",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`lower(hex(${expr}))`,

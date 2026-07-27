@@ -1,15 +1,20 @@
 import type { Model } from "@schema/model";
-import type { Sql } from "@sql";
-import { getScalarCastType } from "../query-engine/builders/values-builder";
+import { isSql, type Sql } from "@sql";
+import {
+  decimalLiteral,
+  getScalarCastType,
+  isBatchValueRef,
+} from "../query-engine/builders/values-builder";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope } from "../query-engine/types";
 import { uniqueConflictTarget } from "../query-engine/unique-conflict-target";
 import { upsertPremiseChanged } from "./messages";
-import type {
-  Failure,
-  GuardStep,
-  Postcondition,
-  TargetConstraintPin,
+import {
+  type Failure,
+  type GuardStep,
+  isOperationValueReference,
+  type Postcondition,
+  type TargetConstraintPin,
 } from "./OperationFragment";
 
 /**
@@ -19,6 +24,20 @@ import type {
  * now, update-by-unique context); both ride inside `Sql.values` identically, so
  * create INSERTs and update SETs consume one FK expression regardless of
  * provenance. Clause builders beneath never learn `Ref` exists.
+ *
+ * A CONCRETE DECIMAL takes the exact-decimal literal instead — the same
+ * `decimalLiteral` every other decimal write uses, canonicalization included.
+ * Nothing else will do: a decimal relation key is compared against a parent
+ * column that was written canonically, so `9.50` reaching here as a cast
+ * parameter matches nothing on SQLite (canonical TEXT storage), and the cast
+ * alone cannot fix a spelling. Writing an FK any other way than its referenced
+ * column is how the two ends of one relation came to disagree inside a single
+ * statement pair — silently on drivers with foreign keys off, as a spurious
+ * `ForeignKeyError` on drivers with them on.
+ *
+ * A `Ref` or a pre-built `Sql` cannot be canonicalized here (its value does not
+ * exist yet), so it keeps the cast path — which is now the EXACT-decimal cast
+ * (`getScalarCastType` -> `"decimal"`), not the float `"numeric"` one.
  */
 export function referenceSql(
   engine: QueryEngine,
@@ -26,9 +45,24 @@ export function referenceSql(
   field: string,
   value: unknown
 ): Sql {
-  const sqlValue = engine.adapter.literals.value(value);
   const cast = getScalarCastType(model, field);
+  if (cast === "decimal" && isConcreteFkValue(value)) {
+    return decimalLiteral(engine.adapter, field, value);
+  }
+  const sqlValue = engine.adapter.literals.value(value);
   return cast ? engine.adapter.expressions.cast(sqlValue, cast) : sqlValue;
+}
+
+/** A value whose spelling is knowable NOW — not a deferred symbol, not a
+ *  pre-built fragment, not the absent value of a nullable FK. */
+function isConcreteFkValue(value: unknown): boolean {
+  return (
+    value !== null &&
+    value !== undefined &&
+    !isSql(value) &&
+    !isOperationValueReference(value) &&
+    !isBatchValueRef(value)
+  );
 }
 
 /** The pinned unique target whose violation is the raceable create-branch signal. */

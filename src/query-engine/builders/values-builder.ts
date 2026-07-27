@@ -8,6 +8,7 @@
 import type {
   BatchReferenceSqlAdapter,
   CastType,
+  DatabaseAdapter,
 } from "@adapters/database-adapter";
 import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { Model } from "@schema/model";
@@ -270,7 +271,7 @@ export function buildScalarSqlValue(
   }
 
   if (scalarType === "decimal") {
-    return decimalLiteral(ctx, fieldName, loweredValue);
+    return decimalLiteral(ctx.adapter, fieldName, loweredValue);
   }
 
   return ctx.adapter.literals.value(loweredValue);
@@ -281,12 +282,20 @@ export function buildScalarSqlValue(
  *
  * The value has already been canonicalized by the decimal schema on the way in;
  * canonicalizing again here is cheap and closes the paths that reach a binding
- * without one (a `set` inside an atomic update object, a connect-derived FK).
- * A value that cannot be canonicalized is a bug upstream, not a value to bind —
- * binding it would hand the database a float spelling for an exact column.
+ * without one (a `set` inside an atomic update object, a connect-derived FK,
+ * a relation-correlated FK lowered by `referenceSql`). A value that cannot be
+ * canonicalized is a bug upstream, not a value to bind — binding it would hand
+ * the database a float spelling for an exact column.
+ *
+ * This takes the ADAPTER rather than a `QueryScope` because the FK lowering in
+ * `query-engine-v2/fragment-builders.ts` reaches it holding the destination
+ * model, not the destination scope, and every decimal binding in the codebase
+ * has to be this one function or the two spellings drift apart — which is
+ * exactly how a decimal relation key came to be written two different ways in
+ * one statement pair.
  */
-function decimalLiteral(
-  ctx: QueryScope,
+export function decimalLiteral(
+  adapter: DatabaseAdapter,
   fieldName: string,
   value: unknown
 ): Sql {
@@ -296,7 +305,7 @@ function decimalLiteral(
       `Decimal field '${fieldName}' received a value that is not an exact decimal.`
     );
   }
-  return ctx.adapter.literals.decimal(canonical);
+  return adapter.literals.decimal(canonical);
 }
 
 /**
@@ -326,7 +335,7 @@ export function scalarValueLiteral(
     return ctx.adapter.literals.json(value);
   }
   if (state?.type === "decimal" && value !== null && value !== undefined) {
-    return decimalLiteral(ctx, fieldName, value);
+    return decimalLiteral(ctx.adapter, fieldName, value);
   }
   return ctx.adapter.literals.value(value);
 }
@@ -341,6 +350,14 @@ function castBatchRefValue(
   return castType ? ctx.adapter.expressions.cast(value, castType) : value;
 }
 
+/**
+ * The cast a value must wear to land in this field's column domain.
+ *
+ * `decimal` is deliberately NOT `numeric`: `numeric` is the float cast, and on
+ * two of three dialects it destroys an exact decimal (SQLite NUMERIC affinity
+ * rounds the canonical spelling into a double; MySQL's bare `DECIMAL` is
+ * `DECIMAL(10,0)` and rounds away every fraction). See {@link CastType}.
+ */
 export function getScalarCastType(
   model: Model<any>,
   fieldName: string
@@ -352,8 +369,9 @@ export function getScalarCastType(
     case "bigint":
       return "integer";
     case "float":
-    case "decimal":
       return "numeric";
+    case "decimal":
+      return "decimal";
     case "boolean":
       return "boolean";
     case "string":
