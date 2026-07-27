@@ -21,6 +21,7 @@ const MAX_TOTAL_CHARACTERS = 32_768;
 const PROVIDER_STATUS_PATTERN = /^\d{3}$/;
 const SQL_STATE_PATTERN = /^[0-9A-Z]{5}$/;
 const TRUSTED_CODE_PATTERN = /^V\d{4,5}$/;
+const PRISMA_CODE_PATTERN = /^P\d{4}$/;
 const SQL_STATE_CLASSES = new Set([
   "00",
   "01",
@@ -312,6 +313,16 @@ export function sanitizeProviderStatus(
 
 export function sanitizeTrustedCode(value: string): string {
   return TRUSTED_CODE_PATTERN.test(value) ? value : "V9001";
+}
+
+/**
+ * Prisma compatibility codes are `P` + four digits (P1001, P2002, …). Anything else is
+ * dropped rather than echoed, so a hostile `prismaCode` cannot ride into diagnostics.
+ */
+export function sanitizeTrustedPrismaCode(value: unknown): string | undefined {
+  return typeof value === "string" && PRISMA_CODE_PATTERN.test(value)
+    ? value
+    : undefined;
 }
 
 export function boundTrustedString(value: string): string {

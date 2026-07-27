@@ -29,6 +29,45 @@ export class ConnectionError extends VibORMError {
 }
 
 /**
+ * Client construction failures (Prisma P1012)
+ *
+ * Raised while a client is being built or while its schema-shaped surface is being resolved:
+ * a missing driver, a schema that fails name hydration, or an access to a model the schema
+ * does not define. These are configuration faults, not query faults — nothing has reached the
+ * database yet.
+ *
+ * Prisma raises `PrismaClientInitializationError` for the same category and exposes its code
+ * on `errorCode`; P1012 is Prisma's "Schema validation error", the closest documented code for
+ * a client that cannot be constructed from the given schema and configuration. VibORM
+ * publishes it through the shared `prismaCode` getter.
+ */
+export class ClientInitializationError extends VibORMError {
+  static override readonly diagnosticName = "ClientInitializationError";
+
+  constructor(
+    message: string,
+    options?: {
+      cause?: Error | undefined;
+      meta?: VibORMErrorMeta | undefined;
+    }
+  ) {
+    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    if (options?.cause) opts.cause = options.cause;
+    if (options?.meta) opts.meta = options.meta;
+    super(message, VibORMErrorCode.CLIENT_INITIALIZATION, opts);
+  }
+}
+
+/**
+ * Type guard for client initialization errors
+ */
+export function isClientInitializationError(
+  error: unknown
+): error is ClientInitializationError {
+  return error instanceof ClientInitializationError;
+}
+
+/**
  * Query execution errors
  */
 export class QueryError extends VibORMError {

@@ -8,7 +8,9 @@ import { assertNormalizedBatchResults } from "@drivers/normalized-result";
 import { assertNoTransactionOptions } from "@drivers/shared/transactions";
 import {
   CacheConfigurationError,
+  ClientInitializationError,
   InvalidTransactionInputError,
+  isVibORMError,
   PendingOperationError,
   TransactionError,
 } from "@errors";
@@ -306,7 +308,10 @@ export class VibORM<C extends VibORMConfig> {
       const modelNameStr = String(modelName);
       const model = this.schema[modelNameStr as keyof C["schema"]];
       if (!model) {
-        throw new Error(`Model "${modelNameStr}" not found in schema`);
+        throw new ClientInitializationError(
+          `Model "${modelNameStr}" not found in schema`,
+          { meta: { model: modelNameStr, operation: String(operation) } }
+        );
       }
 
       assertNonEmptyUniqueWhere(operation, args);
@@ -382,7 +387,10 @@ export class VibORM<C extends VibORMConfig> {
       const model = this.schema[modelNameStr as keyof C["schema"]];
       if (!model) {
         return Promise.reject(
-          new Error(`Model "${modelNameStr}" not found in schema`)
+          new ClientInitializationError(
+            `Model "${modelNameStr}" not found in schema`,
+            { meta: { model: modelNameStr, operation: String(operation) } }
+          )
         );
       }
 
@@ -421,10 +429,20 @@ export class VibORM<C extends VibORMConfig> {
    * Create the full client with all utility methods
    */
   static create<C extends VibORMConfig>(config: C): VibORMClient<C> {
-    // Hydrate schema names (tsName, sqlName) for all models, scalars, and relations
-    hydrateSchemaNames(config.schema);
+    if (!config.driver) {
+      throw new ClientInitializationError(
+        "Driver is required to create a client. Pass a driver in createClient options."
+      );
+    }
 
-    const orm = new VibORM<C>(config);
+    // Hydrate schema names (tsName, sqlName) for all models, scalars, and relations.
+    // Construction faults (a malformed schema, an invalid identifier) surface as a typed
+    // ClientInitializationError instead of a bare Error; already-typed failures pass through
+    // unchanged so their own code survives.
+    const orm = assertConstructed(() => {
+      hydrateSchemaNames(config.schema);
+      return new VibORM<C>(config);
+    });
 
     // Set cache version on driver
     config.cache?.setVersion(config.cacheVersion);
@@ -858,6 +876,28 @@ export class VibORM<C extends VibORMConfig> {
         return (target as any)[prop];
       },
     }) as VibORMClient<C>;
+  }
+}
+
+/**
+ * Run a client-construction step, re-typing bare failures as ClientInitializationError.
+ *
+ * Typed VibORM errors (a ValidationError from schema validation, for instance) keep their own
+ * class and code — only untyped construction faults are re-typed, and their message is kept
+ * verbatim so existing diagnostics still read the same.
+ */
+function assertConstructed<T>(build: () => T): T {
+  try {
+    return build();
+  } catch (error) {
+    if (isVibORMError(error)) {
+      throw error;
+    }
+    const cause = error instanceof Error ? error : undefined;
+    throw new ClientInitializationError(
+      cause?.message ?? "Failed to create the VibORM client",
+      cause ? { cause } : undefined
+    );
   }
 }
 

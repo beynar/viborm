@@ -8,15 +8,18 @@ import type { QueryResult } from "@drivers/types";
 import { PGlite } from "@electric-sql/pglite";
 import {
   CheckConstraintError,
+  ClientInitializationError,
   ForeignKeyError,
   isVibORMError,
   NestedWriteAssertionError,
+  NotFoundError,
   NotNullConstraintError,
   QueryError,
   sanitizeErrorMetadata,
   TransactionError,
   UniqueConstraintError,
   ValidationError,
+  ValueTooLongError,
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
@@ -24,6 +27,7 @@ import { createInstrumentationContext } from "@instrumentation/context";
 import type { LogEvent } from "@instrumentation/types";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { getFieldSqlName, getModelSqlName } from "@schema/hydration";
 
 const REDACTED_ERROR_CONTENT_PATTERN =
   /secret-password-value|SELECT id FROM users/;
@@ -253,6 +257,78 @@ describe("normalizeDriverError fixtures", () => {
 
     expect(error).toBeInstanceOf(UniqueConstraintError);
     expect(error).toMatchObject({ meta: { columns: ["users.email"] } });
+  });
+
+  /**
+   * Value-too-long (Prisma P2000), pinned per dialect.
+   *
+   * PostgreSQL SQLSTATE 22001 and MySQL errno 1406 are the two dialects that enforce a
+   * declared column length; Prisma maps exactly those two to LengthMismatch → P2000
+   * (quaint/src/connector/{postgres,mysql}/error.rs). SQLite is pinned as the documented
+   * absence a few tests below.
+   */
+  test("maps PostgreSQL 22001 to a value-too-long error (P2000)", () => {
+    const raw = Object.assign(
+      new Error(
+        'value too long for type character varying(5) for column "email"'
+      ),
+      { code: "22001", table_name: "users", column_name: "email" }
+    );
+
+    const error = normalizeDriverError(raw, { driverName: "postgres" });
+
+    expect(error).toBeInstanceOf(ValueTooLongError);
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+    expect(error.code).toBe(VibORMErrorCode.VALUE_TOO_LONG);
+    expect(error.prismaCode).toBe("P2000");
+    expect(error.meta).toMatchObject({ table: "users", columns: ["email"] });
+  });
+
+  test("maps MySQL 1406 to a value-too-long error (P2000)", () => {
+    const byErrno = normalizeDriverError(
+      Object.assign(new Error("Data too long for column 'email' at row 1"), {
+        code: "ER_DATA_TOO_LONG",
+        errno: 1406,
+        sqlState: "22001",
+      }),
+      { driverName: "mysql2" }
+    );
+
+    expect(byErrno).toBeInstanceOf(ValueTooLongError);
+    if (!isVibORMError(byErrno)) throw new Error("expected a VibORMError");
+    expect(byErrno.prismaCode).toBe("P2000");
+    expect(byErrno.meta).toMatchObject({ providerErrno: 1406 });
+
+    // PlanetScale carries the errno only in the message text.
+    const byMessage = normalizeDriverError(
+      new Error(
+        "target: mydb.-.primary: vttablet: rpc error: Data too long for column 'email' at row 1 (errno 1406) (sqlstate 22001)"
+      ),
+      { driverName: "planetscale" }
+    );
+
+    expect(byMessage).toBeInstanceOf(ValueTooLongError);
+    if (!isVibORMError(byMessage)) throw new Error("expected a VibORMError");
+    expect(byMessage.prismaCode).toBe("P2000");
+  });
+
+  test("SQLite has no value-too-long error: SQLITE_TOOBIG stays a generic query error", () => {
+    // SQLite ignores declared column lengths, so an over-long value is stored, never
+    // rejected. SQLITE_TOOBIG is a different failure (the ~1GB SQLITE_MAX_LENGTH cap) and
+    // Prisma leaves it unmapped too — quaint's SQLite connector has no arm for it, so it
+    // falls through to a generic query error rather than P2000. VibORM matches that instead
+    // of manufacturing a P2000 the dialect cannot back.
+    const error = normalizeDriverError(
+      Object.assign(new Error("string or blob too big"), {
+        code: "SQLITE_TOOBIG",
+      }),
+      { driverName: "sqlite3" }
+    );
+
+    expect(error).toBeInstanceOf(QueryError);
+    expect(error).not.toBeInstanceOf(ValueTooLongError);
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+    expect(error.prismaCode).toBeUndefined();
   });
 
   test("maps SQLITE_BUSY and SQLITE_LOCKED to retryable transaction errors", () => {
@@ -966,5 +1042,124 @@ describe("serialized error disclosure", () => {
     expect(malicious.meta).not.toHaveProperty("providerCode");
     expect(malicious.meta).not.toHaveProperty("providerSqlState");
     expect(malicious.meta).not.toHaveProperty("providerStatus");
+  });
+});
+
+/**
+ * A `catch` written for Prisma, run against live errors.
+ *
+ * What has to port is the HANDLER, not the error class: a Prisma codebase switches on a
+ * P-code, so the same switch must keep classifying VibORM failures once `error.code` is
+ * re-spelled `error.prismaCode`. Every probe below comes from a real database round-trip
+ * (PGlite), not a hand-built error object.
+ */
+function classifyLikePrisma(error: unknown): string {
+  const code = (error as { prismaCode?: string } | null)?.prismaCode;
+  switch (code) {
+    case "P2002":
+      return "duplicate";
+    case "P2003":
+      return "foreign-key";
+    case "P2025":
+      return "not-found";
+    case "P2000":
+      return "too-long";
+    default:
+      return `unhandled:${String(code)}`;
+  }
+}
+
+describe("Prisma-style catch on live errors", () => {
+  test("P2002 unique constraint", async () => {
+    const driver = new PGliteDriver({ client: new PGlite() });
+    const client = createClient({ schema, driver });
+    await push(client, { force: true });
+
+    await client.user.create({ data: { id: "u1", email: "dup@example.com" } });
+    const caught = await client.user
+      .create({ data: { id: "u2", email: "dup@example.com" } })
+      .catch((error: unknown) => error);
+
+    expect(classifyLikePrisma(caught)).toBe("duplicate");
+    expect(caught).toBeInstanceOf(UniqueConstraintError);
+
+    await client.$disconnect();
+  });
+
+  test("P2025 record required but not found", async () => {
+    const driver = new PGliteDriver({ client: new PGlite() });
+    const client = createClient({ schema, driver });
+    await push(client, { force: true });
+
+    const caught = await client.user
+      .findUniqueOrThrow({ where: { id: "missing" } })
+      .catch((error: unknown) => error);
+
+    expect(classifyLikePrisma(caught)).toBe("not-found");
+    expect(caught).toBeInstanceOf(NotFoundError);
+
+    await client.$disconnect();
+  });
+
+  test("P2003 foreign key constraint", async () => {
+    const driver = new PGliteDriver({ client: new PGlite() });
+    await createConstraintTables(driver);
+
+    const caught = await driver
+      ._executeRaw("INSERT INTO child (id, parent_id) VALUES ($1, $2)", [
+        "orphan-child",
+        "missing-parent",
+      ])
+      .catch((error: unknown) => error);
+
+    expect(classifyLikePrisma(caught)).toBe("foreign-key");
+    expect(caught).toBeInstanceOf(ForeignKeyError);
+
+    await driver.disconnect();
+  });
+
+  test("P2000 value too long for the column type", async () => {
+    const driver = new PGliteDriver({ client: new PGlite() });
+    const client = createClient({ schema, driver });
+    await push(client, { force: true });
+
+    // push() emits TEXT for s.string(); narrow the column so the database actually enforces a
+    // length and raises SQLSTATE 22001 on the write path.
+    const table = getModelSqlName(user);
+    const column = getFieldSqlName(user, "email");
+    await driver._executeRaw(
+      `ALTER TABLE "${table}" ALTER COLUMN "${column}" TYPE varchar(5)`
+    );
+
+    const caught = await client.user
+      .create({ data: { id: "u1", email: "way-too-long@example.com" } })
+      .catch((error: unknown) => error);
+
+    expect(classifyLikePrisma(caught)).toBe("too-long");
+    expect(caught).toBeInstanceOf(ValueTooLongError);
+    expect(caught).toMatchObject({
+      meta: { model: "user", operation: "create" },
+    });
+
+    await client.$disconnect();
+  });
+
+  test("a construction fault is not misfiled as one of the query codes", () => {
+    const driver = new PGliteDriver({ client: new PGlite() });
+    const client = createClient({ schema, driver });
+
+    let caught: unknown;
+    try {
+      (
+        client as unknown as { ghost: { findMany: () => unknown } }
+      ).ghost.findMany();
+    } catch (error) {
+      caught = error;
+    }
+
+    // Unknown model access fails before any I/O — P1012 (Prisma's initialization family),
+    // never one of the P2xxx codes the handler above claims.
+    expect(classifyLikePrisma(caught)).toBe("unhandled:P1012");
+    expect(caught).toBeInstanceOf(ClientInitializationError);
   });
 });

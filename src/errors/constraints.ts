@@ -113,6 +113,46 @@ export class CheckConstraintError extends VibORMError {
 }
 
 /**
+ * Value too long for the column's declared type (Prisma P2000)
+ *
+ * Raised where the database enforces a column length: PostgreSQL SQLSTATE 22001
+ * (`string_data_right_truncation`) and MySQL errno 1406 (`ER_DATA_TOO_LONG`).
+ *
+ * **SQLite raises nothing comparable.** SQLite ignores declared type lengths entirely
+ * (`VARCHAR(5)` stores any string), so an over-long value is written, not rejected; the only
+ * related error, `SQLITE_TOOBIG`, fires at the ~1GB `SQLITE_MAX_LENGTH` limit and means a
+ * different thing. Prisma behaves the same way — quaint's SQLite connector has no arm for it,
+ * so it falls through to a generic query error rather than P2000
+ * (`quaint/src/connector/sqlite/error.rs`). VibORM therefore keeps `QueryError` on SQLite
+ * instead of manufacturing a P2000 that the engine cannot honestly promise.
+ */
+export class ValueTooLongError extends VibORMError {
+  static override readonly diagnosticName = "ValueTooLongError";
+
+  constructor(
+    message: string,
+    options?: {
+      cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
+      meta?: VibORMErrorMeta & {
+        table?: string;
+        columns?: string[];
+      };
+    }
+  ) {
+    const opts: {
+      cause?: Error;
+      diagnostics?: DiagnosticDisclosure;
+      meta?: VibORMErrorMeta;
+    } = {};
+    if (options?.cause) opts.cause = options.cause;
+    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
+    if (options?.meta) opts.meta = options.meta;
+    super(message, VibORMErrorCode.VALUE_TOO_LONG, opts);
+  }
+}
+
+/**
  * Type guard for unique constraint errors
  */
 export function isUniqueConstraintError(
@@ -144,4 +184,13 @@ export function isCheckConstraintError(
   error: unknown
 ): error is CheckConstraintError {
   return error instanceof CheckConstraintError;
+}
+
+/**
+ * Type guard for value-too-long errors
+ */
+export function isValueTooLongError(
+  error: unknown
+): error is ValueTooLongError {
+  return error instanceof ValueTooLongError;
 }

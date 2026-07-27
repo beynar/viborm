@@ -112,6 +112,48 @@ SQLite. Existing tables require the explicit collation migration described in
 the [MySQL migration driver guide](/docs/migration/drivers/mysql); upgrading the
 package does not rewrite deployed tables.
 
+## Errors and Prisma error codes
+
+VibORM throws typed error classes with a stable `V####` code on `error.code`. For code
+written against Prisma, every error also carries `error.prismaCode` — the Prisma code with
+the same meaning, or `undefined` when VibORM claims none. Porting a handler is a one-token
+edit:
+
+```ts
+try {
+  await client.user.create({ data });
+} catch (error) {
+  if (error.prismaCode === "P2002") {
+    // unique constraint — the same branch a Prisma app already has
+  }
+}
+```
+
+| VibORM error | `code` | `prismaCode` | Prisma meaning |
+|--------------|--------|--------------|----------------|
+| `UniqueConstraintError` | `V3001` | `P2002` | Unique constraint failed |
+| `ForeignKeyError` | `V3002` | `P2003` | Foreign key constraint failed |
+| `NotNullConstraintError` | `V3003` | `P2011` | Null constraint violation |
+| `CheckConstraintError` | `V3004` | `P2004` | A constraint failed on the database |
+| `ValueTooLongError` | `V3005` | `P2000` | Value too long for the column's type |
+| `NotFoundError` | `V6001` | `P2025` | Required records were not found |
+| `ValidationError` | `V4001` | `P2009` | Failed to validate the query |
+| `ConnectionError` | `V1001` / `V1002` / `V1003` | `P1001` / `P1002` / `P1017` | Can't reach / timed out / server closed the connection |
+| `ClientInitializationError` | `V1004` | `P1012` | Client could not be constructed from the given schema and configuration |
+
+**The table is deliberately partial.** Transaction failures, nested-write failures, cache,
+migration and pending-operation errors report `prismaCode: undefined` rather than a
+near-neighbour code — an unclaimed code is honest, a wrong one silently mis-routes your
+`catch`. For retry decisions use `error.isRetryable()`, which covers deadlocks,
+serialization failures, and timeouts on every database.
+
+`error.toJSON()` includes `prismaCode` when one is claimed and omits the key entirely
+otherwise.
+
+**`ValueTooLongError` is PostgreSQL and MySQL only.** SQLite does not enforce declared
+column lengths — an over-long value is stored, not rejected — so no `P2000` can be raised
+there. Prisma behaves the same way.
+
 ## Type and API differences
 
 | Area | VibORM |

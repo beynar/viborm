@@ -9,6 +9,7 @@ import {
   QueryError,
   TransactionError,
   UniqueConstraintError,
+  ValueTooLongError,
   type VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
@@ -24,6 +25,9 @@ const POSTGRES_UNIQUE = "23505";
 const POSTGRES_FOREIGN_KEY = "23503";
 const POSTGRES_NOT_NULL = "23502";
 const POSTGRES_CHECK = "23514";
+// string_data_right_truncation — Prisma maps this SQLSTATE to LengthMismatch/P2000
+// (quaint/src/connector/postgres/error.rs)
+const POSTGRES_VALUE_TOO_LONG = "22001";
 const POSTGRES_SERIALIZATION = "40001";
 const POSTGRES_DEADLOCK = "40P01";
 
@@ -32,6 +36,10 @@ const MYSQL_FOREIGN_KEY = 1452;
 const MYSQL_FOREIGN_KEY_ROW_IS_REFERENCED = 1451;
 const MYSQL_NOT_NULL = 1048;
 const MYSQL_CHECK = 3819;
+// ER_DATA_TOO_LONG — Prisma maps errno 1406 to LengthMismatch/P2000
+// (quaint/src/connector/mysql/error.rs). SQLite has no counterpart: it does not enforce
+// declared column lengths, and quaint's SQLite connector leaves SQLITE_TOOBIG unmapped.
+const MYSQL_DATA_TOO_LONG = 1406;
 const MYSQL_DEADLOCK = 1213;
 const MYSQL_LOCK_WAIT_TIMEOUT = 1205;
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
@@ -124,6 +132,14 @@ export function normalizeDriverError(
     });
   }
 
+  if (code === POSTGRES_VALUE_TOO_LONG) {
+    return new ValueTooLongError("Value too long for column type", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
   if (code === POSTGRES_SERIALIZATION) {
     return new TransactionError("Transaction serialization failure", {
       cause,
@@ -173,6 +189,14 @@ export function normalizeDriverError(
 
   if (errno === MYSQL_CHECK || code === "ER_CHECK_CONSTRAINT_VIOLATED") {
     return new CheckConstraintError("Check constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (errno === MYSQL_DATA_TOO_LONG || code === "ER_DATA_TOO_LONG") {
+    return new ValueTooLongError("Value too long for column type", {
       cause,
       diagnostics,
       meta,

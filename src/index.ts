@@ -81,6 +81,7 @@ export {
 export {
   // Specific errors
   CheckConstraintError,
+  ClientInitializationError,
   ConnectionError,
   type DiagnosticDisclosure,
   FeatureNotSupportedError,
@@ -91,11 +92,15 @@ export {
   NestedWriteError,
   NotFoundError,
   NotNullConstraintError,
+  // Prisma error-code compatibility (`error.prismaCode`)
+  type PrismaErrorCode,
   QueryError,
   TransactionError,
+  toPrismaErrorCode,
   UniqueConstraintError,
   UnsupportedOperationError,
   ValidationError,
+  ValueTooLongError,
   // Base error
   VibORMError,
   VibORMErrorCode,
