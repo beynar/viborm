@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { NestedWriteError, ValidationError, VibORMErrorCode } from "@errors";
 import { push } from "@migrations";
-import { hydrateSchemaNames, s } from "@schema";
+import { hydrateSchemaNames, JsonNull, s } from "@schema";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -60,6 +60,10 @@ export const toOneUpdateWhereSchema = (() => {
       badge: s.oneToOne(() => badge).optional(),
       // The collision witness: a model whose scalar is literally named `data`.
       box: s.oneToOne(() => box).optional(),
+      // The collision witness that can actually WRITE somewhere else: a JSON
+      // document column named `data`, on a model that also owns an ordinary
+      // column and a relation the document's keys can name. See section 8b.
+      blob: s.oneToOne(() => blob).optional(),
       // Depth: a to-many whose target carries its own inverse-side to-one.
       notes: s.oneToMany(() => note),
     })
@@ -179,7 +183,38 @@ export const toOneUpdateWhereSchema = (() => {
     })
     .map("tou_boxes");
 
-  return { owner, profile, avatar, mark, badge, theme, note, detail, box };
+  const blob = s
+    .model({
+      id: s.int().id(),
+      // A JSON document column named `data`. Unlike `box.data` (an int, where an
+      // object payload cannot be a valid field update and so errors by accident),
+      // EVERY object is a legal value here — which is what made the collision able
+      // to write the wrong column instead of complaining.
+      data: s.json().nullable(),
+      // A column a stored document's keys can collide with…
+      label: s.string(),
+      ownerId: s.int().nullable().unique(),
+      // …and a relation whose nested-write keys they can collide with.
+      owner: s
+        .oneToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+    })
+    .map("tou_blobs");
+
+  return {
+    owner,
+    profile,
+    avatar,
+    mark,
+    badge,
+    theme,
+    note,
+    detail,
+    box,
+    blob,
+  };
 })();
 
 hydrateSchemaNames(toOneUpdateWhereSchema);
@@ -233,6 +268,9 @@ export function runToOneUpdateWhereBehavior(options: {
         },
       });
       await client.box.create({ data: { id: 3, data: 5, ownerId: 1 } });
+      await client.blob.create({
+        data: { id: 6, data: { seed: true }, label: "label-0", ownerId: 1 },
+      });
       await client.note.create({
         data: { id: 4, title: "title-0", ownerId: 1 },
       });
@@ -275,6 +313,10 @@ export function runToOneUpdateWhereBehavior(options: {
         where: { id: 3 },
         select: { data: true },
       }),
+      blob: await client.blob.findUnique({
+        where: { id: 6 },
+        select: { data: true, label: true, ownerId: true },
+      }),
       note: await client.note.findUnique({
         where: { id: 4 },
         select: { title: true },
@@ -290,6 +332,7 @@ export function runToOneUpdateWhereBehavior(options: {
       profile: { bio: "bio-0", avatarId: 10 },
       badge: { label: "label-0", themeId: 20 },
       box: { data: 5 },
+      blob: { data: { seed: true }, label: "label-0", ownerId: 1 },
       note: { title: "title-0" },
       detail: { body: "body-0", data: 5 },
     };
@@ -689,10 +732,23 @@ export function runToOneUpdateWhereBehavior(options: {
       })
     );
 
-    // -- 8. the documented `data`-named-field collision ----------------------
+    // -- 8. the `data`-named-field collision, REFUSED ------------------------
+    //
+    // AUTHORIZED RETARGET (fix round). These three tests previously asserted that
+    // an object payload for a `data`-named field "reads as the wrapper", with
+    // `update: { data: { data: … } }` as the escape. That reading is what let a
+    // to-one nested update write the WRONG COLUMNS on a model whose `data` field
+    // accepts objects (section 8b is the witness that could not be built with
+    // `box`, whose `data` is an int). The rule now REFUSES the ambiguous spelling
+    // and the escape carries an explicit `where`. Everything else here — the
+    // scalar shorthand staying bare, the filter working on such a model, the
+    // reading being identical at the root, at depth and under a delegated target
+    // — is unchanged and still asserted.
+
+    const AMBIGUOUS = "Ambiguous to-one nested `update`";
 
     test(
-      "a target field named `data`: the object payload reads as the wrapper",
+      "a target field named `data`: the object payload is refused, not guessed",
       { timeout: 30_000 },
       run(async (client) => {
         // A NON-object payload is unambiguous — still bare data (shorthand set).
@@ -706,8 +762,8 @@ export function runToOneUpdateWhereBehavior(options: {
           }
         );
 
-        // An OBJECT payload reads as the wrapper, so `{ set: 9 }` is parsed as a
-        // `box` update — which has no `set` field. This is Prisma's collision.
+        // An OBJECT payload has the envelope's shape AND is how bare data spells
+        // this model's own `data` field. Refused, by name.
         const error = await rejection(
           client.owner.update({
             where: { id: 1 },
@@ -715,16 +771,17 @@ export function runToOneUpdateWhereBehavior(options: {
           })
         );
         expect(error).toBeInstanceOf(ValidationError);
+        expect((error as ValidationError).message).toContain(AMBIGUOUS);
         expect(await client.box.findUnique({ where: { id: 3 } })).toMatchObject(
           {
             data: 7,
           }
         );
 
-        // The documented escape: spell the wrapper explicitly.
+        // The escape: spell the envelope out. An empty `where` constrains nothing.
         await client.owner.update({
           where: { id: 1 },
-          data: { box: { update: { data: { data: { set: 9 } } } } },
+          data: { box: { update: { where: {}, data: { data: { set: 9 } } } } },
         });
         expect(await client.box.findUnique({ where: { id: 3 } })).toMatchObject(
           {
@@ -747,6 +804,76 @@ export function runToOneUpdateWhereBehavior(options: {
             data: 9,
           }
         );
+      })
+    );
+
+    // -- 8b. the collision that could WRITE THE WRONG COLUMN -----------------
+    //
+    // `box.data` is an int, so the old "object payload reads as the wrapper" rule
+    // errored there by accident: `{ set: 9 }` is not a valid `box` update. On a
+    // JSON column every object is a legal value AND a plausible update payload,
+    // so the same rule silently wrote somewhere else — the document
+    // `{ label: "x" }` set the `label` COLUMN and left `data` alone, and
+    // `{ owner: { disconnect: true } }` executed a real FK disconnect. Each case
+    // below is that write, now refused with the whole tree untouched.
+    test(
+      "a JSON field named `data`: no document is ever read as an update",
+      { timeout: 30_000 },
+      run(async (client) => {
+        const refuse = async (payload: unknown) => {
+          const error = await rejection(
+            client.owner.update({
+              where: { id: 1 },
+              data: { blob: { update: payload } },
+            } as never)
+          );
+          expect(error).toBeInstanceOf(ValidationError);
+          expect((error as ValidationError).message).toContain(AMBIGUOUS);
+          // Not one column of the tree moved — the refusal precedes every write.
+          expect(await snapshot(client)).toEqual(SEED);
+        };
+
+        // 1. keys that name the target's own columns: the wrong-column write.
+        await refuse({ data: { label: "from-json" } });
+        // 2. keys that name one of its relations: the unintended FK mutation.
+        await refuse({ data: { owner: { disconnect: true } } });
+        // 3. keys that name NOTHING on the target. Refused identically — the FORM
+        //    a payload takes may not depend on the VALUES inside it, or the same
+        //    spelling would store one document and rewrite columns for the next.
+        await refuse({ data: { seed: 1 } });
+
+        // The escape writes the document, and only the document.
+        await client.owner.update({
+          where: { id: 1 },
+          data: {
+            blob: { update: { where: {}, data: { data: { seed: false } } } },
+          },
+        });
+        expect(await snapshot(client)).toEqual({
+          ...SEED,
+          blob: { ...SEED.blob, data: { seed: false } },
+        });
+
+        // Bare data that does not mention `data` never had the collision.
+        await client.owner.update({
+          where: { id: 1 },
+          data: { blob: { update: { label: "label-1" } } },
+        });
+        expect(await snapshot(client)).toEqual({
+          ...SEED,
+          blob: { ...SEED.blob, data: { seed: false }, label: "label-1" },
+        });
+
+        // A class instance never had the envelope's shape: a `JsonNull` sentinel
+        // written against the `data` field is a VALUE, and stays bare data.
+        await client.owner.update({
+          where: { id: 1 },
+          data: { blob: { update: { data: JsonNull } } },
+        });
+        expect(await snapshot(client)).toEqual({
+          ...SEED,
+          blob: { ...SEED.blob, data: null, label: "label-1" },
+        });
       })
     );
 
@@ -778,18 +905,19 @@ export function runToOneUpdateWhereBehavior(options: {
           await client.detail.findUnique({ where: { id: 5 } })
         ).toMatchObject({ data: 7 });
 
-        // OBJECT payload — the documented collision, identical to the root reading.
+        // OBJECT payload — the refused collision, identical to the root reading.
         const error = await rejection(
           client.owner.update(deep({ data: { set: 9 } }) as never)
         );
         expect(error).toBeInstanceOf(ValidationError);
+        expect((error as ValidationError).message).toContain(AMBIGUOUS);
         expect(
           await client.detail.findUnique({ where: { id: 5 } })
         ).toMatchObject({ data: 7 });
 
-        // The documented escape, at depth.
+        // The escape, at depth.
         await client.owner.update(
-          deep({ data: { data: { set: 9 } } }) as never
+          deep({ where: {}, data: { data: { set: 9 } } }) as never
         );
         expect(
           await client.detail.findUnique({ where: { id: 5 } })
@@ -813,11 +941,17 @@ export function runToOneUpdateWhereBehavior(options: {
     // update delegates to an `UpdateOperation` in nested-target mode — which
     // re-parses the ALREADY-parsed relation payload. Only a form that survives
     // re-parse unchanged reads correctly here.
+    //
+    // This is also the idempotence witness for the refusal: `{ data: 7 }` is bare,
+    // and the canonical envelope the schema emits for it — `{ where: {}, data: … }`
+    // on a target that owns a `data` field — is EXACTLY what stops the re-parse
+    // from re-reading its own output as the ambiguous spelling. Drop that marker
+    // and this test fails with the ambiguity refusal.
     test(
       "a target field named `data` reads the same way under a delegated target",
       { timeout: 30_000 },
       run(async (client) => {
-        await client.owner.update({
+        const delegated = (detailUpdate: unknown) => ({
           where: { id: 1 },
           data: {
             notes: {
@@ -828,18 +962,38 @@ export function runToOneUpdateWhereBehavior(options: {
                   // forces the X1c whole-target delegation.
                   owner: { connect: { id: 1 } },
                   title: "title-1",
-                  detail: { update: { data: 7 } },
+                  detail: { update: detailUpdate },
                 },
               },
             },
           },
         });
+
+        await client.owner.update(delegated({ data: 7 }) as never);
         expect(
           await client.detail.findUnique({ where: { id: 5 } })
         ).toMatchObject({ data: 7, body: "body-0" });
         expect(
           await client.note.findUnique({ where: { id: 4 } })
         ).toMatchObject({ title: "title-1", ownerId: 1 });
+
+        // The escape survives the re-parse too, filter and all.
+        await client.owner.update(
+          delegated({ where: {}, data: { data: { set: 9 } } }) as never
+        );
+        expect(
+          await client.detail.findUnique({ where: { id: 5 } })
+        ).toMatchObject({ data: 9, body: "body-0" });
+
+        // …and the refusal is the same one at this depth.
+        const error = await rejection(
+          client.owner.update(delegated({ data: { set: 11 } }) as never)
+        );
+        expect(error).toBeInstanceOf(ValidationError);
+        expect((error as ValidationError).message).toContain(AMBIGUOUS);
+        expect(
+          await client.detail.findUnique({ where: { id: 5 } })
+        ).toMatchObject({ data: 9 });
       })
     );
 

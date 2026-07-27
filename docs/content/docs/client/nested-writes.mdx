@@ -157,10 +157,24 @@ and use `AND` / `OR` / `NOT`.
 <Callout type="warn">
   The two spellings are told apart structurally: an object with a `data` key
   whose value is an object is the envelope; anything else is bare update data.
-  If your related model owns a field literally named `data`, the bare spelling
-  is ambiguous for it — write the envelope explicitly
-  (`update: { data: { data: { set: 3 } } }`). Prisma has the same collision and
-  resolves it the same way.
+
+  If your related model owns a field literally named `data` — a JSON column
+  being the usual case — that shape means two different things, and they write
+  different columns: `update: { data: { label: "x" } }` could set the related
+  row's `label`, or store `{ label: "x" }` in its `data`. Rather than pick one,
+  viborm **refuses** it. Say which you meant by spelling the envelope out; an
+  empty `where` constrains nothing:
+
+  ```ts
+  update: { where: {}, data: { label: "x" } }        // set the label column
+  update: { where: {}, data: { data: { label: "x" } } } // store the document
+  ```
+
+  Only that one shape is affected. A non-object payload (`update: { data: 5 }`,
+  a `Date`, a `Decimal`, a `JsonNull` sentinel) is unambiguous and stays bare
+  data, and a payload that doesn't mention `data` at all was never in question.
+  The same applies to a field named `where`: reach it through the envelope's
+  `data`.
 </Callout>
 
 A to-many nested update targets a specific related row. The `where` must identify a row that belongs to the parent you're updating — targeting another record's row is rejected:

@@ -309,11 +309,13 @@ raises) and the whole tree — the root scalar SET and every sibling nested writ
 back, identically in transaction and atomic-batch mode.
 
 **The one home for the discrimination rule** is `src/validation/relations/to-one-update-form.ts`:
-an object carrying a `data` key whose value is a plain object IS the envelope, anything
-else is bare data — Prisma's own rule, applied STRUCTURALLY rather than by union
+an object carrying a `data` key whose value is a plain object has the envelope's SHAPE,
+anything else is bare data — Prisma's own rule, applied STRUCTURALLY rather than by union
 try-order. The relation update schema dispatches on it (`toOneUpdateTargetFactory`,
 mirroring `toOneFilterFactory`'s deterministic-dispatch union, so a malformed envelope
-reports the envelope's own error instead of a union-wide miss).
+reports the envelope's own error instead of a union-wide miss). On a target that owns an
+update key named `data` that shape has two meanings and the rule REFUSES it — see the
+collision paragraph below.
 
 **The trap this unit had to disarm, and how it is actually disarmed.** The rule may only
 be read off the USER's payload, never a schema output: `core.update` rewrites the scalar
@@ -335,11 +337,45 @@ makes the X1c nested-target delegation — which re-parses an already-parsed sub
 meaning-preserving. Witnessed by `a target field named 'data' reads the same way at depth`
 and `… under a delegated target`, both of which fail if the canonicalization is removed.
 
-**Documented collision, deliberate:** a target model owning a field named `data` cannot
-use the BARE spelling when that field's payload is an object; the escape is the explicit
-envelope (`update: { data: { data: { set: … } } }`). A non-object payload
-(`update: { data: 7 }`) is unambiguous and stays bare. Prisma has the same collision and
-resolves it the same way.
+**The collision, and why it is a REFUSAL (fix round 2).** On a target that owns an update
+key named `data`, the envelope's shape is ALSO how bare data spells that field. The first
+two deliveries resolved it by fiat — "the object payload reads as the envelope" — and the
+only witness was `box.data`, an INT, where the envelope reading errors by accident
+(`{ set: 9 }` is not a valid `box` update). On a JSON column every object is both a legal
+value and a plausible update payload, and the fiat then WROTE THE WRONG COLUMN with no
+error: on `blob { id, data: json, label, owner }`, `update: { data: { label: "x" } }` set
+the `label` COLUMN and left the document alone, and `update: { data: { owner: { disconnect:
+true } } }` executed a real FK disconnect from what was meant to be stored data. Resolving
+it by validity instead — "whichever arm parses" — would have been worse: the FORM would
+depend on the DATA, so the same spelling would store `{ seed: true }` and rewrite columns
+for `{ label: "x" }`.
+
+So the shape is REFUSED on such a target (`AMBIGUOUS_TO_ONE_UPDATE`), before any write,
+and the message names the two spellings that are not ambiguous — both explicit envelopes,
+since a `where` key cannot be bare update data:
+
+```
+update: { where: {}, data: { … } }          update the target's fields
+update: { where: {}, data: { data: … } }    write the target's `data` field
+```
+
+Nothing else changes: a non-object payload (`update: { data: 7 }`, or any class instance —
+a `Date`, a `Decimal`, a `JsonNull` sentinel, which `isPlainObject` now excludes) never had
+the envelope's shape and stays bare, and a target without a `data` key reads exactly as
+before. The refusal is a RUNTIME one: the declared union still accepts both spellings at
+the type level, because narrowing it would mean a conditional over the target's own update
+input on a mutually-recursive model type.
+
+The canonical envelope for such a target carries an empty `where` marker (`{ where: {},
+data }`), which is what stops the X1c delegated re-parse from re-reading the schema's own
+output as the ambiguous spelling; `splitToOneUpdateTarget` drops an empty `where`, so not
+one compiled step changes. Falsified both ways: forcing the old "always the envelope"
+reading fails 8 cases, and dropping the marker fails the delegated-target case with the
+ambiguity refusal.
+
+Prisma has the same collision and resolves it by fiat. This is a deliberate, documented
+divergence: under this repo's doctrine an accepted write that lands somewhere other than
+where the caller wrote it is not shippable, and a typed refusal is.
 
 **Where the filter is compiled.** Into the planning LOCATE, and in batch mode into the
 existing split-witness presence guard — never into the WRITE, which addresses the
@@ -352,14 +388,18 @@ write statement, a RELATION filter inside the envelope's `where` IS portable her
 unlike inside a top-level extended unique `where`, which W4-U1 refuses for exactly that
 reason (MySQL error 1093 on a subquery reading the mutated table).
 
-**Evidence.** `tests/query-engine-v2/to-one-update-where-behavior.ts` — 15 cases ×
+**Evidence.** `tests/query-engine-v2/to-one-update-where-behavior.ts` — 16 cases ×
 PGlite tx/batch, SQLite3 tx/batch, LibSQL tx/batch, pg tx/batch, MySQL2 tx — covering
 all four engine paths a to-one `update` can take (parent-held in-place, parent-held
 delegated, inverse-side in-place, inverse-side delegated) plus the depth path, each with
 filter hit AND filter miss, the miss asserting a full-tree snapshot equal to the seed.
 Plus a relation filter in the envelope `where`, `AND`/`OR`/`NOT`, an empty `where`, the
-`data`-named-field collision and its escape at the ROOT, at DEPTH and under a DELEGATED
-target, and bare-form regression witnesses on both directions and at depth.
+`data`-named-field refusal and its escape at the ROOT, at DEPTH and under a DELEGATED
+target, and bare-form regression witnesses on both directions and at depth. The 16th case
+is the JSON witness the int-typed `box` could not carry — `blob.data` with the two
+wrong-writes above and a document naming nothing at all, each asserting the ambiguity
+refusal AND a whole-tree snapshot equal to the seed, plus the escape, plain bare data and
+a `JsonNull` sentinel all still writing what they say.
 
 `to-one-update-where.test.ts` pins the mechanism per direction (parent-held and
 inverse-side build their guards from different code, so both are asserted):

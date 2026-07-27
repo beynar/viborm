@@ -194,7 +194,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `createMany` (+`skipDuplicates`) | ✅ to-many | 🟡 same pinning gate; ❌ inverse to-one; ❌ M2M (`RelationJunctionPart.ts:1615`) | — |
 | `connect` | ✅ | ✅ | fails if target missing |
 | `connectOrCreate` | ✅ | ✅ — ↔️ **global** lookup-and-adopt (reparents), not parent-correlated | `UpdateOperation.ts:1434` |
-| `update` | — | ✅ to-one takes bare data **or** Prisma 5's `{where?,data}` (W4-U3; `where` is a NON-unique filter on the connected record, filter-miss → P2025-equivalent, whole tree rolls back). To-many `{where,data}` ✅ | `update.ts:45-79`, `to-one-update-form.ts` |
+| `update` | — | ✅ to-one takes bare data **or** Prisma 5's `{where?,data}` (W4-U3; `where` is a NON-unique filter on the connected record, filter-miss → P2025-equivalent, whole tree rolls back). ⚠️ on a target owning a field named `data` the two spellings collide and viborm **refuses** the shape (Prisma picks one silently) — spell the envelope out, `{where:{},data:{…}}`. To-many `{where,data}` ✅ | `update.ts:45-79`, `to-one-update-form.ts` |
 | `updateMany` | — | ✅➕ `where` is **optional** (Prisma requires it) | `update.ts:153-161` |
 | `upsert` | ➕ **to-many only, viborm superset**, global-adopt-and-update, **executable today** | ✅ to-one `{create,update}`, to-many `{where,create,update}` | `create.ts:182-201`; proven in `create-nested-upsert-behavior.ts:123`. `compatibility.mdx:66` saying "the current engine rejects it" is **stale** |
 | `delete` | — | ✅ boolean (to-one), whereUnique single+array (to-many) | ↔️ inverse-side `delete: true` with no related row is a **no-op**; Prisma throws P2025 |

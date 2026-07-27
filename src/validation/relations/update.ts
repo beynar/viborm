@@ -5,7 +5,7 @@ import type { RelationState } from "@schema/relation/types";
 import { getInverseRelationMap as getInverseRelationMapRuntime } from "@schema/relation/types";
 import type { ScalarSchemas } from "../model";
 import { getNestedScalarCreateWithOmittedRequiredKeys } from "../model/core/create";
-import { createSchema, ok, validateSchema } from "../primitives/helpers";
+import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import type {
@@ -15,7 +15,8 @@ import type {
 } from "./create";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 import {
-  isToOneUpdateWrapper,
+  AMBIGUOUS_TO_ONE_UPDATE,
+  readToOneUpdateForm,
   toOneUpdateEnvelope,
 } from "./to-one-update-form";
 
@@ -38,16 +39,18 @@ type ToOneUpdateWrapperSchema<S extends RelationState> = V.Object<
 
 /**
  * A to-one nested `update` payload: bare data OR the `{ where?, data }` wrapper.
- * Dispatch is DETERMINISTIC and structural — an object carrying a `data` key whose
- * value is an object is the wrapper, everything else is bare data — so a malformed
- * wrapper surfaces the wrapper's own error rather than a union-wide miss.
+ * Dispatch is DETERMINISTIC and structural — never try-this-then-that — so a
+ * malformed wrapper surfaces the wrapper's own error rather than a union-wide miss,
+ * and the form a payload takes never depends on the values inside it.
  *
  * This is the ONE place the rule is applied, because it is the only place that sees
  * the USER's payload: both arms emit the same canonical `{ data, where? }` envelope,
  * so no later reader (the update root, a target one level deeper, the nested-target
  * re-parse) ever has to tell the spellings apart from an output that already
- * rewrote scalar shorthands. See {@link file://./to-one-update-form.ts} for the rule
- * and its documented collision with a target model that owns a field named `data`.
+ * rewrote scalar shorthands. See {@link file://./to-one-update-form.ts} for the rule,
+ * and for the collision it REFUSES: on a target that owns a field named `data`, the
+ * envelope's shape is also how bare data spells that field, and only the caller can
+ * say which was meant.
  */
 export type ToOneUpdateTargetSchema<S extends RelationState> = V.Union<
   readonly [ToOneUpdateWrapperSchema<S>, GetTargetSchemas<S>["core"]["update"]]
@@ -74,15 +77,36 @@ const toOneUpdateTargetFactory = <
     wrapper as unknown as VibSchema<unknown, unknown>,
     bare as unknown as VibSchema<unknown, unknown>,
   ];
+  // Does the TARGET own an update key named `data`? Answered from the target's own
+  // update schema (its entries are one key per updatable field and relation), and
+  // only ONCE — but not before the first parse, because resolving the target's
+  // schemas here would not terminate for a self-referential relation. An update
+  // schema whose entries cannot be read is treated as owning the key: the
+  // ambiguous spelling is then REFUSED rather than guessed.
+  let ownsDataKey: boolean | undefined;
+  const targetOwnsDataField = (): boolean => {
+    if (ownsDataKey === undefined) {
+      const { entries } = targetSchemas().core.update as unknown as {
+        entries?: Record<string, unknown>;
+      };
+      ownsDataKey = entries === undefined || Object.hasOwn(entries, "data");
+    }
+    return ownsDataKey;
+  };
   const schema = createSchema<unknown, unknown>("union", (value) => {
-    if (isToOneUpdateWrapper(value)) return validateSchema(wrapper, value);
+    const ownsData = targetOwnsDataField();
+    const form = readToOneUpdateForm(value, ownsData);
+    if (form === "ambiguous") return fail(AMBIGUOUS_TO_ONE_UPDATE);
+    if (form === "envelope") return validateSchema(wrapper, value);
     // The bare arm is CANONICALIZED into the same envelope the wrapper arm emits.
     // Without it, `core.update`'s scalar-shorthand rewrite makes the bare output of
     // a model owning a `data` field indistinguishable from a wrapper, and every
     // reader downstream of this parse would resolve the form differently than the
     // user wrote it.
     const parsed = validateSchema(bare, value);
-    return parsed.issues ? parsed : ok(toOneUpdateEnvelope(parsed.value));
+    return parsed.issues
+      ? parsed
+      : ok(toOneUpdateEnvelope(parsed.value, ownsData));
   });
   // Mirror `v.union`'s introspection surface so JSON-schema conversion sees the
   // alternatives it expects (the same shape `toOneFilterFactory` publishes).
