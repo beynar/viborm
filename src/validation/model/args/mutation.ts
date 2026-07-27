@@ -9,6 +9,7 @@ import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
 import { restrictToScalarProjection } from "./bulk-write-projection";
+import { type BulkWriteLimitSchema, bulkWriteLimit } from "./pagination";
 import { rejectSelectInclude } from "./select-include-exclusivity";
 // =============================================================================
 // CREATE ARGS
@@ -156,6 +157,10 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * updated rows instead of `{ count }`. That `select` is SCALAR-ONLY and
  * `include` is refused, exactly as on `createMany` (see
  * `restrictToScalarProjection`).
+ *
+ * `limit` (Prisma 6.x) caps how many rows the UPDATE affects — including on the
+ * returning arm, where exactly the capped rows come back. WHICH rows is
+ * deliberately unspecified: a bulk write takes no `orderBy`.
  */
 export type UpdateManyArgs<
   M extends AnyModel,
@@ -165,6 +170,7 @@ export type UpdateManyArgs<
     where: CoreSchemas<M, F>["where"];
     data: CoreSchemas<M, F>["scalarUpdate"];
     select: CoreSchemas<M, F>["scalarSelect"];
+    limit: BulkWriteLimitSchema;
     cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
@@ -182,6 +188,7 @@ export const getUpdateManyArgs = <
         where: v.lazyRef(() => core.where),
         data: v.lazyRef(() => core.scalarUpdate),
         select: v.lazyRef(() => core.scalarSelect),
+        limit: bulkWriteLimit(),
         cache: cacheInvalidationSchema,
       },
       { atLeast: ["data"] }
@@ -240,6 +247,9 @@ export const getDeleteArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * deleted rows instead of `{ count }`. That `select` is SCALAR-ONLY and
  * `include` is refused, for the same reason as the other bulk writes (see
  * `restrictToScalarProjection`).
+ *
+ * `limit` (Prisma 6.x) caps how many rows the DELETE removes — see
+ * `UpdateManyArgs` for the "how many, not which" contract.
  */
 export type DeleteManyArgs<
   M extends AnyModel,
@@ -248,6 +258,7 @@ export type DeleteManyArgs<
   {
     where: CoreSchemas<M, F>["where"];
     select: CoreSchemas<M, F>["scalarSelect"];
+    limit: BulkWriteLimitSchema;
     cache: CacheInvalidationSchema;
   },
   { optional: true }
@@ -264,6 +275,7 @@ export const getDeleteManyArgs = <
       {
         where: v.lazyRef(() => core.where),
         select: v.lazyRef(() => core.scalarSelect),
+        limit: bulkWriteLimit(),
         cache: cacheInvalidationSchema,
       },
       { optional: true }

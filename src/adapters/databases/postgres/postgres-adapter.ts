@@ -388,6 +388,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsVector: false,
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
     supportsMutationTargetInSubquery: true,
+    supportsMutationRowLimit: false, // PostgreSQL has no UPDATE/DELETE ... LIMIT
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

@@ -12,6 +12,7 @@ import { buildWhere } from "../builders/where-builder";
 import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getRelationInfo, getTableName, isRelation } from "../context";
 import type { QueryScope } from "../types";
+import { buildBulkLimitWhere } from "./bulk-limit";
 
 interface UpdateArgs {
   where: Record<string, unknown>;
@@ -23,6 +24,12 @@ interface UpdateArgs {
 interface UpdateManyArgs {
   where?: Record<string, unknown>;
   data: Record<string, unknown>;
+  /**
+   * Cap on the number of rows the UPDATE may affect (Prisma 6.x `limit`).
+   * WHICH rows are updated is unspecified — there is no `orderBy` on a bulk
+   * write. `0` never reaches here; the operation layer short-circuits it.
+   */
+  limit?: number;
 }
 
 /**
@@ -176,7 +183,11 @@ export function buildUpdateMany(ctx: QueryScope, args: UpdateManyArgs): Sql {
     tableName
   );
 
+  // Apply the row cap: a native LIMIT suffix, or a PK-subquery WHERE.
+  const limited = buildBulkLimitWhere(ctx, whereSql, args.where, args.limit);
+
   // Build UPDATE
   const table = adapter.identifiers.escape(tableName);
-  return adapter.mutations.update(table, setSql, whereSql);
+  const updateSql = adapter.mutations.update(table, setSql, limited.where);
+  return limited.suffix ? sql`${updateSql} ${limited.suffix}` : updateSql;
 }

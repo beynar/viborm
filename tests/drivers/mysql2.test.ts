@@ -38,6 +38,7 @@ import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -191,6 +192,11 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runImplicitReturningBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runBulkWriteLimitBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });

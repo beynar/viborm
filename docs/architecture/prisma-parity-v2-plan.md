@@ -242,6 +242,60 @@ restored, while the rest of the estate stays green. The counter-falsification is
 MATCHING filter on the same generated-PK model still takes the update arm, so the capture cannot
 be passing by turning every extended-`where` upsert into a create.
 
+### W4-U2 — DELIVERED
+
+**Surface.** An optional non-negative integer `limit` on `updateMany` and `deleteMany`
+(`bulkWriteLimit`, `src/validation/model/args/pagination.ts`, wired into `getUpdateManyArgs` /
+`getDeleteManyArgs`). Because the client's arg types are inferred from those schemas, the key
+appears on the typed surface with no separate type work. It covers the implicit-returning arm too
+— `updateMany`/`deleteMany` **with a `select`** hand back exactly the affected rows, so a capped
+call returns at most `limit` of them.
+
+**The contract is HOW MANY, not WHICH.** A bulk write takes no `orderBy`, so the affected subset
+is whatever the database reaches first, and the two dialect spellings genuinely reach different
+rows. This is Prisma's hole as much as ours, and it is stated as a divergence-shaped warning in
+`docs/content/docs/client/{update-many,delete-many}.mdx` rather than papered over: nothing in the
+implementation invents an ordering, and no test asserts row identity. What IS portable, and is
+pinned on every dialect: the count is `min(matching, limit)`; rows outside the `where` are never
+touched at any limit; the `select` arm returns exactly the rows that changed.
+
+**Two spellings, chosen by capability.** A new `supportsMutationRowLimit` capability
+(`src/adapters/adapter-capabilities.ts`) — true on MySQL only — selects between them in
+`buildBulkLimitWhere` (`src/query-engine/operations/bulk-limit.ts`), which both `buildUpdateMany`
+and `buildDeleteMany` call:
+
+| Dialect | Form | Why not the other one |
+|---|---|---|
+| MySQL | native `UPDATE\|DELETE … LIMIT n` suffix; `WHERE` untouched | the PK subquery would read the mutated table — ERROR 1093, the same restriction the relation-filter derived-table wrapper already exists for. Leaving the `WHERE` alone is also why the cap composes with that wrapper for free |
+| PostgreSQL, SQLite | `WHERE (pk…) IN (SELECT pk… FROM t WHERE <filter> LIMIT n)` | neither dialect has `UPDATE … LIMIT` (SQLite needs `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`, off in better-sqlite3 / libSQL / D1) |
+
+The subquery is built by `buildFind` on a fresh scope, so it carries the user's filter verbatim
+and gets its own alias. **Compound primary keys are supported, not refused**: the row-value form
+`(a, b) IN (SELECT a, b …)` is accepted by PostgreSQL and by SQLite ≥ 3.15, verified behaviorally
+on PGlite, better-sqlite3 and libSQL — so the `v.refused` escape the brief allowed for was not
+needed.
+
+**The non-returning `select` arm caps its capture, not its write.** On MySQL,
+`ManyAndReturnOperation` already locks the target PK set at planning and addresses both the write
+and the re-read by those captured PKs. `limit` is therefore applied to that capture
+(`buildPkCapture` passes it to `buildFind`), which caps everything downstream — the native
+`UPDATE … LIMIT` is never needed in this arm.
+
+**`limit: 0` sends no statement.** Both arms short-circuit in the operation layer
+(`BulkCountOperation.write` is `undefined`; `ManyAndReturnOperation` takes the empty static plan)
+and answer `{ count: 0 }` / `[]` from nothing. A `LIMIT 0` write would be a pointless round trip,
+and on the PK-subquery dialects it would still take locks.
+
+**Evidence.** `tests/drivers/bulk-write-limit-behavior.ts` — 16 cases wired into PGlite, SQLite3,
+LibSQL and MySQL2 (the Docker MySQL leg is where the ERROR 1093 composition and the native-LIMIT
+arm are actually executed). `tests/query-engine-v2/bulk-write-limit-plan.test.ts` — 13 structural
+cases for the two things a behavioral test cannot see: that `limit: 0` compiles to zero steps, and
+which spelling each dialect got. Falsified three ways: making `buildBulkLimitWhere` ignore the
+limit fails 9 driver cases + 5 plan cases; removing the `limit: 0` short-circuit fails 3 plan
+cases; uncapping the MySQL planning capture fails 1. Each falsification has a paired control (no
+`limit` ⇒ neither form appears; `limit: 1` ⇒ a write is compiled) so the assertions cannot pass
+vacuously.
+
 ---
 
 ## W5 — Client surface & errors (all units independent → fully parallel)

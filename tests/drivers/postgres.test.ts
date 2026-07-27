@@ -14,6 +14,7 @@ import {
 import { push } from "@migrations";
 import { s } from "@schema";
 import { runBlobFilterBehavior } from "./blob-filter-behavior";
+import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -470,6 +471,15 @@ describeIf("postgres.js Driver", () => {
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runNestedOrderByBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Bulk-write `limit` IS wired here for the reason given in pg.test.ts: its
+  // PostgreSQL form binds a `LIMIT` inside a subquery inside an UPDATE's WHERE,
+  // which is a parameter ORDERING this file's charter covers.
+  runBulkWriteLimitBehavior({
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),

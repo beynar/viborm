@@ -27,6 +27,7 @@ import {
 } from "./batch-forced-pg";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBlobFilterBehavior } from "./blob-filter-behavior";
+import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
@@ -665,6 +666,16 @@ describeIf("pg Driver", () => {
     name: "pg atomic batch",
     createDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Bulk-write `limit` IS wired here, unlike the adapter-level suites below:
+  // its PostgreSQL form nests a bound `LIMIT` inside a subquery inside an
+  // UPDATE's WHERE, after the SET's own bound values — a parameter ORDERING
+  // this file's charter (param serialization on the real driver) covers and
+  // PGlite's in-process binding does not fully stand in for.
+  runBulkWriteLimitBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 
   // The remaining behavior suites are not wired here: they are adapter-level

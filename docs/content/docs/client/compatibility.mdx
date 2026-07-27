@@ -20,10 +20,10 @@ Everything in the API works the same on every database unless noted under [Datab
 | `create` | ✅ | Scalar data and nested writes. |
 | `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`). Relation nesting isn't supported inside `createMany`. |
 | `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
-| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only. |
+| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only. Prisma 6's `limit` is supported, with Prisma's own caveat: it caps how many rows are affected, not which. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
 | `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
-| `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. |
+| `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported. |
 | `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. |
 | `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
 | `$queryRaw` / `$executeRaw` | Different | Take an explicit `(sql, params)` / `Sql` fragment rather than Prisma's tagged template. See [Raw SQL differences](#type-and-api-differences). |

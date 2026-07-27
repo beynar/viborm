@@ -491,6 +491,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     // table when this is false (requires MySQL 8.0.14+ for outer references
     // in derived tables).
     supportsMutationTargetInSubquery: false,
+    // MySQL's single-table UPDATE/DELETE take a native LIMIT, which is also the
+    // only portable spelling here: the PK-subquery form would re-read the
+    // mutated table and trip the same ERROR 1093 as above.
+    supportsMutationRowLimit: true,
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;

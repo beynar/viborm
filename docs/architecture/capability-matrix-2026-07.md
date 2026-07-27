@@ -110,11 +110,11 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 | `createMany` (+`skipDuplicates`) | ✅ | `mutation.ts:54-79` |
 | ~~`createManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `createMany` with a `select` IS the returning form. That `select` is **scalar-only** — a relation key, `_count`, or `include` is refused at the parse boundary (W3 fix round: the projection used to be accepted and answered with wrong data). `+skipDuplicates` still refused on non-returning drivers | `mutation.ts` `getCreateManyArgs`; `args/bulk-write-projection.ts`; `ManyAndReturnOperation.ts` |
 | `update` | ✅ unique-`where` enforced | `mutation.ts:126-155` |
-| `updateMany` | 🟡 **no `limit`** (Prisma 6.x) — **and see defect 1** | `mutation.ts:164-189` |
-| ~~`updateManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `updateMany` with a `select`. Same scalar-only projection as `createMany`; still no `limit`. `deleteMany` with a `select` is the same shape, past Prisma, which has no returning `deleteMany` | `mutation.ts` `getUpdateManyArgs` / `getDeleteManyArgs`; `args/bulk-write-projection.ts` |
+| `updateMany` | ✅ incl. `limit` (W4-U2) — **and see defect 1** | `mutation.ts` `getUpdateManyArgs`; `operations/bulk-limit.ts` |
+| ~~`updateManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `updateMany` with a `select`. Same scalar-only projection as `createMany`; `limit` caps this arm too, so the rows returned are the rows affected. `deleteMany` with a `select` is the same shape, past Prisma, which has no returning `deleteMany` | `mutation.ts` `getUpdateManyArgs` / `getDeleteManyArgs`; `args/bulk-write-projection.ts` |
 | `upsert` | ✅ **+ superset** (`targetWhere`/`setWhere`) | `mutation.ts:309-346`; probe-first, not `ON CONFLICT` ([UpsertOperation.ts:79](../../src/query-engine-v2/UpsertOperation.ts:79)) |
 | `delete` | ✅ unique-`where` enforced | `mutation.ts:236-262` |
-| `deleteMany` | 🟡 no `limit` | `mutation.ts:271-294` |
+| `deleteMany` | ✅ incl. `limit` (W4-U2) | `mutation.ts` `getDeleteManyArgs`; `operations/bulk-limit.ts` |
 | `count` | ✅ incl. `select: { _all, field }`, where/orderBy/cursor/take/skip | `aggregate.ts:111-148` |
 | `aggregate` | ✅ `_count`(+`_all`)/`_avg`/`_sum`/`_min`/`_max`, input-window pagination | `aggregate.ts:158-202` |
 | `groupBy` | ✅ `by`/`having`/`orderBy`/`take`/`skip` + all 5 aggregates; Prisma's orderBy⊆by rule enforced at runtime | `aggregate.ts:384-446`; `groupby.ts:251` |

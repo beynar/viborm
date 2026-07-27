@@ -391,3 +391,37 @@ describe("a bulk write's select is scalar-only", () => {
     expectTypeOf<Extract<FindSelectKeys, "_count">>().toEqualTypeOf<"_count">();
   });
 });
+
+/**
+ * `limit` (Prisma 6.x, W4-U2) reaches the typed surface with no separate type
+ * work: the client's payload types are inferred from the same arg schemas the
+ * runtime parses with, so adding the key to `getUpdateManyArgs` /
+ * `getDeleteManyArgs` is the whole change. It is optional, numeric, and belongs
+ * to the bulk families ONLY — the targeted `update`/`delete` cap nothing,
+ * because they already address exactly one row.
+ */
+describe("the bulk-write limit on the typed surface", () => {
+  type PayloadOf<O extends Operations> = NonNullable<
+    OperationPayload<O, UserModel>
+  >;
+  type HasLimit<O extends Operations> = "limit" extends keyof PayloadOf<O>
+    ? true
+    : false;
+
+  test("updateMany and deleteMany take an optional number", () => {
+    expectTypeOf<
+      PayloadOf<"updateMany">["limit"]
+    >().toEqualTypeOf<number | undefined>();
+    expectTypeOf<
+      PayloadOf<"deleteMany">["limit"]
+    >().toEqualTypeOf<number | undefined>();
+  });
+
+  test("it is not a key of the single-row or create families", () => {
+    expectTypeOf<HasLimit<"update">>().toEqualTypeOf<false>();
+    expectTypeOf<HasLimit<"delete">>().toEqualTypeOf<false>();
+    expectTypeOf<HasLimit<"createMany">>().toEqualTypeOf<false>();
+    // …and the probe is not vacuous: it reports true where the key exists.
+    expectTypeOf<HasLimit<"updateMany">>().toEqualTypeOf<true>();
+  });
+});

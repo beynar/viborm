@@ -10,6 +10,7 @@ import { buildWhere } from "../builders/where-builder";
 import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getTableName } from "../context";
 import type { QueryScope } from "../types";
+import { buildBulkLimitWhere } from "./bulk-limit";
 
 interface DeleteArgs {
   where: Record<string, unknown>;
@@ -19,6 +20,12 @@ interface DeleteArgs {
 
 interface DeleteManyArgs {
   where?: Record<string, unknown>;
+  /**
+   * Cap on the number of rows the DELETE may affect (Prisma 6.x `limit`).
+   * WHICH rows are removed is unspecified — there is no `orderBy` on a bulk
+   * write. `0` never reaches here; the operation layer short-circuits it.
+   */
+  limit?: number;
 }
 
 /**
@@ -73,9 +80,13 @@ export function buildDeleteMany(ctx: QueryScope, args: DeleteManyArgs): Sql {
     tableName
   );
 
+  // Apply the row cap: a native LIMIT suffix, or a PK-subquery WHERE.
+  const limited = buildBulkLimitWhere(ctx, whereSql, args.where, args.limit);
+
   // Build DELETE
   const table = adapter.identifiers.escape(tableName);
-  return adapter.mutations.delete(table, whereSql);
+  const deleteSql = adapter.mutations.delete(table, limited.where);
+  return limited.suffix ? sql`${deleteSql} ${limited.suffix}` : deleteSql;
 }
 
 /**

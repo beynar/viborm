@@ -85,6 +85,11 @@ type AndReturnKind =
  *   `with 'select'` — never weakened into a route or a silent divergence. The
  *   `{ count }` arm of the same family is unaffected and still runs there.
  *
+ * `updateMany`/`deleteMany` `limit` (Prisma 6.x) caps this arm exactly as it
+ * caps `{ count }`: the rows returned ARE the rows affected, so a capped write
+ * hands back at most `limit` of them. `limit: 0` compiles to the empty plan and
+ * parses to `[]` — the row-shaped spelling of `{ count: 0 }`.
+ *
  * One operation, two leaves (WHY §4.1); no new step kind, no new executor branch.
  */
 export class ManyAndReturnOperation {
@@ -148,6 +153,17 @@ export class ManyAndReturnOperation {
       return;
     }
 
+    // `limit: 0` on a returning bulk write: nothing is affected, so nothing
+    // comes back and no statement runs — the same short-circuit the `{ count }`
+    // arm applies (BulkCountOperation), reached through the empty static plan.
+    if (this.limit() === 0) {
+      this.staticSteps = [];
+      this.staticOutput = undefined;
+      this.captureRead = undefined;
+      this.updateData = undefined;
+      return;
+    }
+
     if (kind === "deleteManyAndReturn") {
       this.updateData = undefined;
       if (supportsReturning) {
@@ -155,7 +171,7 @@ export class ManyAndReturnOperation {
           id: this.scope.allocate(`${this.modelName()}.deleteManyReturn`),
           kind: "write",
           statement: buildDeleteManyAndReturn(this.ctx(), {
-            ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+            ...this.bulkScope(),
             ...(this.select ? { select: this.select } : {}),
           }),
           outputs: { result: { kind: "rows" } },
@@ -180,7 +196,7 @@ export class ManyAndReturnOperation {
         id: this.scope.allocate(`${this.modelName()}.updateManyReturn`),
         kind: "write",
         statement: buildUpdateManyAndReturn(this.ctx(), {
-          ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+          ...this.bulkScope(),
           data,
           ...(this.select ? { select: this.select } : {}),
         }),
@@ -201,20 +217,45 @@ export class ManyAndReturnOperation {
     this.captureRead = this.buildPkCapture("updateManyReturn");
   }
 
+  /** The validated `limit`, or `undefined` when the caller omitted it. */
+  private limit(): number | undefined {
+    return typeof this.args.limit === "number" ? this.args.limit : undefined;
+  }
+
+  /** The `where`/`limit` pair the bulk builders take, both optional. */
+  private bulkScope(): { where?: Record<string, unknown>; limit?: number } {
+    const limit = this.limit();
+    return {
+      ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+      ...(limit === undefined ? {} : { limit }),
+    };
+  }
+
   /**
    * The planning capture shared by both non-returning arms: the target primary
    * keys, FOR UPDATE, so the affected set cannot drift between planning and the
    * write inside the same transaction envelope.
+   *
+   * `limit` is applied HERE rather than on the write. The capture already
+   * decides the affected set — the write and the re-read both address it by
+   * captured PK — so capping the capture caps everything downstream, and the
+   * dialect that takes this path (MySQL) never needs its native `UPDATE … LIMIT`
+   * in this arm.
    */
   private buildPkCapture(label: string): StatementStep {
+    const limit = this.limit();
     return {
       id: this.scope.allocate(`${this.modelName()}.${label}.capture`),
       kind: "read",
-      statement: buildFind(this.ctx(), {
-        ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
-        select: this.pkSelect(),
-        forUpdate: true,
-      }),
+      statement: buildFind(
+        this.ctx(),
+        {
+          ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+          select: this.pkSelect(),
+          forUpdate: true,
+        },
+        limit === undefined ? {} : { limit }
+      ),
       outputs: { rows: { kind: "rows" } },
     };
   }

@@ -29,6 +29,12 @@ type BulkCountKind = "updateMany" | "deleteMany";
  * rejects at the parse boundary with a ValidationError naming the key
  * ("Unknown key: <relation>") and never reaches the SET builder, which would
  * silently skip it.
+ *
+ * `limit` (Prisma 6.x) caps the affected row count, so the returned count is
+ * `min(matching, limit)`. `limit: 0` is the one shape with NO statement at all:
+ * the operation compiles to an empty plan and answers `{ count: 0 }`. Executing
+ * a capped-to-nothing write would be a pointless round trip, and on the
+ * PK-subquery dialects it would still take locks.
  */
 export class BulkCountOperation {
   readonly mode: ExecutionMode;
@@ -37,7 +43,8 @@ export class BulkCountOperation {
   private readonly model: Model<any>;
   private readonly kind: BulkCountKind;
   private readonly args: Record<string, unknown>;
-  private readonly write: StatementStep;
+  /** `undefined` only for `limit: 0` — the write that affects nothing. */
+  private readonly write: StatementStep | undefined;
 
   constructor(
     engine: QueryEngine,
@@ -61,12 +68,15 @@ export class BulkCountOperation {
       args
     );
 
-    this.write = {
-      id: kind,
-      kind: "write",
-      statement: this.buildWriteSql(),
-      outputs: { count: { kind: "rowCount" } },
-    };
+    this.write =
+      this.limit() === 0
+        ? undefined
+        : {
+            id: kind,
+            kind: "write",
+            statement: this.buildWriteSql(),
+            outputs: { count: { kind: "rowCount" } },
+          };
   }
 
   planning(): OperationFragment {
@@ -74,6 +84,7 @@ export class BulkCountOperation {
   }
 
   compile(_known: Readonly<Record<string, unknown>>): OperationFragment {
+    if (!this.write) return { steps: [], outputs: {} };
     return {
       steps: [this.write],
       outputs: { count: ref(this.write.id, "count") },
@@ -81,7 +92,9 @@ export class BulkCountOperation {
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {
-    const count = outputs.count;
+    // `limit: 0` compiled to nothing, so there is no rowCount to read: the
+    // answer is the count the caller asked for, zero.
+    const count = this.write ? outputs.count : 0;
     if (typeof count !== "number" && typeof count !== "bigint") {
       throw new QueryEngineError(
         `query-engine-v2 ${this.kind} did not resolve a numeric count.`
@@ -96,11 +109,21 @@ export class BulkCountOperation {
     ).parse<T>(this.kind as Operation, { rowCount: Number(count) }, this.args);
   }
 
+  /** The validated `limit`, or `undefined` when the caller omitted it. */
+  private limit(): number | undefined {
+    return typeof this.args.limit === "number" ? this.args.limit : undefined;
+  }
+
   private buildWriteSql(): Sql {
     const ctx = createQueryScope(this.engine.adapter, this.model);
     const where = isRecord(this.args.where) ? this.args.where : undefined;
+    const limit = this.limit();
+    const scope = {
+      ...(where ? { where } : {}),
+      ...(limit === undefined ? {} : { limit }),
+    };
     if (this.kind === "deleteMany") {
-      return buildDeleteMany(ctx, where ? { where } : {});
+      return buildDeleteMany(ctx, scope);
     }
     const data = this.args.data;
     if (!isRecord(data)) {
@@ -108,6 +131,6 @@ export class BulkCountOperation {
         "query-engine-v2 updateMany is missing a data object."
       );
     }
-    return buildUpdateMany(ctx, where ? { where, data } : { data });
+    return buildUpdateMany(ctx, { ...scope, data });
   }
 }

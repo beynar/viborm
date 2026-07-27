@@ -14,4 +14,13 @@ export interface DatabaseAdapterCapabilities {
   supportsUpsertWhere: boolean;
   /** Whether a mutation may reference its target table in a subquery. */
   supportsMutationTargetInSubquery: boolean;
+  /**
+   * Whether a single-table `UPDATE`/`DELETE` accepts a native row cap
+   * (`... LIMIT n`). MySQL does; PostgreSQL and SQLite (in the default builds
+   * this project targets — `SQLITE_ENABLE_UPDATE_DELETE_LIMIT` is off) do not,
+   * so `updateMany`/`deleteMany` `limit` is realized there by restricting the
+   * mutation's `WHERE` to a primary-key subquery that carries the `LIMIT`.
+   * See `buildBulkLimitWhere` in query-engine/operations/bulk-limit.ts.
+   */
+  supportsMutationRowLimit: boolean;
 }

@@ -492,6 +492,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsVector: false,
     supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
     supportsMutationTargetInSubquery: true,
+    // UPDATE/DELETE ... LIMIT needs SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which is
+    // off in the builds this project targets (better-sqlite3, libSQL, D1).
+    supportsMutationRowLimit: false,
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;
