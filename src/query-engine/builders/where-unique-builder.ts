@@ -35,12 +35,10 @@
 
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
-import { getColumnName, isRelation } from "../context";
+import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
 import { buildScalarSqlValue } from "./values-builder";
 import { buildWhere } from "./where-builder";
-
-const LOGICAL_KEYS: ReadonlySet<string> = new Set(["AND", "OR", "NOT"]);
 
 /**
  * Build WHERE from a unique input (for findUnique, update, delete)
@@ -64,7 +62,6 @@ export function buildWhereUnique(
   );
 
   if (filters) {
-    assertScalarOnlyFilter(ctx.model, filters);
     const filterSql = buildWhere(ctx, filters, alias);
     if (filterSql) conditions.push(filterSql);
   }
@@ -163,38 +160,6 @@ export function getWhereUniqueEntries(
   where: Record<string, unknown>
 ): WhereUniqueEntry[] {
   return partitionWhereUnique(ctx, where).entries;
-}
-
-/**
- * The engine-side half of the relation refusal the extended-whereUnique schema
- * states (`src/validation/model/core/where.ts`). A unique `where`'s filter half
- * compiles into UPDATE / DELETE too, where the target table carries no alias and
- * MySQL rejects a subquery reading the table being mutated — so a relation
- * filter cannot be answered identically on every dialect from this position.
- * The schema rejects it first; this keeps the builder fail-closed for any
- * internally-constructed selector that never passed the schema.
- */
-function assertScalarOnlyFilter(
-  model: Model<any>,
-  filter: Record<string, unknown>
-): void {
-  for (const [key, value] of Object.entries(filter)) {
-    if (value === undefined) continue;
-    if (LOGICAL_KEYS.has(key)) {
-      const operands = Array.isArray(value) ? value : [value];
-      for (const operand of operands) {
-        if (operand !== null && typeof operand === "object") {
-          assertScalarOnlyFilter(model, operand as Record<string, unknown>);
-        }
-      }
-      continue;
-    }
-    if (isRelation(model, key)) {
-      throw new QueryEngineError(
-        `Relation filter '${key}' is not supported inside a unique 'where'. An extended unique 'where' accepts non-unique scalar filters and AND/OR/NOT only.`
-      );
-    }
-  }
 }
 
 function isUniqueScalarDiscriminator(

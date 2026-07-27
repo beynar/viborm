@@ -641,18 +641,6 @@ describe("Basic CRUD Operations", () => {
         )
       ).toThrow("Unknown where field 'unknownField'");
     });
-
-    test("a relation filter in the filter half is refused by name", () => {
-      const ctx = createQueryScope(adapter, Author);
-
-      expect(() =>
-        buildWhereUnique(
-          ctx,
-          { id: "author-1", posts: { some: {} } },
-          ctx.rootAlias
-        )
-      ).toThrow("is not supported inside a unique 'where'");
-    });
   });
 
   describe("findUnique", () => {

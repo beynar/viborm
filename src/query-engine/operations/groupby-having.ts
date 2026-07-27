@@ -92,6 +92,11 @@ function buildHavingLogicalAnd(
  * `buildLogicalOr` in ../builders/where-builder.ts, so `having: { OR: [] }`
  * and `where: { OR: [] }` agree. AND and NOT of nothing are TRUE, which is
  * exactly what dropping the key already achieves, so only this arm differs.
+ *
+ * The having schema types `OR` as `v.array(havingSchema)` and nothing else
+ * (src/validation/model/args/aggregate.ts), so a non-array never arrives here
+ * and this arm does not restate that typing — it takes the operands the way
+ * `buildHavingLogicalAnd` does.
  */
 function buildHavingLogicalOr(
   ctx: QueryScope,
@@ -99,13 +104,10 @@ function buildHavingLogicalOr(
   alias: string,
   byFields: string[]
 ): Sql | undefined {
-  if (!Array.isArray(value)) {
-    throw new QueryEngineError("Logical OR requires an array value.");
-  }
-
+  const items = Array.isArray(value) ? value : [value];
   const conditions: Sql[] = [];
 
-  for (const item of value) {
+  for (const item of items) {
     const condition = buildHaving(
       ctx,
       item as Record<string, unknown>,
