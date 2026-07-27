@@ -989,12 +989,28 @@ scaled `s.bigInt()` if you need exact ordered money on SQLite.
 
 #### Migration note (SQLite, breaking)
 
-The SQLite DDL for a decimal field changes `REAL` → `TEXT`. On an existing database the
-differ **sees a column type change and surfaces it** as an altered column in `push`/`diff`
-output — it is not silent. Existing `REAL` values migrate as SQLite converts them to text,
-which means **a value already corrupted by the old `REAL` storage stays corrupted**: the
-migration cannot recover digits the double already discarded. Re-import from the source
-of truth if the old rows carried more than ~15 significant digits.
+The SQLite DDL for a decimal field changes `REAL` → `TEXT`. **Verified, not assumed**
+(`tests/migrations/decimal-sqlite-text.test.ts`): a second `push` against a database
+created with the old schema reports
+
+```
+{ type: "alterColumn", tableName: "…", columnName: "amount",
+  from: { type: "REAL" }, to: { type: "TEXT" } }
+```
+
+— naming the column and both types. It is not silent, and it is not mistaken for a fresh
+table. SQLite cannot alter a column type in place, so the change is realized by the
+standard rebuild (create `__new_…`, `INSERT … SELECT`, drop, rename), which carries the
+existing rows across.
+
+What the copy cannot do is undo the old storage: **a value the old `REAL` column already
+rounded stays rounded**, because the digits were discarded at write time, not at migration
+time. Re-import from the source of truth if the old rows carried more than ~15 significant
+digits.
+
+*(The first version of this test passed vacuously — it fell back to a fresh driver, so the
+second push saw an empty database. Tightened to share one driver and assert the exact
+operation shape; that is when it started telling the truth.)*
 
 #### Legacy escape hatch (one release)
 
