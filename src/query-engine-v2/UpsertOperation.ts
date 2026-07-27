@@ -1,12 +1,16 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpsertOperation is the architecture name.
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
+import { isSql } from "@sql";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
 import { separateData } from "../query-engine/builders/relation-data-builder";
-import { buildInsert } from "../query-engine/builders/values-builder";
+import {
+  buildInsert,
+  isBatchValueRef,
+} from "../query-engine/builders/values-builder";
 import {
   getWhereUniqueEntries,
   getWhereUniqueFilters,
@@ -75,11 +79,14 @@ interface ArmResult {
 /**
  * How the scalar create arm addresses the row its INSERT actually writes.
  *
- * - `known` — every primary-key field is a literal in the create data, so the
- *   read-back targets that primary key directly.
+ * - `known` — the CREATE DATA already spells a complete unique identity: every
+ *   primary-key field as a literal, or every column of some other unique
+ *   constraint of the model. The read-back targets that `whereUnique` directly and
+ *   the INSERT captures nothing.
  * - `generated` — the model's single primary key is a DB-generated identity
- *   (`increment`) the create data omits, so the INSERT must CAPTURE the value the
- *   database produced and the read-back addresses the row by it.
+ *   (`increment`) the create data omits AND the create data spells no other
+ *   complete unique, so the INSERT must CAPTURE the value the database produced
+ *   and the read-back addresses the row by it.
  *
  * There is deliberately no third shape: any other create payload names no row the
  * upsert can read back, and `createArmIdentity` refuses instead of guessing.
@@ -87,6 +94,29 @@ interface ArmResult {
 type CreateArmIdentity =
   | { readonly kind: "known"; readonly where: Record<string, unknown> }
   | { readonly kind: "generated"; readonly field: string };
+
+/**
+ * Can this create-data value address the written row in a compile-time `where`?
+ *
+ * A NULL never can: SQL unique constraints do not equate NULLs, so a nullable
+ * unique the create data sets to null names no row (and in batch mode, where the
+ * terminal read carries no exactly-one-row postcondition, the miss would be
+ * SILENT). Neither can a value the engine resolves later (raw `Sql`, a batch-value
+ * reference — what the read-back compares against need not be what the INSERT
+ * wrote), nor a structured value (a list, a JSON object): those are not columns a
+ * unique constraint of this schema spans, and equality on them is dialect
+ * business. Everything else — strings, numbers, bigints, booleans, `Date`,
+ * `Decimal`, byte arrays — is the literal the INSERT writes verbatim.
+ */
+function isAddressableLiteral(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (isSql(value) || isBatchValueRef(value) || Array.isArray(value)) {
+    return false;
+  }
+  if (typeof value !== "object") return true;
+  const prototype = Object.getPrototypeOf(value);
+  return !(prototype === Object.prototype || prototype === null);
+}
 
 /** A validated conditional filter on the located row (`targetWhere`/`setWhere`). */
 interface Conditional {
@@ -707,23 +737,46 @@ export class UpsertOperation {
    * the filter EXCLUDED, so the upsert would return a pre-existing row it never
    * touched; with a plain `where` it addresses a row that does not exist and the
    * terminal read fails. Both are fixed at the source — by addressing the row that
-   * was actually inserted:
+   * was actually inserted. Three sources can name it, tried in this order:
    *
-   * - every PK field is a literal in the create data → that primary key;
-   * - the model's single PK is a DB-generated `increment` identity the create data
-   *   omits → the INSERT captures what the database produced (see
-   *   {@link UpsertOperation.createArmInsert}) and the read-back references it,
-   *   exactly as {@link CreateOperation}'s root create does.
+   * 1. **literal primary key** — every PK field is a literal in the create data;
+   * 2. **a COMPLETE unique constraint of the model carried by the create data** —
+   *    a single `.unique()` column, or every column of one compound unique. That
+   *    constraint names exactly the row this INSERT wrote: the database enforces
+   *    that at most one row holds those values, and this statement just wrote a
+   *    row holding them. Like (1) it is derived from the create data alone, so it
+   *    is immune to the wrong-row bug even when a DIFFERENT live row satisfies
+   *    the `where`;
+   * 3. **a captured DB-generated identity** — the model's single PK is an
+   *    `increment` the create data omits, so the INSERT captures what the database
+   *    produced (see {@link UpsertOperation.createArmInsert}) and the read-back
+   *    references it, exactly as {@link CreateOperation}'s root create does.
    *
-   * Anything else names no row this operation can read back, so it is refused
-   * rather than guessed at — and only when the create arm is actually TAKEN (this
-   * runs at compile), so an upsert that updates is never affected.
+   * **Why (2) outranks (3), uniformly and not just in batch mode.** All three are
+   * equally correct; (1) and (2) are additionally CAPTURE-FREE — they compile to a
+   * plain INSERT with no output, whereas (3) makes the statement itself depend on
+   * the execution mode and the driver (`… RETURNING pk` in a returning-driver
+   * transaction, the driver's `insertId` scratch otherwise). That scratch is
+   * per-operation state a SHARED driver batch cannot isolate, so an operation that
+   * needs it is refused from `$transaction([…])` on a batch-only driver
+   * ({@link OperationExecutor.prepareSharedBatch}) — data-dependently, since only
+   * the create arm carries it. Compile cannot see whether it will be merged into a
+   * shared batch, so a batch-only preference would still leave that refusal
+   * reachable for the mainstream `increment` PK + unique-in-create-data model.
+   * Preferring the capture-free identity ALWAYS gives one compiled shape per
+   * (model, args) pair on every substrate and every driver, and shrinks the
+   * refusal to the shapes that genuinely have no other identity.
+   *
+   * A create payload carrying none of the three names no row this operation can
+   * read back, so it is refused rather than guessed at — and only when the create
+   * arm is actually TAKEN (this runs at compile), so an upsert that updates is
+   * never affected.
    */
   private createArmIdentity(): CreateArmIdentity {
-    const missing = this.parentPrimaryKeys.filter(
-      (pk) => this.createData[pk] === undefined
+    const literalPrimaryKey = this.parentPrimaryKeys.every(
+      (pk) => this.createData[pk] !== undefined
     );
-    if (missing.length === 0) {
+    if (literalPrimaryKey) {
       return {
         kind: "known",
         where: buildPrimaryKeyWhereUnique(
@@ -733,6 +786,10 @@ export class UpsertOperation {
           )
         ),
       };
+    }
+    const uniqueFromCreateData = this.createDataUniqueWhere();
+    if (uniqueFromCreateData) {
+      return { kind: "known", where: uniqueFromCreateData };
     }
     const [only] = this.parentPrimaryKeys;
     if (
@@ -744,8 +801,48 @@ export class UpsertOperation {
       return { kind: "generated", field: only };
     }
     throw new UnsupportedOperationError(
-      `query-engine-v2 upsert cannot read back the row its create arm inserts for '${getStepModelName(this.model, "record")}': primary key '${missing.join(", ")}' is neither carried by the create data nor a single database-generated identity.`
+      `query-engine-v2 upsert cannot read back the row its create arm inserts for '${getStepModelName(this.model, "record")}': the create data carries neither a complete primary key ('${this.parentPrimaryKeys.join(", ")}') nor any complete unique constraint of the model, and the primary key is not a single database-generated identity.`
     );
+  }
+
+  /**
+   * The `whereUnique` for a COMPLETE unique constraint of the model whose every
+   * column the create data supplies as an addressable literal — source (2) of
+   * {@link UpsertOperation.createArmIdentity}. Single-column `.unique()`s first
+   * (declaration order), then compound uniques; `undefined` when none is complete.
+   *
+   * `state.uniques` is the model's single-column unique/id scalars, so a compound
+   * PK's members never appear there individually — a half of a compound key is a
+   * filter, never an identity.
+   */
+  private createDataUniqueWhere(): Record<string, unknown> | undefined {
+    const state = this.model["~"].state;
+    for (const field of Object.keys(state.uniques)) {
+      const value = this.createData[field];
+      if (isAddressableLiteral(value)) return { [field]: value };
+    }
+    // Each compound unique is an ObjectSchema whose `entries` are its columns —
+    // the same shape `where-unique-builder` reads to compile a compound selector.
+    const compoundUniques: Record<
+      string,
+      { entries: Record<string, unknown> }
+    > = state.compoundUniques ?? {};
+    for (const [name, constraint] of Object.entries(compoundUniques)) {
+      const fields = Object.keys(constraint.entries);
+      if (fields.length === 0) continue;
+      const values: Record<string, unknown> = {};
+      let complete = true;
+      for (const field of fields) {
+        const value = this.createData[field];
+        if (!isAddressableLiteral(value)) {
+          complete = false;
+          break;
+        }
+        values[field] = value;
+      }
+      if (complete) return { [name]: values };
+    }
+    return undefined;
   }
 
   /**

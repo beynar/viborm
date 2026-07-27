@@ -626,20 +626,37 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // wrongness). Net +1 site; the absorbed accept-and-execute shape is covered by the
   // shared M2M behavior suite (generated-PK fixture) on every driver leg.
   //
-  // 77 -> 78 (upsert create-arm read-back addresses the WRITE, review round U1): the scalar
-  // create arm no longer reads its created row back through the `where`'s unique
+  // 77 -> 78 (upsert create-arm read-back addresses the WRITE, review rounds U1 + U1b): the
+  // scalar create arm no longer reads its created row back through the `where`'s unique
   // discriminator. `create` is under no obligation to satisfy `where`, so the discriminator
   // could name a DIFFERENT live row — with an extended `where` (unique key matches, filter
   // excludes → create arm) it named exactly the row the filter had excluded, and the upsert
   // returned a record it never wrote. `UpsertOperation.createArmIdentity` now decides from the
-  // CREATE DATA: a literal primary key, or — for a single DB-generated `increment` PK — the
-  // identity the INSERT captures (firstRowField / insertId), the same capture
-  // `CreateOperation`'s root INSERT performs. Its `else` is the NEW site (+1): a create payload
-  // whose row has no determinable identity (a partially-supplied compound PK, a generated
-  // compound PK) names no row to read back, so it is an honest typed refusal raised only when
-  // the create arm is actually TAKEN — never a silently wrong row. No shape that previously
-  // ANSWERED is refused: every reachable model either carries its PK literally or has the
-  // single generated PK the capture covers. See PLAN "W4-U1 — Correction (review round U1)".
+  // CREATE DATA, in this order: a literal primary key; a COMPLETE unique constraint of the
+  // model the create data carries (a single `.unique()` column, or every column of one compound
+  // unique — that constraint names exactly the row this INSERT wrote, and like the literal PK
+  // it never consults the `where`); or — for a single DB-generated `increment` PK — the identity
+  // the INSERT captures (firstRowField / insertId), the same capture `CreateOperation`'s root
+  // INSERT performs. Its `else` is the NEW site (+1): a create payload spelling NONE of the
+  // three names no row to read back, so it is an honest typed refusal raised only when the
+  // create arm is actually TAKEN — never a silently wrong row.
+  //
+  // WHAT THE REFUSAL ACTUALLY COSTS (corrected in review round U1b; the first cut of this
+  // paragraph claimed "no shape that previously ANSWERED is refused", which was FALSE). U1's
+  // first cut accepted only the first and third sources, and that DID refuse a shape that had
+  // answered at ea1f637^: a compound PK with one `increment` member, whose `create` carries some
+  // other complete unique — e.g. `.id(["tenantId","seq"])` with `seq` generated and a unique
+  // `email` in the create data. It had answered only because the old read-back went through the
+  // `where`, i.e. by the very mechanism that returned wrong rows; the second source restores it
+  // on an identity derived from the create data instead, so it answers again and answers
+  // CORRECTLY (witness: "compound PK with a generated member reads back by the create-data
+  // unique", extended-where-unique.test.ts). What remains refused is a create payload with no
+  // complete identity of any kind — chiefly a generated COMPOUND PK with no other unique. The
+  // mitigating context, verified live: a root `create` on that same model is ALREADY refused
+  // upstream by mutation-identity.ts:44 ("Nested create cannot propagate generated compound
+  // primary keys"), and `createMany` / `findMany` on it work — so the refusal narrows a model
+  // that was never fully writable through the single-row create path either. See PLAN
+  // "W4-U1 — Correction (review round U1)".
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

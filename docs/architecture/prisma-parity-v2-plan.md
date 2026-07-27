@@ -224,24 +224,70 @@ dialect and both substrates. (With a plain `where` the same class failed loudly 
 read matched zero rows.)
 
 The fix removes the `where` from this decision entirely. `UpsertOperation.createArmIdentity`
-decides, from the CREATE DATA, how the row about to be inserted will be addressed: its literal
-primary key when the create data carries every PK field, else — for a single DB-generated
-`increment` PK — the identity the INSERT captures (`… RETURNING pk` on a returning driver in
-transaction mode, the driver's `insertId` scratch-threaded by the executor in batch mode), which
-is the same capture `CreateOperation`'s root INSERT performs. Any other shape names no row this
-operation can read back and is refused with a typed `UnsupportedOperationError`, raised only when
-the create arm is actually taken. `getWhereUniqueDiscriminator` had no other consumer and is
-deleted, so the wrong door is gone rather than merely unused.
+decides, from the CREATE DATA, how the row about to be inserted will be addressed.
+`getWhereUniqueDiscriminator` had no other consumer and is deleted, so the wrong door is gone
+rather than merely unused.
 
-Pinned behaviorally on the `ticket` model (DB-generated PK — the only shape that reaches the
-capture), four witnesses that the created row comes back whatever the `where` says: an extended
-`where` whose discriminator names a live row the filter excludes while `create` writes a
-different unique value (the wrong-row witness), the same with the filter smuggled through `AND`,
-a PLAIN `where` naming a unique the create data does not reproduce, and a `where` naming the
-generated PK itself. All four fail on both substrates when the discriminator read-back is
-restored, while the rest of the estate stays green. The counter-falsification is retained — a
-MATCHING filter on the same generated-PK model still takes the update arm, so the capture cannot
-be passing by turning every extended-`where` upsert into a create.
+**Amendment (review round U1b) — three identity sources, capture-free first.** The first cut of
+the fix accepted only two sources, and reviewers falsified two of the claims made around it with
+live probes. The decision now runs through three sources, in this order:
+
+1. **literal primary key** — the create data carries every PK field;
+2. **a COMPLETE unique constraint of the model carried by the create data** — a single
+   `.unique()` column, or every column of one compound unique. The database enforces that at most
+   one row holds those values, and this INSERT just wrote a row holding them, so the constraint
+   names exactly that row. Like (1) it is derived from the create data and never consults the
+   `where`, so it is immune to the wrong-row bug even when a different LIVE row satisfies the
+   `where`;
+3. **a captured DB-generated identity** — a single `increment` PK the create data omits, captured
+   as `… RETURNING pk` on a returning driver in transaction mode, else the driver's `insertId`
+   scratch-threaded by the executor.
+
+A create payload spelling none of the three names no row this operation can read back and is
+refused with a typed `UnsupportedOperationError`, raised only when the create arm is actually
+taken. A value that is NULL, raw `Sql`, a batch-value reference, a list or a JSON object is not
+an identity for (2): SQL unique constraints do not equate NULLs, and the rest are not values the
+compile-time read-back can be sure the INSERT wrote.
+
+**Why (2) outranks (3) uniformly, not just in batch mode.** All three are equally correct; (1)
+and (2) are additionally CAPTURE-FREE — a plain INSERT with no output — while (3) makes the
+statement depend on the execution mode and the driver. That `insertId` scratch is per-operation
+state a SHARED driver batch cannot isolate, so `OperationExecutor.prepareSharedBatch` refuses an
+operation carrying it: before this amendment, `client.$transaction([ ticket.upsert({…}) ])` on a
+batch-only driver (D1/Neon class) threw `TransactionError` whenever the create arm was taken —
+data-dependently, since the update arm captures nothing. Compile cannot see whether it will be
+merged into a shared batch, so a batch-mode-only preference would leave that reachable for the
+mainstream model (single `increment` PK plus a unique in the create data). Preferring the
+capture-free identity always yields ONE compiled shape per (model, args) pair on every substrate
+and driver, and shrinks the refusal to the shapes that genuinely have no other identity.
+
+**What the refusal costs — the corrected claim.** The first cut's census note asserted "no shape
+that previously ANSWERED is refused". That was false, and reviewers proved it: a compound PK with
+one `increment` member whose `create` carries some other complete unique — `.id(["tenantId",
+"seq"])` with `seq` generated and a unique `email` — answered at `ea1f637^` and then threw. It
+had answered only *through* the discriminator read-back, i.e. by the very mechanism that returned
+wrong rows; source (2) restores it on a create-data identity, so it answers again and answers
+correctly (witnessed on both arms, and with a wrong-row case, in
+`extended-where-unique.test.ts`). What stays refused is a create payload with no complete identity
+of any kind — chiefly a generated COMPOUND PK with no other unique. That cost is bounded, and the
+bound is now pinned by a test rather than asserted: a single-row `create` on such a model is
+ALREADY refused upstream by `mutation-identity.ts`'s generated-compound-PK guard, while
+`createMany` and reads work.
+
+**Witnesses.** Each identity source has its own behavioral witness on its own fixture, so no
+witness can pass because another source happens to agree with the `where`: `account` (literal PK)
+with a `create` that reproduces neither the `where`'s discriminator nor its PK; `ticket`
+(generated PK, unique `email` in the create data) for source (2); and `note` — generated PK and
+NO other unique, added precisely because `ticket` no longer reaches the capture — for source (3).
+Restoring the discriminator read-back on the literal-PK branch fails the `account` witness on both
+substrates with the seeded row returned in place of the created one; restoring it on the source-(2)
+branch fails the `ticket` witnesses the same way. The counter-falsification is retained — a
+MATCHING filter on a generated-PK model still takes the update arm, so no source is passing by
+turning every extended-`where` upsert into a create. The array form is covered in the shared
+conventions (create arm, update arm, and a plain multi-operation array), so the batch-only leg
+exercises the shared-batch merge on every one; the refusal that legitimately remains is pinned
+against `note` on the batch-only driver, alongside the proof that the same operation still runs on
+its own atomic unit.
 
 ### W4-U2 — DELIVERED
 
