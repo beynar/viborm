@@ -847,6 +847,182 @@ describe("$transaction([...]) with statement-free operations", () => {
   });
 });
 
+/**
+ * On a batch-only driver an `update` / `delete` carries its root presence check
+ * as an in-batch GUARD whose declared failure is `notFound`. When the guard
+ * fires, the client attributes the abort by re-probing each guard's premise —
+ * but the atomic batch has already rolled back by then, so a premise a SIBLING
+ * operation broke inside the same batch holds again and blames nobody. The raw
+ * driver-mapped `NestedWriteAssertionError` (V7006, no Prisma code, a message
+ * about connect/disconnect targets) then escaped in place of the guard's own
+ * `NotFoundError` / P2025 that the transaction path produces.
+ */
+describe("$transaction([...]) guard attribution after rollback", () => {
+  const bootBatchOnly = async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    await push(setupClient, { force: true });
+    await setupClient.user.create({
+      data: { id: "b", name: "Bea", email: "bea@test.com" },
+    });
+    return createClient({
+      schema,
+      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+    });
+  };
+
+  test("batch-only: a sibling delete makes the update's own NotFoundError", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({ where: { id: "b" } }),
+          batchOnlyClient.user.update({
+            where: { id: "b" },
+            data: { name: "GONE" },
+          }),
+        ])
+      ).rejects.toMatchObject({
+        name: "NotFoundError",
+        code: VibORMErrorCode.RECORD_NOT_FOUND,
+        prismaCode: "P2025",
+        message: "No user record found for update",
+      });
+
+      // The batch rolled back whole, as it always did.
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "b", name: "Bea", email: "bea@test.com" },
+      ]);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a sibling that invalidates an extended whereUnique names the delete", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.updateMany({
+            where: { id: "b" },
+            data: { name: "renamed" },
+          }),
+          batchOnlyClient.user.delete({ where: { id: "b", name: "Bea" } }),
+        ])
+      ).rejects.toMatchObject({
+        name: "NotFoundError",
+        code: VibORMErrorCode.RECORD_NOT_FOUND,
+        prismaCode: "P2025",
+        message: "No user record found for delete",
+      });
+
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "b", name: "Bea", email: "bea@test.com" },
+      ]);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("transaction driver: the same batches raise the same typed errors", async () => {
+    await client.user.create({
+      data: { id: "b", name: "Bea", email: "bea@test.com" },
+    });
+
+    await expect(
+      withTransactions(client).$transaction([
+        client.user.deleteMany({ where: { id: "b" } }),
+        client.user.update({ where: { id: "b" }, data: { name: "GONE" } }),
+      ])
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+      code: VibORMErrorCode.RECORD_NOT_FOUND,
+      prismaCode: "P2025",
+      message: "No user record found for update",
+    });
+
+    await expect(
+      withTransactions(client).$transaction([
+        client.user.updateMany({
+          where: { id: "b" },
+          data: { name: "renamed" },
+        }),
+        client.user.delete({ where: { id: "b", name: "Bea" } }),
+      ])
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+      code: VibORMErrorCode.RECORD_NOT_FOUND,
+      prismaCode: "P2025",
+      message: "No user record found for delete",
+    });
+
+    expect(await client.user.findMany()).toEqual([
+      { id: "b", name: "Bea", email: "bea@test.com" },
+    ]);
+  });
+
+  test("batch-only: a premise the rollback does NOT restore is still attributed to its own guard", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      // Connecting a post that never existed: the re-probe still fails after the
+      // rollback, so this path was already attributed and must stay that way.
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.update({
+            where: { id: "b" },
+            data: { posts: { connect: { id: "never-existed" } } },
+          }),
+        ])
+      ).rejects.toMatchObject({
+        name: "NestedWriteError",
+        message: expect.stringContaining("was not found"),
+      });
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: guards that disagree stay un-attributable rather than guess", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      // The post belongs to a DIFFERENT author, so deleting "b" below breaks no
+      // foreign key and the batch reaches the guards.
+      await batchOnlyClient.user.create({
+        data: { id: "c", name: "Cyd", email: "cyd@test.com" },
+      });
+      await batchOnlyClient.post.create({
+        data: { id: "p", title: "Post", authorId: "c" },
+      });
+
+      // Two guards, two different (model, operation) attributions: the user
+      // update's premise is the one a sibling broke, but after the rollback
+      // both probe clean, so nothing here identifies WHICH fired. It fails
+      // closed with the raw assertion rather than blaming one at random.
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({ where: { id: "b" } }),
+          batchOnlyClient.user.update({
+            where: { id: "b" },
+            data: { name: "GONE" },
+          }),
+          batchOnlyClient.post.update({
+            where: { id: "p" },
+            data: { title: "Retitled" },
+          }),
+        ])
+      ).rejects.toMatchObject({
+        name: "NestedWriteAssertionError",
+        code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
+      });
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+});
+
 describe("mixed operations", () => {
   test("operations work independently after batch", async () => {
     // Batch some operations
