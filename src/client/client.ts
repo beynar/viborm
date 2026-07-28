@@ -41,6 +41,7 @@ import { attributeOperationBatchError } from "@query-engine/batch-error-attribut
 import {
   createCacheExecutionOptions,
   executeCachedOperation,
+  invalidateCommittedBatch,
   invalidateManualCache,
   validateCacheableOperation,
   withMutationCacheInvalidation,
@@ -832,6 +833,14 @@ export class VibORM<C extends VibORMConfig> {
                       driver
                     );
                   }
+                  // The batch has COMMITTED. This branch prepares and parses its
+                  // operations, so it never reaches the wrapped executor that
+                  // carries mutation cache invalidation on the execute path (see
+                  // createClient) — it runs the same invalidation itself, before
+                  // parsing, because the writes are already durable and a parse
+                  // failure must not leave a warm entry describing rows that no
+                  // longer exist.
+                  await invalidateCommittedBatch(operations);
                   const resultContext = {
                     provider: driver.driverName,
                     operation: "$transaction([...])",
@@ -887,8 +896,11 @@ export class VibORM<C extends VibORMConfig> {
               }
 
               // Execute all operations within a real transaction.
-              // Each operation's executor handles its own tracing (validate, build, execute, parse)
-              // Cache invalidation is already handled by the wrapped executor (see createClient)
+              // Each operation's executor handles its own tracing (validate, build, execute, parse).
+              // This branch DOES execute each operation, so the wrapped executor
+              // (see createClient) carries cache invalidation for it — unlike the
+              // shared-batch branch above, which prepares/parses and therefore
+              // invalidates explicitly after its commit.
               return driver.withTransaction(
                 async (txDriver) => {
                   const txDriverTyped = txDriver as AnyDriver;

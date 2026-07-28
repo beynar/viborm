@@ -46,6 +46,21 @@ export function isCacheManagedExecution(
   return options?.skipSpan === true;
 }
 
+/**
+ * The invalidation a wrapped mutation runs after it writes, keyed by the
+ * operation the caller holds.
+ *
+ * The wrapper below installs it as a deferred executor, which fires only from
+ * the EXECUTE path (`PendingOperation.runExecution`). A batch-only driver (D1,
+ * Neon HTTP) takes the client's shared-batch branch of `$transaction([...])`,
+ * which prepares every operation and parses the driver's batch results without
+ * ever executing them — so that branch looks the operation up here and runs the
+ * SAME closure once the batch has committed. One definition, two call paths:
+ * which model, which per-operation options and which execution context are
+ * invalidated cannot drift between them.
+ */
+const mutationInvalidations = new WeakMap<object, () => Promise<void>>();
+
 export function withMutationCacheInvalidation<T>(
   pendingOperation: PendingOperation<T>,
   cache: CacheDriver,
@@ -57,15 +72,40 @@ export function withMutationCacheInvalidation<T>(
     return pendingOperation;
   }
 
-  return pendingOperation.wrapExecutor(async (execute) => {
-    const result = await execute();
-    await cache._invalidate(
+  const invalidate = () =>
+    cache._invalidate(
       modelName,
       cacheOptions,
       pendingOperation.getExecutionContext()
     );
+
+  const wrapped = pendingOperation.wrapExecutor(async (execute) => {
+    const result = await execute();
+    await invalidate();
     return result;
   });
+  mutationInvalidations.set(wrapped, invalidate);
+  return wrapped;
+}
+
+/**
+ * Invalidate for every mutation in a batch that has COMMITTED without running
+ * through the execute path — the shared-batch branch of `$transaction([...])`.
+ *
+ * Called once the driver's batch has committed, so it mirrors the execute path's
+ * "write first, then invalidate" order. Operations that carry no invalidation (a
+ * read, a mutation on a client with no cache driver) are skipped, and each
+ * mutation is invalidated with its own options, exactly as when awaited directly.
+ */
+export async function invalidateCommittedBatch(
+  operations: readonly PendingOperation<unknown>[]
+): Promise<void> {
+  for (const operation of operations) {
+    const invalidate = mutationInvalidations.get(operation);
+    if (invalidate) {
+      await invalidate();
+    }
+  }
 }
 
 export function validateCacheableOperation(operation: string): void {
