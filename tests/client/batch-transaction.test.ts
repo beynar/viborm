@@ -122,7 +122,10 @@ const withTransactions = <TClient>(
 
 let db: PGlite;
 let client: ReturnType<
-  typeof createClient<{ schema: typeof schema; driver: PGliteDriver }>
+  typeof createClient<
+    typeof schema,
+    { schema: typeof schema; driver: PGliteDriver }
+  >
 >;
 
 beforeAll(async () => {

@@ -161,8 +161,8 @@ function assertOperationOwnership(
 /**
  * VibORM Configuration
  */
-export interface VibORMConfig {
-  schema: Schema;
+export interface VibORMConfig<S extends Schema = Schema> {
+  schema: S;
   driver: AnyDriver;
   cache?: CacheDriver;
   /** Instrumentation config (for initial setup) or context (for internal reuse) */
@@ -179,7 +179,7 @@ export interface VibORMConfig {
    * explicit `select`. Model-level `.omit()` is the rule — see
    * `docs/content/docs/client/omit.mdx` for the full precedence.
    */
-  omit?: ClientOmitConfig<Schema>;
+  omit?: ClientOmitConfig<S>;
   /**
    * **Transitional escape hatch — removed in the release after this one.**
    *
@@ -1024,8 +1024,14 @@ function assertConstructed<T>(build: () => T): T {
  * await client.$disconnect();
  * ```
  */
-export const createClient = <Config extends VibORMConfig>(
-  config: Config
+export const createClient = <S extends Schema, Config extends VibORMConfig<S>>(
+  // The `VibORMConfig<S>` intersection member is what gives the editor a KEYED
+  // contextual type while the literal is still being written: `S` is inferred
+  // from the sibling `schema` property, so `omit` completes with model names
+  // (and each model with its projectable fields) instead of the widened
+  // `Record<string, …>` constraint. `Config` still captures the whole literal
+  // for result-type threading.
+  config: Config & VibORMConfig<S>
 ): VibORMClient<Config> => {
   return VibORM.create(config);
 };
