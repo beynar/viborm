@@ -562,9 +562,17 @@ export function runFieldReferenceBehavior({
      *
      * A fragment is the escape hatch: its TEXT is the caller's dialect
      * responsibility, exactly like `$queryRaw`, and it is outside the
-     * portability promise the rest of the filter language keeps. Only the
-     * shapes that mean the same thing on all three local dialects are asserted
-     * here; a dialect-specific fragment is the caller's business.
+     * portability promise the rest of the filter language keeps. That
+     * responsibility falls on this suite too, because it runs on every leg —
+     * so every identifier inside a fragment here is escaped through the
+     * ADAPTER OF THE DRIVER UNDER TEST (`ident`), never spelled with a
+     * hard-coded quote character. MySQL's default `sql_mode` has no
+     * `ANSI_QUOTES`: `"likes"` there is the string literal 'likes', which
+     * would not fail loudly but answer a different question
+     * (`views > 'likes' * 2` is `views > 0`), and `FROM "fieldref_posts"` is
+     * a parse error. Only shapes that mean the same thing on all three local
+     * dialects once their identifiers are quoted are asserted here; a
+     * dialect-specific fragment is the caller's business.
      *
      * What a live database settles and generated SQL cannot: that the fragment
      * really is spliced as an EXPRESSION (a bound parameter would compare the
@@ -572,11 +580,15 @@ export function runFieldReferenceBehavior({
      * really are bound (a concatenated one would either error or, worse, run).
      */
     describe("SQL fragment operands", () => {
+      /** An identifier quoted for the dialect the current leg is running on. */
+      const ident = (name: string) =>
+        db().$driver.adapter.identifiers.escape(name);
+
       test("an arithmetic expression compares against the row", async () => {
         // views > likes * 2 — true only for "hot" (100 > 10).
         expect(
           await postIds({
-            views: { gt: (ctx: PostCtx) => ctx.sql`"likes" * ${2}` },
+            views: { gt: (ctx: PostCtx) => ctx.sql`${ident("likes")} * ${2}` },
           })
         ).toEqual(["hot"]);
       });
@@ -587,7 +599,9 @@ export function runFieldReferenceBehavior({
           await postIds({
             views: {
               gte: (ctx: PostCtx) =>
-                ctx.sql`SELECT MAX("views") FROM "fieldref_posts"`,
+                ctx.sql`SELECT MAX(${ident("views")}) FROM ${ident(
+                  "fieldref_posts"
+                )}`,
             },
           })
         ).toEqual(["hot"]);
@@ -620,13 +634,17 @@ export function runFieldReferenceBehavior({
 
       test("a fragment drives updateMany and deleteMany", async () => {
         const updated = await db().post.updateMany({
-          where: { views: { gt: (ctx: PostCtx) => ctx.sql`"likes" * ${2}` } },
+          where: {
+            views: { gt: (ctx: PostCtx) => ctx.sql`${ident("likes")} * ${2}` },
+          },
           data: { title: "trending" },
         });
         expect(updated.count).toBe(1);
 
         const deleted = await db().post.deleteMany({
-          where: { views: { lt: (ctx: PostCtx) => ctx.sql`"likes" - ${1}` } },
+          where: {
+            views: { lt: (ctx: PostCtx) => ctx.sql`${ident("likes")} - ${1}` },
+          },
         });
         expect(deleted.count).toBe(1);
         expect(await db().post.count()).toBe(3);
@@ -634,7 +652,7 @@ export function runFieldReferenceBehavior({
 
       test("a fragment survives both execution substrates", async () => {
         const where = {
-          views: { gt: (ctx: PostCtx) => ctx.sql`"likes" * ${2}` },
+          views: { gt: (ctx: PostCtx) => ctx.sql`${ident("likes")} * ${2}` },
         } as never;
 
         // The array form prepares a batch; the callback form runs in a
