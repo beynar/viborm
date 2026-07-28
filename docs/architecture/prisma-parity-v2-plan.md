@@ -10,6 +10,97 @@
 
 ---
 
+## Delivery status (2026-07-28)
+
+**This table is the summary of record.** Each wave's own `### Wx-Uy — DELIVERED` section below is the
+delivery *detail* — surface, evidence, falsifications, and the corrections applied on top. Those
+sections are kept verbatim, including their strikethroughs and their "correction" subsections;
+where a later round changed what shipped, the correction is written in place and this table names
+the commit it landed in. Nothing below this table has been deleted to make it agree.
+
+Every commit reference here is on `prisma-parity-v2` and resolvable with `git log --oneline main..HEAD`.
+Waves were built in parallel worktrees and cherry-picked, so a unit's commits are not always contiguous;
+post-merge review fixes are listed with the unit they corrected, not with the merge.
+
+Status vocabulary: **delivered** = shipped as briefed · **delivered, scope note** = shipped with a
+stated divergence or a narrowed surface · **not shipped** = deliberately dropped, reason recorded ·
+**deferred** = not attempted in this branch.
+
+### W1 — Validation-layer alignment
+
+| Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
+|---|---|---|---|
+| W1-U1 `not` arbitrary nesting | delivered | `94e0bb0`; JSON-Schema fallout `b2f8f79` | None. `not` is lazily self-referential per scalar (`src/validation/scalars/negatable-filter.ts`), matching the builder that always recursed. |
+| W1-U2 Blob `in`/`notIn` | delivered | `f64a315` | None. `BytesFilter` parity; empty `in: []` → FALSE. |
+| W1-U3 `having: { AND \| OR \| NOT }` | delivered, scope note | `6a0c252` | Opening the surface exposed two engine bugs, both fixed in the same unit: empty `OR` dropped the key (now FALSE), and array-`NOT` computed `NOT(c1 AND c2)` instead of Prisma's `NOT c1 AND NOT c2`. See matrix §1.3. |
+| W1-U4 `_count: true` shorthand | delivered, scope note | `5b8af31` | Desugars in validation to `{ select: { <every to-many relation>: true } }`. A model with **no** to-many relations expands to `{ select: {} }`; Prisma emits no `_count` field at all there. |
+| W1-U5 To-one filter shorthand | delivered, scope note | `a6ae6b4` | Prisma's own disambiguation rule (keys ⊆ `{is, isNot}` ⇒ explicit form). A target model owning a field literally named `is`/`isNot` is reachable only through the explicit form — documented collision, same as Prisma's. |
+| W1-U6 `distinct` on `findFirst` + string shorthand | delivered | `8f03b20` | None. Still not accepted on `groupBy` (Prisma parity). |
+| W1-U7 `orderBy` to-one chain cap 3 → 8 | delivered, scope note | `391b634` | Per D-5: raised, **not** unbounded. The cap is mirrored in two places by design — `src/validation/relations/order-by.ts` and `relation-orderby-builder.ts:42`. |
+
+Post-wave cleanup: `78f3a0c` deleted the two guards W1-U1/W1-U3 made unreachable (`where-unique-builder.ts`, `groupby-having.ts`).
+
+### W2 — Filter-engine extensions
+
+| Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
+|---|---|---|---|
+| W2-U1 JSON `lt/lte/gt/gte` | delivered, scope note | `494362a` | One portable comparison contract across all three dialects; the operand's class (number vs string) picks numeric vs lexicographic comparison (`src/validation/scalars/json.ts:10-11`). Mixed-type rows do not match and do not error. |
+| W2-U2 JSON `mode: "insensitive"` | delivered | `724b6eb` | Same ASCII A–Z fold as the scalar path — diverges from `ILIKE` on accented text, as the whole `mode` surface already did. |
+| W2-U3 Field references (`FieldRef`) | delivered, scope note | `e766b5d`; corrections `3aeaa06`, `c987b71`, `afb21b2`, `dd86dc6`, `615c6ec`, `66712aa`, `2249860`; doc correction `11bc32a` | Surface is `client.$fields.<model>.<field>` (zero codegen). Refused, each with a message: `in`/`notIn`, list operators, JSON operands **and JSON write data**, blob/vector/point, `orderBy`, `whereUnique`, create/update data, and `having`/`groupBy` (the last is Prisma parity). Enum references answer identically on every dialect or are refused (`2249860`). |
+| W2-U4 JSON string-path sugar | delivered, scope note | `126eb77` | Prisma-MySQL's `'$.a.b'` is parsed to the array form. Grammar accepted is `'$'`, `'$.key'`, `'$.key[0]'` and nothing else — quoted labels and wildcards are refused rather than half-supported (`json-filter-builder.ts:54-63`). |
+
+### W3 — Read surface
+
+| Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
+|---|---|---|---|
+| W3-U1 Nested negative `take` | delivered | `143ca92` | None. Same pipeline as the top level (`builders/nested-read-window.ts`). |
+| W3-U2 Nested `cursor` (incl. compound) | delivered | `497c129` | None. A cursor matching no row leaves that parent's window empty (Prisma semantics). |
+| W3-U3 Nested `distinct` | delivered | `8455013`; test fix `2868ae2` | None. Dedup happens before the take/skip window, per parent. |
+| W3-U4 Implicit returning + `*AndReturn` REMOVAL | delivered, scope note | `c9de15f`; docs `27d8e53`; fixes `9295461`, `25a620d`, `0bf3afd`, `9e8cdbb` | **Deliberate break from Prisma's method names** (resolved D-1): `createManyAndReturn`/`updateManyAndReturn` are gone from the client surface — calling one is a loud "Unknown operation" (`pending-operation.ts:134`), never a silent no-op. The names survive **only** as internal operation tokens (`query-engine/types.ts`), and errors report the spelling the caller used, not the internal returning arm (`0bf3afd`). The implicit `select` is **scalar-only**: a relation key, `_count` or `include` is refused at the parse boundary (`9295461` — it used to be accepted and answered with wrong data). |
+| W3-U5 `deleteMany` with `select` | delivered (superset) | `ccecfd2` | Past Prisma, which has no returning `deleteMany`. |
+
+### W4 — Write surface parity
+
+| Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
+|---|---|---|---|
+| W4-U1 Extended `whereUnique` | delivered, scope note | `ec8a72c`, `6fcab71`, `3d8eb6d`, `3ccd057`; review fixes `53631f8`, `ea1f637`, `51a995a` | Two divergences, both refused rather than half-answered: **relation filters** inside a unique `where` (the filter half compiles into UPDATE/DELETE, where MySQL rejects a subquery reading the mutated table — error 1093), and **nested relation-write target selectors plus `cursor` keep the strict discriminator-only schema**. Top-level five operations only. Upsert's create arm carries no `racePin` under an extended `where`, and its read-back addresses the write's own identity, never the `where` (`ea1f637`, `51a995a`). |
+| W4-U2 `updateMany`/`deleteMany` `limit` | delivered, scope note | `127cd2f`; merged `656d40a` | The contract is **how many, not which** — a bulk write takes no `orderBy`, the two dialect spellings genuinely reach different rows, and nothing invents an ordering. Stated as a warning in the docs; no test asserts row identity. |
+| W4-U3 To-one nested `update` `{where, data}` | delivered, scope note | `ba1f586`; merged `656d40a`; fixes `5cd5268`, `406794b`, `8bd2cc9`; doc corrections `dad1dec`, `f5446dd` | On a target model that owns an update key named `data` the two spellings collide and viborm **refuses** the shape (Prisma picks one silently). The `where` is the target's ordinary non-unique `where` — a precondition on the one connected record, not a selector. |
+| W4-U4 JSON null sentinels | delivered, scope note | `78bd10a`; merged `656d40a` | A bare top-level `null` in JSON **write** position is refused (type-level and runtime), matching Prisma's `InputJsonValue`. Breaking; **D-6 sign-off is still open** — the reversal is ~10 lines and localized (see the D-6 row). A sentinel under a `path` is refused too (use `path` + `equals: null`). |
+
+Merge record: `656d40a` (U2/U3/U4 cherry-picked in that order; disjoint engine surfaces, conflicts were prose and test wiring only).
+
+### W5 — Client surface & errors
+
+| Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
+|---|---|---|---|
+| W5-U1 Raw SQL overhaul | delivered, scope note | `ad9901f`; merged `b9f7814` | **Breaking return types**: `$queryRaw` → `T[]`, `$executeRaw` → `number` (was the driver's `QueryResult<T>` envelope; `$executeRaw` also lost its type parameter). The pre-1.0 `(string, params?)` form survives **one release** behind a `warning`-channel deprecation notice. `$transaction([...])` refuses a raw operation with a typed V8003; `$queryRawTyped` does not exist (generated-client machinery viborm has no analogue for). |
+| W5-U2 Prisma error codes | delivered, scope note | `5ce89c8`; merged `b9f7814` | **Deliberately partial.** Every error keeps its own `V####` code and adds `prismaCode` only where a Prisma counterpart exists. viborm-only families (transactions, nested writes, cache, migrations, V8003) report `undefined` rather than inventing a code. No SQLite P2000 — SQLite does not enforce declared column lengths, so there is no error to map. |
+| W5-U3 Transaction options | delivered, scope note | `812a750`; merged `b9f7814` | Per D-2, the old "portable transactions accept no options" doctrine is reversed **partially**: each driver declares a contract and the resolver either honors the option or refuses it with a typed V8003 naming the reason. D1 / Neon HTTP refuse outright; SQLite honors `Serializable` by construction and refuses the weaker three. Never accept-and-ignore. Per-call only — there is still no client-construction `transactionOptions` default. |
+| W5-U4 `omit` | delivered, scope note | `dd69992`; merged `b9f7814`; typing follow-up `49e611a` | Query-level and client-level `omit` desugar in validation into the `select` they denote — `omit` never reaches the engine. In the same unit, model-level `.omit()` became a **hard** exclusion: the field has neither a `select` nor an `omit` key, so the three layers rank schema > client > query. That is a divergence from Prisma's `@ignore`, which hides a field from the client while leaving it writable. |
+| W5-U5 `$metrics` | **not shipped** | — | Withdrawn on a false premise, recorded in the W5 table: `PerfTracker` has no counters to expose and is never called by the client, engine or any driver. Shipping an empty or fabricated `$metrics` would be accept-and-ignore. Honest path recorded in the same row. |
+
+### W6 — Type fidelity (breaking wave)
+
+| Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
+|---|---|---|---|
+| W6-U1 Decimal, string-backed | delivered, scope note | research `3014fa9`; core `8a74507`; legacy hatch `b399628`; docs `990fe1f`, `3b35a93`; migration surfacing `e76d144`; corrections `6f9c3d1`, `b0d320b`, `ad5803e`, `289530d` | **SQLite stores `TEXT`, not `REAL`** (`migrations/drivers/type-mapping.ts:45-50`): reads, writes and equality are exact, while **ordering, aggregation and atomic arithmetic are a typed `UnsupportedOperationError`** rather than a double-precision guess. The refusal is capability-driven (`supportsExactDecimal`), and after `6f9c3d1` it fires in **every spelling** — the first cut gated four call sites and missed six, so the common `orderBy` + `take` spelling walked past it and answered lexicographically. Decimal results are `string` everywhere, including `_sum`/`_avg`/`_min`/`_max` and through relations. A one-release `decimal: "number"` client option (`client.ts:186-196`) restores the old decode at runtime only. `CastType` gained `"decimal"`, split off from `"numeric"` — a public-adapter break taken deliberately in the breaking wave (`ad5803e`). |
+| W6-U2 bun-sqlite BigInt hole | delivered, scope note | `eab63b3` | `safeIntegers(true)` on the typed read path only — `executeRaw` deliberately stays driver-native. Declared **required** on the internal `BunSQLiteStatement` interface, so a hand-written client object must provide it (deliberate break); an older Bun fails closed with `FeatureNotSupportedError` V8001 rather than returning a rounded number. The unit also fixed the constructor bug that meant this driver had **never executed a query**. |
+
+Merge record: `42016f4` (both lanes; the four doc conflicts and their resolutions are tabulated in "W6 — integration record"). `6f9c3d1`, `b0d320b`, `ad5803e`, `289530d`, `3b35a93` landed on top of the merge.
+
+### W7 — Ecosystem
+
+| Unit | Status | Landing commit(s) | Note |
+|---|---|---|---|
+| W7-U1…U5 | **deferred** | — | Deferred 2026-07-26 by the maintainer ("too complex for now; revisit after W6 ships"). `$extends`, `$use`, full-text search, `db pull` emitter and `db seed` are all unshipped; the plan text is preserved below for when it reopens. D-4 stays deferred with it. |
+
+### Decision register outcomes
+
+D-1 removed `*AndReturn` (W3-U4). D-2 reversed the transaction-option doctrine partially (W5-U3). D-3 shipped string-backed Decimal with the one-release hatch (W6-U1). D-5 lifted the orderBy cap to 8 (W1-U7). **D-4 stays deferred with W7, and D-6 — the breaking refusal of a bare `null` in JSON write position, shipped in W4-U4 — is still awaiting explicit maintainer sign-off.**
+
+---
+
 ## 0. Decision register (sign-off needed before the affected unit starts)
 
 | # | Decision | Recommendation | Blocks |
