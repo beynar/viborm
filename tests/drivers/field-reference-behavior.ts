@@ -1,18 +1,43 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
+import { createModelFieldRefs } from "@schema/field-ref";
+import type { OperandCtx } from "@validation/primitives/operand";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { fieldRefSchema } from "../fixtures/field-ref-schema";
 
 const schema = fieldRefSchema;
 
-// Inferred, not annotated: an explicit `VibORMConfig & { schema: … }` would
-// widen `C["schema"]` back to the index-signature `Schema`, and `$fields` would
-// lose the per-model field names this suite exists to exercise.
 const createFieldRefClient = (driver: AnyDriver) =>
   createClient({ schema, driver });
 
 type FieldRefClient = ReturnType<typeof createFieldRefClient>;
+
+/**
+ * The operand callback context of each model: `ctx.fields` is keyed to THAT
+ * model's scalars, which is what makes `ctx.fields.likes` legal inside a post
+ * filter and `ctx.fields.nickname` legal inside a user one.
+ */
+type PostCtx = OperandCtx<typeof schema.post>;
+type UserCtx = OperandCtx<typeof schema.user>;
+
+/**
+ * A token belonging to ANOTHER model, held directly.
+ *
+ * A callback can only ever hand out the current model's fields, so the
+ * same-model rule needs a token that was not obtained through one — which is
+ * also the proof that the token remains the mechanism and the callback only
+ * sugar for reaching it.
+ */
+const foreignToken = createModelFieldRefs("user", schema.user);
+
+/**
+ * Post's own tokens, held directly. The callback is sugar; a stored token is
+ * still a valid operand, and the surfaces that REFUSE a reference have to
+ * refuse the token itself — a callback would be stopped earlier, by the
+ * position's own schema, and would prove nothing about the token guard.
+ */
+const postToken = createModelFieldRefs("post", schema.post);
 
 const CROSS_MODEL_REFUSAL =
   /Field reference 'user\.name' cannot be used while filtering 'post'/;
@@ -115,60 +140,75 @@ export function runFieldReferenceBehavior({
     }
 
     test("gt compares two columns of the same row", async () => {
-      expect(await postIds({ views: { gt: db().$fields.post.likes } })).toEqual(
-        ["hot"]
-      );
+      expect(
+        await postIds({ views: { gt: (ctx: PostCtx) => ctx.fields.likes } })
+      ).toEqual(["hot"]);
     });
 
     test("lt compares two columns of the same row", async () => {
-      expect(await postIds({ views: { lt: db().$fields.post.likes } })).toEqual(
-        ["beloved"]
-      );
+      expect(
+        await postIds({ views: { lt: (ctx: PostCtx) => ctx.fields.likes } })
+      ).toEqual(["beloved"]);
     });
 
     test("gte and lte include the equal row", async () => {
       expect(
-        await postIds({ views: { gte: db().$fields.post.likes } })
+        await postIds({ views: { gte: (ctx: PostCtx) => ctx.fields.likes } })
       ).toEqual(["even", "hot", "matching"]);
       expect(
-        await postIds({ views: { lte: db().$fields.post.likes } })
+        await postIds({ views: { lte: (ctx: PostCtx) => ctx.fields.likes } })
       ).toEqual(["beloved", "even", "matching"]);
     });
 
     test("equals and not compare two columns of the same row", async () => {
       expect(
-        await postIds({ views: { equals: db().$fields.post.likes } })
+        await postIds({ views: { equals: (ctx: PostCtx) => ctx.fields.likes } })
       ).toEqual(["even", "matching"]);
       expect(
-        await postIds({ views: { not: db().$fields.post.likes } })
+        await postIds({ views: { not: (ctx: PostCtx) => ctx.fields.likes } })
       ).toEqual(["beloved", "hot"]);
     });
 
     test("a bare reference is the equals shorthand", async () => {
-      expect(await postIds({ views: db().$fields.post.likes })).toEqual([
-        "even",
-        "matching",
-      ]);
+      expect(
+        await postIds({ views: (ctx: PostCtx) => ctx.fields.likes })
+      ).toEqual(["even", "matching"]);
     });
 
     test("a reference resolves through .map()ed column names", async () => {
       // `slug` is stored as "slug_column": a reference that emitted the field
       // key instead of the column name would not even parse as SQL.
       expect(
-        await postIds({ title: { equals: db().$fields.post.slug } })
+        await postIds({ title: { equals: (ctx: PostCtx) => ctx.fields.slug } })
       ).toEqual(["matching"]);
     });
 
+    /**
+     * The text predicates take a reference TOKEN and nothing else — no SQL
+     * fragment, and so no callback either (the callback exists to return one of
+     * those two). The line is drawn at the comparison operators, where the
+     * builder's operand handling is uniform; see `validation/primitives/operand.ts`.
+     */
     test("string prefix/suffix/substring predicates accept a reference", async () => {
-      expect(
-        await postIds({ title: { contains: db().$fields.post.slug } })
-      ).toEqual(["matching"]);
-      expect(
-        await postIds({ title: { startsWith: db().$fields.post.slug } })
-      ).toEqual(["matching"]);
-      expect(
-        await postIds({ title: { endsWith: db().$fields.post.slug } })
-      ).toEqual(["matching"]);
+      expect(await postIds({ title: { contains: postToken.slug } })).toEqual([
+        "matching",
+      ]);
+      expect(await postIds({ title: { startsWith: postToken.slug } })).toEqual([
+        "matching",
+      ]);
+      expect(await postIds({ title: { endsWith: postToken.slug } })).toEqual([
+        "matching",
+      ]);
+    });
+
+    test("a callback is refused where only the token is accepted", async () => {
+      await expect(
+        db().post.findMany({
+          where: {
+            title: { contains: ((ctx: PostCtx) => ctx.fields.slug) as never },
+          },
+        })
+      ).rejects.toThrow();
     });
 
     /**
@@ -191,7 +231,9 @@ export function runFieldReferenceBehavior({
      * so the shared expectations above stay untouched.
      */
     describe("case folding against a referenced column", () => {
-      const slugRef = () => db().$fields.post.slug;
+      // The token, because this block also drives the TEXT predicates, which
+      // take a reference and nothing else.
+      const slugRef = () => postToken.slug;
 
       const addPost = (id: string, title: string, slug: string) =>
         db().post.create({
@@ -265,7 +307,7 @@ export function runFieldReferenceBehavior({
      * Both sides now go through text, so all three answer the same question.
      */
     describe("enum references", () => {
-      const reviewRef = () => db().$fields.post.reviewStatus;
+      const reviewRef = () => (ctx: PostCtx) => ctx.fields.reviewStatus;
 
       /** One row where the two enum columns agree; every seeded row differs. */
       const addAgreeingPost = () =>
@@ -353,17 +395,23 @@ export function runFieldReferenceBehavior({
 
     test("a reference mixes with literal operands in one filter object", async () => {
       expect(
-        await postIds({ views: { gt: db().$fields.post.likes, lt: 1000 } })
+        await postIds({
+          views: { gt: (ctx: PostCtx) => ctx.fields.likes, lt: 1000 },
+        })
       ).toEqual(["hot"]);
       expect(
-        await postIds({ views: { gt: db().$fields.post.likes, lt: 50 } })
+        await postIds({
+          views: { gt: (ctx: PostCtx) => ctx.fields.likes, lt: 50 },
+        })
       ).toEqual([]);
     });
 
     test("a reference works inside a nested relation where", async () => {
       const users = await db().user.findMany({
         where: {
-          posts: { some: { views: { gt: db().$fields.post.likes } } },
+          posts: {
+            some: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
+          },
         },
       });
       expect(users.map((u) => u.id)).toEqual(["u1"]);
@@ -374,7 +422,7 @@ export function runFieldReferenceBehavior({
       // OUTER scope even though a `posts.some` filter sits beside it.
       const users = await db().user.findMany({
         where: {
-          name: { equals: db().$fields.user.nickname },
+          name: { equals: (ctx: UserCtx) => ctx.fields.nickname },
           posts: { some: { views: { gt: 0 } } },
         },
       });
@@ -383,7 +431,7 @@ export function runFieldReferenceBehavior({
 
     test("a reference drives updateMany and deleteMany", async () => {
       const updated = await db().post.updateMany({
-        where: { views: { gt: db().$fields.post.likes } },
+        where: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
         data: { title: "trending" },
       });
       expect(updated.count).toBe(1);
@@ -392,7 +440,7 @@ export function runFieldReferenceBehavior({
       ).toBe("trending");
 
       const deleted = await db().post.deleteMany({
-        where: { views: { lt: db().$fields.post.likes } },
+        where: { views: { lt: (ctx: PostCtx) => ctx.fields.likes } },
       });
       expect(deleted.count).toBe(1);
       expect(await db().post.count()).toBe(3);
@@ -401,7 +449,7 @@ export function runFieldReferenceBehavior({
     test("a cross-model reference is refused before any I/O", async () => {
       await expect(
         db().post.findMany({
-          where: { title: { equals: db().$fields.user.name } },
+          where: { title: { equals: foreignToken.name as never } },
         })
       ).rejects.toThrow(CROSS_MODEL_REFUSAL);
     });
@@ -409,7 +457,9 @@ export function runFieldReferenceBehavior({
     test("a reference of the wrong scalar type is refused", async () => {
       await expect(
         db().post.findMany({
-          where: { title: { equals: db().$fields.post.views as never } },
+          where: {
+            title: { equals: ((ctx: PostCtx) => ctx.fields.views) as never },
+          },
         })
       ).rejects.toThrow(WRONG_TYPE_REFUSAL);
     });
@@ -417,7 +467,7 @@ export function runFieldReferenceBehavior({
     test("a reference is refused in in/notIn", async () => {
       await expect(
         db().post.findMany({
-          where: { views: { in: [db().$fields.post.likes] as never } },
+          where: { views: { in: [postToken.likes] as never } },
         })
       ).rejects.toThrow();
     });
@@ -433,7 +483,7 @@ export function runFieldReferenceBehavior({
      * any statement is issued, so all dialects agree.
      */
     test("a reference is refused in `having`, however deeply nested", async () => {
-      const ref = () => db().$fields.post.likes;
+      const ref = () => (ctx: PostCtx) => ctx.fields.likes;
       for (const having of [
         { views: { gt: ref() } },
         { views: { not: { not: { not: { not: { gt: ref() } } } } } },
@@ -461,7 +511,7 @@ export function runFieldReferenceBehavior({
      * and "accepted and quietly wrong".
      */
     test("a reference is refused in JSON filters and JSON write data", async () => {
-      const ref = () => db().$fields.post.payload as never;
+      const ref = () => postToken.payload as never;
 
       await expect(
         db().post.findMany({ where: { payload: { equals: ref() } } })
@@ -505,6 +555,112 @@ export function runFieldReferenceBehavior({
       expect(
         (await db().post.findUnique({ where: { id: "hot" } }))?.payload
       ).toEqual({ seen: true });
+    });
+
+    /**
+     * SQL fragments as comparison operands (W8-A Unit 2).
+     *
+     * A fragment is the escape hatch: its TEXT is the caller's dialect
+     * responsibility, exactly like `$queryRaw`, and it is outside the
+     * portability promise the rest of the filter language keeps. Only the
+     * shapes that mean the same thing on all three local dialects are asserted
+     * here; a dialect-specific fragment is the caller's business.
+     *
+     * What a live database settles and generated SQL cannot: that the fragment
+     * really is spliced as an EXPRESSION (a bound parameter would compare the
+     * text of the fragment, matching nothing) and that its interpolations
+     * really are bound (a concatenated one would either error or, worse, run).
+     */
+    describe("SQL fragment operands", () => {
+      test("an arithmetic expression compares against the row", async () => {
+        // views > likes * 2 — true only for "hot" (100 > 10).
+        expect(
+          await postIds({
+            views: { gt: (ctx: PostCtx) => ctx.sql`"likes" * ${2}` },
+          })
+        ).toEqual(["hot"]);
+      });
+
+      test("a scalar subquery compares against the whole table", async () => {
+        // views >= the maximum views in the table — only "hot" (100).
+        expect(
+          await postIds({
+            views: {
+              gte: (ctx: PostCtx) =>
+                ctx.sql`SELECT MAX("views") FROM "fieldref_posts"`,
+            },
+          })
+        ).toEqual(["hot"]);
+      });
+
+      test("an interpolated value rides as a bound parameter", async () => {
+        // The value is a STRING that would be a syntax error if it were
+        // concatenated into the statement instead of bound.
+        const hostile = "'); DROP TABLE fieldref_posts; --";
+        expect(
+          await postIds({
+            title: { equals: (ctx: PostCtx) => ctx.sql`${hostile}` },
+          })
+        ).toEqual([]);
+        // The table is still there, with every row.
+        expect(await db().post.count()).toBe(4);
+      });
+
+      test("a fragment, a reference and a literal mix in one filter", async () => {
+        expect(
+          await postIds({
+            views: {
+              gt: (ctx: PostCtx) => ctx.fields.likes,
+              gte: (ctx: PostCtx) => ctx.sql`${10}`,
+              lt: 1000,
+            },
+          })
+        ).toEqual(["hot"]);
+      });
+
+      test("a fragment drives updateMany and deleteMany", async () => {
+        const updated = await db().post.updateMany({
+          where: { views: { gt: (ctx: PostCtx) => ctx.sql`"likes" * ${2}` } },
+          data: { title: "trending" },
+        });
+        expect(updated.count).toBe(1);
+
+        const deleted = await db().post.deleteMany({
+          where: { views: { lt: (ctx: PostCtx) => ctx.sql`"likes" - ${1}` } },
+        });
+        expect(deleted.count).toBe(1);
+        expect(await db().post.count()).toBe(3);
+      });
+
+      test("a fragment survives both execution substrates", async () => {
+        const where = {
+          views: { gt: (ctx: PostCtx) => ctx.sql`"likes" * ${2}` },
+        } as never;
+
+        // The array form prepares a batch; the callback form runs in a
+        // transaction. Both must resolve the callback at construction and
+        // compile the same fragment.
+        const [batched] = (await db().$transaction([
+          db().post.findMany({ where }),
+        ])) as [{ id: string }[]];
+        expect(batched.map((p) => p.id)).toEqual(["hot"]);
+
+        const inTransaction = await db().$transaction(async (tx) =>
+          tx.post.findMany({ where })
+        );
+        expect(inTransaction.map((p) => p.id)).toEqual(["hot"]);
+      });
+
+      test("a fragment is refused where a reference is", async () => {
+        await expect(
+          db().post.groupBy({
+            by: ["views"],
+            having: {
+              views: { gt: ((ctx: PostCtx) => ctx.sql`${1}`) as never },
+            },
+          })
+        ).rejects.toThrow(HAVING_REFUSAL);
+      });
     });
   });
 }

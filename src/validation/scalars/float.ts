@@ -17,23 +17,29 @@ const floatList = v.number({ array: true });
 // FILTER TYPES
 // =============================================================================
 
-/** Comparison operand: a literal, or a field reference to another float column. */
-type FloatOperand<S extends V.Schema> = V.FieldRefOr<"float", S>;
+/**
+ * Comparison operand: a literal, a field reference to another float column, an
+ * SQL fragment, or a callback returning one of the latter two.
+ */
+type FloatOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"float", S, C>;
 
-type FloatFilterBase<S extends V.Schema> = {
-  equals: FloatOperand<S>;
+type FloatFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: FloatOperand<S, C>;
   in: V.Number<{ array: true }>;
   notIn: V.Number<{ array: true }>;
-  lt: FloatOperand<V.Number>;
-  lte: FloatOperand<V.Number>;
-  gt: FloatOperand<V.Number>;
-  gte: FloatOperand<V.Number>;
+  lt: FloatOperand<V.Number, C>;
+  lte: FloatOperand<V.Number, C>;
+  gt: FloatOperand<V.Number, C>;
+  gte: FloatOperand<V.Number, C>;
 };
 
-type FloatFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  FloatOperand<S>,
-  FloatFilterBase<S>
->;
+type FloatFilterSchema<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<FloatOperand<S, C>, FloatFilterBase<S, C>>;
 
 type FloatListFilterBase<S extends V.Schema> = {
   equals: S;
@@ -87,20 +93,20 @@ type FloatListUpdateSchema<S extends V.Schema> = V.Union<
 const floatFilterBase = v.object({
   in: floatList,
   notIn: floatList,
-  lt: v.fieldRefOr("float", floatBase),
-  lte: v.fieldRefOr("float", floatBase),
-  gt: v.fieldRefOr("float", floatBase),
-  gte: v.fieldRefOr("float", floatBase),
+  lt: v.comparisonOperand("float", floatBase),
+  lte: v.comparisonOperand("float", floatBase),
+  gt: v.comparisonOperand("float", floatBase),
+  gte: v.comparisonOperand("float", floatBase),
 });
 
-const buildFloatFilterSchema = <S extends V.Schema>(
+const buildFloatFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
-): FloatFilterSchema<S> => {
-  const operand = v.fieldRefOr("float", schema);
+): FloatFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("float", schema);
   const filter = floatFilterBase.extend({
     equals: operand,
   });
-  return buildNegatableFilterSchema<FloatOperand<S>, FloatFilterBase<S>>(
+  return buildNegatableFilterSchema<FloatOperand<S, C>, FloatFilterBase<S, C>>(
     filter,
     operand
   );
@@ -152,7 +158,10 @@ const buildFloatListUpdateSchema = <S extends V.Schema>(
 // FLOAT SCHEMA BUILDER
 // =============================================================================
 
-export interface FloatSchemas<F extends ScalarState<"float">> {
+export interface FloatSchemas<
+  F extends ScalarState<"float">,
+  C extends V.Operand<any> = V.Operand<any>,
+> {
   base: F["base"];
   create: V.Number<F>;
   update: F["array"] extends true
@@ -160,15 +169,18 @@ export interface FloatSchemas<F extends ScalarState<"float">> {
     : FloatUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? FloatListFilterSchema<F["base"]>
-    : FloatFilterSchema<F["base"]>;
+    : FloatFilterSchema<F["base"], C>;
 }
 
 const internFilter = createScalarInterner<unknown>();
 const internUpdate = createScalarInterner<unknown>();
 
-export const buildFloatSchema = <F extends ScalarState<"float">>(
+export const buildFloatSchema = <
+  F extends ScalarState<"float">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): FloatSchemas<F> => {
+): FloatSchemas<F, C> => {
   const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
@@ -183,5 +195,5 @@ export const buildFloatSchema = <F extends ScalarState<"float">>(
         ? buildFloatListFilterSchema(state.base)
         : buildFloatFilterSchema(state.base)
     ) as never,
-  } as FloatSchemas<F>;
+  } as FloatSchemas<F, C>;
 };

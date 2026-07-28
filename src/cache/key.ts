@@ -5,6 +5,7 @@
  */
 
 import { CacheInvalidKeyError } from "@errors";
+import { isSql } from "@sql";
 
 /**
  * Prefix for all VibORM cache keys
@@ -84,12 +85,27 @@ function hashArgs(args: unknown): string {
  * - Date objects (ISO string)
  * - BigInt (string with 'n' suffix)
  * - Uint8Array (base64)
+ * - SQL fragments (statement text + bound values)
  * - undefined values (omitted)
  * - Circular references (throws)
+ *
+ * It is only ever handed a VALIDATED payload (see
+ * `PendingOperation.cacheKeyArgs`), so the non-JSON values it can meet are the
+ * ones validation deliberately admits: a field reference — a frozen record of
+ * `{ model, field, type, list }`, which the object branch below already
+ * serializes deterministically — and an SQL fragment.
  */
 function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
   if (value === null) return "null";
   if (value === undefined) return "";
+
+  // A fragment is identified by what it will EMIT, not by its instance fields:
+  // an `Sql` memoizes its flattened text on first read, so enumerating its own
+  // properties would key the same fragment differently depending on whether
+  // anything had compiled it yet.
+  if (isSql(value)) {
+    return `{"sql":${JSON.stringify(value.toStatement("?"))},"values":${stableStringify(value.values, seen)}}`;
+  }
 
   const type = typeof value;
 

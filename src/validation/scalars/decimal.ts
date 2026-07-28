@@ -16,23 +16,29 @@ const decimalList = v.decimal({ array: true });
 // FILTER TYPES
 // =============================================================================
 
-/** Comparison operand: a literal, or a field reference to another decimal column. */
-type DecimalOperand<S extends V.Schema> = V.FieldRefOr<"decimal", S>;
+/**
+ * Comparison operand: a literal, a field reference to another decimal column, an
+ * SQL fragment, or a callback returning one of the latter two.
+ */
+type DecimalOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"decimal", S, C>;
 
-type DecimalFilterBase<S extends V.Schema> = {
-  equals: DecimalOperand<S>;
+type DecimalFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: DecimalOperand<S, C>;
   in: V.Decimal<{ array: true }>;
   notIn: V.Decimal<{ array: true }>;
-  lt: DecimalOperand<V.Decimal>;
-  lte: DecimalOperand<V.Decimal>;
-  gt: DecimalOperand<V.Decimal>;
-  gte: DecimalOperand<V.Decimal>;
+  lt: DecimalOperand<V.Decimal, C>;
+  lte: DecimalOperand<V.Decimal, C>;
+  gt: DecimalOperand<V.Decimal, C>;
+  gte: DecimalOperand<V.Decimal, C>;
 };
 
-type DecimalFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  DecimalOperand<S>,
-  DecimalFilterBase<S>
->;
+type DecimalFilterSchema<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<DecimalOperand<S, C>, DecimalFilterBase<S, C>>;
 
 type DecimalListFilterBase<S extends V.Schema> = {
   equals: S;
@@ -86,23 +92,23 @@ type DecimalListUpdateSchema<S extends V.Schema> = V.Union<
 const decimalFilterBase = v.object({
   in: decimalList,
   notIn: decimalList,
-  lt: v.fieldRefOr("decimal", decimalBase),
-  lte: v.fieldRefOr("decimal", decimalBase),
-  gt: v.fieldRefOr("decimal", decimalBase),
-  gte: v.fieldRefOr("decimal", decimalBase),
+  lt: v.comparisonOperand("decimal", decimalBase),
+  lte: v.comparisonOperand("decimal", decimalBase),
+  gt: v.comparisonOperand("decimal", decimalBase),
+  gte: v.comparisonOperand("decimal", decimalBase),
 });
 
-const buildDecimalFilterSchema = <S extends V.Schema>(
+const buildDecimalFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
-): DecimalFilterSchema<S> => {
-  const operand = v.fieldRefOr("decimal", schema);
+): DecimalFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("decimal", schema);
   const filter = decimalFilterBase.extend({
     equals: operand,
   });
-  return buildNegatableFilterSchema<DecimalOperand<S>, DecimalFilterBase<S>>(
-    filter,
-    operand
-  );
+  return buildNegatableFilterSchema<
+    DecimalOperand<S, C>,
+    DecimalFilterBase<S, C>
+  >(filter, operand);
 };
 
 const decimalListFilterBase = v.object({
@@ -154,7 +160,10 @@ const buildDecimalListUpdateSchema = <S extends V.Schema>(
 // DECIMAL SCHEMA BUILDER
 // =============================================================================
 
-export interface DecimalSchemas<F extends ScalarState<"decimal">> {
+export interface DecimalSchemas<
+  F extends ScalarState<"decimal">,
+  C extends V.Operand<any> = V.Operand<any>,
+> {
   base: F["base"];
   create: V.Decimal<F>;
   update: F["array"] extends true
@@ -162,12 +171,15 @@ export interface DecimalSchemas<F extends ScalarState<"decimal">> {
     : DecimalUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? DecimalListFilterSchema<F["base"]>
-    : DecimalFilterSchema<F["base"]>;
+    : DecimalFilterSchema<F["base"], C>;
 }
 
-export const buildDecimalSchema = <F extends ScalarState<"decimal">>(
+export const buildDecimalSchema = <
+  F extends ScalarState<"decimal">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): DecimalSchemas<F> => {
+): DecimalSchemas<F, C> => {
   return {
     base: state.base as F["base"],
     create: v.decimal(state),
@@ -177,5 +189,5 @@ export const buildDecimalSchema = <F extends ScalarState<"decimal">>(
     filter: state.array
       ? buildDecimalListFilterSchema(state.base)
       : buildDecimalFilterSchema(state.base),
-  } as DecimalSchemas<F>;
+  } as DecimalSchemas<F, C>;
 };

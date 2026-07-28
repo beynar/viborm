@@ -12,7 +12,7 @@ import {
   isFieldRef,
 } from "@schema/field-ref";
 import type { ScalarState } from "@schema/scalars";
-import type { Sql } from "@sql";
+import { isSql, type Sql, sql } from "@sql";
 import {
   createChildScope,
   getColumnName,
@@ -339,6 +339,41 @@ function fieldRefColumn(ctx: QueryScope, ref: AnyFieldRef, alias: string): Sql {
 }
 
 /**
+ * Splice a caller-supplied fragment into an operand position.
+ *
+ * PARENTHESIZED, always: the fragment is an expression the caller wrote, and
+ * the builder is about to wrap it in one (`col > <here>`, a case fold, a cast).
+ * Without the parentheses a fragment like `` sql`a + b` `` would rebind against
+ * the surrounding operator and answer a different question. The interpolations
+ * ride along untouched — an `Sql` nested inside an `Sql` is spliced as text and
+ * its values stay BOUND PARAMETERS (see `Sql.flatten`), so a value interpolated
+ * into a fragment operand is never concatenated into the statement.
+ *
+ * The fragment's TEXT is the caller's responsibility, dialect and all — the same
+ * trust model as `$queryRaw`, and outside the portability promise the rest of
+ * the filter language keeps.
+ */
+const fragmentOperand = (fragment: Sql): Sql => sql`(${fragment})`;
+
+/**
+ * The operand as a COLUMN EXPRESSION, or `undefined` when it is an ordinary
+ * value that has to be bound.
+ *
+ * A referenced column and a spliced fragment are the same thing to every
+ * operator below — an expression rather than a parameter — so they resolve
+ * together here and the operator-level branches stay one shape.
+ */
+function operandExpression(
+  ctx: QueryScope,
+  value: unknown,
+  alias: string
+): Sql | undefined {
+  if (isFieldRef(value)) return fieldRefColumn(ctx, value, alias);
+  if (isSql(value)) return fragmentOperand(value);
+  return undefined;
+}
+
+/**
  * Build a single filter operation
  *
  * @param ctx - Query context
@@ -366,6 +401,13 @@ function buildFilterOperation(
       // (in/notIn/has/hasEvery/hasSome). Fail closed rather than bind the token.
       throw new QueryEngineError(
         `Field reference '${formatFieldRef(v)}' is not supported by the '${operation}' filter on '${fieldName}'.`
+      );
+    }
+    if (isSql(v)) {
+      // Same closure for the fragment: an operator that takes VALUES would
+      // otherwise bind the fragment object itself as a parameter.
+      throw new QueryEngineError(
+        `An SQL fragment is not supported by the '${operation}' filter on '${fieldName}'.`
       );
     }
     return scalarValueLiteral(ctx, fieldName, v);
@@ -403,7 +445,7 @@ function buildFilterOperation(
   //    as behavior no test could actually witness.
   /** Raw operand — pairs with a bare `column` LHS (ordered comparisons, LIKE-free text predicates). */
   const plainOperand = (v: unknown) =>
-    isFieldRef(v) ? fieldRefColumn(ctx, v, alias) : lit(v);
+    operandExpression(ctx, v, alias) ?? lit(v);
   /**
    * An enum column compared against ANOTHER COLUMN goes through text on every
    * dialect.
@@ -428,22 +470,22 @@ function buildFilterOperation(
    * are built together because a referenced enum operand changes the LHS too.
    */
   const exactComparison = (v: unknown): [Sql, Sql] => {
-    if (!isFieldRef(v)) return [exactTextColumn, lit(v)];
-    const refColumn = fieldRefColumn(ctx, v, alias);
-    if (!isTextScalar) return [column, refColumn];
-    const asExactText = (expr: Sql) =>
-      adapter.expressions.caseSensitiveText(comparableText(expr));
-    return [asExactText(column), asExactText(refColumn)];
+    const expr = operandExpression(ctx, v, alias);
+    if (!expr) return [exactTextColumn, lit(v)];
+    if (!isTextScalar) return [column, expr];
+    const asExactText = (e: Sql) =>
+      adapter.expressions.caseSensitiveText(comparableText(e));
+    return [asExactText(column), asExactText(expr)];
   };
   /** Case-folded operand — pairs with `foldedTextColumn`. */
   const foldedOperand = (v: unknown) => {
-    if (!isFieldRef(v)) return adapter.expressions.asciiCaseFold(lit(v));
-    const refColumn = fieldRefColumn(ctx, v, alias);
+    const expr = operandExpression(ctx, v, alias);
+    if (!expr) return adapter.expressions.asciiCaseFold(lit(v));
     return isTextScalar
       ? adapter.expressions.caseSensitiveText(
-          adapter.expressions.asciiCaseFold(refColumn)
+          adapter.expressions.asciiCaseFold(expr)
         )
-      : refColumn;
+      : expr;
   };
 
   // Portable insensitive mode folds ASCII A-Z only, then uses exact text
@@ -476,7 +518,10 @@ function buildFilterOperation(
       // silently ignored `mode` — `equals` stayed case-sensitive while
       // `contains`/`startsWith`/`endsWith` (which never had the guard) folded,
       // so the two disagreed on the same filter object.
-      if (isInsensitive && (typeof value === "string" || isFieldRef(value))) {
+      if (
+        isInsensitive &&
+        (typeof value === "string" || isFieldRef(value) || isSql(value))
+      ) {
         return insensitiveEq(value);
       }
       return adapter.operators.eq(...exactComparison(value));
@@ -491,9 +536,10 @@ function buildFilterOperation(
       if (scalarState.array && Array.isArray(value)) {
         return adapter.operators.neq(column, adapter.arrays.value(value));
       }
-      // A field reference IS an object, so it must be recognized before the
-      // nested-filter branch — otherwise its own keys would read as operations.
-      if (isFieldRef(value)) {
+      // A field reference and an SQL fragment are both OBJECTS, so they must be
+      // recognized before the nested-filter branch — otherwise their own keys
+      // would read as filter operations.
+      if (isFieldRef(value) || isSql(value)) {
         return isInsensitive
           ? insensitiveNeq(value)
           : adapter.operators.neq(...exactComparison(value));

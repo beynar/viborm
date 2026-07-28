@@ -46,7 +46,7 @@ Post-wave cleanup: `78f3a0c` deleted the two guards W1-U1/W1-U3 made unreachable
 |---|---|---|---|
 | W2-U1 JSON `lt/lte/gt/gte` | delivered, scope note | `494362a` | One portable comparison contract across all three dialects; the operand's class (number vs string) picks numeric vs lexicographic comparison (`src/validation/scalars/json.ts:10-11`). Mixed-type rows do not match and do not error. |
 | W2-U2 JSON `mode: "insensitive"` | delivered | `724b6eb` | Same ASCII A–Z fold as the scalar path — diverges from `ILIKE` on accented text, as the whole `mode` surface already did. |
-| W2-U3 Field references (`FieldRef`) | delivered, scope note | `e766b5d`; corrections `3aeaa06`, `c987b71`, `afb21b2`, `dd86dc6`, `615c6ec`, `66712aa`, `2249860`; doc correction `11bc32a` | Surface is `client.$fields.<model>.<field>` (zero codegen). Refused, each with a message: `in`/`notIn`, list operators, JSON operands **and JSON write data**, blob/vector/point, `orderBy`, `whereUnique`, create/update data, and `having`/`groupBy` (the last is Prisma parity). Enum references answer identically on every dialect or are refused (`2249860`). |
+| W2-U3 Field references (`FieldRef`) | delivered, scope note; **surface superseded by W8-A** | `e766b5d`; corrections `3aeaa06`, `c987b71`, `afb21b2`, `dd86dc6`, `615c6ec`, `66712aa`, `2249860`; doc correction `11bc32a` | Surface was `client.$fields.<model>.<field>` (zero codegen); W8-A replaced it with the per-field operand callback `(ctx) => ctx.fields.<field>` (D-7/D-8) — the token and every refusal below are unchanged. Refused, each with a message: `in`/`notIn`, list operators, JSON operands **and JSON write data**, blob/vector/point, `orderBy`, `whereUnique`, create/update data, and `having`/`groupBy` (the last is Prisma parity). Enum references answer identically on every dialect or are refused (`2249860`). |
 | W2-U4 JSON string-path sugar | delivered, scope note | `126eb77` | Prisma-MySQL's `'$.a.b'` is parsed to the array form. Grammar accepted is `'$'`, `'$.key'`, `'$.key[0]'` and nothing else — quoted labels and wildcards are refused rather than half-supported (`json-filter-builder.ts:54-63`). |
 
 ### W3 — Read surface
@@ -95,9 +95,15 @@ Merge record: `42016f4` (both lanes; the four doc conflicts and their resolution
 |---|---|---|---|
 | W7-U1…U5 | **deferred** | — | Deferred 2026-07-26 by the maintainer ("too complex for now; revisit after W6 ships"). `$extends`, `$use`, full-text search, `db pull` emitter and `db seed` are all unshipped; the plan text is preserved below for when it reopens. D-4 stays deferred with it. |
 
+### W8 — Operand surface
+
+| Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
+|---|---|---|---|
+| W8-A Per-field operand callbacks + SQL fragment operands | delivered, scope note | this lane | The maintainer's design (D-7/D-8). Four operand kinds now, one home: a value, a field-reference token, an `Sql` fragment, or a callback returning one of the latter two — resolved during VALIDATION, so the engine still sees only three (`src/validation/primitives/operand.ts`). **Scope line**: attached to `equals`/`not`/`lt`/`lte`/`gt`/`gte` on non-list scalar filters and nowhere else. The string predicates keep the token-only operand they had (they take no fragment, so they take no callback); `in`/`notIn`, list operators, JSON, `orderBy`, write data and `having` stay closed, `having` now to fragments as well as tokens. `client.$fields` is gone (D-8). |
+
 ### Decision register outcomes
 
-D-1 removed `*AndReturn` (W3-U4). D-2 reversed the transaction-option doctrine partially (W5-U3). D-3 shipped string-backed Decimal with the one-release hatch (W6-U1). D-5 lifted the orderBy cap to 8 (W1-U7). **D-4 stays deferred with W7, and D-6 — the breaking refusal of a bare `null` in JSON write position, shipped in W4-U4 — is still awaiting explicit maintainer sign-off.**
+D-1 removed `*AndReturn` (W3-U4). D-2 reversed the transaction-option doctrine partially (W5-U3). D-3 shipped string-backed Decimal with the one-release hatch (W6-U1). D-5 lifted the orderBy cap to 8 (W1-U7). D-7 and D-8 shipped the operand callback and removed `client.$fields` (W8-A). **D-4 stays deferred with W7, and D-6 — the breaking refusal of a bare `null` in JSON write position, shipped in W4-U4 — is still awaiting explicit maintainer sign-off.**
 
 ---
 
@@ -111,6 +117,13 @@ D-1 removed `*AndReturn` (W3-U4). D-2 reversed the transaction-option doctrine p
 | D-4 | **Full-text search scope.** Currently a non-goal; Prisma ships it as preview. | Defer (W7, optional). If done: PG `tsvector` + MySQL `MATCH…AGAINST`, typed refusal on SQLite (FTS5 needs virtual tables — out of scope). | W7 |
 | D-5 | **`orderBy` to-one chain depth cap** (currently 3). | Lift to 8 with the existing strict-schema recursion; unbounded requires lazy self-reference in the orderBy schema — do that only if a user asks. | W1-U7 |
 | D-6 | **Bare `null` in JSON write position.** Before W4-U4 it meant "SQL NULL". With `DbNull`/`JsonNull` in the language it no longer says which null it means. Prisma refuses it (`InputJsonValue` disallows a top-level `null`, `@prisma/client` `runtime/client.d.ts`). | **SHIPPED AS REFUSED in W4-U4** (type-level + runtime, message names the sentinel to use) — the parity-exact and fail-closed reading. **This is a breaking change and wants explicit maintainer sign-off.** If the answer is "keep the old meaning", the reversal is small and localized: drop the `value === null` branch in `jsonWrite` ([validation/primitives/json-null.ts](../../src/validation/primitives/json-null.ts)) and widen `JsonWriteSchema`'s input back from `Exclude<…, null>`; the five estate call sites updated to `DbNull` can stay as they are. | W4-U4 (shipped) |
+| D-7 | **Per-field operand callbacks.** `client.$fields` made a field reference reachable only as a whole-schema surface hanging off the client, and it could not express an SQL expression at all. | **SHIPPED in W8-A (maintainer's design, 2026-07-28):** every comparison operand also accepts `(ctx) => …`, where `ctx.fields` is the CURRENT model's reference table and `ctx.sql` is the tagged template. The callback is resolved DURING VALIDATION — invoked once, its return value substituted — so the engine's operand invariant stays "plain value \| FieldRef \| Sql" and no function reaches the SQL builder or the cache key. Returning anything else is a `ValidationError`; widening to plain values is a separate decision. Scope: the comparison operators only (`equals`/`not`/`lt`/`lte`/`gt`/`gte`), because acceptance must never outrun the builder. `ctx.fields` is the current model only — correlated references to an enclosing scope are a later, separate decision. | W8-A (shipped) |
+| D-8 | **`client.$fields` removal.** With D-7 shipped, the whole-schema proxy is a second way to say the same thing. | **SHIPPED in W8-A:** `client.$fields`, `createSchemaFieldRefs` and `SchemaFieldRefs` are deleted from the client surface and the public types. The token machinery survives as `ctx.fields`' internals (`createModelFieldRefs`, still exported), and a stored token remains a valid operand — the callback is sugar, the token is the mechanism. **Breaking**: every `client.$fields.<model>.<field>` call site becomes `(ctx) => ctx.fields.<field>`. | W8-A (shipped) |
+
+**Numbering note.** The W8-A brief called these two decisions D-6 and D-7. D-6 was already
+allocated (the bare-`null` JSON refusal, W4-U4) and is referenced from the outcomes
+paragraph and from W4-U4's section, so renumbering it would break every reference; the new
+decisions took the next free ids instead. Same decisions, different labels.
 
 ---
 
@@ -1394,6 +1407,111 @@ a canonical string, never a double".
 | W7-U3 | M | **`$extends` model + client extensions** — custom methods on models/client, `Prisma.getExtensionContext` equivalent. |
 | W7-U4 | L | **`$extends` query extensions** — per-op/`$allOperations` interception with typed `args`/`query`; subsumes `$use` internally. |
 | W7-U5 | — | **Optional stretch (per D-4, decide later):** full-text `search`/`_relevance` (PG+MySQL, typed refusal SQLite); `db pull` TS emitter; `db seed`. |
+
+---
+
+## W8-A — DELIVERED: per-field operand callbacks, resolved by validation
+
+The maintainer's design (2026-07-28), recorded as D-7 and D-8. Four units.
+
+### The shape
+
+A comparison operand is now one of four things, and `src/validation/primitives/operand.ts`
+is the only place that decides which positions accept which:
+
+```ts
+{ views: { gt: 10 } }                          // a value  -> bound parameter
+{ views: { gt: token } }                       // a FieldRef -> a column
+{ views: { gt: sql`"likes" * ${2}` } }         // an Sql -> a spliced expression
+{ views: { gt: (ctx) => ctx.fields.likes } }   // a callback -> sugar for the two above
+```
+
+The callback is invoked ONCE, during validation, and its return value substituted. The
+engine's operand invariant therefore stays exactly "plain value | FieldRef | Sql" — it
+never learns a fourth kind, and neither does anything downstream of the parse boundary.
+A callback that returns anything else is a `ValidationError` naming what it returned;
+`fail closed` was the instruction and widening to plain values is a separate decision.
+
+### Unit 1 — the helper and the scope
+
+`v.comparisonOperand(type, wrapped)` supersedes `v.fieldRefOr` at the comparison
+operators; `v.fieldRefOr` survives, unchanged, at the string predicates (they compile a
+referenced column but take no fragment, so they take no callback either).
+
+**The deviation worth reading.** The brief said to "thread the model's fields proxy in at
+schema-build time". That is not possible as written: scalar filter schemas are INTERNED
+across models by design (`validation/scalars/intern.ts` — two `s.string()` fields on
+different models share one filter tree), so an operand schema cannot carry a model. What
+IS per-model is the `where` schema containing it, and every re-scoping boundary is one of
+those. So the boundary pushes the model (`scopeOperands`, applied in
+`model/core/where.ts` and to `having`) and the operand reads it back
+(`runInOperandScope`). Validation is synchronous and depth-first, which is what makes a
+single slot with save/restore exact rather than merely likely. A nested relation filter
+embeds the TARGET model's `where`, so depth re-scopes for free and pops back on the way
+out — pinned at depth 2 in both directions (`operand-callback-sql.test.ts`).
+
+At the TYPE level the ctx is threaded properly, per model: `GetScalarsSchemas<M>` passes
+`OperandCtx<M>` down to each scalar's filter type, so `ctx.fields` is keyed to that
+model's scalars and a typo is a compile error through the public API (the `@ts-expect-error`
+probes in `operand-callback-sql.test.ts` ARE the assertions). Types are erased, so
+per-model operand types cost the runtime nothing and interning is untouched. Type-check
+time did not regress (53s before, 37s after, same machine).
+
+### Unit 2 — SQL fragments as operands
+
+`where-builder.ts` resolves a FieldRef and an `Sql` through one seam
+(`operandExpression`): a referenced column and a spliced fragment are the same thing to
+every operator — an expression rather than a parameter. The fragment is spliced
+PARENTHESIZED (without it, `` sql`a + b` `` would rebind against the surrounding
+operator) and its interpolations stay bound parameters, which the injection witness reads
+out of the compiled statement. `lit()` refuses a fragment exactly as it refuses a token,
+so an operator that takes VALUES cannot bind the fragment object itself.
+
+Closure: `having` re-closes to fragments as well as references
+(`v.noOperandExpression`), at every `not` depth — the same depth-cap bug the W2 review
+found, re-run for the fragment. The JSON sites keep the reference-only closure
+deliberately: a real `Sql` is a class instance and `v.json` already refuses it, while
+`isSql` is STRUCTURAL and a JSON document may honestly carry `strings` and `values`
+arrays. Closing JSON structurally would refuse honest data; there is a test for that
+document.
+
+### Unit 3 — cache keys
+
+Keying moved behind the parse boundary. `$withCache` previously keyed the caller's raw
+payload, which for a callback payload threw `CacheInvalidKeyError: Uncacheable value type:
+function` (the falsification is a test). It now keys `PendingOperation.cacheKeyArgs()` —
+the VALIDATED payload, exposed by the read operations through
+`ExecutableOperation.validatedArgs` and refused loudly for any operation that has none.
+Two different callbacks meaning the same comparison land on one key; a fragment keys by
+its statement text plus its bound values (`stableStringify` handles `Sql` explicitly,
+because an `Sql` memoizes its flattened text and enumerating instance fields would drift
+the key once anything compiled the fragment).
+
+**The cost, stated:** a cached read now resolves its operation — validate, build SQL —
+before it can look in the cache, where it previously did so only on a miss. That is not
+avoidable: a payload carrying a function has no stable serialization until validation has
+run it. `$transaction([...])` batch preparation already saw resolved payloads (it
+constructs the operation), and there is a test rather than an assumption.
+
+### Unit 4 — `client.$fields` removed (D-8)
+
+`client.$fields`, `createSchemaFieldRefs` and `SchemaFieldRefs` are deleted.
+`createModelFieldRefs` survives as `ctx.fields`' internals and stays exported, so a token
+held directly is still a valid operand — the estate keeps direct-token coverage exactly
+where the guard is about the token (the cross-model refusal needs a FOREIGN token, which
+a callback can never hand out).
+
+### Evidence
+
+`tests/query-engine/operand-callback-sql.test.ts` (54, three dialects): callback ≡ token
+byte-identical SQL, the injection witness, depth-2 scoping both ways, every return-value
+refusal, every closed surface. `tests/cache/operand-callback-keys.test.ts` (10): the
+keying falsification and the shared-entry property, live on PGlite.
+`tests/drivers/field-reference-behavior.ts` (shared by all six driver suites): the whole
+reference suite migrated to the callback form, plus fragment operands against real
+databases — arithmetic, scalar subquery, mixed with a reference and a literal,
+`updateMany`/`deleteMany`, and both execution substrates (array batch and callback
+transaction).
 
 ---
 

@@ -7,6 +7,7 @@
 import type { AnyModel } from "@schema/model";
 import type { ScalarState } from "@schema/scalars";
 import type { EnumValues } from "@validation/primitives/enum";
+import type { OperandCtx } from "@validation/primitives/operand";
 import { lazyRecord } from "../lazy";
 import { type BigIntSchemas, buildBigIntSchema } from "./bigint";
 import { type BlobSchemas, buildBlobSchema } from "./blob";
@@ -39,36 +40,46 @@ export { buildStringSchema, type StringSchemas } from "./string";
 export { buildTimeSchema, type TimeSchemas } from "./time";
 export { buildVectorSchema, type VectorSchemas } from "./vector";
 
-export type GetScalarSchemas<F extends ScalarState> =
-  F extends ScalarState<"bigint">
-    ? BigIntSchemas<F>
-    : F extends ScalarState<"blob">
-      ? BlobSchemas<F>
-      : F extends ScalarState<"boolean">
-        ? BooleanSchemas<F>
-        : F extends ScalarState<"datetime">
-          ? DateTimeSchemas<F>
-          : F extends ScalarState<"decimal">
-            ? DecimalSchemas<F>
-            : F extends ScalarState<"enum">
-              ? EnumSchemas<EnumValues<F["base"]>, F>
-              : F extends ScalarState<"float">
-                ? FloatSchemas<F>
-                : F extends ScalarState<"int">
-                  ? IntSchemas<F>
-                  : F extends ScalarState<"json">
-                    ? JsonSchemas<F>
-                    : F extends ScalarState<"point">
-                      ? PointSchemas<F>
-                      : F extends ScalarState<"string">
-                        ? StringSchemas<F>
-                        : F extends ScalarState<"vector">
-                          ? VectorSchemas<F>
-                          : F extends ScalarState<"date">
-                            ? DateSchemas<F>
-                            : F extends ScalarState<"time">
-                              ? TimeSchemas<F>
-                              : never;
+/**
+ * `C` is the operand-callback context of the model these schemas belong to —
+ * `{ fields, sql }` keyed to that model's scalars. It is threaded at the TYPE
+ * level only: at runtime the filter schemas stay model-blind and interned
+ * across models (see `intern.ts`), and a callback resolves its context from the
+ * model scope the `where` schema pushes (see `primitives/operand.ts`). Types are
+ * erased, so per-model operand types cost the runtime nothing.
+ */
+export type GetScalarSchemas<
+  F extends ScalarState,
+  C extends OperandCtx<any> = OperandCtx<any>,
+> = F extends ScalarState<"bigint">
+  ? BigIntSchemas<F, C>
+  : F extends ScalarState<"blob">
+    ? BlobSchemas<F>
+    : F extends ScalarState<"boolean">
+      ? BooleanSchemas<F, C>
+      : F extends ScalarState<"datetime">
+        ? DateTimeSchemas<F, C>
+        : F extends ScalarState<"decimal">
+          ? DecimalSchemas<F, C>
+          : F extends ScalarState<"enum">
+            ? EnumSchemas<EnumValues<F["base"]>, F, C>
+            : F extends ScalarState<"float">
+              ? FloatSchemas<F, C>
+              : F extends ScalarState<"int">
+                ? IntSchemas<F, C>
+                : F extends ScalarState<"json">
+                  ? JsonSchemas<F>
+                  : F extends ScalarState<"point">
+                    ? PointSchemas<F>
+                    : F extends ScalarState<"string">
+                      ? StringSchemas<F, C>
+                      : F extends ScalarState<"vector">
+                        ? VectorSchemas<F>
+                        : F extends ScalarState<"date">
+                          ? DateSchemas<F, C>
+                          : F extends ScalarState<"time">
+                            ? TimeSchemas<F, C>
+                            : never;
 
 export const getScalarSchemas = <F extends ScalarState>(
   scalar: F
@@ -155,6 +166,7 @@ export const getScalarsSchemas = <Source extends AnyModel>(source: Source) => {
 
 export type GetScalarsSchemas<Source extends AnyModel> = {
   [F in keyof Source["~"]["state"]["scalars"]]: GetScalarSchemas<
-    Source["~"]["state"]["scalars"][F]["~"]["state"]
+    Source["~"]["state"]["scalars"][F]["~"]["state"],
+    OperandCtx<Source>
   >;
 };

@@ -1,4 +1,5 @@
 import type { AnyModel } from "@schema/model";
+import { scopeOperands } from "@validation/primitives/operand";
 import v, { type V } from "../../primitives/v";
 import type { VibSchema } from "../../types";
 import type { ScalarSchemas } from "../index";
@@ -41,6 +42,7 @@ export type WhereSchema<
 >;
 
 export const getWhereSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  model: M,
   fieldSchemas: F
 ): WhereSchema<M, F> => {
   // Build scalar and relation filter entries
@@ -65,7 +67,11 @@ export const getWhereSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     .extend(scalarFilter.entries)
     .extend(relationFilter.entries);
 
-  return whereSchema;
+  // A `where` is the operand-callback scope boundary: `ctx.fields` inside it
+  // names THIS model's columns. A nested relation filter embeds the TARGET
+  // model's `where`, which carries its own boundary, so depth re-scopes for
+  // free and pops back on the way out (see `primitives/operand.ts`).
+  return scopeOperands(whereSchema, model);
 };
 
 // =============================================================================
@@ -187,6 +193,7 @@ export const getScalarWhereSchema = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 >(
+  model: M,
   fieldSchemas: F
 ): ScalarWhereSchema<M, F> => {
   const scalarFilter = v.fromObject<F["scalars"], "filter">(
@@ -202,7 +209,7 @@ export const getScalarWhereSchema = <
     .extend(scalarFilter.entries)
     .extend(getRefusedRelationEntries<M, F>(fieldSchemas));
 
-  return scalarWhere;
+  return scopeOperands(scalarWhere, model);
 };
 
 /**
@@ -243,7 +250,7 @@ export const getWhereUniqueExtendedSchema = <
 ): WhereUniqueExtendedSchema<M, F> => {
   const uniqueFilter = getUniqueFilter(model, fieldSchemas);
   const compoundConstraintFilter = getCompoundConstraintFilter(model);
-  const scalarWhere = getScalarWhereSchema<M, F>(fieldSchemas);
+  const scalarWhere = getScalarWhereSchema<M, F>(model, fieldSchemas);
 
   const discriminators: WhereUniqueEntries<M, F> = {
     ...uniqueFilter.entries,
@@ -256,8 +263,14 @@ export const getWhereUniqueExtendedSchema = <
   } as Omit<ScalarWhereEntries<M, F>, keyof WhereUniqueEntries<M, F>> &
     WhereUniqueEntries<M, F>;
 
-  return v.object(entries, {
-    nonEmpty: true,
-    requiresOneOf: [keys],
-  });
+  // The filter portion of an extended unique `where` is an ordinary scalar
+  // filter, so it opens the same operand callbacks and needs the same scope.
+  // (The discriminator entries are BARE values — no operand position there.)
+  return scopeOperands(
+    v.object(entries, {
+      nonEmpty: true,
+      requiresOneOf: [keys],
+    }),
+    model
+  );
 };

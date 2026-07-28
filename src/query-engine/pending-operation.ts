@@ -222,6 +222,31 @@ export class PendingOperation<T> implements PromiseLike<T> {
     return this.args;
   }
 
+  /**
+   * The payload a cache entry is keyed on: the VALIDATED one, never the
+   * caller's.
+   *
+   * A raw payload may carry an operand callback, and a function has no stable
+   * serialization — keying on it would either throw or, worse, key two
+   * equivalent calls differently. Validation is what turns the callback into the
+   * field reference or fragment it returned, so keying waits for it. That makes
+   * a cached read resolve its operation (validate, build SQL) before it can look
+   * in the cache, where it previously did so only on a miss; the price buys a
+   * key that describes the query that will actually run.
+   *
+   * Fails loudly rather than falling back to the raw payload: only the read
+   * families are cacheable, and only they carry a validated payload.
+   */
+  cacheKeyArgs(): Record<string, unknown> {
+    const validated = this.resolveOperation().validatedArgs;
+    if (!validated) {
+      throw new QueryEngineError(
+        `Operation '${this.operation}' on model '${this.modelName}' exposes no validated payload to key a cache entry on.`
+      );
+    }
+    return validated;
+  }
+
   getModel(): string {
     return this.modelName;
   }

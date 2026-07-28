@@ -26,8 +26,6 @@ import type { DecimalInput, DecimalOutput, DecimalSchema } from "./decimal";
 import { decimal } from "./decimal";
 import type { EnumSchema } from "./enum";
 import { enum_ } from "./enum";
-import type { FieldRefOrSchema, NoFieldRefSchema } from "./field-ref";
-import { fieldRefOr, noFieldRef } from "./field-ref";
 import type { ComputeEntriesFromObject } from "./from-object";
 import { fromObject } from "./from-object";
 import type { IsoDateSchema, IsoTimeSchema, IsoTimestampSchema } from "./iso";
@@ -46,6 +44,18 @@ import { integer, number } from "./number";
 import type { ObjectOptions, ObjectSchema } from "./object";
 import { object } from "./object";
 import { omit } from "./omit";
+import type {
+  ComparisonOperandSchema,
+  FieldRefOrSchema,
+  NoFieldRefSchema,
+  OperandCtx,
+} from "./operand";
+import {
+  comparisonOperand,
+  fieldRefOr,
+  noFieldRef,
+  noOperandExpression,
+} from "./operand";
 import type { OptionalSchema, WrappableSchema } from "./optional";
 import { optional } from "./optional";
 import type { PipeAction, PipeSchema } from "./pipe";
@@ -136,9 +146,12 @@ export const v = {
   shorthandFilter,
   shorthandUpdate,
   shorthandArray,
-  // Field references (Prisma FieldRef parity)
+  // Comparison operands: field references (Prisma FieldRef parity), SQL
+  // fragments, and the callback that sugars both
+  comparisonOperand,
   fieldRefOr,
   noFieldRef,
+  noOperandExpression,
   // JSON null sentinels (Prisma DbNull/JsonNull/AnyNull parity)
   jsonNullOr,
   jsonWrite,
@@ -464,6 +477,24 @@ export namespace V {
     TType extends ScalarType,
     TSchema extends VibSchema<any, any>,
   > = FieldRefOrSchema<TType, TSchema>;
+
+  /**
+   * Type-level comparison operand: the value, a field reference of the given
+   * scalar type, an SQL fragment, or a callback returning one of the latter two
+   * from `TCtx` — the context of the model being filtered.
+   * @example V.ComparisonOperand<"int", V.Integer, V.OperandCtx<typeof post>>
+   */
+  export type ComparisonOperand<
+    TType extends ScalarType,
+    TSchema extends VibSchema<any, any>,
+    TCtx extends OperandCtx<any> = OperandCtx<any>,
+  > = ComparisonOperandSchema<TType, TSchema, TCtx>;
+
+  /**
+   * Type-level operand callback context: `{ fields, sql }` keyed to the scalars
+   * of the model being filtered.
+   */
+  export type Operand<TModel> = OperandCtx<TModel>;
 
   /**
    * Type-level re-closing wrapper: same shape as the wrapped schema, but a

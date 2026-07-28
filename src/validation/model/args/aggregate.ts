@@ -2,6 +2,7 @@
 
 import type { AnyModel } from "@schema/model";
 import type { NumericScalarKeys, ScalarKeys } from "@schema/model/helper";
+import { scopeOperands } from "@validation/primitives/operand";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import { type SortOrderSchema, sortOrderSchema } from "../core/orderby";
@@ -304,20 +305,25 @@ const havingScalarSchema = v.object(
   { optional: true }
 );
 
-export const getHavingSchema = <F extends ScalarFilterBundle>(
+export const getHavingSchema = <
+  M extends AnyModel,
+  F extends ScalarFilterBundle,
+>(
+  model: M,
   scalarSchemas: F
 ): HavingSchema<F> => {
   const entries: Record<string, V.Schema> = {};
 
   for (const [name, schemas] of Object.entries(scalarSchemas.scalars)) {
     // `having` reuses the model's own (shared, interned) scalar filter, which
-    // accepts a field reference in comparison positions. Prisma excludes field
-    // references from having/groupBy — a HAVING operand is an aggregate over a
-    // group, not a column of one row — so re-close the reused schema here
-    // instead of inheriting the operand by accident.
+    // accepts a field reference, an SQL fragment and the callback that returns
+    // one in comparison positions. Prisma excludes field references from
+    // having/groupBy — a HAVING operand is an aggregate over a group, not a
+    // column of one row — and a fragment is out for the same reason, so re-close
+    // the reused schema here instead of inheriting the operand by accident.
     entries[name] = v.union([
       havingScalarSchema,
-      v.noFieldRef(schemas.filter, "'having'"),
+      v.noOperandExpression(schemas.filter, "'having'"),
     ]) as V.Schema;
   }
 
@@ -339,7 +345,11 @@ export const getHavingSchema = <F extends ScalarFilterBundle>(
     )
     .extend(entries) as unknown as HavingSchema<F>;
 
-  return havingSchema;
+  // Scoped to the model like a `where` is, so an operand CALLBACK resolves here
+  // too and is then refused by name ("… is not supported in 'having'") instead
+  // of by the generic out-of-scope message. Acceptance is unchanged: what the
+  // callback returns is exactly what the closure above rejects.
+  return scopeOperands(havingSchema, model);
 };
 
 // =============================================================================
@@ -464,7 +474,7 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   const scalarSchema = v.enum(scalarKeys);
 
   const aggSchemas = getAggregateScalarSchemas(model);
-  const havingSchema = getHavingSchema(fieldSchemas);
+  const havingSchema = getHavingSchema(model, fieldSchemas);
   const orderBySchema = getGroupByOrderBySchema(model);
 
   return v.object(

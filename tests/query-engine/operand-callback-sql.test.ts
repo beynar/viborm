@@ -1,0 +1,553 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { type Dialect, Driver } from "@drivers";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { hydrateSchemaNames } from "@schema";
+import { createModelFieldRefs } from "@schema/field-ref";
+import { sql } from "@sql";
+import { createSchemaRegistry } from "@validation";
+import type { OperandCtx } from "@validation/primitives/operand";
+import { beforeAll, describe, expect, test } from "vitest";
+import { fieldRefSchema } from "../fixtures/field-ref-schema";
+
+/**
+ * Per-field operand callbacks (W8-A) and SQL fragments as filter operands.
+ *
+ * Three claims live here, none of which a live database can show:
+ *
+ *  - the callback is resolved DURING VALIDATION, so the callback form and the
+ *    direct-token form compile to byte-identical SQL and the engine never sees
+ *    a function;
+ *  - a fragment operand is spliced PARENTHESIZED with its interpolations still
+ *    BOUND — the injection witness reads the compiled statement to prove it;
+ *  - `ctx.fields` is scoped to the model being filtered at every depth, and the
+ *    surfaces that stay closed to a reference stay closed to a fragment too.
+ *
+ * Behaviour against real databases lives in
+ * {@link file://../drivers/field-reference-behavior.ts}.
+ */
+
+const schema = fieldRefSchema;
+const { post: Post, user: User } = schema;
+
+/** The operand callback context of each model — `ctx.fields` keyed to it. */
+type PostCtx = OperandCtx<typeof Post>;
+type UserCtx = OperandCtx<typeof User>;
+
+class MockDriver extends Driver<null, null> {
+  readonly adapter: DatabaseAdapter;
+
+  constructor(adapter: DatabaseAdapter, dialect: Dialect) {
+    super(dialect, `operand-callback-${dialect}`);
+    this.adapter = adapter;
+  }
+
+  protected async initClient() {
+    return null;
+  }
+
+  protected async closeClient() {
+    // No external client is allocated by this SQL-only driver.
+  }
+
+  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async transaction<T>(
+    _client: null,
+    fn: (transaction: null) => Promise<T>
+  ): Promise<T> {
+    return fn(null);
+  }
+}
+
+beforeAll(() => hydrateSchemaNames(schema));
+
+const tokens = {
+  post: createModelFieldRefs("post", schema.post),
+  user: createModelFieldRefs("user", schema.user),
+};
+
+type DialectCase = {
+  name: string;
+  dialect: Dialect;
+  quote: '"' | "`";
+  createAdapter: () => DatabaseAdapter;
+};
+
+const dialectCases: DialectCase[] = [
+  {
+    name: "PostgreSQL",
+    dialect: "postgresql",
+    quote: '"',
+    createAdapter: () => new PostgresAdapter(),
+  },
+  {
+    name: "MySQL",
+    dialect: "mysql",
+    quote: "`",
+    createAdapter: () => new MySQLAdapter(),
+  },
+  {
+    name: "SQLite",
+    dialect: "sqlite",
+    quote: '"',
+    createAdapter: () => new SQLiteAdapter(),
+  },
+];
+
+function createEngine(dialectCase: DialectCase): QueryEngine {
+  const adapter = dialectCase.createAdapter();
+  const registry = createModelRegistry(schema, createSchemaRegistry(schema));
+  return new QueryEngine(
+    new MockDriver(adapter, dialectCase.dialect),
+    registry
+  );
+}
+
+type Compiled = { statement: string; values: unknown[] };
+
+function build(
+  dialectCase: DialectCase,
+  model: typeof Post | typeof User,
+  operation: string,
+  args: Record<string, unknown>
+): Compiled {
+  const query = createEngine(dialectCase).build(
+    model as never,
+    operation as never,
+    args
+  );
+  return { statement: query.toStatement("$n"), values: query.values };
+}
+
+const buildPost = (dialectCase: DialectCase, args: Record<string, unknown>) =>
+  build(dialectCase, Post, "findMany", args);
+
+type Refusal = {
+  name?: string;
+  issues?: { path?: string; message?: string }[];
+};
+
+/** Runs `run`, requiring it to throw, and hands back the thrown refusal. */
+function refusalOf(run: () => unknown): Refusal {
+  try {
+    run();
+  } catch (error) {
+    return error as Refusal;
+  }
+  throw new Error("expected the build to be refused, but it succeeded");
+}
+
+/** `{ not: { not: … { <leaf> } } }`, `depth` levels of `not` deep. */
+function nestNot(depth: number, leaf: Record<string, unknown>) {
+  let out: Record<string, unknown> = leaf;
+  for (let i = 0; i < depth; i++) out = { not: out };
+  return out;
+}
+
+describe.each(dialectCases)("$name operand callbacks", (dialectCase) => {
+  const q = (identifier: string) =>
+    `${dialectCase.quote}${identifier}${dialectCase.quote}`;
+
+  test("the callback form and the token form compile identically", () => {
+    const viaCallback = buildPost(dialectCase, {
+      where: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
+    });
+    const viaToken = buildPost(dialectCase, {
+      where: { views: { gt: tokens.post.likes } },
+    });
+
+    expect(viaCallback.statement).toBe(viaToken.statement);
+    expect(viaCallback.values).toEqual(viaToken.values);
+    // …and it really is the referenced COLUMN, not a bound token.
+    expect(viaCallback.statement).toContain(q("likes"));
+    expect(viaCallback.values).toHaveLength(0);
+  });
+
+  test("every comparison operator takes the callback", () => {
+    for (const operator of ["equals", "not", "lt", "lte", "gt", "gte"]) {
+      const viaCallback = buildPost(dialectCase, {
+        where: { views: { [operator]: (ctx: PostCtx) => ctx.fields.likes } },
+      });
+      const viaToken = buildPost(dialectCase, {
+        where: { views: { [operator]: tokens.post.likes } },
+      });
+      expect(viaCallback.statement).toBe(viaToken.statement);
+    }
+  });
+
+  test("the bare shorthand takes the callback too", () => {
+    const viaCallback = buildPost(dialectCase, {
+      where: { views: (ctx: PostCtx) => ctx.fields.likes },
+    });
+    const viaToken = buildPost(dialectCase, {
+      where: { views: tokens.post.likes },
+    });
+    expect(viaCallback.statement).toBe(viaToken.statement);
+  });
+
+  test("the callback resolves through .map(), like the token", () => {
+    const query = buildPost(dialectCase, {
+      where: { title: { equals: (ctx: PostCtx) => ctx.fields.slug } },
+    });
+    const predicate = query.statement.slice(query.statement.indexOf("WHERE"));
+    expect(predicate).toContain(q("slug_column"));
+    expect(predicate).not.toContain(q("slug"));
+  });
+
+  test("a fragment operand is spliced parenthesized, its values bound", () => {
+    const query = buildPost(dialectCase, {
+      where: { views: { gt: (ctx: PostCtx) => ctx.sql`${10} + ${20}` } },
+    });
+
+    // THE INJECTION WITNESS: the interpolated values are placeholders in the
+    // compiled statement and parameters beside it — never concatenated text.
+    expect(query.values).toEqual([10, 20]);
+    expect(query.statement).toContain("($1 + $2)");
+    expect(query.statement).not.toContain("10 + 20");
+  });
+
+  test("a fragment operand that carries a hostile string stays a parameter", () => {
+    const hostile = "'); DROP TABLE fieldref_posts; --";
+    const query = buildPost(dialectCase, {
+      where: { title: { equals: (ctx: PostCtx) => ctx.sql`${hostile}` } },
+    });
+    expect(query.values).toEqual([hostile]);
+    expect(query.statement).not.toContain("DROP TABLE");
+  });
+
+  test("a fragment, a reference and a literal mix in one where", () => {
+    const query = buildPost(dialectCase, {
+      where: {
+        views: {
+          gt: (ctx: PostCtx) => ctx.fields.likes,
+          lt: (ctx: PostCtx) => ctx.sql`${1000} - ${1}`,
+          gte: 0,
+        },
+      },
+    });
+    expect(query.statement).toContain(q("likes"));
+    expect(query.statement).toContain("($1 - $2)");
+    expect(query.values).toEqual([1000, 1, 0]);
+  });
+
+  test("a bare Sql fragment is accepted without the callback", () => {
+    const viaCallback = buildPost(dialectCase, {
+      where: { views: { gt: (ctx: PostCtx) => ctx.sql`${7}` } },
+    });
+    const viaValue = buildPost(dialectCase, {
+      where: { views: { gt: sql`${7}` } },
+    });
+    expect(viaCallback.statement).toBe(viaValue.statement);
+    expect(viaCallback.values).toEqual(viaValue.values);
+  });
+
+  test("a subquery fragment compiles as an operand", () => {
+    const query = buildPost(dialectCase, {
+      where: {
+        views: {
+          gt: (ctx: PostCtx) =>
+            ctx.sql`SELECT MAX(v) FROM (SELECT ${5} AS v) AS m`,
+        },
+      },
+    });
+    expect(query.statement).toContain("(SELECT MAX(v) FROM");
+    expect(query.values).toEqual([5]);
+  });
+
+  test("`ctx.fields` at depth 2 names the nested model's columns", () => {
+    const viaCallback = build(dialectCase, User, "findMany", {
+      where: {
+        posts: { some: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } } },
+      },
+    });
+    const viaToken = build(dialectCase, User, "findMany", {
+      where: { posts: { some: { views: { gt: tokens.post.likes } } } },
+    });
+    expect(viaCallback.statement).toBe(viaToken.statement);
+
+    // Both operands sit inside the correlated subquery over posts.
+    const subquery = viaCallback.statement.slice(
+      viaCallback.statement.indexOf("EXISTS")
+    );
+    expect(subquery).toContain(q("views"));
+    expect(subquery).toContain(q("likes"));
+  });
+
+  test("a nested `ctx.fields` cannot reach the enclosing model's columns", () => {
+    // `nickname` is a column of user, the model being filtered at the ROOT.
+    // Inside `posts.some` the scope is post, and post has no such column — the
+    // type level says so first (the `@ts-expect-error` below IS the assertion),
+    // and the runtime says the same thing to an untyped caller.
+    const refusal = refusalOf(() =>
+      build(dialectCase, User, "findMany", {
+        where: {
+          posts: {
+            some: {
+              title: {
+                // @ts-expect-error post has no `nickname` — the nested ctx is post's
+                equals: (ctx: PostCtx) => ctx.fields.nickname,
+              },
+            },
+          },
+        },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+    expect(refusal.issues?.[0]?.message).toContain(
+      `Unknown scalar field "nickname" on model 'post'`
+    );
+  });
+
+  test("the scope pops back out of a nested relation filter", () => {
+    // Root operand AFTER a nested relation filter: if the nested scope leaked,
+    // `nickname` would no longer resolve here.
+    const query = build(dialectCase, User, "findMany", {
+      where: {
+        posts: { some: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } } },
+        name: { equals: (ctx: UserCtx) => ctx.fields.nickname },
+      },
+    });
+    expect(query.statement).toContain(q("nickname"));
+    expect(query.statement).toContain(q("likes"));
+  });
+
+  test("an extended unique where takes a callback in its filter portion", () => {
+    const viaCallback = build(dialectCase, Post, "findUnique", {
+      where: { id: "p1", views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
+    });
+    const viaToken = build(dialectCase, Post, "findUnique", {
+      where: { id: "p1", views: { gt: tokens.post.likes } },
+    });
+    expect(viaCallback.statement).toBe(viaToken.statement);
+    expect(viaCallback.values).toEqual(["p1"]);
+  });
+});
+
+describe("what a callback may return", () => {
+  const dialectCase = dialectCases[0]!;
+
+  test("a plain value is refused, naming the operation and the path", () => {
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, { where: { views: { gt: () => 42 } } })
+    );
+    expect(refusal.name).toBe("ValidationError");
+    const [issue] = refusal.issues ?? [];
+    // The scalar filter is a union (shorthand value | filter object), and a
+    // union reports at the key it was handed — `where.views` — with each arm's
+    // message inside. That is the existing shape for every filter refusal on
+    // this branch (a wrong-typed reference reads the same way).
+    expect(issue?.path).toBe("where.views");
+    expect(issue?.message).toContain("must return a field reference");
+    expect(issue?.message).toContain("'number'");
+  });
+
+  test("an async callback is refused as a promise, not awaited", () => {
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        where: { views: { gt: async (ctx: PostCtx) => ctx.fields.likes } },
+      })
+    );
+    expect(refusal.issues?.[0]?.message).toContain("returned a promise");
+    expect(refusal.issues?.[0]?.message).toContain("cannot be async");
+  });
+
+  test("a throwing callback surfaces as a validation issue at its path", () => {
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        where: {
+          views: {
+            gt: () => {
+              throw new Error("boom");
+            },
+          },
+        },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+    expect(refusal.issues?.[0]?.path).toBe("where.views");
+    expect(refusal.issues?.[0]?.message).toContain(
+      "Filter callback threw: boom"
+    );
+  });
+
+  test("a mistyped `ctx.fields` key throws, naming the field and the model", () => {
+    // THE TYPO PROBE: the `@ts-expect-error` is the primary assertion — a
+    // mistyped field is a compile error through the public surface. The runtime
+    // refusal below is what an untyped caller gets.
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        where: {
+          views: {
+            // @ts-expect-error `likez` is not a scalar of post
+            gt: (ctx: PostCtx) => ctx.fields.likez,
+          },
+        },
+      })
+    );
+    expect(refusal.issues?.[0]?.message).toContain(
+      'Unknown scalar field "likez"'
+    );
+    expect(refusal.issues?.[0]?.message).toContain("likes");
+  });
+
+  test("a reference of the wrong scalar type is refused", () => {
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        where: { title: { equals: (ctx: PostCtx) => ctx.fields.views } },
+      })
+    );
+    expect(refusal.issues?.[0]?.message).toContain(
+      "is of type 'int', but a 'string' operand is required"
+    );
+  });
+
+  test("another model's token, smuggled in, is still refused", () => {
+    // The callback is sugar; the token is the mechanism, so a token captured
+    // from a DIFFERENT model still has to meet the same-model rule.
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        where: { title: { equals: () => tokens.user.name } },
+      })
+    );
+    expect(refusal.name).toBe("QueryEngineError");
+    expect(String((refusal as unknown as Error).message)).toContain(
+      "may only compare columns of the same model"
+    );
+  });
+});
+
+describe("surfaces that stay closed", () => {
+  const dialectCase = dialectCases[0]!;
+
+  test("`in` takes values, not fragments", () => {
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        where: { views: { in: [sql`1`] } },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+  });
+
+  test("a fragment is refused in `having`", () => {
+    const refusal = refusalOf(() =>
+      build(dialectCase, Post, "groupBy", {
+        by: ["authorId"],
+        having: { views: { gt: sql`${1}` } },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+    expect(JSON.stringify(refusal.issues)).toContain(
+      "An SQL fragment is not supported in 'having'"
+    );
+  });
+
+  test("a fragment is refused in `having` at any `not` depth", () => {
+    // The depth-cap bug the W2 review found, re-run for the fragment: a guard
+    // that stops looking would emit the fragment into HAVING, where Postgres
+    // errors and SQLite answers a silently different question.
+    for (const depth of [1, 3, 5, 8]) {
+      const refusal = refusalOf(() =>
+        build(dialectCase, Post, "groupBy", {
+          by: ["authorId"],
+          having: { views: nestNot(depth, { gt: sql`${1}` }) },
+        })
+      );
+      expect(JSON.stringify(refusal.issues)).toContain(
+        "An SQL fragment is not supported in 'having'"
+      );
+    }
+  });
+
+  test("a callback cannot smuggle a fragment into `having` either", () => {
+    const refusal = refusalOf(() =>
+      build(dialectCase, Post, "groupBy", {
+        by: ["authorId"],
+        having: { views: { gt: (ctx: PostCtx) => ctx.sql`${1}` } },
+      })
+    );
+    expect(JSON.stringify(refusal.issues)).toContain(
+      "An SQL fragment is not supported in 'having'"
+    );
+  });
+
+  /**
+   * JSON needs no fragment-specific guard, and deliberately does not get one.
+   *
+   * A real `Sql` is a class instance, and `v.json` already refuses any value
+   * whose prototype is not `Object.prototype`. Adding a STRUCTURAL fragment
+   * check here would be worse than useless: `isSql` recognizes a fragment by
+   * the presence of `strings` and `values` arrays, and a JSON document may
+   * honestly have both — that document must keep working.
+   */
+  test("a fragment is refused in a JSON filter operand, as non-JSON", () => {
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        where: { payload: { equals: sql`'{}'` } },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+    expect(JSON.stringify(refusal.issues)).toContain(
+      "Expected JSON-compatible value"
+    );
+  });
+
+  test("a fragment is refused in JSON write data, as non-JSON", () => {
+    const refusal = refusalOf(() =>
+      build(dialectCase, Post, "updateMany", {
+        where: { id: "p1" },
+        data: { payload: { set: sql`'{}'` } },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+    expect(JSON.stringify(refusal.issues)).toContain(
+      "Expected JSON-compatible value"
+    );
+  });
+
+  test("a JSON document that looks like a fragment still writes", () => {
+    // `{ strings: [...], values: [...] }` is what `isSql` recognizes
+    // structurally — and it is also perfectly ordinary user data.
+    expect(() =>
+      build(dialectCase, Post, "updateMany", {
+        where: { id: "p1" },
+        data: { payload: { set: { strings: ["a"], values: [1] } } },
+      })
+    ).not.toThrow();
+  });
+
+  test("write data takes no callback", () => {
+    const refusal = refusalOf(() =>
+      build(dialectCase, Post, "updateMany", {
+        where: { id: "p1" },
+        data: { views: { set: (ctx: PostCtx) => ctx.fields.likes } },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+  });
+
+  test("a text predicate keeps the token but takes no fragment", () => {
+    // `contains` compiles a referenced column; the fragment surface is drawn at
+    // the comparison operators only.
+    expect(() =>
+      buildPost(dialectCase, {
+        where: { title: { contains: tokens.post.slug } },
+      })
+    ).not.toThrow();
+
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        where: { title: { contains: sql`'x'` } },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+  });
+});

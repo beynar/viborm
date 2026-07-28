@@ -26,7 +26,7 @@ type JsonPathOperand = V.Union<readonly [V.Array<V.String>, V.String]>;
  * object, so it is the only one where a field-reference token type-checks as a
  * legal value: `{ [FIELD_REF_BRAND]: true, model, field, type, list }` is a
  * perfectly ordinary JSON document as far as `v.json` is concerned. Left
- * unguarded, `where: { data: { equals: $fields.thing.other } }` bound the ORM's
+ * unguarded, `where: { data: { equals: <a field reference> } }` bound the ORM's
  * internal token as a parameter and quietly matched nothing, and
  * `create({ data: { data: ref } })` PERSISTED it as user data.
  *

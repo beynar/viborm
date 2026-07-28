@@ -20,32 +20,50 @@ const stringFilterBase = v.object({
   mode: v.enum(["default", "insensitive"]),
 });
 
-/** Comparison operand: a literal, or a field reference to another string column. */
-type StringOperand<S extends V.Schema> = V.FieldRefOr<"string", S>;
+/**
+ * Comparison operand: a literal, a field reference to another string column, an
+ * SQL fragment, or a callback returning one of the latter two.
+ */
+type StringOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"string", S, C>;
 
-type StringFilterBase<S extends V.Schema> = {
-  equals: StringOperand<S>;
-  lt: StringOperand<S>;
-  lte: StringOperand<S>;
-  gt: StringOperand<S>;
-  gte: StringOperand<S>;
+/**
+ * The text-predicate operand: a literal or a field reference, and nothing else.
+ *
+ * `contains` / `startsWith` / `endsWith` compile a referenced column fine (the
+ * builder uses exact substring predicates, never LIKE patterns), so the
+ * reference stays. The fragment — and with it the callback that returns one —
+ * is drawn at the comparison operators only, where the builder's operand
+ * handling is uniform. Acceptance that outran the builder would be
+ * accept-and-ignore with extra steps.
+ */
+type StringTextOperand = V.FieldRefOr<"string", V.String>;
+
+type StringFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: StringOperand<S, C>;
+  lt: StringOperand<S, C>;
+  lte: StringOperand<S, C>;
+  gt: StringOperand<S, C>;
+  gte: StringOperand<S, C>;
   in: V.String<{ array: true }>;
   notIn: V.String<{ array: true }>;
-  contains: StringOperand<V.String>;
-  startsWith: StringOperand<V.String>;
-  endsWith: StringOperand<V.String>;
+  contains: StringTextOperand;
+  startsWith: StringTextOperand;
+  endsWith: StringTextOperand;
   mode: V.Enum<["default", "insensitive"]>;
 };
 
-type StringFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  StringOperand<S>,
-  StringFilterBase<S>
->;
+type StringFilterSchema<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<StringOperand<S, C>, StringFilterBase<S, C>>;
 
-const buildStringFilterSchema = <S extends V.Schema>(
+const buildStringFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
-): StringFilterSchema<S> => {
-  const operand = v.fieldRefOr("string", schema);
+): StringFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("string", schema);
   const filter = stringFilterBase.extend({
     equals: operand,
     lt: operand,
@@ -53,10 +71,10 @@ const buildStringFilterSchema = <S extends V.Schema>(
     gt: operand,
     gte: operand,
   });
-  return buildNegatableFilterSchema<StringOperand<S>, StringFilterBase<S>>(
-    filter,
-    operand
-  );
+  return buildNegatableFilterSchema<
+    StringOperand<S, C>,
+    StringFilterBase<S, C>
+  >(filter, operand);
 };
 
 type StringListFilterBaseSchema<S extends V.Schema> = {
@@ -131,7 +149,10 @@ const buildStringListUpdateSchema = <S extends V.Schema>(
   ]);
 };
 
-export interface StringSchemas<F extends ScalarState<"string">> {
+export interface StringSchemas<
+  F extends ScalarState<"string">,
+  C extends V.Operand<any> = V.Operand<any>,
+> {
   base: F["base"];
   create: V.String<F>;
   update: F["array"] extends true
@@ -139,15 +160,18 @@ export interface StringSchemas<F extends ScalarState<"string">> {
     : StringUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? StringListFilterSchema<F["base"]>
-    : StringFilterSchema<F["base"]>;
+    : StringFilterSchema<F["base"], C>;
 }
 
 const internFilter = createScalarInterner<unknown>();
 const internUpdate = createScalarInterner<unknown>();
 
-export const buildStringSchema = <F extends ScalarState<"string">>(
+export const buildStringSchema = <
+  F extends ScalarState<"string">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): StringSchemas<F> => {
+): StringSchemas<F, C> => {
   const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
@@ -162,5 +186,5 @@ export const buildStringSchema = <F extends ScalarState<"string">>(
         ? buildStringListFilterSchema(state.base)
         : buildStringFilterSchema(state.base)
     ) as never,
-  } as StringSchemas<F>;
+  } as StringSchemas<F, C>;
 };

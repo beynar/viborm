@@ -10,11 +10,21 @@ import {
 // FILTER TYPES
 // =============================================================================
 
-/** Equality operand: a literal, or a field reference to another enum column. */
-type EnumOperand<S extends V.Schema> = V.FieldRefOr<"enum", S>;
+/**
+ * Equality operand: a literal, a field reference to another enum column, an SQL
+ * fragment, or a callback returning one of the latter two.
+ */
+type EnumOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"enum", S, C>;
 
-type EnumFilterBase<S extends V.Schema, Values extends string[]> = {
-  equals: EnumOperand<S>;
+type EnumFilterBase<
+  S extends V.Schema,
+  Values extends string[],
+  C extends V.Operand<any>,
+> = {
+  equals: EnumOperand<S, C>;
   in: V.Enum<Values, { array: true }>;
   notIn: V.Enum<Values, { array: true }>;
   lt: V.Schema<never, never>;
@@ -26,7 +36,8 @@ type EnumFilterBase<S extends V.Schema, Values extends string[]> = {
 type EnumFilterSchema<
   S extends V.Schema,
   Values extends string[],
-> = NegatableFilterSchema<EnumOperand<S>, EnumFilterBase<S, Values>>;
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<EnumOperand<S, C>, EnumFilterBase<S, Values, C>>;
 
 type EnumListFilterBase<S extends V.Schema, Values extends string[]> = {
   equals: S;
@@ -98,12 +109,16 @@ const enumBase = <Values extends string[]>(values: Values) => v.enum(values);
 const enumList = <Values extends string[]>(values: Values) =>
   v.enum(values, { array: true });
 
-const buildEnumFilterSchema = <S extends V.Schema, Values extends string[]>(
+const buildEnumFilterSchema = <
+  S extends V.Schema,
+  Values extends string[],
+  C extends V.Operand<any>,
+>(
   schema: S,
   values: Values
-): EnumFilterSchema<S, Values> => {
+): EnumFilterSchema<S, Values, C> => {
   const list = enumList(values);
-  const operand = v.fieldRefOr("enum", schema);
+  const operand = v.comparisonOperand("enum", schema);
   const filter = v.object({
     equals: operand,
     in: list,
@@ -113,10 +128,10 @@ const buildEnumFilterSchema = <S extends V.Schema, Values extends string[]>(
     gt: orderedEnumRefusal("gt"),
     gte: orderedEnumRefusal("gte"),
   });
-  return buildNegatableFilterSchema<EnumOperand<S>, EnumFilterBase<S, Values>>(
-    filter,
-    operand
-  );
+  return buildNegatableFilterSchema<
+    EnumOperand<S, C>,
+    EnumFilterBase<S, Values, C>
+  >(filter, operand);
 };
 
 const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
@@ -177,6 +192,7 @@ const buildEnumListUpdateSchema = <S extends V.Schema, Values extends string[]>(
 export interface EnumSchemas<
   Values extends string[],
   F extends ScalarState<"enum">,
+  C extends V.Operand<any> = V.Operand<any>,
 > {
   base: F["base"];
   create: V.Enum<Values, F>;
@@ -185,12 +201,15 @@ export interface EnumSchemas<
     : EnumUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? EnumListFilterSchema<F["base"], Values>
-    : EnumFilterSchema<F["base"], Values>;
+    : EnumFilterSchema<F["base"], Values, C>;
 }
 
-export const buildEnumSchema = <F extends ScalarState<"enum">>(
+export const buildEnumSchema = <
+  F extends ScalarState<"enum">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): EnumSchemas<EnumValues<F["base"]>, F> => {
+): EnumSchemas<EnumValues<F["base"]>, F, C> => {
   const values = (state.base as EnumSchema<EnumValues<F["base"]>>).values;
   return {
     base: state.base as F["base"],
@@ -201,5 +220,5 @@ export const buildEnumSchema = <F extends ScalarState<"enum">>(
     filter: state.array
       ? buildEnumListFilterSchema(state.base, values)
       : buildEnumFilterSchema(state.base, values),
-  } as EnumSchemas<EnumValues<F["base"]>, F>;
+  } as EnumSchemas<EnumValues<F["base"]>, F, C>;
 };

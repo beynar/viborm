@@ -412,9 +412,11 @@ function convertSchemaBody(
       return convertSchema(wrapped as any, context);
     }
 
-    case "field_ref_or": {
-      // A field reference is an in-process token with no JSON representation:
-      // only the literal operand it wraps can cross a JSON boundary.
+    case "field_ref_or":
+    case "comparison_operand": {
+      // A field reference, an SQL fragment, and the callback that returns one
+      // are in-process values with no JSON representation: only the literal
+      // operand they stand beside can cross a JSON boundary.
       const operand = (schema as any).wrapped as VibSchema<unknown, unknown>;
       return convertSchema(operand as any, context);
     }

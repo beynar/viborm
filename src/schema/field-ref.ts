@@ -5,9 +5,14 @@
  * instead of a bound parameter in a filter operand position:
  *
  * ```ts
- * client.post.findMany({ where: { views: { gt: client.$fields.post.likes } } });
+ * client.post.findMany({ where: { views: { gt: (ctx) => ctx.fields.likes } } });
  * // -> ... WHERE "t0"."views" > "t0"."likes"
  * ```
+ *
+ * The token is the MECHANISM; the callback is the surface that hands one out —
+ * `ctx.fields` is this file's per-model table, built for the model whose filter
+ * the operand sits in (see `validation/primitives/operand.ts`). A token held
+ * directly is just as valid: it is what the callback returns.
  *
  * The token carries only what both the validation layer and the SQL builders
  * need — the owning model's schema key, the field's schema key, and the field's
@@ -17,7 +22,7 @@
  * Two rules govern it, and each is enforced where it is actually decidable:
  *
  *  - TYPE. A reference's scalar type must match the filter operand's scalar
- *    type. Decided by the validation layer ({@link file://../validation/primitives/field-ref.ts}),
+ *    type. Decided by the validation layer ({@link file://../validation/primitives/operand.ts}),
  *    which knows the operand's type and nothing about models — scalar filter
  *    schemas are interned across models by design (see `validation/scalars/intern.ts`).
  *
@@ -98,7 +103,7 @@ function createFieldRef(
 }
 
 // =============================================================================
-// TYPE-LEVEL PROJECTION: schema -> `$fields`
+// TYPE-LEVEL PROJECTION: model -> its reference table
 // =============================================================================
 
 type ScalarsOf<M> = M extends { "~": { state: { scalars: infer S } } }
@@ -111,7 +116,11 @@ type ScalarTypeOf<S> = S extends {
   ? T
   : ScalarType;
 
-/** The `$fields.<model>` object: one reference per scalar field. */
+/**
+ * One model's reference table — the type of `ctx.fields` inside an operand
+ * callback: one reference per scalar field, and nothing else on it, so a
+ * mistyped field name is a compile error before it is a runtime one.
+ */
 export type ModelFieldRefs<TModelName extends string, M> = {
   readonly [K in keyof ScalarsOf<M> & string]: FieldRef<
     TModelName,
@@ -119,32 +128,33 @@ export type ModelFieldRefs<TModelName extends string, M> = {
   >;
 };
 
-/** The whole `client.$fields` surface. */
-export type SchemaFieldRefs<S> = {
-  readonly [M in keyof S & string]: ModelFieldRefs<M, S[M]>;
-};
-
 // =============================================================================
 // RUNTIME PROJECTION
 // =============================================================================
 
-const UNKNOWN_MODEL = (schema: Record<string, unknown>, key: string) =>
-  new Error(
-    `Unknown model "${key}" in $fields. Known models: ${Object.keys(schema).join(", ")}.`
-  );
-
 const UNKNOWN_FIELD = (modelName: string, key: string, known: string[]) =>
   new Error(
-    `Unknown scalar field "${key}" on $fields.${modelName}. Known fields: ${known.join(", ")}.`
+    `Unknown scalar field "${key}" on model '${modelName}'. Known fields: ${known.join(", ")}.`
   );
 
-function createModelFieldRefs(
-  modelName: string,
-  model: Model<any>
-): Record<string, AnyFieldRef> {
+/**
+ * The reference table for ONE model: `{ likes, views, … }`, each entry built on
+ * first read and memoized.
+ *
+ * This is what an operand callback receives as `ctx.fields`, built once per
+ * model and cached there — a query that never compares columns never builds
+ * one, and a model's table costs a single object until a field is read. The
+ * model name is passed in because the token carries the model's SCHEMA KEY,
+ * which is what the where-builder compares the query scope against (hydration
+ * sets `names.ts` to that key — see `hydration.ts`).
+ */
+export function createModelFieldRefs<
+  TName extends string,
+  M extends Model<any>,
+>(modelName: TName, model: M): ModelFieldRefs<TName, M> {
   const cache = new Map<string, AnyFieldRef>();
   const scalars = model["~"].state.scalars;
-  return new Proxy(Object.create(null) as Record<string, AnyFieldRef>, {
+  const table = new Proxy(Object.create(null) as Record<string, AnyFieldRef>, {
     get(_target, key) {
       if (typeof key !== "string") return undefined;
       const cached = cache.get(key);
@@ -166,38 +176,8 @@ function createModelFieldRefs(
       configurable: true,
     }),
   });
-}
-
-/**
- * Build the lazy `$fields` surface for a schema.
- *
- * Nothing is walked here: the returned proxy materializes a model's reference
- * table on first access and a single reference on first read, so a client that
- * never touches `$fields` pays exactly one object allocation for it.
- */
-export function createSchemaFieldRefs<S extends Record<string, Model<any>>>(
-  schema: S
-): SchemaFieldRefs<S> {
-  const cache = new Map<string, Record<string, AnyFieldRef>>();
-  return new Proxy(Object.create(null) as SchemaFieldRefs<S>, {
-    get(_target, key) {
-      if (typeof key !== "string") return undefined;
-      const cached = cache.get(key);
-      if (cached) return cached;
-      const model = Object.hasOwn(schema, key) ? schema[key] : undefined;
-      if (!model) {
-        throw UNKNOWN_MODEL(schema, key);
-      }
-      const refs = createModelFieldRefs(key, model);
-      cache.set(key, refs);
-      return refs;
-    },
-    has: (_target, key) =>
-      typeof key === "string" && Object.hasOwn(schema, key),
-    ownKeys: () => Object.keys(schema),
-    getOwnPropertyDescriptor: () => ({
-      enumerable: true,
-      configurable: true,
-    }),
-  }) as SchemaFieldRefs<S>;
+  // The one projection this file owes its callers: the proxy answers exactly
+  // the model's scalar keys (`has`/`ownKeys` above enforce it, and any other key
+  // throws), which is what `ModelFieldRefs` describes and no proxy signature can.
+  return table as ModelFieldRefs<TName, M>;
 }

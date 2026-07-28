@@ -17,23 +17,29 @@ const bigIntList = v.bigint({ array: true });
 // FILTER TYPES
 // =============================================================================
 
-/** Comparison operand: a literal, or a field reference to another bigint column. */
-type BigIntOperand<S extends V.Schema> = V.FieldRefOr<"bigint", S>;
+/**
+ * Comparison operand: a literal, a field reference to another bigint column, an
+ * SQL fragment, or a callback returning one of the latter two.
+ */
+type BigIntOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"bigint", S, C>;
 
-type BigIntFilterBase<S extends V.Schema> = {
-  equals: BigIntOperand<S>;
+type BigIntFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: BigIntOperand<S, C>;
   in: V.BigInt<{ array: true }>;
   notIn: V.BigInt<{ array: true }>;
-  lt: BigIntOperand<V.BigInt>;
-  lte: BigIntOperand<V.BigInt>;
-  gt: BigIntOperand<V.BigInt>;
-  gte: BigIntOperand<V.BigInt>;
+  lt: BigIntOperand<V.BigInt, C>;
+  lte: BigIntOperand<V.BigInt, C>;
+  gt: BigIntOperand<V.BigInt, C>;
+  gte: BigIntOperand<V.BigInt, C>;
 };
 
-type BigIntFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  BigIntOperand<S>,
-  BigIntFilterBase<S>
->;
+type BigIntFilterSchema<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<BigIntOperand<S, C>, BigIntFilterBase<S, C>>;
 
 type BigIntListFilterBase<S extends V.Schema> = {
   equals: S;
@@ -87,23 +93,23 @@ type BigIntListUpdateSchema<S extends V.Schema> = V.Union<
 const bigIntFilterBase = v.object({
   in: bigIntList,
   notIn: bigIntList,
-  lt: v.fieldRefOr("bigint", bigIntBase),
-  lte: v.fieldRefOr("bigint", bigIntBase),
-  gt: v.fieldRefOr("bigint", bigIntBase),
-  gte: v.fieldRefOr("bigint", bigIntBase),
+  lt: v.comparisonOperand("bigint", bigIntBase),
+  lte: v.comparisonOperand("bigint", bigIntBase),
+  gt: v.comparisonOperand("bigint", bigIntBase),
+  gte: v.comparisonOperand("bigint", bigIntBase),
 });
 
-const buildBigIntFilterSchema = <S extends V.Schema>(
+const buildBigIntFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
-): BigIntFilterSchema<S> => {
-  const operand = v.fieldRefOr("bigint", schema);
+): BigIntFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("bigint", schema);
   const filter = bigIntFilterBase.extend({
     equals: operand,
   });
-  return buildNegatableFilterSchema<BigIntOperand<S>, BigIntFilterBase<S>>(
-    filter,
-    operand
-  );
+  return buildNegatableFilterSchema<
+    BigIntOperand<S, C>,
+    BigIntFilterBase<S, C>
+  >(filter, operand);
 };
 
 const bigIntListFilterBase = v.object({
@@ -156,7 +162,10 @@ const buildBigIntListUpdateSchema = <S extends V.Schema>(
 // BIGINT SCHEMA BUILDER
 // =============================================================================
 
-export interface BigIntSchemas<F extends ScalarState<"bigint">> {
+export interface BigIntSchemas<
+  F extends ScalarState<"bigint">,
+  C extends V.Operand<any> = V.Operand<any>,
+> {
   base: F["base"];
   create: V.BigInt<F>;
   update: F["array"] extends true
@@ -164,15 +173,18 @@ export interface BigIntSchemas<F extends ScalarState<"bigint">> {
     : BigIntUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? BigIntListFilterSchema<F["base"]>
-    : BigIntFilterSchema<F["base"]>;
+    : BigIntFilterSchema<F["base"], C>;
 }
 
 const internFilter = createScalarInterner<unknown>();
 const internUpdate = createScalarInterner<unknown>();
 
-export const buildBigIntSchema = <F extends ScalarState<"bigint">>(
+export const buildBigIntSchema = <
+  F extends ScalarState<"bigint">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): BigIntSchemas<F> => {
+): BigIntSchemas<F, C> => {
   const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
@@ -187,5 +199,5 @@ export const buildBigIntSchema = <F extends ScalarState<"bigint">>(
         ? buildBigIntListFilterSchema(state.base)
         : buildBigIntFilterSchema(state.base)
     ) as never,
-  } as BigIntSchemas<F>;
+  } as BigIntSchemas<F, C>;
 };

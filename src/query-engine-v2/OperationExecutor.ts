@@ -61,6 +61,19 @@ export interface ExecutableOperation {
    * operation carries this semantics; the executor only invokes the hook.
    */
   assertBatchPreparable?(): void;
+  /**
+   * The payload this operation VALIDATED, as the schema layer left it: shorthands
+   * expanded, defaults applied, and operand callbacks already resolved to the
+   * field reference or SQL fragment they returned.
+   *
+   * The cache flow keys on this and never on the caller's raw payload — a
+   * payload carrying a callback has no stable serialization until validation has
+   * run it, and two spellings of the same comparison must land on one key.
+   * Present on the read families, which are the only cacheable operations
+   * ({@link file://../query-engine/cache-flow.ts}); a caller that asks any other
+   * operation for it gets a loud refusal rather than a raw-payload fallback.
+   */
+  readonly validatedArgs?: Record<string, unknown>;
 }
 
 interface BatchEntry {

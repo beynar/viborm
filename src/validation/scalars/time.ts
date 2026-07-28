@@ -17,23 +17,29 @@ const timeList = v.isoTime({ array: true });
 // FILTER TYPES
 // =============================================================================
 
-/** Comparison operand: a literal, or a field reference to another time column. */
-type TimeOperand<S extends V.Schema> = V.FieldRefOr<"time", S>;
+/**
+ * Comparison operand: a literal, a field reference to another time column, an
+ * SQL fragment, or a callback returning one of the latter two.
+ */
+type TimeOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"time", S, C>;
 
-type TimeFilterBase<S extends V.Schema> = {
-  equals: TimeOperand<S>;
+type TimeFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: TimeOperand<S, C>;
   in: V.IsoTime<{ array: true }>;
   notIn: V.IsoTime<{ array: true }>;
-  lt: TimeOperand<V.IsoTime>;
-  lte: TimeOperand<V.IsoTime>;
-  gt: TimeOperand<V.IsoTime>;
-  gte: TimeOperand<V.IsoTime>;
+  lt: TimeOperand<V.IsoTime, C>;
+  lte: TimeOperand<V.IsoTime, C>;
+  gt: TimeOperand<V.IsoTime, C>;
+  gte: TimeOperand<V.IsoTime, C>;
 };
 
-type TimeFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  TimeOperand<S>,
-  TimeFilterBase<S>
->;
+type TimeFilterSchema<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<TimeOperand<S, C>, TimeFilterBase<S, C>>;
 
 type TimeListFilterBase<S extends V.Schema> = {
   equals: S;
@@ -78,20 +84,20 @@ type TimeListUpdateSchema<S extends V.Schema> = V.Union<
 const timeFilterBase = v.object({
   in: timeList,
   notIn: timeList,
-  lt: v.fieldRefOr("time", timeBase),
-  lte: v.fieldRefOr("time", timeBase),
-  gt: v.fieldRefOr("time", timeBase),
-  gte: v.fieldRefOr("time", timeBase),
+  lt: v.comparisonOperand("time", timeBase),
+  lte: v.comparisonOperand("time", timeBase),
+  gt: v.comparisonOperand("time", timeBase),
+  gte: v.comparisonOperand("time", timeBase),
 });
 
-const buildTimeFilterSchema = <S extends V.Schema>(
+const buildTimeFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
-): TimeFilterSchema<S> => {
-  const operand = v.fieldRefOr("time", schema);
+): TimeFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("time", schema);
   const filter = timeFilterBase.extend({
     equals: operand,
   });
-  return buildNegatableFilterSchema<TimeOperand<S>, TimeFilterBase<S>>(
+  return buildNegatableFilterSchema<TimeOperand<S, C>, TimeFilterBase<S, C>>(
     filter,
     operand
   );
@@ -138,7 +144,10 @@ const buildTimeListUpdateSchema = <S extends V.Schema>(
     }),
   ]);
 
-export interface TimeSchemas<F extends ScalarState<"time">> {
+export interface TimeSchemas<
+  F extends ScalarState<"time">,
+  C extends V.Operand<any> = V.Operand<any>,
+> {
   base: F["base"];
   create: V.IsoTime<F>;
   update: F["array"] extends true
@@ -146,15 +155,18 @@ export interface TimeSchemas<F extends ScalarState<"time">> {
     : TimeUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? TimeListFilterSchema<F["base"]>
-    : TimeFilterSchema<F["base"]>;
+    : TimeFilterSchema<F["base"], C>;
 }
 
 const internFilter = createScalarInterner<unknown>();
 const internUpdate = createScalarInterner<unknown>();
 
-export const buildTimeSchema = <F extends ScalarState<"time">>(
+export const buildTimeSchema = <
+  F extends ScalarState<"time">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): TimeSchemas<F> => {
+): TimeSchemas<F, C> => {
   const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
@@ -169,5 +181,5 @@ export const buildTimeSchema = <F extends ScalarState<"time">>(
         ? buildTimeListFilterSchema(state.base)
         : buildTimeFilterSchema(state.base)
     ) as never,
-  } as TimeSchemas<F>;
+  } as TimeSchemas<F, C>;
 };

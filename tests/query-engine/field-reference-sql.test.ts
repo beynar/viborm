@@ -7,10 +7,11 @@ import { type Dialect, Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import {
-  createSchemaFieldRefs,
+  createModelFieldRefs,
   FIELD_REF_BRAND,
   type FieldRef,
   isFieldRef,
+  type ModelFieldRefs,
 } from "@schema/field-ref";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -18,7 +19,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 /**
  * Field references (Prisma `FieldRef` parity) — the parts a live database
  * cannot show: the emitted SQL shape, the surfaces that stay closed, and the
- * laziness of the `$fields` surface.
+ * laziness of a model's reference table.
  *
  * Behavior against real databases lives in
  * {@link file://../drivers/field-reference-behavior.ts} (all three local dialects).
@@ -104,12 +105,19 @@ const JSON_FILTER_REFUSAL =
   /Field reference 'Post\.meta2' is not supported in a JSON filter operand/;
 const JSON_DATA_REFUSAL =
   /Field reference 'Post\.meta2' is not supported in JSON write data/;
-const UNKNOWN_MODEL_REFUSAL = /Unknown model "Nope"/;
 const UNKNOWN_FIELD_REFUSAL = /Unknown scalar field "nope"/;
 
 beforeAll(() => hydrateSchemaNames(schema));
 
-const fields = () => createSchemaFieldRefs(schema);
+/**
+ * The direct token form. `ctx.fields` inside an operand callback hands out
+ * these very objects (see `operand-callback-sql.test.ts`); this file exercises
+ * the token itself, which is what the callback resolves to.
+ */
+const refs = {
+  Post: createModelFieldRefs("Post", Post),
+  User: createModelFieldRefs("User", User),
+};
 
 type Refusal = { name?: string; issues?: { path?: string }[] };
 
@@ -207,7 +215,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
 
   test("a reference becomes a qualified column, not a bound parameter", () => {
     const query = buildPostQuery(dialectCase, {
-      where: { views: { gt: fields().Post.likes } },
+      where: { views: { gt: refs.Post.likes } },
     });
 
     // The referenced column is emitted under the SAME alias as the filtered
@@ -226,7 +234,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
 
   test("the reference resolves through .map(), not the field key", () => {
     const query = buildPostQuery(dialectCase, {
-      where: { views: { equals: fields().Post.likes } },
+      where: { views: { equals: refs.Post.likes } },
     });
     // Only the predicate matters: the SELECT list legitimately aliases the
     // mapped column back to the field key (`"like_count" AS "likes"`).
@@ -237,7 +245,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
 
   test("a literal beside a reference is still bound", () => {
     const query = buildPostQuery(dialectCase, {
-      where: { views: { gt: fields().Post.likes, lt: 500 } },
+      where: { views: { gt: refs.Post.likes, lt: 500 } },
     });
     expect(query.values).toEqual([500]);
     expect(query.statement).toContain(q("like_count"));
@@ -245,7 +253,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
 
   test("a nested relation where resolves the reference on the relation's alias", () => {
     const query = createEngine(dialectCase).build(User, "findMany", {
-      where: { posts: { some: { views: { gt: fields().Post.likes } } } },
+      where: { posts: { some: { views: { gt: refs.Post.likes } } } },
     });
     const statement = query.toStatement("$n");
     // Both operands sit inside the correlated subquery over posts.
@@ -282,14 +290,14 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
 
     test("default mode compares both sides under the case-sensitive collation", () => {
       expect(
-        predicateOf({ where: { title: { equals: fields().Post.slug } } })
+        predicateOf({ where: { title: { equals: refs.Post.slug } } })
       ).toBe(`${exact(titleCol())} = ${exact(slugCol())}`);
     });
 
     test("insensitive mode folds AND collates both sides", () => {
       expect(
         predicateOf({
-          where: { title: { equals: fields().Post.slug, mode: "insensitive" } },
+          where: { title: { equals: refs.Post.slug, mode: "insensitive" } },
         })
       ).toBe(`${folded(titleCol())} = ${folded(slugCol())}`);
     });
@@ -297,7 +305,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
     test("insensitive `not` negates the folded comparison", () => {
       expect(
         predicateOf({
-          where: { title: { not: fields().Post.slug, mode: "insensitive" } },
+          where: { title: { not: refs.Post.slug, mode: "insensitive" } },
         })
       ).toBe(`NOT (${folded(titleCol())} = ${folded(slugCol())})`);
     });
@@ -309,7 +317,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
     ])("insensitive %s carries the fold onto the referenced operand", (operator) => {
       const predicate = predicateOf({
         where: {
-          title: { [operator]: fields().Post.slug, mode: "insensitive" },
+          title: { [operator]: refs.Post.slug, mode: "insensitive" },
         },
       });
       // The substring/prefix/suffix templates differ per dialect, so assert
@@ -322,7 +330,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
       // The complement of the case above: in default mode neither side is
       // folded, so a fold appearing here would mean `mode` had leaked.
       const predicate = predicateOf({
-        where: { title: { contains: fields().Post.slug } },
+        where: { title: { contains: refs.Post.slug } },
       });
       expect(predicate).toContain(titleCol());
       expect(predicate).toContain(slugCol());
@@ -368,14 +376,14 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
     test("equals against a reference casts both sides to text", () => {
       expect(
         predicateOf({
-          where: { status: { equals: fields().Post.reviewStatus } },
+          where: { status: { equals: refs.Post.reviewStatus } },
         })
       ).toBe(`${statusText()} = ${reviewText()}`);
     });
 
     test("not against a reference negates the same comparison", () => {
       expect(
-        predicateOf({ where: { status: { not: fields().Post.reviewStatus } } })
+        predicateOf({ where: { status: { not: refs.Post.reviewStatus } } })
       ).toBe(`NOT (${statusText()} = ${reviewText()})`);
     });
 
@@ -393,7 +401,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
   test("a cross-model reference is refused at build time", () => {
     expect(() =>
       buildPostQuery(dialectCase, {
-        where: { title: { equals: fields().User.name } },
+        where: { title: { equals: refs.User.name } },
       })
     ).toThrow(CROSS_MODEL_REFUSAL);
   });
@@ -401,7 +409,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
   test("a reference to a scalar of another type is refused by validation", () => {
     expect(() =>
       buildPostQuery(dialectCase, {
-        where: { title: { equals: fields().Post.views } },
+        where: { title: { equals: refs.Post.views } },
       })
     ).toThrow(WRONG_TYPE_REFUSAL);
   });
@@ -409,7 +417,7 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
   test("a list-scalar reference is refused", () => {
     expect(() =>
       buildPostQuery(dialectCase, {
-        where: { title: { equals: fields().Post.tags } },
+        where: { title: { equals: refs.Post.tags } },
       })
     ).toThrow(LIST_REFUSAL);
   });
@@ -422,7 +430,7 @@ describe("surfaces that stay closed to field references", () => {
     expect(() =>
       engine().build(Post, "groupBy", {
         by: ["views"],
-        having: { views: { gt: fields().Post.likes } },
+        having: { views: { gt: refs.Post.likes } },
       })
     ).toThrow(HAVING_REFUSAL);
   });
@@ -443,7 +451,7 @@ describe("surfaces that stay closed to field references", () => {
     expect(() =>
       engine().build(Post, "groupBy", {
         by: ["views"],
-        having: { views: nestNot(depth, { gt: fields().Post.likes }) },
+        having: { views: nestNot(depth, { gt: refs.Post.likes }) },
       })
     ).toThrow(HAVING_REFUSAL);
   });
@@ -457,7 +465,7 @@ describe("surfaces that stay closed to field references", () => {
       engine().build(Post, "groupBy", {
         by: ["views"],
         having: {
-          [combinator]: [{ views: nestNot(6, { gt: fields().Post.likes }) }],
+          [combinator]: [{ views: nestNot(6, { gt: refs.Post.likes }) }],
         },
       })
     ).toThrow(HAVING_REFUSAL);
@@ -470,7 +478,7 @@ describe("surfaces that stay closed to field references", () => {
    */
   test("the same deep chain is still legal in `where`", () => {
     const query = engine().build(Post, "findMany", {
-      where: { views: nestNot(6, { gt: fields().Post.likes }) },
+      where: { views: nestNot(6, { gt: refs.Post.likes }) },
     });
     const statement = query.toStatement("$n");
     expect(statement).toContain('"like_count"');
@@ -504,7 +512,7 @@ describe("surfaces that stay closed to field references", () => {
   test("a reference is refused in set-membership operands", () => {
     expect(() =>
       engine().build(Post, "findMany", {
-        where: { views: { in: [fields().Post.likes] } },
+        where: { views: { in: [refs.Post.likes] } },
       })
     ).toThrow();
   });
@@ -512,7 +520,7 @@ describe("surfaces that stay closed to field references", () => {
   test("a reference is refused in whereUnique", () => {
     expect(() =>
       engine().build(Post, "findUnique", {
-        where: { id: fields().Post.title },
+        where: { id: refs.Post.title },
       })
     ).toThrow();
   });
@@ -548,7 +556,7 @@ describe("surfaces that stay closed to field references", () => {
     // Otherwise valid: with a literal in that one slot, the payload compiles.
     expect(() => create(1)).not.toThrow();
 
-    const refusal = refusalOf(() => create(fields().Post.likes));
+    const refusal = refusalOf(() => create(refs.Post.likes));
     expect(refusal.name).toBe("ValidationError");
     // …and the refusal is reported against the slot holding the reference.
     expect(refusal.issues?.[0]?.path).toBe("data.views");
@@ -558,7 +566,7 @@ describe("surfaces that stay closed to field references", () => {
     expect(() =>
       engine().build(Post, "update", {
         where: { id: "p1" },
-        data: { views: { set: fields().Post.likes } },
+        data: { views: { set: refs.Post.likes } },
       })
     ).toThrow();
   });
@@ -566,7 +574,7 @@ describe("surfaces that stay closed to field references", () => {
   test("a reference is refused in orderBy", () => {
     expect(() =>
       engine().build(Post, "findMany", {
-        orderBy: { views: fields().Post.likes },
+        orderBy: { views: refs.Post.likes },
       })
     ).toThrow();
   });
@@ -588,7 +596,7 @@ describe("surfaces that stay closed to field references", () => {
  */
 describe("JSON operands stay closed to field references", () => {
   const engine = () => createEngine(dialectCases[0] as DialectCase);
-  const ref = () => fields().Post.meta2 as never;
+  const ref = () => refs.Post.meta2 as never;
 
   test.each([
     ["equals", () => ({ meta: { equals: ref() } })],
@@ -683,11 +691,11 @@ describe("JSON operands stay closed to field references", () => {
   });
 });
 
-describe("the $fields surface", () => {
+describe("a model's reference table", () => {
   test("is branded, frozen, and identity-stable per field", () => {
-    const refs = createSchemaFieldRefs(schema);
-    const first = refs.Post.likes;
-    const second = refs.Post.likes;
+    const refs = createModelFieldRefs("Post", Post);
+    const first = refs.likes;
+    const second = refs.likes;
 
     expect(isFieldRef(first)).toBe(true);
     expect(first).toBe(second);
@@ -703,52 +711,35 @@ describe("the $fields surface", () => {
     );
   });
 
-  test("names an unknown model or field loudly", () => {
-    const refs = createSchemaFieldRefs(schema);
-    expect(() => (refs as Record<string, unknown>).Nope).toThrow(
-      UNKNOWN_MODEL_REFUSAL
-    );
-    expect(
-      () => (refs.Post as unknown as Record<string, unknown>).nope
-    ).toThrow(UNKNOWN_FIELD_REFUSAL);
+  test("names an unknown field loudly", () => {
+    // Typed callers cannot reach this — a mistyped key is a compile error (the
+    // probe is in `operand-callback-sql.test.ts`); an untyped one gets named.
+    const table = createModelFieldRefs("Post", Post) as unknown as Record<
+      string,
+      unknown
+    >;
+    expect(() => table.nope).toThrow(UNKNOWN_FIELD_REFUSAL);
   });
 
   test("walks nothing until a field is actually read", () => {
-    // A getter on the schema record would fire during any eager walk of the
-    // models; a getter on the model's scalars would fire during any eager walk
-    // of its fields. Neither may fire just from building the surface.
-    let modelReads = 0;
-    const probeSchema = {} as { Post: typeof Post };
-    Object.defineProperty(probeSchema, "Post", {
-      enumerable: true,
-      get() {
-        modelReads++;
-        return Post;
+    // A getter on the model's scalars would fire during any eager walk of its
+    // fields. Building the table may not fire it.
+    let scalarReads = 0;
+    const probeModel = {
+      "~": {
+        names: Post["~"].names,
+        get state() {
+          scalarReads++;
+          return Post["~"].state;
+        },
       },
-    });
+    } as unknown as typeof Post;
 
-    const refs = createSchemaFieldRefs(probeSchema);
-    expect(modelReads).toBe(0);
-
-    const postRefs = refs.Post;
-    expect(modelReads).toBe(1);
-
-    // Second touch of the same model reuses the memoized table.
-    expect(refs.Post).toBe(postRefs);
-    expect(modelReads).toBe(1);
-
-    expect(postRefs.likes.field).toBe("likes");
-  });
-
-  test("client construction does not build the surface", () => {
-    const client = createClient({
-      schema,
-      driver: new MockDriver(new PostgresAdapter(), "postgresql"),
-    });
-    // Accessing it twice returns the same memoized proxy — proof it is built
-    // on demand and then cached, not rebuilt per access.
-    expect(client.$fields).toBe(client.$fields);
-    expect(client.$fields.Post.likes.model).toBe("Post");
+    const refs = createModelFieldRefs("Post", probeModel);
+    // One read of `state` to reach the scalars record, and nothing per field.
+    expect(scalarReads).toBe(1);
+    expect(refs.likes.field).toBe("likes");
+    expect(scalarReads).toBe(1);
   });
 });
 
@@ -761,17 +752,18 @@ describe("field-reference typing", () => {
 
   test("an Int reference is not assignable to a String filter operand", () => {
     const client = typedClient();
+    const refs = createModelFieldRefs("Post", Post);
 
     // Same-type operand: accepted.
     const ok = client.Post.findMany({
-      where: { views: { gt: client.$fields.Post.likes } },
+      where: { views: { gt: refs.likes } },
     });
 
     const bad = client.Post.findMany({
       where: {
         title: {
           // @ts-expect-error an int reference cannot stand in for a string operand
-          equals: client.$fields.Post.views,
+          equals: refs.views as FieldRef<"Post", "int">,
         },
       },
     });
@@ -780,23 +772,28 @@ describe("field-reference typing", () => {
     expect(bad).toBeDefined();
   });
 
-  test("$fields exposes scalar fields only, typed per model", () => {
-    const refs = createSchemaFieldRefs(schema);
-    const likes: FieldRef<"Post", "int"> = refs.Post.likes;
-    const name: FieldRef<"User", "string"> = refs.User.name;
+  test("a model's reference table exposes scalar fields only, typed per model", () => {
+    type PostRefs = ModelFieldRefs<"Post", typeof Post>;
+    type UserRefs = ModelFieldRefs<"User", typeof User>;
 
-    // Relations are absent from the surface — asserted at the type level so no
+    const likes: PostRefs["likes"] = createModelFieldRefs("Post", Post)
+      .likes as FieldRef<"Post", "int">;
+    const name: UserRefs["name"] = createModelFieldRefs("User", User)
+      .name as FieldRef<"User", "string">;
+
+    // Relations are absent from the table — asserted at the type level so no
     // runtime access is needed (reading one throws).
-    const relationIsAbsent: "author" extends keyof typeof refs.Post
+    const relationIsAbsent: "author" extends keyof PostRefs ? false : true =
+      true;
+
+    // The owning model is part of the reference's type.
+    const misattributed: FieldRef<"User", "int"> extends PostRefs["likes"]
       ? false
       : true = true;
-
-    // @ts-expect-error the owning model is part of the reference's type
-    const misattributed: FieldRef<"User", "int"> = refs.Post.likes;
 
     expect(likes.model).toBe("Post");
     expect(name.model).toBe("User");
     expect(relationIsAbsent).toBe(true);
-    expect(misattributed.model).toBe("Post");
+    expect(misattributed).toBe(true);
   });
 });

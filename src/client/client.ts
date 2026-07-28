@@ -49,7 +49,6 @@ import {
 } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { PreparedBatchGuard } from "@query-engine/types";
-import { createSchemaFieldRefs, type SchemaFieldRefs } from "@schema/field-ref";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
 import {
@@ -229,20 +228,6 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
       $driver: AnyDriver;
       /** Access the schema (models) */
       $schema: C["schema"];
-      /**
-       * Field references — compare two columns of the SAME row in a filter.
-       *
-       * @example
-       * ```ts
-       * // posts whose view count exceeds their like count
-       * await client.post.findMany({
-       *   where: { views: { gt: client.$fields.post.likes } },
-       * });
-       * ```
-       *
-       * Built lazily: nothing is walked until a model (and then a field) is read.
-       */
-      $fields: SchemaFieldRefs<C["schema"]>;
       /**
        * Run operations in a transaction or batch
        *
@@ -473,8 +458,6 @@ export class VibORM<C extends VibORMConfig> {
         return Promise.reject(error);
       }
 
-      // Preparing remains lazy: it captures one immutable execution context
-      // now, while validation, SQL building, and execution still wait for a miss.
       const cacheableArgs = (args ?? {}) as Record<string, unknown>;
       const omitArgs = this.clientOmit
         ? applyClientOmit(model, operation, cacheableArgs, this.clientOmit)
@@ -488,15 +471,26 @@ export class VibORM<C extends VibORMConfig> {
           skipSpan: true, // Cache driver provides its own SPAN_OPERATION
         }
       );
+      // The cache key is derived from the payload that will actually RUN, not
+      // the one the caller wrote: with a client-level `omit`, identical call
+      // sites on two differently-configured clients project different columns,
+      // and keying on the caller's args would let one serve the other's rows.
+      // For the same reason keying waits for VALIDATION — an operand callback is
+      // a function until validation resolves it, and a function has no stable
+      // serialization (see `PendingOperation.cacheKeyArgs`). A payload that does
+      // not validate is refused here, asynchronously, exactly as it would be on
+      // a miss.
+      let keyArgs: Record<string, unknown>;
+      try {
+        keyArgs = pendingOperation.cacheKeyArgs();
+      } catch (error) {
+        return Promise.reject(error);
+      }
       return executeCachedOperation(
         this.cache!,
         modelNameStr,
         operation,
-        // The cache key is derived from the payload that will actually RUN, not
-        // the one the caller wrote: with a client-level `omit`, identical call
-        // sites on two differently-configured clients project different columns,
-        // and keying on the caller's args would let one serve the other's rows.
-        omitArgs,
+        keyArgs,
         () => pendingOperation.execute(),
         {
           ...options,
@@ -530,10 +524,7 @@ export class VibORM<C extends VibORMConfig> {
 
     const client = orm.createClient();
 
-    // Field references are built on first `$fields` access, then reused: a
-    // client that never compares columns pays nothing for the surface.
-    let fieldRefs: SchemaFieldRefs<C["schema"]> | undefined;
-    // Same for the raw surface: built on first `$queryRaw`-family access.
+    // The raw surface is built on first `$queryRaw`-family access.
     let rawSurface: RawSurface | undefined;
 
     // Create proxy that combines model operations with utility methods
@@ -546,11 +537,6 @@ export class VibORM<C extends VibORMConfig> {
 
         if (prop === "$schema") {
           return orm.schema;
-        }
-
-        if (prop === "$fields") {
-          fieldRefs ??= createSchemaFieldRefs(orm.schema);
-          return fieldRefs;
         }
 
         if (isRawMethodName(prop)) {

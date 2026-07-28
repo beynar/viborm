@@ -190,7 +190,7 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     relationCreate: () => getRelationCreate<M, F>(fieldSchemas),
     scalarUpdate: () => getScalarUpdate<M, F>(fieldSchemas),
     relationUpdate: () => getRelationUpdate<M, F>(fieldSchemas),
-    where: () => getWhereSchema<M, F>(fieldSchemas),
+    where: () => getWhereSchema<M, F>(model, fieldSchemas),
     whereUnique: () => getWhereUniqueSchema(model, fieldSchemas),
     whereUniqueExtended: () =>
       getWhereUniqueExtendedSchema(model, fieldSchemas),
