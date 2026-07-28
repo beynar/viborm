@@ -2,6 +2,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames } from "@schema";
@@ -549,5 +550,118 @@ describe("surfaces that stay closed", () => {
       })
     );
     expect(refusal.name).toBe("ValidationError");
+  });
+});
+
+/**
+ * The type-level half, probed through the PUBLIC client surface — the only
+ * place a claim about the surface can honestly be made.
+ *
+ * Each `@ts-expect-error` IS the assertion; the runtime expectations exist only
+ * so the calls are evaluated.
+ */
+describe("operand typing", () => {
+  const typedClient = () =>
+    createClient({
+      schema,
+      driver: new MockDriver(new PostgresAdapter(), "postgresql"),
+    });
+
+  test("`ctx` is inferred — the model in scope needs no annotation", () => {
+    const client = typedClient();
+    const ok = client.post.findMany({
+      where: { views: { gt: (ctx) => ctx.fields.likes } },
+    });
+    expect(ok).toBeDefined();
+  });
+
+  test("a mistyped `ctx.fields` key is a compile error", () => {
+    const client = typedClient();
+    const bad = client.post.findMany({
+      where: {
+        views: {
+          // @ts-expect-error `likez` is not a scalar of post
+          gt: (ctx) => ctx.fields.likez,
+        },
+      },
+    });
+    expect(bad).toBeDefined();
+  });
+
+  test("the callback's return carries the operand's scalar type", () => {
+    const client = typedClient();
+    const bad = client.post.findMany({
+      where: {
+        title: {
+          // @ts-expect-error an int reference is not a string operand
+          equals: (ctx) => ctx.fields.views,
+        },
+      },
+    });
+    expect(bad).toBeDefined();
+  });
+
+  test("a nested `ctx` is the target model's, at the type level", () => {
+    const client = typedClient();
+    const bad = client.user.findMany({
+      where: {
+        posts: {
+          some: {
+            title: {
+              // @ts-expect-error inside `posts.some` the ctx is post, which has no `nickname`
+              equals: (ctx) => ctx.fields.nickname,
+            },
+          },
+        },
+      },
+    });
+    expect(bad).toBeDefined();
+  });
+});
+
+/**
+ * PRE-EXISTING GAP, measured rather than assumed: `where` gets no
+ * excess-property checking, so an unknown operator or field key is not a
+ * compile error. This is NOT something the operand union introduced — the
+ * plain-value form below behaves identically, and did before W8-A.
+ *
+ * What this pins is the property that matters and that W8-A must not break:
+ * whatever the type level lets through, the strict object schemas still refuse
+ * at runtime, IDENTICALLY beside a callback, beside a fragment and beside a
+ * value. If the type level is tightened later, these still pass; if a future
+ * change makes one of the three spellings silently accept an unknown key while
+ * the others refuse it, this fails.
+ */
+describe("an unknown key is refused the same way beside every operand kind", () => {
+  const dialectCase = dialectCases[0]!;
+
+  const unknownOperator = (operand: unknown) => ({
+    where: { views: { gt: operand, ltt: 100 } },
+  });
+  const unknownField = (operand: unknown) => ({
+    where: { views: { gt: operand }, viewz: 1 },
+  });
+
+  const operands: [string, unknown][] = [
+    ["a value", 1],
+    ["a token", tokens.post.likes],
+    ["a fragment", sql`${1}`],
+    ["a callback", (ctx: PostCtx) => ctx.fields.likes],
+  ];
+
+  test.each(operands)("unknown operator beside %s", (_name, operand) => {
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, unknownOperator(operand))
+    );
+    expect(refusal.name).toBe("ValidationError");
+    expect(JSON.stringify(refusal.issues)).toContain("Unknown key: ltt");
+  });
+
+  test.each(operands)("unknown field beside %s", (_name, operand) => {
+    const refusal = refusalOf(() =>
+      buildPost(dialectCase, unknownField(operand))
+    );
+    expect(refusal.name).toBe("ValidationError");
+    expect(JSON.stringify(refusal.issues)).toContain("Unknown key: viewz");
   });
 });

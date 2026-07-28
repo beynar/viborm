@@ -1501,9 +1501,28 @@ held directly is still a valid operand — the estate keeps direct-token coverag
 where the guard is about the token (the cross-model refusal needs a FOREIGN token, which
 a callback can never hand out).
 
+### A pre-existing gap this lane MEASURED and did not cause
+
+The brief asked for a probe that the widened operand union "must not degrade
+excess-property checking on sibling keys". It does not — because there is none
+to degrade. Through the public client, `where: { views: { gt: 1, ltt: 100 } }`
+and `where: { views: { gt: 1 }, viewz: 1 }` are **not** compile errors today,
+with a plain value and with a callback alike; the baseline was probed directly
+before drawing that conclusion (`@ts-expect-error` on the plain-value form comes
+back UNUSED). So the honest reading of the contextual-typing lesson is that
+`where` does not yet meet it, independently of W8-A.
+
+What W8-A pins instead is the property it could have broken: an unknown key is
+refused at RUNTIME by the strict object schemas, identically beside a value, a
+token, a fragment and a callback (eight cases in `operand-callback-sql.test.ts`).
+The type-level probes that DO hold are asserted through the public API: a
+mistyped `ctx.fields` key, a wrong-scalar-type return, and a nested `ctx` that
+is the target model's. Tightening `where`'s excess-property checking is a
+separate lane — it affects every filter, not the operand.
+
 ### Evidence
 
-`tests/query-engine/operand-callback-sql.test.ts` (54, three dialects): callback ≡ token
+`tests/query-engine/operand-callback-sql.test.ts` (66, three dialects): callback ≡ token
 byte-identical SQL, the injection witness, depth-2 scoping both ways, every return-value
 refusal, every closed surface. `tests/cache/operand-callback-keys.test.ts` (10): the
 keying falsification and the shared-entry property, live on PGlite.
