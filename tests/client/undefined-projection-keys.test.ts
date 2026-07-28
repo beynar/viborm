@@ -34,12 +34,25 @@ const post = s
     id: s.string().id(),
     title: s.string(),
     views: s.int(),
+    tags: s.oneToMany(() => tag),
   })
   .map("undefined_projection_posts");
 
+const tag = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    postId: s.string(),
+    post: s
+      .manyToOne(() => post)
+      .fields("postId")
+      .references("id"),
+  })
+  .map("undefined_projection_tags");
+
 type PostModel = typeof post;
 
-const schema = { post };
+const schema = { post, tag };
 
 /** The full default row: what every call below must be typed as. */
 type FullRow = { id: string; title: string; views: number };
@@ -117,9 +130,12 @@ describe("select: undefined types the full default row", () => {
   });
 
   test("a sibling key that is present but undefined is not a second projection", () => {
-    // `{ ...(sel && { select: sel }), ...(inc && { include: inc }) }` with both
-    // conditions false is a payload with two undefined keys and no projection —
-    // not the select+include refusal.
+    // Spreading a false condition adds no key at all, so this payload comes
+    // from the EXPLICIT spelling: a helper that forwards two optional props
+    // (`{ select: args.select, include: args.include }`), which is how an app
+    // threads projection options through. The runtime half below calls exactly
+    // that helper — the type here is only honest because the parse boundary
+    // accepts the payload.
     expectTypeOf<
       Result<"findMany", { select: undefined; include: undefined }>[number]
     >().toEqualTypeOf<FullRow>();
@@ -237,5 +253,98 @@ describe("the runtime returns the full row for the same payloads", () => {
       select: undefined,
     });
     expect(result).toEqual({ count: 1 });
+  });
+});
+
+/**
+ * The exclusivity refusals decide on the projection's VALUE, not its key.
+ *
+ * Reading key presence made `{ select: undefined, include: undefined }` — and
+ * every payload where one of the pair is spelled and left undefined — throw
+ * "Mutually exclusive fields cannot be used together", while the types above
+ * promised a row. `select` + `omit` was already value-based; this is the same
+ * rule, and the rule the parse boundary states for every other key.
+ */
+describe("an undefined sibling projection is not a second projection", () => {
+  /** The ordinary way an app threads optional projection options through. */
+  const findWith = (args: {
+    select?: { title: true };
+    include?: { tags: true };
+  }) =>
+    client.post.findMany({
+      where: { id: "u1" },
+      select: args.select,
+      include: args.include,
+    });
+
+  beforeAll(async () => {
+    await client.post.create({ data: { id: "u1", title: "un", views: 7 } });
+  });
+
+  test("both spelled undefined: the full default row, live", async () => {
+    const rows = await client.post.findMany({
+      where: { id: "u1" },
+      select: undefined,
+      include: undefined,
+    });
+    // The declaration IS the type half of this pair, and the call is the
+    // runtime half: before, one of the two was always a lie.
+    const first: FullRow | undefined = rows[0];
+    expect(first).toEqual({ id: "u1", title: "un", views: 7 });
+  });
+
+  test("the helper spelling: both options absent", async () => {
+    const rows = await findWith({});
+    // Optional at the call site, so the type is the honest union of both
+    // worlds — `title` is the field both arms carry.
+    expect(rows[0]?.title).toBe("un");
+    expect(rows[0]).toEqual({ id: "u1", title: "un", views: 7 });
+  });
+
+  test("a real select beside an undefined include still projects", async () => {
+    const rows = await findWith({ select: { title: true } });
+    expect(rows[0]).toEqual({ title: "un" });
+  });
+
+  test("a real include beside an undefined select still includes", async () => {
+    const rows = await findWith({ include: { tags: true } });
+    expect(rows[0]).toEqual({ id: "u1", title: "un", views: 7, tags: [] });
+  });
+
+  test("the same on findUnique and on a single-row write", async () => {
+    const found = await client.post.findUnique({
+      where: { id: "u1" },
+      select: undefined,
+      include: undefined,
+    });
+    expect(found).toEqual({ id: "u1", title: "un", views: 7 });
+
+    const created = await client.post.create({
+      data: { id: "u2", title: "two", views: 2 },
+      select: undefined,
+      include: undefined,
+    });
+    expect(created).toEqual({ id: "u2", title: "two", views: 2 });
+  });
+
+  test("a nested relation node reads its own pair the same way", async () => {
+    const rows = await client.post.findMany({
+      where: { id: "u1" },
+      include: {
+        tags: { select: undefined, include: undefined } as never,
+      },
+    });
+    expect(rows[0]).toEqual({ id: "u1", title: "un", views: 7, tags: [] });
+  });
+
+  test("two projections that BOTH carry a value are still refused", async () => {
+    await expect(
+      client.post.findMany({
+        select: { title: true },
+        include: { tags: true },
+      } as never)
+    ).rejects.toThrow(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
   });
 });

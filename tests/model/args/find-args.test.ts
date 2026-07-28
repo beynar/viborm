@@ -217,6 +217,35 @@ describe("Find Args - Top-level Select/Include Exclusivity Runtime", () => {
       "Mutually exclusive fields cannot be used together: select, include"
     );
   });
+
+  // The refusal reads the projection's VALUE, not its key. The spread-an-
+  // optional idiom spelled out — `{ select: args.select, include: args.include }`
+  // with one or both undefined — names at most ONE projection, and the parse
+  // boundary treats an explicitly-`undefined` key as absent everywhere else.
+  test("runtime: findMany accepts a select beside an undefined include", () => {
+    const result = parse(authorSchemas.args.findMany, {
+      select: { id: true },
+      include: undefined,
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: findMany accepts an include beside an undefined select", () => {
+    const result = parse(authorSchemas.args.findMany, {
+      select: undefined,
+      include: { posts: true },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: findUnique accepts both spelled undefined", () => {
+    const result = parse(authorSchemas.args.findUnique, {
+      where: { id: "author-1" },
+      select: undefined,
+      include: undefined,
+    });
+    expect(result.issues).toBeUndefined();
+  });
 });
 
 // =============================================================================

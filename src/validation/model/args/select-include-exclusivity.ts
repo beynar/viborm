@@ -12,12 +12,26 @@ const SELECT_INCLUDE_EXCLUSIVITY_ERROR = {
   ],
 };
 
+/**
+ * Both projections are present only when both carry a VALUE.
+ *
+ * Reading key PRESENCE instead refused the spread-an-optional idiom the whole
+ * client surface is documented to accept — `{ ...(sel && { select: sel }),
+ * ...(inc && { include: inc }) }` spelled out, or a helper forwarding two
+ * optional props (`{ select: args.select, include: args.include }`) — because an
+ * explicitly-`undefined` key is an ABSENT key at the parse boundary
+ * (`src/validation/primitives/object.ts`). That is the rule `select` + `omit`
+ * already applies (`withOmitProjection`), and the rule the result types state,
+ * so a payload whose second projection is `undefined` names exactly one
+ * projection and must be accepted.
+ */
 const hasSelectAndInclude = (value: unknown): boolean => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
 
-  return Object.hasOwn(value, "select") && Object.hasOwn(value, "include");
+  const record = value as Record<string, unknown>;
+  return record.select !== undefined && record.include !== undefined;
 };
 
 export const rejectSelectInclude = <
