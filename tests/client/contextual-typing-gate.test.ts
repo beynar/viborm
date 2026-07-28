@@ -1064,8 +1064,36 @@ describe("a field reference is keyed to the model's scalars", () => {
   // @ts-expect-error - "ttitle" is not a scalar of book
   const _typo = () => bookFields.ttitle;
 
+  /**
+   * The operand callback reaches the same tokens without a token table, and its
+   * `ctx.fields` IS keyed — scoped to the model being filtered at that depth.
+   * Probed through the client with no annotation on `ctx`, because an annotated
+   * `ctx` would type the annotation rather than the call.
+   */
+  const _callbackKeyed = () =>
+    client.book.findMany({
+      where: { pages: { gt: (ctx) => ctx.fields.pages } },
+    });
+
+  const _callbackTypo = () =>
+    client.book.findMany({
+      // @ts-expect-error - "pagess" is not a scalar of book
+      where: { pages: { gt: (ctx) => ctx.fields.pagess } },
+    });
+
+  const _callbackScope = () =>
+    client.author.findMany({
+      where: {
+        // @ts-expect-error - inside `books.some` the ctx is book, which has no "email"
+        books: { some: { title: { equals: (ctx) => ctx.fields.email } } },
+      },
+    });
+
   test("the probes above compile (assertions live in @ts-expect-error)", () => {
     expectTypeOf(_keyed).toBeFunction();
     expectTypeOf(_typo).toBeFunction();
+    expectTypeOf(_callbackKeyed).toBeFunction();
+    expectTypeOf(_callbackTypo).toBeFunction();
+    expectTypeOf(_callbackScope).toBeFunction();
   });
 });

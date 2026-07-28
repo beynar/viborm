@@ -100,6 +100,7 @@ Merge record: `42016f4` (both lanes; the four doc conflicts and their resolution
 | Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
 |---|---|---|---|
 | W8-A Per-field operand callbacks + SQL fragment operands | delivered, scope note | this lane | The maintainer's design (D-7/D-8). Four operand kinds now, one home: a value, a field-reference token, an `Sql` fragment, or a callback returning one of the latter two — resolved during VALIDATION, so the engine still sees only three (`src/validation/primitives/operand.ts`). **Scope line**: attached to `equals`/`not`/`lt`/`lte`/`gt`/`gte` on non-list scalar filters and nowhere else. The string predicates keep the token-only operand they had (they take no fragment, so they take no callback); `in`/`notIn`, list operators, JSON, `orderBy`, write data and `having` stay closed, `having` now to fragments as well as tokens. `client.$fields` is gone (D-8). |
+| W8-B Contextual-typing sweep | delivered, scope note | this lane | Every public surface a user writes an object literal into refuses a misspelled key — probed with the typo **beside a real key**, which is what the first pass got wrong (a typo alone is refused by TypeScript's weak-type rule on a completely unkeyed surface, so those probes measured nothing). Six surface classes reopened and were closed: client-level `omit` at field and model level, `instrumentation` and its three sub-bags, all eleven driver wrappers, the `where`/`select`/`include`/`orderBy`/`omit` clauses, and `push()`'s non-fresh options bag. One real production bug fell out — `generateDDL` forwarded `resolver` to a `PushOptions` that reads `resolve`, so every caller's resolver was silently ignored. **Scope line**: `data`/`create`/`update`/`cursor`/`having`/`cache` and every level below the first are pinned as compiling, each with the number that stopped it (TS2589 counts, a tsc crash, type-check seconds). Merge record below. |
 
 ### Decision register outcomes
 
@@ -1512,6 +1513,13 @@ before drawing that conclusion (`@ts-expect-error` on the plain-value form comes
 back UNUSED). So the honest reading of the contextual-typing lesson is that
 `where` does not yet meet it, independently of W8-A.
 
+> **Superseded in part by W8-B (see "W8 — merging W8-A and W8-B" below).** The
+> FIELD-level half of that measurement — `where: { views: { gt: 1 }, viewz: 1 }` —
+> is a compile error on the merged branch: W8-B's clause guard keys `where` per
+> key. The OPERATOR-level half, `{ gt: 1, ltt: 100 }`, still compiles and is where
+> the guard stops. Both were re-measured after the merge; the paragraph above is
+> preserved as what was true when this lane shipped alone.
+
 What W8-A pins instead is the property it could have broken: an unknown key is
 refused at RUNTIME by the strict object schemas, identically beside a value, a
 token, a fragment and a callback (eight cases in `operand-callback-sql.test.ts`).
@@ -1575,6 +1583,68 @@ reference suite migrated to the callback form, plus fragment operands against re
 databases — arithmetic, scalar subquery, mixed with a reference and a literal,
 `updateMany`/`deleteMany`, and both execution substrates (array batch and callback
 transaction).
+
+---
+
+## W8 — merging W8-A and W8-B
+
+The two lanes ran in parallel from `2f7bd59` and never saw each other's trees. Both
+touch the surface a user writes a `where` literal into, so the merge is recorded here
+rather than left to the commit log.
+
+### The claim each lane made about `where`, and the one true statement
+
+W8-A measured `where` as having **no** excess-property checking. W8-B reported `where`
+**refusing** a typo at every level it probed. `ca4e1f9` had already found that both were
+true of different literals and pinned the distinction; the merge moved the line again,
+because W8-B's clause guard had not landed when that pin was written. The single
+statement that is true on the merged branch, re-measured:
+
+| Depth | Literal | Verdict |
+|---|---|---|
+| Clause | `{ wher: … }` beside `take: 1` | refused (`NoExtraOperationKeys`) |
+| Field | `where: { title: "x", ttitle: "x" }` | **refused** — W8-B's `ClauseGuard`, per key |
+| Operator | `where: { pages: { gt: 1, ltt: 100 } }` | **compiles** — pinned |
+
+The operator level is where the guard stops, and the reason is structural rather than
+missing work: the operand is a **union** (value, `FieldRef` token, `Sql` fragment,
+callback), and excess-property checking does not fire through a union — the literal
+matches the filter member and the extra key rides along. Only an all-wrong literal is
+reported, because then no member matches. This is the same depth-3 obstacle W8-B measured
+and left standing for `where.title.contians`, and it is **not** what the callback cost:
+the probes were run against `2f7bd59` (plain values only, no callback in the union) and
+against the merged tree with byte-identical outcomes.
+
+Runtime is unaffected and stays fail-closed at every depth — the strict object schemas
+refuse an unknown key identically beside a value, a token, a fragment and a callback. The
+gap is DX-only.
+
+### Integration fixes the merge required
+
+1. **`client.$fields` probes named a deleted surface.** W8-B's gate probed
+   `client.$fields.book.ttitle`; W8-A removed `$fields` (D-8). Retargeted to
+   `createModelFieldRefs`, imported from `src/index` on purpose — via `@schema/field-ref`
+   the probe would pass while the import the docs teach failed, which is the defect
+   `c3e8160` fixed. Its first argument is a caller-supplied model NAME, not a key into a
+   schema, so the old model-level probe (`$fields.bok`) has no successor and is recorded
+   as a surface with nothing to check rather than dropped in silence.
+2. **`ca4e1f9`'s field-level pin became false.** It pinned
+   `where: { title: "x", ttitle: "y" }` as compiling; the clause guard refuses it. The pin
+   was deleted and `_whereTypoBesideReal` is the assertion for that literal now. The
+   operator-level pins survive, with the union named as the obstacle.
+3. **The W8-A plan text above** claimed both halves of the gap. The field half is marked
+   superseded in place; the operator half stands.
+
+### Cross-lane verification (not assumed — run)
+
+W8-B's gate file was re-run against W8-A's surface, and the callback route was added to it
+so the two lanes are checked in one place: `ctx.fields` is still **concretely typed
+through the clause guard** — an un-annotated `(ctx) => ctx.fields.pagess` is a compile
+error, and so is a nested `ctx` reaching the enclosing model
+(`books.some` → `ctx.fields.email`). That is the property the guard could have destroyed
+and did not: had `ClauseGuard` collapsed `where` toward `any`, those probes would have gone
+green and the directives would have failed as TS2578. All three were falsified by
+correcting the spelling.
 
 ---
 
