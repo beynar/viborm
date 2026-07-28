@@ -10,6 +10,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClient as baseCreateClient,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -166,7 +167,9 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 // ============================================================
 
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
-  config: PGliteConfig<C> & DriverConfig<S>
+  config: PGliteConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, PGliteDriverOptions, S>
 ) {
   const { client, dataDir, options, pgvector, postgis, ...restConfig } = config;
 

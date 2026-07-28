@@ -204,6 +204,60 @@ OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dyn
 | Schema/type definition mismatch | Runtime validation differs from types | Keep type definitions and runtime schema in sync |
 | Blocking background operations | Slow response times | Move locks/checks inside async callbacks |
 | Fire-and-forget without error handling | Silent failures | Add `.catch()` with logging |
+| DX claim pinned through an internal type alias | The alias is typed, the call site is not | Probe through the public API (see below) |
+
+---
+
+## Testing a DX Claim: Probe Through the Public Surface
+
+Every claim about what the **editor** does — "this completes", "this key is
+checked", "a typo here is caught" — is pinned by probes that enter through the
+**public API, spelled exactly as a user spells it**, with a **typo probe at every
+nesting level**. A probe that names an internal type alias types the alias, not
+the call, and does not count.
+
+```typescript
+// ❌ BAD: types the alias. Says nothing about what a caller writes.
+type Cfg = ClientOmitConfig<typeof schema>;
+expectTypeOf<Cfg>().toMatchTypeOf<{ user: { passwordHash?: true } }>();
+
+// ✅ GOOD: enters through createClient, the way an app does
+const _typo = () =>
+  createClient({
+    schema: { user },
+    driver,
+    // @ts-expect-error - "passwordHsh" is not a field of user
+    omit: { user: { passwordHsh: true } },
+  });
+```
+
+**Why this exists:** `omit` shipped the same gap twice. `f842302` keyed the core
+`createClient` config after the contextual type turned out to be an index
+signature — results were correct, but the editor had no keys to offer and a
+typo'd model name compiled. `2f7bd59` then found the identical hole still open in
+all eleven driver-package wrappers, the entry point most apps import. Both times
+the RESULT types were already right; only the type contextual to the literal
+being written was wrong, which no result-shape assertion can see.
+
+Two rules follow:
+
+1. **A typo probe per nesting level.** `where` refusing a bad key says nothing
+   about `where.relation.some`. Probe the operation keys, each clause, the
+   operators inside a clause, and the same clauses one relation deeper.
+2. **Refuse structurally, not by excess-property checking.** EPC needs a *fresh*
+   object literal, so a config or options bag held in a variable sails through
+   it; and a generic `O extends Options` is no guard either, because TypeScript
+   silently **clamps** `O` to the constraint. Intersect
+   `Record<Exclude<keyof Given, keyof Allowed>, never>` into the parameter — see
+   `UnknownOmitKeys` / `ExactOptions` (`src/schema/model/model.ts`) and
+   `NoExtraConfigKeys` (`src/client/client.ts`). Probe both fresh and non-fresh.
+
+The gate lives in `tests/client/contextual-typing-gate.test.ts`. It is enforced
+by `pnpm test:types`, not by a runtime assertion: a `@ts-expect-error` that stops
+being an error is itself an error (TS2578), so a regression that re-opens a
+surface turns the type-check red. Surfaces that *cannot* be keyed
+(`.fields()` / `.references()`) are pinned there as misspelled calls that compile,
+with the obstacle recorded on the method.
 
 ---
 

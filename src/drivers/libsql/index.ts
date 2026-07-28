@@ -9,6 +9,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClient as baseCreateClient,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -261,7 +262,9 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
 // ============================================================
 
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
-  config: LibSQLClientConfig<C> & DriverConfig<S>
+  config: LibSQLClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, LibSQLDriverOptions, S>
 ) {
   const { client, databaseUrl, dataDir, authToken, options, ...restConfig } =
     config;

@@ -11,6 +11,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
   createClient as baseCreateClient,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -203,7 +204,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // ============================================================
 
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
-  config: PlanetScaleClientConfig<C> & DriverConfig<S>
+  config: PlanetScaleClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, PlanetScaleDriverOptions, S>
 ) {
   const { client, databaseUrl, options, ...restConfig } = config;
 

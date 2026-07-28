@@ -199,6 +199,36 @@ export interface DriverConfig<S extends Schema = Schema>
   extends Omit<VibORMConfig<S>, "driver"> {}
 
 /**
+ * The keys a proposed config names that the surface does not have: the typos.
+ *
+ * `createClient` infers `Config` FROM the literal, so the literal's own keys are
+ * by construction "known" to the parameter type and excess-property checking has
+ * nothing to complain about — `cacheVerison: 1` recorded a setting nobody reads
+ * and compiled. (Excess-property checking would not have been enough anyway: it
+ * needs a fresh object literal, so a config held in a variable — the shape every
+ * "share one config across two clients" snippet uses — sails through it.)
+ *
+ * Demanding `never` for the unknown keys refuses structurally instead, whatever
+ * the argument's freshness, and a `never` the caller cannot produce is a compile
+ * error at the offending key. Same instrument as the model builder's
+ * `UnknownOmitKeys`.
+ */
+export type NoExtraConfigKeys<Given, Allowed> = Record<
+  Exclude<keyof Given, keyof Allowed>,
+  never
+>;
+
+/**
+ * The driver-package flavour: a wrapper's literal may also carry that driver's
+ * own options (`dataDir`, `pool`, `authToken`, …), so the accepted set is the
+ * union of those and the shared client config.
+ */
+export type NoExtraDriverConfigKeys<Given, Options, S extends Schema> = Record<
+  Exclude<keyof Given, keyof Options | keyof DriverConfig<S>>,
+  never
+>;
+
+/**
  * The client an interactive `$transaction(async (tx) => ...)` callback gets:
  * every model operation, the raw SQL surface bound to the OPEN transaction,
  * and nested `$transaction` (savepoints).
@@ -1017,8 +1047,12 @@ export const createClient = <S extends Schema, Config extends VibORMConfig<S>>(
   // from the sibling `schema` property, so `omit` completes with model names
   // (and each model with its projectable fields) instead of the widened
   // `Record<string, …>` constraint. `Config` still captures the whole literal
-  // for result-type threading.
-  config: Config & VibORMConfig<S>
+  // for result-type threading — and because it does, the third member is what
+  // refuses a key that is not a config key at all.
+  config: Config & VibORMConfig<S> & NoExtraConfigKeys<Config, VibORMConfig<S>>
 ): VibORMClient<Config> => {
-  return VibORM.create(config);
+  // Explicit `Config`: the parameter's refusal members (`NoExtraConfigKeys`) are
+  // there to reject typo'd keys, not to be threaded into the client's result
+  // types — inferring `C` from the intersection would carry them along.
+  return VibORM.create<Config>(config);
 };

@@ -10,6 +10,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
   createClient as baseCreateClient,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -298,7 +299,9 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 // ============================================================
 
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
-  config: MySQL2ClientConfig<C> & DriverConfig<S>
+  config: MySQL2ClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S>
 ) {
   const { pool, options = {}, databaseUrl, ...restConfig } = config;
 

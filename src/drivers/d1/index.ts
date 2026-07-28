@@ -10,6 +10,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClient as baseCreateClient,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -288,7 +289,9 @@ export class D1Driver extends Driver<D1Database, D1Database> {
 // ============================================================
 
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
-  config: D1ClientConfig<C> & DriverConfig<S>
+  config: D1ClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, D1DriverOptions, S>
 ) {
   const { database, ...restConfig } = config;
 

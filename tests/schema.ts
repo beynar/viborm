@@ -187,7 +187,6 @@ export const schema = {
 
 const client = createClient({
   schema,
-  adapter: {} as any,
   driver: {} as any,
 });
 

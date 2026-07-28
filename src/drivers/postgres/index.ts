@@ -9,6 +9,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClient as baseCreateClient,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -217,7 +218,9 @@ export class PostgresDriver extends Driver<
 // ============================================================
 
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
-  config: PostgresClientConfig<C> & DriverConfig<S>
+  config: PostgresClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, PostgresDriverOptions, S>
 ) {
   const {
     client,

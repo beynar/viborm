@@ -85,6 +85,36 @@ export type UpdateIndexDefinition<
   Index extends IndexDefinition,
 > = [...State["indexes"], Index];
 
+/** The name a compound `.id()` / `.unique()` constraint may be given. */
+export interface CompoundKeyOptions {
+  name?: string;
+}
+
+/**
+ * An options bag that carries the surface's own keys and NOTHING else.
+ *
+ * A generic `O extends Options` is no guard on its own: when inference produces
+ * a bag the constraint would reject, TypeScript CLAMPS `O` to the constraint and
+ * only excess-property checking is left to catch the stray key — and that needs
+ * a fresh object literal, so `.index(["a"], sharedIndexOptions)` sails through
+ * with `uniqu: true` recorded as nothing at all. Demanding `never` for the
+ * unknown keys refuses structurally instead, whatever the argument's freshness.
+ * Same instrument as `UnknownOmitKeys` below.
+ */
+type ExactOptions<Given, Allowed> = Given &
+  Record<Exclude<keyof Given, keyof Allowed>, never>;
+
+/**
+ * The constraint name: the caller's `name` when they gave one, otherwise the
+ * underscore-joined field names. Read off the options bag rather than a separate
+ * inferred parameter so that ONE type parameter carries the whole literal — the
+ * parameter `ExactOptions` needs in order to see the unknown keys.
+ */
+type CompoundKeyName<
+  Keys extends string[],
+  O extends CompoundKeyOptions,
+> = O extends { name: infer N extends string } ? N : NameFromKeys<Keys>;
+
 export const mergeIndexDefinitions = <
   State extends ModelState,
   Index extends IndexDefinition,
@@ -232,7 +262,10 @@ export class Model<State extends ModelState> {
   index<
     const Keys extends StringKeyOf<State["scalars"]>[],
     O extends IndexOptions = IndexOptions,
-  >(fields: Keys, options: O = {} as O) {
+  >(
+    fields: Keys,
+    options: ExactOptions<O, IndexOptions> = {} as ExactOptions<O, IndexOptions>
+  ) {
     return new Model({
       ...this.state,
       indexes: mergeIndexDefinitions(this.state, { fields, options }),
@@ -246,8 +279,8 @@ export class Model<State extends ModelState> {
 
   id<
     const Keys extends StringKeyOf<State["scalars"]>[],
-    Name extends string | undefined = undefined,
-  >(fields: Keys, options?: { name?: Name }) {
+    const O extends CompoundKeyOptions = Record<never, never>,
+  >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
@@ -274,9 +307,7 @@ export class Model<State extends ModelState> {
           compoundId: MergeCompound<
             State["compoundId"],
             {
-              [K in Name extends undefined
-                ? NameFromKeys<Keys>
-                : Name]: ObjectSchema<{
+              [K in CompoundKeyName<Keys, O>]: ObjectSchema<{
                 [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
               }>;
             }
@@ -288,8 +319,8 @@ export class Model<State extends ModelState> {
 
   unique<
     const Keys extends StringKeyOf<State["scalars"]>[],
-    Name extends string | undefined = undefined,
-  >(fields: Keys, options?: { name?: Name }) {
+    const O extends CompoundKeyOptions = Record<never, never>,
+  >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
@@ -316,9 +347,7 @@ export class Model<State extends ModelState> {
           compoundUniques: MergeCompound<
             State["compoundUniques"],
             {
-              [K in Name extends undefined
-                ? NameFromKeys<Keys>
-                : Name]: ObjectSchema<{
+              [K in CompoundKeyName<Keys, O>]: ObjectSchema<{
                 [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
               }>;
             }
