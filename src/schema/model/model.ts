@@ -101,38 +101,45 @@ export type UpdateState<
 > = Omit<State, keyof Update> & Update;
 
 /**
- * What `.omit()` accepts: this model's scalar names, each flagged `true`.
+ * The keys a proposed `.omit()` names that this model does NOT have as a
+ * scalar: the typos and the relation names.
  *
- * Keys are OPTIONAL — you name only what you hide — which is why this is a
- * `Partial`. That is also what makes a typo or a relation name a compile
- * error: an object literal is excess-property-checked against a type
- * parameter's constraint, so `{ scret: true }` is refused with a "did you
- * mean" instead of quietly hiding nothing.
+ * `Hidden` is inferred from the argument's own keys and is deliberately NOT
+ * constrained to the scalar names. A constrained type parameter is no guard
+ * here: when inference produces something the constraint rejects, TypeScript
+ * silently CLAMPS the parameter to the constraint and only excess-property
+ * checking — which needs a fresh object literal — is left to catch the bad
+ * key. Anything non-fresh (`as const`, a spread, an annotated variable, a
+ * widened `Record<string, true>`) then sails through and records a
+ * hidden-column claim nobody wrote. Excluding the unknown keys and demanding
+ * `never` for them refuses structurally instead, whatever the argument's
+ * freshness, and a `never` the caller cannot produce is a compile error at the
+ * offending key.
  *
- * Relations are absent because `State["scalars"]` is the scalar half of the
- * shape (`ScalarMap`), the same source `.index()` / `.id()` / `.unique()` key
- * off. Reading it never touches a relation's `getter`, the member that must
- * not be resolved while two model consts still refer to each other (see
- * `RelationState.getter`).
+ * Relations are absent from the accepted set because `State["scalars"]` is the
+ * scalar half of the shape (`ScalarMap`), the same source `.index()` /
+ * `.id()` / `.unique()` key off. Reading it never touches a relation's
+ * `getter`, the member that must not be resolved while two model consts still
+ * refer to each other (see `RelationState.getter`).
+ */
+type UnknownOmitKeys<Hidden extends string, State extends ModelState> = Exclude<
+  Hidden,
+  StringKeyOf<State["scalars"]>
+>;
+
+/**
+ * This model's scalar names, each optionally flagged `true`.
+ *
+ * It carries NO refusal — `UnknownOmitKeys` does that — and it adds no
+ * requirement, every key being optional. It is in the parameter for one
+ * reason: an editor offers the keys of a CONCRETE contextual type, and
+ * `Record<Hidden, true>` is not concrete until `Hidden` has been inferred from
+ * the very literal being typed. Without this member `.omit({ ` autocompletes
+ * the global scope; with it, the model's scalars.
  */
 export type ModelOmitInput<State extends ModelState> = Partial<
   Record<StringKeyOf<State["scalars"]>, true>
 >;
-
-/**
- * The same record with every named key REQUIRED.
- *
- * `ModelOmitInput` has optional keys, so its VALUES are `true | undefined` —
- * and a flag that may be `undefined` hides nothing at runtime
- * (`projectableScalarNames` compares against `true`). Intersecting this in at
- * the parameter refuses such an input outright rather than recording a
- * hidden-column claim the runtime would not honor, which is also what the old
- * `Record<string, true>` constraint did.
- *
- * Because that guard has already run, this is also the honest shape to carry
- * into the state: every key it names is definitely hidden.
- */
-type DefiniteOmit<Items> = Record<keyof Items, true>;
 
 /**
  * Merge a new compound constraint into the existing record so repeated
@@ -193,21 +200,33 @@ export class Model<State extends ModelState> {
    * compile error instead of an `omit` that quietly hides nothing. That
    * matters more here than anywhere else the builder takes field names: this
    * is the spelling used for secrets, and a silently-ignored key is a leaked
-   * column.
+   * column. The refusal is per KEY, not per call: `{ secret: true, tokne:
+   * true }` fails on `tokne` even though `secret` is real — two secrets with
+   * one misspelled is the realistic case, and it is exactly the case an
+   * excess-property-only refusal would wave through (see `UnknownOmitKeys`).
+   *
+   * Every value must be `true`. `false` has no meaning here (model-level omit
+   * only ever hides) and a flag that may be `undefined` hides nothing at
+   * runtime — `projectableScalarNames` compares against `true` — so
+   * `Record<Hidden, true>` refuses both rather than recording a claim the
+   * runtime would not honor.
    *
    * The literal survives the round trip — `.omit({ secret: true })` carries
    * exactly `{ secret: true }` into the state, not a widened record — which is
-   * what every downstream `keyof State["omit"]` reads.
+   * what every downstream `keyof State["omit"]` reads. `Hidden` defaults to
+   * `never` for the one call with nothing to infer from, `.omit({})`: a bare
+   * `extends string` would fall back to `string` there and hand the state a
+   * record keyed by every conceivable name.
    */
-  omit<OmitItems extends ModelOmitInput<State>>(
-    items: OmitItems & DefiniteOmit<OmitItems>
+  omit<Hidden extends string = never>(
+    items: Record<Hidden, true> &
+      Record<UnknownOmitKeys<Hidden, State>, never> &
+      ModelOmitInput<State>
   ) {
     return new Model({
       ...this.state,
       omit: items,
-    }) as unknown as Model<
-      UpdateState<State, { omit: DefiniteOmit<OmitItems> }>
-    >;
+    }) as unknown as Model<UpdateState<State, { omit: Record<Hidden, true> }>>;
   }
 
   index<

@@ -12,7 +12,8 @@
  * The two claims:
  *
  *  1. MODEL LEVEL — `.omit()` is keyed to the model's own scalars. A typo, a
- *     relation name, or a `false` is a compile error, and the literal survives
+ *     relation name, or a `false` is a compile error — per KEY, next to valid
+ *     keys, and whatever the argument's freshness — and the literal survives
  *     into the state (`{ secret: true }`, not a widened record).
  *  2. CLIENT LEVEL — `createClient({ omit: { user: { passwordHash: true } } })`
  *     removes the key from the DEFAULT result type, a query-level
@@ -90,6 +91,79 @@ describe("model-level .omit() is keyed to the model's scalars", () => {
     }).omit({ entries: true });
   });
 
+  /**
+   * THE REALISTIC CASE, and the one a refusal built on excess-property
+   * checking alone does NOT catch: two secrets, one misspelled. EPC needs a
+   * fresh object literal, and TypeScript's weak-type check — the other thing
+   * that refuses an all-optional target — only fires on ZERO overlap, so a
+   * single valid key disarms it and the typo rides along. That is
+   * accept-and-ignore in type space: the state would name a column that is
+   * still selected, still returned, and still in the result type.
+   *
+   * Each case below names one REAL scalar alongside the bad key, so nothing
+   * here can pass by way of "no key matched".
+   */
+  test("a typo NEXT TO a valid key is still a compile error", () => {
+    s.model({
+      id: s.string().id(),
+      secret: s.string(),
+      token: s.string(),
+    }).omit({
+      secret: true,
+      // @ts-expect-error 'tokne' is not a scalar of this model
+      tokne: true,
+    });
+  });
+
+  test("a relation name NEXT TO a valid key is still a compile error", () => {
+    s.model({
+      id: s.string().id(),
+      secret: s.string(),
+      entries: s.oneToMany(() => entry).name("vault"),
+    }).omit({
+      secret: true,
+      // @ts-expect-error a relation is not a projectable scalar
+      entries: true,
+    });
+  });
+
+  /**
+   * And the refusal does not depend on the argument being a FRESH literal.
+   * Every spelling below defeats excess-property checking; a constrained type
+   * parameter would silently clamp to its constraint and accept them, so the
+   * check is structural instead (`UnknownOmitKeys` in schema/model/model.ts).
+   */
+  test("a typo carried by an annotated variable is refused", () => {
+    const annotated: { secret: true; tokne: true } = {
+      secret: true,
+      tokne: true,
+    };
+    // @ts-expect-error 'tokne' is not a scalar of this model
+    s.model({ id: s.string().id(), secret: s.string() }).omit(annotated);
+  });
+
+  test("a typo carried by an `as const` is refused", () => {
+    s.model({ id: s.string().id(), secret: s.string() }).omit({
+      secret: true,
+      // @ts-expect-error 'tokne' is not a scalar of this model
+      tokne: true,
+    } as const);
+  });
+
+  test("a typo carried by a spread is refused", () => {
+    const spreadable = { secret: true as const, tokne: true as const };
+    // @ts-expect-error 'tokne' is not a scalar of this model
+    s.model({ id: s.string().id(), secret: s.string() }).omit({
+      ...spreadable,
+    });
+  });
+
+  test("a widened record is refused rather than read as every scalar", () => {
+    const widened: Record<string, true> = { secret: true };
+    // @ts-expect-error a widened record names nothing the model can check
+    s.model({ id: s.string().id(), secret: s.string() }).omit(widened);
+  });
+
   test("a false flag is a compile error — .omit() only ever hides", () => {
     s.model({ id: s.string().id(), secret: s.string() }).omit({
       // @ts-expect-error model-level omit has no re-include spelling
@@ -97,10 +171,55 @@ describe("model-level .omit() is keyed to the model's scalars", () => {
     });
   });
 
+  test("a false flag NEXT TO a valid key is still a compile error", () => {
+    s.model({
+      id: s.string().id(),
+      email: s.string(),
+      secret: s.string(),
+    }).omit({
+      secret: true,
+      // @ts-expect-error model-level omit has no re-include spelling
+      email: false,
+    });
+  });
+
   test("a flag that MAY be undefined is refused rather than assumed", () => {
     const maybe: { secret?: true } = {};
     // @ts-expect-error an undefined flag hides nothing at runtime
     s.model({ id: s.string().id(), secret: s.string() }).omit(maybe);
+  });
+
+  /**
+   * The consequence the refusals above exist for, pinned on the result type
+   * rather than on the builder: what `.omit()` accepted is exactly what leaves
+   * the query. Written with TWO hidden scalars because one is the shape a
+   * per-call refusal can fake.
+   */
+  test("what the state names is what the result type drops", () => {
+    const acct = s
+      .model({
+        id: s.string().id(),
+        email: s.string(),
+        secret: s.string(),
+        token: s.string(),
+      })
+      .omit({ secret: true, token: true })
+      .map("omit_builder_accts");
+
+    expectTypeOf<(typeof acct)["~"]["state"]["omit"]>().toEqualTypeOf<{
+      secret: true;
+      token: true;
+    }>();
+
+    const accts = createClient({
+      schema: { acct },
+      driver: new PGliteDriver(),
+    });
+    const rows = () => accts.acct.findMany({});
+
+    expectTypeOf<Awaited<ReturnType<typeof rows>>>().toEqualTypeOf<
+      { id: string; email: string }[]
+    >();
   });
 
   /**

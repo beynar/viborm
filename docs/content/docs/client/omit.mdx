@@ -130,8 +130,8 @@ field is a secret:
 
 ```ts
 s.model({ id: s.string().id(), secret: s.string() }).omit({ scret: true });
-// Object literal may only specify known properties, but 'scret' does not
-// exist. Did you mean to write 'secret'?
+//                                                          ^^^^^
+// Type 'true' is not assignable to type 'never' — 'scret' is not a scalar
 
 s.model({ id: s.string().id(), posts: s.oneToMany(() => post) })
   .omit({ posts: true });
@@ -140,6 +140,23 @@ s.model({ id: s.string().id(), posts: s.oneToMany(() => post) })
 s.model({ id: s.string().id(), secret: s.string() }).omit({ secret: false });
 // Type 'false' is not assignable to type 'true' — .omit() only ever hides
 ```
+
+The refusal is per **key**, not per call. Hiding two secrets and misspelling
+one still fails, on the misspelled one — the case where an
+"unknown-properties" check that only fires when every key is wrong would let
+the column leak:
+
+```ts
+s.model({ id: s.string().id(), secret: s.string(), token: s.string() })
+  .omit({ secret: true, tokne: true });
+//                      ^^^^^ Type 'true' is not assignable to type 'never'
+```
+
+It is also per key regardless of how the object reaches the call. An
+`as const`, a spread, a pre-annotated variable and a widened
+`Record<string, true>` are all refused the same way — a name the model does not
+have never reaches the state, so the result type can never claim a column is
+hidden that is still being returned.
 
 ### Client-level `omit` is a default
 

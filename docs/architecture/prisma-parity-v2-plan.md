@@ -936,8 +936,32 @@ and makes a WIDENED `boolean` flag OPTIONAL rather than guessing — the same
 route through one `InferRelationNodeResult`, so `{ select }`, `{ include }`,
 `{ omit }` and pagination-only nodes are decided in one place.
 
+**The model-level refusal is per KEY, and structural.** `.omit()` takes
+`Record<Hidden, true> & Record<UnknownOmitKeys<Hidden, State>, never>`
+([schema/model/model.ts](../../src/schema/model/model.ts)). The first draft
+constrained the parameter to the scalar names instead, which reads as the same
+thing and is not: a constrained type parameter is silently CLAMPED to its
+constraint when inference produces something it rejects, leaving only
+excess-property checking — which needs a fresh object literal and, against an
+all-optional target, only fires on ZERO overlap. `.omit({ secret: true, tokne:
+true })` therefore compiled, and so did every non-fresh spelling (`as const`, a
+spread, an annotated variable, a widened `Record<string, true>`). Two secrets
+with one misspelled is the realistic case and it is exactly the case that
+leaked: the state named the typo, the result type kept the column, and the row
+still carried it. Excluding the unknown keys and demanding `never` for them
+refuses at the offending key regardless of freshness or of how many siblings
+are valid. The third member, `ModelOmitInput<State>`, checks nothing (drop it
+and `tsc` reports the same diagnostics on the same lines) — it is what an
+editor reads for completions, since `Record<Hidden, true>` is not concrete
+until `Hidden` has been inferred from the literal being typed; without it
+`.omit({` offers the global scope. `Hidden` defaults to `never` for the one
+call with nothing to infer from, `.omit({})`.
+
 **Pinned by:** [tests/model/omit-validation.test.ts](../../tests/model/omit-validation.test.ts)
 (desugaring, refusals, model-level hardness),
+[tests/client/omit-builder-types.test.ts](../../tests/client/omit-builder-types.test.ts)
+(the builder surface: per-key refusal next to valid keys, every non-fresh
+spelling, and the result-type consequence),
 [tests/client/omit-result-types.test.ts](../../tests/client/omit-result-types.test.ts)
 (the type claims, including the optional-key case),
 [tests/drivers/omit-behavior.ts](../../tests/drivers/omit-behavior.ts) wired into
