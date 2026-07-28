@@ -386,6 +386,10 @@ describe("the driver-package createClient is keyed the same way", () => {
  * hand, so they are the surface most likely to be ASSUMED safe. Every level is
  * probed instead: the operation's own keys, each clause, the operators inside a
  * clause, and the same clauses again one relation deeper.
+ *
+ * Read the `where` probes at exactly their strength: each spells a literal whose
+ * keys are ALL wrong. A typo written beside a CORRECT key is a weaker property
+ * that `where` does not have — see the pinned negative directly below this block.
  */
 describe("query args refuse a typo at every nesting level", () => {
   const _keyed = () =>
@@ -507,6 +511,62 @@ describe("query args refuse a typo at every nesting level", () => {
     expectTypeOf(_aggregateTypo).toBeFunction();
     expectTypeOf(_groupByTypo).toBeFunction();
     expectTypeOf(_havingTypo).toBeFunction();
+  });
+});
+
+/**
+ * The exact reach of the `where` probes above — measured at the merge of W8-A
+ * (operand callbacks) and W8-B (this file), because the two lanes read as
+ * contradicting each other and did not.
+ *
+ * Every `where` probe above spells a literal whose keys are ALL wrong, and that
+ * is refused: no member of the operand union matches, so the compiler reports.
+ * A typo written BESIDE a correct key is a different, weaker property, and it is
+ * NOT refused — `{ gt: 1, ltt: 100 }` matches the filter member and excess-
+ * property checking does not fire through the union. `where` has no EPC.
+ *
+ * This is PRE-EXISTING, not something the callback union cost. The four probes
+ * below were run against 2f7bd59 (pre-merge, plain values only, no callback in
+ * the union) and against the merged tree: byte-identical outcomes, only the
+ * all-wrong literal refused in both. Widening the operand to accept a callback
+ * changed nothing here.
+ *
+ * The doctrine holds where it must — at RUNTIME the strict object schemas refuse
+ * these keys, identically beside a plain value, a token, a fragment and a
+ * callback ("an unknown key is refused the same way beside every operand kind"
+ * in tests/query-engine/operand-callback-sql.test.ts). The gap is DX-only.
+ *
+ * Same convention as the FK pins above: no `@ts-expect-error`, because these
+ * compile, and their compiling IS the pin. The day `where` gets excess-property
+ * checking these four lines turn red — delete them and correct this comment.
+ */
+describe("a where typo BESIDE a correct key is the pinned negative", () => {
+  const _numericOperatorTypoAlone = () =>
+    // @ts-expect-error - "gtt" alone matches no member of the operand union
+    client.book.findMany({ where: { pages: { gtt: 1 } } });
+
+  const _numericOperatorTypoBesideCompiles = () =>
+    client.book.findMany({ where: { pages: { gt: 1, ltt: 100 } } });
+
+  const _stringOperatorTypoBesideCompiles = () =>
+    client.book.findMany({
+      where: { title: { contains: "x", startsWit: "y" } },
+    });
+
+  const _fieldTypoBesideCompiles = () =>
+    client.book.findMany({ where: { title: "x", ttitle: "y" } });
+
+  const _operandCallbackStillTyped = () =>
+    client.book.findMany({
+      where: { pages: { gt: (ctx) => ctx.fields.pages } },
+    });
+
+  test("all-wrong is refused; typo-beside-correct is pinned as compiling", () => {
+    expectTypeOf(_numericOperatorTypoAlone).toBeFunction();
+    expectTypeOf(_numericOperatorTypoBesideCompiles).toBeFunction();
+    expectTypeOf(_stringOperatorTypoBesideCompiles).toBeFunction();
+    expectTypeOf(_fieldTypoBesideCompiles).toBeFunction();
+    expectTypeOf(_operandCallbackStillTyped).toBeFunction();
   });
 });
 
