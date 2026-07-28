@@ -36,6 +36,8 @@ import {
 } from "valibot";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
+const TWO_DECIMAL_PRICE = /^\d+\.\d{2}$/;
+
 type InferScalarInput<
   State extends ScalarState,
   Key extends keyof GetScalarSchemas<State>,
@@ -1279,7 +1281,7 @@ describe("Decimal Scalar", () => {
 
   describe("Custom Schema Validation", () => {
     describe("two-decimal-place price validation", () => {
-      const priceSchema = pipe(string(), regex(/^\d+\.\d{2}$/));
+      const priceSchema = pipe(string(), regex(TWO_DECIMAL_PRICE));
       const scalar = decimal().schema(priceSchema);
       const schemas = getScalarSchemas(scalar["~"].state);
 

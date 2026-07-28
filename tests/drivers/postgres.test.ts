@@ -16,6 +16,7 @@ import { s } from "@schema";
 import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
@@ -23,7 +24,6 @@ import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runOmitBehavior } from "./omit-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
-import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,

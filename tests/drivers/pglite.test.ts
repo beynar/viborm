@@ -15,6 +15,7 @@ import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
@@ -35,7 +36,6 @@ import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
-import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,

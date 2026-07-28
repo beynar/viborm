@@ -30,6 +30,7 @@ import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow
 import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
@@ -41,7 +42,6 @@ import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
 import { runOmitBehavior } from "./omit-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
-import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import {
   runFullScalarRoundtripBehavior,
   runScalarRoundtripBehavior,
