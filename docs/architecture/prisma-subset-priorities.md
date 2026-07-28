@@ -19,7 +19,7 @@ rejected shapes.
 
 | Area | Why not first | Target direction |
 |------|---------------|------------------|
-| Query-level `omit` | Real Prisma ergonomics gap, but `select` already covers explicit projection. | Keep unsupported until there is a concrete product reason to add it. |
+| ~~Query-level `omit`~~ — **SHIPPED in W5-U4**, this row is retired | Was ranked "maybe later" because `select` already covered explicit projection. | Done: query-level and client-level `omit` match Prisma on every returning operation and nested relation node. See `prisma-parity-contract.md` (ARG-OMIT) and `docs/content/docs/client/omit.mdx`. |
 
 ## Priority 3: Do Not Chase for Core Parity
 
@@ -32,7 +32,7 @@ rejected shapes.
 
 1. Nested-write conformance and final audit.
 2. `distinct` semantics.
-3. Query-level `omit`, only if projection ergonomics become a real product need.
+3. ~~Query-level `omit`~~ — shipped in W5-U4.
 
 ## Guardrails
 

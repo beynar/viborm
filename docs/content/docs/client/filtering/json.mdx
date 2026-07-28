@@ -11,6 +11,8 @@ icon: Braces
 | `equals` | Match the JSON value exactly (or a [null sentinel](#the-two-nulls)) |
 | `not` | Negate a nested JSON filter (or a [null sentinel](#the-two-nulls)) |
 | `path` | Scope the other operators to a nested value |
+| `mode` | `"default"` (exact) or `"insensitive"` — scopes the `string_*` operators |
+| `lt` / `lte` / `gt` / `gte` | Compare the value at the path — see [Comparisons](#comparisons) |
 | `string_contains` | String at path contains substring |
 | `string_starts_with` | String at path starts with |
 | `string_ends_with` | String at path ends with |
@@ -18,14 +20,16 @@ icon: Braces
 | `array_starts_with` | First array element equals value |
 | `array_ends_with` | Last array element equals value |
 
-Comparison operators (`gt`, `gte`, `lt`, `lte`) are not supported on JSON
-scalars.
+`path` and `mode` are modifiers rather than operations: they scope the other
+operators in the same filter object, and a nested `not` inherits both unless it
+sets its own.
 
 ## Path Queries
 
-`path` is an array of segments that scopes every other operator in the same
-filter object to the nested value. Integer segments (`"0"`, `"1"`, …)
-address array elements:
+`path` scopes every other operator in the same filter object to the nested
+value. It takes two spellings — the portable array of segments, and Prisma's
+`"$.a.b"` string form. Integer segments (`"0"`, `"1"`, …) address array
+elements:
 
 ```ts
 // Exact match at path
@@ -43,14 +47,63 @@ where: {
     equals: "ball",
   },
 }
+
+// The same two queries in the string form
+where: { metadata: { path: "$.settings.theme", equals: "dark" } }
+where: { metadata: { path: "$.pet.toys[0]", equals: "ball" } }
+```
+
+The two forms mean the same thing and every operator accepts either. `"$"`
+alone is the document root.
+
+The string grammar is exactly `"$"`, `"$.key"` and `"$.key[0]"` — anything else
+(a bare `"theme"`, a trailing `"$."`, `"$.a[*]"`, a negative index) is rejected
+before SQL generation rather than guessed at. **A dot is always a separator**,
+so a key that itself contains `.`, `[` or `]` is only addressable through the
+array form:
+
+```ts
+// The document is { "weird.key": "gotcha" }
+where: { metadata: { path: "$.weird.key", equals: "gotcha" } }   // matches nothing
+where: { metadata: { path: ["weird.key"], equals: "gotcha" } }   // matches
 ```
 
 For one portable grammar, path segments containing `"` or `\` are rejected
-before SQL generation on every database.
+before SQL generation on every database — in either spelling.
 
 Rows where the path does not exist never match. Filtering `equals: null`
 with a `path` matches an explicit JSON `null` at that path (not missing
 keys); without a `path` it matches rows where the column is SQL `NULL`.
+
+## Comparisons
+
+`lt`, `lte`, `gt` and `gte` compare the value at the path (or the document root
+when there is no `path`). The semantics are identical on PostgreSQL, MySQL and
+SQLite:
+
+```ts
+// Numbers
+where: { metadata: { path: ["score"], gt: 10 } }
+
+// Strings
+where: { metadata: { path: ["tier"], gte: "gold" } }
+
+// Several comparisons in one object are ANDed
+where: { metadata: { path: ["score"], gt: 1, lt: 10 } }
+```
+
+**The operand's JavaScript type picks the comparison class.** A number compares
+numerically and only against JSON numbers; a string compares lexicographically
+by code point and only against JSON strings. The classes never cross: the JSON
+string `"42"` does not satisfy `gt: 40`, and the JSON number `42` does not
+satisfy `gt: "40"`. Any other operand type is rejected.
+
+Ordering of strings is code-point ordering, not the database's locale
+collation, so `"Banana"` sorts before `"apple"` on every provider.
+
+A row whose path is absent, whose column is `NULL`, or whose value at the path
+is of the other class (or a boolean, JSON `null`, object or array) never matches
+and never errors.
 
 ## The two nulls
 
@@ -125,7 +178,35 @@ where: {
 }
 ```
 
-Matching is case-sensitive on every database.
+### Case-insensitive matching
+
+Matching is case-sensitive by default. `mode: "insensitive"` folds the
+comparison, exactly as it does on [string scalars](/docs/client/filtering/string):
+
+```ts
+where: {
+  metadata: {
+    path: ["theme"],
+    string_contains: "DARK",
+    mode: "insensitive",
+  },
+}
+```
+
+- `mode` governs `string_contains`, `string_starts_with` and
+  `string_ends_with` only. `equals`, `not` and the `array_*` operators compare
+  whole JSON values rather than text, so folding them would mean nothing.
+- The fold is **ASCII `A`-`Z` only**, on every database — the same portable
+  contract the string scalars use, so JSON and scalar filters agree with each
+  other and never depend on a database's locale or ICU build. `"ÉCL"` still
+  matches `"Éclair"` (`É` is outside `A`-`Z` and stays exact); `"écl"` does
+  not.
+- Wildcards stay literal under the fold: `%` and `_` have no special meaning.
+- A nested `not` inherits the mode, and may override it in either direction —
+  `not: { string_contains: "x", mode: "default" }` really does restore exact
+  matching on that arm.
+- A `mode: "insensitive"` with no string operator to govern is **refused**, not
+  silently ignored.
 
 ## Array Operations
 

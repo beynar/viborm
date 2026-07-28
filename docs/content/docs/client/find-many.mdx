@@ -64,7 +64,28 @@ await client.user.findMany({
 
 `select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
 
-At the top level, a negative `take` returns the last N records in the order. This "last N" form is top-level only — a negative `take` or a `cursor` inside a nested `include`/`select` isn't supported.
+A negative `take` returns the last N records in the order. It works at the top
+level and inside a nested relation, in both the `include` and the `select`
+spelling — as does a nested `cursor`, which composes with `skip` and `take` the
+same way it does at the top level:
+
+```ts
+// The last two posts of every user
+await client.user.findMany({
+  include: { posts: { orderBy: { id: "asc" }, take: -2 } },
+});
+
+// A cursor page of posts, per user, through select
+await client.user.findMany({
+  select: {
+    id: true,
+    posts: { orderBy: { id: "asc" }, cursor: { id: lastId }, skip: 1, take: 2 },
+  },
+});
+```
+
+Results always come back in the query's logical order, so don't reverse a
+negative-`take` page yourself.
 
 ## Return Type
 

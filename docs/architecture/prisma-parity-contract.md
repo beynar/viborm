@@ -157,8 +157,14 @@ a claim of exhaustive coverage.
 
 - `exist` is a VibORM extension. Keep `exist`; do not add `exists` during this
   roadmap.
-- Query-level Prisma `omit` is known unsupported for this roadmap. Model-level
-  omit remains a VibORM result-shaping feature.
+- SUPERSEDED by W5-U4 (`prisma-parity-v2-plan.md`): query-level Prisma `omit`
+  ships. It is available on every returning operation and on nested relation
+  nodes, client-level `omit` ships as a per-client default, and both desugar in
+  validation into the `select` they denote. `select` + `omit` is refused, as is
+  an `omit` that empties the projection. Model-level `.omit()` remains a VibORM
+  result-shaping feature and became a HARD exclusion in the same unit, so it
+  outranks both. See the ARG-OMIT row above and
+  `docs/content/docs/client/omit.mdx`.
 - SUPERSEDED by W5-U1 (`prisma-parity-v2-plan.md`): raw SQL is now Prisma-shaped.
   `$queryRaw`/`$executeRaw` are tagged templates returning `T[]` / the affected
   count, `$queryRawUnsafe`/`$executeRawUnsafe` carry Prisma's signatures, and

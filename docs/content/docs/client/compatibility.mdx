@@ -24,7 +24,7 @@ Everything in the API works the same on every database unless noted under [Datab
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
 | `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
 | `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported. |
-| `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. |
+| `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. `_min`/`_max`/`_sum`/`_avg` over a `s.decimal()` are refused on SQLite — see [Decimals on SQLite](#decimals-on-sqlite). |
 | `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
 | `$queryRaw` / `$executeRaw` | ✅ | Tagged templates that bind every interpolation, exactly like Prisma's. `$queryRaw` returns `T[]`, `$executeRaw` returns the affected count. See [Raw SQL](/docs/client/raw-sql). |
 | `$queryRawUnsafe` / `$executeRawUnsafe` | ✅ | Prisma's signatures: a statement string plus positional parameters. |
@@ -101,6 +101,7 @@ database's locale or ICU installation.
 |----------|-----------|
 | Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** support batch mode only. Cloudflare D1 support uses the binding because its `batch()` primitive provides the required atomic boundary. See [Transactions](/docs/client/transactions). |
 | Vector / geospatial | PostgreSQL with the relevant extension enabled; unsupported (and clearly errors) elsewhere. |
+| Ordering, aggregating and arithmetic on a `s.decimal()` | **SQLite refuses them**; PostgreSQL and MySQL answer them exactly. SQLite has no exact decimal type, so viborm stores decimals in a `TEXT` column there and raises `UnsupportedOperationError` (`V8003`) rather than routing the answer through a double. See [the row below](#decimals-on-sqlite). |
 
 JSON filter paths use one portable grammar. Segments containing `"` or `\`
 reject before SQL generation on every database; they never degrade to an empty
@@ -111,6 +112,29 @@ string keys preserve case, accents, and trailing spaces like PostgreSQL and
 SQLite. Existing tables require the explicit collation migration described in
 the [MySQL migration driver guide](/docs/migration/drivers/mysql); upgrading the
 package does not rewrite deployed tables.
+
+### Decimals on SQLite
+
+Storage, reads, and equality filters (`equals`, `not`, `in`, `notIn`) are exact
+on **every** database, as are `count`, `distinct`, `groupBy` on the column, and
+`set`. What SQLite cannot do exactly, it refuses:
+
+| Operation on a decimal | postgres | mysql | sqlite |
+|---|---|---|---|
+| `lt` / `lte` / `gt` / `gte`, `orderBy` | exact | exact | **`UnsupportedOperationError`** |
+| `_min` / `_max` / `_sum` / `_avg` (including `groupBy` and `having`) | exact | exact | **`UnsupportedOperationError`** |
+| `increment` / `decrement` / `multiply` / `divide` | exact | exact | **`UnsupportedOperationError`** |
+
+The `orderBy` refusal covers **every spelling of an ordering**, not just the
+bare one: `take` / `skip` / `cursor` windows, `findFirst`, ordering through a
+to-one relation, ordering inside a nested read, and `groupBy`'s `orderBy`.
+`_count` is never refused — counting rows needs no ordering.
+
+A `gt` that silently skips a row differing in the 20th digit is worse than an
+error, so it is an error, and the error names the field, the reason, and the two
+workarounds (`s.float()` for approximate ordering, scaled integers in an
+`s.bigInt()` for exact ordered money). Full detail, including the column-type
+migration, is in [the Decimal scalar page](/docs/schema/scalars/decimal).
 
 ## Errors and Prisma error codes
 
