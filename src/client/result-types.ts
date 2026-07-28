@@ -205,37 +205,66 @@ type MaybeOmittedKeys<O> = {
         : never;
 }[keyof O];
 
-export type ApplyOmit<T, O> = [O] extends [undefined]
-  ? T
-  : Omit<T, Extract<DefinitelyOmittedKeys<O> | MaybeOmittedKeys<O>, keyof T>> &
-      Partial<Pick<T, Extract<MaybeOmittedKeys<O>, keyof T>>>;
+type ReduceOmit<T, O> = Omit<
+  T,
+  Extract<DefinitelyOmittedKeys<O> | MaybeOmittedKeys<O>, keyof T>
+> &
+  Partial<Pick<T, Extract<MaybeOmittedKeys<O>, keyof T>>>;
 
 /**
- * The `omit` a node carries, or `undefined` when it carries none.
+ * An `omit` that MAY be absent decides nothing on its own, so every key it
+ * names softens to a widened `boolean` — which {@link ReduceOmit} renders as an
+ * OPTIONAL key, the same convention a widened flag already follows. It is the
+ * spread idiom's other half: `{ ...(cond && { omit: { title: true } }) }` types
+ * `omit` as optional, and promising `title` outright would be a lie exactly
+ * when `cond` holds.
+ */
+type SoftenNodeOmit<O> = { [F in keyof O]: boolean };
+
+export type ApplyOmit<T, O> = [O] extends [undefined]
+  ? T
+  : undefined extends O
+    ? ReduceOmit<T, SoftenNodeOmit<Exclude<O, undefined>>>
+    : ReduceOmit<T, O>;
+
+/**
+ * The value a node STATES under one projection key, or `undefined` when it
+ * states none.
  *
+ * INDEXED ACCESS, not `Node extends { omit: infer O }`: a conditional matches a
+ * REQUIRED property, so it reads an OPTIONAL one — the exact shape TypeScript
+ * gives the spread idiom, `{ ...(cond && { select: sel }) }` -> `{ select?: Sel }`
+ * — as "no such key", and the key would silently decide nothing. Indexed access
+ * reports it as `Sel | undefined`, which is the truth: only the runtime knows.
+ *
+ * An object with a string INDEX SIGNATURE states nothing, for the same reason
+ * `NoExtraClauseKeys` (./types.ts) refuses to police one: it declares no spelled
+ * key, and reading `Record<string, unknown>["select"]` as a projection would
+ * turn every dynamically-built payload into the ambiguous arm.
+ */
+type NodeKey<Node, Key extends string> = string extends keyof Node
+  ? undefined
+  : Key extends keyof Node
+    ? Node[Extract<Key, keyof Node>]
+    : undefined;
+
+/**
  * Exported because the CLIENT-level default is folded into the same key before
  * inference runs (`WithClientOmit`, ./types.ts): one node, one `omit`, one
  * reduction — the same shape the runtime hands the engine after
  * `applyClientOmit` has rewritten the payload.
  */
-export type NodeOmit<Node> = Node extends { omit: infer O } ? O : undefined;
+export type NodeOmit<Node> = NodeKey<Node, "omit">;
 
 /**
- * The `select` a node carries, or `undefined` when it carries none.
- *
  * The parse boundary treats an explicitly-`undefined` key as an ABSENT key
  * (`src/validation/primitives/object.ts`), which is what makes the
  * spread-an-optional idiom work; so `{ select: undefined }` and `{}` are the
  * same payload, and this helper reports them the same way.
  */
-export type NodeSelect<Node> = Node extends { select: infer Sel }
-  ? Sel
-  : undefined;
+export type NodeSelect<Node> = NodeKey<Node, "select">;
 
-/** The `include` a node carries, or `undefined` when it carries none. */
-export type NodeInclude<Node> = Node extends { include: infer I }
-  ? I
-  : undefined;
+export type NodeInclude<Node> = NodeKey<Node, "include">;
 
 /**
  * Get relation type (oneToMany, manyToMany, oneToOne, manyToOne)
@@ -297,27 +326,60 @@ export type InferRelationResult<R extends AnyRelation> = WrapRelation<
  * way: a sibling key that is present but `undefined` is not a second projection,
  * so it does not turn a legal payload into `never`.
  */
-export type InferSelectInclude<S extends ModelState, Args> = Args extends {
-  select: infer Selection;
-}
-  ? [Selection] extends [undefined]
-    ? InferUnselectedRow<S, Args>
-    : [NodeInclude<Args>] extends [undefined]
-      ? [NodeOmit<Args>] extends [undefined]
-        ? InferSelectResult<S, Selection>
-        : never
-      : never
-  : InferUnselectedRow<S, Args>;
+export type InferSelectInclude<
+  S extends ModelState,
+  Args,
+  Selection = NodeSelect<Args>,
+> = [Selection] extends [undefined]
+  ? InferUnselectedRow<S, Args>
+  : undefined extends Selection
+    ? // Only the runtime value decides, so the result is the honest UNION of
+      // both worlds — the same ambiguous arm `BulkWriteResult` takes for
+      // `updateMany({ select: maybeSelect })`. Collapsing it to the full row
+      // (which is what reading the key's PRESENCE did) claimed every column on a
+      // call that returns one; collapsing it to the projection would claim the
+      // opposite. A caller in this position narrows, which is exactly the choice
+      // they deferred to runtime.
+        | InferUnselectedRow<S, Args>
+        | InferSelectedRow<S, Args, Exclude<Selection, undefined>>
+    : InferSelectedRow<S, Args, Selection>;
+
+/**
+ * The row a node returns in the world where its `select` carries a value.
+ *
+ * `select` is exclusive with `include` and with `omit` — the parse boundary
+ * refuses both pairs — so a sibling that DEFINITELY carries a value makes this
+ * world impossible, and `never` is precisely the type of a value that is never
+ * produced (the call throws). A sibling that merely MAY carry one leaves this
+ * world reachable, and the union above keeps the other one.
+ */
+type InferSelectedRow<
+  S extends ModelState,
+  Args,
+  Selection,
+> = undefined extends NodeInclude<Args>
+  ? undefined extends NodeOmit<Args>
+    ? InferSelectResult<S, Selection>
+    : never
+  : never;
 
 /**
  * The row a node returns when it states no `select`: the model's own output,
  * plus whatever `include` adds, reduced by the node's `omit`.
+ *
+ * An `include` that MAY be absent is read as ABSENT — the common ground of both
+ * worlds — while a MAYBE `omit` softens instead (`ApplyOmit`). The asymmetry is
+ * the direction of the lie: `include` only ADDS keys, so promising the smaller
+ * row promises nothing that is missing at runtime, and the caller who wants the
+ * relation spells the `include` definitely; `omit` REMOVES them, so reading a
+ * maybe-omit as absent would promise a column the runtime may have dropped.
  */
-type InferUnselectedRow<S extends ModelState, Args> = Args extends {
-  include: infer Include;
-}
-  ? ApplyOmit<InferIncludeResult<S, Include>, NodeOmit<Args>>
-  : ApplyOmit<InferModelOutput<S>, NodeOmit<Args>>;
+type InferUnselectedRow<
+  S extends ModelState,
+  Args,
+> = undefined extends NodeInclude<Args>
+  ? ApplyOmit<InferModelOutput<S>, NodeOmit<Args>>
+  : ApplyOmit<InferIncludeResult<S, NodeInclude<Args>>, NodeOmit<Args>>;
 
 /**
  * Result when select is provided - ONLY selected fields are returned
@@ -440,22 +502,32 @@ export type InferNestedIncludeResult<R extends AnyRelation, NI> = WrapRelation<
  * top. Pagination-only nodes fall through to the full relation payload, which
  * is what they always did.
  */
-type InferRelationNodeResult<R extends AnyRelation, Node> = Node extends {
-  select: infer NS;
-}
-  ? InferNestedSelectResult<R, NS>
-  : Node extends { include: infer NI }
-    ? WrapRelation<
-        R,
-        ApplyOmit<
-          InferIncludeResult<GetTargetModelState<R>, NI>,
-          NodeOmit<Node>
-        >
-      >
-    : WrapRelation<
-        R,
-        ApplyOmit<InferModelOutput<GetTargetModelState<R>>, NodeOmit<Node>>
-      >;
+type InferRelationNodeResult<
+  R extends AnyRelation,
+  Node,
+  NS = NodeSelect<Node>,
+> = [NS] extends [undefined]
+  ? UnselectedRelationNode<R, Node>
+  : undefined extends NS
+    ? // The same ambiguous arm the top-level node takes, one level down.
+        | UnselectedRelationNode<R, Node>
+        | InferNestedSelectResult<R, Exclude<NS, undefined>>
+    : InferNestedSelectResult<R, NS>;
+
+/** A relation node that states no `select`. */
+type UnselectedRelationNode<
+  R extends AnyRelation,
+  Node,
+  NI = NodeInclude<Node>,
+> = undefined extends NI
+  ? WrapRelation<
+      R,
+      ApplyOmit<InferModelOutput<GetTargetModelState<R>>, NodeOmit<Node>>
+    >
+  : WrapRelation<
+      R,
+      ApplyOmit<InferIncludeResult<GetTargetModelState<R>, NI>, NodeOmit<Node>>
+    >;
 
 // =============================================================================
 // AGGREGATE RESULT TYPES

@@ -310,7 +310,16 @@ type WithClientOmit<Args, Default> = [Default] extends [undefined]
   ? Args
   : [NodeSelect<Args>] extends [undefined]
     ? Omit<Args, "omit"> & { omit: MergeClientOmit<Default, NodeOmit<Args>> }
-    : Args;
+    : undefined extends NodeSelect<Args>
+      ? // The default applies in EXACTLY the world where the projection is
+        // absent, so it is folded in as a maybe — `ApplyOmit` renders that as
+        // optional keys, and `InferSelectInclude` still reaches the projection
+        // arm. Injecting it definitely would collapse the projection world into
+        // the `select` + `omit` refusal.
+        Omit<Args, "omit"> & {
+          omit: MergeClientOmit<Default, NodeOmit<Args>> | undefined;
+        }
+      : Args;
 
 /**
  * A bulk write sees the client default only where the CALLER already wrote a
