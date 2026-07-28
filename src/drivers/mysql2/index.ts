@@ -12,6 +12,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { QueryError, TransactionError } from "@errors";
 import type { Pool, PoolConnection, PoolOptions } from "mysql2/promise";
 import {
@@ -296,8 +297,8 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: MySQL2ClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: MySQL2ClientConfig<C> & DriverConfig<S>
 ) {
   const { pool, options = {}, databaseUrl, ...restConfig } = config;
 

@@ -11,6 +11,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
@@ -215,8 +216,8 @@ export class PostgresDriver extends Driver<
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: PostgresClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: PostgresClientConfig<C> & DriverConfig<S>
 ) {
   const {
     client,

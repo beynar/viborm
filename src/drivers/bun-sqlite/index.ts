@@ -11,6 +11,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { FeatureNotSupportedError } from "@errors";
 import { Driver, type DriverResultParser } from "../driver";
 import {
@@ -137,11 +138,16 @@ export class BunSQLiteDriver extends Driver<
     // ("flags must include SQLITE_OPEN_READONLY or SQLITE_OPEN_READWRITE").
     // An options bag that says nothing must mean nothing, so the argument is
     // omitted entirely and Bun applies its own default (readwrite + create).
-    if (options === undefined || Object.keys(options).length === 0) {
-      return new Database(dataDir) as unknown as BunSQLiteDatabase;
-    }
+    const db = (options === undefined || Object.keys(options).length === 0
+      ? new Database(dataDir)
+      : new Database(dataDir, options)) as unknown as BunSQLiteDatabase;
 
-    return new Database(dataDir, options) as unknown as BunSQLiteDatabase;
+    // bun:sqlite leaves SQLite's foreign_keys default (OFF), which would let a
+    // dangling FK write report success while sqlite3 and libsql refuse it.
+    // Enforcement is a viborm guarantee, not an inherited library default.
+    db.exec("PRAGMA foreign_keys = ON");
+
+    return db;
   }
 
   protected async closeClient(db: BunSQLiteDatabase): Promise<void> {
@@ -239,8 +245,8 @@ export class BunSQLiteDriver extends Driver<
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: BunSQLiteClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: BunSQLiteClientConfig<C> & DriverConfig<S>
 ) {
   const { client, dataDir, options, ...restConfig } = config;
 

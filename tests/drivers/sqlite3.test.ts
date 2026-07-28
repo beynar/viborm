@@ -423,7 +423,6 @@ describe("SQLite3 Driver", () => {
     test("maps raw foreign key constraint errors", async () => {
       const driver = createInMemorySQLite3Driver();
       await setupSQLite3UserPostDatabase(driver);
-      await driver._executeRaw("PRAGMA foreign_keys = ON");
 
       await expect(
         driver._executeRaw(

@@ -12,6 +12,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import type { D1Database } from "@cloudflare/workers-types";
 import { QueryError } from "@errors";
 import {
@@ -286,8 +287,8 @@ export class D1Driver extends Driver<D1Database, D1Database> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: D1ClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: D1ClientConfig<C> & DriverConfig<S>
 ) {
   const { database, ...restConfig } = config;
 

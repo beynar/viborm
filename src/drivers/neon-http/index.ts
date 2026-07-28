@@ -16,6 +16,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { QueryError, unsupportedGeospatial, unsupportedVector } from "@errors";
 import type {
   NeonQueryFunction,
@@ -313,8 +314,8 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: NeonHTTPClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: NeonHTTPClientConfig<C> & DriverConfig<S>
 ) {
   const { databaseUrl, options, pgvector, postgis, ...restConfig } = config;
 

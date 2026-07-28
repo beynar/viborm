@@ -66,7 +66,7 @@ const schema = { user, post, incrementParent, incrementChild };
 // =============================================================================
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+  ReturnType<typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>>
 >;
 
 beforeAll(async () => {

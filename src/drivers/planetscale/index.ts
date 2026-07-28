@@ -13,6 +13,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import type { Client, Config, Connection } from "@planetscale/database";
 import {
   Driver,
@@ -201,8 +202,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: PlanetScaleClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: PlanetScaleClientConfig<C> & DriverConfig<S>
 ) {
   const { client, databaseUrl, options, ...restConfig } = config;
 

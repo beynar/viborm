@@ -11,6 +11,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import {
   TransactionError,
   unsupportedGeospatial,
@@ -211,8 +212,8 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: PgClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: PgClientConfig<C> & DriverConfig<S>
 ) {
   const {
     pool,

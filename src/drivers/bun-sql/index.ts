@@ -11,6 +11,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver, type QueryExecutionContext } from "../driver";
 import { normalizeProviderRowCount } from "../normalized-result";
@@ -195,8 +196,8 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: BunSQLClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: BunSQLClientConfig<C> & DriverConfig<S>
 ) {
   const { client, databaseUrl, options, pgvector, postgis, ...restConfig } =
     config;

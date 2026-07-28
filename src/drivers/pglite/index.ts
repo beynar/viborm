@@ -12,6 +12,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import {
   PGlite,
   type PGliteOptions,
@@ -164,7 +165,9 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(config: PGliteConfig<C>) {
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: PGliteConfig<C> & DriverConfig<S>
+) {
   const { client, dataDir, options, pgvector, postgis, ...restConfig } = config;
 
   const driver = new PGliteDriver({

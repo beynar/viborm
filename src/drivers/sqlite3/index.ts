@@ -12,6 +12,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import Database from "better-sqlite3";
 import { Driver, type DriverResultParser } from "../driver";
 import {
@@ -75,7 +76,11 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
     const options = this.driverOptions.options ?? {};
 
-    return new Database(dataDir, options);
+    const db = new Database(dataDir, options);
+    // better-sqlite3 happens to enable this already; stated explicitly so FK
+    // enforcement is a viborm guarantee, not an inherited library default.
+    db.pragma("foreign_keys = ON");
+    return db;
   }
 
   protected async closeClient(db: SQLite3Database): Promise<void> {
@@ -173,8 +178,8 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: SQLite3ClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: SQLite3ClientConfig<C> & DriverConfig<S>
 ) {
   const { client, dataDir, options, ...restConfig } = config;
 

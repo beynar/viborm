@@ -11,6 +11,7 @@ import {
   type DriverConfig,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import type { Client, Config, InValue, Transaction } from "@libsql/client";
 import {
   Driver,
@@ -111,6 +112,12 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
   protected async initClient(): Promise<Client> {
     const { createClient } = await import("@libsql/client");
     const url = this.getDatabaseUrl();
+
+    // No `PRAGMA foreign_keys = ON` here: libsql's engine flipped upstream
+    // SQLite's default, so enforcement is already on for file:, :memory: and
+    // Turso alike — and a per-connection pragma issued once at init could not
+    // be relied on across remote HTTP requests anyway. sqlite3 and bun-sqlite
+    // set it explicitly; here the engine itself states the same guarantee.
 
     const authToken = this.driverOptions.authToken;
     const options = this.driverOptions.options ?? {};
@@ -253,8 +260,8 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: LibSQLClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: LibSQLClientConfig<C> & DriverConfig<S>
 ) {
   const { client, databaseUrl, dataDir, authToken, options, ...restConfig } =
     config;

@@ -15,6 +15,7 @@
 
 import { createClient } from "@client/client";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
+import { ForeignKeyError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 
@@ -126,6 +127,30 @@ assert(
 assert(
   unsafe[0]?.views === ROUNDED_VIEWS,
   `$queryRawUnsafe gave ${unsafe[0]?.views}, expected the rounded ${ROUNDED_VIEWS}`
+);
+
+// 6. Referential integrity: bun:sqlite keeps SQLite's foreign_keys default
+//    (OFF), so without the driver's `PRAGMA foreign_keys = ON` this dangling
+//    write would report success and store the row — the silent divergence
+//    sqlite3 and libsql never allow. It must raise the same typed error.
+let fkError: unknown;
+try {
+  await client.reading.create({
+    data: { id: "r-dangling", measurementId: "no-such-measurement", count: 1n },
+  });
+} catch (error) {
+  fkError = error;
+}
+assert(
+  fkError instanceof ForeignKeyError,
+  fkError === undefined
+    ? "dangling FK write reported success, expected ForeignKeyError"
+    : `dangling FK write threw ${String(fkError)}, expected ForeignKeyError`
+);
+const readings = await client.reading.findMany();
+assert(
+  readings.length === 1,
+  `dangling FK write left ${readings.length} readings, expected the 1 valid row`
 );
 
 await client.$disconnect();

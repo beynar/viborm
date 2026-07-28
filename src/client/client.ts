@@ -196,7 +196,8 @@ export interface VibORMConfig<S extends Schema = Schema> {
   decimal?: "string" | "number";
 }
 
-export interface DriverConfig extends Omit<VibORMConfig, "driver"> {}
+export interface DriverConfig<S extends Schema = Schema>
+  extends Omit<VibORMConfig<S>, "driver"> {}
 
 /**
  * The client an interactive `$transaction(async (tx) => ...)` callback gets:

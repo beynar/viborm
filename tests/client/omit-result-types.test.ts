@@ -19,7 +19,10 @@
 
 import { createClient } from "@client/client";
 import type { OperationPayload, OperationResult } from "@client/types";
-import { PGliteDriver } from "@drivers/pglite";
+import {
+  PGliteDriver,
+  createClient as pgliteCreateClient,
+} from "@drivers/pglite";
 import { s } from "@schema";
 import { describe, expectTypeOf, test } from "vitest";
 
@@ -326,5 +329,46 @@ describe("client-level omit config is contextually keyed", () => {
     expectTypeOf(_typoModel).toBeFunction();
     expectTypeOf(_typoField).toBeFunction();
     expectTypeOf(_relationKey).toBeFunction();
+  });
+});
+
+/**
+ * The DRIVER-LEVEL convenience wrappers (createClient from each driver
+ * package) are the entry point most apps use — they must be contextually
+ * keyed exactly like the core createClient. This is the path where the gap
+ * was actually found (importing createClient from the pglite package gave
+ * no omit completions while the core one did).
+ */
+describe("driver-level createClient omit config is contextually keyed", () => {
+  const _keyed = () =>
+    pgliteCreateClient({
+      schema: { author, book },
+      omit: {
+        author: { passwordHash: true },
+      },
+    });
+
+  const _typoModel = () =>
+    pgliteCreateClient({
+      schema: { author, book },
+      omit: {
+        // @ts-expect-error - "reader" is not a model of this schema
+        reader: { passwordHash: true },
+      },
+    });
+
+  const _typoField = () =>
+    pgliteCreateClient({
+      schema: { author, book },
+      omit: {
+        // @ts-expect-error - "passwordHsh" is not a field of author
+        author: { passwordHsh: true },
+      },
+    });
+
+  test("the probes above compile (assertions live in @ts-expect-error)", () => {
+    expectTypeOf(_keyed).toBeFunction();
+    expectTypeOf(_typoModel).toBeFunction();
+    expectTypeOf(_typoField).toBeFunction();
   });
 });

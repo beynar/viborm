@@ -23,7 +23,7 @@ const probePath = fileURLToPath(
 );
 
 test.runIf(bunVersion.status === 0)(
-  "bun:sqlite round-trips an INTEGER past 2^53 exactly through the driver",
+  "bun:sqlite round-trips an INTEGER past 2^53 exactly and enforces foreign keys through the driver",
   () => {
     const result = spawnSync("bun", ["run", probePath], { encoding: "utf8" });
 
