@@ -138,8 +138,14 @@ describe("PGlite Driver", () => {
     createDriver: createInMemoryPGliteDriver,
   });
   runBulkWriteLimitBehavior({
-    driverName: "PGlite",
+    driverName: "PGlite (tx)",
     createDriver: createInMemoryPGliteDriver,
+  });
+  // `limit: 0` compiles to no statement at all, which is a different shape on
+  // the batch-only path: the shared batch has nothing to send for it.
+  runBulkWriteLimitBehavior({
+    driverName: "PGlite (batch)",
+    createDriver: createBatchOnlyPGliteDriver,
   });
   runListJsonFilterBehavior({
     driverName: "PGlite",

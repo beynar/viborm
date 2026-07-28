@@ -424,6 +424,58 @@ export function runBulkWriteLimitBehavior({
     });
 
     // -----------------------------------------------------------------------
+    // Inside $transaction([...])
+    // -----------------------------------------------------------------------
+
+    /**
+     * `limit: 0` compiles to NO statement, so inside `$transaction([...])` it
+     * contributes nothing to the batch. On a batch-only driver that used to make
+     * a batch of nothing but such writes "un-batchable" — a refusal the direct
+     * path never issued, and which a single statement-emitting sibling lifted.
+     * The documented `{ count: 0 }` / `[]` holds on every driver, in both
+     * transaction and batch mode, alone or in company.
+     */
+    test("limit 0 is the same no-op inside $transaction([...])", async () => {
+      await seedCrates();
+
+      expect(
+        await client!.$transaction([
+          client!.crate.deleteMany({ where: { tag: "keep" }, limit: 0 }),
+        ])
+      ).toEqual([{ count: 0 }]);
+
+      expect(
+        await client!.$transaction([
+          client!.crate.updateMany({
+            where: { tag: "keep" },
+            data: { tag: "nope" },
+            limit: 0,
+          }),
+          client!.crate.deleteMany({
+            where: { tag: "keep" },
+            limit: 0,
+            select: { id: true },
+          }),
+        ])
+      ).toEqual([{ count: 0 }, []]);
+
+      // With a statement-emitting sibling the whole batch still commits as one.
+      expect(
+        await client!.$transaction([
+          client!.crate.deleteMany({ where: { tag: "keep" }, limit: 0 }),
+          client!.crate.updateMany({
+            where: { tag: "keep" },
+            data: { tag: "capped" },
+            limit: 2,
+          }),
+        ])
+      ).toEqual([{ count: 0 }, { count: 2 }]);
+
+      expect(await crateIds({ tag: "keep" })).toHaveLength(3);
+      expect(await crateIds({ tag: "capped" })).toHaveLength(2);
+    });
+
+    // -----------------------------------------------------------------------
     // Parse boundary
     // -----------------------------------------------------------------------
 

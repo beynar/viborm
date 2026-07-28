@@ -666,6 +666,187 @@ describe("$transaction with array (batch mode)", () => {
   });
 });
 
+/**
+ * `limit: 0` is the bulk write that affects nothing: it compiles to an EMPTY
+ * fragment (BulkCountOperation / ManyAndReturnOperation), so it contributes
+ * zero statements to a shared batch. The documented answer is `{ count: 0 }` /
+ * `[]` with no batch caveat (delete-many.mdx, update-many.mdx).
+ *
+ * A batch made only of such writes therefore has NOTHING to send — which is not
+ * the same thing as a payload that "cannot be batched atomically", the refusal
+ * it used to draw on a batch-only driver. The refusal also contradicted itself:
+ * adding any statement-emitting sibling made the same operation succeed.
+ */
+describe("$transaction([...]) with statement-free operations", () => {
+  const bootBatchOnly = async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    await push(setupClient, { force: true });
+    return createClient({
+      schema,
+      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+    });
+  };
+
+  test("batch-only: a sole limit-0 deleteMany is the documented no-op", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await batchOnlyClient.user.create({
+        data: { id: "1", name: "Keep", email: "keep@test.com" },
+      });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({ where: { id: "1" }, limit: 0 }),
+        ])
+      ).resolves.toEqual([{ count: 0 }]);
+
+      expect(await batchOnlyClient.user.findMany()).toHaveLength(1);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a sole limit-0 updateMany is the documented no-op", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await batchOnlyClient.user.create({
+        data: { id: "1", name: "Keep", email: "keep@test.com" },
+      });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.updateMany({
+            where: { id: "1" },
+            data: { name: "Changed" },
+            limit: 0,
+          }),
+        ])
+      ).resolves.toEqual([{ count: 0 }]);
+
+      expect((await batchOnlyClient.user.findMany())[0]?.name).toBe("Keep");
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a sole limit-0 row-returning deleteMany returns no rows", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await batchOnlyClient.user.create({
+        data: { id: "1", name: "Keep", email: "keep@test.com" },
+      });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({
+            where: { id: "1" },
+            limit: 0,
+            select: { id: true },
+          }),
+        ])
+      ).resolves.toEqual([[]]);
+
+      expect(await batchOnlyClient.user.findMany()).toHaveLength(1);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a batch of nothing but limit-0 writes answers once per operation", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await batchOnlyClient.user.create({
+        data: { id: "1", name: "Keep", email: "keep@test.com" },
+      });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({ where: { id: "1" }, limit: 0 }),
+          batchOnlyClient.user.updateMany({
+            data: { name: "Changed" },
+            limit: 0,
+          }),
+        ])
+      ).resolves.toEqual([{ count: 0 }, { count: 0 }]);
+
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "1", name: "Keep", email: "keep@test.com" },
+      ]);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a limit-0 sibling still leaves the real write atomic", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      // The mixed batch commits: the no-op answers 0, the real write lands.
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({
+            where: { id: "nobody" },
+            limit: 0,
+          }),
+          batchOnlyClient.user.create({
+            data: { id: "1", name: "Real", email: "real@test.com" },
+          }),
+        ])
+      ).resolves.toMatchObject([{ count: 0 }, { id: "1", name: "Real" }]);
+      expect(await batchOnlyClient.user.findMany()).toHaveLength(1);
+
+      // …and when a sibling fails, the mixed batch still rolls back whole.
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({
+            where: { id: "nobody" },
+            limit: 0,
+          }),
+          batchOnlyClient.user.create({
+            data: { id: "2", name: "Second", email: "second@test.com" },
+          }),
+          batchOnlyClient.user.create({
+            data: { id: "3", name: "Clash", email: "real@test.com" },
+          }),
+        ])
+      ).rejects.toThrow();
+      expect(await batchOnlyClient.user.findMany()).toHaveLength(1);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("transaction driver: the same batches give the same answers", async () => {
+    await client.user.create({
+      data: { id: "1", name: "Keep", email: "keep@test.com" },
+    });
+
+    await expect(
+      withTransactions(client).$transaction([
+        client.user.deleteMany({ where: { id: "1" }, limit: 0 }),
+        client.user.updateMany({ data: { name: "Changed" }, limit: 0 }),
+      ])
+    ).resolves.toEqual([{ count: 0 }, { count: 0 }]);
+
+    await expect(
+      withTransactions(client).$transaction([
+        client.user.deleteMany({
+          where: { id: "1" },
+          limit: 0,
+          select: { id: true },
+        }),
+      ])
+    ).resolves.toEqual([[]]);
+
+    expect(await client.user.findMany()).toEqual([
+      { id: "1", name: "Keep", email: "keep@test.com" },
+    ]);
+  });
+});
+
 describe("mixed operations", () => {
   test("operations work independently after batch", async () => {
     // Batch some operations

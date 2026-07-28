@@ -805,41 +805,51 @@ export class VibORM<C extends VibORMConfig> {
                   });
                 }
 
-                if (
-                  parsers.length === operations.length &&
-                  operationQueries.length > 0
-                ) {
+                if (parsers.length === operations.length) {
                   const setupOffset = hasProgramBatchState
                     ? setupQueries.length
                     : 0;
                   const batchQueries = hasProgramBatchState
                     ? [...setupQueries, ...operationQueries, ...cleanupQueries]
                     : operationQueries;
-                  let batchResults: QueryResult<unknown>[];
-                  try {
-                    batchResults = await driver._executeBatch(
-                      batchQueries,
-                      options as BatchTransactionOptions | undefined,
-                      transactionContext
-                    );
-                  } catch (error) {
-                    const guards = batchGuards.map((guard) => ({
-                      ...guard,
-                      queryIndex: setupOffset + guard.queryIndex,
-                    }));
-                    throw await attributeOperationBatchError(
-                      error,
-                      guards,
-                      driver
-                    );
+                  // A merged batch can be EMPTY: `limit: 0` is the bulk write
+                  // that affects nothing, so a transaction of nothing but those
+                  // has nothing to send. Skipping the round-trip lets each such
+                  // operation answer the documented `{ count: 0 }` / `[]` from
+                  // its own empty result window below, instead of drawing the
+                  // refusal underneath — untrue of this payload (nothing here is
+                  // un-batchable) and already lifted by any statement-emitting
+                  // sibling. Atomicity is unaffected: a MIXED batch still goes
+                  // to the driver as one unit, and an empty one runs nothing.
+                  let batchResults: QueryResult<unknown>[] = [];
+                  if (batchQueries.length > 0) {
+                    try {
+                      batchResults = await driver._executeBatch(
+                        batchQueries,
+                        options as BatchTransactionOptions | undefined,
+                        transactionContext
+                      );
+                    } catch (error) {
+                      const guards = batchGuards.map((guard) => ({
+                        ...guard,
+                        queryIndex: setupOffset + guard.queryIndex,
+                      }));
+                      throw await attributeOperationBatchError(
+                        error,
+                        guards,
+                        driver
+                      );
+                    }
                   }
-                  // The batch has COMMITTED. This branch prepares and parses its
-                  // operations, so it never reaches the wrapped executor that
-                  // carries mutation cache invalidation on the execute path (see
-                  // createClient) — it runs the same invalidation itself, before
-                  // parsing, because the writes are already durable and a parse
-                  // failure must not leave a warm entry describing rows that no
-                  // longer exist.
+                  // The batch has COMMITTED (or had nothing to commit). This
+                  // branch prepares and parses its operations, so it never
+                  // reaches the wrapped executor that carries mutation cache
+                  // invalidation on the execute path (see createClient) — it
+                  // runs the same invalidation itself, before parsing, because
+                  // the writes are already durable and a parse failure must not
+                  // leave a warm entry describing rows that no longer exist. A
+                  // statement-free mutation invalidates here too, exactly as it
+                  // does when awaited directly.
                   await invalidateCommittedBatch(operations);
                   const resultContext = {
                     provider: driver.driverName,
