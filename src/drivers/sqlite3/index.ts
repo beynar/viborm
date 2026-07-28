@@ -8,9 +8,10 @@ import { Buffer } from "node:buffer";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -182,13 +183,14 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: SQLite3ClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, SQLite3DriverOptions, S>
+    NoExtraDriverConfigKeys<C, SQLite3DriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { client, dataDir, options, ...restConfig } = config;
 
   const driver = new SQLite3Driver({ client, dataDir, options });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: SQLite3Driver }>;

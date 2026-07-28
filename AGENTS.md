@@ -221,13 +221,25 @@ the call, and does not count.
 type Cfg = ClientOmitConfig<typeof schema>;
 expectTypeOf<Cfg>().toMatchTypeOf<{ user: { passwordHash?: true } }>();
 
-// ✅ GOOD: enters through createClient, the way an app does
-const _typo = () =>
+// ❌ ALSO BAD: enters the public API, but the typo is ALONE — this is red even
+// on a completely unkeyed surface, because of weak-type detection (below).
+const _typoAlone = () =>
   createClient({
     schema: { user },
     driver,
     // @ts-expect-error - "passwordHsh" is not a field of user
     omit: { user: { passwordHsh: true } },
+  });
+
+// ✅ GOOD: public API, and the typo sits beside a key that IS real
+const _typoBesideReal = () =>
+  createClient({
+    schema: { user },
+    driver,
+    omit: {
+      // @ts-expect-error - "passwordHsh" is refused next to the real one
+      user: { passwordHash: true, passwordHsh: true },
+    },
   });
 ```
 
@@ -239,25 +251,48 @@ all eleven driver-package wrappers, the entry point most apps import. Both times
 the RESULT types were already right; only the type contextual to the literal
 being written was wrong, which no result-shape assertion can see.
 
-Two rules follow:
+Three rules follow. The third one invalidated the first version of this section,
+which is why it is stated first now.
 
-1. **A typo probe per nesting level.** `where` refusing a bad key says nothing
-   about `where.relation.some`. Probe the operation keys, each clause, the
-   operators inside a clause, and the same clauses one relation deeper.
-2. **Refuse structurally, not by excess-property checking.** EPC needs a *fresh*
+1. **Put the typo BESIDE A REAL KEY. A typo alone proves nothing.** Every config
+   bag and every query clause here is a **weak type** — all properties optional —
+   and TypeScript refuses an object that shares *no* property with a weak type.
+   So `omit: { user: { passwordHsh: true } }` and `where: { ttitle: "x" }` are
+   red on a *completely unkeyed* surface: what rejected them was that rule, not
+   this codebase's types. Add one correct key and the rule stops applying. When
+   this was measured, `omit: { passwordHash: true, passwordHsh: true }` hid one
+   of two secrets and compiled, `instrumentation: { tracing: true, loging: true }`
+   started no logger and compiled, and `where: { title: "x", ttitle: "x" }`
+   returned rows the caller never asked for and compiled — all three while a gate
+   full of alone-probes was green. Write both: `…Alone` and `…BesideReal`. Only
+   the second is evidence.
+2. **A typo probe per nesting level.** `where` refusing a bad key says nothing
+   about `where.title.contains`. Probe the operation keys, each clause, the
+   operators inside a clause, and the same clauses one relation deeper. Levels
+   that cannot be reached get pinned (below), not assumed.
+3. **Refuse structurally, not by excess-property checking.** EPC needs a *fresh*
    object literal, so a config or options bag held in a variable sails through
    it; and a generic `O extends Options` is no guard either, because TypeScript
    silently **clamps** `O` to the constraint. Intersect
    `Record<Exclude<keyof Given, keyof Allowed>, never>` into the parameter — see
-   `UnknownOmitKeys` / `ExactOptions` (`src/schema/model/model.ts`) and
-   `NoExtraConfigKeys` (`src/client/client.ts`). Probe both fresh and non-fresh.
+   `UnknownOmitKeys` / `ExactOptions` (`src/schema/model/model.ts`),
+   `NoExtraConfigKeys` / `NoExtraNestedConfigKeys` (`src/client/client.ts`),
+   `NoExtraOperationKeys` (`src/client/types.ts`) and `ExactPushOptions`
+   (`src/migrations/push/index.ts`). Probe both fresh and non-fresh.
+
+**Pin what you cannot key, with the number that stopped you.** Some levels are
+genuinely out of reach, and the gate records each one as a *misspelled call that
+compiles* — no `@ts-expect-error`, so the day it becomes reachable the line goes
+red and someone deletes the pin. A pin is only honest with its obstacle attached:
+guarding every query clause crashes tsc 5.8.3 outright; naming `data` turns six
+estate sites into TS2589 and takes the type-check from 34s to 172s; keying
+`.references()` through the relation getter was measured at 123 estate errors.
+"We could not" is a claim like any other — measure it.
 
 The gate lives in `tests/client/contextual-typing-gate.test.ts`. It is enforced
 by `pnpm test:types`, not by a runtime assertion: a `@ts-expect-error` that stops
 being an error is itself an error (TS2578), so a regression that re-opens a
-surface turns the type-check red. Surfaces that *cannot* be keyed
-(`.fields()` / `.references()`) are pinned there as misspelled calls that compile,
-with the obstacle recorded on the method.
+surface turns the type-check red.
 
 ---
 

@@ -8,9 +8,10 @@ import { Buffer } from "node:buffer";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -301,7 +302,8 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: MySQL2ClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S>
+    NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { pool, options = {}, databaseUrl, ...restConfig } = config;
 
@@ -314,7 +316,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     options,
   });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: MySQL2Driver }>;

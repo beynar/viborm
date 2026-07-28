@@ -385,8 +385,88 @@ type RemoveCacheKey<C extends VibORMConfig, T> = C["cache"] extends CacheDriver
     ? Omit<T, "cache"> & {}
     : T;
 
+/**
+ * Every key ONE clause accepts, taking the union across a union-typed clause
+ * rather than `keyof` of the union — `keyof (A | B)` is the keys A and B SHARE,
+ * which would refuse `cursor: { email }` on a model whose unique variants are a
+ * union. A key any member accepts is accepted.
+ */
+type ClauseKeys<Allowed> = Allowed extends unknown ? keyof Allowed : never;
+
+/**
+ * The unknown keys of one clause object (`where`, `select`, `data`, …).
+ *
+ * `unknown` — no refusal — in three cases:
+ *  - an ARRAY, because `keyof` a tuple includes its indices while `keyof` an
+ *    unbounded array type does not, so subtracting them would demand `never` at
+ *    index 0 and refuse `distinct: ["title"]` outright;
+ *  - an object with a string INDEX SIGNATURE (`Record<string, unknown>`, the
+ *    shape a helper that forwards a dynamically-built clause has), because it
+ *    declares no spelled key and a key nobody spelled cannot be misspelled —
+ *    this rule is about literal surfaces;
+ *  - a primitive (`take: 1`).
+ */
+type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
+  ? unknown
+  : string extends keyof Given
+    ? unknown
+    : Given extends object
+      ? Record<Exclude<keyof Given, ClauseKeys<NonNullable<Allowed>>>, never>
+      : unknown;
+
+/**
+ * The typo'd keys of an operation's args, at the operation's OWN level and at
+ * each clause inside it.
+ *
+ * The clause level is not decoration. `Arg` is inferred FROM the literal, so
+ * every key the caller wrote is "known" to `Arg` by construction and
+ * excess-property checking has nothing to say at any depth; and `Arg extends
+ * Payload` does not refuse a typo either, because a clause payload is a weak
+ * type (all-optional) and an object with extra keys is structurally assignable
+ * to it. What DID refuse `where: { ttitle: "x" }` was TypeScript's weak-type
+ * detection — an object sharing NO property with a weak type is an error — and
+ * that stops the moment one real key sits beside the typo:
+ * `where: { title: "x", ttitle: "x" }` compiled and filtered on `title` alone.
+ * A probe with the typo alone therefore measures weak-type detection, not this
+ * surface.
+ *
+ * The clause list is EXPLICIT, and it is explicit because the general form does
+ * not survive. Mapping over `keyof Arg` — guarding every clause — crashes
+ * tsc 5.8.3 outright (`TypeError: Cannot read properties of undefined (reading
+ * 'kind')` inside `getModifierFlagsWorker`). Naming the clauses instead, the
+ * measured ceiling is:
+ *
+ *  - `where` / `select` / `include` / `orderBy` / `omit` — guarded. Their key
+ *    sets are the model's scalars and relation NAMES, a finite set TypeScript
+ *    already computes. Estate type-check 34s → 45s.
+ *  - `data` / `create` / `update` — NOT guarded. A write clause's payload is the
+ *    recursive nested-write union, and reaching for its keys expands it: six
+ *    estate sites turn `TS2589: Type instantiation is excessively deep`, and the
+ *    type-check goes to 172s.
+ *  - `cursor` / `having` / `cache` — NOT guarded. Three more TS2589 sites, on
+ *    compound-unique and aggregate payloads.
+ *
+ * Depth 3 is out of reach for the same reason: `where.title.contians` or
+ * `select.books.select` means walking INTO a relation, which resolves the target
+ * model mid-inference — exactly what `RelationState.getter: any` exists to
+ * prevent. Every unguarded level is pinned as a compiling misspelling in
+ * `tests/client/contextual-typing-gate.test.ts`, so the boundary is a measured
+ * fact rather than an assumption, and a future TypeScript that can carry more
+ * turns those pins red.
+ */
+type ClauseGuard<Arg, Payload, K extends string> = K extends keyof Arg
+  ? K extends keyof Payload
+    ? { [P in K]?: NoExtraClauseKeys<Arg[K], Payload[K]> }
+    : unknown
+  : unknown;
+
 type NoExtraOperationKeys<Arg, Payload> = Arg &
-  Record<Exclude<keyof Arg, keyof Payload>, never>;
+  Record<Exclude<keyof Arg, keyof Payload>, never> &
+  ClauseGuard<Arg, Payload, "where"> &
+  ClauseGuard<Arg, Payload, "select"> &
+  ClauseGuard<Arg, Payload, "include"> &
+  ClauseGuard<Arg, Payload, "orderBy"> &
+  ClauseGuard<Arg, Payload, "omit">;
 
 /**
  * Operation type - returns PendingOperation which implements PromiseLike

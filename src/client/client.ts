@@ -9,6 +9,7 @@ import type {
   BatchTransactionOptions,
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
+import type { DiagnosticDisclosure } from "@errors";
 import {
   CacheConfigurationError,
   ClientInitializationError,
@@ -21,6 +22,8 @@ import {
   createInstrumentationContext,
   type InstrumentationConfig,
   type InstrumentationContext,
+  type LoggingConfig,
+  type TracingConfig,
 } from "@instrumentation";
 
 /**
@@ -53,6 +56,7 @@ import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
 import {
   applyClientOmit,
+  type ClientModelOmit,
   type ClientOmitConfig,
   type ClientOmitResolver,
   createClientOmitResolver,
@@ -227,6 +231,93 @@ export type NoExtraDriverConfigKeys<Given, Options, S extends Schema> = Record<
   Exclude<keyof Given, keyof Options | keyof DriverConfig<S>>,
   never
 >;
+
+/**
+ * The unknown keys of ONE nested bag: the depth-2 flavour of the same refusal.
+ *
+ * `NoExtraConfigKeys` guards the config's OWN keys. It says nothing about what
+ * is inside `omit`, `instrumentation`, or a driver's `options` — and inside is
+ * where nothing was refusing. The contextual type there is
+ * `Config["<key>"] & <the declared type>`, and `Config` was inferred from the
+ * literal, so every key the caller wrote is "known" to the intersection by
+ * construction. Excess-property checking has nothing to say, exactly as at
+ * depth 1.
+ *
+ * What LOOKED like a refusal was TypeScript's weak-type detection: the declared
+ * bags (`ClientModelOmit`, `InstrumentationConfig`, every driver's options) are
+ * all-optional, so an object sharing NO property with them is an error. That
+ * fires for `{ passwordHsh: true }` and stops firing the instant one real key
+ * sits beside the typo — `{ passwordHash: true, passwordHsh: true }` compiled,
+ * which is the shape a real config has. A probe with the typo ALONE therefore
+ * measures weak-type detection, not the surface.
+ *
+ * `unknown` for a non-object so intersecting this never disturbs `tracing: true`
+ * or a driver instance.
+ */
+export type NoExtraNestedKeys<Given, Allowed> = Given extends object
+  ? Record<Exclude<keyof Given, keyof Allowed>, never>
+  : unknown;
+
+/**
+ * Per-KEY refusal for the client `omit` config, at BOTH of its levels: an
+ * unknown MODEL name, and an unknown FIELD of a known model.
+ *
+ * This is the surface the case-study commits (`f842302`, `2f7bd59`) keyed, and
+ * the one that most needs the per-key form: `omit` is where secrets are named,
+ * and a silently-ignored key there is a leaked column. The model builder's
+ * `.omit()` already refuses per key (`UnknownOmitKeys`) for exactly this
+ * reason; the client-level config did not, so
+ * `{ author: { passwordHash: true, passwordHsh: true } }` hid one secret and
+ * quietly ignored the other.
+ *
+ * Mapped over `keyof O` — the keys the caller actually wrote — so this adds no
+ * requirement, and gated on `Config` having an `omit` at all so it never makes
+ * one necessary.
+ */
+export type NoExtraOmitKeys<Config, S extends Schema> = Config extends {
+  omit: infer O;
+}
+  ? {
+      omit: Record<Exclude<keyof O, keyof S>, never> & {
+        [M in keyof O]: M extends keyof S
+          ? NoExtraNestedKeys<O[M], ClientModelOmit<S[M]>>
+          : unknown;
+      };
+    }
+  : unknown;
+
+/**
+ * Per-key refusal for the `instrumentation` bag and each of its three sub-bags.
+ *
+ * The accepted top-level set is the union of `InstrumentationConfig`'s keys and
+ * `InstrumentationContext`'s, because the property takes either: a config when
+ * an app sets one up, a context when the client is rebuilt from a live one.
+ */
+export type NoExtraInstrumentationKeys<Config> = Config extends {
+  instrumentation: infer I;
+}
+  ? {
+      instrumentation: NoExtraNestedKeys<
+        I,
+        InstrumentationConfig & InstrumentationContext
+      > & {
+        [K in keyof I]: K extends "tracing"
+          ? NoExtraNestedKeys<I[K], TracingConfig>
+          : K extends "logging"
+            ? NoExtraNestedKeys<I[K], LoggingConfig>
+            : K extends "diagnostics"
+              ? NoExtraNestedKeys<I[K], DiagnosticDisclosure>
+              : unknown;
+      };
+    }
+  : unknown;
+
+/** Everything `createClient` refuses beyond the config's own key set. */
+export type NoExtraNestedConfigKeys<Config, S extends Schema> = NoExtraOmitKeys<
+  Config,
+  S
+> &
+  NoExtraInstrumentationKeys<Config>;
 
 /**
  * The client an interactive `$transaction(async (tx) => ...)` callback gets:
@@ -1048,11 +1139,30 @@ export const createClient = <S extends Schema, Config extends VibORMConfig<S>>(
   // (and each model with its projectable fields) instead of the widened
   // `Record<string, …>` constraint. `Config` still captures the whole literal
   // for result-type threading — and because it does, the third member is what
-  // refuses a key that is not a config key at all.
-  config: Config & VibORMConfig<S> & NoExtraConfigKeys<Config, VibORMConfig<S>>
+  // refuses a key that is not a config key at all, and the fourth the same one
+  // level down, inside `omit` and `instrumentation`.
+  config: Config &
+    VibORMConfig<S> &
+    NoExtraConfigKeys<Config, VibORMConfig<S>> &
+    NoExtraNestedConfigKeys<Config, S>
 ): VibORMClient<Config> => {
   // Explicit `Config`: the parameter's refusal members (`NoExtraConfigKeys`) are
   // there to reject typo'd keys, not to be threaded into the client's result
   // types — inferring `C` from the intersection would carry them along.
   return VibORM.create<Config>(config);
 };
+
+/**
+ * The seam a driver package's `createClient` forwards through, after it has
+ * already refused the caller's typos with its own parameter.
+ *
+ * Not a second public entry point and not a loophole: what reaches it is the
+ * wrapper's `{ ...restConfig, driver }`, an object the wrapper BUILT, never a
+ * literal a user wrote. The refusal members belong on the surface the literal
+ * is written against, and re-applying them here cannot work anyway — inside the
+ * wrapper `C` and `S` are still unresolved, so `NoExtraOmitKeys<Config, S>`
+ * stays a deferred conditional that nothing satisfies.
+ */
+export const createClientFromDriverConfig = <C extends VibORMConfig>(
+  config: C
+): VibORMClient<C> => VibORM.create<C>(config);

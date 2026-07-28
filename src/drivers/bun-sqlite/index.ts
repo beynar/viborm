@@ -7,9 +7,10 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -249,13 +250,14 @@ export class BunSQLiteDriver extends Driver<
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: BunSQLiteClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, BunSQLiteDriverOptions, S>
+    NoExtraDriverConfigKeys<C, BunSQLiteDriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { client, dataDir, options, ...restConfig } = config;
 
   const driver = new BunSQLiteDriver({ client, dataDir, options });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: BunSQLiteDriver }>;
