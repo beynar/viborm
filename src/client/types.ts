@@ -407,20 +407,74 @@ type RemoveCacheKey<C extends VibORMConfig, T> = C["cache"] extends CacheDriver
 type ClauseKeys<Allowed> = Allowed extends unknown ? keyof Allowed : never;
 
 /**
- * The unknown keys of one clause object (`where`, `select`, `data`, …).
- *
- * `unknown` — no refusal — in three cases:
- *  - an ARRAY, because `keyof` a tuple includes its indices while `keyof` an
- *    unbounded array type does not, so subtracting them would demand `never` at
- *    index 0 and refuse `distinct: ["title"]` outright;
+ * The keys a caller SPELLED on one value — `never` for anything with no spelled
+ * key to misspell:
+ *  - an ARRAY, because `keyof` a tuple is its indices;
  *  - an object with a string INDEX SIGNATURE (`Record<string, unknown>`, the
  *    shape a helper that forwards a dynamically-built clause has), because it
  *    declares no spelled key and a key nobody spelled cannot be misspelled —
  *    this rule is about literal surfaces;
- *  - a primitive (`take: 1`).
+ *  - a primitive.
+ *
+ * Distributive, so a union of element types contributes every member's keys.
+ */
+type SpelledClauseKeys<Given> = Given extends object
+  ? Given extends readonly unknown[]
+    ? never
+    : string extends keyof Given
+      ? never
+      : keyof Given
+  : never;
+
+/**
+ * The keys spelled inside an ARRAY clause that no element of the payload
+ * accepts — the array spelling's equivalent of the `Exclude` below.
+ */
+type UnknownArrayClauseKeys<
+  Given extends readonly unknown[],
+  Allowed,
+> = Exclude<SpelledClauseKeys<Given[number]>, ClauseKeys<NonNullable<Allowed>>>;
+
+/**
+ * What the ARRAY spelling of a clause is refused WITH. The key cannot be
+ * reported on itself there (see `NoExtraClauseKeys`), so the clause as a whole
+ * is refused and this type carries the offending key into the message:
+ * `… is not assignable to type '… & UnknownClauseKey<"ttitle">'`.
+ */
+type UnknownClauseKey<K> = { readonly __unknownKeyInClause: K };
+
+/**
+ * The unknown keys of one clause value (`where`, `select`, `orderBy`, …).
+ *
+ * An ARRAY — `orderBy: [{ title: "asc" }, { pages: "desc" }]`, Prisma's standard
+ * multi-key spelling — is checked at its ELEMENTS, and refused as a WHOLE when
+ * any element spells a key the payload does not accept. Both halves of that are
+ * measured, not chosen:
+ *
+ *  - `keyof` the array itself cannot be subtracted: a tuple's `keyof` includes
+ *    its indices while an unbounded array's does not, so the subtraction would
+ *    demand `never` at index 0 and refuse `orderBy: [{ title: "asc" }]` outright.
+ *    That is why the element type is what gets the key set.
+ *  - the per-KEY form the object spelling uses does not survive on an element.
+ *    Stated as `readonly Partial<Record<extra, never>>[]`, tsc 5.8.3 reports the
+ *    CORRECT key and one more: on `[{ title: "asc", ttitle: "asc" }]` both
+ *    `title` and `ttitle` came back "not assignable to never", because that
+ *    element type becomes the literal's contextual type and comes back through
+ *    the same inference. Worse, it also declares the typo a KNOWN property, so
+ *    `orderBy: [{ ttitle: "asc" }]` — refused today by excess-property checking —
+ *    started compiling. Refusing the clause loses the caret on the key and keeps
+ *    both of those from happening; `UnknownClauseKey` puts the key in the message
+ *    instead.
+ *
+ * `unknown` — no refusal — for an index-signature object and for a primitive,
+ * for the reasons on `SpelledClauseKeys`.
+ *
+ * `Given` arrives with `undefined`/`null` already stripped (see `ClauseGuard`).
  */
 type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
-  ? unknown
+  ? [UnknownArrayClauseKeys<Given, Allowed>] extends [never]
+    ? unknown
+    : UnknownClauseKey<UnknownArrayClauseKeys<Given, Allowed>>
   : string extends keyof Given
     ? unknown
     : Given extends object
@@ -443,15 +497,31 @@ type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
  * A probe with the typo alone therefore measures weak-type detection, not this
  * surface.
  *
+ * The clause value has its `undefined`/`null` STRIPPED before it is keyed, and
+ * that is not a nicety: `NoExtraClauseKeys` is a conditional on a naked `Given`,
+ * so it distributes, and the `undefined` member is not an array, has no index
+ * signature and is not `object` — it fell through to `unknown`, and
+ * `X | unknown` is `unknown`. One optional clause value therefore switched the
+ * guard off entirely, for exactly the spelling real code uses
+ * (`where: userId ? { userId } : undefined`, or a helper forwarding an optional
+ * property). Stripping it keys the shape the caller can actually pass; the
+ * clause property stays OPTIONAL, so `where: undefined` itself is still legal —
+ * that is the parse-boundary rule (`{ f: undefined }` behaves as `{}`) the whole
+ * client surface follows.
+ *
  * The clause list is EXPLICIT, and it is explicit because the general form does
  * not survive. Mapping over `keyof Arg` — guarding every clause — crashes
  * tsc 5.8.3 outright (`TypeError: Cannot read properties of undefined (reading
  * 'kind')` inside `getModifierFlagsWorker`). Naming the clauses instead, the
  * measured ceiling is:
  *
- *  - `where` / `select` / `include` / `orderBy` / `omit` — guarded. Their key
- *    sets are the model's scalars and relation NAMES, a finite set TypeScript
- *    already computes. Estate type-check 34s → 45s.
+ *  - `where` / `select` / `include` / `orderBy` / `omit` — guarded, in all three
+ *    spellings a caller writes them: a fresh literal, a value that may be
+ *    `undefined`, and (for `orderBy`) an array. Their key sets are the model's
+ *    scalars and relation NAMES, a finite set TypeScript already computes.
+ *    Estate type-check 34s → 45s when the guard landed; adding the other two
+ *    spellings cost nothing measurable (same tree, back-to-back runs: 83.3s vs
+ *    78.1s user, the difference inside the noise of a loaded machine).
  *  - `data` / `create` / `update` — NOT guarded. A write clause's payload is the
  *    recursive nested-write union, and reaching for its keys expands it: six
  *    estate sites turn `TS2589: Type instantiation is excessively deep`, and the
@@ -469,7 +539,7 @@ type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
  */
 type ClauseGuard<Arg, Payload, K extends string> = K extends keyof Arg
   ? K extends keyof Payload
-    ? { [P in K]?: NoExtraClauseKeys<Arg[K], Payload[K]> }
+    ? { [P in K]?: NoExtraClauseKeys<NonNullable<Arg[K]>, Payload[K]> }
     : unknown
   : unknown;
 

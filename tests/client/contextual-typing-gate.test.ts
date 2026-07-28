@@ -705,6 +705,13 @@ describe("a driver's own options bag is the library's surface, not ours", () => 
  * level. The rest of the clauses, and every level below the first, are pinned
  * below as compiling — with the measured obstacle.
  *
+ * The probes in THIS block all pass a fresh literal, which is one spelling of
+ * three; the two blocks after it carry the others, and both shipped unguarded
+ * behind this block reading as if they were covered. A clause value that may be
+ * `undefined` (`where: flag ? { … } : undefined`) turned the guard off entirely,
+ * and array-form `orderBy` was exempt by construction. Neither is a deeper level
+ * — they are the SAME level, written the way a real query writes it.
+ *
  * Read the depth of each `where` probe at exactly its strength. The FIELD level
  * — a typo among the model's own keys — is refused both alone and beside a real
  * key, by the clause guard. The OPERATOR level one step deeper (`{ gt: 1,
@@ -777,6 +784,156 @@ describe("query args refuse a typo beside a real key, per guarded clause", () =>
     expectTypeOf(_orderByValueTypo).toBeFunction();
     expectTypeOf(_omitTypoBesideReal).toBeFunction();
     expectTypeOf(_distinctTypo).toBeFunction();
+  });
+});
+
+/**
+ * THE SECOND SPELLING OF EVERY PROBE ABOVE: a clause value that MAY BE
+ * `undefined`.
+ *
+ * The block above passes every clause as a fresh literal. Real code does not:
+ * `where: userId ? { userId } : undefined` is how a filter is built when the
+ * filter is conditional, and a helper that forwards `args.where` from an
+ * optional property is the same type. Both were UNGUARDED when this file first
+ * claimed the five clauses were keyed — `NoExtraClauseKeys` is a conditional on
+ * a naked `Given`, so it distributed over the union, and the `undefined` member
+ * fell through to `unknown`, which swallows the refusal (`X | unknown` is
+ * `unknown`). One `| undefined` switched the whole guard off, on the spelling
+ * most likely to be written.
+ *
+ * `ClauseGuard` now strips `undefined`/`null` before keying. The clause stays
+ * OPTIONAL — the last two probes are the pins on that — because an explicitly
+ * `undefined` value must keep behaving like an absent key, the parse-boundary
+ * rule the whole client surface follows.
+ */
+describe("a clause value that may be undefined is keyed all the same", () => {
+  const _optionalWhereTypoBesideReal = (
+    maybeWhere: { title: string; ttitle: string } | undefined
+  ) =>
+    // @ts-expect-error - "ttitle" is refused; `| undefined` does not disable the guard
+    client.book.findMany({ where: maybeWhere });
+
+  const _optionalSelectTypoBesideReal = (
+    maybeSelect: { title: true; ttitle: true } | undefined
+  ) =>
+    // @ts-expect-error - "ttitle" is refused; `| undefined` does not disable the guard
+    client.book.findMany({ select: maybeSelect });
+
+  const _optionalIncludeTypoBesideReal = (
+    maybeInclude: { books: true; bokos: true } | undefined
+  ) =>
+    // @ts-expect-error - "bokos" is refused; `| undefined` does not disable the guard
+    client.author.findMany({ include: maybeInclude });
+
+  const _optionalOrderByTypoBesideReal = (
+    maybeOrderBy: { title: "asc"; ttitle: "asc" } | undefined
+  ) =>
+    // @ts-expect-error - "ttitle" is refused; `| undefined` does not disable the guard
+    client.book.findMany({ orderBy: maybeOrderBy });
+
+  const _optionalOmitTypoBesideReal = (
+    maybeOmit: { title: true; ttitle: true } | undefined
+  ) =>
+    // @ts-expect-error - "ttitle" is refused; `| undefined` does not disable the guard
+    client.book.findMany({ omit: maybeOmit });
+
+  /** The spelling the idiom actually has at a call site. */
+  const _conditionalWhereTypoBesideReal = (flag: boolean) =>
+    client.book.findMany({
+      // @ts-expect-error - "ttitle" is refused inside the conditional spelling too
+      where: flag ? { title: "x", ttitle: "x" } : undefined,
+    });
+
+  /** And the same value arriving through an optional property of a helper. */
+  const _forwardedOptionalWhereTypo = (args: {
+    where?: { title: string; ttitle: string };
+  }) =>
+    // @ts-expect-error - "ttitle" is refused through the forwarded optional too
+    client.book.findMany({ where: args.where });
+
+  const _explicitUndefinedIsStillAllowed = () =>
+    client.book.findMany({ where: undefined, orderBy: undefined });
+
+  const _correctOptionalClauseCompiles = (
+    where: { title: string } | undefined
+  ) => client.book.findMany({ where });
+
+  test("the probes above compile (assertions live in @ts-expect-error)", () => {
+    expectTypeOf(_optionalWhereTypoBesideReal).toBeFunction();
+    expectTypeOf(_optionalSelectTypoBesideReal).toBeFunction();
+    expectTypeOf(_optionalIncludeTypoBesideReal).toBeFunction();
+    expectTypeOf(_optionalOrderByTypoBesideReal).toBeFunction();
+    expectTypeOf(_optionalOmitTypoBesideReal).toBeFunction();
+    expectTypeOf(_conditionalWhereTypoBesideReal).toBeFunction();
+    expectTypeOf(_forwardedOptionalWhereTypo).toBeFunction();
+    expectTypeOf(_explicitUndefinedIsStillAllowed).toBeFunction();
+    expectTypeOf(_correctOptionalClauseCompiles).toBeFunction();
+  });
+});
+
+/**
+ * THE OTHER SPELLING OF `orderBy` — the array, which is how you order by more
+ * than one key and therefore the form a real query reaches for.
+ *
+ * It was exempt: `NoExtraClauseKeys` returned `unknown` for ANY array, so
+ * `orderBy: [{ title: "asc", ttitle: "asc" }]` compiled while the object form of
+ * the same typo was refused. The array is now keyed at its ELEMENTS.
+ *
+ * Read the refusal at its exact strength. The array is refused as a WHOLE, not
+ * on the offending key: the per-key form (`Partial<Record<extra, never>>` as the
+ * element type) mis-reports — on `[{ title: "asc", ttitle: "asc" }]` tsc 5.8.3
+ * named BOTH keys, because that element type becomes the literal's contextual
+ * type — and it also declares the typo a known property, which turned OFF the
+ * excess-property refusal of `[{ ttitle: "asc" }]`. Both measured. The key is
+ * carried in the message instead (`… & UnknownClauseKey<"ttitle">`), and the
+ * caret sits on `orderBy`.
+ */
+describe("the array spelling of orderBy is keyed at its elements", () => {
+  const _keyedArray = () =>
+    client.book.findMany({
+      orderBy: [
+        { title: "asc" },
+        { pages: "desc" },
+        { writer: { email: "asc" } },
+      ],
+    });
+
+  const _orderByArrayTypoBesideRealInOneElement = () =>
+    // @ts-expect-error - "ttitle" is refused inside the array element too
+    client.book.findMany({ orderBy: [{ title: "asc", ttitle: "asc" }] });
+
+  const _orderByArrayTypoInASecondElement = () =>
+    // @ts-expect-error - a typo in ANY element refuses the clause
+    client.book.findMany({ orderBy: [{ title: "asc" }, { ttitle: "asc" }] });
+
+  /**
+   * Refused by excess-property checking rather than by the clause guard — the
+   * typo is alone in its element, so the element shares no property with the
+   * weak orderBy payload. Kept because it is the third spelling a user writes,
+   * and because the per-element form of the guard silently un-refused it.
+   */
+  const _orderByArrayTypoAlone = () =>
+    // @ts-expect-error - "ttitle" is not a field of book
+    client.book.findMany({ orderBy: [{ ttitle: "asc" }] });
+
+  const _emptyOrderByArrayCompiles = () =>
+    client.book.findMany({ orderBy: [] });
+
+  const _dynamicOrderByArrayCompiles = (orderBy: Record<string, unknown>[]) =>
+    client.book.findMany({ orderBy });
+
+  const _optionalOrderByArrayCompiles = (
+    orderBy: { title: "asc" }[] | undefined
+  ) => client.book.findMany({ orderBy });
+
+  test("the probes above compile (assertions live in @ts-expect-error)", () => {
+    expectTypeOf(_keyedArray).toBeFunction();
+    expectTypeOf(_orderByArrayTypoBesideRealInOneElement).toBeFunction();
+    expectTypeOf(_orderByArrayTypoInASecondElement).toBeFunction();
+    expectTypeOf(_orderByArrayTypoAlone).toBeFunction();
+    expectTypeOf(_emptyOrderByArrayCompiles).toBeFunction();
+    expectTypeOf(_dynamicOrderByArrayCompiles).toBeFunction();
+    expectTypeOf(_optionalOrderByArrayCompiles).toBeFunction();
   });
 });
 
