@@ -1023,6 +1023,128 @@ describe("$transaction([...]) guard attribution after rollback", () => {
   });
 });
 
+/**
+ * The other side of the attribution rule above: a batch failure NO guard caused.
+ *
+ * A native batch is normalized against the joined SQL, so one guard's assertion
+ * statement arms the assertion detector for every statement in the batch — and a
+ * literal `divide: 0` on a plain numeric column reaches the database (the
+ * pre-flight refusals cover produced values and PK fields, not literals), where
+ * it raises the very SQLSTATE the Postgres assertion trick uses. Reconstructing
+ * the guard's failure there reports `NotFoundError` / P2025 for a row that is
+ * present and untouched — a specific, actionable, WRONG claim, and further from
+ * the transaction path than the raw error it replaced.
+ */
+describe("$transaction([...]) attribution of a failure no guard caused", () => {
+  const counter = s
+    .model({ id: s.string().id(), n: s.int(), label: s.string() })
+    .map("batch_attribution_counter");
+  const counterSchema = { counter };
+
+  const bootCounters = async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema: counterSchema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    await push(setupClient, { force: true });
+    await setupClient.counter.create({ data: { id: "a", n: 10, label: "A" } });
+    await setupClient.counter.create({ data: { id: "b", n: 20, label: "B" } });
+    return {
+      batchOnly: createClient({
+        schema: counterSchema,
+        driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+      }),
+      transactional: setupClient,
+    };
+  };
+
+  const intact = [
+    { id: "a", n: 10, label: "A" },
+    { id: "b", n: 20, label: "B" },
+  ];
+
+  test("batch-only: a divide-by-zero is not reported as the sole guard's NotFoundError", async () => {
+    const { batchOnly, transactional } = await bootCounters();
+    try {
+      const failure = await withTransactions(batchOnly)
+        .$transaction([
+          batchOnly.counter.update({
+            where: { id: "a" },
+            data: { n: { divide: 0 } },
+          }),
+        ])
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error & { prismaCode?: string | null }
+        );
+
+      expect(failure).toBeDefined();
+      // Row "a" is right there, so P2025 would assert something false about it.
+      expect(failure?.name).not.toBe("NotFoundError");
+      expect(failure?.prismaCode ?? null).not.toBe("P2025");
+      expect(
+        await transactional.counter.findMany({ orderBy: { id: "asc" } })
+      ).toEqual(intact);
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+
+  test("batch-only: a healthy guarded sibling does not lend the failure its name", async () => {
+    const { batchOnly, transactional } = await bootCounters();
+    try {
+      const failure = await withTransactions(batchOnly)
+        .$transaction([
+          batchOnly.counter.update({
+            where: { id: "b" },
+            data: { label: "changed" },
+          }),
+          batchOnly.counter.update({
+            where: { id: "a" },
+            data: { n: { divide: 0 } },
+          }),
+        ])
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error & { prismaCode?: string | null }
+        );
+
+      expect(failure).toBeDefined();
+      expect(failure?.name).not.toBe("NotFoundError");
+      expect(failure?.prismaCode ?? null).not.toBe("P2025");
+      expect(
+        await transactional.counter.findMany({ orderBy: { id: "asc" } })
+      ).toEqual(intact);
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+
+  test("transaction driver: the same payload never claimed a missing record", async () => {
+    const { batchOnly, transactional } = await bootCounters();
+    try {
+      const failure = await withTransactions(transactional)
+        .$transaction([
+          transactional.counter.update({
+            where: { id: "a" },
+            data: { n: { divide: 0 } },
+          }),
+        ])
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error & { prismaCode?: string | null }
+        );
+
+      expect(failure).toBeDefined();
+      expect(failure?.name).not.toBe("NotFoundError");
+      expect(failure?.prismaCode ?? null).not.toBe("P2025");
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+});
+
 describe("mixed operations", () => {
   test("operations work independently after batch", async () => {
     // Batch some operations

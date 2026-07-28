@@ -837,7 +837,8 @@ export class VibORM<C extends VibORMConfig> {
                       throw await attributeOperationBatchError(
                         error,
                         guards,
-                        driver
+                        driver,
+                        batchQueries
                       );
                     }
                   }

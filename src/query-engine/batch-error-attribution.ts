@@ -1,4 +1,6 @@
 import type { AnyDriver } from "@drivers";
+import { ASSERTION_MARKER } from "@drivers/error-mapping";
+import type { Dialect } from "@drivers/types";
 import {
   isVibORMError,
   NestedWriteAssertionError,
@@ -23,15 +25,27 @@ import type { PreparedBatchGuard } from "./types";
  * is restored by that rollback and probes clean, so no guard is blamed. When
  * every guard in the batch would raise the same failure for the same
  * model/operation, that blindness costs nothing — whichever fired, the error is
- * the same one, so it is reconstructed rather than leaking the raw
- * driver-mapped assertion (an unmapped V7006 whose message talks about
- * connect/disconnect targets). Only a batch carrying guards that DISAGREE about
- * what went wrong stays genuinely un-attributable.
+ * the same one — but only once it is established that a guard fired AT ALL.
+ *
+ * That last part is not free. A native batch is normalized against the JOINED
+ * SQL, so one assertion statement anywhere arms the detector
+ * (`src/drivers/error-mapping.ts`) for every statement in the batch: an ordinary
+ * statement that raises the same provider signature — `n / 0` from a literal
+ * `divide: 0` on Postgres, a malformed-JSON argument on MySQL/SQLite — arrives
+ * as a `NestedWriteAssertionError` no guard caused. Blaming a guard for it
+ * asserts something false about the database (a `NotFoundError`/P2025 for a row
+ * that is still there, which Prisma callers branch on). So the reconstruction
+ * runs only when NO ordinary statement in the batch could have produced the
+ * signature — viborm built every statement, so it can tell — and the raw
+ * driver-mapped error stands whenever the failure cannot be tied to a guard.
+ * A batch carrying guards that DISAGREE about what went wrong likewise stays
+ * un-attributable.
  */
 export async function attributeOperationBatchError(
   error: unknown,
   guards: readonly PreparedBatchGuard[],
-  driver: AnyDriver
+  driver: AnyDriver,
+  statements: readonly { readonly sql: string }[] = []
 ): Promise<unknown> {
   if (!(error instanceof NestedWriteAssertionError)) return error;
   const statementIndex = isVibORMError(error)
@@ -65,7 +79,10 @@ export async function attributeOperationBatchError(
   }
   const [candidate] = guards;
   if (candidate) {
-    return guards.every((guard) => sameAttribution(guard, candidate))
+    const attributable =
+      guards.every((guard) => sameAttribution(guard, candidate)) &&
+      !carriesForeignAssertionSignature(statements, driver.dialect);
+    return attributable
       ? createProgramFailureError(
           candidate.failure,
           candidate.model,
@@ -81,6 +98,43 @@ export async function attributeOperationBatchError(
       cause: error,
     }
   );
+}
+
+/**
+ * Each dialect's assertion trick, and therefore the shape an ORDINARY statement
+ * must have to counterfeit it. Postgres asserts with `1 / 0`, so anything that
+ * can divide or take a remainder can raise the same SQLSTATE 22012; MySQL and
+ * SQLite assert with `JSON_EXTRACT` on invalid JSON, so anything calling a JSON
+ * function can raise the same errno 3141 / "malformed JSON". Each dialect is
+ * blind to the other's trick — MySQL's `x / 0` yields NULL or errno 1365, and
+ * Postgres reports bad JSON as 22P02 — so only the executing dialect's pattern
+ * is consulted.
+ */
+const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
+  postgresql: /[/%]/,
+  mysql: /json/i,
+  sqlite: /json/i,
+};
+
+/**
+ * Could a statement OTHER than the batch's own assertions have raised the
+ * provider error that the joined-SQL normalization read as an assertion? The
+ * assertion statements are the ones carrying the marker alias; every other
+ * statement is ordinary, and one that matches its dialect's signature makes the
+ * failure un-attributable. Over-reporting only costs attribution (the raw error
+ * stands, as it did before guard reconstruction existed); under-reporting would
+ * cost a fabricated `NotFoundError`.
+ */
+function carriesForeignAssertionSignature(
+  statements: readonly { readonly sql: string }[],
+  dialect: Dialect
+): boolean {
+  const signature = FOREIGN_ASSERTION_SIGNATURE[dialect];
+  for (const statement of statements) {
+    if (statement.sql.includes(ASSERTION_MARKER)) continue;
+    if (signature.test(statement.sql)) return true;
+  }
+  return false;
 }
 
 /**

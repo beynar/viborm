@@ -49,7 +49,7 @@ const MYSQL_ERRNO_IN_MESSAGE_PATTERN = /\(errno (\d+)\)/;
 // dialect-specific trick: division by zero on PG (SQLSTATE 22012), invalid
 // JSON via JSON_EXTRACT/json_extract on MySQL (errno 3141) and SQLite
 // ("malformed JSON"). The statements are identifiable by their column alias.
-const ASSERTION_MARKER = "__viborm_assert__";
+export const ASSERTION_MARKER = "__viborm_assert__";
 const POSTGRES_DIVISION_BY_ZERO = "22012";
 const MYSQL_INVALID_JSON_TEXT = 3141;
 
