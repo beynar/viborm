@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
@@ -53,6 +56,13 @@ interface Scenario {
   seed?: (client: ReturnType<typeof makeClient>) => PromiseLike<unknown>;
   act: (client: Record<string, RoutedModel>) => unknown;
   routed: string;
+  /**
+   * Which implicit-returning arm this payload must take, asserted on the SHAPE
+   * of the result in every arm. Parity alone cannot catch a discriminant that
+   * drifts the same way in both — and the harness's copy of the discriminant did
+   * drift, one wave behind production's `returnsRows`.
+   */
+  arm?: "rows" | "count";
 }
 
 function makeClient(db: PGlite) {
@@ -215,6 +225,70 @@ const scenarios: Scenario[] = [
         data: { qty: 1 },
         select: { id: true },
       }),
+  },
+  // `omit` is the OTHER spelling of the row-returning discriminant (W5 —
+  // `returnsRows` is `select` OR `omit`, because `omit` desugars to a
+  // projection). It had no scenario here, and that is exactly why the harness
+  // could keep discriminating on `select` alone: production answered rows while
+  // the proxy answered `{ count }`, and nothing compared them.
+  {
+    name: "deleteMany with omit returns the deleted rows",
+    routed: "deleteMany",
+    arm: "rows",
+    seed: (c) =>
+      c.gadget.createMany({
+        data: [
+          { id: "g1", code: "c1", name: "A", qty: 1 },
+          { id: "g2", code: "c2", name: "B", qty: 9 },
+        ],
+      }),
+    act: (c) =>
+      c.gadget!.deleteMany!({
+        where: { qty: { lt: 5 } },
+        omit: { code: true },
+      }),
+  },
+  {
+    name: "updateMany with omit returns the updated rows",
+    routed: "updateMany",
+    arm: "rows",
+    seed: (c) =>
+      c.gadget.createMany({
+        data: [
+          { id: "g1", code: "c1", name: "A", qty: 1 },
+          { id: "g2", code: "c2", name: "B", qty: 9 },
+        ],
+      }),
+    act: (c) =>
+      c.gadget!.updateMany!({
+        where: { qty: { lt: 5 } },
+        data: { qty: { increment: 100 } },
+        omit: { name: true },
+      }),
+  },
+  {
+    name: "createMany with omit returns the created rows",
+    routed: "createMany",
+    arm: "rows",
+    act: (c) =>
+      c.gadget!.createMany!({
+        data: [
+          { id: "g1", code: "c1", name: "Alpha" },
+          { id: "g2", code: "c2", name: "Beta", qty: 5 },
+        ],
+        omit: { qty: true },
+      }),
+  },
+  {
+    name: "deleteMany with omit: undefined takes the count arm",
+    routed: "deleteMany",
+    arm: "count",
+    seed: (c) =>
+      c.gadget.createMany({
+        data: [{ id: "g1", code: "c1", name: "A", qty: 1 }],
+      }),
+    act: (c) =>
+      c.gadget!.deleteMany!({ where: { qty: { lt: 5 } }, omit: undefined }),
   },
 ];
 
@@ -459,6 +533,70 @@ describe("query-engine-v2 bulk-write dual-run oracle (both substrates)", () => {
       expect(batch.result).toEqual(v1.result);
       expect(tx.state).toEqual(v1.state);
       expect(batch.state).toEqual(v1.state);
+
+      // The arm itself, where the scenario names it. Equality between arms is
+      // not enough on its own: it proves they agree, not that they agree with
+      // the documented discriminant.
+      if (scenario.arm) {
+        for (const arm of [v1, tx, batch]) {
+          if (scenario.arm === "rows") {
+            expect(Array.isArray(arm.result)).toBe(true);
+          } else {
+            expect(arm.result).toEqual({
+              count: (arm.result as { count: number }).count,
+            });
+            expect(Array.isArray(arm.result)).toBe(false);
+          }
+        }
+      }
     });
   }
+});
+
+const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
+const LINE_COMMENT = /\/\/.*$/gm;
+const CALLS_ROUTING_SEAM = /constructRoutedOperation\(/;
+const IMPORTS_ROUTING_MODULE = /query-engine-v2\/routing/;
+/** `args.select === undefined` / `args.omit === undefined` — the copy's shape. */
+const OWN_RETURNING_DISCRIMINANT = /args\.(?:select|omit)\s*===/;
+
+/**
+ * The harness must not own an arm-selection rule at all.
+ *
+ * The `omit` scenarios above catch today's drift; this catches the NEXT one,
+ * which will have the same shape. `v2-client-proxy.ts` carried its own
+ * `constructOperation` under a comment reading "mirrors
+ * src/query-engine-v2/routing.ts", and it stopped mirroring it the moment `omit`
+ * joined the discriminant — silently, because a copy cannot be re-derived and
+ * the route spy still reported `engine: "v2"` while the wrong arm answered.
+ *
+ * So the rule is structural, not behavioural: the oracle harness reaches for
+ * production's `constructRoutedOperation`, and names none of the arm classes
+ * itself. Reintroduce the copy and this goes red before any scenario has to.
+ */
+describe("the oracle harness constructs through production's routing seam", () => {
+  // Comments stripped: the rule is about the CODE, and the comment above
+  // `createV2RoutedClient` quotes the discriminant it no longer spells.
+  const harness = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "v2-client-proxy.ts"),
+    "utf8"
+  )
+    .replace(BLOCK_COMMENT, "")
+    .replace(LINE_COMMENT, "");
+
+  test("it constructs through routing.ts", () => {
+    expect(harness).toMatch(CALLS_ROUTING_SEAM);
+    expect(harness).toMatch(IMPORTS_ROUTING_MODULE);
+  });
+
+  test("it names no arm class and spells no discriminant of its own", () => {
+    for (const armClass of [
+      "ManyAndReturnOperation",
+      "BulkCountOperation",
+      "CreateManyOperation",
+    ]) {
+      expect(harness).not.toContain(armClass);
+    }
+    expect(harness).not.toMatch(OWN_RETURNING_DISCRIMINANT);
+  });
 });

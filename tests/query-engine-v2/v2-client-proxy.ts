@@ -3,17 +3,13 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
-import { BulkCountOperation } from "../../src/query-engine-v2/BulkCountOperation";
-import { CreateManyOperation } from "../../src/query-engine-v2/CreateManyOperation";
-import { CreateOperation } from "../../src/query-engine-v2/CreateOperation";
-import { DeleteOperation } from "../../src/query-engine-v2/DeleteOperation";
-import { ManyAndReturnOperation } from "../../src/query-engine-v2/ManyAndReturnOperation";
 import type { ExecutableOperation } from "../../src/query-engine-v2/OperationExecutor";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { ReadOperation } from "../../src/query-engine-v2/ReadOperation";
+import {
+  constructRoutedOperation,
+  ROUTED_OPERATIONS,
+} from "../../src/query-engine-v2/routing";
 import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
-import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
 
 /**
  * The V2-backed client proxy (PLAN P2a instrument 1, extended in P4). It wraps a
@@ -28,6 +24,19 @@ import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
  *
  * The `routes` spy records which engine served each call so a test can prove V2
  * actually executed when the oracle claims parity (not a silent V1 fallback).
+ *
+ * CONSTRUCTION IS PRODUCTION'S, not a copy of it. This file used to carry its own
+ * `constructOperation` under a comment claiming it "mirrors routing.ts", and it
+ * had stopped: the W5 `omit` wave taught production that `omit` is the other
+ * spelling of the row-returning discriminant (`returnsRows` — `select` OR
+ * `omit`), while the harness still discriminated on `args.select === undefined`
+ * alone. An `omit`-only bulk write therefore answered `[{ … }]` in production and
+ * `{ count }` here, with the route spy still reporting `engine: "v2"` — an oracle
+ * that would have certified the wrong arm. The duplicate also predated
+ * `assertRoutedAtomicResolution`, so the harness could not have reproduced the
+ * batch-only refusal either. Calling {@link constructRoutedOperation} makes both
+ * drifts unrepresentable: the only thing this file still owns is the FALLBACK,
+ * which is the instrument's whole reason to exist.
  */
 export interface RouteRecord {
   readonly model: string;
@@ -41,86 +50,6 @@ export interface V2RoutedClient {
 }
 
 type ModelApi = Record<string, (args: Record<string, unknown>) => unknown>;
-
-const READ_OPERATIONS: ReadonlySet<string> = new Set([
-  "findMany",
-  "findUnique",
-  "findFirst",
-  "findUniqueOrThrow",
-  "findFirstOrThrow",
-  "count",
-  "aggregate",
-  "groupBy",
-  "exist",
-]);
-
-/**
- * Construct the V2 operation for a routed operation name, or return `undefined`
- * if V2 does not own it (the proxy then delegates to V1). Reads dispatch to one
- * {@link ReadOperation}; the write stragglers to their operation classes.
- */
-function constructOperation(
-  engine: QueryEngine,
-  model: Model<any>,
-  operation: string,
-  args: Record<string, unknown>
-): ExecutableOperation | undefined {
-  if (READ_OPERATIONS.has(operation)) {
-    return new ReadOperation(engine, model, operation, args);
-  }
-  switch (operation) {
-    case "create":
-      return new CreateOperation(engine, model, args);
-    case "update":
-      return new UpdateOperation(engine, model, args);
-    case "delete":
-      return new DeleteOperation(engine, model, args);
-    case "upsert":
-      return new UpsertOperation(engine, model, args);
-    // Implicit returning (mirrors src/query-engine-v2/routing.ts): `select` on a
-    // bulk write — never a second operation name — chooses the row-returning arm.
-    case "createMany":
-      return args.select === undefined
-        ? new CreateManyOperation(engine, model, args)
-        : new ManyAndReturnOperation(
-            engine,
-            model,
-            "createManyAndReturn",
-            args
-          );
-    case "updateMany":
-      return args.select === undefined
-        ? new BulkCountOperation(engine, model, operation, args)
-        : new ManyAndReturnOperation(
-            engine,
-            model,
-            "updateManyAndReturn",
-            args
-          );
-    case "deleteMany":
-      return args.select === undefined
-        ? new BulkCountOperation(engine, model, operation, args)
-        : new ManyAndReturnOperation(
-            engine,
-            model,
-            "deleteManyAndReturn",
-            args
-          );
-    default:
-      return undefined;
-  }
-}
-
-const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
-  ...READ_OPERATIONS,
-  "create",
-  "update",
-  "delete",
-  "upsert",
-  "createMany",
-  "updateMany",
-  "deleteMany",
-]);
 
 export function createV2RoutedClient(options: {
   schema: Record<string, Model<any>>;
@@ -143,7 +72,12 @@ export function createV2RoutedClient(options: {
   ): unknown => {
     let operationInstance: ExecutableOperation | undefined;
     try {
-      operationInstance = constructOperation(engine, model, operation, args);
+      operationInstance = constructRoutedOperation(
+        engine,
+        model,
+        operation,
+        args
+      );
     } catch (error) {
       if (error instanceof UnsupportedOperationError) {
         routes.push({ model: modelName, operation, engine: "v1" });
