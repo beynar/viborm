@@ -6,11 +6,12 @@ import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames } from "@schema";
-import { createModelFieldRefs } from "@schema/field-ref";
+import { createModelFieldRefs, isFieldRef } from "@schema/field-ref";
 import { sql } from "@sql";
 import { createSchemaRegistry } from "@validation";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { beforeAll, describe, expect, test } from "vitest";
+import { createModelFieldRefs as rootCreateModelFieldRefs } from "../../src/index";
 import { fieldRefSchema } from "../fixtures/field-ref-schema";
 
 /**
@@ -525,6 +526,22 @@ describe("surfaces that stay closed", () => {
     ).not.toThrow();
   });
 
+  test("a JSON document that looks like a fragment FILTERS as a value", () => {
+    // The read-side half of the pair above, and the one that would bite: if a
+    // JSON operand ever reached the fragment splice, this document's `strings`
+    // would land in the statement as TEXT instead of being bound. JSON filters
+    // are dispatched to the JSON filter language before the operand path is
+    // reached, so the document stays a parameter — read the statement, not the
+    // absence of a throw.
+    const query = buildPost(dialectCase, {
+      where: {
+        payload: { equals: { strings: ["INJECTED_TEXT"], values: [] } },
+      },
+    });
+    expect(query.statement).not.toContain("INJECTED_TEXT");
+    expect(JSON.stringify(query.values)).toContain("INJECTED_TEXT");
+  });
+
   test("write data takes no callback", () => {
     const refusal = refusalOf(() =>
       build(dialectCase, Post, "updateMany", {
@@ -550,6 +567,175 @@ describe("surfaces that stay closed", () => {
       })
     );
     expect(refusal.name).toBe("ValidationError");
+  });
+});
+
+/**
+ * The documented escape route to a token, executed.
+ *
+ * The filtering page teaches `import { createModelFieldRefs } from "viborm"` as the way
+ * to hold a token without a callback — and with `client.$fields` removed (D-8) it is the
+ * ONLY way. That makes the package ENTRY POINT part of the contract: importing it from
+ * `@schema/field-ref`, as every test above does, would keep passing while the published
+ * example failed to resolve. So this one goes through `src/index` on purpose.
+ */
+describe("the public entry point", () => {
+  test("exports the token factory the docs teach, and it filters", () => {
+    expect(typeof rootCreateModelFieldRefs).toBe("function");
+    const postFields = rootCreateModelFieldRefs("post", Post);
+    const query = build(dialectCases[0]!, Post, "findMany", {
+      where: { views: { gt: postFields.likes } },
+    });
+    expect(query.statement).toContain('"likes"');
+  });
+});
+
+/**
+ * The scope reaches every filter position, and stops at every non-filter one.
+ *
+ * The model a callback resolves against is pushed by the `where` schema that
+ * contains it, so the claim "`ctx.fields` is the model being filtered" is only
+ * as good as the set of positions that actually push. The block above walks the
+ * ones a top-level `where` reaches; these are the OTHER doors into a filter —
+ * a nested write's own `where`, a relation `where` under `include`, one under
+ * `_count`, and the aggregate families — each of which reaches a `where` by a
+ * different route and could have been missed one at a time.
+ *
+ * The refusals at the end are the complement: a selector that is not a filter
+ * (`cursor`, a nested `connect`) and an `orderBy` take no callback, so a typo'd
+ * one cannot be quietly accepted and dropped.
+ */
+describe("every filter position the scope has to reach", () => {
+  const dialectCase = dialectCases[0]!;
+  const parseArgs = (
+    model: "post" | "user",
+    operation: string,
+    args: Record<string, unknown>
+  ) =>
+    createSchemaRegistry(schema).validate(
+      model,
+      operation as never,
+      args
+    ) as Record<string, any>;
+
+  test("a nested write's own `where` scopes to the relation TARGET", () => {
+    const parsed = parseArgs("user", "update", {
+      where: { id: "u1" },
+      data: {
+        posts: {
+          updateMany: {
+            where: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
+            data: { views: 5 },
+          },
+          deleteMany: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
+        },
+      },
+    });
+    const updateMany = parsed.data.posts.updateMany;
+    const deleteMany = parsed.data.posts.deleteMany;
+    const first = (v: unknown) => (Array.isArray(v) ? v[0] : v);
+    for (const operand of [
+      first(updateMany).where.views.gt,
+      first(deleteMany).views.gt,
+    ]) {
+      expect(isFieldRef(operand)).toBe(true);
+      expect(operand.model).toBe("post");
+      expect(operand.field).toBe("likes");
+    }
+  });
+
+  test("a nested write's `where` cannot reach the PARENT's columns", () => {
+    const refusal = refusalOf(() =>
+      parseArgs("user", "update", {
+        where: { id: "u1" },
+        data: {
+          posts: {
+            updateMany: {
+              where: {
+                views: {
+                  // @ts-expect-error post has no `nickname` — the scope is post's
+                  gt: (ctx: PostCtx) => ctx.fields.nickname,
+                },
+              },
+              data: { views: 5 },
+            },
+          },
+        },
+      })
+    );
+    expect(refusal.name).toBe("ValidationError");
+    expect(JSON.stringify(refusal.issues)).toContain("nickname");
+  });
+
+  test("a relation `where` under `include` and under `_count` both scope", () => {
+    const included = build(dialectCase, User, "findMany", {
+      include: {
+        posts: { where: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } } },
+      },
+    });
+    expect(included.statement).toContain('"likes"');
+
+    const counted = build(dialectCase, User, "findMany", {
+      select: {
+        id: true,
+        _count: {
+          select: {
+            posts: {
+              where: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
+            },
+          },
+        },
+      },
+    });
+    expect(counted.statement).toContain('"likes"');
+  });
+
+  test("the aggregate families take the callback in their `where`", () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ["count", {}],
+      ["aggregate", { _count: true }],
+      ["groupBy", { by: ["status"] }],
+    ];
+    for (const [operation, extra] of cases) {
+      const query = build(dialectCase, Post, operation, {
+        ...extra,
+        where: { views: { gt: (ctx: PostCtx) => ctx.fields.likes } },
+      });
+      expect(query.statement, operation).toContain('"likes"');
+    }
+  });
+
+  test("a selector that is not a filter takes no callback", () => {
+    // `cursor` and a nested `connect` are strict unique selectors: they name a
+    // ROW, not a comparison, so there is no operand position to open.
+    //
+    // RUNTIME is what these assert, and only that: `build()` takes the payload
+    // as `Record<string, unknown>`, so no `@ts-expect-error` here would fire
+    // whatever the public types say. The compile-time half of the same claim is
+    // asserted through the client in "operand typing" below.
+    const cursorRefusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        cursor: { id: (ctx: PostCtx) => ctx.fields.title },
+      })
+    );
+    expect(cursorRefusal.name).toBe("ValidationError");
+
+    const connectRefusal = refusalOf(() =>
+      parseArgs("user", "update", {
+        where: { id: "u1" },
+        data: {
+          posts: { connect: { id: (ctx: PostCtx) => ctx.fields.title } },
+        },
+      })
+    );
+    expect(connectRefusal.name).toBe("ValidationError");
+
+    const orderByRefusal = refusalOf(() =>
+      buildPost(dialectCase, {
+        orderBy: { views: (ctx: PostCtx) => ctx.fields.likes },
+      })
+    );
+    expect(orderByRefusal.name).toBe("ValidationError");
   });
 });
 
@@ -616,6 +802,35 @@ describe("operand typing", () => {
       },
     });
     expect(bad).toBeDefined();
+  });
+
+  /**
+   * The operand union did not leak into the neighbouring keys.
+   *
+   * `comparisonOperand` is attached in the scalar filter schemas and nowhere
+   * else, so a `cursor` (which names a ROW) and an `orderBy` (which names a
+   * DIRECTION) should still refuse a callback at COMPILE time — the runtime
+   * refusals pinned above go through the untyped engine builder, so they cannot
+   * say this. Each `@ts-expect-error` is the assertion; if a future widening
+   * lets a function into either position, its directive goes unused and
+   * `pnpm test:types` fails. (The two sit at different depths because that is
+   * where TypeScript reports each: the cursor key is checked against its own
+   * scalar type, while the `orderBy` object mismatches as a whole.)
+   */
+  test("a callback is a compile error in `cursor` and in `orderBy`", () => {
+    const client = typedClient();
+    const badCursor = client.post.findMany({
+      cursor: {
+        // @ts-expect-error a cursor names a row: it takes a value, not a callback
+        id: (ctx: PostCtx) => ctx.fields.title,
+      },
+    });
+    const badOrderBy = client.post.findMany({
+      // @ts-expect-error orderBy takes a sort direction, not a callback
+      orderBy: { views: (ctx: PostCtx) => ctx.fields.likes },
+    });
+    expect(badCursor).toBeDefined();
+    expect(badOrderBy).toBeDefined();
   });
 });
 

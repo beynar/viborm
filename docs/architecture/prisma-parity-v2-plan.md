@@ -1520,9 +1520,53 @@ mistyped `ctx.fields` key, a wrong-scalar-type return, and a nested `ctx` that
 is the target model's. Tightening `where`'s excess-property checking is a
 separate lane — it affects every filter, not the operand.
 
+### Verification pass — the scope boundary, checked position by position
+
+The model a callback resolves against is pushed by the `where` schema containing it, so
+"`ctx.fields` is the model being filtered" is only as strong as the set of positions that
+actually push one. The four `scopeOperands` call sites were therefore checked against
+every route into a filter, and the ones a top-level `where` does not reach are now pinned
+directly: a **nested write's own `where`** (`posts: { updateMany: { where }, deleteMany }`
+— the target's model, and a callback there cannot see the parent's columns), a relation
+`where` under **`include`** and under **`_count`**, and the **aggregate families**
+(`count` / `aggregate` / `groupBy`). All resolve against the relation TARGET, because each
+embeds `core.where`, which is the object `scopeOperands` wrapped.
+
+Two claims this pass reached for while writing those pins were WRONG, and are recorded
+because the way they failed is reusable — neither ever shipped, both were caught by
+`pnpm test:types` before a commit existed. A `cursor` and an `orderBy` do refuse a
+callback at COMPILE time through the client — a probe reading them as `any` was an
+artifact of instantiating `createClient` with an explicit type argument, not a property
+of the surface. Both are now
+`@ts-expect-error` assertions through the public API (`operand-callback-sql.test.ts`,
+"operand typing"), alongside runtime refusals via the engine builder, which takes an
+untyped payload and therefore cannot make a type-level claim at all.
+
+**One real defect, found by reading the docs against the surface.** The rewritten
+filtering page teaches `import { createModelFieldRefs } from "viborm"` as the way to hold
+a token without a callback — and with `client.$fields` gone it is the ONLY way — but the
+package entry point never exported it (it exported the `SchemaFieldRefs` *type* that Unit
+4 deleted). The published example therefore would not have resolved. `src/index.ts` now
+exports the factory, which is what the D-8 row already claimed, and the pin goes through
+`src/index` rather than `@schema/field-ref` on purpose: the internal import would have
+kept passing while the documented one failed. Falsified by removing the export — the pin
+fails, and only that one.
+
+**The structural-`isSql` question, chased to the end.** `isSql` is duck-typed
+(`strings` + `values`, both arrays), so the obvious worry is a JSON document that merely
+looks like a fragment being SPLICED as SQL text instead of bound. It cannot happen, and
+the reason is three independent doors all being shut: `s.json()` has no `.array()`, so
+`scalarState.type === "json" && array` — the only JSON shape that skips the JSON dispatch
+at `where-builder.ts:272` — is unconstructible; every other JSON filter is dispatched to
+the JSON filter language before the operand path exists; and a JSON `not` takes a strict
+nested filter object, so `{ not: { strings, values } }` dies at validation with
+`Unknown key: strings`. The read-side witness is pinned beside the write-side one that
+already existed: a fragment-shaped document filters as a bound PARAMETER, asserted by
+reading the compiled statement rather than by the absence of a throw.
+
 ### Evidence
 
-`tests/query-engine/operand-callback-sql.test.ts` (66, three dialects): callback ≡ token
+`tests/query-engine/operand-callback-sql.test.ts` (74, three dialects): callback ≡ token
 byte-identical SQL, the injection witness, depth-2 scoping both ways, every return-value
 refusal, every closed surface. `tests/cache/operand-callback-keys.test.ts` (10): the
 keying falsification and the shared-entry property, live on PGlite.

@@ -33,9 +33,13 @@ export {
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./query-engine/pending-operation.js";
-// Field references (`{ gt: (ctx) => ctx.fields.likes }`) — column-to-column filters
+// Field references (`{ gt: (ctx) => ctx.fields.likes }`) — column-to-column filters.
+// `createModelFieldRefs` is the token factory the callback uses internally, and with
+// `client.$fields` gone (D-8) it is the only way to hold a token WITHOUT a callback —
+// which the filtering docs teach as `import { createModelFieldRefs } from "viborm"`.
 export {
   type AnyFieldRef,
+  createModelFieldRefs,
   type FieldRef,
   isFieldRef,
   type ModelFieldRefs,
