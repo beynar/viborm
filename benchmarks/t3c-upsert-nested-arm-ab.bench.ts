@@ -4,10 +4,9 @@
  *
  * An EXISTING-row top-level `upsert` whose relation-bearing UPDATE arm folds a nested
  * to-many `update` (`user.upsert({ where, create, update: { name, posts: { update } }
- * })`). The `queryEngine` escape hatch runs the identical workload through the frozen
- * V1 runtime and the native V2 engine (which delegates the update arm to an
- * UpdateOperation sub-op) on two seeded in-memory SQLite databases. Ratio = V2 hz /
- * V1 hz (higher = V2 faster). Numbers, not adjectives.
+ * })`), which the engine delegates to an UpdateOperation sub-op. Single-armed since
+ * P6 deleted V1 and the `queryEngine` escape hatch it used to A/B against; the
+ * recorded V2/V1 ratio stays in `docs/architecture/engine-unification/PERF.md`.
  *
  * Run: pnpm bench -- benchmarks/t3c-upsert-nested-arm-ab.bench.ts
  */
@@ -40,9 +39,9 @@ const schema = (() => {
   return { user, post };
 })();
 
-const makeClient = async (engine: "v1" | "v2") => {
+const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
-  const client = createClient({ schema, driver, queryEngine: engine });
+  const client = createClient({ schema, driver });
   await push(client, { force: true });
   // 200 users, each owning one post — the upsert's row EXISTS, so the relation-bearing
   // update arm is taken and folds the nested post update.
@@ -54,8 +53,7 @@ const makeClient = async (engine: "v1" | "v2") => {
   return client;
 };
 
-const v1 = await makeClient("v1");
-const v2 = await makeClient("v2");
+const client = await makeClient();
 let n = 0;
 
 const op = (i: number) => ({
@@ -67,11 +65,8 @@ const op = (i: number) => ({
   },
 });
 
-describe("family-D A/B: top-level upsert update arm folds a nested to-many update", () => {
-  bench("v1 user.upsert > update: posts.update", async () => {
-    await (v1 as any).user.upsert(op(n++ % 200));
-  });
-  bench("v2 user.upsert > update: posts.update", async () => {
-    await (v2 as any).user.upsert(op(n++ % 200));
+describe("family-D: top-level upsert update arm folds a nested to-many update", () => {
+  bench("user.upsert > update: posts.update", async () => {
+    await (client as any).user.upsert(op(n++ % 200));
   });
 });
