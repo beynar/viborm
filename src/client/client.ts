@@ -293,7 +293,7 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
       /** Disconnect from the database */
       $disconnect: () => Promise<void>;
       /** Create a client with cache - only read operations available */
-      $withCache: (config?: WithCacheOptions) => CachedClient<C["schema"]>;
+      $withCache: (config?: WithCacheOptions) => CachedClient<C>;
       /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
       $invalidate: (...keys: string[]) => Promise<void>;
     },
@@ -430,7 +430,7 @@ export class VibORM<C extends VibORMConfig> {
    * Create a client with caching enabled
    * Returns a client with only cacheable (read) operations
    */
-  $withCache(config?: WithCacheOptions): CachedClient<C["schema"]> {
+  $withCache(config?: WithCacheOptions): CachedClient<C> {
     if (!this.cache) {
       throw new CacheConfigurationError(
         "Cache driver not configured. Pass a cache driver in createClient options."
@@ -502,7 +502,7 @@ export class VibORM<C extends VibORMConfig> {
           executionContext: pendingOperation.getExecutionContext(),
         }
       );
-    }) as CachedClient<C["schema"]>;
+    }) as CachedClient<C>;
   }
 
   /**

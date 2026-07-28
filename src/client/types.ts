@@ -19,6 +19,7 @@ import type {
   CountResultType,
   GroupByResultType,
   InferSelectInclude,
+  NodeOmit,
 } from "./result-types";
 
 export type { WaitUntilFn } from "../cache/cache-contract";
@@ -205,25 +206,158 @@ type BulkWriteRows<S extends ModelState, Sel> = Prettify<
   InferSelectInclude<S, { select: Sel }>
 >[];
 
+// =============================================================================
+// CLIENT-LEVEL `omit`, AT THE TYPE LEVEL
+// =============================================================================
+
+/*
+ * `createClient({ omit: { user: { passwordHash: true } } })` is a DEFAULT the
+ * runtime folds into every projecting node's `omit` before validation
+ * (`applyClientOmit`, ./omit.ts). The types below fold the SAME default into
+ * the SAME key before result inference, so the two layers reduce the row
+ * together.
+ *
+ * Threading it matters in one direction in particular: without it the runtime
+ * drops the column while the type still promises a `string`, which is the lie
+ * that survives review and reaches production.
+ *
+ * KNOWN GAP. Only the node the operation is called on is covered. The runtime
+ * also applies the default to relation payloads reached through
+ * `include`/`select`, but a relation resolves to a target MODEL, not to the
+ * schema KEY the config is written against, and recovering the key would mean
+ * comparing model types structurally — the one comparison that collapses
+ * mutually-recursive model consts to `any` (see `RelationState.getter`). So a
+ * globally-omitted field of an INCLUDED model still shows up in the type. It
+ * is recorded in docs/content/docs/client/omit.mdx, not papered over.
+ */
+
+/** `config.omit` as written, or `undefined` when the config carries none. */
+type ConfigOmit<C> = "omit" extends keyof C
+  ? C[Extract<"omit", keyof C>]
+  : undefined;
+
+/**
+ * Discard a record keyed by an INDEX SIGNATURE rather than by names.
+ *
+ * `VibORMConfig` declares `omit?: ClientOmitConfig<Schema>` over the loose
+ * `Schema` alias, so a client typed from the INTERFACE rather than from a
+ * config literal carries `{ [model: string]: { [field: string]: boolean } }`.
+ * That names nothing. Reading it as "every field of every model might be
+ * hidden" would make every key of every result optional — noise, not honesty —
+ * so it is read as what it is: no default stated.
+ */
+type NamedOnly<O> = string extends keyof NonNullable<O> ? undefined : O;
+
+/** The entry `config.omit` holds for one model key, `undefined` when none. */
+type ModelOmitEntry<All, K extends PropertyKey> = [All] extends [undefined]
+  ? undefined
+  : K extends keyof NonNullable<All>
+    ? undefined extends All
+      ? NonNullable<All>[K] | undefined
+      : NonNullable<All>[K]
+    : undefined;
+
+/**
+ * A default the type cannot pin down degrades to MAYBE, never to "no": every
+ * field it could name becomes a widened `boolean`, which `ApplyOmit` renders as
+ * an OPTIONAL key — the same convention a widened query-level flag already
+ * follows. Reading an uncertain default as "absent" would claim a field is
+ * present exactly when the config that hides it is in play.
+ */
+type SoftenOmit<O> = [O] extends [undefined]
+  ? undefined
+  : undefined extends O
+    ? { [F in keyof Exclude<O, undefined>]: boolean }
+    : O;
+
+/** What this client hides by default for one model of its schema. */
+export type ClientDefaultOmit<
+  C extends VibORMConfig,
+  K extends keyof C["schema"],
+> = NamedOnly<SoftenOmit<ModelOmitEntry<NamedOnly<ConfigOmit<C>>, K>>>;
+
+/**
+ * The client default with the CALLER's own `omit` layered on top, per field —
+ * the type-level twin of `mergeOmit` (./omit.ts). `{ passwordHash: false }`
+ * re-includes exactly one globally hidden column and leaves the rest hidden.
+ *
+ * A caller `omit` that MAY be `undefined` cannot decide anything on its own, so
+ * the fields it names soften to `boolean` (optional) while the untouched
+ * defaults stay definite.
+ */
+type MergeClientOmit<Default, Local> = [Local] extends [undefined]
+  ? Default
+  : undefined extends Local
+    ? Prettify<
+        Omit<Default, keyof Exclude<Local, undefined>> & {
+          [F in keyof Exclude<Local, undefined>]: boolean;
+        }
+      >
+    : Prettify<Omit<Default, keyof Local> & Local>;
+
+/**
+ * The args as the runtime will see them once the client default is folded in.
+ *
+ * An explicit `select` states the projection positively and is left alone —
+ * the same rule `rewriteNode` follows, and the reason injecting an `omit` here
+ * would turn a legal payload into the `select` + `omit` refusal.
+ */
+type WithClientOmit<Args, Default> = [Default] extends [undefined]
+  ? Args
+  : Args extends { select: unknown }
+    ? Args
+    : Omit<Args, "omit"> & { omit: MergeClientOmit<Default, NodeOmit<Args>> };
+
+/**
+ * A bulk write sees the client default only where the CALLER already wrote a
+ * projection. `bulkWriteProjects` (./omit.ts) requires `args.omit !== undefined`
+ * before it rewrites anything, precisely so a per-client default is never what
+ * flips `{ count }` into rows — and the type has to make the same refusal, or
+ * `updateMany({ data })` on a configured client would claim rows it will not
+ * get.
+ */
+type WithBulkClientOmit<Args, Default> = [Default] extends [undefined]
+  ? Args
+  : "omit" extends keyof Args
+    ? Omit<Args, "omit"> & { omit: MergeBulkOmit<Default, BulkOmit<Args>> }
+    : Args;
+
+/**
+ * Like {@link MergeClientOmit}, but it must preserve the `undefined` arm rather
+ * than resolve it: on a bulk write that arm is the `{ count }` return shape,
+ * and `BulkWriteResult` is what decides between them.
+ */
+type MergeBulkOmit<Default, Local> = [Local] extends [undefined]
+  ? undefined
+  : undefined extends Local
+    ? MergeClientOmit<Default, Exclude<Local, undefined>> | undefined
+    : MergeClientOmit<Default, Local>;
+
 /**
  * Operation result type - infers result shape based on select/include args
  * This provides full type safety for ORM operation results
+ *
+ * `DefaultOmit` is the client-level default for THIS model (`ClientDefaultOmit`);
+ * it defaults to `undefined`, so calling this type with three arguments is the
+ * unconfigured client and behaves exactly as it did before.
  */
 export type OperationResult<
   O extends Operations,
   M extends Model<any>,
   Args,
+  DefaultOmit = undefined,
+  Merged = WithClientOmit<Args, DefaultOmit>,
 > = M extends Model<infer S>
   ? O extends "findFirst" | "findUnique"
-    ? Prettify<InferSelectInclude<S, Args>> | null
+    ? Prettify<InferSelectInclude<S, Merged>> | null
     : O extends "findFirstOrThrow" | "findUniqueOrThrow"
-      ? Prettify<InferSelectInclude<S, Args>>
+      ? Prettify<InferSelectInclude<S, Merged>>
       : O extends "findMany"
-        ? Prettify<InferSelectInclude<S, Args>>[]
+        ? Prettify<InferSelectInclude<S, Merged>>[]
         : O extends "create" | "update" | "delete" | "upsert"
-          ? Prettify<InferSelectInclude<S, Args>>
+          ? Prettify<InferSelectInclude<S, Merged>>
           : O extends "createMany" | "updateMany" | "deleteMany"
-            ? BulkWriteResult<S, Args>
+            ? BulkWriteResult<S, WithBulkClientOmit<Args, DefaultOmit>>
             : O extends "count"
               ? CountResultType<Args>
               : O extends "exist"
@@ -241,7 +375,7 @@ export type OperationResult<
  */
 export type Client<C extends VibORMConfig> = {
   [K in keyof C["schema"]]: {
-    [O in Operations]: Operation<O, C["schema"][K], C>;
+    [O in Operations]: Operation<O, C["schema"][K], C, ClientDefaultOmit<C, K>>;
   };
 };
 
@@ -264,6 +398,7 @@ type Operation<
   O extends Operations,
   M extends Model<any>,
   C extends VibORMConfig,
+  DefaultOmit = undefined,
   Payload = OperationPayload<O, M>,
 > = undefined extends Payload
   ? <Arg extends RemoveCacheKey<C, Payload>>(
@@ -271,10 +406,10 @@ type Operation<
         Exclude<Arg, undefined>,
         Exclude<RemoveCacheKey<C, Payload>, undefined>
       >
-    ) => PendingOperation<OperationResult<O, M, Arg>>
+    ) => PendingOperation<OperationResult<O, M, Arg, DefaultOmit>>
   : <Arg extends RemoveCacheKey<C, Payload>>(
       args: NoExtraOperationKeys<Arg, RemoveCacheKey<C, Payload>>
-    ) => PendingOperation<OperationResult<O, M, Arg>>;
+    ) => PendingOperation<OperationResult<O, M, Arg, DefaultOmit>>;
 
 /**
  * Cached operation type - returns Promise directly (not batchable)
@@ -282,6 +417,7 @@ type Operation<
 type CachedOperation<
   O extends Operations,
   M extends Model<any>,
+  DefaultOmit = undefined,
   Payload = OperationPayload<O, M>,
 > = undefined extends Payload
   ? <Arg extends Payload>(
@@ -289,17 +425,26 @@ type CachedOperation<
         Exclude<Arg, undefined>,
         Exclude<Payload, undefined>
       >
-    ) => Promise<OperationResult<O, M, Arg>>
+    ) => Promise<OperationResult<O, M, Arg, DefaultOmit>>
   : <Arg extends Payload>(
       args: NoExtraOperationKeys<Arg, Payload>
-    ) => Promise<OperationResult<O, M, Arg>>;
+    ) => Promise<OperationResult<O, M, Arg, DefaultOmit>>;
 
 /**
  * Cached client type - provides typed access to only cacheable (read) operations
  * Returns Promises directly (not PendingOperation) - cache operations are not batchable
+ *
+ * Keyed by the CONFIG, not by the schema alone, because `$withCache` runs the
+ * same `applyClientOmit` rewrite the plain client does (and keys the cache on
+ * the rewritten payload) — a cached read of a configured model must not be
+ * typed as if the default were off.
  */
-export type CachedClient<S extends Schema> = {
-  [K in keyof S]: {
-    [O in CacheableOperations]: CachedOperation<O, S[K]>;
+export type CachedClient<C extends VibORMConfig> = {
+  [K in keyof C["schema"]]: {
+    [O in CacheableOperations]: CachedOperation<
+      O,
+      C["schema"][K],
+      ClientDefaultOmit<C, K>
+    >;
   };
 };

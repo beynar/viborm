@@ -1,8 +1,8 @@
 // Model Class Implementation
 // Defines database models with scalars and relations
 
-import v from "@validation/primitives/v";
 import type { ObjectSchema, VibSchema } from "@validation";
+import v from "@validation/primitives/v";
 import type { AnyRelation } from "../relation";
 import type { Scalar } from "../scalars/base";
 import type { HydratedSchemaNames, SchemaNames } from "../scalars/common";
@@ -101,6 +101,40 @@ export type UpdateState<
 > = Omit<State, keyof Update> & Update;
 
 /**
+ * What `.omit()` accepts: this model's scalar names, each flagged `true`.
+ *
+ * Keys are OPTIONAL — you name only what you hide — which is why this is a
+ * `Partial`. That is also what makes a typo or a relation name a compile
+ * error: an object literal is excess-property-checked against a type
+ * parameter's constraint, so `{ scret: true }` is refused with a "did you
+ * mean" instead of quietly hiding nothing.
+ *
+ * Relations are absent because `State["scalars"]` is the scalar half of the
+ * shape (`ScalarMap`), the same source `.index()` / `.id()` / `.unique()` key
+ * off. Reading it never touches a relation's `getter`, the member that must
+ * not be resolved while two model consts still refer to each other (see
+ * `RelationState.getter`).
+ */
+export type ModelOmitInput<State extends ModelState> = Partial<
+  Record<StringKeyOf<State["scalars"]>, true>
+>;
+
+/**
+ * The same record with every named key REQUIRED.
+ *
+ * `ModelOmitInput` has optional keys, so its VALUES are `true | undefined` —
+ * and a flag that may be `undefined` hides nothing at runtime
+ * (`projectableScalarNames` compares against `true`). Intersecting this in at
+ * the parameter refuses such an input outright rather than recording a
+ * hidden-column claim the runtime would not honor, which is also what the old
+ * `Record<string, true>` constraint did.
+ *
+ * Because that guard has already run, this is also the honest shape to carry
+ * into the state: every key it names is definitely hidden.
+ */
+type DefiniteOmit<Items> = Record<keyof Items, true>;
+
+/**
  * Merge a new compound constraint into the existing record so repeated
  * .id()/.unique() calls accumulate instead of replacing each other.
  * Resolves to just `Added` when nothing was set yet.
@@ -152,11 +186,28 @@ export class Model<State extends ModelState> {
     >;
   }
 
-  omit<OmitItems extends Record<string, true>>(items: OmitItems) {
+  /**
+   * Hide scalars from every result of this model — the schema-level exclusion.
+   *
+   * Keyed to the model's own SCALARS, so a typo or a relation name is a
+   * compile error instead of an `omit` that quietly hides nothing. That
+   * matters more here than anywhere else the builder takes field names: this
+   * is the spelling used for secrets, and a silently-ignored key is a leaked
+   * column.
+   *
+   * The literal survives the round trip — `.omit({ secret: true })` carries
+   * exactly `{ secret: true }` into the state, not a widened record — which is
+   * what every downstream `keyof State["omit"]` reads.
+   */
+  omit<OmitItems extends ModelOmitInput<State>>(
+    items: OmitItems & DefiniteOmit<OmitItems>
+  ) {
     return new Model({
       ...this.state,
       omit: items,
-    }) as unknown as Model<UpdateState<State, { omit: OmitItems }>>;
+    }) as unknown as Model<
+      UpdateState<State, { omit: DefiniteOmit<OmitItems> }>
+    >;
   }
 
   index<

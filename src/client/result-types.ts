@@ -210,8 +210,15 @@ export type ApplyOmit<T, O> = [O] extends [undefined]
   : Omit<T, Extract<DefinitelyOmittedKeys<O> | MaybeOmittedKeys<O>, keyof T>> &
       Partial<Pick<T, Extract<MaybeOmittedKeys<O>, keyof T>>>;
 
-/** The `omit` a node carries, or `undefined` when it carries none. */
-type NodeOmit<Node> = Node extends { omit: infer O } ? O : undefined;
+/**
+ * The `omit` a node carries, or `undefined` when it carries none.
+ *
+ * Exported because the CLIENT-level default is folded into the same key before
+ * inference runs (`WithClientOmit`, ./types.ts): one node, one `omit`, one
+ * reduction — the same shape the runtime hands the engine after
+ * `applyClientOmit` has rewritten the payload.
+ */
+export type NodeOmit<Node> = Node extends { omit: infer O } ? O : undefined;
 
 /**
  * Get relation type (oneToMany, manyToMany, oneToOne, manyToOne)

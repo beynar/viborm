@@ -41,18 +41,47 @@ export type ClientOmitConfig<S extends Record<string, AnyModel>> = {
   [K in keyof S]?: ClientModelOmit<S[K]>;
 };
 
-type ProjectableKeysOf<M extends AnyModel> = Extract<
-  Exclude<
-    keyof M["~"]["state"]["scalars"],
-    M["~"]["state"]["omit"] extends Record<string, true>
-      ? keyof M["~"]["state"]["omit"]
-      : never
-  >,
-  string
->;
+/**
+ * The scalars of `M` a client may hide — every scalar except the ones the
+ * MODEL already hides for good (naming one of those has no `omit` key to name;
+ * see `@validation/model/core/projection`).
+ *
+ * The `any` arm is not decoration. `VibORMConfig` is not generic in the
+ * schema, so the type this is instantiated with is `Model<any>`, whose
+ * `scalars` is `any` — and the subtraction above would then cancel to `never`,
+ * leaving `Partial<Record<never, true>>`, a config object with NO known
+ * properties. That shape type-checks anything, which is survivable, but it
+ * also provides no contextual type for the flags, so the `true` a caller
+ * writes widens to `boolean` and the result type can no longer tell "hidden"
+ * from "maybe hidden". Answering `string` keeps the flag literal.
+ */
+type ProjectableKeysOf<M extends AnyModel> = 0 extends 1 &
+  M["~"]["state"]["scalars"]
+  ? string
+  : Extract<
+      Exclude<
+        keyof M["~"]["state"]["scalars"],
+        M["~"]["state"]["omit"] extends Record<string, true>
+          ? keyof M["~"]["state"]["omit"]
+          : never
+      >,
+      string
+    >;
 
+/**
+ * The fields one model hides by default, each flagged `true`.
+ *
+ * `true` only — not `boolean`. Two reasons, and they are the same reason:
+ *  - a `false` here would be a key that does nothing (the resolver only ever
+ *    acts on `=== true`), and a config key that silently does nothing is the
+ *    shape this codebase refuses; per-field re-inclusion belongs on the QUERY
+ *    (`omit: { passwordHash: false }`), which is where it can be undone;
+ *  - `boolean` as the contextual type widens the `true` a caller writes, and a
+ *    widened flag is a flag the RESULT TYPE cannot resolve — it would render
+ *    `passwordHash?: string` on a client that hides the column outright.
+ */
 export type ClientModelOmit<M extends AnyModel> = Partial<
-  Record<ProjectableKeysOf<M>, boolean>
+  Record<ProjectableKeysOf<M>, true>
 >;
 
 /** Resolves a model to the fields this client hides by default. */

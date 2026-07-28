@@ -123,6 +123,24 @@ await client.vault.findMany({ omit: { label: true } });
 // { id: string }[]
 ```
 
+`.omit()` is keyed to the model's own **scalars**, so the names it takes are
+checked and autocompleted. A typo, a relation name, or a `false` is a compile
+error rather than a key that hides nothing — which is the whole point when the
+field is a secret:
+
+```ts
+s.model({ id: s.string().id(), secret: s.string() }).omit({ scret: true });
+// Object literal may only specify known properties, but 'scret' does not
+// exist. Did you mean to write 'secret'?
+
+s.model({ id: s.string().id(), posts: s.oneToMany(() => post) })
+  .omit({ posts: true });
+// a relation is not a projectable scalar
+
+s.model({ id: s.string().id(), secret: s.string() }).omit({ secret: false });
+// Type 'false' is not assignable to type 'true' — .omit() only ever hides
+```
+
 ### Client-level `omit` is a default
 
 ```ts
@@ -171,8 +189,50 @@ await client.user.findMany({ select: { id: true, passwordHash: true } });
   wrote turns it into rows.
 </Callout>
 
+The flags are `true` only. A `false` here would be a key that does nothing —
+the client default is the thing being *set*, and per-field re-inclusion belongs
+on the query, where it can be undone:
+
+```ts
+createClient({ schema, driver, omit: { user: { passwordHash: false } } });
+// Type 'false' is not assignable to type 'true'
+```
+
 A client `omit` naming a model or a field that does not exist is rejected when
 the client is constructed, not silently ignored.
+
+### The client default is in the types too
+
+A field this client hides is **absent from the default result type**, not
+merely missing at runtime:
+
+```ts
+const client = createClient({
+  schema: { user, post },
+  driver,
+  omit: { user: { passwordHash: true } },
+});
+
+const user = await client.user.findUnique({ where: { id } });
+user.passwordHash;
+// Property 'passwordHash' does not exist
+
+const post = await client.post.findMany();
+// unchanged — the config named `user`, not `post`
+```
+
+The per-field override and the `select` rule are type-level too:
+
+```ts
+await client.user.findMany({ omit: { passwordHash: false } });
+// { id: string; email: string; passwordHash: string }[] — restored
+
+await client.user.findMany({ select: { id: true, passwordHash: true } });
+// { id: string; passwordHash: string }[] — a select is untouched
+
+await client.user.updateMany({ where, data });
+// { count: number } — a default never flips a bulk write's return shape
+```
 
 ## Types follow the runtime
 
@@ -200,6 +260,46 @@ const rows = await client.user.findMany({ omit: { passwordHash: hide } });
 The key becomes **optional** instead of being guessed into one arm. The same
 honesty applies to a bulk write whose `omit` may be `undefined`: the result type
 is the union of `{ count }` and the row array, and the caller narrows.
+
+A client-level default follows the same rule when the *config* is what cannot be
+pinned down — an `omit?:` that may or may not be there gives an optional key,
+never a present one:
+
+```ts
+type Config = { schema: typeof schema; driver: Driver; omit?: typeof defaults };
+const client = createClient(config as Config);
+await client.user.findMany();
+// { id: string; email: string; passwordHash?: string }[]
+```
+
+### What the types can and cannot see
+
+One gap, on the record rather than papered over: the client default reduces the
+node the operation is called on, **not** relation payloads reached through
+`include`.
+
+```ts
+const client = createClient({ schema, driver, omit: { note: { draft: true } } });
+
+await client.note.findMany();
+// { id: string; body: string }[] — draft is gone from the type
+
+await client.user.findMany({ include: { notes: true } });
+// notes still typed with `draft` — the runtime drops it anyway
+```
+
+The runtime does apply the default there (see the example under "Client-level
+`omit` is a default" above), so the value is genuinely absent; only the type is
+wider than the row. The reason is structural: a relation resolves to a target
+*model*, and the config is written against schema *keys*, so recovering the key
+would mean comparing model types — the comparison that collapses
+mutually-recursive schemas. Name the field in a nested `omit` if you want the
+type to agree:
+
+```ts
+await client.user.findMany({ include: { notes: { omit: { draft: true } } } });
+// notes: { id: string; body: string }[]
+```
 
 ## Prisma compatibility
 
