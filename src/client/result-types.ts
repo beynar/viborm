@@ -221,6 +221,23 @@ export type ApplyOmit<T, O> = [O] extends [undefined]
 export type NodeOmit<Node> = Node extends { omit: infer O } ? O : undefined;
 
 /**
+ * The `select` a node carries, or `undefined` when it carries none.
+ *
+ * The parse boundary treats an explicitly-`undefined` key as an ABSENT key
+ * (`src/validation/primitives/object.ts`), which is what makes the
+ * spread-an-optional idiom work; so `{ select: undefined }` and `{}` are the
+ * same payload, and this helper reports them the same way.
+ */
+export type NodeSelect<Node> = Node extends { select: infer Sel }
+  ? Sel
+  : undefined;
+
+/** The `include` a node carries, or `undefined` when it carries none. */
+export type NodeInclude<Node> = Node extends { include: infer I }
+  ? I
+  : undefined;
+
+/**
  * Get relation type (oneToMany, manyToMany, oneToOne, manyToOne)
  */
 export type GetRelationType<R extends AnyRelation> = R["~"]["state"]["type"];
@@ -268,19 +285,39 @@ export type InferRelationResult<R extends AnyRelation> = WrapRelation<
  * - select: ONLY returns selected fields
  * - include: returns base model + included relations
  * - neither: returns base model output
+ *
+ * The dispatch is on the select VALUE, not on key presence. `{ select: undefined }`
+ * is the spread-an-optional idiom collapsed to a literal `undefined`, and the
+ * parse boundary hands the engine a payload with no projection at all — so it
+ * returns the full default row, exactly like `{}`. Reading it as "a selection of
+ * nothing" typed that call `{}`, and `rows[0].id` stopped compiling on a call
+ * that returns `id` at runtime.
+ *
+ * The two refusals — `select` + `include`, `select` + `omit` — are read the same
+ * way: a sibling key that is present but `undefined` is not a second projection,
+ * so it does not turn a legal payload into `never`.
  */
 export type InferSelectInclude<S extends ModelState, Args> = Args extends {
-  select: unknown;
-  include: unknown;
+  select: infer Selection;
 }
-  ? never
-  : Args extends { select: unknown; omit: unknown }
-    ? never
-    : Args extends { select: infer Selection }
-      ? InferSelectResult<S, Selection>
-      : Args extends { include: infer Include }
-        ? ApplyOmit<InferIncludeResult<S, Include>, NodeOmit<Args>>
-        : ApplyOmit<InferModelOutput<S>, NodeOmit<Args>>;
+  ? [Selection] extends [undefined]
+    ? InferUnselectedRow<S, Args>
+    : [NodeInclude<Args>] extends [undefined]
+      ? [NodeOmit<Args>] extends [undefined]
+        ? InferSelectResult<S, Selection>
+        : never
+      : never
+  : InferUnselectedRow<S, Args>;
+
+/**
+ * The row a node returns when it states no `select`: the model's own output,
+ * plus whatever `include` adds, reduced by the node's `omit`.
+ */
+type InferUnselectedRow<S extends ModelState, Args> = Args extends {
+  include: infer Include;
+}
+  ? ApplyOmit<InferIncludeResult<S, Include>, NodeOmit<Args>>
+  : ApplyOmit<InferModelOutput<S>, NodeOmit<Args>>;
 
 /**
  * Result when select is provided - ONLY selected fields are returned

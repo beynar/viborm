@@ -20,6 +20,7 @@ import type {
   GroupByResultType,
   InferSelectInclude,
   NodeOmit,
+  NodeSelect,
 } from "./result-types";
 
 export type { WaitUntilFn } from "../cache/cache-contract";
@@ -298,15 +299,18 @@ type MergeClientOmit<Default, Local> = [Local] extends [undefined]
 /**
  * The args as the runtime will see them once the client default is folded in.
  *
- * An explicit `select` states the projection positively and is left alone —
- * the same rule `rewriteNode` follows, and the reason injecting an `omit` here
- * would turn a legal payload into the `select` + `omit` refusal.
+ * A `select` that carries a VALUE states the projection positively and is left
+ * alone — the same rule `rewriteNode` follows (`args.select !== undefined`), and
+ * the reason injecting an `omit` here would turn a legal payload into the
+ * `select` + `omit` refusal. A `select: undefined` is no projection at all, so
+ * the default is folded in for it exactly as it is for a call with no `select`
+ * key; skipping it there would promise a column the runtime hides.
  */
 type WithClientOmit<Args, Default> = [Default] extends [undefined]
   ? Args
-  : Args extends { select: unknown }
-    ? Args
-    : Omit<Args, "omit"> & { omit: MergeClientOmit<Default, NodeOmit<Args>> };
+  : [NodeSelect<Args>] extends [undefined]
+    ? Omit<Args, "omit"> & { omit: MergeClientOmit<Default, NodeOmit<Args>> }
+    : Args;
 
 /**
  * A bulk write sees the client default only where the CALLER already wrote a
