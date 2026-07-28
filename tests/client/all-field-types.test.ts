@@ -186,7 +186,9 @@ const schema = { allFieldsModel };
 // =============================================================================
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>>
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
 >;
 
 beforeAll(async () => {
@@ -1264,7 +1266,9 @@ describe("Compile-time type verification", () => {
 // =============================================================================
 
 type AllFieldsClient = Awaited<
-  ReturnType<typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>>
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
 >;
 type CreateArgs = Parameters<AllFieldsClient["allFieldsModel"]["create"]>[0];
 type UpdateArgs = Parameters<AllFieldsClient["allFieldsModel"]["update"]>[0];

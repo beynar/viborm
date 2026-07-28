@@ -43,7 +43,9 @@ const article = s
 const schema = { person, article };
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>>
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
 >;
 
 beforeAll(async () => {

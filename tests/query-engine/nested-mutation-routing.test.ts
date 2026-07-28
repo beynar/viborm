@@ -99,7 +99,12 @@ function createBatchOnlyPGliteDriver(): BatchOnlyPGliteDriver {
 }
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<typeof safetySchema, { schema: typeof safetySchema }>>
+  ReturnType<
+    typeof PGliteCreateClient<
+      typeof safetySchema,
+      { schema: typeof safetySchema }
+    >
+  >
 >;
 
 beforeAll(async () => {

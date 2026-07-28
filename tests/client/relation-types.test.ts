@@ -98,7 +98,9 @@ const schema = { parentModel, childModel };
 // =============================================================================
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>>
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
 >;
 
 // Test data
