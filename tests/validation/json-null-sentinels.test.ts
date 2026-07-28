@@ -61,10 +61,11 @@ describe("JSON null sentinels", () => {
     });
 
     /**
-     * The reason `kind` is an own ENUMERABLE string key and not only the symbol
-     * brand: the cache key builder walks `Object.keys`, so three symbol-only
-     * tokens would all serialize to `{}` and two different questions would
-     * share one cache entry.
+     * Two different questions must not share one cache entry. Telling the three
+     * APART is only half of it — telling a sentinel from the look-alike
+     * document `{ kind: "DbNull" }` (legal user data in a JSON column, and
+     * refused as a sentinel two tests above) is the other half, pinned in
+     * `tests/cache/brand-token-keys.test.ts`.
      */
     test("the three hash to different cache keys", () => {
       const keyFor = (value: unknown) =>

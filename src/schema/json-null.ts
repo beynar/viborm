@@ -36,11 +36,18 @@
  * Only the top-level operand positions that explicitly opt in accept one.
  *
  * The `kind` property is an OWN ENUMERABLE STRING key, not only the symbol
- * brand, so every structural serializer in the codebase tells the three apart
- * without knowing this module exists — the cache key builder
- * ({@link file://../cache/key.ts}) walks `Object.keys`, and three tokens that
- * all stringified to `{}` would collide `equals: DbNull` with
- * `equals: JsonNull` in one cache entry.
+ * brand, so a token reads as itself in a dump and a structural serializer at
+ * least tells the three apart rather than flattening all three to `{}`.
+ *
+ * BEING TOLD APART IS NOT THE SAME AS BEING RECOGNIZED, and this file used to
+ * claim otherwise. A JSON column accepts an ARBITRARY object, so
+ * `{ kind: "DbNull" }` is ordinary user data — and a serializer walking
+ * `Object.keys` gives it the same identity as the sentinel. The cache key
+ * builder did exactly that, and a cached client served the rows of
+ * `equals: DbNull` for `equals: { kind: "DbNull" }`, in both directions, for
+ * the whole TTL. A consumer that must not confuse the two asks
+ * {@link isJsonNullSentinel} and keys the answer somewhere a document cannot
+ * reach, as {@link file://../cache/key.ts} now does.
  */
 
 /**
