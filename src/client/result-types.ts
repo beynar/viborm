@@ -444,6 +444,20 @@ type IsDecimalScalar<F> =
 /**
  * Result type for aggregate operations
  * Dynamically typed based on which aggregates are requested
+ *
+ * THE RULE, and it is the RESULT PARSER's rule, not a guess:
+ * `result-aggregate-parser.ts` marks `_sum` / `_min` / `_max` as `typed` and
+ * decodes them through the FIELD'S OWN scalar decoder, so those three come back
+ * spelled exactly like the column — `_sum` of an `s.bigInt()` is a `bigint`,
+ * `_sum` of an `s.decimal()` is an exact string. Only `_avg` takes the
+ * widen-to-number path, and even it stays a string for a decimal, because an
+ * average of decimals is still a decimal the database computed exactly.
+ *
+ * `_sum` used to be typed `number` for everything but a decimal, which made
+ * `agg._sum.big * 2` type-check and then throw "Cannot mix BigInt and other
+ * types" — and, worse, `agg._sum.big === 150` silently false. The decoder is the
+ * half that is pinned behaviorally (tests/drivers/scalar-roundtrip-behavior.ts),
+ * so the type follows it.
  */
 export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
   [K in keyof Args as K extends `_${string}` ? K : never]: K extends "_count"
@@ -452,30 +466,39 @@ export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
       : Args[K] extends object
         ? { [F in keyof Args[K]]: number }
         : never
-    : K extends "_avg" | "_sum"
+    : K extends "_sum"
       ? Args[K] extends object
         ? {
-            // A sum or average OF decimals is still a decimal — the database
-            // computes it exactly, so it comes back as a string like the column
-            // does. Every other numeric aggregates to a JS number.
+            // Decoded through the field's own scalar: bigint -> bigint,
+            // decimal -> string, int/float -> number.
             [F in keyof Args[K]]:
-              | (F extends ScalarKeys<T>
-                  ? IsDecimalScalar<T[F]> extends true
-                    ? string
-                    : number
-                  : number)
+              | (F extends ScalarKeys<T> ? InferScalarBase<T[F]> : number)
               | null;
           }
         : never
-      : K extends "_min" | "_max"
+      : K extends "_avg"
         ? Args[K] extends object
           ? {
-              [F in keyof Args[K]]: F extends ScalarKeys<T>
-                ? InferScalarBase<T[F]> | null
-                : never;
+              // An average OF decimals is still a decimal; every other numeric
+              // widens to a JS number, bigint included.
+              [F in keyof Args[K]]:
+                | (F extends ScalarKeys<T>
+                    ? IsDecimalScalar<T[F]> extends true
+                      ? string
+                      : number
+                    : number)
+                | null;
             }
           : never
-        : never;
+        : K extends "_min" | "_max"
+          ? Args[K] extends object
+            ? {
+                [F in keyof Args[K]]: F extends ScalarKeys<T>
+                  ? InferScalarBase<T[F]> | null
+                  : never;
+              }
+            : never
+          : never;
 }>;
 
 // =============================================================================
