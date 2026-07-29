@@ -1786,6 +1786,34 @@ pre-existing and inherited unchanged — `createMany` + `skipDuplicates` on a
 single atomic batch cannot carry; the shared behavior suite pins that leg's typed refusal
 and every other leg's execution, so neither can drift into the other.
 
+**N2-U1 — the inverse-side to-one `create` (no mechanism at all; a dispatch that was
+missing a case).** `user.update({ where, data: { profile: { create: { bio } } } })` — the
+mainstream Prisma shape — raised `does not support nested 'create' on the inverse-side
+to-one relation`. It is the ARITY-1 case of the child-held create the update root already
+builds: one INSERT whose foreign key is the located parent's referenced column. So the new
+`create` case enters `interpretChildHeldCreate` unchanged and inherits both N1 provenances
+(construction literal when the unique `where` pins the column, located-parent Ref when it
+does not), plus the T4b post-transition ordering. `nested-target-parts.ts`'s own `create`
+case never had an `isInverseToOne` branch, so one level deeper this already worked — the
+refusal was an inconsistency in the ROOT dispatch, not a boundary.
+
+The OCCUPIED SLOT needed no guard either, and this is the §1 Pin Rule reading of it: a 1:1
+foreign key ALWAYS carries a UNIQUE constraint (`FK008` refuses to define a 1:1 without
+one; the DDL serializer adds it otherwise), so a create into an occupied slot is a
+constraint violation with nothing written — Prisma's observable. A pre-check SELECT would
+be a second guard on that one invariant AND a racy one, so there is none, and its absence
+is measured in the statement stream rather than asserted. The violation carries no
+`racePin`, so it is a genuine conflict and NOT a retryable race — also measured, through
+the routed client that owns the retry: exactly one INSERT, zero child SELECTs.
+
+Throw-site census 77 → 76. `interpretInverseToOneKind`'s `default` did not narrow — the
+dispatch is now TOTAL over the parse boundary's inverse-to-one surface (the seven keys
+`toOneUpdateFactory` emits, which are exactly Prisma 7.9.1's), so reaching it would mean
+the schema produced a key it does not define. That is an engine invariant break, not a
+declined shape, so it became a `QueryEngineError` — the same disposition X1c gave
+`foldOneNestedRelation`'s unreachable branches, and the reason the count drops by a whole
+site rather than moving to a narrower message.
+
 ---
 
 ## 9. Invariants (the executable contract)

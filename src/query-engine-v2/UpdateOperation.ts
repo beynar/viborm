@@ -1619,9 +1619,18 @@ export class UpdateOperation {
    * `update: <data>` (no unique selector, correlation is the locator), `disconnect:
    * true` / `delete: true` (the whole correlated set), and `upsert` (found → update
    * the correlated child / absent → create it, fk = parent — TO-ONE.md §7.2, family
-   * F, scalar arms). `create` / non-boolean disconnect/delete / `set` / a
-   * relation-carrying upsert arm route the whole tree to V1 (documented boundaries,
-   * mirroring the to-many surface).
+   * F, scalar arms), and — since N2-U1 — `create` (the arity-1 child-held INSERT,
+   * with the 1:1 FK's UNIQUE constraint as the occupied-slot rule).
+   *
+   * The dispatch is TOTAL over the parse boundary's inverse-to-one surface. The
+   * relation schema for a to-one ({@link file://../validation/relations/update.ts}
+   * `toOneUpdateFactory`) emits exactly `create` / `connect` / `connectOrCreate` /
+   * `update` / `upsert`, plus `disconnect` / `delete` on an OPTIONAL relation — the
+   * same seven keys Prisma's `<T>UpdateOneWithout<R>NestedInput` carries (measured
+   * against Prisma 7.9.1; `createMany` / `deleteMany` / `updateMany` / `set` are
+   * to-many-only there too, and this schema does not offer them either). Every one is
+   * a `case` below, so the `default` is unreachable by construction and is an internal
+   * invariant, not a route.
    */
   private interpretInverseToOneKind(args: {
     kind: string;
@@ -1658,6 +1667,41 @@ export class UpdateOperation {
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
 
     switch (kind) {
+      case "create":
+        // N2-U1 — the mainstream Prisma shape,
+        // `user.update({ where, data: { profile: { create: { bio } } } })`.
+        // Mechanically it is the ARITY-1 case of the child-held create the update root
+        // already builds: one INSERT whose foreign key is the located parent's referenced
+        // column — a construction literal when the unique `where` pins that column, N1's
+        // located-parent Ref when it does not. `interpretChildHeldCreate` is entered
+        // unchanged; the to-one payload is a bare object where the to-many spelling is
+        // single-or-array, and `normalizeItems` already reads both.
+        //
+        // THE OCCUPIED SLOT (Prisma's documented behavior: a related row already there is
+        // an error). The 1:1 foreign key carries a UNIQUE constraint — `serializer.ts`
+        // adds one when the schema does not, "1:1 FK must be unique at the DB level, or it
+        // degrades to N:1" — so an INSERT into an occupied slot violates it and surfaces as
+        // `UniqueConstraintError` with nothing written, on both substrates. That constraint
+        // IS the guard. A pre-check SELECT would be a SECOND guard on the one invariant
+        // (the AGENTS.md ban) and a racy one besides: two concurrent creates would both
+        // read an empty slot, both proceed, and leave the constraint to decide anyway.
+        //
+        // The race attribution, stated because it is load-bearing: this leaf carries NO
+        // `racePin` (only the adopt family's create-the-target-first arms do —
+        // `childRacePin`), so `race-retry.ts` sees a `UniqueConstraintError` matching no
+        // pin and not `meta.raceable`, and does NOT re-run the operation. That is the
+        // correct verdict — an occupied slot is a genuine conflict the caller must see,
+        // not a lost create-branch race worth retrying.
+        this.interpretChildHeldCreate({
+          kind,
+          relationName,
+          fk,
+          parsedRelation,
+          childScope,
+          childName,
+          input,
+        });
+        return;
       case "connect":
         // Global lookup-and-adopt: UPDATE child SET fk = parent WHERE unique, pinned
         // by an exists guard — V1's child-held connect arm. A one-to-one FK carries a
@@ -1774,10 +1818,15 @@ export class UpdateOperation {
         push(buildToManyDeleteManyParts(writeBase, {}));
         return;
       default:
-        // create/createMany/set/updateMany/deleteMany — V1's surface under an
-        // inverse-side to-one; route the whole tree to V1.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update does not support nested '${kind}' on the inverse-side to-one relation '${relationName}'.`
+        // Unreachable: the seven keys the to-one relation schema can deliver each have a
+        // case above (see this method's doc). A `createMany` / `deleteMany` / `set` /
+        // `updateMany` here would mean the parse boundary let through a key it does not
+        // define — an engine invariant break, not a shape we decline, so it is a
+        // `QueryEngineError` and NOT an `UnsupportedOperationError` route (the X1c
+        // precedent for a branch made unreachable by construction). Fail closed rather
+        // than fall through and silently drop the mutation.
+        throw new QueryEngineError(
+          `query-engine-v2 update reached an unknown nested kind '${kind}' on the inverse-side to-one relation '${relationName}'.`
         );
     }
   }

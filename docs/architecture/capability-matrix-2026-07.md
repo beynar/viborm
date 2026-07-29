@@ -208,17 +208,17 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 
 | Feature | Under `create` | Under `update` | Notes |
 |---|---|---|---|
-| `create` (single + array) | ✅ all cardinalities | 🟡 parent-held to-one ✅; **inverse to-one ❌** (`UpdateOperation.ts:1671`); **to-many conditional** — needs a single-field referenced column pinned by the unique `where` or rewritten by root SET (`:1327-1382`) | `client.user.update({ where:{ email }, data:{ posts:{ create:{…} } } })` fails; `where:{ id }` works |
-| `createMany` (+`skipDuplicates`) | ✅ to-many | 🟡 same pinning gate; ❌ inverse to-one; ❌ M2M (`RelationJunctionPart.ts:1615`) | — |
+| `create` (single + array) | ✅ all cardinalities | ✅ all cardinalities — parent-held to-one, **inverse to-one (N2-U1)**, and to-many on any spelling of the unique `where` (**N1-U1** removed the pinning gate; the referenced column rides the located-parent Ref) | an occupied inverse-to-one slot errors on the 1:1 FK's UNIQUE constraint, matching Prisma |
+| `createMany` (+`skipDuplicates`) | ✅ to-many | ✅ to-many, any `where` spelling (N1-U1); ❌ M2M (`RelationJunctionPart.ts:1615`). Not offered on a to-one — **Prisma parity**, measured: `createMany` is absent from Prisma 7.9.1's to-one nested-update input too | — |
 | `connect` | ✅ | ✅ | fails if target missing |
 | `connectOrCreate` | ✅ | ✅ — ↔️ **global** lookup-and-adopt (reparents), not parent-correlated | `UpdateOperation.ts:1434` |
 | `update` | — | ✅ to-one takes bare data **or** Prisma 5's `{where?,data}` (W4-U3; `where` is a NON-unique filter on the connected record, filter-miss → P2025-equivalent, whole tree rolls back). ⚠️ on a target owning a field named `data` the two spellings collide and viborm **refuses** the shape (Prisma picks one silently) — spell the envelope out, `{where:{},data:{…}}`. To-many `{where,data}` ✅ | `update.ts:45-79`, `to-one-update-form.ts` |
 | `updateMany` | — | ✅➕ `where` is **optional** (Prisma requires it) | `update.ts:153-161` |
 | `upsert` | ➕ **to-many only, viborm superset**, global-adopt-and-update, **executable today** | ✅ to-one `{create,update}`, to-many `{where,create,update}` | `create.ts:182-201`; proven in `create-nested-upsert-behavior.ts:123`. `compatibility.mdx:66` saying "the current engine rejects it" is **stale** |
-| `delete` | — | ✅ boolean (to-one), whereUnique single+array (to-many) | ↔️ inverse-side `delete: true` with no related row is a **no-op**; Prisma throws P2025 |
-| `deleteMany` | — | ✅ to-many; ❌ inverse to-one | `update.ts:172` |
-| `set` | — | ✅ to-many, with orphan guard | `RelationWritePart.ts:910-947` |
-| `disconnect` | — | ✅ boolean on optional to-one; whereUnique on to-many | `update.ts:49,251-253` |
+| `delete` | — | 🟡 boolean (to-one), whereUnique single+array (to-many). **Narrower than Prisma on the to-one**: Prisma 7.9.1 takes `WhereInput \| boolean` (N2-U3 — see §3.B) | ↔️ inverse-side `delete: true` with no related row is a **no-op**; Prisma throws P2025 |
+| `deleteMany` | — | ✅ to-many. Not offered on a to-one — **Prisma parity**, measured against Prisma 7.9.1's to-one nested-update input (N2-U2) | `update.ts:172` |
+| `set` | — | ✅ to-many, with orphan guard. To-one: Prisma parity, absent there too | `RelationWritePart.ts:910-947` |
+| `disconnect` | — | 🟡 boolean on optional to-one; whereUnique on to-many. **Narrower than Prisma on the to-one**: Prisma 7.9.1 takes `WhereInput \| boolean`, viborm only the boolean (N2-U3 — see §3.B) | `update.ts:49,251-253` |
 | Required-relation orphaning | ✅ throws, Prisma-equivalent — **plus stricter typing**: on a required to-one the `disconnect`/`delete` keys aren't in the schema at all | `RelationProgramValues.ts:181-188` |
 | Atomic `set`/`increment`/`decrement`/`multiply`/`divide` | ✅ Int, Float, BigInt, Decimal | `set-builder.ts:106-134` |
 | Atomic arithmetic **on a primary key** | ➕ with a portability gate (one op per PK; float/decimal arithmetic and `divide: 0` rejected) | `mutation-identity.ts:190-236` |
@@ -617,7 +617,7 @@ But **73 comments across `src/` still say "routes to V1"**. See §0.2.
 
 **A16. Every model must have a primary key.** Engine, `push` and `migrate` all refuse.
 
-**A17. Parity refusals inside nested writes** (all match Prisma's own rejections): `update`/`delete`/`set`/`disconnect` inside a `create` payload; M2M `upsert`/`disconnect`/`set`/`delete` under `create`; two kinds on one to-one arm; object-form `disconnect: {…}`/`delete: {…}` on a to-one; writing a relation's owned FK inside its own nested create; nested create identity must match the unique `where`; M2M `disconnect: true` without a selector; `set` that would orphan a required FK.
+**A17. Parity refusals inside nested writes** (all match Prisma's own rejections): `update`/`delete`/`set`/`disconnect` inside a `create` payload; M2M `upsert`/`disconnect`/`set`/`delete` under `create`; two kinds on one to-one arm; ~~object-form `disconnect: {…}`/`delete: {…}` on a to-one~~ (**N2-U3 — this entry was WRONG, and is retracted**: measured against Prisma 7.9.1's generated `ProfileUpdateOneWithoutUserNestedInput`, both keys are typed `ProfileWhereInput | boolean`, a filter narrowing which connected record is acted on. viborm types them `v.boolean()`, so the object form is refused at the parse boundary — a genuine, narrower surface, not parity. Moved to §3.B); writing a relation's owned FK inside its own nested create; nested create identity must match the unique `where`; M2M `disconnect: true` without a selector; `set` that would orphan a required FK.
 
 **A18. Driver / dialect capability refusals.** `d1`/`neon-http` callback transactions; ~~`$transaction` options~~ (**W5-U3, `812a750`** — no longer a blanket refusal: options are honored per driver, and only the combinations a driver cannot execute are refused, each with a reason); array-form `$transaction` with a non-batchable op on a batch-only driver; insertId-scratch batch merge; PlanetScale cross-shard; `mysql2` `multipleStatements`; SQLite RIGHT/FULL OUTER/LATERAL; MySQL FULL OUTER; JSON path segments with `"` or `\`; nullable vector column in a distance select; compound-PK many-to-many (query **and** migration).
 
@@ -648,10 +648,11 @@ These are ordinary Prisma payloads:
 
 | Payload | Result |
 |---|---|
-| `user.update({ where:{ id }, data:{ profile:{ create:{ bio } } } })` on an **inverse-side to-one** | ❌ `does not support nested 'create' on the inverse-side to-one relation 'profile'` ([UpdateOperation.ts:1671](../../src/query-engine-v2/UpdateOperation.ts:1671)). `tests/query-engine-v2/to-one-update-family.test.ts:260-440` enumerates every other inverse-to-one kind — **no `create` case** |
+| `user.update({ where:{ id }, data:{ profile:{ create:{ bio } } } })` on an **inverse-side to-one** | ✅ since **N2-U1**: the arity-1 case of the child-held create, on both parent provenances (pinned `where` or N1's located-parent Ref). An OCCUPIED slot errors as Prisma's does — the 1:1 FK's UNIQUE constraint, no pre-check probe and no retry. `tests/query-engine-v2/inverse-to-one-create-behavior.ts`, every driver leg × both substrates |
 | `user.update({ where:{ email }, data:{ posts:{ create:{…} } } })` | ✅ since **N1-U1** (the located-parent Ref): the locate selects the referenced column and the nested create reads it from the located row, compiling to the same statements as the `where: { id }` spelling |
 | `post.update({ where:{ id }, data:{ tags:{ createMany:{ data:[…] } } } })` (M2M) | ❌ `does not support nested 'createMany' on many-to-many relation 'tags'` |
 | `tags: { update: { where:{ slug }, data:{ posts:{…} } } }` | ❌ must locate the target by its primary key (N4-U1's unit: the same Ref generalizes, applied there) |
+| `user.update({ where:{ id }, data:{ profile:{ disconnect:{ …filter } } } })` / the same with `delete` | ❌ refused at the **parse boundary** — viborm types both keys `v.boolean()`. Prisma 7.9.1 types them `WhereInput \| boolean` (a filter narrowing which connected record is acted on), so this is a NARROWER surface, not a parity refusal (**N2-U3**, retracting the A17 claim). Closing it is a schema widening plus a filtered disconnect write; `delete`'s half is nearly free since `delete: true` already compiles through the filter-taking `deleteMany` leaf |
 | Two kinds on one to-one arm, or connect-by-other-unique on a parent-held to-one | ❌ see §1.5 |
 
 ## 3.C Deferred engineering (backlog, no direct user impact)

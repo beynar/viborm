@@ -217,6 +217,108 @@ Docker MySQL 3307 and Postgres 5434 were already up (21h) and were not restarted
 | N2-U2 | Inverse to-one **`createMany`** (single-element semantics per Prisma — or refuse exactly as Prisma refuses; MEASURE Prisma's actual behavior first and pin it in the test name) and **`deleteMany`** (delete-the-connected-row filtered form). |
 | N2-U3 | The residual inverse-side declines re-audited: object-form `disconnect`/`delete` stay Prisma-parity refusals (Prisma only takes booleans there) — verify, don't assume. |
 
+### The measurement this wave ran first
+
+Prisma's inverse-to-one nested-write surface was MEASURED, not recalled: `prisma generate`
+on a schema carrying `User.profile: Profile?` beside `User.posts: Post[]`, Prisma **7.9.1**,
+`prisma-client` generator. Two generated inputs decide all three units:
+
+```
+ProfileUpdateOneWithoutUserNestedInput = {          // the INVERSE TO-ONE
+  create?, connectOrCreate?, upsert?, connect?, update?,
+  disconnect?: ProfileWhereInput | boolean,
+  delete?:     ProfileWhereInput | boolean,
+}
+PostUpdateManyWithoutAuthorNestedInput = {          // the TO-MANY, for contrast
+  create?, connectOrCreate?, upsert?, createMany?, set?, disconnect?, delete?,
+  connect?, update?, updateMany?, deleteMany?,
+}
+```
+
+Two of the wave's three premises did not survive it, and both corrections are recorded
+below rather than quietly absorbed.
+
+### N2-U1 — delivered
+
+`user.update({ where, data: { profile: { create: { bio } } } })` executes. It needed no
+mechanism: an inverse-side to-one create is the **arity-1 case** of the child-held create
+the update root already builds, so the new `create` case enters `interpretChildHeldCreate`
+unchanged and inherits both N1 provenances — the construction literal when the unique
+`where` pins the referenced column, the **located-parent Ref** when it does not. The
+to-one payload is a bare object where the to-many spelling is single-or-array, and
+`normalizeItems` already read both. A detail that reframes the site: `nested-target-parts.ts`'s
+`create` case has no `isInverseToOne` branch at all — one level deeper this already worked.
+Only the ROOT dispatch refused it.
+
+**The occupied slot** is the one rule the to-many case does not have, and it needed no
+engine guard either. A 1:1 foreign key ALWAYS carries a UNIQUE constraint — `FK008` refuses
+to *define* a 1:1 without one, and the DDL serializer adds it if a schema ever arrives
+without it — so a create into an occupied slot raises `UniqueConstraintError` with nothing
+written, which is Prisma's observable. There is no pre-check SELECT: it would be a second
+guard on the one invariant (the AGENTS.md ban) and a racy one besides, since two concurrent
+creates would both read an empty slot and leave the constraint to decide anyway.
+
+**The race attribution is measured, not asserted.** The leaf carries no `racePin`, so
+`race-retry.ts` reads the violation as matching no pin and not `meta.raceable` — a genuine
+conflict, never a retryable race. Measured through the ROUTED client (the layer that owns
+the retry): exactly **one** INSERT reaches the database, and **zero** SELECTs against the
+child table. Both numbers are the same test.
+
+Census **77 → 76**: `interpretInverseToOneKind`'s `default` is gone as a route. It did not
+become a narrower refusal — the dispatch is now TOTAL over the parse boundary's
+inverse-to-one surface, so reaching `default` would mean the schema emitted a key it does
+not define. That is an engine invariant break, so it is a `QueryEngineError` (the X1c
+disposition for a branch unreachable by construction), not an `UnsupportedOperationError`.
+
+Witnesses (`inverse-to-one-create-behavior.ts`, every driver leg, both substrates): the
+pinned and Ref spellings persisting the same shape; the wrong-row decoy staying empty; a D4
+non-PK referenced column threaded from the located row; the created child carrying its own
+nested writes one level deeper; the occupied slot rejecting under BOTH provenances with the
+root's own scalar write rolled back too; a no-matching-row abort. **Falsified**: restoring
+the refusal fails 19 of the file's 22 tests, and the 3 survivors are exactly the
+parse-boundary surface pins, which do not depend on the absorption.
+
+### N2-U2 — measured; nothing to build, so a pin instead
+
+`createMany` is **not offered on a to-one in Prisma** (nor are `deleteMany` / `updateMany` /
+`set`) — confirmed above. And viborm's `toOneUpdateFactory` does not offer them either: it
+emits exactly Prisma's seven keys. So there was no engine arm owed AND no validation key to
+remove; the surface already matched, and the unit's honest deliverable is the pin that keeps
+it matching. `inverse-to-one-create.test.ts` asserts the offered key set EQUALS Prisma's,
+and that each to-many-only key is refused on the to-one while `create` is accepted beside
+it — so the test cannot pass by the schema rejecting everything, and neither direction of
+drift is silent.
+
+### N2-U3 — the premise was FALSIFIED; re-justified, with a named gap
+
+The plan carried the object-form `disconnect` / `delete` declines as "believed Prisma-parity
+(booleans only on to-one)". The generated types say the opposite: Prisma 7.9.1 types **both
+as `ProfileWhereInput | boolean`** — a filter narrowing which connected record is
+disconnected/deleted, the to-one analogue of W4-U3's `update: { where, data }` wrapper viborm
+already has. Two corrections follow.
+
+1. **The object form is not a Prisma-parity refusal.** It is a genuine viborm surface gap,
+   and a VALIDATION one: `toOneUpdateFactory` types both keys `v.boolean()`, so the object
+   form is refused at the PARSE boundary and never reaches the engine's two throws. Closing
+   it is a schema widening (`boolean | where`) plus a filtered disconnect write — an
+   absorption, not a re-audit, so it is recorded as a NAMED GAP for a follow-on unit rather
+   than smuggled into this wave. (The `delete` half is nearly free: `delete: true` already
+   compiles to `buildToManyDeleteManyParts(writeBase, {})`, which takes a filter. The
+   `disconnect` half needs the filter folded into `RelationLinkPart`'s `disconnectAll`
+   write. The type-surface widening is the real cost.)
+2. **What the two sites actually refuse is the literal `false`** — that is their whole
+   reachable surface. Pinned in both directions (`false` throws, `true` does not), so the
+   message cannot outlive its cause.
+
+### N2 — certification
+
+TS 5.9.3 typecheck clean; Biome clean on all 9 touched files. `pnpm test:gates`: **64
+passed** (63 + the new bidirectional decline-surface entry). Whole `tests/query-engine-v2`
+suite: **709 passed / 0 failed**, 45 files. Local driver legs `sqlite3` + `libsql`: **1727
+passed / 0 failed**, with the new suite confirmed EXECUTED (14 tests = 7 × 2 substrates on
+each). Census pinned at **76**. The Docker legs (MySQL 3307, Postgres 5434) are wired and
+belong to the wave gate, not to this lane.
+
 ## N3 — M2M completions (after N1; junction machinery)
 
 | Unit | What |

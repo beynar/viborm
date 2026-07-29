@@ -767,6 +767,81 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // (j) `UpsertOperation`'s create-arm read-back identity — the create arm writes a FRESH
   //     row; there is no located parent. Its identity comes from the create data or the
   //     INSERT's own capture (W4-U1 above), which is the correct mechanism already.
+  //
+  // 77 -> 76 (N2-U1, the inverse-side to-one `create`): DELETED —
+  // `UpdateOperation.interpretInverseToOneKind`'s `default`, "does not support nested
+  // '<kind>' on the inverse-side to-one relation". It named create / createMany / set /
+  // updateMany / deleteMany, and `create` was the only one of the five the parse boundary
+  // could ever deliver (see the U2 measurement below) — so what the site actually refused
+  // was `user.update({ where, data: { profile: { create: { bio } } } })`, the mainstream
+  // Prisma shape and the last declining write kind on this relation.
+  //
+  // It needed no mechanism. An inverse-side to-one create is the ARITY-1 case of the
+  // child-held create the update root already builds, so the `create` case now enters
+  // `interpretChildHeldCreate` unchanged and inherits BOTH N1 provenances: the
+  // construction literal when the unique `where` pins the referenced column, the
+  // located-parent Ref when it does not. What made the site look special was the
+  // OCCUPIED-SLOT rule, and that needs no engine guard either: the 1:1 foreign key always
+  // carries a UNIQUE constraint (`FK008` refuses to DEFINE a 1:1 without one; the DDL
+  // serializer adds it if a schema ever arrives without it), so a create into an occupied
+  // slot raises `UniqueConstraintError` with nothing written — Prisma's observable. A
+  // pre-check SELECT would be a SECOND guard on that one invariant (the AGENTS.md ban) and
+  // a racy one besides, so there is none, and `inverse-to-one-create.test.ts` measures its
+  // absence in the statement stream rather than asserting it.
+  //
+  // The race attribution is part of the contract and is pinned, not assumed: the leaf
+  // carries no `racePin`, so `race-retry.ts` reads the violation as matching no pin and
+  // not `meta.raceable` — a genuine conflict, NOT a retryable race. Measured through the
+  // ROUTED client (the layer that owns the retry): exactly ONE INSERT reaches the
+  // database, and zero SELECTs against the child table.
+  //
+  // A detail that makes the site's disappearance the removal of an INCONSISTENCY rather
+  // than a new capability: `nested-target-parts.ts`'s `create` case has no
+  // `isInverseToOne` branch at all — one level deeper, an inverse-to-one create already
+  // built the same child-held leaf. Only the ROOT dispatch refused it.
+  //
+  // The `default` did not become a route with a narrower message — it became a
+  // `QueryEngineError`, which is why the count drops by a whole site. The dispatch is now
+  // TOTAL over the parse boundary's inverse-to-one surface, so reaching `default` would
+  // mean the schema emitted a key it does not define: an engine invariant break, not a
+  // shape we decline. Same disposition X1c gave `foldOneNestedRelation`'s two branches.
+  //
+  // Witnessed by `inverse-to-one-create-behavior.ts` on every driver leg and both
+  // substrates (the pinned and Ref spellings persisting the same shape; the wrong-row
+  // decoy staying empty; a D4 non-PK referenced column threaded from the located row; the
+  // created child carrying its own nested writes one level deeper; the occupied slot
+  // rejecting under BOTH provenances with the root's own scalar write rolled back too;
+  // and a no-matching-row abort). Falsified: restoring the refusal fails 19 of the file's
+  // 22 tests, and the 3 survivors are exactly the parse-boundary surface pins, which do
+  // not depend on the absorption.
+  //
+  // N2-U2 — MEASURED, and the answer was "nothing to build". Prisma 7.9.1 (`prisma
+  // generate`, `prisma-client` generator, `User.profile: Profile?` beside
+  // `User.posts: Post[]`) types the inverse-to-one nested update as
+  // `{ create?, connectOrCreate?, upsert?, disconnect?, delete?, connect?, update? }` and
+  // puts `createMany` / `deleteMany` / `updateMany` / `set` ONLY on the to-many input. So
+  // Prisma does not offer nested createMany/deleteMany on a to-one — and neither does
+  // viborm: `toOneUpdateFactory` emits exactly those seven keys. There was no engine arm
+  // owed AND no validation key to remove; the surface already matched. The unit's
+  // deliverable is therefore a PIN (`inverse-to-one-create.test.ts`: the offered key set
+  // equals Prisma's, and each to-many-only key is refused on the to-one while `create` is
+  // accepted beside it), so neither direction can drift silently.
+  //
+  // N2-U3 — the plan's premise was FALSIFIED, and the surviving refusals are re-justified
+  // rather than kept as written. The plan carried the object-form `disconnect` / `delete`
+  // declines as "believed Prisma-parity (booleans only on to-one)". The generated types
+  // say the opposite: Prisma 7.9.1 types BOTH as `ProfileWhereInput | boolean` — a filter
+  // narrowing which connected record is disconnected/deleted, the to-one analogue of
+  // W4-U3's `update: { where, data }` wrapper viborm already has. Two corrections follow.
+  //   · The object form is NOT a Prisma-parity refusal. It is a genuine viborm surface
+  //     gap, and it is a VALIDATION one: `toOneUpdateFactory` types both keys
+  //     `v.boolean()`, so the object form is refused at the PARSE boundary and never
+  //     reaches these throws. Closing it is a schema widening (`boolean | where`) plus a
+  //     filtered disconnect write — an absorption, not a re-audit, and deliberately not
+  //     smuggled into this wave. NAMED GAP, owner: a follow-on unit.
+  //   · What these two sites DO refuse, and all they refuse, is the literal `false`. That
+  //     is their whole reachable surface, and it is now pinned in both directions
+  //     (`false` throws, `true` does not) so the message cannot outlive its cause.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -777,7 +852,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(77);
+    expect(sites).toBe(76);
   });
 });
 

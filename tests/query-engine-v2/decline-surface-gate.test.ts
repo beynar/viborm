@@ -256,6 +256,36 @@ describe("decline-surface gate: absorbed create shapes execute on the one engine
     await c.$disconnect();
   });
 
+  // N2-U1: the inverse-side (child-held) to-one `create` — the mainstream Prisma shape,
+  // `user.update({ where, data: { profile: { create } } })`. It was the last write shape
+  // on this relation that declined; it now executes on V2 with the fallback OFF, and the
+  // OCCUPIED SLOT (a related row already present) errors instead of writing a second one
+  // — the DB's 1:1 FK unique constraint, no pre-check probe. Restoring the
+  // `does not support nested 'create' on the inverse-side to-one relation` refusal makes
+  // the first half throw; removing the occupied-slot constraint makes the second half
+  // silently persist two profiles.
+  test("inverse-side to-one create executes on V2 — absorbed (N2-U1)", async () => {
+    const c = await freshClient(nb);
+    await c.user.create({ data: { id: "u1", name: "a" } });
+    await c.user.update({
+      where: { id: "u1" },
+      data: { profile: { create: { id: "pr1", bio: "made" } } },
+    });
+    expect(await c.profile.findMany()).toEqual([
+      { id: "pr1", bio: "made", userId: "u1" },
+    ]);
+    await expect(
+      c.user.update({
+        where: { id: "u1" },
+        data: { profile: { create: { id: "pr2", bio: "second" } } },
+      })
+    ).rejects.toThrow();
+    expect(await c.profile.findMany()).toEqual([
+      { id: "pr1", bio: "made", userId: "u1" },
+    ]);
+    await c.$disconnect();
+  });
+
   // T3-r2 (TO-ONE.md §7.2, family F): the inverse-side (child-held) to-one `upsert`
   // — a correlated locate (WHERE fk = parent, no unique selector). Both arms and a
   // second-parent correlation witness: u2's profile must be untouched by u1's
