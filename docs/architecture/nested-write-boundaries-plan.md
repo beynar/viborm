@@ -1,5 +1,7 @@
 # Nested-Write Boundaries — the ≥-Prisma Plan (N-waves)
 
+> **Delivery status:** in progress on branch `nested-write-boundaries` (PR opened at wave start). Per-wave records land below each phase as waves close.
+
 **Date:** 2026-07-29 · **Scope:** query engine only (no CLI, no ecosystem, per maintainer).
 **Goal:** absorb the remaining nested-write refusals so every shape Prisma executes, viborm executes — and go past Prisma where the atom's flexibility allows. Baseline: `main` @ post-#17/#18 merge, refusal census **78** (`tests/query-engine-v2/route-inventory.test.ts:670`).
 
