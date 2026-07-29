@@ -745,6 +745,31 @@ shape declined in both for each lane's own reason. It is a property of the inter
 which exists only after the merge — which is why it is recorded as a merge finding rather
 than folded into either lane's entry.
 
+### N4 × N5 — merge certification (supersedes both lanes' partial numbers)
+
+Everything each lane deferred for its memory bound was run here, once, on the merged tree.
+
+| Gate | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean |
+| Full estate, alone (`--minWorkers=1 --maxWorkers=4`) | **8622 passed / 0 failed**, 1809 skipped, 252 files (baseline at `f49047b`: 8452 / 0) |
+| `pnpm test:gates` | **70 / 70** (66 at base + 3 N4 side-1 witnesses + 1 N5) |
+| Docker MySQL (3307) | **840 passed / 0 failed** (baseline 788) |
+| Docker Postgres (5434, serial) | **948 passed / 0 failed**, 14 skipped (baseline 896) |
+| Biome | clean on every file either lane touched |
+| Census pin | **74**, re-derived by RUNNING `route-inventory.test.ts`, not by arithmetic |
+
+Both Docker legs picked up the new shared suites through the four driver files, and the
+two shapes N5 flagged as carrying dialect risk were confirmed green on MySQL on BOTH
+substrates: the required-FK `set` under a `restrict` transition, and the COMPOUND string
+primary key with ON UPDATE CASCADE.
+
+Merge conflicts were resolved by hand in six files. Five were mechanical (both lanes
+appending to the same driver-file block, the census log, the plan). The sixth,
+`RelationWritePart.interpretChildParts`, was the real one and produced the refusal above;
+N5's move of the PK-arithmetic portability check INTO that method was kept, since its
+post-transition derivation depends on the operand already being known portable.
+
 ## N6 — Beyond Prisma (decision-gated; each unit needs a maintainer yes)
 
 | Unit | What | Decision |
