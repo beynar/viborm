@@ -319,6 +319,34 @@ passed / 0 failed**, with the new suite confirmed EXECUTED (14 tests = 7 × 2 su
 each). Census pinned at **76**. The Docker legs (MySQL 3307, Postgres 5434) are wired and
 belong to the wave gate, not to this lane.
 
+### N2/N3 — wave gate (independent re-run at `e2adc8b`, 2026-07-29)
+
+N2 and N3 were cherry-picked onto one branch, so ONE gate certifies both. Every number
+below was re-measured on the branch tip, each step in its own shell, one vitest at a time.
+The N3 half is cross-referenced from the N3 section below rather than duplicated.
+
+| Step | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean, no output |
+| Full estate, ALONE (`--minWorkers=1 --maxWorkers=4`) | **8452 passed / 0 failed**, 1705 skipped (Docker-gated); 250 files passed, 4 skipped; 392s (8327 at the N1 gate) |
+| `pnpm test:gates` | **66 passed / 66**, 5 files (63 at the N1 gate; +1 N2 decline-surface entry, +2 N3) |
+| Census pin | **76** (`route-inventory.test.ts:961`), the merged value. The count-evolution log carries both lanes' entries with the MERGE NOTE reconciling file order (N3 then N2) against commit order (N2 then N3): 77 −1 +1 +0 (N3) then −1 (N2) = 76, or 77 −1 (N2) then −1 +1 +0 (N3) = 76. The pin is measured by counting sites, never derived from that arithmetic |
+| Biome (repo-pinned, per file — multi-path invocations silently process 0 files here) | all 27 changed `.ts` files exit 0 — **zero** violations, so zero NEW violations by construction; no `main`-baseline comparison needed |
+| Docker MySQL 3307 (`pnpm test:mysql`) | **788 passed**, PASSED not skipped (750 at the N1 gate; +38) |
+| Docker Postgres 5434 (`pnpm test:pg`, serial) | **896 passed**, 14 skipped, PASSED not skipped (858 at the N1 gate; +38) |
+
+Both waves' witnesses were confirmed **executed** (not collected-and-skipped) on both
+Docker legs, on both substrates each — the +38 on each leg is exactly them:
+`inverse to-one create (N2)` runs **7 tests under `transaction` and 7 under `atomic
+batch`**, and `junction createMany + upsert identity (N3)` runs **12 and 12**, on MySQL and
+on pg alike (14 + 24 = 38, counted per leg).
+
+**One correction to the two certification blocks, measured not argued.** Each lane
+measured `pnpm test:gates` from a tip carrying only its own entry — N2 recorded **64**
+(63 + 1) and N3 recorded **65** (63 + 2). Neither number is wrong for the tip it was taken
+on; the merged branch runs **66**, and 63 + 1 + 2 = 66 is the whole reconciliation. Docker
+MySQL 3307 and Postgres 5434 were already up (23h) and were not restarted.
+
 ## N3 — M2M completions (after N1; junction machinery)
 
 | Unit | What |
@@ -474,6 +502,20 @@ same family, each noted in place:
   · `capability-matrix-2026-07.md` §1.5 and §3.B rows, and `compatibility.mdx`'s nested-write
     section, which claimed `createMany` worked in both contexts while the M2M arm refused —
     the absorption makes the published claim true, and the surviving boundary is now stated.
+
+### N3 — wave gate (independent re-run at `e2adc8b`, 2026-07-29)
+
+N3 is certified by the SHARED N2/N3 wave gate recorded above (the two waves were
+cherry-picked onto one branch, so one re-run answers for both). The N3-specific readings
+from it: `pnpm test:gates` **66 / 66** — not the 65 this lane measured, because that number
+was taken from a tip without N2's decline-surface entry (63 + 1 N2 + 2 N3 = 66); census pin
+**76**, not the 77 this lane measured, because N2's deletion lands on the same count (N3's
+own −1 +1 +0 is still zero net, and the MERGE NOTE in the count-evolution log carries the
+reconciliation); Docker MySQL **788 passed** and Docker Postgres **896 passed / 14 skipped**,
+each +38 over the N1 gate, of which N3 is 24 (12 per substrate) and N2 is 14 — all confirmed
+EXECUTED by name on both legs. The lane's own targeted-suite numbers
+(`tests/query-engine-v2/` 712, local driver legs 2450) were measured before N2 was
+cherry-picked and are superseded by the full-estate figure **8452 passed / 0 failed**.
 
 ## N4 — Depth-seam boundaries (after N1; B3/B8/B9)
 
