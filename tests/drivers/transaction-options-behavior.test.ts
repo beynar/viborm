@@ -190,13 +190,18 @@ describe("isolationLevel: pre-begin placement (MySQL family)", () => {
       release: vi.fn(() => released.push("released")),
       destroy: vi.fn(),
     };
+    // A pool that hands the connection over only when this test says so. The
+    // bound is what is under test, so the wait it bounds must not be a
+    // duration racing it — it must be an acquisition that has not finished.
+    let handOver: (() => void) | undefined;
+    let acquisition: Promise<unknown> | undefined;
     const pool = {
-      getConnection: vi.fn(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(() => resolve(slowConnection), 60);
-          })
-      ),
+      getConnection: vi.fn(() => {
+        acquisition = new Promise((resolve) => {
+          handOver = () => resolve(slowConnection);
+        });
+        return acquisition;
+      }),
       end: vi.fn(async () => undefined),
     };
     const driver = new MySQL2Driver({ pool: pool as never });
@@ -209,8 +214,10 @@ describe("isolationLevel: pre-begin placement (MySQL family)", () => {
     expect(slowConnection.beginTransaction).not.toHaveBeenCalled();
 
     // The abandoned acquisition must not leak: when the pool finally hands the
-    // connection over, it goes straight back.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // connection over, it goes straight back. The release is registered on this
+    // very promise before this await is, so it has run by the time we look.
+    handOver?.();
+    await acquisition;
     expect(released).toEqual(["released"]);
   });
 });
@@ -266,6 +273,13 @@ describe("timeout: expiry rolls back and leaves the connection usable", () => {
     const client = createClient({ schema: clientUserPostSchema, driver });
     await push(client, { force: true });
 
+    // The body blocks until this test releases it, so "the callback outran its
+    // timeout" is a fact rather than a race between two durations.
+    let releaseBody: (() => void) | undefined;
+    const bodyHeld = new Promise<void>((resolve) => {
+      releaseBody = resolve;
+    });
+
     await expect(
       client.$transaction(
         async (tx) => {
@@ -276,11 +290,12 @@ describe("timeout: expiry rolls back and leaves the connection usable", () => {
               email: "timeout@example.com",
             },
           });
-          await new Promise((resolve) => setTimeout(resolve, 200));
+          await bodyHeld;
         },
         { timeout: 25 }
       )
     ).rejects.toMatchObject({ code: "V5002" });
+    releaseBody?.();
 
     // Post-probe 1: the write inside the expired transaction is gone.
     const survivors = await client.user.findMany({
@@ -432,6 +447,11 @@ describe("nested $transaction: the savepoint option contract", () => {
     const client = createClient({ schema: clientUserPostSchema, driver });
     await push(client, { force: true });
 
+    let releaseNested: (() => void) | undefined;
+    const nestedHeld = new Promise<void>((resolve) => {
+      releaseNested = resolve;
+    });
+
     await client.$transaction(async (tx) => {
       await tx.user.create({
         data: { id: "u-outer", name: "outer", email: "outer@example.com" },
@@ -448,11 +468,14 @@ describe("nested $transaction: the savepoint option contract", () => {
                 email: "inner@example.com",
               },
             });
-            await new Promise((resolve) => setTimeout(resolve, 200));
+            // Held, not slept: the savepoint expires because the body has not
+            // finished, which is the contract, not because 200ms beat 25ms.
+            await nestedHeld;
           },
           { timeout: 25 }
         )
       ).rejects.toMatchObject({ code: "V5002" });
+      releaseNested?.();
     });
 
     // The savepoint rolled back; the outer transaction still committed.
