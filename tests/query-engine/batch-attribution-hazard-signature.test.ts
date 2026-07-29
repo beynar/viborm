@@ -162,76 +162,73 @@ const cleanGuard = (): PreparedBatchGuard => ({
   operation: "update",
 });
 
-describe.each(dialectCases)(
-  "$name batch attribution hazard signature",
-  (dialectCase) => {
-    const build = () => {
-      const { engine, driver, adapter } = createEngine(dialectCase);
-      return {
-        driver,
-        assertion: adapter.assertions
-          .exists(sql.raw`SELECT 1`)
-          .toStatement("?"),
-        json: statementOf(engine, {
-          where: { payload: { path: ["a"], equals: 1 } },
-          data: { label: "y" },
-        }),
-        division: statementOf(engine, {
-          where: { id: "b" },
-          data: { n: { divide: 0 } },
-        }),
-      };
+describe.each(
+  dialectCases
+)("$name batch attribution hazard signature", (dialectCase) => {
+  const build = () => {
+    const { engine, driver, adapter } = createEngine(dialectCase);
+    return {
+      driver,
+      assertion: adapter.assertions.exists(sql.raw`SELECT 1`).toStatement("?"),
+      json: statementOf(engine, {
+        where: { payload: { path: ["a"], equals: 1 } },
+        data: { label: "y" },
+      }),
+      division: statementOf(engine, {
+        where: { id: "b" },
+        data: { n: { divide: 0 } },
+      }),
     };
+  };
 
-    test("the adapter spells both hazard shapes the way the table expects", () => {
-      const { json, division } = build();
-      expect(json).toContain(dialectCase.jsonSpelling);
-      expect(division).toContain(dialectCase.divisionSpelling);
-    });
+  test("the adapter spells both hazard shapes the way the table expects", () => {
+    const { json, division } = build();
+    expect(json).toContain(dialectCase.jsonSpelling);
+    expect(division).toContain(dialectCase.divisionSpelling);
+  });
 
-    test("an ordinary statement carrying this dialect's trick blocks attribution", async () => {
-      const { driver, assertion, json, division } = build();
-      const ordinary = dialectCase.hazard === "json" ? json : division;
-      const error = new NestedWriteAssertionError("assertion failed");
+  test("an ordinary statement carrying this dialect's trick blocks attribution", async () => {
+    const { driver, assertion, json, division } = build();
+    const ordinary = dialectCase.hazard === "json" ? json : division;
+    const error = new NestedWriteAssertionError("assertion failed");
 
-      const attributed = await attributeOperationBatchError(
-        error,
-        [cleanGuard()],
-        driver,
-        [{ sql: assertion }, { sql: ordinary }]
-      );
+    const attributed = await attributeOperationBatchError(
+      error,
+      [cleanGuard()],
+      driver,
+      [{ sql: assertion }, { sql: ordinary }]
+    );
 
-      // The raw error stands: no P2025 about a row nobody showed is missing.
-      expect(attributed).toBe(error);
-    });
+    // The raw error stands: no P2025 about a row nobody showed is missing.
+    expect(attributed).toBe(error);
+  });
 
-    test("the other dialect's trick is not this dialect's, so attribution stands", async () => {
-      const { driver, assertion, json, division } = build();
-      const foreign = dialectCase.hazard === "json" ? division : json;
-      const error = new NestedWriteAssertionError("assertion failed");
+  test("the other dialect's trick is not this dialect's, so attribution stands", async () => {
+    const { driver, assertion, json, division } = build();
+    const foreign = dialectCase.hazard === "json" ? division : json;
+    const error = new NestedWriteAssertionError("assertion failed");
 
-      const attributed = await attributeOperationBatchError(
-        error,
-        [cleanGuard()],
-        driver,
-        [{ sql: assertion }, { sql: foreign }]
-      );
+    const attributed = await attributeOperationBatchError(
+      error,
+      [cleanGuard()],
+      driver,
+      [{ sql: assertion }, { sql: foreign }]
+    );
 
-      expect((attributed as Error).name).toBe("NotFoundError");
-    });
+    expect((attributed as Error).name).toBe("NotFoundError");
+  });
 
-    test("a batch of nothing but its own assertion attributes", async () => {
-      const { driver, assertion } = build();
-      const error = new NestedWriteAssertionError("assertion failed");
+  test("a batch of nothing but its own assertion attributes", async () => {
+    const { driver, assertion } = build();
+    const error = new NestedWriteAssertionError("assertion failed");
 
-      const attributed = await attributeOperationBatchError(
-        error,
-        [cleanGuard()],
-        driver,
-        [{ sql: assertion }]
-      );
+    const attributed = await attributeOperationBatchError(
+      error,
+      [cleanGuard()],
+      driver,
+      [{ sql: assertion }]
+    );
 
-      expect((attributed as Error).name).toBe("NotFoundError");
-    });
-  }
-);
+    expect((attributed as Error).name).toBe("NotFoundError");
+  });
+});
