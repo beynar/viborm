@@ -138,10 +138,13 @@ migration, is in [the Decimal scalar page](/docs/schema/scalars/decimal).
 
 ## Errors and Prisma error codes
 
-VibORM throws typed error classes with a stable `V####` code on `error.code`. For code
-written against Prisma, every error also carries `error.prismaCode` — the Prisma code with
-the same meaning, or `undefined` when VibORM claims none. Porting a handler is a one-token
-edit:
+VibORM throws typed error classes with a stable `V####` code on `error.code`. Each class
+declares the exact code it carries, so `if (error.code === "V3001")` narrows to
+`UniqueConstraintError` with compiler support and a `switch` over a union of error types can
+be checked for exhaustiveness — see [the errors page](/docs/client/errors) for the full
+taxonomy and the narrowing rules. For code written against Prisma, every error also carries
+`error.prismaCode` — the Prisma code with the same meaning, or `undefined` when VibORM
+claims none. Porting a handler is a one-token edit:
 
 ```ts
 try {

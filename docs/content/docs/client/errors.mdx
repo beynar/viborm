@@ -1,0 +1,190 @@
+---
+title: Errors
+description: Typed error classes, the V#### code taxonomy, and compiler-checked narrowing on error.code
+icon: TriangleAlert
+---
+
+Every failure VibORM raises is a typed class extending `VibORMError`, carrying a stable
+`V####` code on `error.code`. You can branch on the class, on the code, or on both — and
+the compiler checks all three.
+
+## Catching
+
+A rejected operation gives you `unknown`, like every promise. Narrow it first:
+
+```ts
+import { UniqueConstraintError } from "viborm";
+
+async function register(email: string): Promise<void> {
+  try {
+    await client.user.create({ data: { email } });
+  } catch (error) {
+    if (error instanceof UniqueConstraintError) {
+      // error.meta.constraint, error.meta.columns, error.meta.table
+      throw new Error("That email is already registered.");
+    }
+    throw error;
+  }
+}
+```
+
+`isVibORMError(error)` narrows to the base class when you want the code without committing
+to a specific class.
+
+## `error.code` is a literal, and the compiler knows it
+
+Each class declares the exact code it carries, so a union of error types is a
+**discriminated union**. Comparing `code` selects the class:
+
+```ts
+import type { ForeignKeyError, UniqueConstraintError } from "viborm";
+
+function describeFailure(
+  error: UniqueConstraintError | ForeignKeyError
+): string {
+  if (error.code === "V3001") {
+    // error is UniqueConstraintError here
+    return `duplicate ${error.meta.columns?.join(", ") ?? "value"}`;
+  }
+  // and ForeignKeyError here
+  return `missing parent for ${error.meta.constraint ?? "relation"}`;
+}
+```
+
+Both spellings work in an `if`: `error.code === "V3001"` and
+`error.code === VibORMErrorCode.UNIQUE_CONSTRAINT` narrow identically. **In a `switch` they
+do not.** `case "V3001"` compiles but narrows nothing, because a string literal and an enum
+member are different types to TypeScript even when comparing them is allowed — so reach for
+`VibORMErrorCode` whenever you `switch`, and keep the plain string for one-off `if`s where
+you would rather not add an import.
+
+Because the codes are literals, a comparison that can never be true is a **compile error**
+rather than a branch that silently never runs:
+
+```ts
+import { UniqueConstraintError, VibORMErrorCode } from "viborm";
+
+function handle(error: unknown): string {
+  if (
+    error instanceof UniqueConstraintError &&
+    // @ts-expect-error — a UniqueConstraintError never carries V3002
+    error.code === VibORMErrorCode.FOREIGN_KEY_CONSTRAINT
+  ) {
+    return "unreachable";
+  }
+  return "ok";
+}
+```
+
+## Handling a closed set exhaustively
+
+A `switch` over a union's codes can be checked for completeness with the usual `never`
+guard, so adding a case to the union you handle turns the compiler red instead of falling
+through:
+
+```ts
+import { VibORMErrorCode } from "viborm";
+import type {
+  CheckConstraintError,
+  ForeignKeyError,
+  NotNullConstraintError,
+  UniqueConstraintError,
+} from "viborm";
+
+type ConstraintFailure =
+  | CheckConstraintError
+  | ForeignKeyError
+  | NotNullConstraintError
+  | UniqueConstraintError;
+
+function userMessage(error: ConstraintFailure): string {
+  switch (error.code) {
+    case VibORMErrorCode.UNIQUE_CONSTRAINT:
+      return "That value is already taken.";
+    case VibORMErrorCode.FOREIGN_KEY_CONSTRAINT:
+      return "That reference does not exist.";
+    case VibORMErrorCode.NOT_NULL_CONSTRAINT:
+      return "A required field was empty.";
+    case VibORMErrorCode.CHECK_CONSTRAINT:
+      return "That value is not allowed.";
+    default: {
+      const exhaustive: never = error;
+      return exhaustive;
+    }
+  }
+}
+```
+
+## Retrying
+
+`error.isRetryable()` answers whether re-running the identical operation could succeed. It
+is true for exactly four codes — `V1002` connection timeout, `V2002` query timeout, `V5003`
+deadlock and `V5004` serialization failure — on every database. Everything else repeats.
+
+```ts
+import { isRetryableError } from "viborm";
+
+async function withOneRetry<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!isRetryableError(error)) {
+      throw error;
+    }
+    return await run();
+  }
+}
+```
+
+## Refusals and defects
+
+Two codes in the `8xxx` family are worth telling apart from an engine crash, because they
+look like one and are not:
+
+- **`V8003` `UnsupportedOperationError`** — a payload SHAPE the query engine deliberately
+  does not express: a documented capability boundary, or a parity refusal. It is an answer,
+  not a malfunction. It extends `QueryEngineError`, so an `instanceof QueryEngineError`
+  check will catch it; branch on the code, or on `UnsupportedOperationError` itself, when
+  you mean one and not the other.
+- **`V9001` `QueryEngineError`** — the engine broke its own invariant. That is a bug; please
+  report it.
+
+Everything else in the taxonomy is a refusal of some kind: the database said no, the
+payload said no, the driver cannot do it, or the record was not there.
+
+## The code table
+
+| Error class | `code` | Raised when |
+|---|---|---|
+| `ConnectionError` | `V1001`, `V1002`, `V1003` | The database could not be reached, timed out, or closed the connection |
+| `ClientInitializationError` | `V1004` | The client could not be built from the given schema and configuration |
+| `QueryError` | `V2001`, `V2002`, `V2003`, `V4002` | A statement was rejected, timed out, or a raw-SQL helper was called with something that is neither a tagged template nor an `sql` fragment |
+| `UniqueConstraintError` | `V3001` | A unique constraint was violated |
+| `ForeignKeyError` | `V3002` | A foreign key constraint was violated |
+| `NotNullConstraintError` | `V3003` | A NOT NULL constraint was violated |
+| `CheckConstraintError` | `V3004` | A CHECK constraint was violated |
+| `ValueTooLongError` | `V3005` | A value exceeded the column's declared length (PostgreSQL and MySQL only) |
+| `ValidationError` | `V4001` | The payload failed validation before any I/O |
+| `TransactionError` | `V5001`, `V5002`, `V5003`, `V5004`, `V5005` | A transaction failed, timed out, deadlocked, lost serialization, or was given an option this driver refuses |
+| `InvalidTransactionInputError` | `V5005` | `$transaction([...])` was handed something that is not a pending operation |
+| `NotFoundError` | `V6001` | An `…OrThrow` read, or a targeted write, matched no record |
+| `NestedWriteError` | `V7001`, `V7002`, `V7003`, `V7004`, `V7005`, `V7006` | A nested write's precondition did not hold |
+| `NestedWriteAssertionError` | `V7006` | A batch-plan precondition (a connect target, an ownership check) did not hold |
+| `FeatureNotSupportedError` | `V8001` | The driver or dialect does not have the feature (pgvector, PostGIS) |
+| `UnsupportedOperationError` | `V8003` | A documented shape the query engine does not express |
+| `QueryEngineError` | `V9001`, `V9002` | An engine invariant broke, or the schema is not coherent — a bug |
+| `CacheInvalidTTLError` | `V10001` | A cache TTL was malformed |
+| `CacheInvalidKeyError` | `V10002` | A cache key could not be built from the payload |
+| `CacheOperationNotCacheableError` | `V10003` | A write operation was asked to cache |
+| `CacheConfigurationError` | `V10004` | The cache options or driver are missing or invalid |
+| `MigrationError` | `V11001`, `V11002`, `V11003`, `V11004`, `V11005`, `V11006`, `V11007`, `V11008`, `V11009`, `V11010`, `V11011`, plus `V4002`, `V8001`, `V8002`, `V9001` | A migration failed, is missing, has a checksum or dialect mismatch, could not take the lock, was already applied, arrived out of order, has no file, left an invalid state, was refused as destructive, or needs a storage driver; plus the migration layer's own refusals of its input, an index type, and an unregistered driver |
+| `PendingOperationError` | `V12001`, `V12002`, `V12003`, `V12004` | An operation was awaited twice, executed in two ways, or crossed a client or transaction scope |
+
+Codes `V4003`, `V6002` and `V6003` are reserved in the taxonomy and are not raised today.
+
+## Coming from Prisma
+
+Every error also carries `error.prismaCode` where VibORM claims a Prisma equivalent, so a
+`catch` written against Prisma keeps working with a one-token edit. The mapping table, and
+what is deliberately left unmapped, is on the
+[compatibility page](/docs/client/compatibility#errors-and-prisma-error-codes).

@@ -24,6 +24,7 @@
     "pagination",
     "transactions",
     "raw-sql",
+    "errors",
     "compatibility"
   ]
 }
