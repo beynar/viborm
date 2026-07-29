@@ -52,11 +52,11 @@ export const FIELD_REF_BRAND: unique symbol = Symbol.for("viborm.field-ref");
  * `TType` is the field's scalar type; it is what makes an `Int` reference
  * unassignable to a `String` filter operand at the type level.
  */
-export interface FieldRef<
+/** What a reference knows about its column, held UNDER the brand symbol. */
+export interface FieldRefPayload<
   TModel extends string = string,
   TType extends ScalarType = ScalarType,
 > {
-  readonly [FIELD_REF_BRAND]: true;
   /** Schema key of the model owning the field (e.g. `"post"`). */
   readonly model: TModel;
   /** Schema key of the field (e.g. `"likes"`), NOT the mapped column name. */
@@ -67,6 +67,18 @@ export interface FieldRef<
   readonly list: boolean;
 }
 
+export interface FieldRef<
+  TModel extends string = string,
+  TType extends ScalarType = ScalarType,
+> {
+  // The ONLY key, and it is a symbol on purpose. A reference rides operand
+  // unions everywhere a filter value goes; if it exposed string-keyed members
+  // (`model`, `field`, ...) the editor would offer them as completions inside
+  // every filter object literal that admits a reference. The payload lives
+  // under the brand so the token contributes NOTHING to those completions.
+  readonly [FIELD_REF_BRAND]: FieldRefPayload<TModel, TType>;
+}
+
 /** Any field reference, regardless of model or scalar type. */
 export type AnyFieldRef = FieldRef<string, ScalarType>;
 
@@ -75,16 +87,20 @@ export type AnyFieldRef = FieldRef<string, ScalarType>;
  * filter operand, so it must be a single `typeof` plus one symbol lookup.
  */
 export function isFieldRef(value: unknown): value is AnyFieldRef {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { [FIELD_REF_BRAND]?: unknown })[FIELD_REF_BRAND] === true
-  );
+  if (typeof value !== "object" || value === null) return false;
+  const payload = (value as { [FIELD_REF_BRAND]?: unknown })[FIELD_REF_BRAND];
+  return typeof payload === "object" && payload !== null;
+}
+
+/** The reference's column facts. The one sanctioned way to read them. */
+export function fieldRefPayload(ref: AnyFieldRef): FieldRefPayload {
+  return ref[FIELD_REF_BRAND];
 }
 
 /** Human-readable spelling of a reference, for error messages. */
 export function formatFieldRef(ref: AnyFieldRef): string {
-  return `${ref.model}.${ref.field}`;
+  const payload = fieldRefPayload(ref);
+  return `${payload.model}.${payload.field}`;
 }
 
 function createFieldRef(
@@ -94,11 +110,7 @@ function createFieldRef(
   list: boolean
 ): AnyFieldRef {
   return Object.freeze({
-    [FIELD_REF_BRAND]: true as const,
-    model,
-    field,
-    type,
-    list,
+    [FIELD_REF_BRAND]: Object.freeze({ model, field, type, list }),
   });
 }
 

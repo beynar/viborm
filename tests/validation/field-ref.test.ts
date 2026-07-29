@@ -1,6 +1,6 @@
 import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
 import v, { parse } from "@validation";
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 /**
  * `v.noFieldRef` — the wrapper that RE-CLOSES a schema which transitively
@@ -22,11 +22,12 @@ import { describe, expect, test } from "vitest";
 
 const ref = (field: string): AnyFieldRef =>
   Object.freeze({
-    [FIELD_REF_BRAND]: true as const,
-    model: "Post",
-    field,
-    type: "int",
-    list: false,
+    [FIELD_REF_BRAND]: Object.freeze({
+      model: "Post",
+      field,
+      type: "int" as const,
+      list: false,
+    }),
   });
 
 /** A schema whose validated OUTPUT is `value`, re-closed by `noFieldRef`. */
@@ -99,5 +100,18 @@ describe("noFieldRef", () => {
     const result = parse(v.noFieldRef(v.number(), "'having'"), 42);
     expect(result.issues).toBeUndefined();
     expect((result as { value: number }).value).toBe(42);
+  });
+});
+
+describe("the token's type surface", () => {
+  test("a reference exposes ONLY the brand symbol — no string keys to complete", () => {
+    // The lived wart: when the token carried string-keyed members (`model`,
+    // `field`, `type`, `list`), every filter object literal that admits a
+    // reference in its operand union offered them as editor completions —
+    // `field` showed up inside `where: { id: { … } }`. The payload lives under
+    // the brand now; this pin fails if anyone ever puts a string key back.
+    type StringKeys = Extract<keyof AnyFieldRef, string>;
+    expectTypeOf<StringKeys>().toBeNever();
+    expectTypeOf<keyof AnyFieldRef>().toEqualTypeOf<typeof FIELD_REF_BRAND>();
   });
 });

@@ -294,6 +294,24 @@ by `pnpm test:types`, not by a runtime assertion: a `@ts-expect-error` that stop
 being an error is itself an error (TS2578), so a regression that re-opens a
 surface turns the type-check red.
 
+## One guard per invariant — redundant defense is BANNED
+
+A check whose only unique coverage is a scenario some other check already fails
+loudly on is not safety, it is noise that must be read, maintained, and audited
+forever. Maintainer rule (2026-07-29): **do not write it**. Before adding any
+guard or assertion, name the failure it alone catches; if you cannot, it does
+not go in. This applies to runtime asserts duplicating type-level pins, to
+in-engine shape checks duplicating the parse boundary (already a gate), and to
+"belt and suspenders" test assertions beside a falsifying pin.
+
+Case studies, both audited out of this codebase: `assertScalarOnlyFilter`
+duplicated the validation schema's own rejection and was reachable only by the
+test written to reach it (deleted, commit `78f3a0c`); an `Object.keys(ref)`
+runtime assertion duplicated the `keyof AnyFieldRef` type pin whose failure
+already guards the same invariant (removed before merge, PR #18). The house
+discipline is one guard per invariant, in the invariant's single home, with a
+falsification proving THAT guard fires — not two guards half-trusted.
+
 ---
 
 ## Build/Test Commands
