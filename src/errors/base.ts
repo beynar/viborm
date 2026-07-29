@@ -266,14 +266,12 @@ export class VibORMError extends Error {
 
   /**
    * Check if error is retryable (deadlock, serialization failure)
+   *
+   * Reads {@link verdictFor}, the one exhaustive switch — so the retryable set cannot drift
+   * from the classification, and a new code has to declare its retryability to compile.
    */
   isRetryable(): boolean {
-    return [
-      VibORMErrorCode.DEADLOCK,
-      VibORMErrorCode.SERIALIZATION_FAILURE,
-      VibORMErrorCode.CONNECTION_TIMEOUT,
-      VibORMErrorCode.QUERY_TIMEOUT,
-    ].includes(this.code);
+    return verdictFor(this.code).retryable;
   }
 
   /**
@@ -335,6 +333,191 @@ export function hasErrorCode(
   code: VibORMErrorCode
 ): error is VibORMError {
   return isVibORMError(error) && error.code === code;
+}
+
+/**
+ * An EXPECTED failure: the database refused, the caller's payload was refused, or a documented
+ * capability boundary was reached. Something a caller can be handed and asked to handle.
+ */
+export interface QueryFailure {
+  readonly kind: "failure";
+  /** Always a VibORM error — an expected failure is, by definition, one with a taxonomy code. */
+  readonly error: VibORMError;
+  /** Whether re-running the same operation unchanged could succeed. */
+  readonly retryable: boolean;
+}
+
+/**
+ * A DEFECT: the engine broke its own invariant, or something that is not a VibORM error at all
+ * was thrown. Nothing a caller can act on; it means a bug, not a refusal.
+ */
+export interface EngineDefect {
+  readonly kind: "defect";
+  readonly error: unknown;
+}
+
+/** The per-code verdict. Three module-level constants, so classification allocates nothing. */
+interface CodeVerdict {
+  readonly expected: boolean;
+  readonly retryable: boolean;
+}
+const EXPECTED: CodeVerdict = { expected: true, retryable: false };
+const EXPECTED_RETRYABLE: CodeVerdict = { expected: true, retryable: true };
+const DEFECT: CodeVerdict = { expected: false, retryable: false };
+
+/**
+ * The taxonomy's disposition, code by code — the ONE place expected-vs-defect and
+ * retryable-vs-not are decided, and the reason the W5-U2 bug class is now a compile error:
+ * the `default` arm binds `code` to `never`, so adding a member to {@link VibORMErrorCode}
+ * without giving it a disposition does not build.
+ *
+ * The rule the arms follow: a code is EXPECTED when something outside the engine said no — the
+ * database, the caller's payload, the driver's capabilities, a documented shape boundary. It is
+ * a DEFECT only when the engine itself is what went wrong. Retryable is the strictly smaller
+ * question: could re-running the identical operation succeed?
+ */
+function verdictFor(code: VibORMErrorCode): CodeVerdict {
+  switch (code) {
+    // Connection (1xxx). The server said no, or the client could not be built from the given
+    // configuration — all outside the engine. A timeout may clear on its own; a refused or
+    // closed connection will not, and a retry loop on it is a hot spin.
+    case VibORMErrorCode.CONNECTION_TIMEOUT:
+      return EXPECTED_RETRYABLE;
+    case VibORMErrorCode.CONNECTION_FAILED:
+    case VibORMErrorCode.CONNECTION_CLOSED:
+    case VibORMErrorCode.CLIENT_INITIALIZATION:
+      return EXPECTED;
+
+    // Query (2xxx). The statement reached the database and came back rejected. A timeout can
+    // clear; a rejected statement re-sent unchanged is rejected again.
+    case VibORMErrorCode.QUERY_TIMEOUT:
+      return EXPECTED_RETRYABLE;
+    case VibORMErrorCode.QUERY_FAILED:
+    case VibORMErrorCode.QUERY_SYNTAX:
+      return EXPECTED;
+
+    // Constraints (3xxx). The schema's own rules, enforced by the database. Never retryable:
+    // the data has to change first.
+    case VibORMErrorCode.UNIQUE_CONSTRAINT:
+    case VibORMErrorCode.FOREIGN_KEY_CONSTRAINT:
+    case VibORMErrorCode.NOT_NULL_CONSTRAINT:
+    case VibORMErrorCode.CHECK_CONSTRAINT:
+    case VibORMErrorCode.VALUE_TOO_LONG:
+      return EXPECTED;
+
+    // Validation (4xxx). The caller's payload was refused before any I/O.
+    case VibORMErrorCode.VALIDATION_FAILED:
+    case VibORMErrorCode.INVALID_INPUT:
+    case VibORMErrorCode.MISSING_REQUIRED:
+      return EXPECTED;
+
+    // Transaction (5xxx). Deadlock and serialization failure are the two the database itself
+    // tells you to re-run — they are the whole reason a retry policy exists. A timeout, a plain
+    // failure, and a refused transaction OPTION are not: re-running repeats them.
+    case VibORMErrorCode.DEADLOCK:
+    case VibORMErrorCode.SERIALIZATION_FAILURE:
+      return EXPECTED_RETRYABLE;
+    case VibORMErrorCode.TRANSACTION_FAILED:
+    case VibORMErrorCode.TRANSACTION_TIMEOUT:
+    case VibORMErrorCode.INVALID_TRANSACTION_INPUT:
+      return EXPECTED;
+
+    // Not found (6xxx). `…OrThrow` did its job, or the caller named something the schema does
+    // not define. Both are answers, not malfunctions.
+    case VibORMErrorCode.RECORD_NOT_FOUND:
+    case VibORMErrorCode.MODEL_NOT_FOUND:
+    case VibORMErrorCode.RELATION_NOT_FOUND:
+      return EXPECTED;
+
+    // Nested writes (7xxx). A precondition the caller's tree asserted did not hold — a connect
+    // target that vanished, an ownership check that failed. The retry layer above the executor
+    // re-runs the SPECIFIC raceable ones by their own marking (`meta.raceable` / a matched
+    // `racePin`), never by this flag, which is why none of them is retryable here.
+    case VibORMErrorCode.NESTED_WRITE_FAILED:
+    case VibORMErrorCode.NESTED_CREATE_FAILED:
+    case VibORMErrorCode.NESTED_UPDATE_FAILED:
+    case VibORMErrorCode.NESTED_DELETE_FAILED:
+    case VibORMErrorCode.NESTED_CONNECT_FAILED:
+    case VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED:
+      return EXPECTED;
+
+    // Capability (8xxx). THE arm this whole classification exists for. V8003 is carried by
+    // `UnsupportedOperationError`, which EXTENDS `QueryEngineError` — so an `instanceof
+    // QueryEngineError` check calls a documented shape refusal an engine crash, which is the
+    // mistake that surfaced 77 capability refusals as INTERNAL_ERROR for weeks. The code, not
+    // the class, decides: V8003 is a refusal, V9001 below is the crash.
+    case VibORMErrorCode.FEATURE_NOT_SUPPORTED:
+    case VibORMErrorCode.DRIVER_NOT_SUPPORTED:
+    case VibORMErrorCode.UNSUPPORTED_OPERATION:
+      return EXPECTED;
+
+    // Cache (10xxx). Configuration and cacheability refusals, raised before anything runs.
+    case VibORMErrorCode.CACHE_INVALID_TTL:
+    case VibORMErrorCode.CACHE_INVALID_KEY:
+    case VibORMErrorCode.CACHE_OPERATION_NOT_CACHEABLE:
+    case VibORMErrorCode.CACHE_CONFIGURATION:
+      return EXPECTED;
+
+    // Migrations (11xxx). Every one of these is a statement about the migration history or the
+    // target database, addressed to the operator. A lock failure looks retryable, but the
+    // migration runner owns that decision (it needs its own backoff and its own bound), not a
+    // generic per-operation retry.
+    case VibORMErrorCode.MIGRATION_FAILED:
+    case VibORMErrorCode.MIGRATION_NOT_FOUND:
+    case VibORMErrorCode.MIGRATION_CHECKSUM_MISMATCH:
+    case VibORMErrorCode.MIGRATION_DIALECT_MISMATCH:
+    case VibORMErrorCode.MIGRATION_LOCK_FAILED:
+    case VibORMErrorCode.MIGRATION_ALREADY_APPLIED:
+    case VibORMErrorCode.MIGRATION_OUT_OF_ORDER:
+    case VibORMErrorCode.MIGRATION_FILE_NOT_FOUND:
+    case VibORMErrorCode.MIGRATION_INVALID_STATE:
+    case VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED:
+    case VibORMErrorCode.MIGRATION_STORAGE_REQUIRED:
+      return EXPECTED;
+
+    // Pending operations (12xxx). Caller misuse of the operation lifecycle — awaiting twice,
+    // mixing transaction scopes. A refusal aimed at the person writing the call.
+    case VibORMErrorCode.OPERATION_ALREADY_EXECUTED:
+    case VibORMErrorCode.OPERATION_EXECUTION_CONFLICT:
+    case VibORMErrorCode.OPERATION_CLIENT_MISMATCH:
+    case VibORMErrorCode.OPERATION_SCOPE_MISMATCH:
+      return EXPECTED;
+
+    // Internal (9xxx). The only two defects in the taxonomy: the engine broke its own
+    // invariant, or the schema it was handed is not coherent. Neither is a refusal, and
+    // retrying either just repeats the bug.
+    case VibORMErrorCode.INTERNAL_ERROR:
+    case VibORMErrorCode.SCHEMA_ERROR:
+      return DEFECT;
+
+    default: {
+      const exhaustive: never = code;
+      return exhaustive;
+    }
+  }
+}
+
+/**
+ * Classify a surfaced throwable as an expected failure or an engine defect.
+ *
+ * The one seam the executor and the routed retry policy share. Two rules, both encoded in
+ * {@link verdictFor} rather than in `instanceof` chains:
+ *
+ * - Anything that is not a VibORM error is a DEFECT. A raw throwable escaping the engine means
+ *   a path that failed to normalize, not a refusal a caller was meant to receive.
+ * - Everything else is decided by its CODE, which is why `UnsupportedOperationError` (V8003)
+ *   classifies as a refusal even though it extends `QueryEngineError`, and a bare
+ *   `QueryEngineError` (V9001) classifies as a defect even though it is the same class family.
+ */
+export function classifyFailure(error: unknown): QueryFailure | EngineDefect {
+  if (!isVibORMError(error)) {
+    return { kind: "defect", error };
+  }
+  const verdict = verdictFor(error.code);
+  if (!verdict.expected) {
+    return { kind: "defect", error };
+  }
+  return { kind: "failure", error, retryable: verdict.retryable };
 }
 
 /**
