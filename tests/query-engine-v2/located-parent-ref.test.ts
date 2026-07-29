@@ -10,7 +10,7 @@ import {
 } from "./located-parent-ref-behavior";
 
 /**
- * N1-U1 — the located-parent Ref, on the substrate that can see the traffic.
+ * N1 — the located-parent Ref, on the substrate that can see the traffic.
  *
  * The shared behavior suite (`located-parent-ref-behavior.ts`, run here and by every
  * driver leg) proves the two spellings persist the same STATE. This file proves the
@@ -294,6 +294,50 @@ describe("located-parent Ref staleness injection", () => {
       ).rejects.toThrow();
       // The stale foreign key never landed: the whole atomic unit rolled back.
       await expect(stateClient.note.findMany()).resolves.toEqual([]);
+      await stateClient.$disconnect();
+    }
+  );
+
+  test(
+    "one corrupted member of a COMPOUND reference moves the whole tuple",
+    { timeout: 30_000 },
+    async () => {
+      const db = new PGlite();
+      const stateClient = makeClient(new PGliteDriver({ client: db }));
+      await push(stateClient, { force: true });
+      await stateClient.owner.create({
+        data: { tenantId: "t1", slot: "a", handle: "h-t1-a" },
+      });
+      await stateClient.owner.create({
+        data: { tenantId: "t1", slot: "b", handle: "h-t1-b" },
+      });
+      // Corrupt ONLY `slot`. `tenantId` is untouched, so a resolution that read
+      // one member from the located row and the other from anywhere else would
+      // still land on `t1/b`. Landing on `t1/a` is the proof that EVERY member
+      // travels from the same located row.
+      const client = makeClient(
+        new CorruptLocatePGliteDriver(
+          { client: db },
+          {
+            table: "n1_ref_owners",
+            column: "slot",
+            mode: "wrong",
+            wrongValue: "a",
+          }
+        )
+      );
+      await client.owner.update({
+        where: { handle: "h-t1-b" },
+        data: { memos: { create: { id: 500, text: "compound provenance" } } },
+      });
+      await expect(
+        stateClient.memo.findUnique({ where: { id: 500 } })
+      ).resolves.toEqual({
+        id: 500,
+        text: "compound provenance",
+        ownerTenant: "t1",
+        ownerSlot: "a",
+      });
       await stateClient.$disconnect();
     }
   );

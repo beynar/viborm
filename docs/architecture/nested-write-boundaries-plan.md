@@ -62,6 +62,27 @@ Ref under X1c delegation), `extended-where-unique-behavior.ts` (the Pin-Rule cla
 survives, sharpened), and the two construction-surface tests in `update-family.test.ts` /
 `upsert-family.test.ts`.
 
+### N1-U2 — delivered
+
+No new mechanism. A compound foreign key was already per-field in this model, and the
+create leaf's inject already loops the FK columns index-aligned with the referenced ones,
+resolving each BY NAME from one located row — so U1's `plannedParentId` covers arity ≥ 2
+by construction. U2 is a **gate** change: every referenced column is registered in
+`locateFields`, and the compound refusal moves *behind* the "does the root SET rewrite a
+referenced column?" test instead of standing in front of it.
+
+Census stays **77** — the site NARROWS rather than disappears, and its message now names
+the surviving cause: a compound reference whose member the root SET rewrites. That
+survivor is ordering, not dataflow (the located row carries the PRE-transition tuple), and
+belongs to **N5**.
+
+Witnesses (every driver leg, both substrates): a compound PK reference located by its own
+compound where-unique; the same PK located by a `handle` unique naming NEITHER member,
+with a sibling sharing `tenantId` so a dropped member would attach the child to it; a
+compound NON-PK referenced unique (`[region, code]`) with a sibling sharing `region`; plus
+a staleness probe that corrupts exactly ONE member of the tuple and asserts the WHOLE tuple
+moved — the proof that every member travels from the same located row.
+
 **Measured, not fixed — recorded for a later wave.** In BATCH mode the root-presence guard
 and the root UPDATE both address the ORIGINAL `where`, while child edges address the
 captured located row. Under a concurrent rename-plus-reinsert on the discriminator those

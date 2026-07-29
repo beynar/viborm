@@ -5,7 +5,7 @@ import { hydrateSchemaNames, s } from "@schema";
 import { describe, expect, test } from "vitest";
 
 /**
- * N1-U1 — the located-parent Ref, across the whole driver matrix.
+ * N1 — the located-parent Ref, across the whole driver matrix.
  *
  * Before N1 a child-held nested `create`/`createMany` under `update` demanded that the
  * parent column its foreign key references be a COMPILE-TIME LITERAL: pinned by the
@@ -16,7 +16,9 @@ import { describe, expect, test } from "vitest";
  * The value was never unknowable: the update ALREADY locates the row. N1 threads it
  * through the mechanism the engine already owns — the locate read selects the referenced
  * column, and the create leaf resolves its foreign key from THE ROW THE LOCATE ACTED ON
- * (never by re-consulting the `where`; W4's wrong-row lesson is doctrine here).
+ * (never by re-consulting the `where`; W4's wrong-row lesson is doctrine here). U2 adds no
+ * mechanism: a compound foreign key is per-field (ATOM §1), so every member resolves by
+ * name from that SAME row.
  *
  * These are fixed-expectation behaviors run on every driver class and both substrates.
  * The plan-shape evidence — that the two spellings compile to the SAME statements, not
@@ -73,7 +75,56 @@ export const locatedParentRefSchema = (() => {
         .references("code"),
     })
     .map("n1_ref_tickets");
-  return { account, note, attachment, ticket };
+  // N1-U2 — a COMPOUND primary key, plus a `handle` unique that names NEITHER member.
+  // Two owners sharing `tenantId` and differing only in `slot` are the correctness pin:
+  // a per-field resolution that dropped a member would attach the memo to the wrong one.
+  const owner = s
+    .model({
+      tenantId: s.string(),
+      slot: s.string(),
+      handle: s.string().unique(),
+      memos: s.oneToMany(() => memo),
+    })
+    .id(["tenantId", "slot"])
+    .map("n1_ref_owners");
+  const memo = s
+    .model({
+      id: s.int().id(),
+      text: s.string(),
+      ownerTenant: s.string(),
+      ownerSlot: s.string(),
+      owner: s
+        .manyToOne(() => owner)
+        .fields("ownerTenant", "ownerSlot")
+        .references("tenantId", "slot"),
+    })
+    .map("n1_ref_memos");
+  // N1-U2 — a COMPOUND NON-PK referenced unique (the D4 shape at compound arity): the
+  // contract's foreign key names `[region, code]`, which is neither the vendor's primary
+  // key nor any `where` discriminator the witnesses use.
+  const vendor = s
+    .model({
+      id: s.int().id(),
+      region: s.string(),
+      code: s.string(),
+      name: s.string(),
+      contracts: s.oneToMany(() => contract),
+    })
+    .unique(["region", "code"])
+    .map("n1_ref_vendors");
+  const contract = s
+    .model({
+      id: s.int().id(),
+      title: s.string(),
+      vendorRegion: s.string(),
+      vendorCode: s.string(),
+      vendor: s
+        .manyToOne(() => vendor)
+        .fields("vendorRegion", "vendorCode")
+        .references("region", "code"),
+    })
+    .map("n1_ref_contracts");
+  return { account, note, attachment, ticket, owner, memo, vendor, contract };
 })();
 
 hydrateSchemaNames(locatedParentRefSchema);
@@ -98,12 +149,36 @@ async function seedAccounts(client: RefClient): Promise<void> {
   });
 }
 
+/**
+ * Two owners sharing `tenantId` and differing only in `slot`: the compound pin. A
+ * per-field resolution that dropped `slot` — or read it from a different row —
+ * would attach the memo to `t1/a`, which the witnesses assert stays empty.
+ */
+async function seedOwners(client: RefClient): Promise<void> {
+  await client.owner.create({
+    data: { tenantId: "t1", slot: "a", handle: "h-t1-a" },
+  });
+  await client.owner.create({
+    data: { tenantId: "t1", slot: "b", handle: "h-t1-b" },
+  });
+}
+
+/** Two vendors sharing `region`, so only the full `[region, code]` tuple names one. */
+async function seedVendors(client: RefClient): Promise<void> {
+  await client.vendor.create({
+    data: { id: 1, region: "eu", code: "DECOY", name: "decoy" },
+  });
+  await client.vendor.create({
+    data: { id: 2, region: "eu", code: "TARGET", name: "target" },
+  });
+}
+
 export function runLocatedParentRefBehavior(options: {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
   readonly createStateDriver?: () => AnyDriver;
 }): void {
-  describe(`${options.name} located-parent Ref (N1-U1)`, () => {
+  describe(`${options.name} located-parent Ref (N1)`, () => {
     const setup = async () => {
       const driver = options.createDriver();
       const stateDriver = options.createStateDriver?.() ?? driver;
@@ -291,6 +366,111 @@ export function runLocatedParentRefBehavior(options: {
           await expect(
             client.account.findUnique({ where: { id: 1 } })
           ).resolves.toMatchObject({ label: "same" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    // ------------------------------------------------------------------
+    // N1-U2 — COMPOUND referenced keys. A compound foreign key is per-field
+    // (ATOM §1's multi-field produces): each column resolves from the SAME
+    // located row by name. Nothing new is needed for compound arity — the leaf
+    // already loops the foreign-key columns index-aligned with the referenced
+    // ones — so what these witness is that every member travels TOGETHER, from
+    // one row, and that a sibling sharing one member cannot capture the child.
+    // ------------------------------------------------------------------
+
+    test(
+      "compound primary-key reference: both members come from the located row",
+      { timeout: 30_000 },
+      async () => {
+        const { client, opClient, dispose } = await setup();
+        try {
+          await seedOwners(client);
+          await opClient.owner.update({
+            where: { tenantId_slot: { tenantId: "t1", slot: "b" } },
+            data: { memos: { create: { id: 10, text: "by compound pk" } } },
+          });
+          await expect(
+            client.memo.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            {
+              id: 10,
+              text: "by compound pk",
+              ownerTenant: "t1",
+              ownerSlot: "b",
+            },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "compound primary-key reference located by a unique naming NEITHER member",
+      { timeout: 30_000 },
+      async () => {
+        const { client, opClient, dispose } = await setup();
+        try {
+          await seedOwners(client);
+          // `handle` is the discriminator; the foreign key needs `tenantId` AND
+          // `slot`, and no literal in the payload holds either. The sibling
+          // `t1/a` shares the tenant, so a resolution that carried only the
+          // tenant (or dropped the slot) would attach the memo to it.
+          await opClient.owner.update({
+            where: { handle: "h-t1-b" },
+            data: {
+              memos: {
+                createMany: {
+                  data: [
+                    { id: 20, text: "one" },
+                    { id: 21, text: "two" },
+                  ],
+                },
+              },
+            },
+          });
+          await expect(
+            client.memo.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 20, text: "one", ownerTenant: "t1", ownerSlot: "b" },
+            { id: 21, text: "two", ownerTenant: "t1", ownerSlot: "b" },
+          ]);
+          await expect(
+            client.memo.findMany({ where: { ownerSlot: "a" } })
+          ).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "compound NON-PK referenced unique is threaded per field from the located row",
+      { timeout: 30_000 },
+      async () => {
+        const { client, opClient, dispose } = await setup();
+        try {
+          await seedVendors(client);
+          // `contract.[vendorRegion, vendorCode] -> vendor.[region, code]`: a
+          // compound unique that is not the vendor's primary key and not the
+          // `where`. The decoy vendor shares `region`.
+          await opClient.vendor.update({
+            where: { id: 2 },
+            data: { contracts: { create: { id: 30, title: "d4 compound" } } },
+          });
+          await expect(
+            client.contract.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            {
+              id: 30,
+              title: "d4 compound",
+              vendorRegion: "eu",
+              vendorCode: "TARGET",
+            },
+          ]);
         } finally {
           await dispose();
         }

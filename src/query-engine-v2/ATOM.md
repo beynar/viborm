@@ -1757,6 +1757,20 @@ the inlined value is identical, and the existing root-presence guard is what pin
 located parent's survival inside the batch. Throw-site census 78 → 77 (the refusal is
 DELETED, not narrowed).
 
+**N1-U2 — compound referenced keys, for free.** A compound foreign key was already
+per-field in this model (§1's multi-field `produces`): `plannedFkInject` loops the FK
+columns index-aligned with the referenced ones, and `referencedFieldValue` resolves each BY
+NAME from one located row. So U1's `plannedParentId` covers arity ≥ 2 with no new
+mechanism — U2 is a GATE change, not a builder change: every referenced column is
+registered in `locateFields`, and the compound refusal moves BEHIND the rewrite test
+instead of standing in front of it. The refusal narrows rather than disappears (census
+stays 77): a compound reference whose members the root SET REWRITES still refuses, because
+the located row carries the PRE-transition tuple and referencing the post-transition one is
+an ORDERING problem against the root UPDATE — N5's unit, not a dataflow one. The compound
+witnesses are chosen so a partial resolution cannot pass: siblings that share one member
+and differ in the other, and a staleness probe that corrupts exactly ONE member and asserts
+the whole tuple moved.
+
 ---
 
 ## 9. Invariants (the executable contract)

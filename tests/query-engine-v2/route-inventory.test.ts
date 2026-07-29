@@ -692,10 +692,28 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     from the located row, and a filter naming ANOTHER row's referenced value is
   //     NOT-FOUND with nothing written); only the refusal it used to observe is gone.
   //
+  // 77 -> 77 (N1-U2, compound referenced keys): NARROWED, not deleted.
+  // `resolveCreateParent`'s compound throw fired for EVERY compound reference; it now
+  // fires only when the root SET also REWRITES a member, and says so. No mechanism was
+  // added: a compound foreign key is per-field (ATOM §1's multi-field produces), the
+  // leaf's inject already loops the foreign-key columns index-aligned with the referenced
+  // ones, and `referencedFieldValue` resolves each BY NAME from the one located row — so
+  // U1's `plannedParentId` covers arity ≥ 2 by construction. What N1-U2 changed is the
+  // gate in front of it: every referenced column is registered in `locateFields`, and the
+  // compound refusal moved BEHIND the rewrite test instead of in front of it.
+  //
+  // The surviving cause is ordering, not dataflow: the located row carries the
+  // PRE-transition members, and referencing the post-transition tuple means ordering the
+  // fresh INSERT against the root UPDATE per member — N5's unit. Witnessed by the compound
+  // block of `located-parent-ref-behavior.ts` (compound PK by its own where-unique; the
+  // same PK located by a `handle` unique naming NEITHER member, with a sibling sharing
+  // `tenantId`; a compound NON-PK referenced unique with a sibling sharing `region`) and
+  // by the compound staleness probe (corrupting ONE member moves the whole tuple — the
+  // proof that every member travels from the same located row).
+  //
   // Sites the sweep considered and KEPT, with the Ref explicitly on the table:
-  //   · `resolveCreateParent`'s compound-key throw — the Ref reaches the no-transition
-  //     compound case (N1-U2 absorbs it); what remains is a compound reference with a
-  //     REWRITTEN member.
+  //   · `resolveCreateParent`'s compound-key throw — narrowed by N1-U2 above; the
+  //     remaining cause is a REWRITTEN member (ordering, N5).
   //   · `resolveCreateParent`'s "transitions primary key … not pinned by the unique where"
   //     — the Ref DOES reach the pre-transition value (the locate row carries it), but the
   //     absorption needs the post-transition derivation ordered against the root UPDATE,

@@ -1366,18 +1366,21 @@ export class UpdateOperation {
    *  INSERT is ordered (`afterRoot`).
    *
    *  **No referenced column is rewritten by the root SET** (the ordinary case):
-   *   - a single referenced column the unique `where` PINS → a construction-time literal,
+   *   - a SINGLE referenced column the unique `where` PINS → a construction-time literal,
    *     `afterRoot: false`. Byte-identical to the pre-N1 plan: no extra locate column, no
    *     extra statement, no compile-time resolution;
    *   - anything else — the `where: { email }` spelling, whose discriminator names a
-   *     DIFFERENT column than the one the child FK references — → the **located-parent
-   *     Ref** (N1-U1): the referenced column joins the locate read's select/outputs and
-   *     the fresh row's FK is resolved at compile from the row the locate ACTED ON (the
-   *     wrong-row doctrine: never from re-consulting the `where`). Still
-   *     `afterRoot: false` — the referenced value is not being rewritten, so it already
-   *     exists before the root UPDATE runs.
+   *     DIFFERENT column than the one the child FK references, or a COMPOUND reference
+   *     (N1-U2) — → the **located-parent Ref**: every referenced column joins the locate
+   *     read's select/outputs, and the fresh row's FK is resolved PER FIELD at compile from
+   *     the row the locate ACTED ON (the wrong-row doctrine: never from re-consulting the
+   *     `where`). Compound needs no new mechanism — a compound foreign key is per-field
+   *     (ATOM §1's multi-field produces), and the leaf's inject already loops the FK
+   *     columns index-aligned with the referenced ones. Still `afterRoot: false` — no
+   *     referenced value is being rewritten, so all of them already exist before the root
+   *     UPDATE runs.
    *
-   *  **A referenced column IS rewritten** (a transition):
+   *  **A referenced column IS rewritten** (a transition) — single-field only:
    *   - a **transitioned PRIMARY KEY** whose pre-transition value the `where` pins (T4b
    *     CLASS III) → the fresh row references the POST-transition id, derived by
    *     `getUpdatedPrimaryKeyValue` (the same JS==SQL derivation the terminal read already
@@ -1385,72 +1388,97 @@ export class UpdateOperation {
    *     SET) → `afterRoot: true`, so the INSERT lands after the root UPDATE creates the row;
    *   - a non-PK referenced column rewritten to a literal → that literal, `afterRoot: false`.
    *
-   *  The two survivors are typed refusals, not oversights — see each throw. */
+   *  The three survivors are typed refusals, not oversights — see each throw. */
   private resolveCreateParent(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     fk: FkDirection,
     relationName: string
   ): { parentId: ParentIdSource; afterRoot: boolean } {
-    if (fk.pkFields.length !== 1) {
+    const referencedFields = fk.pkFields;
+    const rewritten = referencedFields.filter((field) =>
+      Object.hasOwn(input.rootScalarData, field)
+    );
+    if (rewritten.length === 0) {
+      return this.locatedCreateParent(input, referencedFields);
+    }
+    if (referencedFields.length !== 1) {
+      // N1-U2 absorbed the compound reference itself; what survives is a compound
+      // reference the root SET REWRITES. The located row carries the PRE-transition
+      // members, and deriving the post-transition tuple means ordering the fresh INSERT
+      // against the root UPDATE per member — the ordering unit (N5), not a dataflow one.
       throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support a compound-key nested create on relation '${relationName}'.`
+        `query-engine-v2 update does not support a compound-key nested create on relation '${relationName}' while the root update rewrites referenced column(s) '${rewritten.join(", ")}'.`
       );
     }
-    const referencedField = fk.pkFields[0]!;
-    if (Object.hasOwn(input.rootScalarData, referencedField)) {
-      // A rewritten PRIMARY KEY is a transition: the fresh child references the new PK.
-      // T4b CLASS III — the post-transition value is COMPILE-known, derived from the
-      // where-pinned pre-transition value by `getUpdatedPrimaryKeyValue` (the same exact
-      // JS==SQL arithmetic the terminal read trusts; the root SET already passed
-      // `assertPortablePrimaryKeyUpdateInput`, so a non-portable op is impossible here).
-      // The INSERT is ordered AFTER the root UPDATE (`afterRoot: true`) because a
-      // NO-ACTION FK does not cascade a fresh row: the new parent must exist first.
-      if (this.parentPrimaryKeys.includes(referencedField)) {
-        const pinnedBefore = getWhereUniqueEntries(
-          input.parent,
-          this.parentWhere
-        ).find((entry) => entry.fieldName === referencedField);
-        if (!pinnedBefore) {
-          throw new UnsupportedOperationError(
-            `query-engine-v2 update nested create on relation '${relationName}' transitions primary key '${referencedField}' whose pre-transition value is not pinned by the unique where.`
-          );
-        }
-        const transitioned = getUpdatedPrimaryKeyValue(
-          this.model,
-          referencedField,
-          pinnedBefore.value,
-          input.rootScalarData[referencedField],
-          getStepModelName(this.model, "record")
-        );
-        return { parentId: literalParentId(transitioned), afterRoot: true };
-      }
-      const rewritten = input.rootScalarData[referencedField];
-      if (!isConstructionLiteral(rewritten)) {
+    const referencedField = referencedFields[0]!;
+    // A rewritten PRIMARY KEY is a transition: the fresh child references the new PK.
+    // T4b CLASS III — the post-transition value is COMPILE-known, derived from the
+    // where-pinned pre-transition value by `getUpdatedPrimaryKeyValue` (the same exact
+    // JS==SQL arithmetic the terminal read trusts; the root SET already passed
+    // `assertPortablePrimaryKeyUpdateInput`, so a non-portable op is impossible here).
+    // The INSERT is ordered AFTER the root UPDATE (`afterRoot: true`) because a
+    // NO-ACTION FK does not cascade a fresh row: the new parent must exist first.
+    if (this.parentPrimaryKeys.includes(referencedField)) {
+      const pinnedBefore = getWhereUniqueEntries(
+        input.parent,
+        this.parentWhere
+      ).find((entry) => entry.fieldName === referencedField);
+      if (!pinnedBefore) {
         throw new UnsupportedOperationError(
-          `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${referencedField}'.`
+          `query-engine-v2 update nested create on relation '${relationName}' transitions primary key '${referencedField}' whose pre-transition value is not pinned by the unique where.`
         );
       }
-      return { parentId: literalParentId(rewritten), afterRoot: false };
+      const transitioned = getUpdatedPrimaryKeyValue(
+        this.model,
+        referencedField,
+        pinnedBefore.value,
+        input.rootScalarData[referencedField],
+        getStepModelName(this.model, "record")
+      );
+      return { parentId: literalParentId(transitioned), afterRoot: true };
     }
-    const pinned = getWhereUniqueEntries(input.parent, this.parentWhere).find(
-      (entry) => entry.fieldName === referencedField
-    );
-    if (pinned) {
-      return { parentId: literalParentId(pinned.value), afterRoot: false };
+    const literal = input.rootScalarData[referencedField];
+    if (!isConstructionLiteral(literal)) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${referencedField}'.`
+      );
     }
-    // N1-U1 — THE LOCATED-PARENT REF. The unique `where` discriminates on some OTHER
-    // column (`where: { email }` while the child FK references `id`), so no compile-time
-    // literal names the referenced value. It is not unknowable — the locate read already
-    // reads this row; it just has to SELECT the column and hand it to the fresh child's
-    // FK at compile. Registering the field in `locateFields` is what makes the locate
-    // expose it (select + `firstRowField` output); `plannedParentId` is what makes the
-    // create leaf read it from the LOCATED ROW rather than re-deriving it from the
-    // `where` (ATOM §1's Ref, the wrong-row doctrine's requirement). Under a transaction
-    // the locate holds `FOR UPDATE`, so the value cannot move between read and write;
-    // under an atomic batch the root-presence guard pins the row inside the unit.
-    input.locateFields.add(referencedField);
+    return { parentId: literalParentId(literal), afterRoot: false };
+  }
+
+  /**
+   * N1-U1/U2 — the parent id for a nested create whose referenced columns the root SET
+   * leaves alone. A SINGLE referenced column the unique `where` PINS keeps its
+   * construction-time literal (the pre-N1 plan, byte for byte). Everything else — an
+   * unpinned reference (`where: { email }` while the child FK references `id`) or a
+   * COMPOUND one — takes THE LOCATED-PARENT REF.
+   *
+   * It was never an unknowable value: the locate read already reads this row. Registering
+   * each referenced field in `locateFields` is what makes the locate expose it (its SELECT
+   * plus a `firstRowField` output); `plannedParentId` is what makes the create leaf read it
+   * from the LOCATED ROW rather than re-deriving it from the `where` (ATOM §1's Ref, and
+   * the wrong-row doctrine's requirement). Compound rides the same call: the leaf's inject
+   * loops the FK columns index-aligned with the referenced ones and resolves each by NAME
+   * from that row, so the parent-id source names the readStep and the per-field lookup does
+   * the rest. Under a transaction the locate holds `FOR UPDATE`, so no value can move
+   * between read and write; under an atomic batch the root-presence guard pins the row
+   * inside the unit.
+   */
+  private locatedCreateParent(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    referencedFields: readonly string[]
+  ): { parentId: ParentIdSource; afterRoot: boolean } {
+    if (referencedFields.length === 1) {
+      const pinned = getWhereUniqueEntries(input.parent, this.parentWhere).find(
+        (entry) => entry.fieldName === referencedFields[0]
+      );
+      if (pinned) {
+        return { parentId: literalParentId(pinned.value), afterRoot: false };
+      }
+    }
+    for (const field of referencedFields) input.locateFields.add(field);
     return {
-      parentId: plannedParentId(this.locateId, referencedField),
+      parentId: plannedParentId(this.locateId, referencedFields[0]!),
       afterRoot: false,
     };
   }
