@@ -2,10 +2,13 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
+import { attachExecutionContext } from "@drivers/driver-error-context";
 import { normalizeDriverError } from "@drivers/error-mapping";
 import { PGliteDriver } from "@drivers/pglite";
 import type { QueryResult } from "@drivers/types";
 import { PGlite } from "@electric-sql/pglite";
+// biome-ignore lint/performance/noNamespaceImport: the identity round-trip test discovers every concrete error class from the barrel
+import * as allErrors from "@errors";
 import {
   CheckConstraintError,
   ClientInitializationError,
@@ -1161,5 +1164,72 @@ describe("Prisma-style catch on live errors", () => {
     // never one of the P2xxx codes the handler above claims.
     expect(classifyLikePrisma(caught)).toBe("unhandled:P1012");
     expect(caught).toBeInstanceOf(ClientInitializationError);
+  });
+
+  // One factory per concrete VibORMError class exported from @errors. The
+  // discovery loop below fails on any class missing here, so a newly added
+  // error class cannot silently fall back to bare VibORMError inside
+  // getCloneConstructor (src/drivers/driver-error-context.ts).
+  const cloneFactories: Record<string, () => VibORMError> = {
+    CacheConfigurationError: () =>
+      new allErrors.CacheConfigurationError("cache misconfigured"),
+    CacheInvalidKeyError: () => new allErrors.CacheInvalidKeyError("bad key"),
+    CacheInvalidTTLError: () => new allErrors.CacheInvalidTTLError("bad ttl"),
+    CacheOperationNotCacheableError: () =>
+      new allErrors.CacheOperationNotCacheableError("create", ["findMany"]),
+    CheckConstraintError: () => new CheckConstraintError("check failed"),
+    ClientInitializationError: () =>
+      new ClientInitializationError("cannot build client"),
+    ConnectionError: () => new allErrors.ConnectionError("connection refused"),
+    FeatureNotSupportedError: () =>
+      new allErrors.FeatureNotSupportedError("savepoints", "create"),
+    ForeignKeyError: () => new ForeignKeyError("fk violated"),
+    InvalidTransactionInputError: () =>
+      new allErrors.InvalidTransactionInputError(),
+    MigrationError: () => new allErrors.MigrationError("migration failed"),
+    NestedWriteAssertionError: () =>
+      new NestedWriteAssertionError("assertion failed"),
+    NestedWriteError: () =>
+      new allErrors.NestedWriteError("nested write failed", "posts"),
+    NotFoundError: () => new NotFoundError("user", "findUnique"),
+    NotNullConstraintError: () => new NotNullConstraintError("null violation"),
+    PendingOperationError: () =>
+      new allErrors.PendingOperationError(
+        "already executed",
+        VibORMErrorCode.OPERATION_ALREADY_EXECUTED
+      ),
+    QueryEngineError: () => new allErrors.QueryEngineError("engine failed"),
+    QueryError: () => new QueryError("query failed"),
+    TransactionError: () => new TransactionError("transaction failed"),
+    UniqueConstraintError: () => new UniqueConstraintError("duplicate"),
+    UnsupportedOperationError: () =>
+      new allErrors.UnsupportedOperationError("shape not supported"),
+    ValidationError: () =>
+      new ValidationError("create", [{ path: "email", message: "invalid" }]),
+    ValueTooLongError: () => new ValueTooLongError("value too long"),
+    VibORMError: () =>
+      new VibORMError("base failure", VibORMErrorCode.INTERNAL_ERROR),
+  };
+
+  test("every concrete error class keeps its identity through attachExecutionContext", () => {
+    const classes = Object.values(allErrors as Record<string, unknown>).filter(
+      (value): value is new (...args: never[]) => VibORMError =>
+        typeof value === "function" &&
+        (value === VibORMError || value.prototype instanceof VibORMError)
+    );
+    expect(classes.length).toBeGreaterThan(0);
+
+    for (const cls of classes) {
+      const factory = cloneFactories[cls.name];
+      if (!factory) {
+        throw new Error(
+          `${cls.name} has no factory in this test — add one here, and add the class to CLONE_CONSTRUCTORS in src/drivers/driver-error-context.ts`
+        );
+      }
+      const source = factory();
+      const clone = attachExecutionContext(source, { driverName: "pg" });
+      expect(Object.getPrototypeOf(clone)).toBe(cls.prototype);
+      expect(clone.code).toBe(source.code);
+    }
   });
 });

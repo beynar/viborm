@@ -290,12 +290,17 @@ describe("the retry policy reads the same switch", () => {
 
 describe("the routed race retry, now stated in classification terms", () => {
   it("still retries a self-declared raceable guard abort", () => {
-    // The only errors that actually carry meta.raceable: guard aborts raised as
-    // NestedWriteError (failureError, batch-error-attribution.ts). They classify as expected.
+    // The errors that actually carry meta.raceable: guard aborts raised as
+    // NestedWriteError, or as TransactionError for the upsert skip premise
+    // (failureError, batch-error-attribution.ts). Both classify as expected.
     const abort = new NestedWriteError("premise changed", "posts");
     abort.meta.raceable = true;
     expect(classifyFailure(abort).kind).toBe("failure");
     expect(isRetryableRace(abort)).toBe(true);
+    const skipAbort = new TransactionError("skip premise changed");
+    skipAbort.meta.raceable = true;
+    expect(classifyFailure(skipAbort).kind).toBe("failure");
+    expect(isRetryableRace(skipAbort)).toBe(true);
   });
 
   it("still retries an error the executor pinned, and nothing else", () => {
