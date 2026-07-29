@@ -616,6 +616,36 @@ describe("decline-surface gate: absorbed nested-relation-in-update shapes execut
 });
 
 // ---------------------------------------------------------------------------
+// N1 — the located-parent Ref joins the absorbed surface. A child-held nested
+// create under an update located by a NON-PK unique used to decline (no
+// compile-time literal held the referenced column); it now reads that column from
+// the located row. This is the gate's own side-1 witness for the family: FALSIFY
+// by restoring the literal-only requirement in `resolveCreateParent` — the update
+// then throws instead of persisting, and the second assertion (the wrong-row
+// decoy keeps nothing) is what catches a resolution that reads the value from
+// somewhere other than the located row.
+// ---------------------------------------------------------------------------
+describe("decline-surface gate: the located-parent Ref executes on the one engine (N1)", () => {
+  test("nested create under an update located by a non-PK unique", async () => {
+    const c = await freshClient(nb as Record<string, Model<any>>);
+    // `tag.name` is the unique the update locates by; `postTag.tagId` references
+    // `tag.id`, which no literal in the payload holds. The decoy is seeded first.
+    await c.tag.create({ data: { id: "t-decoy", name: "decoy" } });
+    await c.tag.create({ data: { id: "t-target", name: "ref" } });
+    await c.post.create({ data: { id: "p1", title: "host", userId: null } });
+    await c.tag.update({
+      where: { name: "ref" },
+      data: { postTags: { create: { id: "j1", postId: "p1" } } },
+    });
+    const joins = await c.postTag.findMany({ orderBy: { id: "asc" } });
+    expect(
+      joins.map((j: { id: string; tagId: string }) => [j.id, j.tagId])
+    ).toEqual([["j1", "t-target"]]);
+    await c.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The single engine either constructs a payload's whole tree or declines it with
 // an UnsupportedOperationError at construction — no fallback catches the decline.
 // Every conformance scenario constructs (the migration reached census zero before

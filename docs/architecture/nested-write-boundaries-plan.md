@@ -108,6 +108,29 @@ it in BOTH directions rather than skipping it: the MySQL atomic-batch leg DECLAR
 every other leg asserts the skip executing. A dialect that can express it cannot quietly
 start refusing, and one that cannot cannot quietly start succeeding.
 
+### N1-U4 — delivered
+
+The sweep enumerates **every** surviving site whose stated reason cites a pin, a
+compile-time literal, or "must locate by its primary key … so the value is known", and
+gives each one of two verdicts: absorbed (U1/U2), or kept with the reason the Ref does not
+close it AND the wave that owns it. Ten entries, `(a)`–`(j)`, written into the
+count-evolution log in `route-inventory.test.ts` so they live beside the pin they justify.
+
+The honest shape of the residue: three sites are ORDERING problems the Ref reaches but
+cannot finish (a rewritten referenced member, an unpinned pre-transition PK, the
+occupied-guard correlation) — **N5**; three are the "locate the target by its PK" family
+where the Ref generalizes exactly as it does here — **N4-U1**, left for the wave that owns
+it rather than guessed at from this one; four sites are on the CREATE root or an M2M fresh
+target, where the Ref is structurally unavailable because there is no locate step and the
+parent is fresh — **N3 / N4-U4**; and three ("requires a child with one primary key") were
+never literal-propagation at all, listed only so the sweep is complete.
+
+Census pin: **77**, edited in lockstep with U1 (78 → 77) and unchanged by U2's narrowing.
+The decline-surface gate runs bidirectionally: side 1 gains the N1 shape (a nested create
+under an update located by a non-PK unique EXECUTES, with the wrong-row decoy asserted
+empty), side 2's named tripwire (`createMany` under a parent-held planned target) still
+declines untouched.
+
 **Measured, not fixed — recorded for a later wave.** In BATCH mode the root-presence guard
 and the root UPDATE both address the ORIGINAL `where`, while child edges address the
 captured located row. Under a concurrent rename-plus-reinsert on the discriminator those

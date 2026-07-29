@@ -711,24 +711,53 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // by the compound staleness probe (corrupting ONE member moves the whole tuple — the
   // proof that every member travels from the same located row).
   //
-  // Sites the sweep considered and KEPT, with the Ref explicitly on the table:
-  //   · `resolveCreateParent`'s compound-key throw — narrowed by N1-U2 above; the
-  //     remaining cause is a REWRITTEN member (ordering, N5).
-  //   · `resolveCreateParent`'s "transitions primary key … not pinned by the unique where"
-  //     — the Ref DOES reach the pre-transition value (the locate row carries it), but the
-  //     absorption needs the post-transition derivation ordered against the root UPDATE,
-  //     which is N5-U2's unit ("located-only pre-transition PK"), not a dataflow change.
-  //   · `resolveCreateParent`'s "references a non-literal rewritten column" — Ref does NOT
-  //     help: the value comes from the root SET, not from the located row. What it needs is
-  //     `{ set: v }` unwrapping, a normalization question.
-  //   · `RelationWritePart` / `RelationUpsertPart` / `RelationJunctionPart`'s "must locate
-  //     the target by its primary key" family — the Ref generalizes there too (the target's
-  //     locate can return its PK), and that is exactly N4-U1's unit; kept here so the wave
-  //     that owns it does the measurement.
-  //   · `nested-target-parts.ts`'s "createMany … under a parent-held target one level
-  //     deeper" — N1 builds the planned-parent createMany leaf this site would consume, but
-  //     the site guards the PARENT-HELD probe path (a different parent-id provenance) and
-  //     N4-U3 owns it as the decline-surface gate's named backlog item.
+  // N1-U4 — THE SWEEP. Every surviving site whose stated reason cites a PIN, a
+  // COMPILE-TIME LITERAL, or "must locate by its primary key … so the value is known",
+  // with the located-parent Ref explicitly considered. Two verdicts only: absorbed (above),
+  // or kept with the reason the Ref does not close it AND the wave that owns it.
+  //
+  // (a) `UpdateOperation.resolveCreateParent`, compound-key throw — NARROWED by N1-U2; the
+  //     surviving cause is a REWRITTEN member. Ref reaches the value; the post-transition
+  //     tuple is an ORDERING question against the root UPDATE. Owner: N5.
+  // (b) `UpdateOperation.resolveCreateParent`, "transitions primary key … pre-transition
+  //     value is not pinned by the unique where" — the Ref DOES reach the pre-transition
+  //     value (the locate row carries it), so this is not a dataflow gap; the absorption
+  //     needs the post-transition derivation ordered against the root UPDATE. Owner: N5-U2,
+  //     which the plan names "located-only pre-transition PK".
+  // (c) `UpdateOperation.resolveCreateParent`, "references a non-literal rewritten column"
+  //     — Ref does NOT help: the value comes from the root SET, not from the located row.
+  //     What would close it is `{ set: v }` unwrapping (`classifyRelationKeyScalarUpdate`
+  //     already calls that shape "resolved"), a normalization question, not a Ref one.
+  // (d) `UpdateOperation.interpretRelation`, "nested '<kind>' … while the root update
+  //     transitions a compound / non-PK / unpinned referenced column" — the "unpinned"
+  //     third of its cause is now reachable by the Ref, but the site guards V1's OCCUPIED
+  //     GUARD (a correlated read of the pre-transition slot), not a create's FK. Owner: N5.
+  // (e) `RelationWritePart` / `RelationUpsertPart` / `RelationJunctionPart`, the "must
+  //     locate the target by its primary key so the deeper foreign key is a known value"
+  //     family (3 sites) — the Ref generalizes there exactly as it does here: the target's
+  //     own locate can RETURN its primary key. That is N4-U1's unit verbatim; kept so the
+  //     wave that owns it does the measurement rather than this one guessing.
+  // (f) `nested-target-parts.ts`, "createMany … under a parent-held target one level
+  //     deeper" — N1 built the planned-parent createMany leaf this site would consume, but
+  //     the site guards the PARENT-HELD probe provenance (a probe on the target, not the
+  //     root locate), and it is the decline-surface gate's live tripwire. Owner: N4-U3.
+  // (g) `CreateOperation`'s "cannot resolve referenced field / the parent id" (3 sites) and
+  //     "shared-primary-key … not a compile-time literal" — the Ref is structurally
+  //     unavailable: a CREATE root has no locate step, its parent is FRESH, and referenced
+  //     values come from the record's own identity (a literal, or a backward Ref to its own
+  //     INSERT). What these need is a wider notion of a fresh record's identity, or the
+  //     shared-PK fold N4-U4 owns — not a located-parent read.
+  // (h) `RelationJunctionPart`'s "requires the target primary key in the create data"
+  //     (3 sites) — the target of an M2M create is FRESH; there is no located row to read.
+  //     Owner: N3 (the junction's produced-identity path).
+  // (i) "requires a child with one primary key" (`UpdateOperation`, `nested-target-parts`,
+  //     `RelationUpsertPart` — 3 sites) — NOT a literal-propagation cause at all: these
+  //     read the CHILD's own primary-key arity to address a targeted mutation, which no
+  //     parent-side dataflow supplies. Listed so the sweep is complete, not because the Ref
+  //     was ever a candidate.
+  // (j) `UpsertOperation`'s create-arm read-back identity — the create arm writes a FRESH
+  //     row; there is no located parent. Its identity comes from the create data or the
+  //     INSERT's own capture (W4-U1 above), which is the correct mechanism already.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
