@@ -1814,6 +1814,38 @@ declined shape, so it became a `QueryEngineError` — the same disposition X1c g
 `foldOneNestedRelation`'s unreachable branches, and the reason the count drops by a whole
 site rather than moving to a narrower message.
 
+**N5-U1 — the adopt family under a non-cascade PK transition (no mechanism either; a
+list that needed one more member).** `list.update({ where: { id: 1 }, data: { id: 5,
+items: { connect } } })` raised `does not support a nested adopt (connect /
+connectOrCreate / set / to-many upsert) … while the root update transitions its
+non-cascade referenced primary key`. The stated cause — the adopt "writes a fresh FK on
+the pre-transition value, orphaned by the referential action" — described the ORDER the
+parts were emitted in and nothing else: every child Part of an update root landed BEFORE
+the root UPDATE, so an adopt could only ever bind the id the transition was vacating.
+
+Two facts the same method already held make it ordinary. The OLD slot is proven EMPTY by
+the CLASS IV occupied guard it emits three lines later, so no edge is moving off the dying
+id; and the POST-transition value is a compile-time literal there — the `after` it already
+computes and already hands to the to-one upsert's create-arm reroute. So the adopt kinds
+take `after` and are held back until after the root UPDATE, on the T4b list, renamed
+`afterRootParts` and generalized from "transitioned-PK create leaves" to "every child
+write whose FK is the post-transition value". Their GUARD steps still hoist to the front:
+a batch pins premises before any write, and every premise these Parts assert (the connect
+target exists; the departing set is empty) is a fact about rows the root UPDATE does not
+touch, so hoisting it past that UPDATE changes nothing it asserts.
+
+No `Ref` was involved, which is the finding. §3's techniques exist for values that are not
+yet known; this value was known all along and the plan was already spellable. What the
+refusal named as inexpressibility was a fixed emission order — the ordering half of §2's
+"a write plus the premises it needs", which the atom expresses by WHERE a step sits, not by
+what vocabulary it uses. The one genuinely new thing is `RelationSetConfig.correlationParentId`:
+`set` both reads existing membership (its departing half, a correlated planning read) and
+writes it, and only under a transition do those two want different parent values. Splitting
+them is a §1 multi-field-produce distinction, not a new step kind.
+
+Throw-site census 76 → 75, and `interpretReferencedKeyTransition` became kind-BLIND in the
+body — the guard belongs to the relation, the ordering to the kind.
+
 ---
 
 ## 9. Invariants (the executable contract)

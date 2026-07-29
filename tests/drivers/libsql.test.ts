@@ -11,6 +11,7 @@ import { runDepthSeamBehavior } from "../query-engine-v2/depth-seam-behavior";
 import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-create-many-behavior";
 import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
@@ -276,6 +277,15 @@ describe("LibSQL Driver", () => {
     createDriver: createInMemoryLibSQLDriver,
   });
   runDepthSeamBehavior({
+    name: "LibSQL atomic batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
+  });
+
+  runPostTransitionAdoptBehavior({
+    name: "LibSQL transaction",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runPostTransitionAdoptBehavior({
     name: "LibSQL atomic batch",
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });

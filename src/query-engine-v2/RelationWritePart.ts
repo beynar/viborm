@@ -852,6 +852,17 @@ export interface RelationSetConfig {
   readonly requiredFields: readonly string[];
   readonly targets: readonly Record<string, unknown>[];
   readonly parentId: ParentIdSource;
+  /**
+   * N5-U1 — where this parent's children ALREADY are, when that is not where the
+   * reparented ones must GO. `set` is two halves against one parent value: the
+   * departing half asks "which rows carry my key today", the target half writes
+   * "carry my key from now on". They coincide everywhere except under a non-cascade
+   * referenced-key transition, where the part is ordered after the root UPDATE and
+   * assigns the POST-transition key while the departing rows still carry the
+   * PRE-transition one. Absent → both halves read {@link parentId}, byte-identical
+   * to pre-N5.
+   */
+  readonly correlationParentId?: ParentIdSource;
   readonly txMode: boolean;
 }
 
@@ -1134,22 +1145,25 @@ export class RelationSetPart implements Part {
   }
 
   /** `fk_i = <parent_i>` for every compound-key field — a SQL `Ref` at planning
-   *  (technique #1), or the inlined literal at compile. */
+   *  (technique #1), or the inlined literal at compile. Reads the DEPARTING-side
+   *  parent value ({@link RelationSetConfig.correlationParentId}), which is the
+   *  assigned one everywhere except under a non-cascade transition. */
   private correlationFilters(
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
+    const source = this.config.correlationParentId ?? this.config.parentId;
     return this.config.fkFields.map((fkField, index) => ({
       [fkField]: {
         equals: useRef
           ? referencedFieldRef(
-              this.config.parentId,
+              source,
               this.config.referencedFields[index]!,
               this.config.relationName,
               "set"
             )
           : referencedFieldValue(
-              this.config.parentId,
+              source,
               this.config.referencedFields[index]!,
               known,
               this.config.relationName,
@@ -1355,13 +1369,17 @@ export function buildToManyDeleteManyParts(
   );
 }
 
-/** `set`: one membership Part over every unique target `where`. */
+/** `set`: one membership Part over every unique target `where`. `correlationParentId`
+ *  (N5-U1) splits the departing half off the assigned half; omit it and both read
+ *  `base.parentId`. */
 export function buildToManySetPart(
   base: WritePartBase,
-  input: unknown
+  input: unknown,
+  correlationParentId?: ParentIdSource
 ): RelationSetPart {
   const requiredFields = requiredFkFieldsFor(base);
   return new RelationSetPart(base.scope, {
+    correlationParentId,
     engine: base.engine,
     childScope: base.childScope,
     childName: base.childName,

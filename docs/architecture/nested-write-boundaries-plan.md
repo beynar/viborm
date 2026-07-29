@@ -608,6 +608,53 @@ declares `skipDuplicatesInBatchIsInexpressible`.
 | N5-U1 | **B5 — nested adopt / child-edge writes under a non-cascade PK transition** (`RelationWritePart.ts:637` and the A15 adopt refusal): the plan-of-record fix is ORDERING — self-UPDATE after cascade-safe edges, or edge-writes against the post-transition id via Ref. "Routed for correctness, not inexpressibility" (PLAN §1314) — this is the wave that proves it. The T4c wrong-row witnesses are the falsification bed. |
 | N5-U2 | B10 residue (located-only pre-transition PK, compound generated PK, non-portable arithmetic) — absorb what N1+N5-U1 machinery covers; re-justify the remainder with measured reasons. |
 
+### N5-U1 — DELIVERED (the root adopt family). Census 76 → 75.
+
+The plan's claim was that these routes exist "for correctness, not inexpressibility", and that
+ORDERING is the fix. Measured at the root, that is exactly what the A15 refusal was.
+
+**What it actually refused.** `list.update({ where: { id: 1 }, data: { id: 5, items: { connect } } })`
+— a `connect`, `connectOrCreate`, `set`, or to-many `upsert` on a child-held relation whose
+referenced primary key the same root update transitions, with a NON-cascade foreign key.
+Reachable in ordinary schemas: `fk.onUpdate === "cascade"` is the only exemption, so a relation
+that never spells `onUpdate` at all takes this path.
+
+**Why it refused.** Its own words: an adopt "writes a fresh FK on the pre-transition value,
+orphaned by the referential action". True — of the ORDER the parts were emitted in. Every child
+Part of an update root was written before the root UPDATE, so an adopt could only ever bind the
+id the transition was about to vacate. Nothing else about the shape was hard.
+
+**What closed it.** Two facts the same code path already had:
+1. the OLD slot is proven EMPTY by the CLASS IV occupied guard that method emits three lines
+   later, so nothing is being moved off the dying id; and
+2. the POST-transition value is a compile-time literal there — the `after` the method already
+   computes with `getUpdatedPrimaryKeyValue`, and already hands to the to-one upsert create-arm
+   reroute (T4c) and, by the same derivation, to the T4b transitioned-PK create leaf.
+So the four adopt kinds take `after` and are ordered AFTER the root UPDATE, on the T4b
+`afterRootCreateParts` list — renamed `afterRootParts` and generalized from "transitioned-PK
+create leaves" to "every child write whose FK is the post-transition value", with GUARD steps
+still hoisted to the front. No `Ref` was needed and no vocabulary moved: the value was already
+a literal, the plan was already spellable, and it was being emitted in the one order that made
+it illegal.
+
+**The one mechanism genuinely missing**, now built: `RelationSetConfig.correlationParentId`.
+`set` is the only adopt member that READS existing membership as well as writing it — its
+departing half asks "which rows carry my key today" (a correlated planning read, and on a
+REQUIRED child FK the orphan rejection), its target half writes "carry my key from now on".
+Those coincide everywhere except under a transition. The field splits them and defaults to
+`parentId`, so every other caller is byte-identical.
+
+**Not changed:** the occupied guard (the accept-shape moved, the legality did not), the cascade
+path's pre-transition + reorder ordering, and the to-many upsert's uncorrelated verdict — which
+was MEASURED to equal its verdict with no transition in the payload rather than assumed.
+
+**Evidence.** `tests/query-engine-v2/post-transition-adopt-behavior.ts` (10 final-state
+witnesses on every driver leg and both substrates) + `post-transition-adopt.test.ts` (the
+statement-order and bound-value claims, plus the no-transition byte-identity half). Falsified
+three ways — writes before the root UPDATE: 15/22 fail; located source instead of `after`:
+15/22 fail; no `correlationParentId`: the required-FK `set` dies with "requires a planned parent
+id to correlate its probe". Gate count 66 → 67 (one added N5 entry in the decline-surface gate).
+
 ## N6 — Beyond Prisma (decision-gated; each unit needs a maintainer yes)
 
 | Unit | What | Decision |

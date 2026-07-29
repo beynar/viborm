@@ -852,6 +852,58 @@ describe("decline-surface gate: the depth seams execute on the one engine (N4)",
 });
 
 // ---------------------------------------------------------------------------
+// N5 — ORDERING joins the absorbed surface. The adopt family under a non-cascade
+// referenced-PK transition was declined because every child edge was emitted BEFORE
+// the root UPDATE, so an adopt could only bind the id the transition was vacating. The
+// edge now binds the post-transition id and is emitted after that UPDATE.
+// ---------------------------------------------------------------------------
+const n5AdoptSchema = (() => {
+  const shelf = s
+    .model({
+      id: s.int().id(),
+      name: s.string(),
+      books: s.oneToMany(() => book),
+    })
+    .map("n5_gate_shelves");
+  const book = s
+    .model({
+      id: s.int().id(),
+      title: s.string(),
+      shelfId: s.int().nullable(),
+      shelf: s
+        .manyToOne(() => shelf)
+        .fields("shelfId")
+        .references("id")
+        .optional()
+        .onUpdate("setNull"),
+    })
+    .map("n5_gate_books");
+  return { shelf, book };
+})();
+
+describe("decline-surface gate: the adopt family under a PK transition executes on the one engine (N5)", () => {
+  // N5-U1: the root moves its own primary key AND connects a child in one payload.
+  // Restoring the A15 refusal (or emitting the adopt write before the root UPDATE)
+  // makes this throw instead of persisting.
+  test("connect under a non-cascade referenced-PK transition executes on V2", async () => {
+    const c = await freshClient(n5AdoptSchema as Record<string, Model<any>>);
+    await c.shelf.create({ data: { id: 1, name: "target" } });
+    await c.book.create({ data: { id: 10, title: "free", shelfId: null } });
+    await c.shelf.update({
+      where: { id: 1 },
+      data: { id: 5, books: { connect: { id: 10 } } },
+    });
+    await expect(c.shelf.findMany({})).resolves.toEqual([
+      { id: 5, name: "target" },
+    ]);
+    await expect(c.book.findMany({})).resolves.toEqual([
+      { id: 10, title: "free", shelfId: 5 },
+    ]);
+    await c.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The single engine either constructs a payload's whole tree or declines it with
 // an UnsupportedOperationError at construction — no fallback catches the decline.
 // Every conformance scenario constructs (the migration reached census zero before

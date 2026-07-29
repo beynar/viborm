@@ -20,6 +20,7 @@ import { runDepthSeamBehavior } from "../query-engine-v2/depth-seam-behavior";
 import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-create-many-behavior";
 import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
@@ -668,6 +669,16 @@ describeIf("pg Driver", () => {
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runDepthSeamBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runPostTransitionAdoptBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runPostTransitionAdoptBehavior({
     name: "pg atomic batch",
     createDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),

@@ -953,6 +953,30 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     (`false` throws, `true` does not) so the message cannot outlive its cause.
   //
   // ---------------------------------------------------------------------------
+  // MERGE NOTE (N4 + N5 landed from two parallel lanes off the same base).
+  // ---------------------------------------------------------------------------
+  // Both lanes measured their delta from census 76 — the count at
+  // `f49047b`, the base each lane branched from — so each lane's own record
+  // opens "76 -> …". They are sequenced here in the order they were merged, N4
+  // first, and the SECOND lane's arithmetic is restated against the count the
+  // first one left rather than against 76. No entry's reasoning changed; only
+  // the running number in the N5 headings, and the final pin, were re-based.
+  // The pin below is not arithmetic: it is the number this file MEASURES by
+  // counting `new UnsupportedOperationError(` across the engine directory, and
+  // it was re-derived by running the test after both lanes were applied.
+  //
+  // The two lanes touch DISJOINT sites. N4 edits the depth seams
+  // (`RelationWritePart.interpretChildParts`, `RelationUpsertPart`'s arm split,
+  // `RelationJunctionPart`'s located-target wall, `nested-target-parts`' planned
+  // createMany); N5 edits the ORDERING boundaries
+  // (`UpdateOperation.interpretReferencedKeyTransition`'s A15 adopt throw,
+  // `RelationWritePart`'s non-cascade deeper-edge throw, and the two
+  // `resolveCreateParent` messages). The one FILE both lanes changed is
+  // `RelationWritePart.ts`, and even there the two edits are in different
+  // methods — N4 in `interpretChildParts`' parent-id provenance, N5 in the
+  // transition ordering and the new `RelationKeyOccupiedPart`.
+  //
+  // ---------------------------------------------------------------------------
   // N4 — the depth seams. 76 -> 74, in three edits and one net-zero replacement.
   // ---------------------------------------------------------------------------
   //
@@ -1034,6 +1058,64 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // primary key", sweep entry (i)), which no parent-side dataflow supplies. The
   // single/compound split N4-U1 owns is therefore about the target's own PK arity, and it
   // is entry (i)'s, not this unit's.
+  //
+  // ---------------------------------------------------------------------------
+  // N5 — the ordering boundaries. Measured in its own lane as 76 -> 75; re-based
+  // here onto the count N4 left, so the running number reads 74 -> 73. The lane's
+  // later two commits are net-zero and keep it at 73.
+  // ---------------------------------------------------------------------------
+  //
+  // 74 -> 73 (N5-U1, the ADOPT family under a non-cascade referenced-PK transition):
+  // DELETED — `UpdateOperation.interpretReferencedKeyTransition`'s A15 throw, "does not
+  // support a nested adopt (connect / connectOrCreate / set / to-many upsert) on the
+  // child-held relation '…' while the root update transitions its non-cascade referenced
+  // primary key", together with the `isAdoptKindUnderTransition` predicate that fed it.
+  //
+  // Its stated cause was that an adopt "writes a fresh FK on the pre-transition value,
+  // orphaned by the referential action". That was a true statement about the ORDER the
+  // parts were emitted in — every child Part of an update root was written BEFORE the
+  // root UPDATE, so an adopt could only ever bind the id the transition was about to
+  // vacate — and it was a statement about nothing else. Two facts the same code path
+  // already had in hand make the shape ordinary:
+  //   1. the OLD slot is proven EMPTY by the occupied guard this very method emits three
+  //      lines later (CLASS IV / T4c), so nothing is being moved off the dying id; and
+  //   2. the POST-transition value is a COMPILE-TIME LITERAL here — the `after` the
+  //      method already computes with `getUpdatedPrimaryKeyValue`, and already hands to
+  //      the to-one upsert's create-arm reroute (T4c) and, by the same derivation, to the
+  //      T4b transitioned-PK create leaf.
+  // So the four adopt kinds now take `after` as their parent value and are ordered AFTER
+  // the root UPDATE, on `afterRootParts` — the T4b list, generalized from "transitioned-PK
+  // create leaves" to "every child write whose FK is the post-transition value", with
+  // GUARD steps still hoisted to the front (a batch pins premises first; every premise
+  // these Parts assert is about rows the root UPDATE does not touch). ORDERING was the
+  // whole fix. Nothing became newly expressible; a plan the engine could already spell
+  // was being emitted in the one order that made it illegal.
+  //
+  // One mechanism was genuinely missing and is now built, because `set` is the one adopt
+  // member that READS existing membership as well as writing it: its departing half asks
+  // "which rows carry my key today" (a correlated planning read, and on a REQUIRED child
+  // FK the orphan rejection) while its target half writes "carry my key from now on".
+  // Those coincide everywhere except here. `RelationSetConfig.correlationParentId` (N5-U1)
+  // splits them — departing on the located row's PRE-transition value, targets on `after`
+  // — and defaults to `parentId`, so every other caller is byte-identical.
+  //
+  // The occupied guard is untouched and still rejects (the accept-shape moved, the
+  // legality did not), and the to-many `upsert`'s uncorrelated verdict under a transition
+  // was MEASURED to equal its verdict with no transition in the payload, rather than
+  // assumed: an empty old slot means a globally-found target is never this parent's, so
+  // both spellings give `target record was not found for this parent` and write nothing.
+  //
+  // Witnessed by `post-transition-adopt-behavior.ts` on every driver leg and both
+  // substrates (10 final-state witnesses: connect, an ARITHMETIC `increment` transition,
+  // connectOrCreate's found and absent arms, `set` on a nullable and on a required child
+  // FK, the to-many upsert's create arm and its uncorrelated rejection, the occupied-slot
+  // rejection, an absent connect target, and the inverse-side one-to-one), plus
+  // `post-transition-adopt.test.ts` for the claim only the statement stream carries: the
+  // root UPDATE PRECEDES the reparent, and the reparent binds the post-transition key.
+  // Falsified three ways: emitting the post-transition writes before the root UPDATE
+  // fails 15 of 22; handing the adopt family the located planned source instead of
+  // `after` fails 15 of 22; dropping `correlationParentId` turns the required-FK `set`
+  // into `requires a planned parent id to correlate its probe` (2 of 22).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1044,7 +1126,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(74);
+    expect(sites).toBe(73);
   });
 });
 

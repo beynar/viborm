@@ -274,7 +274,7 @@ interface ParentHeldCorrelation {
  * empty-slot decision with an `exists` guard (the concurrent-plant race). The
  * absorbed accept-shape — an EMPTY slot — creates the child with the POST-transition
  * FK after the root UPDATE (the upsert's update arm is unreachable: occupied rejects,
- * empty creates), reusing the T4b `afterRootCreateParts` machinery.
+ * empty creates), reusing the T4b `afterRootParts` machinery.
  */
 interface RelationKeyGuard {
   readonly relationName: string;
@@ -283,6 +283,28 @@ interface RelationKeyGuard {
   readonly probeId: string;
   readonly guardId: string;
   readonly probe: StatementStep;
+}
+
+/**
+ * N5-U1 — how the ADOPT family (`connect` / `connectOrCreate` / `set` / a to-many
+ * `upsert`) is built under a `guarded` non-cascade referenced-PK transition. The
+ * refusal this replaced said an adopt "writes a fresh FK on the pre-transition value,
+ * orphaned by the referential action" — true of the ordering it had, and only of that.
+ * Two facts make the shape ordinary:
+ *   1. the OLD slot is proven EMPTY by the occupied guard the same relation just
+ *      emitted, so nothing is being moved off a value the transition vacates; and
+ *   2. the POST-transition value is a compile-time literal here (`after`).
+ * So the edge is written against `after`, AFTER the root UPDATE that creates that id.
+ * `correlationParentId` is the pre-transition source for the one member that reads
+ * existing membership as well as writing it (`set`'s departing half).
+ */
+interface PostTransitionAdopt {
+  /** The value an adopt edge WRITES — the parent's post-transition referenced column. */
+  readonly parentId: ParentIdSource;
+  /** The value an adopt member READS existing children by — the located row's own. */
+  readonly correlationParentId: ReturnType<typeof plannedParentId>;
+  /** The list whose writes are emitted after the root UPDATE (`afterRootParts`). */
+  readonly target: Part[];
 }
 
 /**
@@ -302,12 +324,16 @@ export class UpdateOperation {
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
   private readonly childParts: readonly Part[];
-  // Transitioned-PK nested `create` leaves (T4b CLASS III): literal-FK INSERTs whose
-  // FK is the POST-transition primary key, ordered AFTER the root UPDATE at compile —
+  // POST-transition Parts: every child edge whose foreign key is the parent's
+  // post-transition referenced value, so its WRITES must land AFTER the root UPDATE —
   // the new parent row must exist first (a NO-ACTION FK does not cascade a fresh row).
-  // Held apart from `childParts` (which are cascade-carried edges written BEFORE the
-  // update shape). See `resolveLiteralCreateParent` and `compile`.
-  private readonly afterRootCreateParts: readonly Part[];
+  // Two families live here: the transitioned-PK nested `create` leaves (T4b CLASS III,
+  // {@link resolveCreateParent}) and, since N5-U1, the ADOPT family under a guarded
+  // non-cascade transition ({@link interpretRelation}). Held apart from `childParts`,
+  // which are the cascade-carried edges written BEFORE the root UPDATE. Their GUARD
+  // steps are still hoisted with every other guard (a batch pins its premises first);
+  // only the writes are deferred. See `compile`.
+  private readonly afterRootParts: readonly Part[];
   private readonly toOneLinks: readonly ToOneLink[];
   // Parent-held to-one `create`/`connectOrCreate` under update: a before-root
   // target INSERT whose identity the root parent UPDATE's FK column references
@@ -556,9 +582,10 @@ export class UpdateOperation {
     );
     this.parentIdSource = parentIdSource;
     const childParts: Part[] = [];
-    // T4b CLASS III — transitioned-PK creates collect here (see the field comment),
-    // routed by `resolveLiteralCreateParent` and emitted after the root UPDATE.
-    const afterRootCreateParts: Part[] = [];
+    // T4b CLASS III + N5-U1 — the post-transition Parts collect here (see the field
+    // comment): transitioned-PK creates and the guarded adopt family, both writing the
+    // POST-transition referenced value and both emitted after the root UPDATE.
+    const afterRootParts: Part[] = [];
     const toOneLinks: ToOneLink[] = [];
     const parentHeldTargets: ParentHeldTarget[] = [];
     const relationKeyGuards: RelationKeyGuard[] = [];
@@ -612,7 +639,7 @@ export class UpdateOperation {
         parentIdSource,
         txMode,
         childParts,
-        afterRootCreateParts,
+        afterRootParts,
         toOneLinks,
         parentHeldTargets,
         relationKeyGuards,
@@ -622,7 +649,7 @@ export class UpdateOperation {
       });
     }
     this.childParts = childParts;
-    this.afterRootCreateParts = afterRootCreateParts;
+    this.afterRootParts = afterRootParts;
     this.toOneLinks = toOneLinks;
     this.parentHeldTargets = parentHeldTargets;
     this.relationKeyGuards = relationKeyGuards;
@@ -686,7 +713,7 @@ export class UpdateOperation {
       childParts.length === 0 &&
       // A transitioned-PK create (T4b CLASS III) is a real second statement that
       // the single-statement RETURNING fold cannot carry — never fold past one.
-      afterRootCreateParts.length === 0 &&
+      afterRootParts.length === 0 &&
       toOneLinks.length === 0 &&
       parentHeldTargets.length === 0 &&
       selectIsScalarOnly &&
@@ -839,6 +866,14 @@ export class UpdateOperation {
     }
     for (const part of this.childParts)
       steps.push(...part.planning(this.scope));
+    // N5-U1: the post-transition Parts plan like any other — their probes are global
+    // target lookups (a connect's `WHERE unique`, an adopt's widened read), none of
+    // which depends on the parent's referenced value, so planning them here is
+    // independent of the fact that their WRITES land after the root UPDATE. The T4b
+    // create leaves that share this list plan nothing (empty planning), so this loop is
+    // a no-op for them and the pre-N5 step stream is byte-identical.
+    for (const part of this.afterRootParts)
+      steps.push(...part.planning(this.scope));
     return { steps, outputs: planningOutputs(steps) };
   }
 
@@ -910,6 +945,18 @@ export class UpdateOperation {
         (step.kind === "guard" ? guards : writes).push(step);
       }
     }
+    // The post-transition Parts (T4b create leaves + N5-U1's guarded adopt family).
+    // Their GUARDS join every other guard at the front — a batch pins its premises
+    // before any write, and every premise these Parts assert (the connect target
+    // exists; the departing set is empty) is a fact about rows the root UPDATE does
+    // not touch, so hoisting it past that UPDATE changes nothing it asserts. Their
+    // WRITES are held back and appended after the root UPDATE below.
+    const afterRootWrites: OperationStep[] = [];
+    for (const part of this.afterRootParts) {
+      for (const step of part.compile(this.scope, known)) {
+        (step.kind === "guard" ? guards : afterRootWrites).push(step);
+      }
+    }
     const steps: OperationStep[] = [...guards, ...beforeRootWrites];
     const rootUpdate = this.needsRootUpdate
       ? this.buildRootUpdate(locatedRow, rootExtraSet)
@@ -931,25 +978,18 @@ export class UpdateOperation {
     if (rootUpdate && this.reorderRootUpdateAfterChildren) {
       steps.push(rootUpdate);
     }
-    // T4b CLASS III — transitioned-PK creates are literal-FK write leaves (empty
-    // planning) whose FK is the POST-transition primary key: they must land AFTER the
-    // root UPDATE, which creates the new parent row a NO-ACTION FK does not cascade to.
-    if (this.afterRootCreateParts.length > 0) {
+    // T4b CLASS III + N5-U1 — every write whose foreign key is the POST-transition
+    // referenced value lands here: the transitioned-PK create INSERTs, and the guarded
+    // adopt family's reparent UPDATEs. They must follow the root UPDATE, which is what
+    // makes the new parent row exist (a NO-ACTION foreign key does not cascade a fresh
+    // or reparented row onto an id the transition has not written yet).
+    if (this.afterRootParts.length > 0) {
       if (!rootUpdate) {
         throw new QueryEngineError(
-          "query-engine-v2 update built a transitioned-PK create with no root UPDATE to run before it."
+          "query-engine-v2 update built a post-transition child write with no root UPDATE to run before it."
         );
       }
-      for (const part of this.afterRootCreateParts) {
-        for (const step of part.compile(this.scope, known)) {
-          if (step.kind === "guard") {
-            throw new QueryEngineError(
-              "query-engine-v2 update transitioned-PK create leaf must not emit a guard step."
-            );
-          }
-          steps.push(step);
-        }
-      }
+      steps.push(...afterRootWrites);
     }
     // X1c: a nested target contributes only its writes/guards; the enclosing operation
     // owns the terminal read and the result (no double refetch, no cross-fragment ref).
@@ -1063,7 +1103,7 @@ export class UpdateOperation {
     parentIdSource: ReturnType<typeof plannedParentId>;
     txMode: boolean;
     childParts: Part[];
-    afterRootCreateParts: Part[];
+    afterRootParts: Part[];
     toOneLinks: ToOneLink[];
     parentHeldTargets: ParentHeldTarget[];
     /** CLASS IV (T4c) — collected occupied guards for a non-cascade child-held
@@ -1190,8 +1230,6 @@ export class UpdateOperation {
       input,
       relationName,
       fk,
-      kinds,
-      isInverseToOne,
       childScope,
       childName,
     });
@@ -1209,6 +1247,22 @@ export class UpdateOperation {
         }
       }
     }
+    // N5-U1 — the ADOPT family under a guarded non-cascade transition. The occupied
+    // guard just emitted proves the OLD slot is empty, so an adopt edge has exactly
+    // one correct target: the parent's POST-transition referenced value. That value is
+    // compile-known here (`after`, derived by `getUpdatedPrimaryKeyValue` from the
+    // where-pinned pre-value and the root SET's operand — the same derivation the T4b
+    // create leaf and the to-one upsert create-arm reroute already trust), and the
+    // WRITE is deferred until after the root UPDATE, which is what makes the row it
+    // points at exist. Ordering closes this family; no new expressiveness was needed.
+    const adopt: PostTransitionAdopt | undefined =
+      keyTransition.regime === "guarded"
+        ? {
+            parentId: literalParentId(keyTransition.after),
+            correlationParentId: input.parentIdSource,
+            target: input.afterRootParts,
+          }
+        : undefined;
     const engine = this.engine;
     const writeBase = {
       scope: input.scope,
@@ -1261,6 +1315,7 @@ export class UpdateOperation {
           writeBase,
           input,
           keyTransition,
+          adopt,
         });
         continue;
       }
@@ -1294,6 +1349,7 @@ export class UpdateOperation {
         referencedFields: fk.pkFields,
         writeBase,
         input,
+        adopt,
       });
     }
   }
@@ -1334,7 +1390,7 @@ export class UpdateOperation {
     // UPDATE; every other create — literal or located-parent Ref — rides the normal
     // child-part order (its referenced column is not rewritten, so the value the fresh
     // row references already exists before the root UPDATE runs).
-    const target = afterRoot ? input.afterRootCreateParts : input.childParts;
+    const target = afterRoot ? input.afterRootParts : input.childParts;
     const leaf = {
       scope: input.scope,
       engine: this.engine,
@@ -1501,6 +1557,8 @@ export class UpdateOperation {
       txMode: boolean;
       childParts: Part[];
     };
+    /** N5-U1 — present only under a guarded non-cascade referenced-PK transition. */
+    adopt?: PostTransitionAdopt;
   }): void {
     const {
       kind,
@@ -1514,12 +1572,19 @@ export class UpdateOperation {
       referencedFields,
       writeBase,
       input,
+      adopt,
     } = args;
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
+    // N5-U1: an adopt kind writes the POST-transition value and is held back until
+    // after the root UPDATE; without a transition both fall back to the pre-N5
+    // located-parent source and the ordinary child-part list, byte for byte.
+    const adoptParentId = adopt?.parentId ?? input.parentIdSource;
+    const pushAdopt = (parts: readonly Part[]) =>
+      (adopt?.target ?? input.childParts).push(...parts);
 
     switch (kind) {
       case "upsert":
-        push(
+        pushAdopt(
           buildToManyUpsertParts(
             input.scope,
             input.parent,
@@ -1527,7 +1592,7 @@ export class UpdateOperation {
             relationName,
             relationInfo,
             normalizeItems(parsedRelation.upsert, relationName),
-            input.parentIdSource,
+            adoptParentId,
             "correlated",
             input.txMode
           )
@@ -1536,7 +1601,7 @@ export class UpdateOperation {
       case "connectOrCreate":
         // Still a GLOBAL lookup-and-adopt under update (found → reparent, absent
         // → create), never correlated (PLAN P−1.2) — composed like the upsert part.
-        push(
+        pushAdopt(
           buildConnectOrCreateParts(
             input.scope,
             input.parent,
@@ -1544,13 +1609,13 @@ export class UpdateOperation {
             relationName,
             relationInfo,
             normalizeItems(parsedRelation.connectOrCreate, relationName),
-            input.parentIdSource,
+            adoptParentId,
             input.txMode
           )
         );
         return;
       case "connect":
-      case "disconnect":
+      case "disconnect": {
         if (kind === "disconnect") {
           // A required child FK cannot be nulled — V1's verbatim typed rejection.
           assertNullable(
@@ -1558,26 +1623,32 @@ export class UpdateOperation {
             getFkDirection(input.parent, relationInfo)
           );
         }
-        push(
-          buildToManyLinkParts(
-            input.scope,
-            this.engine,
-            relationName,
-            relationInfo,
-            childName,
-            childScope,
-            fkFields,
-            referencedFields,
-            childPrimaryKey,
-            kind,
-            kind === "connect"
-              ? parsedRelation.connect
-              : parsedRelation.disconnect,
-            input.parentIdSource,
-            input.txMode
-          )
+        // `connect` adopts (post-transition value, after the root UPDATE); `disconnect`
+        // releases rows that carry the parent's CURRENT value and its probe correlates
+        // on the located row in SQL, so it keeps the planned source and its place among
+        // the ordinary child parts.
+        const isAdopt = kind === "connect";
+        const parts = buildToManyLinkParts(
+          input.scope,
+          this.engine,
+          relationName,
+          relationInfo,
+          childName,
+          childScope,
+          fkFields,
+          referencedFields,
+          childPrimaryKey,
+          kind,
+          kind === "connect"
+            ? parsedRelation.connect
+            : parsedRelation.disconnect,
+          isAdopt ? adoptParentId : input.parentIdSource,
+          input.txMode
         );
+        if (isAdopt) pushAdopt(parts);
+        else push(parts);
         return;
+      }
       case "update":
         push(buildToManyUpdateParts(writeBase, parsedRelation.update));
         return;
@@ -1599,9 +1670,17 @@ export class UpdateOperation {
         push(buildToManyDeleteManyParts(writeBase, parsedRelation.deleteMany));
         return;
       case "set":
-        input.childParts.push(
-          buildToManySetPart(writeBase, parsedRelation.set)
-        );
+        // `set` is BOTH halves at once: it reparents its targets (the adopt half —
+        // post-transition value, after the root UPDATE) and releases the departing
+        // rows, which still carry the PRE-transition value. `correlationParentId`
+        // keeps those two apart; without a transition they are the same source.
+        pushAdopt([
+          buildToManySetPart(
+            adopt ? { ...writeBase, parentId: adopt.parentId } : writeBase,
+            parsedRelation.set,
+            adopt?.correlationParentId
+          ),
+        ]);
         return;
       default:
         // create / createMany nested under update are V1's surface, not P2c's.
@@ -1648,6 +1727,8 @@ export class UpdateOperation {
     keyTransition: ReturnType<
       UpdateOperation["interpretReferencedKeyTransition"]
     >;
+    /** N5-U1 — present only under a guarded non-cascade referenced-PK transition. */
+    adopt?: PostTransitionAdopt;
   }): void {
     const {
       kind,
@@ -1663,8 +1744,13 @@ export class UpdateOperation {
       writeBase,
       input,
       keyTransition,
+      adopt,
     } = args;
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
+    // N5-U1 — the arity-1 case of the to-many adopt ordering (see interpretToManyKind).
+    const adoptParentId = adopt?.parentId ?? input.parentIdSource;
+    const pushAdopt = (parts: readonly Part[]) =>
+      (adopt?.target ?? input.childParts).push(...parts);
 
     switch (kind) {
       case "create":
@@ -1707,7 +1793,7 @@ export class UpdateOperation {
         // by an exists guard — V1's child-held connect arm. A one-to-one FK carries a
         // UNIQUE constraint, so a second row already pointing at this parent makes the
         // reparent collide (V1's steal semantics, the DB enforces the invariant).
-        push(
+        pushAdopt(
           buildToManyLinkParts(
             input.scope,
             this.engine,
@@ -1720,13 +1806,13 @@ export class UpdateOperation {
             childPrimaryKey,
             "connect",
             parsedRelation.connect,
-            input.parentIdSource,
+            adoptParentId,
             input.txMode
           )
         );
         return;
       case "connectOrCreate":
-        push(
+        pushAdopt(
           buildConnectOrCreateParts(
             input.scope,
             input.parent,
@@ -1734,7 +1820,7 @@ export class UpdateOperation {
             relationName,
             relationInfo,
             normalizeItems(parsedRelation.connectOrCreate, relationName),
-            input.parentIdSource,
+            adoptParentId,
             input.txMode
           )
         );
@@ -1839,7 +1925,9 @@ export class UpdateOperation {
    * slot occupied: V1 rejects `Cannot update relation '…' with onUpdate('…') while the
    * current relation is occupied.` for ANY nested mutation on it (upsert / update /
    * delete / disconnect / create / …) and either cardinality. Called once per relation
-   * before the per-kind dispatch; returns which regime applies:
+   * before the per-kind dispatch, and kind-BLIND in its body since N5-U1 removed the one
+   * per-kind branch it had (the adopt refusal): the guard belongs to the relation, the
+   * ordering to the kind. Returns which regime applies:
    *   · **`"none"`** — parent-held / `ON UPDATE CASCADE`, no referenced column written,
    *     or a no-op (`increment: 0` / `set` same, before == after). The ordinary parts
    *     are byte-identical; no guard.
@@ -1847,8 +1935,10 @@ export class UpdateOperation {
    *     the unique `where` (before is a compile literal). V1's occupied guard is emitted
    *     (reject an occupied OLD slot); the correlated / literal-parent-create kinds keep
    *     their ordinary part (empty-slot native), the to-one upsert reroutes its create
-   *     arm off `after`. An ADOPT kind here (`connect` / `connectOrCreate` / `set`, and a
-   *     to-many `upsert`) writes a fresh FK on the pre-transition value — route to V1.
+   *     arm off `after`. The ADOPT kinds (`connect` / `connectOrCreate` / `set`, and a
+   *     to-many `upsert`) take `after` as their parent value and are ORDERED after the
+   *     root UPDATE — N5-U1's {@link PostTransitionAdopt}, which is why `after` is
+   *     returned rather than consumed here.
    *   · **`"pastSurface"`** — a real transition past the reproduced surface (a compound
    *     edge, a non-PK referenced unique — the D4 case, or a pre-value the `where` does
    *     not pin). V2 cannot compile-correlate the occupied guard, so only nested
@@ -1862,8 +1952,6 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0];
     relationName: string;
     fk: FkDirection;
-    kinds: readonly string[];
-    isInverseToOne: boolean;
     childScope: QueryScope;
     childName: string;
   }):
@@ -1872,15 +1960,7 @@ export class UpdateOperation {
     | {
         regime: "pastSurface";
       } {
-    const {
-      input,
-      relationName,
-      fk,
-      kinds,
-      isInverseToOne,
-      childScope,
-      childName,
-    } = args;
+    const { input, relationName, fk, childScope, childName } = args;
     // Parent-held FK or an ON UPDATE CASCADE relation: no referential-action guard.
     if (fk.holdsFK || fk.onUpdate === "cascade") return { regime: "none" };
     // Does the root SET rewrite a referenced parent column?
@@ -1916,17 +1996,6 @@ export class UpdateOperation {
     );
     // No-op transition (increment 0 / set same): the slot stays; ordinary parts hold.
     if (sameScalarValue(before, after)) return { regime: "none" };
-    // Real non-cascade transition. An adopt/external-target kind writes a fresh FK on
-    // the pre-transition value (orphaned by the referential action) — route to V1.
-    if (
-      kinds.some((kind) =>
-        UpdateOperation.isAdoptKindUnderTransition(kind, isInverseToOne)
-      )
-    ) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support a nested adopt (connect / connectOrCreate / set / to-many upsert) on the child-held relation '${relationName}' while the root update transitions its non-cascade referenced primary key.`
-      );
-    }
     // Emit V1's occupied guard (reject when the OLD slot, a child correlated on the
     // pre-transition parent value, is occupied). Hoisted ahead of every write, so the
     // rejection lands before the ordinary correlated / literal-parent-create part runs.
@@ -1940,23 +2009,6 @@ export class UpdateOperation {
       fkField,
     });
     return { regime: "guarded", after };
-  }
-
-  /** CLASS IV (T4c-fix) — an ADOPT / external-target nested mutation whose fresh FK is
-   *  written on the parent's pre-transition value: it would be orphaned by the
-   *  referential action, and its empty-slot accept-shape needs V1's post-transition
-   *  adopt (not built natively yet), so it routes the whole tree to V1 under a real
-   *  non-cascade referenced-PK transition. `connect` / `connectOrCreate` / `set` on
-   *  either cardinality; `upsert` only on the TO-MANY side (the to-one upsert reroutes
-   *  its create arm to a POST-transition-FK leaf — {@link rerouteTransitionedUpsertCreateArm}). */
-  private static isAdoptKindUnderTransition(
-    kind: string,
-    isInverseToOne: boolean
-  ): boolean {
-    if (kind === "connect" || kind === "connectOrCreate" || kind === "set") {
-      return true;
-    }
-    return kind === "upsert" && !isInverseToOne;
   }
 
   /** CLASS IV (T4c) — emit V1's occupied guard onto `relationKeyGuards`: a read of the
@@ -2030,7 +2082,7 @@ export class UpdateOperation {
       spec.create,
       `${relationName}.upsert.create`
     );
-    input.afterRootCreateParts.push(
+    input.afterRootParts.push(
       ...buildLiteralParentCreatePart({
         scope: input.scope,
         engine: this.engine,
