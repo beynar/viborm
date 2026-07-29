@@ -20,6 +20,7 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
+import { type Clock, type ClockTimer, systemClock } from "../../clock";
 
 /** Prisma's isolation-level spellings, exactly. */
 export const TRANSACTION_ISOLATION_LEVELS = [
@@ -376,15 +377,19 @@ export function resolveTransactionPlan(
  * Race `run()` against `timeoutMs`. On expiry the caller is rejected while the
  * body keeps running; every caller of this helper must drain and roll back the
  * abandoned body before releasing its connection.
+ *
+ * `clock` is an internal seam: it defaults to the host clock, and a test passes
+ * a virtual one so the expiry can be made to happen instead of waited for.
  */
 export async function runWithTransactionTimeout<T>(
   run: () => Promise<T>,
   timeoutMs: number,
-  context: TransactionOptionContext
+  context: TransactionOptionContext,
+  clock: Clock = systemClock
 ): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: ClockTimer | undefined;
   const expiry = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
+    timer = clock.setTimeout(
       () => reject(transactionTimeoutError(timeoutMs, context)),
       timeoutMs
     );
@@ -396,7 +401,7 @@ export async function runWithTransactionTimeout<T>(
   try {
     return await Promise.race([body, expiry]);
   } finally {
-    if (timer) clearTimeout(timer);
+    timer?.cancel();
   }
 }
 
@@ -404,20 +409,23 @@ export async function runWithTransactionTimeout<T>(
  * Bound a pooled acquisition by `maxWaitMs`. When the bound is exceeded the
  * acquisition is abandoned, but the resource it eventually yields is released
  * so an over-waited transaction cannot leak a checked-out connection.
+ *
+ * `clock` is the same internal seam `runWithTransactionTimeout` takes.
  */
 export async function acquireWithMaxWait<T>(
   acquire: () => Promise<T>,
   release: (resource: T) => void,
   maxWaitMs: number | undefined,
-  context: TransactionOptionContext
+  context: TransactionOptionContext,
+  clock: Clock = systemClock
 ): Promise<T> {
   const acquisition = acquire();
   if (maxWaitMs === undefined) return acquisition;
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: ClockTimer | undefined;
   let abandoned = false;
   const expiry = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
+    timer = clock.setTimeout(() => {
       abandoned = true;
       reject(transactionMaxWaitError(maxWaitMs, context));
     }, maxWaitMs);
@@ -440,6 +448,6 @@ export async function acquireWithMaxWait<T>(
     }
     throw error;
   } finally {
-    if (timer) clearTimeout(timer);
+    timer?.cancel();
   }
 }

@@ -23,6 +23,7 @@ import {
   type VibORMSpanName,
 } from "@instrumentation/spans";
 import type { Span } from "@instrumentation/tracer";
+import { type Clock, systemClock } from "../clock";
 import {
   REVALIDATING_SUFFIX,
   REVALIDATING_TTL_MS,
@@ -62,9 +63,16 @@ export abstract class CacheDriver {
   readonly driverName: string;
   protected instrumentation?: InstrumentationContext;
   protected version?: string | number;
+  /**
+   * Every freshness decision this class makes reads from here. Internal seam,
+   * not public API: it exists so tests can advance time rather than sleep
+   * through a TTL. Defaults to the host clock.
+   */
+  protected readonly clock: Clock;
 
-  constructor(driverName: string) {
+  constructor(driverName: string, clock: Clock = systemClock) {
     this.driverName = driverName;
+    this.clock = clock;
   }
 
   /**
@@ -152,7 +160,7 @@ export abstract class CacheDriver {
       const cached = await this._get<T>(cacheKey, options.executionContext);
 
       if (cached) {
-        const age = Date.now() - cached.createdAt;
+        const age = this.clock.now() - cached.createdAt;
         const isStale = age > cached.ttl;
 
         if (!isStale) {
@@ -383,7 +391,7 @@ export abstract class CacheDriver {
       async (span) => {
         const entry = await this.get<T>(prefixedKey);
         if (entry) {
-          const isStale = Date.now() - entry.createdAt > entry.ttl;
+          const isStale = this.clock.now() - entry.createdAt > entry.ttl;
           setSpanAttribute(span, ATTR_CACHE_RESULT, isStale ? "stale" : "hit");
         } else {
           setSpanAttribute(span, ATTR_CACHE_RESULT, "miss");
@@ -409,7 +417,7 @@ export abstract class CacheDriver {
   ): Promise<void> {
     const entry: CacheEntry<T> = {
       value,
-      createdAt: Date.now(),
+      createdAt: this.clock.now(),
       ttl: options.ttl,
     };
 
@@ -481,7 +489,7 @@ export abstract class CacheDriver {
     // Set revalidating flag with short TTL
     const entry: CacheEntry<boolean> = {
       value: true,
-      createdAt: Date.now(),
+      createdAt: this.clock.now(),
       ttl: REVALIDATING_TTL_MS,
     };
     await this.set(revalidatingKey, REVALIDATING_TTL_MS, entry);

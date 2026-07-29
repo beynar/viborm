@@ -17,17 +17,29 @@
  * ```
  */
 
+import type { Clock, ClockTimer } from "../../clock";
 import { CacheDriver, type CacheEntry } from "../driver";
+
+/** Construction options. `clock` is an internal test seam, not public API. */
+export interface MemoryCacheOptions {
+  /**
+   * Source of time for entry freshness and eviction. Defaults to the host
+   * clock; a test passes a virtual one so a TTL can pass without a sleep.
+   *
+   * @internal
+   */
+  clock?: Clock;
+}
 
 /**
  * In-memory cache implementation
  */
 export class MemoryCache extends CacheDriver {
   private readonly store = new Map<string, CacheEntry>();
-  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly timers = new Map<string, ClockTimer>();
 
-  constructor() {
-    super("memory");
+  constructor(options: MemoryCacheOptions = {}) {
+    super("memory", options.clock);
   }
 
   protected async get<T>(key: string): Promise<CacheEntry<T> | null> {
@@ -45,11 +57,11 @@ export class MemoryCache extends CacheDriver {
     this.clearTimer(key);
     this.store.set(key, entry);
     // Schedule cleanup after storageTtl to prevent unbounded growth
-    const timer = setTimeout(() => {
+    const timer = this.clock.setTimeout(() => {
       this.store.delete(key);
       this.timers.delete(key);
     }, storageTtl);
-    if (typeof timer.unref === "function") timer.unref();
+    timer.unref?.();
     this.timers.set(key, timer);
   }
 
@@ -72,7 +84,7 @@ export class MemoryCache extends CacheDriver {
   private clearTimer(key: string): void {
     const timer = this.timers.get(key);
     if (timer) {
-      clearTimeout(timer);
+      timer.cancel();
       this.timers.delete(key);
     }
   }
