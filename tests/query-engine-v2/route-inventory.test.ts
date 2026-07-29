@@ -845,10 +845,13 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     family (3 sites) — the Ref generalizes there exactly as it does here: the target's
   //     own locate can RETURN its primary key. That is N4-U1's unit verbatim; kept so the
   //     wave that owns it does the measurement rather than this one guessing.
+  //     SETTLED by N4-U1: two of the three DELETED, the third NARROWED — see the
+  //     74 -> 72 and the junction entries below.
   // (f) `nested-target-parts.ts`, "createMany … under a parent-held target one level
   //     deeper" — N1 built the planned-parent createMany leaf this site would consume, but
   //     the site guards the PARENT-HELD probe provenance (a probe on the target, not the
   //     root locate), and it is the decline-surface gate's live tripwire. Owner: N4-U3.
+  //     SETTLED by N4-U3: DELETED — see the 74 -> 72 entry below.
   // (g) `CreateOperation`'s "cannot resolve referenced field / the parent id" (3 sites) and
   //     "shared-primary-key … not a compile-time literal" — the Ref is structurally
   //     unavailable: a CREATE root has no locate step, its parent is FRESH, and referenced
@@ -948,6 +951,89 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //   · What these two sites DO refuse, and all they refuse, is the literal `false`. That
   //     is their whole reachable surface, and it is now pinned in both directions
   //     (`false` throws, `true` does not) so the message cannot outlive its cause.
+  //
+  // ---------------------------------------------------------------------------
+  // N4 — the depth seams. 76 -> 74, in three edits and one net-zero replacement.
+  // ---------------------------------------------------------------------------
+  //
+  // 76 -> 75 (N4-U3, sweep entry (f)): DELETED — `nested-target-parts.ts`'s
+  // "does not support a nested createMany on relation '…' under a parent-held target one
+  // level deeper". The site's own comment called itself "measured-not-curated", and the
+  // measurement, done here, says it was guarding NOTHING: N1-U1 had already built
+  // `buildPlannedParentCreateManyPart` for the update ROOT's bulk arm, and the `create`
+  // case two lines above already dispatched literal-vs-planned. This one caller had simply
+  // not been handed the planned builder. The edit is that dispatch, verbatim.
+  //
+  //   The N3-U1 wall does NOT recur here, and the difference is worth stating because the
+  //   plan flagged it: N3's junction createMany could not express `skipDuplicates` with a
+  //   DB-generated TARGET key, because the join row needs an identity the INSERT produces
+  //   and a skipped INSERT produces none. Here the identity in question is the PARENT's,
+  //   and it is not produced at all — it is READ, by a probe that has already run. So the
+  //   skip disposition is exactly the literal leaf's: a SQL leaf where the dialect has one,
+  //   the savepoint-wrapped executor effect where it does not (and there, unchanged, no
+  //   lowering into a single atomic batch — asserted per leg, declared not sniffed).
+  //
+  // 75 -> 74 (N4-U1, sweep entry (e), site 1 of 3): DELETED —
+  // `RelationWritePart.interpretChildParts`, "update for relation '…' carries nested
+  // relation writes; it must locate the target by its primary key '…'". The deeper edges
+  // reference the target's primary key and only the `where` could supply it, so
+  // `projects: { update: { where: { code }, data: { …, tasks: { create } } } }` refused
+  // while the `where: { id }` spelling ran. But this part ALREADY locates the row: its
+  // correlated probe selects that primary key, and `capturedPk` is the identity the
+  // self-UPDATE addresses. The child Parts now take a `planned` source into that same
+  // probe when the `where` does not name the key, and the probe publishes it as a
+  // `firstRowField` output (plus this family's own verbatim target-not-found
+  // postcondition, since the extraction is eager) — the shape
+  // `UpdateOperation.buildParentHeldUpdate` already used for the same reason.
+  //
+  // 74 -> 74 (N4-U1, site 2 of 3): REPLACED, one site out, one site in —
+  // `RelationUpsertPart.buildArmChildParts`'s "its upsert must locate the child by its
+  // primary key '…' so the deeper foreign key is a known value" is gone, and
+  // `createArmParentId` stands where part of it stood. The two ARMS were never the same
+  // question, and collapsing them was the bug:
+  //   · the UPDATE arm acts on the row the probe FOUND, so the key is readable — a
+  //     `planned` source into this part's own probe, published as an OPTIONAL
+  //     `firstRowField` (an empty probe is the legitimate CREATE decision, and on that
+  //     decision no update-arm grandchild compiles, so the value has no consumer);
+  //   · the CREATE arm inserts a FRESH row, so the key must be SPELLED — by the `where`,
+  //     or by the create data (`assertMatchingCreateIdentity` has already reconciled the
+  //     two). A DATABASE-GENERATED key with grandchildren is the one shape left, and the
+  //     new site refuses exactly it, naming both places the key could have come from.
+  //   The count is unchanged and that is the honest number: a real capability was added
+  //   and a real, narrower wall was named. Both directions are witnessed on both
+  //   substrates — the generated-key refusal, and the SAME payload succeeding once the
+  //   create arm spells the key.
+  //
+  // 74 -> 74 (N4-U1, site 3 of 3): NARROWED, not deleted —
+  // `RelationJunctionPart`'s "nested '<kind>' on many-to-many relation '…' carries nested
+  // relation writes; it must locate the target by its primary key '…'". The `update` kind
+  // is absorbed: the target slot's membership read already selects the target primary key
+  // and `requireTarget` already spends it on the join-row write, so the deeper edges take
+  // a `planned` source into it (the slot's probe id is allocated by the builder, before
+  // the payload folds, because a `ParentIdSource` is a value and the id must exist first).
+  // The `upsert` arms keep the refusal, with the measurement: an upsert's update arm is
+  // also reachable by the created-earlier branch, whose global probe ran BEFORE this
+  // operation's own INSERT and located nothing — there is no row for a `planned` source to
+  // read. (N3-U2 recorded that this branch is currently unreachable from the client
+  // because the own-write preflight rejects two upsert items on one m2m relation; the
+  // refusal is kept keyed to the branch rather than to that unreachability, so it cannot
+  // silently become wrong if the preflight ever relaxes.)
+  //
+  // Witnessed by `depth-seam-behavior.ts` on every driver leg and both substrates: the
+  // absorbed shape end-to-end for each of the four sites, a WRONG-ROW decoy for each
+  // (seeded first, lower primary key, identical non-unique scalars — the assertions name
+  // the id), the two abort paths (a unique naming another parent's row / a non-member),
+  // and both surviving walls asserted as construction-time refusals with nothing written.
+  // Falsified by locally restoring each refusal, one at a time: RelationWritePart fails
+  // 6 of 28, the planned createMany 8 of 28, the upsert update arm 2 of 28, the junction
+  // update 4 of 28 — and the suite is 28/28 with all four in place.
+  //
+  // NOT absorbed here, and named so the sweep stays complete: a COMPOUND-primary-key
+  // target at any of these seams. It never reaches the located-key question — every one of
+  // these paths refuses earlier, on the child's own key ARITY ("requires a child with one
+  // primary key", sweep entry (i)), which no parent-side dataflow supplies. The
+  // single/compound split N4-U1 owns is therefore about the target's own PK arity, and it
+  // is entry (i)'s, not this unit's.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -958,7 +1044,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(76);
+    expect(sites).toBe(74);
   });
 });
 

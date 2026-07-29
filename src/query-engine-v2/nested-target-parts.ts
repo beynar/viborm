@@ -529,27 +529,40 @@ function foldOneChildHeldKind(args: {
       );
       return;
     case "createMany":
-      if (parentId.kind !== "literal") {
-        // A `createMany` under a PLANNED parent-held target (a parent-held to-one
-        // `update` whose target bulk-creates a to-many child) is a documented finer
-        // boundary one step past the CLASS VI create leaf: no estate scenario reaches
-        // it, so it is left measured-not-curated and routes the whole tree to V1. The
-        // single-`create` planned leaf above is the exact CLASS VI absorption.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update does not support a nested createMany on relation '${relationName}' under a parent-held target one level deeper.`
-        );
-      }
+      // N4-U3 — the bulk arm of the same dispatch the single `create` above makes.
+      // A LITERAL parent id (a child-held nested update located by its `where` PK)
+      // resolves the injected foreign key at construction; a PLANNED one (a
+      // parent-held to-one `update` target, located by this operation's planning
+      // read) resolves it at COMPILE from the row the locate ACTED ON. N1-U1 already
+      // built the planned bulk leaf for the ROOT's `createMany`
+      // ({@link buildPlannedParentCreateManyPart}); the site that used to refuse here
+      // was the one caller that had not been handed it. Nothing about `skipDuplicates`
+      // changes with provenance: the leaf's statement-count alignment between the
+      // construction-time shape plan and the compile-time plan is ASSERTED inside that
+      // builder, and the skip disposition is a function of the dialect and the rows,
+      // not of where the foreign key's value comes from.
       parts.push(
-        buildLiteralParentCreateManyPart({
-          scope,
-          engine,
-          childScope,
-          childName,
-          relationName,
-          fk,
-          parentId,
-          createManyInput: parsedRelation.createMany,
-        })
+        parentId.kind === "literal"
+          ? buildLiteralParentCreateManyPart({
+              scope,
+              engine,
+              childScope,
+              childName,
+              relationName,
+              fk,
+              parentId,
+              createManyInput: parsedRelation.createMany,
+            })
+          : buildPlannedParentCreateManyPart({
+              scope,
+              engine,
+              childScope,
+              childName,
+              relationName,
+              fk,
+              parentId,
+              createManyInput: parsedRelation.createMany,
+            })
       );
       return;
     default:

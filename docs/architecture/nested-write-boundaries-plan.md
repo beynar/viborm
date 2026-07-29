@@ -526,6 +526,81 @@ cherry-picked and are superseded by the full-estate figure **8452 passed / 0 fai
 | N4-U3 | **createMany under a planned parent** (B9's live tripwire, `nested-target-parts.ts:537`) — the decline-surface gate's named backlog item. |
 | N4-U4 | **Shared-PK edges** (B1): non-literal fold values Ref the producing step. |
 
+### N4-U1 — delivered (two sites deleted, one replaced, one narrowed)
+
+The three "must locate the target by its primary key" sites had one cause and three
+homes, and the cause was never that the key was unknowable — it was that only the
+`where` was allowed to say it. Each of those parts ALREADY locates its target and
+already spends that row's primary key on its own write:
+`RelationWritePart`'s correlated probe (`select { pk }`, `capturedPk` addresses the
+self-UPDATE), `RelationUpsertPart`'s widened unique probe (`identitySelect` = pk ∪ fk),
+`RelationJunctionPart`'s target-slot membership read (`select { targetPk }`,
+`requireTarget` spends it on the join row). So the deeper edges take a `planned` source
+into that same read — the same move N1 made at the update root, one level down.
+
+Mechanically: the probe gains a `firstRowField` output for the key (so the deeper
+PLANNING probes can `Ref` it in SQL) alongside the `rows` the compile-time inline
+already reads, and — because that extraction is eager — the family's own verbatim
+target-not-found postcondition, which is `UpdateOperation.buildParentHeldUpdate`'s
+existing shape for exactly this reason. Two of the parts needed their probe id
+allocated by the BUILDER rather than the constructor, because a `ParentIdSource` is a
+value the child Parts are built with, so the id must exist before the payload folds.
+
+Two boundaries survive, and both are absences of a value rather than missing wiring:
+
+* the **upsert CREATE arm** inserts a fresh row, so its key must be SPELLED (by the
+  `where`, or by the create data — `assertMatchingCreateIdentity` already reconciles
+  the two). A DATABASE-GENERATED key with grandchildren is refused, and the refusal is
+  a NEW, narrower site replacing the old one — the census count is unchanged there and
+  that is the honest number.
+* the **junction UPSERT arms** keep the old refusal: an upsert's update arm is also
+  reachable by the created-earlier branch, whose global probe ran BEFORE this
+  operation's own INSERT and located nothing.
+
+Not absorbed, and named: a COMPOUND-primary-key target at these seams never reaches
+the located-key question — every path refuses earlier on the child's own key ARITY
+(sweep entry (i)), which no parent-side dataflow supplies.
+
+### N4-U3 — delivered
+
+`nested-target-parts.ts`'s "does not support a nested createMany … under a parent-held
+target one level deeper" was guarding nothing: N1-U1 had already built
+`buildPlannedParentCreateManyPart`, and the `create` case two lines above already
+dispatched literal-vs-planned. The edit is that dispatch, verbatim. N3's
+`skipDuplicates` wall does not recur — there the identity was PRODUCED by an INSERT a
+skip might not run; here it is READ from a probe that has already run — so the skip
+disposition is the literal leaf's, unchanged per dialect.
+
+The decline-surface gate's named tripwire was this shape, so it is RETARGETED to the
+junction upsert arm above (a still-declining, still-measured boundary), and the
+absorbed shape moves to the gate's side-1 list.
+
+### N4-U2 / N4-U4 — NOT delivered in this lane
+
+`N4-U2` (create-arm one-level-deeper kinds) and `N4-U4` (shared-PK edges, the
+`CreateOperation` sweep entry (g) sites) were not reached. Sweep entry (g)'s reading
+still stands and is untouched by this lane: those sites are on a CREATE root, which has
+no locate step, so their absorption needs the producing INSERT's returned identity, not
+a located-parent read. Both remain open with their owners as written.
+
+### N4 — certification
+
+TS 5.9.3 typecheck clean; Biome clean on every touched file (measured against a
+stashed-baseline count on the same file set). `pnpm test:gates` **69 passed / 69**
+(up from 66 — three new side-1 witnesses). V2 suite **766 passed / 0 failed** (up from
+735). Local dialect legs: sqlite3 937, libsql 894, pglite 703, all 0 failed. Census pin
+**74** (was 76), with the count-evolution log carrying the 76 → 75 (U3), 75 → 74
+(U1 site 1), 74 → 74 replacement (U1 site 2) and 74 → 74 narrowing (U1 site 3) entries.
+
+Falsification, one refusal restored at a time against the 28-test PGlite witness pair:
+`RelationWritePart` fails 6, the planned `createMany` 8, the upsert update arm 2, the
+junction update 4 — and the suite is 28/28 with all four absorptions in place.
+
+**Not run in this lane** (worktree memory bound): the full estate and the two Docker
+legs. The new shared suite is wired into all four driver files (pg, mysql2, sqlite3,
+libsql) so those legs execute it when a main-repo agent runs them; the mysql2 batch leg
+declares `skipDuplicatesInBatchIsInexpressible`.
+
 ## N5 — Ordering boundaries (independent of N1 mechanics; can run parallel to N4)
 
 | Unit | What |

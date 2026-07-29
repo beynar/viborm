@@ -98,6 +98,15 @@ export interface RelationUpsertConfig {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
+  /**
+   * This part's own locate-probe step id, allocated by the builder BEFORE the arms
+   * fold (N4-U1) — the update arm's grandchildren may address it as a `planned`
+   * parent source, and a `ParentIdSource` is a value, so the id has to exist first.
+   */
+  readonly probeId: string;
+  /** Whether the probe publishes its captured primary key as a `firstRowField`
+   *  output (set exactly when the update arm's grandchildren `planned`-read it). */
+  readonly publishesLocatedPk?: boolean;
   readonly relationName: string;
   readonly where: Record<string, unknown>;
   readonly createData: Readonly<Record<string, unknown>>;
@@ -180,7 +189,7 @@ export class RelationUpsertPart implements Part {
     this.createChildParts = config.createChildParts ?? [];
     this.duplicateOfEarlier = config.duplicateOfEarlier ?? false;
     const { childScope, childName, where, txMode, relationName } = config;
-    this.probeId = scope.allocate(`${childName}.find`);
+    this.probeId = config.probeId;
     this.createId = scope.allocate(`${childName}.create`);
     this.updateId = scope.allocate(`${childName}.update`);
     this.guardId = scope.allocate(`${childName}.guard.exists`);
@@ -200,7 +209,22 @@ export class RelationUpsertPart implements Part {
         select: identitySelect,
         forUpdate: txMode,
       }),
-      outputs: { rows: { kind: "rows" } },
+      // N4-U1: when the update arm's grandchildren take this probe's captured primary
+      // key as their parent value, the probe must PUBLISH it so their planning probes
+      // can `Ref` it in SQL. The output is OPTIONAL because an empty probe is this
+      // part's legitimate CREATE decision — and on that decision no update-arm
+      // grandchild ever compiles, so the value has no consumer (the same superset
+      // tolerance an upsert root's locate already declares).
+      outputs: config.publishesLocatedPk
+        ? {
+            rows: { kind: "rows" },
+            [config.childPrimaryKey]: {
+              kind: "firstRowField",
+              field: config.childPrimaryKey,
+              optional: true,
+            },
+          }
+        : { rows: { kind: "rows" } },
     };
 
     // The probe pairs its read with the premise its decision creates (ATOM §2).
@@ -655,19 +679,39 @@ function buildOneUpsertPart(
     );
   }
   const childPrimaryKey = childPrimaryKeys[0]!;
+  const childName = getStepModelName(relationInfo.targetModel, relationName);
+  // N4-U1 — the probe id is allocated HERE, before the arms fold, because the update
+  // arm's grandchildren may take this probe's captured primary key as their parent
+  // value. The constructor consumes it instead of allocating its own, so the id
+  // strings are unchanged for every shape that does not use the located key.
+  const probeId = scope.allocate(`${childName}.find`);
 
   // Depth on the found+update arm (correlated grandchildren) and on the fresh
-  // create arm (globally-adopting grandchildren, ATOM §4's elision). Both fold
-  // into the same linear fragment; both require this child to be located by its
-  // primary key so the deeper FK is a compile-time literal, not an arm-dependent
-  // produced value (that is what keeps depth linear — WHY §4.2).
+  // create arm (globally-adopting grandchildren, ATOM §4's elision). Both fold into
+  // the same linear fragment. Where the grandchild foreign key's value comes from
+  // differs by ARM, because what the two arms know about this child differs:
+  //
+  //  · the UPDATE arm acts on the row the probe FOUND, so — N4-U1 — the primary key
+  //    is either the `where`'s own literal or a `planned` read of that probe. A
+  //    non-primary-key unique (`where: { slug }`) no longer refuses: it locates.
+  //  · the CREATE arm inserts a FRESH row; there is no located row to read, so the
+  //    identity must be in the payload — the `where`'s primary key, or (when some
+  //    other unique named the row) the create data's own primary key, which
+  //    `assertMatchingCreateIdentity` has already reconciled with the `where`. A
+  //    DATABASE-GENERATED key on a relation-carrying create arm stays a typed
+  //    refusal: nothing in the plan knows it before the INSERT runs.
+  const wherePk = getWhereUniqueEntries(child, where).find(
+    (entry) => entry.fieldName === childPrimaryKey
+  );
+  const updateArmParentId =
+    wherePk === undefined
+      ? plannedParentId(probeId, childPrimaryKey)
+      : literalParentId(wherePk.value);
   const updateChildParts = buildArmChildParts(
     scope,
     child,
     engine,
-    relationName,
-    childPrimaryKey,
-    where,
+    updateArmParentId,
     childUpdate.relations,
     "correlated",
     txMode,
@@ -677,9 +721,14 @@ function buildOneUpsertPart(
     scope,
     child,
     engine,
-    relationName,
-    childPrimaryKey,
-    where,
+    createArmParentId(
+      child,
+      where,
+      childCreate.scalarData,
+      childPrimaryKey,
+      relationName,
+      Object.keys(childCreate.relations).length > 0
+    ),
     childCreate.relations,
     "global-adopt",
     txMode,
@@ -689,7 +738,10 @@ function buildOneUpsertPart(
   return new RelationUpsertPart(scope, {
     engine,
     childScope: child,
-    childName: getStepModelName(relationInfo.targetModel, relationName),
+    childName,
+    probeId,
+    publishesLocatedPk:
+      updateArmParentId.kind === "planned" && updateChildParts.length > 0,
     relationName,
     where,
     createData: childCreate.scalarData,
@@ -708,11 +760,40 @@ function buildOneUpsertPart(
 }
 
 /**
- * Fold one arm's payload relation mutations into deeper parts. Their parent id is
- * this child's own PK — a compile-time literal — so this child must be located by
- * its primary key (its PK is neither produced by a probe nor an insert). That
- * constraint is what keeps depth linear: the grandchild's FK is a known value,
- * not an arm-dependent one. The `arm` bounds what is legal one level deeper: the
+ * The CREATE arm's parent-id source for its grandchildren (N4-U1). The row this arm
+ * inserts is fresh, so its identity has to be spelled in the payload: the `where`'s
+ * own primary key when it names one, otherwise the create data's — which
+ * {@link assertMatchingCreateIdentity} has already forced to agree with whatever
+ * unique the `where` did name. A relation-free create arm needs no identity at all
+ * (nothing folds under it), so the refusal fires only when grandchildren exist.
+ */
+function createArmParentId(
+  child: QueryScope,
+  where: Record<string, unknown>,
+  createScalarData: Record<string, unknown>,
+  childPrimaryKey: string,
+  relationName: string,
+  hasGrandchildren: boolean
+): ParentIdSource {
+  const wherePk = getWhereUniqueEntries(child, where).find(
+    (entry) => entry.fieldName === childPrimaryKey
+  );
+  if (wherePk !== undefined) return literalParentId(wherePk.value);
+  const createPk = createScalarData[childPrimaryKey];
+  if (createPk !== undefined && createPk !== null) {
+    return literalParentId(createPk);
+  }
+  if (!hasGrandchildren) return literalParentId(undefined);
+  throw new UnsupportedOperationError(
+    `Relation '${relationName}' carries nested relation mutations in its upsert create arm; the fresh target's primary key '${childPrimaryKey}' must be in the where or the create data (a database-generated key is not known before the insert runs).`
+  );
+}
+
+/**
+ * Fold one arm's payload relation mutations into deeper parts, against the parent-id
+ * value the caller resolved for that arm ({@link createArmParentId} for the create
+ * arm; the `where` literal or a `planned` read of this child's own locate probe for
+ * the update arm — N4-U1). The `arm` bounds what is legal one level deeper: the
  * update arm takes the correlated adopt family (`upsert`, `connectOrCreate`); the
  * create arm — a fresh child, ATOM §4's elision — takes only `connectOrCreate`
  * (V1's runtime rejects a nested `upsert` under a create payload as
@@ -723,9 +804,7 @@ function buildArmChildParts(
   scope: StepScope,
   child: QueryScope,
   engine: QueryEngine,
-  relationName: string,
-  childPrimaryKey: string,
-  where: Record<string, unknown>,
+  parentId: ParentIdSource,
   relations: Record<string, RelationMutation>,
   correlation: UpsertCorrelation,
   txMode: boolean,
@@ -733,15 +812,6 @@ function buildArmChildParts(
 ): readonly Part[] {
   const entries = Object.entries(relations);
   if (entries.length === 0) return [];
-  const pkEntry = getWhereUniqueEntries(child, where).find(
-    (entry) => entry.fieldName === childPrimaryKey
-  );
-  if (pkEntry === undefined) {
-    throw new UnsupportedOperationError(
-      `Relation '${relationName}' carries nested relation mutations; its upsert must locate the child by its primary key '${childPrimaryKey}' so the deeper foreign key is a known value.`
-    );
-  }
-  const parentId = literalParentId(pkEntry.value);
   const parts: Part[] = [];
   for (const [childRelationName, mutation] of entries) {
     const kinds = getRelationMutationKinds(mutation).join(",");
@@ -811,17 +881,20 @@ function buildArmChildParts(
 }
 
 /** An unconditional set of write steps (no planning read, no probe) — a fresh
- *  child-held grandchild INSERT whose every column is a compile-time literal. */
-class StaticWriteParts implements Part {
-  private readonly steps: readonly OperationStep[];
-  constructor(steps: readonly OperationStep[]) {
-    this.steps = steps;
+ *  child-held grandchild INSERT. Its ids and its whole payload shape are fixed at
+ *  construction; only the parent foreign key's value is resolved at compile, which is
+ *  a literal read-through for a `literal` parent and the located row's column for a
+ *  `planned` one (N4-U1). */
+class ArmChildCreateParts implements Part {
+  private readonly build: (known: PlanningKnown) => readonly OperationStep[];
+  constructor(build: (known: PlanningKnown) => readonly OperationStep[]) {
+    this.build = build;
   }
   planning(): readonly OperationStep[] {
     return [];
   }
-  compile(): readonly OperationStep[] {
-    return this.steps;
+  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
+    return this.build(known);
   }
 }
 
@@ -857,46 +930,64 @@ function buildCreateArmChildCreateParts(
   }
   const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
   const childName = getStepModelName(relationInfo.targetModel, relationName);
-  const steps: OperationStep[] = normalizeUpsertItems(
-    mutation.create,
-    relationName
-  ).map((create) => {
-    const { scalarData, relations } = separateData(childScope, create);
-    const inject: Record<string, unknown> = {};
-    for (let index = 0; index < fk.fkFields.length; index += 1) {
-      inject[fk.fkFields[index]!] = referenceSql(
-        engine,
-        childScope.model,
-        fk.fkFields[index]!,
-        referencedFieldValue(
-          parentId,
-          fk.pkFields[index]!,
-          undefined,
-          relationName,
-          "create"
-        )
-      );
+  // Every payload decision — the scalar/relation split, the single parent-held to-one
+  // connect this leaf tolerates, the step ids — is made at CONSTRUCTION, before any
+  // I/O, exactly as before. Only the parent FK's VALUE is resolved later, because
+  // under a `planned` source (N4-U1: an update arm whose target some NON-primary-key
+  // unique named) it lives in the row this part's own probe located, which planning
+  // has not run yet. A `literal` source ignores `known` and yields the same statement
+  // it always did.
+  const items = normalizeUpsertItems(mutation.create, relationName).map(
+    (create) => {
+      const { scalarData, relations } = separateData(childScope, create);
+      const connectInject: Record<string, unknown> = {};
+      for (const [childRelation, childMutation] of Object.entries(relations)) {
+        foldParentHeldConnect(
+          engine,
+          childScope,
+          childRelation,
+          childMutation,
+          connectInject
+        );
+      }
+      return {
+        id: scope.allocate(`${childName}.create`),
+        scalarData,
+        connectInject,
+      };
     }
-    for (const [childRelation, childMutation] of Object.entries(relations)) {
-      foldParentHeldConnect(
-        engine,
-        childScope,
-        childRelation,
-        childMutation,
-        inject
-      );
-    }
-    return {
-      id: scope.allocate(`${childName}.create`),
-      kind: "write" as const,
-      statement: buildInsert(childScope, getTableName(childScope.model), {
-        ...scalarData,
-        ...inject,
-      }),
-      outputs: {},
-    };
-  });
-  return [new StaticWriteParts(steps)];
+  );
+  return [
+    new ArmChildCreateParts((known) =>
+      items.map((item) => {
+        const inject: Record<string, unknown> = {};
+        for (let index = 0; index < fk.fkFields.length; index += 1) {
+          inject[fk.fkFields[index]!] = referenceSql(
+            engine,
+            childScope.model,
+            fk.fkFields[index]!,
+            referencedFieldValue(
+              parentId,
+              fk.pkFields[index]!,
+              known,
+              relationName,
+              "create"
+            )
+          );
+        }
+        return {
+          id: item.id,
+          kind: "write" as const,
+          statement: buildInsert(childScope, getTableName(childScope.model), {
+            ...item.scalarData,
+            ...inject,
+            ...item.connectInject,
+          }),
+          outputs: {},
+        };
+      })
+    ),
+  ];
 }
 
 /** Fold a single parent-held to-one `connect` into a grandchild INSERT's columns —

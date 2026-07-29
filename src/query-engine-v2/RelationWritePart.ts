@@ -24,6 +24,7 @@ import { assertRelationKeyUpdatesAreCompilable } from "../query-engine/relation-
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
   affectedRows,
+  exactlyOneRow,
   nestedWriteFailure,
   presenceGuard,
   referenceSql,
@@ -43,7 +44,11 @@ import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import { referencedFieldRef, referencedFieldValue } from "./parent-reference";
-import { literalParentId, type ParentIdSource } from "./RelationUpsertPart";
+import {
+  literalParentId,
+  type ParentIdSource,
+  plannedParentId,
+} from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 import { UnsupportedOperationError } from "./shared";
 
@@ -123,10 +128,12 @@ export interface RelationWriteConfig {
   /**
    * T3b mechanism 1: the recursion seam. When a targeted `update`'s `data` carries
    * nested relation writes, its located target builds its OWN child Parts through
-   * this builder (correlated to the target's compile-time literal PK, {@link
-   * literalParentId}), exactly as a root update does — the family-B boundary lifted.
-   * A relation-carrying `update` with no builder (or a bulk `updateMany`, or an
-   * inverse-side to-one update with no unique locator) still routes to V1.
+   * this builder, exactly as a root update does — the family-B boundary lifted. The
+   * target's primary key reaches them under either provenance (N4-U1): a {@link
+   * literalParentId} when the unique `where` names it, a {@link plannedParentId} into
+   * this part's own locate probe when some other unique does. A relation-carrying
+   * `update` with no builder, a bulk `updateMany`, or an inverse-side to-one update
+   * with no unique locator still declines.
    */
   readonly nestedBuilder?: NestedChildBuilder;
 }
@@ -149,15 +156,20 @@ export class RelationWritePart implements Part {
   // relation-only nested update carries no scalars — then no self-UPDATE is emitted,
   // only the child Parts). Computed once at construction.
   private readonly updateScalarData?: Record<string, unknown>;
+  // N4-U1: this part's own probe is the target's LOCATE, so its captured primary key
+  // can be the deeper edges' parent value when the `where` does not name it. Set when
+  // the child Parts were built against a `planned` source pointing at {@link probeId} —
+  // the probe then owes them a `firstRowField` output and a not-found postcondition.
+  private readonly probeCarriesLocatedPk: boolean;
 
   constructor(scope: StepScope, config: RelationWriteConfig) {
     this.config = config;
     this.probeId = scope.allocate(`${config.childName}.find`);
     this.writeId = scope.allocate(`${config.childName}.${config.kind}`);
     this.guardId = scope.allocate(`${config.childName}.guard.exists`);
-    this.probe = this.isTargeted() ? this.buildProbe() : undefined;
     this.childParts = [];
     this.reorderAfterChildren = false;
+    this.probeCarriesLocatedPk = false;
     // Payload-determined support decisions are made at CONSTRUCTION — before any
     // I/O — so a shape V2 does not own declines with a typed UnsupportedOperationError
     // that PROPAGATES (post-P6: no V1 fallback catches it). A nested relation write
@@ -168,6 +180,7 @@ export class RelationWritePart implements Part {
       this.childParts = built.childParts;
       this.reorderAfterChildren = built.reorderAfterChildren;
       this.updateScalarData = built.scalarData;
+      this.probeCarriesLocatedPk = built.parentIsLocatedPk;
       // V1's PK-arithmetic portability check on the nested child data (float/decimal
       // non-portability, divide-by-zero, one-op) — a payload legality gate at
       // construction (before the probe), matching RelationUpdates. Reuses V1's
@@ -190,6 +203,9 @@ export class RelationWritePart implements Part {
       this.upsertCreateId = scope.allocate(`${config.childName}.create`);
       this.upsertCreateScalarData();
     }
+    // The probe is built LAST: whether it owes the deeper edges the located primary
+    // key is a fact about the child Parts, which are interpreted above.
+    this.probe = this.isTargeted() ? this.buildProbe() : undefined;
   }
 
   planning(scope: StepScope): readonly OperationStep[] {
@@ -471,11 +487,32 @@ export class RelationWritePart implements Part {
    * modes (technique #1) — the literal is not known until that read runs.
    */
   private buildProbe(): StatementStep {
-    return {
+    const step: StatementStep = {
       id: this.probeId,
       kind: "read",
       statement: this.correlatedProbeStatement(undefined, true),
       outputs: { rows: { kind: "rows" } },
+    };
+    if (!this.probeCarriesLocatedPk) return step;
+    // N4-U1: the deeper edges take this probe's captured primary key as a `planned`
+    // source, so the probe must PUBLISH it — a `firstRowField` output the deeper
+    // planning probes can `Ref` in SQL, alongside the `rows` the compile-time inline
+    // already reads. That eager extraction throws on an empty result, so the probe also
+    // carries the not-found postcondition here (enforced during planning, before any
+    // write, with this family's own verbatim target-not-found wording) rather than
+    // leaving it to `capturedPk` at compile. Exactly the shape the parent-held to-one
+    // update probe already takes when its target carries child Parts
+    // (UpdateOperation.buildParentHeldUpdate).
+    return {
+      ...step,
+      outputs: {
+        rows: { kind: "rows" },
+        [this.config.childPrimaryKey]: {
+          kind: "firstRowField",
+          field: this.config.childPrimaryKey,
+        },
+      },
+      expects: exactlyOneRow(this.targetFailure()),
     };
   }
 
@@ -569,6 +606,7 @@ export class RelationWritePart implements Part {
     childParts: readonly Part[];
     reorderAfterChildren: boolean;
     scalarData: Record<string, unknown>;
+    parentIsLocatedPk: boolean;
   } {
     const { data, childScope, relationName, kind } = this.config;
     if (!data) {
@@ -590,29 +628,41 @@ export class RelationWritePart implements Part {
           `query-engine-v2 ${kind} for relation '${relationName}' requires at least one scalar assignment.`
         );
       }
-      return { childParts: [], reorderAfterChildren: false, scalarData };
+      return {
+        childParts: [],
+        reorderAfterChildren: false,
+        scalarData,
+        parentIsLocatedPk: false,
+      };
     }
-    // Nested relation writes present. Only a targeted `update` located by a unique
-    // `where` (its PK is a compile-time literal, the deeper FK a known value) with the
-    // recursion seam folds them; every other shape routes to V1.
+    // Nested relation writes present. Only a targeted `update` with a unique `where`
+    // and the recursion seam folds them; a bulk `updateMany` (no per-row identity) and
+    // an inverse-side to-one `update` with no unique locator still decline.
     if (kind !== "update" || !this.config.where || !this.config.nestedBuilder) {
       throw new UnsupportedOperationError(
         `query-engine-v2 ${kind} for relation '${relationName}' does not support nested relation writes in its data.`
       );
     }
+    // N4-U1 — the target's primary key, whichever unique named the row.
+    //
+    // The deeper edges' foreign keys reference THIS target's primary key. When the
+    // `where` names it, that is a compile-time literal and nothing is read. When it
+    // names some OTHER unique (`{ slug }`, `{ email }`), the key is not unknowable —
+    // this part ALREADY locates the row: `correlatedProbeStatement` selects the
+    // primary key and `capturedPk` is the identity the self-UPDATE addresses. So the
+    // deeper edges take a `planned` source pointing at that same probe, exactly as N1
+    // gave the root's child edges the located-parent Ref, and the value they spend is
+    // read from THE ROW THE PROBE LOCKED — never re-derived from the `where` (the
+    // wrong-row doctrine). Both provenances converge on one identity: the located row.
     const pkEntry = getWhereUniqueEntries(childScope, this.config.where).find(
       (entry) => entry.fieldName === this.config.childPrimaryKey
     );
-    if (pkEntry === undefined) {
-      // The deeper FK references this target's PK; the nested update must locate it by
-      // that PK so the FK is a known literal (buildArmChildParts' precondition).
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update for relation '${relationName}' carries nested relation writes; it must locate the target by its primary key '${this.config.childPrimaryKey}'.`
-      );
-    }
+    const parentIsLocatedPk = pkEntry === undefined;
     const childParts = this.config.nestedBuilder(
       childScope,
-      literalParentId(pkEntry.value),
+      parentIsLocatedPk
+        ? plannedParentId(this.probeId, this.config.childPrimaryKey)
+        : literalParentId(pkEntry.value),
       relations,
       this.config.txMode
     );
@@ -651,7 +701,12 @@ export class RelationWritePart implements Part {
         `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${this.config.childPrimaryKey}' while writing a child-held edge whose foreign key does not cascade on update.`
       );
     }
-    return { childParts, reorderAfterChildren, scalarData };
+    return {
+      childParts,
+      reorderAfterChildren,
+      scalarData,
+      parentIsLocatedPk: parentIsLocatedPk && childParts.length > 0,
+    };
   }
 
   /** The validated scalar assignments of a targeted `update`/`updateMany`; the leaf
