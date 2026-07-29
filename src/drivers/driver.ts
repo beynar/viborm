@@ -5,6 +5,7 @@ import { ConnectionError, TransactionError, VibORMErrorCode } from "@errors";
 import { runWithTracer } from "@instrumentation/run-with-tracer";
 import { SPAN_CONNECT, SPAN_DISCONNECT } from "@instrumentation/spans";
 import type { Sql } from "@sql";
+import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
 import type {
   DriverResultParser,
   NestedTransactionObservation,
@@ -26,6 +27,7 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "./types";
 export type { DriverResultParser } from "./driver-instrumentation";
 export type { QueryExecutionContext } from "./types";
 
+// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the `Driver` interface below is a deliberate merge — it declares the `await using` member, which is installed on the prototype (guarded on the runtime key) rather than in this body.
 export abstract class Driver<
   TClient,
   TTransaction,
@@ -144,7 +146,41 @@ export abstract class Driver<
   }
 }
 
+/**
+ * `await using driver = new SomeDriver(...)` — leaving the block runs the same
+ * close path as an explicit `disconnect()`, including when the block is left by
+ * a throw.
+ *
+ * The empty body IS the payload: `extends AsyncDisposeMember` contributes the
+ * member where the platform declares `Symbol.asyncDispose`, and contributes
+ * nothing where it does not — which is why this is a merged interface and not a
+ * method in the class body, where the key would have to be written literally.
+ *
+ * A `TransactionBoundDriver` inherits it and is disposal-inert for free: its
+ * `disconnect()` override is a no-op, because `$transaction` owns that driver's
+ * lifetime, not the caller.
+ */
+// biome-ignore lint/correctness/noUnusedVariables: a merged interface must restate the class's type parameters exactly, used or not.
+export interface Driver<TClient, TTransaction> extends AsyncDisposeMember {}
+
 export type AnyDriver = Driver<unknown, unknown>;
+
+function disposeDriver(this: AnyDriver): Promise<void> {
+  return this.disconnect();
+}
+
+// Guarded rather than written as a computed key in the class body: where the
+// runtime predates explicit resource management the well-known symbol is
+// `undefined`, and `[Symbol.asyncDispose]() {}` would then install a method
+// under the string key `"undefined"` instead of installing nothing.
+if (ASYNC_DISPOSE !== undefined) {
+  Object.defineProperty(Driver.prototype, ASYNC_DISPOSE, {
+    configurable: true,
+    writable: true,
+    enumerable: false,
+    value: disposeDriver,
+  });
+}
 
 export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   TClient,

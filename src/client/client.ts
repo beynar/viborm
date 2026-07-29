@@ -4,6 +4,7 @@ import type {
   WithCacheOptions,
 } from "@cache";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
+import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { assertNormalizedBatchResults } from "@drivers/normalized-result";
 import type {
   BatchTransactionOptions,
@@ -344,6 +345,12 @@ export type TransactionClient<C extends VibORMConfig> = Client<C> &
  */
 export type VibORMClient<C extends VibORMConfig> = Client<C> &
   RawSurface &
+  // `await using client = createClient({ ... })` disposes through the same
+  // close path as `$disconnect()`. Carried by `AsyncDisposeMember` so it is the
+  // empty object — not a compile error — for a consumer whose `lib`/`@types`
+  // never declared `Symbol.asyncDispose`. The interactive `tx` client is
+  // deliberately NOT disposable: `$transaction` owns that driver's lifetime.
+  AsyncDisposeMember &
   Omit<
     {
       /** Access the underlying driver */
@@ -648,6 +655,19 @@ export class VibORM<C extends VibORMConfig> {
 
     // The raw surface is built on first `$queryRaw`-family access.
     let rawSurface: RawSurface | undefined;
+
+    // One close path behind two doors: `$disconnect()` and, where the platform
+    // has the protocol, `await using`. They are the same function object, so a
+    // disposal is indistinguishable from an explicit disconnect in telemetry —
+    // which is honest, because that is exactly what it is.
+    const disconnect = () =>
+      orm.engine.driver._disconnect(
+        createOperationExecutionContext(
+          "$connection",
+          "$disconnect",
+          orm.engine.instrumentation
+        )
+      );
 
     // Create proxy that combines model operations with utility methods
     return new Proxy(client, {
@@ -1068,14 +1088,15 @@ export class VibORM<C extends VibORMConfig> {
         }
 
         if (prop === "$disconnect") {
-          return () =>
-            orm.engine.driver._disconnect(
-              createOperationExecutionContext(
-                "$connection",
-                "$disconnect",
-                orm.engine.instrumentation
-              )
-            );
+          return disconnect;
+        }
+
+        // `await using client = createClient({ ... })`. Guarded on the resolved
+        // runtime key so that on an engine without the protocol nothing here
+        // ever matches — and the property falls through to `undefined`, which
+        // is what the absence of disposal support should look like.
+        if (ASYNC_DISPOSE !== undefined && prop === ASYNC_DISPOSE) {
+          return disconnect;
         }
 
         if (prop === "$withCache") {

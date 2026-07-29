@@ -138,6 +138,7 @@
     "db:generate": "prisma generate",
     "package:build": "tsdown",
     "test:package:error-names": "pnpm package:build && node tests/package-error-names-smoke.mjs",
+    "test:package:consumer-floor": "pnpm package:build && node scripts/consumer-type-floor.mjs",
     "test:package:phase7": "pnpm package:build && node tests/package-error-names-smoke.mjs && node tests/package-otel-absent-smoke.mjs",
     "package:dev": "tsdown --watch",
     "size": "size-limit",

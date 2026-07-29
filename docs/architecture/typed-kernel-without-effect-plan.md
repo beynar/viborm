@@ -74,6 +74,22 @@ If any gate fails, the PR closes with the measurement recorded here and 5.8.3 st
 
 Deterministic resource disposal via the platform's own protocol — no runtime, no dependency. `await using client = createClient({...})` disposes the client (and its driver) when the block exits, including on throw.
 
+**T6-U1 — DELIVERED.** `[Symbol.asyncDispose]` on the root client (→ `$disconnect()`) and on the `Driver` base (→ `disconnect()`), both guarded on the resolved runtime key in [async-dispose.ts](../../src/drivers/async-dispose.ts). `TransactionBoundDriver` inherits the member and is disposal-inert for free — its `disconnect()` override is already a no-op — and the interactive `tx` client never exposes the member at all, so the scope decision holds on both halves. Witnesses: [tests/drivers/async-dispose.test.ts](../../tests/drivers/async-dispose.test.ts) (11).
+
+**Consumer type floor — MEASURED, and it did not move.** A bare `[Symbol.asyncDispose]` computed key in a published `.d.mts` needs `SymbolConstructor.asyncDispose` to be declared before the file will type-check at all, which would tax every consumer including the ones who never write `await using` (isolated probe: bare form → `TS2550`; mapped-key form → clean). So the member is carried by `AsyncDisposeMember`, a mapped type over a conditional key that resolves to `never` — and therefore to `{}` — when the symbol is undeclared.
+
+Measured on the built artifact, before and after, by [scripts/consumer-type-floor.mjs](../../scripts/consumer-type-floor.mjs) (`pnpm test:package:consumer-floor`), three arms each falsified independently:
+
+- **Floor (unchanged):** `lib: ["es2022"]`, `skipLibCheck: true`, no configured `@types/node` — clean before T6 and after. Under `skipLibCheck: false` the published surface carries exactly **one** own-`dist` error both before and after (a pre-existing `StandardSchemaOf` naming fault in `@standard-schema/spec`, unrelated to this phase and left for its own lane).
+- **Isolation:** viborm's disposal carrier, lifted verbatim out of the emitted `.d.mts` and compiled with *no* ambient types, type-checks. This is the arm that fires if anyone swaps the mapped key back for a bare one.
+- **Capability:** the same carrier still yields a real `AsyncDisposable` where the symbol *is* declared — so "degrade away for everybody" cannot pass as a floor result.
+
+Honest caveat on method: a probe that merely imports the published entrypoints cannot establish this, because viborm's own dependency graph drags `@types/node` in transitively (via `@types/pg`'s `/// <reference types="node" />`), and `@types/node` unconditionally polyfills `SymbolConstructor.asyncDispose` in `compatibility/disposable.d.ts`. The isolation arm exists precisely to answer the question the whole-package probe cannot.
+
+To *use* `await using`: `lib` including `esnext.disposable` (TS ≥5.2) **or** `@types/node` ≥20, plus a runtime with the symbol (Node ≥18.18). Repo `tsconfig.json` gained `esnext.disposable` so the source states its own requirement instead of inheriting it by accident from `@types/node`.
+
+The unit as originally specified:
+
 | Unit | What | Context | Acceptance |
 |---|---|---|---|
 | T6-U1 | Implement `[Symbol.asyncDispose]` on the root client (delegating to `$disconnect()`) and on the driver base class (delegating to its close path). SCOPE: root client + drivers only — the interactive `tx` client is NOT disposable (disposing mid-transaction from a `using` block would fight the transaction lifecycle; the tx driver's ownership stays with `$transaction`). Guard the definition for platforms where the well-known symbol is absent. | `src/client/client.ts` ($disconnect exists), `src/drivers/driver.ts` base. TS: `Symbol.asyncDispose` typing needs the `esnext.disposable` lib (TS ≥5.2 — fine on 5.8.3); check `tsconfig.json` lib and add if missing. | Runtime: an `await using` block disposes → driver closed (probe with a connection-state check); dispose is idempotent with an explicit `$disconnect()` (no double-close throw); disposal on exception paths (throw inside the block → still closed). Type: client assignable to `AsyncDisposable`. **Consumer floor documented**: a minimal-consumer probe establishes the smallest `lib`/`@types/node` configuration under which the published `.d.mts` still compiles for users who never use `await using` — if the symbol member forces a lib requirement on non-users, restructure (e.g. interface merge) until it degrades gracefully, and record the floor in the docs. |
