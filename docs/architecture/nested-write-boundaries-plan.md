@@ -707,6 +707,44 @@ the engine deliberately accepts today: a regression, not a boundary. So (d) need
 verdict moved to compile first, and its unpinned third additionally needs the same
 transforming source (a)/(b) name. Kept as one site rather than pre-split.
 
+### N4 × N5 — the merge, and the one refusal it created
+
+The two lanes ran in parallel off `f49047b` and were cherry-picked onto the branch N4
+first. They edit disjoint sites and one shared file, `RelationWritePart.ts` — N4 in
+`interpretChildParts`' parent-id provenance, N5 in the transition ordering and the new
+`RelationKeyOccupiedPart`. Both lanes measured their census delta from **76**, so the
+running number was re-based at the merge: **76 → 74 (N4) → 73 (N5-U1) → 74 (the merge)**.
+The final pin was re-derived by RUNNING the census test, not by arithmetic, and the
+count-evolution log in `route-inventory.test.ts` opens with a merge note recording all of
+this.
+
+The merge is **not net-zero**, and this is the honest reason. Inside `interpretChildParts`
+the two absorptions answer different questions about the same edge — N4 *where the parent
+value comes from* (the `where`'s literal, else a `planned` source into this part's probe),
+N5 *when the edge is written and against which side of a primary-key transition*. Their
+**intersection** — a target named by a NON-primary-key unique whose SET also rewrites its
+primary key, carrying a non-cascade deeper edge — needs a value neither mechanism
+produces. The probe runs before the self-UPDATE, so the `planned` source reads the key the
+transition is about to vacate; no `ParentIdSource` applies the SET's operand to a planned
+value; and the CLASS IV occupied guard needs the same pre-transition literal to name the
+slot it checks. One refusal was added for exactly that intersection.
+
+It is strictly narrower than either site it replaces (it needs all three of a non-PK
+locator, a PK-rewriting SET, and a non-cascading deeper FK, where each old site needed
+one), it regresses nothing (at the shared base the payload declined on BOTH lanes' sites),
+and closing it is the **same follow-on unit** N5-U2 already names for sweep (a)/(b)/(d) —
+an operand-applying `planned` parent-id source. It is that unit's fourth claimant, not a
+new mechanism. Witnessed and falsified in
+`nested-update-pk-transition-cascade.test.ts`: the refusal is a construction-time decline
+with nothing written, bracketed by the same payload located BY the primary key (executes,
+N5-U1b) and the same non-PK locator with no transition (executes, N4-U1); removing it
+writes the deeper edge against the vacated key.
+
+**Why no lane could have caught this.** Each lane was green in its own worktree, and the
+shape declined in both for each lane's own reason. It is a property of the intersection,
+which exists only after the merge — which is why it is recorded as a merge finding rather
+than folded into either lane's entry.
+
 ## N6 — Beyond Prisma (decision-gated; each unit needs a maintainer yes)
 
 | Unit | What | Decision |

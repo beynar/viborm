@@ -295,458 +295,434 @@ export function runDepthSeamBehavior(options: {
     // N4-U1 — child-held to-many `update` (RelationWritePart)
     // -----------------------------------------------------------------------
 
-    test("a nested update named by a non-PK unique carries its deeper create", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedProjects(client);
-        await update("workspace", depthSeamSchema.workspace, {
-          where: { id: 2 },
-          data: {
-            projects: {
-              update: {
-                where: { code: "P-TARGET" },
-                data: {
-                  title: "moved",
-                  tasks: { create: { id: 100, label: "deep" } },
-                },
-              },
-            },
-          },
-        });
-        // The grandchild's foreign key is the LOCATED project's id …
-        await expect(
-          client.task.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([{ id: 100, label: "deep", projectId: 20 }]);
-        // … and the target's own scalar write landed on the same row.
-        await expect(
-          client.project.findUnique({ where: { id: 20 } })
-        ).resolves.toMatchObject({ title: "moved" });
-        // The decoy — seeded first, lower key, identical title — is untouched.
-        await expect(
-          client.project.findUnique({ where: { id: 10 } })
-        ).resolves.toMatchObject({ title: "same" });
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("the non-PK-unique and primary-key spellings persist the same state", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedProjects(client);
-        await update("workspace", depthSeamSchema.workspace, {
-          where: { id: 1 },
-          data: {
-            projects: {
-              update: {
-                where: { id: 10 },
-                data: {
-                  title: "pinned",
-                  tasks: { create: { id: 101, label: "x" } },
-                },
-              },
-            },
-          },
-        });
-        await update("workspace", depthSeamSchema.workspace, {
-          where: { id: 2 },
-          data: {
-            projects: {
-              update: {
-                where: { code: "P-TARGET" },
-                data: {
-                  title: "pinned",
-                  tasks: { create: { id: 102, label: "x" } },
-                },
-              },
-            },
-          },
-        });
-        await expect(
-          client.task.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([
-          { id: 101, label: "x", projectId: 10 },
-          { id: 102, label: "x", projectId: 20 },
-        ]);
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("a non-PK unique naming a target of ANOTHER parent aborts with nothing written", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedProjects(client);
-        // `P-DECOY` is a real, unique row — but it belongs to workspace 1. The
-        // correlated probe finds no row, so the operation aborts BEFORE any write.
-        await expect(
-          update("workspace", depthSeamSchema.workspace, {
+    test(
+      "a nested update named by a non-PK unique carries its deeper create",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          await update("workspace", depthSeamSchema.workspace, {
             where: { id: 2 },
             data: {
               projects: {
                 update: {
-                  where: { code: "P-DECOY" },
+                  where: { code: "P-TARGET" },
                   data: {
-                    title: "stolen",
-                    tasks: { create: { id: 103, label: "x" } },
+                    title: "moved",
+                    tasks: { create: { id: 100, label: "deep" } },
                   },
                 },
               },
             },
-          })
-        ).rejects.toThrow(TARGET_NOT_FOUND);
-        await expect(client.task.findMany({})).resolves.toEqual([]);
-        await expect(
-          client.project.findUnique({ where: { id: 10 } })
-        ).resolves.toMatchObject({ title: "same" });
-      } finally {
-        await dispose();
+          });
+          // The grandchild's foreign key is the LOCATED project's id …
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 100, label: "deep", projectId: 20 }]);
+          // … and the target's own scalar write landed on the same row.
+          await expect(
+            client.project.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ title: "moved" });
+          // The decoy — seeded first, lower key, identical title — is untouched.
+          await expect(
+            client.project.findUnique({ where: { id: 10 } })
+          ).resolves.toMatchObject({ title: "same" });
+        } finally {
+          await dispose();
+        }
       }
-    });
+    );
+
+    test(
+      "the non-PK-unique and primary-key spellings persist the same state",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 1 },
+            data: {
+              projects: {
+                update: {
+                  where: { id: 10 },
+                  data: {
+                    title: "pinned",
+                    tasks: { create: { id: 101, label: "x" } },
+                  },
+                },
+              },
+            },
+          });
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: {
+                update: {
+                  where: { code: "P-TARGET" },
+                  data: {
+                    title: "pinned",
+                    tasks: { create: { id: 102, label: "x" } },
+                  },
+                },
+              },
+            },
+          });
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 101, label: "x", projectId: 10 },
+            { id: 102, label: "x", projectId: 20 },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "a non-PK unique naming a target of ANOTHER parent aborts with nothing written",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // `P-DECOY` is a real, unique row — but it belongs to workspace 1. The
+          // correlated probe finds no row, so the operation aborts BEFORE any write.
+          await expect(
+            update("workspace", depthSeamSchema.workspace, {
+              where: { id: 2 },
+              data: {
+                projects: {
+                  update: {
+                    where: { code: "P-DECOY" },
+                    data: {
+                      title: "stolen",
+                      tasks: { create: { id: 103, label: "x" } },
+                    },
+                  },
+                },
+              },
+            })
+          ).rejects.toThrow(TARGET_NOT_FOUND);
+          await expect(client.task.findMany({})).resolves.toEqual([]);
+          await expect(
+            client.project.findUnique({ where: { id: 10 } })
+          ).resolves.toMatchObject({ title: "same" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
 
     // -----------------------------------------------------------------------
     // N4-U1 — child-held to-many `upsert` (RelationUpsertPart)
     // -----------------------------------------------------------------------
 
-    test("an upsert named by a non-PK unique folds its UPDATE arm's deeper create onto the found row", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedProjects(client);
-        await update("workspace", depthSeamSchema.workspace, {
-          where: { id: 2 },
-          data: {
-            projects: {
-              upsert: {
-                where: { code: "P-TARGET" },
-                create: {
-                  id: 30,
-                  code: "P-TARGET",
-                  title: "fresh",
-                },
-                update: {
-                  title: "adopted",
-                  tasks: { create: { id: 110, label: "deep-upsert" } },
-                },
-              },
-            },
-          },
-        });
-        await expect(
-          client.task.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([{ id: 110, label: "deep-upsert", projectId: 20 }]);
-        await expect(
-          client.project.findUnique({ where: { id: 20 } })
-        ).resolves.toMatchObject({ title: "adopted" });
-        await expect(
-          client.project.findUnique({ where: { id: 30 } })
-        ).resolves.toBeNull();
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("the same upsert takes its CREATE arm when the unique names no row, and its grandchildren follow the fresh key", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedProjects(client);
-        await update("workspace", depthSeamSchema.workspace, {
-          where: { id: 2 },
-          data: {
-            projects: {
-              upsert: {
-                where: { code: "P-ABSENT" },
-                create: {
-                  id: 40,
-                  code: "P-ABSENT",
-                  title: "fresh",
-                  tasks: { create: { id: 120, label: "under-create-arm" } },
-                },
-                update: { title: "not-taken" },
-              },
-            },
-          },
-        });
-        await expect(
-          client.project.findUnique({ where: { id: 40 } })
-        ).resolves.toMatchObject({ title: "fresh", workspaceId: 2 });
-        await expect(
-          client.task.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([
-          { id: 120, label: "under-create-arm", projectId: 40 },
-        ]);
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("an upsert create arm carrying grandchildren under a DATABASE-GENERATED key is a typed refusal, before any write", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedProjects(client);
-        // `slot.id` is generated and the `where` names `code`, so NEITHER source can
-        // supply the fresh row's primary key before its INSERT runs. The grandchild's
-        // foreign key therefore has no value — a construction-time refusal, not a
-        // guess: it throws before the operation is even built, so nothing executes.
-        expect(() =>
-          update("workspace", depthSeamSchema.workspace, {
+    test(
+      "an upsert named by a non-PK unique folds its UPDATE arm's deeper create onto the found row",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          await update("workspace", depthSeamSchema.workspace, {
             where: { id: 2 },
             data: {
-              slots: {
+              projects: {
                 upsert: {
-                  where: { code: "S-NOKEY" },
+                  where: { code: "P-TARGET" },
                   create: {
-                    code: "S-NOKEY",
+                    id: 30,
+                    code: "P-TARGET",
                     title: "fresh",
-                    entries: { create: { text: "orphan" } },
+                  },
+                  update: {
+                    title: "adopted",
+                    tasks: { create: { id: 110, label: "deep-upsert" } },
+                  },
+                },
+              },
+            },
+          });
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 110, label: "deep-upsert", projectId: 20 },
+          ]);
+          await expect(
+            client.project.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ title: "adopted" });
+          await expect(
+            client.project.findUnique({ where: { id: 30 } })
+          ).resolves.toBeNull();
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "the same upsert takes its CREATE arm when the unique names no row, and its grandchildren follow the fresh key",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: {
+                upsert: {
+                  where: { code: "P-ABSENT" },
+                  create: {
+                    id: 40,
+                    code: "P-ABSENT",
+                    title: "fresh",
+                    tasks: { create: { id: 120, label: "under-create-arm" } },
                   },
                   update: { title: "not-taken" },
                 },
               },
             },
-          })
-        ).toThrow(UnsupportedOperationError);
-        await expect(client.slot.findMany({})).resolves.toEqual([]);
-        await expect(client.entry.findMany({})).resolves.toEqual([]);
-      } finally {
-        await dispose();
+          });
+          await expect(
+            client.project.findUnique({ where: { id: 40 } })
+          ).resolves.toMatchObject({ title: "fresh", workspaceId: 2 });
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 120, label: "under-create-arm", projectId: 40 },
+          ]);
+        } finally {
+          await dispose();
+        }
       }
-    });
+    );
 
-    test("the SAME generated-key upsert runs once the create arm spells the key", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedProjects(client);
-        // The only difference from the refusal above: the create data names the key.
-        // That is the whole content of the wall — an absent value, not a shape V2
-        // declines to execute.
-        await update("workspace", depthSeamSchema.workspace, {
-          where: { id: 2 },
-          data: {
-            slots: {
-              upsert: {
-                where: { code: "S-KEYED" },
-                create: {
-                  id: 900,
-                  code: "S-KEYED",
-                  title: "fresh",
-                  entries: { create: { id: 901, text: "kept" } },
+    test(
+      "an upsert create arm carrying grandchildren under a DATABASE-GENERATED key is a typed refusal, before any write",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // `slot.id` is generated and the `where` names `code`, so NEITHER source can
+          // supply the fresh row's primary key before its INSERT runs. The grandchild's
+          // foreign key therefore has no value — a construction-time refusal, not a
+          // guess: it throws before the operation is even built, so nothing executes.
+          expect(() =>
+            update("workspace", depthSeamSchema.workspace, {
+              where: { id: 2 },
+              data: {
+                slots: {
+                  upsert: {
+                    where: { code: "S-NOKEY" },
+                    create: {
+                      code: "S-NOKEY",
+                      title: "fresh",
+                      entries: { create: { text: "orphan" } },
+                    },
+                    update: { title: "not-taken" },
+                  },
                 },
-                update: { title: "not-taken" },
+              },
+            })
+          ).toThrow(UnsupportedOperationError);
+          await expect(client.slot.findMany({})).resolves.toEqual([]);
+          await expect(client.entry.findMany({})).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "the SAME generated-key upsert runs once the create arm spells the key",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // The only difference from the refusal above: the create data names the key.
+          // That is the whole content of the wall — an absent value, not a shape V2
+          // declines to execute.
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              slots: {
+                upsert: {
+                  where: { code: "S-KEYED" },
+                  create: {
+                    id: 900,
+                    code: "S-KEYED",
+                    title: "fresh",
+                    entries: { create: { id: 901, text: "kept" } },
+                  },
+                  update: { title: "not-taken" },
+                },
               },
             },
-          },
-        });
-        await expect(
-          client.slot.findUnique({ where: { id: 900 } })
-        ).resolves.toMatchObject({ title: "fresh", workspaceId: 2 });
-        await expect(client.entry.findMany({})).resolves.toEqual([
-          { id: 901, text: "kept", slotId: 900 },
-        ]);
-      } finally {
-        await dispose();
+          });
+          await expect(
+            client.slot.findUnique({ where: { id: 900 } })
+          ).resolves.toMatchObject({ title: "fresh", workspaceId: 2 });
+          await expect(client.entry.findMany({})).resolves.toEqual([
+            { id: 901, text: "kept", slotId: 900 },
+          ]);
+        } finally {
+          await dispose();
+        }
       }
-    });
+    );
 
     // -----------------------------------------------------------------------
     // N4-U1 — many-to-many (RelationJunctionPart)
     // -----------------------------------------------------------------------
 
-    test("a junction update named by a non-PK unique carries its deeper create", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedAlbum(client);
-        await update("album", depthSeamSchema.album, {
-          where: { id: 1 },
-          data: {
-            photos: {
-              update: {
-                where: { slug: "target" },
-                data: {
-                  caption: "edited",
-                  marks: { create: { id: 200, text: "deep-m2m" } },
-                },
-              },
-            },
-          },
-        });
-        await expect(
-          client.mark.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([{ id: 200, text: "deep-m2m", photoId: 20 }]);
-        await expect(
-          client.photo.findUnique({ where: { id: 20 } })
-        ).resolves.toMatchObject({ caption: "edited" });
-        await expect(
-          client.photo.findUnique({ where: { id: 10 } })
-        ).resolves.toMatchObject({ caption: "c" });
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("a junction update whose non-PK unique names a NON-member aborts with nothing written", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedAlbum(client);
-        await expect(
-          update("album", depthSeamSchema.album, {
+    test(
+      "a junction update named by a non-PK unique carries its deeper create",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedAlbum(client);
+          await update("album", depthSeamSchema.album, {
             where: { id: 1 },
             data: {
               photos: {
                 update: {
-                  where: { slug: "decoy" },
-                  data: {
-                    caption: "stolen",
-                    marks: { create: { id: 201, text: "x" } },
-                  },
-                },
-              },
-            },
-          })
-        ).rejects.toThrow(TARGET_NOT_FOUND);
-        await expect(client.mark.findMany({})).resolves.toEqual([]);
-        await expect(
-          client.photo.findUnique({ where: { id: 10 } })
-        ).resolves.toMatchObject({ caption: "c" });
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("a junction UPSERT arm named by a non-PK unique is still a typed refusal, before any write", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedAlbum(client);
-        // The surviving wall, kept honest: an upsert's update arm can also be reached
-        // by the created-earlier branch, whose global probe ran BEFORE this operation's
-        // own INSERT and therefore located nothing. There is no row for a `planned`
-        // source to read, so the refusal names the missing primary key — and it fires
-        // at CONSTRUCTION, so nothing executes at all.
-        expect(() =>
-          update("album", depthSeamSchema.album, {
-            where: { id: 1 },
-            data: {
-              photos: {
-                upsert: {
                   where: { slug: "target" },
-                  create: { id: 20, slug: "target", caption: "c" },
-                  update: {
+                  data: {
                     caption: "edited",
-                    marks: { create: { id: 202, text: "x" } },
+                    marks: { create: { id: 200, text: "deep-m2m" } },
                   },
                 },
               },
             },
-          })
-        ).toThrow(MUST_LOCATE_BY_PK);
-        await expect(client.mark.findMany({})).resolves.toEqual([]);
-        await expect(
-          client.photo.findUnique({ where: { id: 20 } })
-        ).resolves.toMatchObject({ caption: "c" });
-      } finally {
-        await dispose();
+          });
+          await expect(
+            client.mark.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 200, text: "deep-m2m", photoId: 20 }]);
+          await expect(
+            client.photo.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ caption: "edited" });
+          await expect(
+            client.photo.findUnique({ where: { id: 10 } })
+          ).resolves.toMatchObject({ caption: "c" });
+        } finally {
+          await dispose();
+        }
       }
-    });
+    );
+
+    test(
+      "a junction update whose non-PK unique names a NON-member aborts with nothing written",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedAlbum(client);
+          await expect(
+            update("album", depthSeamSchema.album, {
+              where: { id: 1 },
+              data: {
+                photos: {
+                  update: {
+                    where: { slug: "decoy" },
+                    data: {
+                      caption: "stolen",
+                      marks: { create: { id: 201, text: "x" } },
+                    },
+                  },
+                },
+              },
+            })
+          ).rejects.toThrow(TARGET_NOT_FOUND);
+          await expect(client.mark.findMany({})).resolves.toEqual([]);
+          await expect(
+            client.photo.findUnique({ where: { id: 10 } })
+          ).resolves.toMatchObject({ caption: "c" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "a junction UPSERT arm named by a non-PK unique is still a typed refusal, before any write",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedAlbum(client);
+          // The surviving wall, kept honest: an upsert's update arm can also be reached
+          // by the created-earlier branch, whose global probe ran BEFORE this operation's
+          // own INSERT and therefore located nothing. There is no row for a `planned`
+          // source to read, so the refusal names the missing primary key — and it fires
+          // at CONSTRUCTION, so nothing executes at all.
+          expect(() =>
+            update("album", depthSeamSchema.album, {
+              where: { id: 1 },
+              data: {
+                photos: {
+                  upsert: {
+                    where: { slug: "target" },
+                    create: { id: 20, slug: "target", caption: "c" },
+                    update: {
+                      caption: "edited",
+                      marks: { create: { id: 202, text: "x" } },
+                    },
+                  },
+                },
+              },
+            })
+          ).toThrow(MUST_LOCATE_BY_PK);
+          await expect(client.mark.findMany({})).resolves.toEqual([]);
+          await expect(
+            client.photo.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ caption: "c" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
 
     // -----------------------------------------------------------------------
     // N4-U3 — createMany under a planned parent-held target
     // -----------------------------------------------------------------------
 
-    test("a createMany under a parent-held target files its rows against the LOCATED owner", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedOwners(client);
-        await update("ticket", depthSeamSchema.ticket, {
-          where: { id: 5 },
-          data: {
-            owner: {
-              update: {
-                name: "renamed",
-                notes: {
-                  createMany: {
-                    data: [
-                      { id: 71, body: "a" },
-                      { id: 72, body: "b" },
-                    ],
-                  },
-                },
-              },
-            },
-          },
-        });
-        await expect(
-          client.note.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([
-          { id: 71, body: "a", ownerId: 2 },
-          { id: 72, body: "b", ownerId: 2 },
-        ]);
-        // The decoy owner — seeded first, lower key — adopted nothing.
-        await expect(
-          client.note.findMany({ where: { ownerId: 1 } })
-        ).resolves.toEqual([]);
-        await expect(
-          client.owner.findUnique({ where: { id: 2 } })
-        ).resolves.toMatchObject({ name: "renamed" });
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("the same createMany with an empty data array writes nothing and does not fail", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedOwners(client);
-        await update("ticket", depthSeamSchema.ticket, {
-          where: { id: 5 },
-          data: {
-            owner: {
-              update: { name: "renamed", notes: { createMany: { data: [] } } },
-            },
-          },
-        });
-        await expect(client.note.findMany({})).resolves.toEqual([]);
-        await expect(
-          client.owner.findUnique({ where: { id: 2 } })
-        ).resolves.toMatchObject({ name: "renamed" });
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("the same createMany WITHOUT skipDuplicates fails closed on a duplicate", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedOwners(client);
-        await client.note.create({
-          data: { id: 71, body: "existing", ownerId: 1 },
-        });
-        await expect(
-          update("ticket", depthSeamSchema.ticket, {
+    test(
+      "a createMany under a parent-held target files its rows against the LOCATED owner",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOwners(client);
+          await update("ticket", depthSeamSchema.ticket, {
             where: { id: 5 },
             data: {
               owner: {
@@ -754,48 +730,6 @@ export function runDepthSeamBehavior(options: {
                   name: "renamed",
                   notes: {
                     createMany: {
-                      data: [
-                        { id: 71, body: "a" },
-                        { id: 72, body: "b" },
-                      ],
-                    },
-                  },
-                },
-              },
-            },
-          })
-        ).rejects.toThrow();
-        // Fail closed: the pre-existing row keeps its owner, and neither new row landed.
-        await expect(
-          client.note.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([{ id: 71, body: "existing", ownerId: 1 }]);
-        await expect(
-          client.owner.findUnique({ where: { id: 2 } })
-        ).resolves.toMatchObject({ name: "target" });
-      } finally {
-        await dispose();
-      }
-    });
-
-    test("the same createMany with skipDuplicates leaves the existing row untouched", {
-      timeout: 30_000,
-    }, async () => {
-      const { client, update, dispose } = await setup();
-      try {
-        await seedOwners(client);
-        await client.note.create({
-          data: { id: 71, body: "existing", ownerId: 1 },
-        });
-        const run = () =>
-          update("ticket", depthSeamSchema.ticket, {
-            where: { id: 5 },
-            data: {
-              owner: {
-                update: {
-                  name: "renamed",
-                  notes: {
-                    createMany: {
-                      skipDuplicates: true,
                       data: [
                         { id: 71, body: "a" },
                         { id: 72, body: "b" },
@@ -806,25 +740,152 @@ export function runDepthSeamBehavior(options: {
               },
             },
           });
-        if (options.skipDuplicatesInBatchIsInexpressible) {
-          // The savepoint the skip needs has no lowering into one atomic batch: a
-          // typed refusal with NOTHING written, never a silent success.
-          await expect(run()).rejects.toThrow(NO_BATCH_SKIP_LOWERING);
+          await expect(
+            client.note.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 71, body: "a", ownerId: 2 },
+            { id: 72, body: "b", ownerId: 2 },
+          ]);
+          // The decoy owner — seeded first, lower key — adopted nothing.
+          await expect(
+            client.note.findMany({ where: { ownerId: 1 } })
+          ).resolves.toEqual([]);
+          await expect(
+            client.owner.findUnique({ where: { id: 2 } })
+          ).resolves.toMatchObject({ name: "renamed" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "the same createMany with an empty data array writes nothing and does not fail",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOwners(client);
+          await update("ticket", depthSeamSchema.ticket, {
+            where: { id: 5 },
+            data: {
+              owner: {
+                update: {
+                  name: "renamed",
+                  notes: { createMany: { data: [] } },
+                },
+              },
+            },
+          });
+          await expect(client.note.findMany({})).resolves.toEqual([]);
+          await expect(
+            client.owner.findUnique({ where: { id: 2 } })
+          ).resolves.toMatchObject({ name: "renamed" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "the same createMany WITHOUT skipDuplicates fails closed on a duplicate",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOwners(client);
+          await client.note.create({
+            data: { id: 71, body: "existing", ownerId: 1 },
+          });
+          await expect(
+            update("ticket", depthSeamSchema.ticket, {
+              where: { id: 5 },
+              data: {
+                owner: {
+                  update: {
+                    name: "renamed",
+                    notes: {
+                      createMany: {
+                        data: [
+                          { id: 71, body: "a" },
+                          { id: 72, body: "b" },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            })
+          ).rejects.toThrow();
+          // Fail closed: the pre-existing row keeps its owner, and neither new row landed.
           await expect(
             client.note.findMany({ orderBy: { id: "asc" } })
           ).resolves.toEqual([{ id: 71, body: "existing", ownerId: 1 }]);
-          return;
+          await expect(
+            client.owner.findUnique({ where: { id: 2 } })
+          ).resolves.toMatchObject({ name: "target" });
+        } finally {
+          await dispose();
         }
-        await run();
-        await expect(
-          client.note.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([
-          { id: 71, body: "existing", ownerId: 1 },
-          { id: 72, body: "b", ownerId: 2 },
-        ]);
-      } finally {
-        await dispose();
       }
-    });
+    );
+
+    test(
+      "the same createMany with skipDuplicates leaves the existing row untouched",
+      {
+        timeout: 30_000,
+      },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOwners(client);
+          await client.note.create({
+            data: { id: 71, body: "existing", ownerId: 1 },
+          });
+          const run = () =>
+            update("ticket", depthSeamSchema.ticket, {
+              where: { id: 5 },
+              data: {
+                owner: {
+                  update: {
+                    name: "renamed",
+                    notes: {
+                      createMany: {
+                        skipDuplicates: true,
+                        data: [
+                          { id: 71, body: "a" },
+                          { id: 72, body: "b" },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            });
+          if (options.skipDuplicatesInBatchIsInexpressible) {
+            // The savepoint the skip needs has no lowering into one atomic batch: a
+            // typed refusal with NOTHING written, never a silent success.
+            await expect(run()).rejects.toThrow(NO_BATCH_SKIP_LOWERING);
+            await expect(
+              client.note.findMany({ orderBy: { id: "asc" } })
+            ).resolves.toEqual([{ id: 71, body: "existing", ownerId: 1 }]);
+            return;
+          }
+          await run();
+          await expect(
+            client.note.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 71, body: "existing", ownerId: 1 },
+            { id: 72, body: "b", ownerId: 2 },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
   });
 }
