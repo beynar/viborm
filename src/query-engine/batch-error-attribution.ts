@@ -183,7 +183,12 @@ export function createProgramFailureError(
     if (failure.raceable) error.meta.raceable = true;
     return error;
   }
-  return new TransactionError(failure.message, {
+  const error = new TransactionError(failure.message, {
     meta: { model, operation },
   });
+  // Mirrors the nestedWrite arm (and `failureError` in the V2 executor): the
+  // upsert skip premise's retained notExists pin is a raceable `query` failure,
+  // and the routed retry recognizes it only by this mark.
+  if (failure.raceable) error.meta.raceable = true;
+  return error;
 }

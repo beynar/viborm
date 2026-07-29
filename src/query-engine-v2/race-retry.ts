@@ -48,8 +48,9 @@ export function markRaceable(error: unknown): void {
  * same single check with the semantics spelled out: only an EXPECTED failure can be a race. A
  * defect — an engine invariant break, a raw throwable — is never re-run, whatever metadata it
  * happens to be wearing. Every error that actually carries `meta.raceable` is a
- * `NestedWriteError` raised by a guard abort (`failureError`,
- * `query-engine/batch-error-attribution.ts`), which classifies as expected, so the once-only
+ * guard abort raised by `failureError` / `query-engine/batch-error-attribution.ts` —
+ * a `NestedWriteError`, or the upsert skip premise's `TransactionError`
+ * (`raceableQueryFailure`) — and both classify as expected, so the once-only
  * retry policy and the set of errors that retry are unchanged.
  */
 export function isRetryableRace(error: unknown): boolean {

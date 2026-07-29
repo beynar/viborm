@@ -14,6 +14,7 @@ import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import { executeRoutedOperation } from "../../src/query-engine-v2/routing";
 import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
@@ -374,14 +375,14 @@ class BeforeBatchPGliteDriver extends PGliteDriver {
   }
 }
 
-function runBatch(
+function buildBatchExecution(
   db: PGlite,
   beforeBatch: () => Promise<void>,
   operation: "update" | "upsert",
   modelName: string,
   model: Model<any>,
   args: Record<string, unknown>
-): Promise<unknown> {
+) {
   const driver = new BeforeBatchPGliteDriver(beforeBatch, { client: db });
   const schemas = createSchemaRegistry(upsertFamilySchema);
   const engine = new QueryEngine(
@@ -398,7 +399,47 @@ function runBatch(
     operation,
     engine.instrumentation
   );
+  return { executor, instance, context };
+}
+
+function runBatch(
+  db: PGlite,
+  beforeBatch: () => Promise<void>,
+  operation: "update" | "upsert",
+  modelName: string,
+  model: Model<any>,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const { executor, instance, context } = buildBatchExecution(
+    db,
+    beforeBatch,
+    operation,
+    modelName,
+    model,
+    args
+  );
   return executor.execute(instance, context);
+}
+
+/** `runBatch` through the production retry layer (`executeRoutedOperation`): a
+ *  `meta.raceable` abort re-plans once instead of surfacing. */
+function runRoutedBatch(
+  db: PGlite,
+  beforeBatch: () => Promise<void>,
+  operation: "update" | "upsert",
+  modelName: string,
+  model: Model<any>,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const { executor, instance, context } = buildBatchExecution(
+    db,
+    beforeBatch,
+    operation,
+    modelName,
+    model,
+    args
+  );
+  return executeRoutedOperation(executor, instance, context);
 }
 
 describe("query-engine-v2 upsert-family staleness injection (per premise class)", () => {
@@ -450,29 +491,31 @@ describe("query-engine-v2 upsert-family staleness injection (per premise class)"
     // hook makes it match; the retained notExists pin must abort the batch (had
     // it not, V2 would silently return the now-stale skip). This is the FALSIFY
     // target: removing `absenceGuard` from compileSkipArm makes this pass with a
-    // silent stale skip instead of the typed abort.
+    // silent stale skip instead of the typed abort. The abort carries
+    // `meta.raceable` (ATOM §2's retained-pin class) — the mark the routed retry
+    // converges on; dropping the propagation in `failureError` fails this.
     const injector = makeClient(db);
-    await expect(
-      runBatch(
-        db,
-        async () => {
-          await injector.user.update({
-            where: { email: "sk@x" },
-            data: { score: 999 },
-          });
-        },
-        "upsert",
-        "user",
-        upsertFamilySchema.user,
-        {
+    const rejected = await runBatch(
+      db,
+      async () => {
+        await injector.user.update({
           where: { email: "sk@x" },
-          targetWhere: { score: 999 },
-          create: { email: "sk@x", score: 0 },
-          update: { score: 15 },
-          select: { email: true, score: true },
-        }
-      )
-    ).rejects.toBeInstanceOf(TransactionError);
+          data: { score: 999 },
+        });
+      },
+      "upsert",
+      "user",
+      upsertFamilySchema.user,
+      {
+        where: { email: "sk@x" },
+        targetWhere: { score: 999 },
+        create: { email: "sk@x", score: 0 },
+        update: { score: 15 },
+        select: { email: true, score: true },
+      }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(TransactionError);
+    expect((rejected as TransactionError).meta.raceable).toBe(true);
     await client.$disconnect();
   });
 
@@ -483,27 +526,64 @@ describe("query-engine-v2 upsert-family staleness injection (per premise class)"
     await client.user.create({ data: { email: "sk2@x", score: 10 } });
 
     const injector = makeClient(db);
-    await expect(
-      runBatch(
-        db,
-        async () => {
-          await injector.user.update({
-            where: { email: "sk2@x" },
-            data: { score: 999 },
-          });
-        },
-        "upsert",
-        "user",
-        upsertFamilySchema.user,
-        {
+    const rejected = await runBatch(
+      db,
+      async () => {
+        await injector.user.update({
           where: { email: "sk2@x" },
-          setWhere: { score: 999 },
-          create: { email: "sk2@x", score: 0 },
-          update: { score: 15 },
-          select: { email: true, score: true },
-        }
-      )
-    ).rejects.toBeInstanceOf(TransactionError);
+          data: { score: 999 },
+        });
+      },
+      "upsert",
+      "user",
+      upsertFamilySchema.user,
+      {
+        where: { email: "sk2@x" },
+        setWhere: { score: 999 },
+        create: { email: "sk2@x", score: 0 },
+        update: { score: 15 },
+        select: { email: true, score: true },
+      }
+    ).catch((error) => error);
+    expect(rejected).toBeInstanceOf(TransactionError);
+    expect((rejected as TransactionError).meta.raceable).toBe(true);
+    await client.$disconnect();
+  });
+
+  test("targetWhere skip premise: through the routed retry the raceable abort re-plans and converges", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "sk3@x", score: 10 } });
+
+    // The SAME staleness as above, but through `executeRoutedOperation` (the
+    // production path): the skip-premise abort is `meta.raceable`, so the retry
+    // re-plans, sees the row NOW matching targetWhere, and takes the update arm
+    // — one retry, convergence, no surfaced error. FALSIFY: drop the `raceable`
+    // propagation on `failureError`'s query arm and this rejects with the
+    // skip-premise TransactionError instead of converging.
+    const injector = makeClient(db);
+    await runRoutedBatch(
+      db,
+      async () => {
+        await injector.user.update({
+          where: { email: "sk3@x" },
+          data: { score: 999 },
+        });
+      },
+      "upsert",
+      "user",
+      upsertFamilySchema.user,
+      {
+        where: { email: "sk3@x" },
+        targetWhere: { score: 999 },
+        create: { email: "sk3@x", score: 0 },
+        update: { score: 15 },
+        select: { email: true, score: true },
+      }
+    );
+    const after = await client.user.findUnique({ where: { email: "sk3@x" } });
+    expect(after).toMatchObject({ email: "sk3@x", score: 15 });
     await client.$disconnect();
   });
 });

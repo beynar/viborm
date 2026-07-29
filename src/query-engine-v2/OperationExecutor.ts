@@ -651,12 +651,18 @@ function failureError(failure: Failure, context: QueryExecutionContext): Error {
       context.operation ?? "query"
     );
   }
-  return new TransactionError(failure.message, {
+  const error = new TransactionError(failure.message, {
     meta: {
       model: context.model ?? "record",
       operation: context.operation ?? "query",
     },
   });
+  // A `query` guard abort can be raceable too — the sole producer is the
+  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM §2). The
+  // mark is what lets the routed retry re-plan and converge; dropping it here
+  // strands the flag the fragment validator required.
+  if (failure.raceable) error.meta.raceable = true;
+  return error;
 }
 
 function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {
