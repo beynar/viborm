@@ -101,19 +101,33 @@ export async function attributeOperationBatchError(
 }
 
 /**
+ * Every JSON access, in the spellings the adapters actually emit. The MySQL
+ * adapter always writes `JSON_EXTRACT(...)`, but the SQLite adapter reaches a
+ * path through the `->` / `->>` OPERATORS (`sqlite-adapter.ts`'s `jsonExtract`
+ * chains one bound leg per segment) and keeps `json_extract` only for array
+ * indices — so a pattern that knew just the function name would read an
+ * ordinary `payload -> '$' -> ?` filter as harmless and fabricate a
+ * `NotFoundError` for a row that is present. The pattern owes its coverage to
+ * the emitted SQL, not to the canonical spelling: `batch-attribution-
+ * hazard-signature.test.ts` builds each dialect's own JSON and arithmetic SQL
+ * through the engine and measures this table against it.
+ */
+const JSON_ACCESS_SIGNATURE = /json|->/i;
+
+/**
  * Each dialect's assertion trick, and therefore the shape an ORDINARY statement
  * must have to counterfeit it. Postgres asserts with `1 / 0`, so anything that
  * can divide or take a remainder can raise the same SQLSTATE 22012; MySQL and
- * SQLite assert with `JSON_EXTRACT` on invalid JSON, so anything calling a JSON
- * function can raise the same errno 3141 / "malformed JSON". Each dialect is
- * blind to the other's trick — MySQL's `x / 0` yields NULL or errno 1365, and
- * Postgres reports bad JSON as 22P02 — so only the executing dialect's pattern
- * is consulted.
+ * SQLite assert with `JSON_EXTRACT` / `json_extract` on invalid JSON, so any
+ * JSON access — function call or path operator — can raise the same errno 3141
+ * / "malformed JSON". Each dialect is blind to the other's trick — MySQL's
+ * `x / 0` yields NULL or errno 1365, and Postgres reports bad JSON as 22P02 —
+ * so only the executing dialect's pattern is consulted.
  */
 const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
   postgresql: /[/%]/,
-  mysql: /json/i,
-  sqlite: /json/i,
+  mysql: JSON_ACCESS_SIGNATURE,
+  sqlite: JSON_ACCESS_SIGNATURE,
 };
 
 /**

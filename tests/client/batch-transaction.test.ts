@@ -10,6 +10,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
 import { PGliteDriver } from "@drivers/pglite";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TransactionError, VibORMErrorCode } from "@errors";
@@ -19,6 +20,7 @@ import {
   PendingOperation,
 } from "@query-engine/pending-operation";
 import { s } from "@schema";
+import type Database from "better-sqlite3";
 import {
   afterAll,
   beforeAll,
@@ -91,6 +93,25 @@ class BatchOnlyPGliteDriver extends PGliteDriver {
 
   protected override async executeBatch<T>(
     client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (tx) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(await this.executeRaw<T>(tx, query.sql, query.params));
+      }
+      return results;
+    });
+  }
+}
+
+/** The SQLite dialect's batch-only shape (D1's), on a local file-free driver. */
+class BatchOnlySQLite3Driver extends SQLite3Driver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+
+  protected override async executeBatch<T>(
+    client: Database.Database,
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     return this.transaction(client, async (tx) => {
@@ -1139,6 +1160,90 @@ describe("$transaction([...]) attribution of a failure no guard caused", () => {
       expect(failure).toBeDefined();
       expect(failure?.name).not.toBe("NotFoundError");
       expect(failure?.prismaCode ?? null).not.toBe("P2025");
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+});
+
+/**
+ * The same rule on the SQLite dialect — the one every batch-only SQLite driver
+ * runs, D1 included. Its assertion trick is `json_extract` on invalid JSON, but
+ * an ORDINARY path filter is spelled with the `->` / `->>` operators, so the
+ * counterfeit shape looks nothing like the trick and a signature that knew only
+ * the function name read it as harmless.
+ *
+ * The malformed row is inserted with a raw statement: viborm's own writes are
+ * always valid JSON, but the column can hold anything a legacy row, another
+ * writer, or a raw statement put there — and `->` raises SQLite's "malformed
+ * JSON" the moment the filter reaches it.
+ */
+describe("$transaction([...]) attribution on the SQLite dialect", () => {
+  const doc = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      payload: s.json().nullable(),
+    })
+    .map("batch_attribution_hazard_docs");
+  const docSchema = { doc };
+
+  const bootDocs = async ({ malformed }: { malformed: boolean }) => {
+    const batchOnly = createClient({
+      schema: docSchema,
+      driver: new BatchOnlySQLite3Driver({ dataDir: ":memory:" }),
+    });
+    await push(batchOnly, { force: true });
+    await batchOnly.doc.create({
+      data: { id: "b", label: "Bea", payload: { a: 1 } },
+    });
+    if (malformed) {
+      await batchOnly.$executeRawUnsafe(
+        "INSERT INTO batch_attribution_hazard_docs (id, label, payload) VALUES ('junk', 'J', 'not json')"
+      );
+    }
+    return batchOnly;
+  };
+
+  const hazardBatch = (batchOnly: Awaited<ReturnType<typeof bootDocs>>) => [
+    batchOnly.doc.update({ where: { id: "b" }, data: { label: "x" } }),
+    batchOnly.doc.updateMany({
+      where: { payload: { path: ["a"], equals: 1 } },
+      data: { label: "y" },
+    }),
+  ];
+
+  test("batch-only: a malformed-JSON path filter is not the guard's NotFoundError", async () => {
+    const batchOnly = await bootDocs({ malformed: true });
+    try {
+      const failure = await withTransactions(batchOnly)
+        .$transaction(hazardBatch(batchOnly))
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error & { prismaCode?: string | null }
+        );
+
+      expect(failure).toBeDefined();
+      // Row "b" is right there — reading it is what makes P2025 a lie.
+      expect(failure?.name).not.toBe("NotFoundError");
+      expect(failure?.prismaCode ?? null).not.toBe("P2025");
+      expect(
+        await batchOnly.doc.findUnique({ where: { id: "b" } })
+      ).toMatchObject({ id: "b", label: "Bea" });
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+
+  test("batch-only: the identical batch without the malformed row commits", async () => {
+    const batchOnly = await bootDocs({ malformed: false });
+    try {
+      // The control: the JSON error is the sole cause above, and the fix costs
+      // this batch nothing.
+      await withTransactions(batchOnly).$transaction(hazardBatch(batchOnly));
+      expect(
+        await batchOnly.doc.findUnique({ where: { id: "b" } })
+      ).toMatchObject({ id: "b", label: "y" });
     } finally {
       await batchOnly.$disconnect();
     }
