@@ -106,6 +106,7 @@ If any gate fails, the PR closes with the measurement recorded here and 5.8.3 st
 
 ### T5-U1 — DELIVERED (2026-07-29). All six gates measured, all green; 5.9.3 adopted.
 
+0. **The "pinned twin" is retired, not re-pinned.** Review of the bump found `@ark/attest` has zero imports anywhere in the repo — the `@ark/attest-ts-default` alias existed only to serve it. Both removed; `typescript` is pinned exact (`5.9.3`) and is now the only compiler reference in the manifest.
 1. **Check-time: 50.8s → 17.9s (−65%).** `tsc --noEmit` wall-clock, two runs each side (5.8.3: 50.98/50.69s; 5.9.3: 18.74/16.96s). The criterion allowed a 10% regression; 5.9 instead nearly tripled check speed on this codebase.
 2. **expectTypeOf estate green** — the full typecheck covers every assertion; deep include results on the mutually-recursive fixtures still infer precisely.
 3. **Literal-depth ceiling: unchanged at 32-OK / 34-FAIL.** Active probes (generated rich-literal chains in the x1b fixture shape) on both compilers: depth 32 compiles, 34/40/48 fail with TS2321, identically on 5.8.3 and 5.9.3. Correction for the record: the "30 OK / 32 fail" figure in the x1b header was already stale at HEAD *on 5.8.3* — the parity waves' type changes had moved the ceiling to 32/34 before this bump. The ~30 blocker threshold is comfortably met.

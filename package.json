@@ -157,9 +157,7 @@
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.11.0",
-  "@ark/attest-ts-default": "npm:typescript@5.9.3",
   "devDependencies": {
-    "@ark/attest": "^0.56.0",
     "@biomejs/biome": "2.3.11",
     "@cloudflare/workers-types": "^4.20260103.0",
     "@electric-sql/pglite": "^0.3.2",
