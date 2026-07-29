@@ -1,7 +1,8 @@
 # Effect v4 for VibORM's V2 Query Engine and Client
 
-**Date:** 2026-07-26  
-**Status:** architecture research; no adoption decision or implementation  
+**Date:** 2026-07-26<br>
+**Testing update:** 2026-07-28<br>
+**Status:** architecture research; no adoption decision or implementation<br>
 **Primary baseline:** `effect@4.0.0-beta.101`
 
 ## Executive conclusion
@@ -62,6 +63,12 @@ transaction/resource ownership, retry, and instrumentation. Use one coarse
 driver service to remove execution-time parameter cascades. Do not turn query
 inputs, models, adapter methods, fragments, or planner state into services.
 
+Use the matching `@effect/vitest` beta for the prototype. It directly exercises
+the typed error channel, scoped resources, Driver Layers, virtual time, and
+complete Cause before the Promise facade erases those distinctions. This
+improves test isolation and removes harness boilerplate; it does not remove the
+semantic driver, transaction, or Promise-compatibility test matrix.
+
 This is worth prototyping, but not yet worth committing to in core. V4 is beta,
 requires TypeScript 5.9 or newer while VibORM currently uses 5.8.3, and has a
 transaction-finalizer behavior that can regress VibORM's existing cleanup
@@ -82,6 +89,7 @@ at commit
 | Modules under `effect/unstable/*`, including SQL and parts of observability, may change in minor releases.                             | Do not combine the first experiment with `effect/unstable/sql` or an exporter migration.                                       |
 | V4 uses `Context.Service`; v3 `Context.Tag` examples are stale for this baseline.                                                      | Any proposed Layer design must use the beta.101 service API, not a v3 tutorial.                                                |
 | V4 replaced the old `Runtime<R>` API with `Context<R>` plus `run*With`; `ManagedRuntime` still builds and owns a Layer-backed runtime. | A long-lived VibORM client can own one managed runtime and dispose it at `$disconnect`.                                        |
+| `@effect/vitest@4.0.0-beta.101` peers on Effect beta.101 and supports Vitest 3 or 4.                                                   | Pin the matching beta in the prototype. VibORM's current Vitest 3.1.4 is compatible; no test-runner upgrade is required.       |
 
 Sources: [v4 beta announcement](https://effect.website/blog/releases/effect/40-beta/),
 [v4 migration guide](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/MIGRATION.md),
@@ -591,6 +599,98 @@ Cause reasons are recorded as exceptions, while interruption-only completion is
 handled separately.
 [Exact v4 OTel tracer mapping](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/opentelemetry/src/OtelTracer.ts).
 
+## Testing the Effect kernel with `@effect/vitest`
+
+`@effect/vitest` should be part of the prototype as a **development-only
+adapter**, not as an independent reason to adopt Effect. Its value is that the
+same Effect program, typed error channel, Scope, Layer graph, clock, and
+interruption model used in production can be exercised directly in Vitest.
+
+The matching package for this report is
+[`@effect/vitest@4.0.0-beta.101`](https://www.npmjs.com/package/@effect/vitest/v/4.0.0-beta.101).
+Its peer range accepts Vitest 3 or 4 and requires Effect beta.101 or newer on
+the same 4.0.0 prerelease line. VibORM's current Vitest 3.1.4 therefore needs no
+upgrade for the prototype, but the Effect and `@effect/vitest` betas should be
+pinned together.
+
+### What the v4 test package actually provides
+
+| Facility                       | Verified beta.101 behavior                                                                                                                                      | Concrete VibORM use                                                                                                                                              | Limit                                                                                                                                                                                 |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `it.effect`                    | Runs the returned Effect with a fresh Scope, `TestClock`, and `TestConsole`. Vitest's abort signal is passed to the Effect runtime.                             | Test `QueryOperation`, driver execution, retry, transaction cleanup, and interruption without hand-written `runPromise` wrappers or cleanup hooks.               | Provider work stops only if its Promise boundary honors cancellation. A fiber interruption cannot manufacture physical SQL cancellation.                                              |
+| Failure reporting              | Captures the complete `Exit`, renders every `Cause.prettyErrors` entry, then re-fails the original Cause to Vitest.                                             | A failed query plus failed rollback/close remains visible during diagnosis instead of being reduced immediately to one rejected Promise.                         | Reporting does not define VibORM's aggregation policy. Tests must still assert which reason is primary and which reason is cleanup.                                                   |
+| `layer(TestLayer)`             | Builds and memoizes a Layer context for a test block, supports nested Layers, gives each test a child Scope, and closes the shared Layer Scope after the block. | Share a root driver/pool, failure-injection driver, capture logger/tracer/metric sink, or OTel recorder without repeating `beforeAll`/`afterAll` wiring.         | The built Layer and its mutable services are shared. It does not reset tables, captured events, or clock state between tests; those need per-test scope, rollback, or explicit reset. |
+| `TestClock`                    | Controls Effect-based sleep, timeout, and schedules by advancing virtual time rather than waiting for wall-clock time.                                          | Make race retry, transaction timeout, cache TTL, and stale-while-revalidate tests fast and deterministic.                                                        | It only affects code using Effect's `Clock`/`sleep`. Current raw `setTimeout` and `Date.now` paths remain real-time until the production seam is effectful.                           |
+| `TestConsole`                  | Replaces Effect's Console service with an in-memory implementation and exposes captured log and error lines.                                                    | Assert Effect log behavior without polluting test output. A separate VibORM capture Logger Layer can assert sanitized structured events.                         | It does not automatically understand VibORM's log schema, redaction policy, or OpenTelemetry spans.                                                                                   |
+| `Effect.exit` and test helpers | `@effect/vitest/utils` includes assertions for `Exit`, `Cause`, `Result`, and `Option`.                                                                         | Assert typed constraint failure, defect, interruption, and composite transaction failure before the Promise translation boundary.                                | Exact structural Cause assertions can become brittle. Prefer semantic assertions on reason tags, roles, stable error codes, and public translation.                                   |
+| `it.effect.prop`               | Runs asynchronous property tests from FastCheck arbitraries or Effect Schemas.                                                                                  | Exercise query normalization, parameter separation, result parsing, cache-key stability, error normalization, and retry-safety invariants over generated inputs. | VibORM's `v.*` schemas are not Effect Schemas. Use focused FastCheck arbitraries; do not adopt Effect Schema merely to generate tests.                                                |
+| `it.live`                      | Runs a scoped Effect with live services instead of the test clock/console environment.                                                                          | Real PostgreSQL, MySQL, SQLite, PGlite, D1, and provider conformance tests whose timing and resources must be genuine.                                           | Keep live provider tests separate from deterministic engine tests.                                                                                                                    |
+| `flakyTest`                    | Retries a sandboxed Effect repeatedly within a duration.                                                                                                        | At most, tolerate a genuinely eventual external test environment.                                                                                                | Do not use it for the query engine, scheduler, transaction, or cache core. Retrying those tests can hide precisely the races and cleanup defects the suite must expose.               |
+
+The beta.101 package has one documentation trap: its shipped README still lists
+`it.scoped` and `it.scopedLive`, but those methods are not present in the v4
+public type/source. The actual v4 `it.effect` and `it.live` implementations are
+already scoped. For this proposal, the tagged source is authoritative rather
+than v3-shaped README examples.
+
+Sources: exact beta.101
+[package metadata](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/package.json),
+[public API](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/src/index.ts),
+[runner and Layer implementation](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/src/internal/internal.ts),
+[test assertions](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/src/utils.ts),
+[`TestClock`](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/effect/src/testing/TestClock.ts),
+[`TestConsole`](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/effect/src/testing/TestConsole.ts),
+and the
+[inconsistent beta.101 README](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/README.md).
+
+### Where it changes VibORM's current tests
+
+The largest immediate gain is less harness machinery, not fewer semantic
+tests:
+
+- Driver behavior suites already reuse the same assertions across providers.
+  A Driver Layer can replace lifecycle plumbing such as the mutable client,
+  `beforeEach`/`afterEach`, and defensive `requireClient` pattern in
+  [`optional-relation-parity-behavior.ts`](../../tests/drivers/optional-relation-parity-behavior.ts#L62),
+  but it does not remove the behavior matrix.
+- Current cache tests wait 40–100 ms for TTL and background revalidation in
+  [`cache.test.ts`](../../tests/cache/cache.test.ts#L197). `TestClock` can
+  eliminate those waits only after cache timing is expressed through the
+  Effect clock.
+- Transaction timeout tests use real delayed Promises in
+  [`transaction-options-behavior.test.ts`](../../tests/drivers/transaction-options-behavior.test.ts#L183).
+  The Effect-native transaction path can test its own timeout deterministically;
+  the Promise/provider compatibility test should remain live.
+- Primary-plus-cleanup assertions currently catch `unknown` and unpack
+  `AggregateError` in
+  [`transaction-lifecycle.test.ts`](../../tests/drivers/transaction-lifecycle.test.ts#L190)
+  and
+  [`savepoint-queue.test.ts`](../../tests/drivers/savepoint-queue.test.ts#L350).
+  The internal Effect tests can assert the complete `Exit`/`Cause` first, while
+  separate Promise-boundary tests retain the existing public `AggregateError`
+  contract.
+- The existing OTel recorder in
+  [`instrumentation/_capture.ts`](../../tests/instrumentation/_capture.ts#L80)
+  can become a scoped capture Layer so provider shutdown is guaranteed.
+  Real OTel integration tests and semantic span assertions are still required.
+
+### Recommended test split
+
+| Surface under test                                       | Test style                                                                                                   |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Validation, pure planning, fragments, adapters, SQL      | Plain Vitest. No Effect runtime or Layer.                                                                    |
+| `QueryOperation`, executor, routing, typed failures      | `it.effect` with small fake/failure Driver Layers.                                                           |
+| Retry, timeout, cancellation, cache timing               | `it.effect` plus `TestClock` where the production seam uses Effect time.                                     |
+| Transaction lifecycle and simultaneous failures          | `it.effect`, `Effect.exit`, and semantic Cause assertions; then separate Promise translation contract tests. |
+| Reusable driver conformance                              | The same behavior contract parameterized by a Driver Layer; `it.live` for real providers.                    |
+| Public Promise/PromiseLike client semantics              | Plain Vitest against the real public facade, including one-shot memoization and rejection behavior.          |
+| Logs, spans, metrics, disclosure, and observer isolation | Capture service Layers for unit tests; retained real OpenTelemetry integration tests.                        |
+
+This should produce roughly the same or temporarily greater test count during
+migration: internal Effect semantics and the public Promise translation are two
+different contracts. The expected reduction is duplicated setup, ad-hoc mocks,
+wall-clock sleeps, and flaky cleanup—not coverage.
+
 ## Resources, cancellation, and structured concurrency
 
 These are secondary benefits, but they reinforce the error model.
@@ -709,8 +809,9 @@ and [Effect PostgreSQL session](https://github.com/drizzle-team/drizzle-orm/blob
 The smallest useful experiment is **error-first**, not a generic
 `tryPromise` wrapper and not a full client rewrite.
 
-1. Pin `effect@4.0.0-beta.101` in an isolated branch/prototype and upgrade that
-   branch to TypeScript 5.9.
+1. Pin `effect@4.0.0-beta.101` and
+   `@effect/vitest@4.0.0-beta.101` in an isolated branch/prototype and upgrade
+   that branch to TypeScript 5.9.
 2. Define a coarse expected query/driver failure union from the existing error
    classes. Do not redesign the public errors.
 3. Change one representative executor-to-driver path into
@@ -725,9 +826,14 @@ The smallest useful experiment is **error-first**, not a generic
 7. Finish through `runPromiseExit` and prove byte-for-byte/public-contract
    parity for error class, code, message, sanitized metadata, cause, and
    aggregation.
-8. Add one operation span, one statement span, structured log annotations, and
-   low-cardinality metrics using a test sink. Do not migrate exporters yet.
-9. Benchmark and compare code only after semantic parity.
+8. Test the Effect path with `it.effect`, a failure-injection Driver Layer,
+   complete `Exit`/`Cause` assertions, and `TestClock` for Effect-native time.
+   Keep public Promise conformance in plain Vitest and real provider contracts
+   under `it.live`.
+9. Add one operation span, one statement span, structured log annotations, and
+   low-cardinality metrics using a scoped capture Layer. Do not migrate
+   exporters yet.
+10. Benchmark and compare code only after semantic parity.
 
 ### Prototype pass/fail cases
 
@@ -750,6 +856,8 @@ The prototype passes only if all of these are true:
    cannot outlive the transaction scope.
 9. No ordered fragment or atomic batch is accidentally parallelized.
 10. Existing V2 conformance behavior is unchanged.
+11. Retry and timeout unit tests advance `TestClock` without wall-clock sleeps;
+    live provider timing remains in an explicitly separate test group.
 
 ### Engineering gates
 
@@ -764,6 +872,8 @@ Even a semantically correct prototype should not enter core until it measures:
   query;
 - code removed from transaction, error, execution-context, and instrumentation
   plumbing versus bridge code added.
+- test harness code removed, deterministic-test wall-clock duration, and
+  whether the Effect path reduces rather than hides timing flakes.
 
 The decision rule is simple: Effect earns a core dependency only if typed error
 composition plus scoped execution removes more independent machinery than the
@@ -779,7 +889,9 @@ Effect v4 is a strong conceptual fit for VibORM's **execution kernel**:
   translation;
 - Context/Layer removes the current driver override cascade;
 - log/span annotations remove most execution-attribution threading;
-- structured concurrency can supervise transaction-scoped work.
+- structured concurrency can supervise transaction-scoped work;
+- `@effect/vitest` can test those same Layers, Scopes, clocks, and complete
+  Causes directly, with less lifecycle and timing scaffolding.
 
 It is a poor fit for the pure V2 compiler, operation IR, adapters, or schema
 inference system.
@@ -789,12 +901,14 @@ resource abstraction and accidentally losing VibORM's existing
 primary-plus-cleanup failure semantics. Prove that case first. If the prototype
 preserves it, Effect v4 can make the engine's error model substantially more
 coherent. If it does not, Layers and observability alone are not enough reason
-to put the runtime in core.
+to put the runtime in core. The test package makes the experiment more honest;
+it does not change that adoption threshold.
 
 ## Primary sources
 
 - [Effect v4 beta announcement](https://effect.website/blog/releases/effect/40-beta/)
 - [`effect@4.0.0-beta.101`](https://www.npmjs.com/package/effect/v/4.0.0-beta.101)
+- [`@effect/vitest@4.0.0-beta.101`](https://www.npmjs.com/package/@effect/vitest/v/4.0.0-beta.101)
 - [Exact beta.101 repository commit](https://github.com/Effect-TS/effect/tree/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e)
 - [V4 migration guide](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/MIGRATION.md)
 - [V4 error-handling migration](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/migration/error-handling.md)
@@ -811,5 +925,12 @@ to put the runtime in core.
 - [Exact Logger source](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/effect/src/Logger.ts)
 - [Exact Tracer source](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/effect/src/Tracer.ts)
 - [Exact Metric source](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/effect/src/Metric.ts)
+- [Exact `@effect/vitest` package metadata](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/package.json)
+- [Exact `@effect/vitest` public API](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/src/index.ts)
+- [Exact `@effect/vitest` runner and Layer implementation](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/src/internal/internal.ts)
+- [Exact `@effect/vitest` assertion helpers](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/src/utils.ts)
+- [Exact `TestClock` source](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/effect/src/testing/TestClock.ts)
+- [Exact `TestConsole` source](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/effect/src/testing/TestConsole.ts)
+- [Beta.101 `@effect/vitest` README](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/vitest/README.md)
 - [Exact runtime implementation](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/effect/src/internal/effect.ts)
 - [Exact v4 OpenTelemetry Cause mapping](https://github.com/Effect-TS/effect/blob/4e0be584fbde272d201b4ad24eaa9b0c8e56f25e/packages/opentelemetry/src/OtelTracer.ts)
