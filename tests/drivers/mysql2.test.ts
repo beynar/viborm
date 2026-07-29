@@ -409,6 +409,9 @@ describeIf("MySQL2 Driver", () => {
         databaseUrl: TEST_CONNECTION_STRING,
       }),
     createStateDriver: createMySQL2Driver,
+    // MySQL's skipDuplicates has no portable SQL leaf, so the skip is the
+    // savepoint-wrapped executor effect — which a single atomic batch cannot carry.
+    skipDuplicatesInBatchIsInexpressible: true,
   });
 
   // TRANSACTION mode only. This suite drives the CLIENT, and a batch-only MySQL

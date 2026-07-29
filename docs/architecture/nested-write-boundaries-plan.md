@@ -83,6 +83,31 @@ compound NON-PK referenced unique (`[region, code]`) with a sibling sharing `reg
 a staleness probe that corrupts exactly ONE member of the tuple and asserts the WHOLE tuple
 moved — the proof that every member travels from the same located row.
 
+### N1-U3 — delivered
+
+**No batch-side code was needed, and that is the finding.** The locate is a planning step,
+and planning runs ahead of the atomic unit in batch mode exactly as it runs inside the
+transaction — so the value the Ref carries is produced identically on both substrates and
+inlined into the compiled statements before `compileToEntries` ever sees them. Technique #1
+is satisfied by the existing lifecycle; nothing threads through the batch lowering.
+
+The deliverable is therefore the ORACLE, not a mechanism: seven scenarios (single, bulk, D4
+referenced column with a scalar SET, the create subtree, a compound reference by a unique
+naming neither member, a missing row, a colliding child PK) run through BOTH substrates on
+a FRESH database per arm, comparing the returned result, the whole persisted state, AND the
+error class + message. They agree on all seven, including both failure classes. No shape
+required a substrate-naming refusal — that is measured, not assumed.
+
+One genuinely inexpressible batch case exists and is NOT new: `createMany` +
+`skipDuplicates` on a dialect whose skip is not a SQL leaf (`recoverableUniqueError` —
+MySQL) compiles to the savepoint-wrapped executor effect, which a single atomic batch
+cannot carry. The planned-parent leaf inherits that disposition unchanged from the literal
+one (same `onUniqueConflict` flag, same executor refusal). The shared behavior suite pins
+it in BOTH directions rather than skipping it: the MySQL atomic-batch leg DECLARES
+`skipDuplicatesInBatchIsInexpressible` and asserts the typed refusal with nothing written;
+every other leg asserts the skip executing. A dialect that can express it cannot quietly
+start refusing, and one that cannot cannot quietly start succeeding.
+
 **Measured, not fixed — recorded for a later wave.** In BATCH mode the root-presence guard
 and the root UPDATE both address the ORIGINAL `where`, while child edges address the
 captured located row. Under a concurrent rename-plus-reinsert on the discriminator those

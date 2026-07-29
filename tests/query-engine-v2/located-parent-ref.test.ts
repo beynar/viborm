@@ -155,6 +155,199 @@ runLocatedParentRefBehavior({
   createDriver: () => new BatchOnlyPGliteDriver(),
 });
 
+/**
+ * N1-U3 — the DUAL-SUBSTRATE ORACLE.
+ *
+ * The behavior suite asserts fixed expectations on each substrate independently. That
+ * proves each is right; it does not prove they AGREE, and agreement is the claim the atom
+ * makes: one compile path, the substrate is a resolve function (ATOM §7). The Ref is the
+ * sharpest test of that claim, because it is the one value that crosses the
+ * planning/compile seam — under a transaction the locate is a locked read inside the same
+ * scope as the writes; under an atomic batch it runs BEFORE the unit, against committed
+ * state, and the value is inlined into entries the driver ships together.
+ *
+ * So: identical payloads, a FRESH database per arm, comparing the returned result, the
+ * whole persisted state, AND the error class + message when the payload fails. Anything
+ * the batch side could not express would show up here as a divergence rather than as an
+ * assumption — and nothing did, which is why no substrate-naming refusal was added.
+ */
+interface OracleScenario {
+  readonly name: string;
+  seed(client: ReturnType<typeof makeClient>): Promise<void>;
+  act(client: ReturnType<typeof makeClient>): PromiseLike<unknown>;
+}
+
+interface ArmOutcome {
+  readonly result?: unknown;
+  readonly error?: { name: string; message: string };
+  readonly state: Record<string, unknown[]>;
+}
+
+async function dumpState(
+  client: ReturnType<typeof makeClient>
+): Promise<Record<string, unknown[]>> {
+  const [accounts, notes, attachments, tickets, owners, memos] =
+    await Promise.all([
+      client.account.findMany({ orderBy: { id: "asc" } }),
+      client.note.findMany({ orderBy: { id: "asc" } }),
+      client.attachment.findMany({ orderBy: { id: "asc" } }),
+      client.ticket.findMany({ orderBy: { id: "asc" } }),
+      client.owner.findMany({
+        orderBy: [{ tenantId: "asc" }, { slot: "asc" }],
+      }),
+      client.memo.findMany({ orderBy: { id: "asc" } }),
+    ]);
+  return { accounts, notes, attachments, tickets, owners, memos };
+}
+
+async function runOracleArm(
+  substrate: "tx" | "batch",
+  scenario: OracleScenario
+): Promise<ArmOutcome> {
+  const db = new PGlite();
+  const stateClient = makeClient(new PGliteDriver({ client: db }));
+  await push(stateClient, { force: true });
+  await scenario.seed(stateClient);
+  const opClient =
+    substrate === "tx"
+      ? stateClient
+      : makeClient(new BatchOnlyPGliteDriver({ client: db }));
+  let result: unknown;
+  let error: { name: string; message: string } | undefined;
+  try {
+    result = await scenario.act(opClient);
+  } catch (thrown) {
+    if (!(thrown instanceof Error)) throw thrown;
+    error = { name: thrown.constructor.name, message: thrown.message };
+  }
+  const state = await dumpState(stateClient);
+  await stateClient.$disconnect();
+  return error ? { error, state } : { result, state };
+}
+
+const oracleScenarios: OracleScenario[] = [
+  {
+    name: "nested create by a non-PK unique",
+    seed: (c) => seed(c),
+    act: (c) =>
+      c.account.update({
+        where: { email: "target@x" },
+        data: { notes: { create: { id: 1, body: "b" } } },
+        select: { id: true, notes: { select: { id: true, accountId: true } } },
+      }),
+  },
+  {
+    name: "nested createMany by a non-PK unique",
+    seed: (c) => seed(c),
+    act: (c) =>
+      c.account.update({
+        where: { email: "target@x" },
+        data: {
+          notes: {
+            createMany: {
+              data: [
+                { id: 1, body: "b" },
+                { id: 2, body: "c" },
+              ],
+            },
+          },
+        },
+        select: { id: true, notes: { select: { id: true, accountId: true } } },
+      }),
+  },
+  {
+    name: "a D4 referenced column plus a scalar SET",
+    seed: (c) => seed(c),
+    act: (c) =>
+      c.account.update({
+        where: { email: "target@x" },
+        data: {
+          label: "renamed",
+          tickets: { create: { id: 1, subject: "s" } },
+        },
+        select: {
+          id: true,
+          label: true,
+          tickets: { select: { id: true, accountCode: true } },
+        },
+      }),
+  },
+  {
+    name: "a relation-carrying create subtree",
+    seed: (c) => seed(c),
+    act: (c) =>
+      c.account.update({
+        where: { email: "target@x" },
+        data: {
+          notes: {
+            create: {
+              id: 1,
+              body: "subtree",
+              attachments: { create: { id: 2, name: "a.txt" } },
+            },
+          },
+        },
+        select: { id: true },
+      }),
+  },
+  {
+    name: "a compound reference located by a unique naming neither member",
+    seed: async (c) => {
+      await c.owner.create({
+        data: { tenantId: "t1", slot: "a", handle: "h-t1-a" },
+      });
+      await c.owner.create({
+        data: { tenantId: "t1", slot: "b", handle: "h-t1-b" },
+      });
+    },
+    act: (c) =>
+      c.owner.update({
+        where: { handle: "h-t1-b" },
+        data: { memos: { create: { id: 1, text: "m" } } },
+        select: { handle: true },
+      }),
+  },
+  {
+    name: "the located row does not exist",
+    seed: (c) => seed(c),
+    act: (c) =>
+      c.account.update({
+        where: { email: "absent@x" },
+        data: { notes: { create: { id: 1, body: "never" } } },
+        select: { id: true },
+      }),
+  },
+  {
+    name: "the created child collides on its own primary key",
+    seed: async (c) => {
+      await seed(c);
+      await c.note.create({ data: { id: 1, body: "taken", accountId: 1 } });
+    },
+    act: (c) =>
+      c.account.update({
+        where: { email: "target@x" },
+        data: { notes: { create: { id: 1, body: "dup" } } },
+        select: { id: true },
+      }),
+  },
+];
+
+describe("located-parent Ref dual-substrate oracle (N1-U3)", () => {
+  for (const scenario of oracleScenarios) {
+    test(
+      `${scenario.name}: transaction and atomic batch agree on result, state and error`,
+      { timeout: 30_000 },
+      async () => {
+        const [tx, batch] = await Promise.all([
+          runOracleArm("tx", scenario),
+          runOracleArm("batch", scenario),
+        ]);
+        expect(batch).toEqual(tx);
+      }
+    );
+  }
+});
+
 describe("located-parent Ref compiles the same plan as the pinned spelling", () => {
   for (const kind of ["create", "createMany"] as const) {
     test(

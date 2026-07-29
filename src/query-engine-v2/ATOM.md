@@ -1771,6 +1771,21 @@ witnesses are chosen so a partial resolution cannot pass: siblings that share on
 and differ in the other, and a staleness probe that corrupts exactly ONE member and asserts
 the whole tuple moved.
 
+**N1-U3 — the batch lowering needed nothing, which is the finding.** §7's claim is that the
+substrate is a resolve function; the located-parent Ref is the sharpest test of it, being
+the one value that crosses the planning/compile seam. It crosses identically: planning runs
+ahead of the atomic unit in batch mode exactly as it runs inside the transaction, so the
+value is produced the same way and inlined into the statements before `compileToEntries`
+sees them. Technique #1 is satisfied by the lifecycle already; no batch-specific code
+exists for this path. The evidence is a dual-substrate ORACLE — identical payloads, a fresh
+database per arm, comparing result AND whole persisted state AND error class/message across
+seven scenarios including both failure classes. They agree, so no substrate-naming refusal
+was written: measured, not assumed. The one genuinely inexpressible batch case is
+pre-existing and inherited unchanged — `createMany` + `skipDuplicates` on a
+`recoverableUniqueError` dialect is the savepoint-wrapped executor effect (§8), which a
+single atomic batch cannot carry; the shared behavior suite pins that leg's typed refusal
+and every other leg's execution, so neither can drift into the other.
+
 ---
 
 ## 9. Invariants (the executable contract)

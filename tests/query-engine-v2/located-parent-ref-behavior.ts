@@ -129,6 +129,9 @@ export const locatedParentRefSchema = (() => {
 
 hydrateSchemaNames(locatedParentRefSchema);
 
+/** The executor's typed refusal for a savepoint skip inside a single atomic batch. */
+const NO_BATCH_SKIP_LOWERING = /no atomic-batch lowering/;
+
 function makeRefClient(driver: AnyDriver) {
   return createClient({ schema: locatedParentRefSchema, driver });
 }
@@ -177,6 +180,16 @@ export function runLocatedParentRefBehavior(options: {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
   readonly createStateDriver?: () => AnyDriver;
+  /**
+   * Declared by the caller, never sniffed: on a dialect whose `skipDuplicates` is NOT a
+   * SQL leaf (`recoverableUniqueError` — MySQL), the skip is a savepoint-wrapped executor
+   * effect, and a savepoint has no lowering into a single atomic batch. Such a leg must
+   * see the typed refusal with NOTHING written, not a silent success. Requiring the leg
+   * to say so keeps the assertion falsifiable in both directions: a dialect that CAN
+   * express it may not quietly start refusing, and one that cannot may not quietly start
+   * succeeding.
+   */
+  readonly skipDuplicatesInBatchIsInexpressible?: boolean;
 }): void {
   describe(`${options.name} located-parent Ref (N1)`, () => {
     const setup = async () => {
@@ -470,6 +483,54 @@ export function runLocatedParentRefBehavior(options: {
               vendorRegion: "eu",
               vendorCode: "TARGET",
             },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "nested createMany skipDuplicates rides the located-parent Ref",
+      { timeout: 30_000 },
+      async () => {
+        const { client, opClient, dispose } = await setup();
+        try {
+          await seedAccounts(client);
+          // The colliding row already belongs to the DECOY, so the skip must drop it
+          // (a unique violation on `note.id`) while the survivors attach to the
+          // located account — the composed skip leaf, on the planned-parent path.
+          await client.note.create({
+            data: { id: 91, body: "taken", accountId: 1 },
+          });
+          const skip = () =>
+            opClient.account.update({
+              where: { email: "target@x" },
+              data: {
+                notes: {
+                  createMany: {
+                    data: [
+                      { id: 90, body: "kept" },
+                      { id: 91, body: "dropped" },
+                    ],
+                    skipDuplicates: true,
+                  },
+                },
+              },
+            });
+          if (options.skipDuplicatesInBatchIsInexpressible) {
+            await expect(skip()).rejects.toThrow(NO_BATCH_SKIP_LOWERING);
+            await expect(
+              client.note.findMany({ orderBy: { id: "asc" } })
+            ).resolves.toEqual([{ id: 91, body: "taken", accountId: 1 }]);
+            return;
+          }
+          await skip();
+          await expect(
+            client.note.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 90, body: "kept", accountId: 2 },
+            { id: 91, body: "taken", accountId: 1 },
           ]);
         } finally {
           await dispose();
