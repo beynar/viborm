@@ -58,9 +58,29 @@ produced-identity provenance is unaffected).
 Four tests were deliberately RETARGETED from a decline to an accept-and-execute assertion
 on the SAME payload, each with the reason written at the site:
 `nested-update-d4-deep-nonpk-reference.test.ts` (this is also the depth-≥2 witness — the
-Ref under X1c delegation), `extended-where-unique-behavior.ts` (the Pin-Rule claim
-survives, sharpened), and the two construction-surface tests in `update-family.test.ts` /
-`upsert-family.test.ts`.
+Ref under X1c delegation), `extended-where-unique-behavior.ts` (the Pin-Rule claim), and
+the two construction-surface tests in `update-family.test.ts` / `upsert-family.test.ts`.
+
+**Fix-round correction (N1-F1).** This record first said the Pin-Rule claim "survives,
+sharpened". That was wrong, and the reason written at the retarget site was provably
+false. The deleted `UnsupportedOperationError` assertion was the estate's ONLY behavioral
+falsification of "the filter half pins nothing", and the two retargeted `AND` cases cannot
+carry it: the filter half is ANDed into the locate, so an `AND` branch either names the
+located row's own referenced value (the two provenances coincide by construction) or names
+a different row's and the locate matches nothing (nothing is written regardless of where
+the FK came from). Measured, not argued: `locatedCreateParent` mutated to scan
+`this.parentWhere.AND` for the referenced field and return it as a literal — i.e. the
+filter read AS a pin — passes the whole suite, 68/68.
+
+The falsification is restored as a third case rather than by reinstating the refusal (the
+refusal is genuinely absorbed): an **OR** filter half, the one shape whose two halves can
+disagree while the locate still finds a row. `where: { email: 'live@x', OR: [{ id: 2 },
+{ id: 1 }] }` locates account 1 while account 2's id sits in the filter half; a
+filter-as-pin writes the login against account 2 — a live, insertable key, so the wrong
+parent is a silent wrong row, not an error. Both branch orderings are asserted, so no
+positional filter-as-pin (first branch or last) survives. The mutation above fails it on
+both substrates (`accountId: 2` for `accountId: 1`). N6-U1 (extended unique in nested
+selectors) is planned on top of this claim, so it now rests on a witness that discriminates.
 
 ### N1-U2 — delivered
 

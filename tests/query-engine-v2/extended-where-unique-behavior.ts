@@ -700,21 +700,32 @@ export function runExtendedWhereUniqueBehavior(options: {
       })
     );
 
-    // DELIBERATE RETARGET (N1-U1). This case used to pin an
-    // `UnsupportedOperationError`: with `id` named only by the AND branch, no
-    // compile-time literal held the referenced column, and the nested create
-    // refused. That refusal was literal-only propagation, not the Pin Rule, and
-    // N1 removed its cause — the locate now SELECTS the referenced column and the
-    // create reads it from the located row. What the Pin Rule actually forbids is
-    // unchanged and still witnessed here: nothing is read FROM the filter half.
-    // `resolveCreateParent` consults `getWhereUniqueEntries` — the discriminator
-    // alone — and when that does not name the referenced column it goes to the
-    // LOCATED ROW, never to the AND branch. The second case is the falsification:
-    // a filter naming a referenced value that excludes the discriminator's row
-    // must produce NOT-FOUND with nothing written; an implementation that read
-    // the filter as a pin would insert a login against it.
+    // DELIBERATE RETARGET (N1-U1), CORRECTED in the N1 fix round. This case used
+    // to pin an `UnsupportedOperationError`: with `id` named only by the AND
+    // branch, no compile-time literal held the referenced column, and the nested
+    // create refused. That refusal was literal-only propagation, not the Pin
+    // Rule, and N1 removed its cause — the locate now SELECTS the referenced
+    // column and the create reads it from the located row.
+    //
+    // What the deleted assertion had also been doing, unnoticed, was FALSIFYING
+    // the Pin-Rule half: an implementation reading the filter as a pin would
+    // never have raised it. The retarget's first cut claimed the two AND cases
+    // below carried that falsification forward. They do not, and the claim was
+    // measured false — a `locatedCreateParent` mutated to scan `where.AND` for
+    // the referenced field and return it as a literal passes BOTH. It cannot be
+    // otherwise: the filter half is ANDed into the locate, so an AND branch
+    // either names the located row's own value (this case — the two provenances
+    // coincide by construction) or names another row's and the locate finds
+    // NOTHING (the case below — no row, no write, regardless of provenance).
+    //
+    // These two are therefore accept-and-execute witnesses only: the payload
+    // that used to refuse now executes, and an excluding filter still aborts the
+    // whole tree. The discriminating witness is the OR case that follows, where
+    // the two halves DISAGREE while the locate still succeeds — the only shape
+    // in which "the value came from the located row" and "the value came from
+    // the filter" produce different rows.
     test(
-      "a filter naming the referenced column pins NOTHING — the value comes from the located row",
+      "a filter naming the referenced column executes — the value comes from the located row",
       { timeout: 30_000 },
       run(async (client) => {
         const result = await client.account.update({
@@ -733,7 +744,7 @@ export function runExtendedWhereUniqueBehavior(options: {
     );
 
     test(
-      "a filter naming another row's referenced value is NOT-FOUND, never a pin",
+      "a filter naming another row's referenced value is NOT-FOUND, and writes nothing",
       { timeout: 30_000 },
       run(async (client) => {
         // `live@x` is account 1; the filter demands `id: 2`. The two halves
@@ -752,6 +763,50 @@ export function runExtendedWhereUniqueBehavior(options: {
         expect(await client.login.findMany({ select: { id: true } })).toEqual(
           []
         );
+      })
+    );
+
+    // THE FALSIFICATION of "the filter half pins NOTHING" (N1 fix round). An OR
+    // filter is the one shape whose halves can disagree while the locate still
+    // finds a row: `email = 'live@x' AND (id = … OR id = …)` matches account 1
+    // in both orderings below, but account 2's id is sitting right there in the
+    // filter half. An implementation that read a pin out of that half would take
+    // `2` — a live, insertable foreign key, so the wrong parent is a SILENTLY
+    // wrong row, not an error. `resolveCreateParent` consults
+    // `getWhereUniqueEntries` — the discriminator alone — and goes to the LOCATED
+    // ROW when that does not name the referenced column, so both logins must hang
+    // off account 1. Both branch orderings are run: no positional filter-as-pin
+    // (first branch or last) survives one of them.
+    test(
+      "an OR filter naming another row's referenced value pins NOTHING",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.account.update({
+          where: { email: "live@x", OR: [{ id: 2 }, { id: 1 }] },
+          data: { logins: { create: { id: 201, label: "decoy first" } } },
+          select: { id: true },
+        });
+        await client.account.update({
+          where: { email: "live@x", OR: [{ id: 1 }, { id: 2 }] },
+          data: { logins: { create: { id: 202, label: "decoy last" } } },
+          select: { id: true },
+        });
+        expect(
+          await client.login.findMany({
+            select: { id: true, accountId: true },
+            orderBy: { id: "asc" },
+          })
+        ).toEqual([
+          { id: 201, accountId: 1 },
+          { id: 202, accountId: 1 },
+        ]);
+        // …and account 2, the row the filter half named, gained nothing.
+        expect(
+          await client.account.findUnique({
+            where: { id: 2 },
+            select: { logins: { select: { id: true } } },
+          })
+        ).toEqual({ logins: [] });
       })
     );
 

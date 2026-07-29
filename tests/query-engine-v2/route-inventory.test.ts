@@ -688,9 +688,18 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     persisted grandchild carries the located target's `code`, with a second org whose
   //     code differs so "any row's code" cannot pass.
   //   · `extended-where-unique-behavior.ts` — "a filter naming the referenced column pins
-  //     NOTHING". The Pin Rule content is unchanged and still witnessed (the value comes
-  //     from the located row, and a filter naming ANOTHER row's referenced value is
-  //     NOT-FOUND with nothing written); only the refusal it used to observe is gone.
+  //     NOTHING". CORRECTED in the N1 fix round: this entry first claimed the Pin Rule
+  //     content was "unchanged and still witnessed" by the two retargeted AND cases. It
+  //     was not. The deleted `UnsupportedOperationError` assertion had been the estate's
+  //     only behavioral falsification of the filter half, and neither AND case can
+  //     replace it — with the filter ANDed into the locate, an AND branch either names
+  //     the located row's own value (both provenances coincide) or names another row's
+  //     and the locate finds nothing (no write, whatever the provenance). Measured: a
+  //     `locatedCreateParent` mutated to read `where.AND` as a pin passed all 68. The
+  //     falsification is restored by a THIRD case — an OR filter half carrying another
+  //     row's referenced value, in both branch orderings, where the locate still succeeds
+  //     and a filter-as-pin writes a live-but-wrong foreign key (that mutation fails it on
+  //     both substrates: `accountId: 2` for `accountId: 1`).
   //
   // 77 -> 77 (N1-U2, compound referenced keys): NARROWED, not deleted.
   // `resolveCreateParent`'s compound throw fired for EVERY compound reference; it now
