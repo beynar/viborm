@@ -673,6 +673,40 @@ three ways — writes before the root UPDATE: 15/22 fail; located source instead
 15/22 fail; no `correlationParentId`: the required-FK `set` dies with "requires a planned parent
 id to correlate its probe". Gate count 66 → 67 (one added N5 entry in the decline-surface gate).
 
+### N5-U2 — DELIVERED (the B10 residue). Census 75 → 75; two sites narrowed, one re-justified.
+
+Sweep entries (a) and (b) both existed to protect one thing: the POST-transition value a
+fresh child must reference when the root SET rewrites the column its foreign key points at.
+(a) refused a compound reference because the tuple is per member; (b) refused an unpinned
+single key because the pre-value was not a construction literal.
+
+**Neither reason applies when the edge cascades**, because then no post-transition value is
+needed: write the fresh row against the LOCATED pre-transition values, before the root
+UPDATE, and `ON UPDATE CASCADE` carries it. That is the ordering a reparent has had since
+T3b1, applied to an INSERT, and `locatedCreateParent` (N1's per-field source) is entered
+unchanged — so arity and pinning both stop mattering. Witnessed on every driver leg and
+both substrates: a cascading key transitioned under a `where` naming a different unique
+((b)'s shape), and a cascading COMPOUND key with both members rewritten ((a)'s).
+
+**The survivors, measured.** A NON-cascading rewrite whose pre-value the `where` does not
+pin, or any non-cascading compound rewrite. The needed SQL is a plain
+`INSERT … VALUES (<new key>)` and its place in the ladder is already decided — the gap is
+that no PARENT-ID SOURCE can name that value. All three kinds are fixed at construction:
+`literal` (a value), `planned` (a located column, verbatim), `ref` (a SQL reference); none
+transforms. One field closes both: a `planned` source carrying the SET operand, resolved
+through `getUpdatedPrimaryKeyValue` in `referencedFieldValue` at compile.
+
+**Sweep (d) is re-justified, and the sweep's own framing of it was incomplete.** It named
+"a correlated read of the pre-transition slot ordered BEFORE the self-UPDATE" as the fix.
+That half is right and cheap — the occupied guard's probe is a planning step and may carry
+a `Ref` to the locate. Measured, the other half: the literal `before` also feeds the
+**no-op test** (`sameScalarValue`), which is what makes `increment: 0` and same-value `set`
+emit NO guard — pinned by two tests in `relation-key-update-legality.test.ts`. A
+Ref-correlated guard without that decision moved to compile would reject an occupied slot
+the engine deliberately accepts today: a regression, not a boundary. So (d) needs the no-op
+verdict moved to compile first, and its unpinned third additionally needs the same
+transforming source (a)/(b) name. Kept as one site rather than pre-split.
+
 ## N6 — Beyond Prisma (decision-gated; each unit needs a maintainer yes)
 
 | Unit | What | Decision |

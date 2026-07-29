@@ -1172,6 +1172,70 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // pre-transition ordering fails the 2 child-held arms; removing the depth occupied
   // guard fails the 2 occupied arms (they silently null the occupant instead).
   //
+  // 73 -> 73 (N5-U2, the B10 residue — sweep entries (a), (b), (d); the lane measured
+  // this as 75 -> 75 — see the MERGE NOTE above): both
+  // `resolveCreateParent` sites NARROWED by an ordering that derives nothing, and the
+  // third RE-JUSTIFIED with a measured reason. No count change: narrowing a message is
+  // not deleting a site.
+  //
+  // (a) + (b), THE ABSORPTION. Both refusals existed to protect a derivation — the
+  // POST-transition value a fresh child must reference when the root SET rewrites the
+  // column its foreign key points at. (a) refused a compound reference because the tuple
+  // is per member; (b) refused an unpinned single key because the pre-value was not a
+  // construction literal. Neither reason applies when the edge carries ON UPDATE CASCADE,
+  // because then NO post-transition value is needed at all: write the fresh row against
+  // the LOCATED pre-transition values, before the root UPDATE, and the cascade carries the
+  // row's foreign key forward. That is the ordering `reorderRootUpdateAfterChildren` has
+  // applied to a REPARENT since T3b1, applied to an INSERT, and `locatedCreateParent` — N1's
+  // per-field located-parent source — is entered unchanged, so arity and pinning both stop
+  // mattering. The cascade test now runs BEFORE the arity and pinned-value branches, which
+  // is the whole diff.
+  //
+  // Both messages gained the word NON-CASCADING, so each says what it now refuses.
+  // Witnessed in `post-transition-adopt-behavior.ts` on every driver leg and both
+  // substrates: a cascading single key transitioned under a `where` that names a DIFFERENT
+  // unique (exactly (b)'s shape), and a cascading COMPOUND key with BOTH members rewritten
+  // (exactly (a)'s). Falsified: removing the cascade branch fails those 4 tests.
+  //
+  // (a) + (b), THE SURVIVORS, measured. What is left is a NON-cascading rewrite whose
+  // pre-transition value the `where` does not pin (single key), or any non-cascading
+  // rewrite of a compound reference. A NO-ACTION foreign key does not follow the parent,
+  // so the fresh row must carry the POST-transition value, and that is
+  // `getUpdatedPrimaryKeyValue(before, operand)` — computable only once `before` is known,
+  // i.e. at COMPILE, after the locate has run. The gap is NOT SQL and not ordering: the
+  // statement is a plain `INSERT … VALUES (<new key>)` and its place in the ladder is
+  // already decided (`afterRoot: true`). The gap is that no PARENT-ID SOURCE can name that
+  // value. All three kinds are fixed at construction — `literal` (a value), `planned` (a
+  // column of the located row, verbatim), `ref` (a SQL reference) — and none applies a
+  // transform. One field closes both: a `planned` source carrying the SET operand,
+  // resolved through the same derivation in `referencedFieldValue`. Owner: a follow-on
+  // unit; it is also what (d)'s unpinned third needs.
+  //
+  // (d) `UpdateOperation.interpretRelation`, "nested '<kind>' … while the root update
+  // transitions a compound / non-PK / unpinned referenced column" — RE-JUSTIFIED, not
+  // absorbed, and the sweep's own framing was incomplete. It named "a correlated read of
+  // the pre-transition slot ordered BEFORE the self-UPDATE" as the fix, and that half is
+  // right and cheap: the occupied guard's probe is a PLANNING step, so it may carry a SQL
+  // `Ref` to the locate (technique #1) instead of the literal `before` it uses today.
+  // MEASURED, the half that is neither: `interpretReferencedKeyTransition` also decides
+  // two things that same literal feeds.
+  //   · THE NO-OP TEST. `sameScalarValue(before, after)` is what makes `increment: 0` /
+  //     `set` to the current value keep the ordinary parts and emit NO guard (pinned by
+  //     "allows same-value set on an occupied setNull relation" and "allows increment zero
+  //     …" in `relation-key-update-legality.test.ts`). With `before` unknown at
+  //     construction, a Ref-correlated guard would fire on a no-op and reject an occupied
+  //     slot the current engine deliberately accepts — a REGRESSION, not a boundary. The
+  //     decision has to move to compile, where the located row is in hand.
+  //   · `after` FOR THE ADOPT ORDERING. N5-U1's adopt family and the to-one upsert
+  //     create-arm reroute both take `after` as a construction literal. For the non-PK
+  //     (D4) third of this site that is fine — the SET holds a literal and non-PK
+  //     referenced arithmetic is already refused upstream — but the unpinned-PK third
+  //     needs the same transforming source (a) and (b) name above.
+  // So (d) splits into a cheap non-PK part and an unpinned part sharing the one missing
+  // mechanism, and BOTH need the no-op verdict moved to compile first. Kept as one site
+  // rather than pre-split, because splitting it before that move would multiply messages
+  // without changing what executes. Owner: the same follow-on unit.
+  //
   // 73 -> 74 (MERGE, N4-U1 × N5-U1b): one site ADDED, and it exists ONLY because the two
   // lanes met. Neither lane could see it: each was green in its own worktree, and the
   // shape it refuses declined in BOTH lanes for each lane's own reason.

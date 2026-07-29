@@ -105,7 +105,54 @@ export const postTransitionAdoptSchema = (() => {
         .onUpdate("setNull"),
     })
     .map("n5_pta_badges");
-  return { list, item, crate, box, owner, badge };
+  // ON UPDATE CASCADE, single key — N5-U2's other ordering. A nested create under a
+  // transition of THIS key needs no post-transition value at all: write the fresh row
+  // against the LOCATED key, before the root UPDATE, and let the cascade carry it.
+  const feed = s
+    .model({
+      id: s.int().id(),
+      name: s.string().unique(),
+      entries: s.oneToMany(() => entry),
+    })
+    .map("n5_pta_feeds");
+  const entry = s
+    .model({
+      id: s.int().id(),
+      text: s.string(),
+      feedId: s.int().nullable(),
+      feed: s
+        .manyToOne(() => feed)
+        .fields("feedId")
+        .references("id")
+        .optional()
+        .onUpdate("cascade"),
+    })
+    .map("n5_pta_entries");
+  // The same, COMPOUND: the cascade ordering is arity-blind because it derives nothing.
+  const zone = s
+    .model({
+      country: s.string(),
+      city: s.string(),
+      label: s.string(),
+      kiosks: s.oneToMany(() => kiosk),
+    })
+    .id(["country", "city"])
+    .map("n5_pta_zones");
+  const kiosk = s
+    .model({
+      id: s.int().id(),
+      name: s.string(),
+      zoneCountry: s.string().nullable(),
+      zoneCity: s.string().nullable(),
+      zone: s
+        .manyToOne(() => zone)
+        .fields("zoneCountry", "zoneCity")
+        .references("country", "city")
+        .optional()
+        .onUpdate("cascade"),
+    })
+    .map("n5_pta_kiosks");
+  return { list, item, crate, box, owner, badge, feed, entry, zone, kiosk };
 })();
 
 hydrateSchemaNames(postTransitionAdoptSchema);
@@ -115,7 +162,9 @@ hydrateSchemaNames(postTransitionAdoptSchema);
  * behavior suite uses, because a batch-only non-returning driver refuses single-row
  * mutations at the client seam and would make that leg vacuous while looking green.
  */
-function makeRunner(driver: AnyDriver, modelName: "list" | "crate" | "owner") {
+type RunnerModel = "crate" | "feed" | "list" | "owner" | "zone";
+
+function makeRunner(driver: AnyDriver, modelName: RunnerModel) {
   const schemas = createSchemaRegistry(postTransitionAdoptSchema);
   const engine = new QueryEngine(
     driver,
@@ -180,7 +229,7 @@ export function runPostTransitionAdoptBehavior(options: {
   readonly createStateDriver?: () => AnyDriver;
 }): void {
   describe(`${options.name} post-transition adopt (N5-U1)`, () => {
-    const setup = async (modelName: "list" | "crate" | "owner" = "list") => {
+    const setup = async (modelName: RunnerModel = "list") => {
       const driver = options.createDriver();
       const stateDriver = options.createStateDriver?.() ?? driver;
       const client = makeStateClient(stateDriver);
@@ -485,6 +534,64 @@ export function runPostTransitionAdoptBehavior(options: {
             })
           ).rejects.toThrow(ABSENT_TARGET);
           await expect(listState(client)).resolves.toEqual(SEEDED_LIST_STATE);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "a CASCADING key needs no post-transition value: the create rides the located one",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup("feed");
+        try {
+          await client.feed.create({ data: { id: 1, name: "target" } });
+          // The `where` names `name`, so the pre-transition key is NOT pinned — the
+          // refusal this replaced said exactly that. It never mattered: the fresh row
+          // takes the LOCATED key, lands before the root UPDATE, and `ON UPDATE CASCADE`
+          // carries it to 5. Nothing is derived, so nothing needs to be known early.
+          await update({
+            where: { name: "target" },
+            data: { id: 5, entries: { create: { id: 20, text: "fresh" } } },
+          });
+          await expect(client.feed.findMany({})).resolves.toEqual([
+            { id: 5, name: "target" },
+          ]);
+          await expect(client.entry.findMany({})).resolves.toEqual([
+            { id: 20, text: "fresh", feedId: 5 },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "the cascade ordering is arity-blind: a COMPOUND key rewrite carries the same way",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup("zone");
+        try {
+          await client.zone.create({
+            data: { country: "FR", city: "Lyon", label: "target" },
+          });
+          // BOTH members move. Deriving a post-transition tuple would be per member; the
+          // cascade ordering derives none of them, which is why arity never enters it.
+          await update({
+            where: { country_city: { country: "FR", city: "Lyon" } },
+            data: {
+              country: "BE",
+              city: "Liege",
+              kiosks: { create: { id: 7, name: "fresh" } },
+            },
+          });
+          await expect(client.zone.findMany({})).resolves.toEqual([
+            { country: "BE", city: "Liege", label: "target" },
+          ]);
+          await expect(client.kiosk.findMany({})).resolves.toEqual([
+            { id: 7, name: "fresh", zoneCountry: "BE", zoneCity: "Liege" },
+          ]);
         } finally {
           await dispose();
         }

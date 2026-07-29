@@ -1437,13 +1437,18 @@ export class UpdateOperation {
    *     referenced value is being rewritten, so all of them already exist before the root
    *     UPDATE runs.
    *
-   *  **A referenced column IS rewritten** (a transition) — single-field only:
-   *   - a **transitioned PRIMARY KEY** whose pre-transition value the `where` pins (T4b
-   *     CLASS III) → the fresh row references the POST-transition id, derived by
+   *  **A referenced column IS rewritten** (a transition). The referential ACTION decides,
+   *  because it decides whether a post-transition value is needed at all:
+   *   - `ON UPDATE CASCADE`, any arity, pinned or not (N5-U2) → the LOCATED pre-transition
+   *     values, `afterRoot: false`. The INSERT lands before the root UPDATE and the cascade
+   *     carries the fresh row's foreign key new — the ordering a reparent already gets;
+   *   - a NON-cascading **transitioned PRIMARY KEY** whose pre-transition value the `where`
+   *     pins (T4b CLASS III) → the POST-transition id, derived by
    *     `getUpdatedPrimaryKeyValue` (the same JS==SQL derivation the terminal read already
    *     trusts, portability guaranteed by `assertPortablePrimaryKeyUpdateInput` on the root
    *     SET) → `afterRoot: true`, so the INSERT lands after the root UPDATE creates the row;
-   *   - a non-PK referenced column rewritten to a literal → that literal, `afterRoot: false`.
+   *   - a non-cascading non-PK referenced column rewritten to a literal → that literal,
+   *     `afterRoot: false`.
    *
    *  The three survivors are typed refusals, not oversights — see each throw. */
   private resolveCreateParent(
@@ -1458,13 +1463,30 @@ export class UpdateOperation {
     if (rewritten.length === 0) {
       return this.locatedCreateParent(input, referencedFields);
     }
+    // N5-U2 — a rewritten reference on an `ON UPDATE CASCADE` edge needs NO
+    // post-transition derivation at all, whatever its arity and wherever its
+    // pre-transition value lives. Write the fresh row against the LOCATED (pre-transition)
+    // values, before the root UPDATE, and the cascade carries it new — the same ordering
+    // `reorderRootUpdateAfterChildren` already applies to a reparent, applied to an
+    // INSERT. `locatedCreateParent` is entered unchanged, so a compound reference rides
+    // it per field exactly as N1-U2 made it. This is checked BEFORE the arity and
+    // pinned-value branches below, because both of those exist only to derive a
+    // POST-transition value, and a cascading edge never needs one.
+    if (fk.onUpdate === "cascade") {
+      return this.locatedCreateParent(input, referencedFields);
+    }
     if (referencedFields.length !== 1) {
-      // N1-U2 absorbed the compound reference itself; what survives is a compound
-      // reference the root SET REWRITES. The located row carries the PRE-transition
-      // members, and deriving the post-transition tuple means ordering the fresh INSERT
-      // against the root UPDATE per member — the ordering unit (N5), not a dataflow one.
+      // What survives is a NON-cascade compound reference the root SET rewrites. The
+      // located row carries the pre-transition members, but a NO-ACTION foreign key does
+      // not follow them, so the fresh row must reference the POST-transition TUPLE — and
+      // that is per member: `getUpdatedPrimaryKeyValue` over each located value and its
+      // operand, at COMPILE (the locate has run) rather than at construction. What the
+      // engine has no way to spell today is a parent-id source meaning "the located row's
+      // column, with this SET operand applied" — every source is a literal, a planning
+      // read, or a SQL `Ref`, and none of the three transforms. That source is the single
+      // missing mechanism, shared with the unpinned single-key case below.
       throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support a compound-key nested create on relation '${relationName}' while the root update rewrites referenced column(s) '${rewritten.join(", ")}'.`
+        `query-engine-v2 update does not support a compound-key nested create on relation '${relationName}' while the root update rewrites non-cascading referenced column(s) '${rewritten.join(", ")}'.`
       );
     }
     const referencedField = referencedFields[0]!;
@@ -1481,8 +1503,20 @@ export class UpdateOperation {
         this.parentWhere
       ).find((entry) => entry.fieldName === referencedField);
       if (!pinnedBefore) {
+        // N5-U2, MEASURED: the Ref reaches the pre-transition value — the locate row
+        // carries it, which is exactly what N1 proved — so this is not a dataflow gap and
+        // never was. What a NO-ACTION foreign key needs is the POST-transition value, and
+        // the derivation `getUpdatedPrimaryKeyValue(before, operand)` can only run once
+        // `before` is known, i.e. at COMPILE. Every parent-id source the engine has is
+        // fixed at construction: a `literal` (a value), a `planned` (a column of the
+        // located row, verbatim), a `ref` (a SQL reference). None of them applies a
+        // transform, so the value cannot be spelled — not because no SQL expresses it
+        // (`INSERT … VALUES (<new id>)` is trivial SQL) but because no source names it.
+        // The missing mechanism is one field: a `planned` source carrying the SET operand,
+        // resolved through the same derivation at compile. It is the SAME gap the compound
+        // branch above hits, and closing it closes both.
         throw new UnsupportedOperationError(
-          `query-engine-v2 update nested create on relation '${relationName}' transitions primary key '${referencedField}' whose pre-transition value is not pinned by the unique where.`
+          `query-engine-v2 update nested create on relation '${relationName}' transitions non-cascading primary key '${referencedField}' whose pre-transition value is not pinned by the unique where.`
         );
       }
       const transitioned = getUpdatedPrimaryKeyValue(
