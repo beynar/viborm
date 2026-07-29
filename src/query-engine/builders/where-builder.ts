@@ -8,6 +8,7 @@
 
 import {
   type AnyFieldRef,
+  fieldRefPayload,
   formatFieldRef,
   isFieldRef,
 } from "@schema/field-ref";
@@ -319,22 +320,23 @@ function buildScalarFilter(
  * filter schemas cannot see. Runs at SQL-build time, before any I/O.
  */
 function fieldRefColumn(ctx: QueryScope, ref: AnyFieldRef, alias: string): Sql {
+  const payload = fieldRefPayload(ref);
   const scopeModel = ctx.model["~"].names.ts;
-  if (ref.model !== scopeModel) {
+  if (payload.model !== scopeModel) {
     throw new QueryEngineError(
       `Field reference '${formatFieldRef(ref)}' cannot be used while filtering '${
         scopeModel ?? "unknown"
       }': a field reference may only compare columns of the same model.`
     );
   }
-  if (!isScalarField(ctx.model, ref.field)) {
+  if (!isScalarField(ctx.model, payload.field)) {
     throw new QueryEngineError(
       `Field reference '${formatFieldRef(ref)}' does not name a scalar field of '${scopeModel}'.`
     );
   }
   return ctx.adapter.identifiers.column(
     alias,
-    getColumnName(ctx.model, ref.field)
+    getColumnName(ctx.model, payload.field)
   );
 }
 

@@ -6,7 +6,12 @@ import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames } from "@schema";
-import { createModelFieldRefs, isFieldRef } from "@schema/field-ref";
+import {
+  type AnyFieldRef,
+  createModelFieldRefs,
+  fieldRefPayload,
+  isFieldRef,
+} from "@schema/field-ref";
 import { sql } from "@sql";
 import { createSchemaRegistry } from "@validation";
 import type { OperandCtx } from "@validation/primitives/operand";
@@ -639,8 +644,9 @@ describe("every filter position the scope has to reach", () => {
       first(deleteMany).views.gt,
     ]) {
       expect(isFieldRef(operand)).toBe(true);
-      expect(operand.model).toBe("post");
-      expect(operand.field).toBe("likes");
+      const payload = fieldRefPayload(operand as AnyFieldRef);
+      expect(payload.model).toBe("post");
+      expect(payload.field).toBe("likes");
     }
   });
 

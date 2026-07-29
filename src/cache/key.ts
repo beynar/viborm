@@ -5,7 +5,7 @@
  */
 
 import { CacheInvalidKeyError } from "@errors";
-import { isFieldRef } from "@schema/field-ref";
+import { fieldRefPayload, isFieldRef } from "@schema/field-ref";
 import { isJsonNullSentinel } from "@schema/json-null";
 import { isSql } from "@sql";
 
@@ -193,9 +193,10 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
   // A reference names a COLUMN: the model and field are its identity, and its
   // `type`/`list` are derived from them by `createModelFieldRefs`.
   if (isFieldRef(value)) {
+    const payload = fieldRefPayload(value);
     return brandToken(
       "field-ref",
-      `${JSON.stringify(value.model)}:${JSON.stringify(value.field)}`
+      `${JSON.stringify(payload.model)}:${JSON.stringify(payload.field)}`
     );
   }
 

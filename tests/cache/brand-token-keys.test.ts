@@ -73,11 +73,12 @@ describe("JSON null sentinels vs their look-alike documents", () => {
 describe("field references vs their look-alike documents", () => {
   const ref = (model: string, field: string) =>
     Object.freeze({
-      [FIELD_REF_BRAND]: true as const,
-      model,
-      field,
-      type: "int",
-      list: false,
+      [FIELD_REF_BRAND]: Object.freeze({
+        model,
+        field,
+        type: "int",
+        list: false,
+      }),
     });
 
   test("a reference never keys like the document that spells its fields", () => {

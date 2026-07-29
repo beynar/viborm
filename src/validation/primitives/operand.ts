@@ -19,6 +19,7 @@ import {
   type AnyFieldRef,
   createModelFieldRefs,
   type FieldRef,
+  fieldRefPayload,
   isFieldRef,
   type ModelFieldRefs,
 } from "@schema/field-ref";
@@ -443,7 +444,8 @@ function findOpaqueOperand(
     const value = pending.pop();
     if (typeof value !== "object" || value === null) continue;
     if (isFieldRef(value)) {
-      return `Field reference '${value.model}.${value.field}'`;
+      const payload = fieldRefPayload(value);
+      return `Field reference '${payload.model}.${payload.field}'`;
     }
     if (fragments && isSql(value)) return "An SQL fragment";
     if (seen.has(value)) continue;
@@ -465,14 +467,15 @@ function findOpaqueOperand(
 }
 
 function checkRef(ref: AnyFieldRef, fieldType: ScalarType) {
-  if (ref.list) {
+  const payload = fieldRefPayload(ref);
+  if (payload.list) {
     return fail(
-      `Field reference '${ref.model}.${ref.field}' is a list field; list fields cannot be used as a comparison operand.`
+      `Field reference '${payload.model}.${payload.field}' is a list field; list fields cannot be used as a comparison operand.`
     );
   }
-  if (ref.type !== fieldType) {
+  if (payload.type !== fieldType) {
     return fail(
-      `Field reference '${ref.model}.${ref.field}' is of type '${ref.type}', but a '${fieldType}' operand is required here.`
+      `Field reference '${payload.model}.${payload.field}' is of type '${payload.type}', but a '${fieldType}' operand is required here.`
     );
   }
   return ok(ref) as never;

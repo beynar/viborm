@@ -10,6 +10,7 @@ import {
   createModelFieldRefs,
   FIELD_REF_BRAND,
   type FieldRef,
+  fieldRefPayload,
   isFieldRef,
   type ModelFieldRefs,
 } from "@schema/field-ref";
@@ -700,15 +701,17 @@ describe("a model's reference table", () => {
     expect(isFieldRef(first)).toBe(true);
     expect(first).toBe(second);
     expect(Object.isFrozen(first)).toBe(true);
-    expect(first).toMatchObject({
+    // The payload lives UNDER the brand; the TYPE-level keyof pin in
+    // tests/validation/field-ref.test.ts is what keeps `field`/`model` out of
+    // filter-literal completions.
+    const payload = fieldRefPayload(first);
+    expect(Object.isFrozen(payload)).toBe(true);
+    expect(payload).toMatchObject({
       model: "Post",
       field: "likes",
       type: "int",
       list: false,
     });
-    expect((first as unknown as Record<symbol, unknown>)[FIELD_REF_BRAND]).toBe(
-      true
-    );
   });
 
   test("names an unknown field loudly", () => {
@@ -738,7 +741,7 @@ describe("a model's reference table", () => {
     const refs = createModelFieldRefs("Post", probeModel);
     // One read of `state` to reach the scalars record, and nothing per field.
     expect(scalarReads).toBe(1);
-    expect(refs.likes.field).toBe("likes");
+    expect(fieldRefPayload(refs.likes).field).toBe("likes");
     expect(scalarReads).toBe(1);
   });
 });
@@ -791,8 +794,8 @@ describe("field-reference typing", () => {
       ? false
       : true = true;
 
-    expect(likes.model).toBe("Post");
-    expect(name.model).toBe("User");
+    expect(fieldRefPayload(likes).model).toBe("Post");
+    expect(fieldRefPayload(name).model).toBe("User");
     expect(relationIsAbsent).toBe(true);
     expect(misattributed).toBe(true);
   });
