@@ -174,6 +174,39 @@ Full estate ONCE, alone: **8321 passed / 0 failed** (1626 Docker-gated skips) �
 both substrates each): 2398 passed. Docker MySQL 3307: 749 passed. Docker Postgres 5434
 (serial, pg + postgres.js): 856 passed, 14 skipped. Census pinned at **77**.
 
+### N1 — wave gate (independent re-run at `77f5bc1`, 2026-07-29)
+
+Every number below was re-measured on the branch tip, each step in its own shell, one
+vitest at a time.
+
+| Step | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean, no output |
+| Full estate, ALONE (`--minWorkers=1 --maxWorkers=4`) | **8327 passed / 0 failed**, 1629 skipped (Docker-gated); 248 files passed, 4 skipped; 417s |
+| `pnpm test:gates` | **63 passed / 63**, 5 files; census pin **77** (`route-inventory.test.ts:780`), count-evolution log carries the 78 → 77 (U1), 77 → 77 narrowing (U2), and the ten-entry `(a)`–`(j)` sweep (U4) |
+| Biome (repo-pinned 2.3.11, `main`-baseline worktree for comparison) | all 17 changed `.ts` files exit 0 — **zero** violations, so zero NEW violations by construction |
+| Docker MySQL 3307 (`pnpm test:mysql`) | **750 passed**, PASSED not skipped |
+| Docker Postgres 5434 (`pnpm test:pg`, serial) | **858 passed**, 14 skipped, PASSED not skipped |
+
+The new Ref witnesses were confirmed **executed** (not collected-and-skipped) on both
+Docker legs, on both substrates each: `located-parent Ref (N1)` runs 11 tests under
+`transaction` and 11 under `atomic batch` on MySQL and on pg — including the compound
+block, `createMany`, `createMany skipDuplicates`, the wrong-row decoy, and the
+no-matching-row abort — plus `extended whereUnique > an OR filter naming another row's
+referenced value pins NOTHING` (the restored falsification, both substrates) and
+`upsert family > upsert UPDATE arm: a nested create by a non-PK unique rides the
+located-parent Ref`.
+
+**Two corrections to the certification block above, measured not argued.**
+(1) The estate figure `8321` predates the fix-round commit `77f5bc1`, which added the OR
+falsification across the driver legs; the branch tip measures **8327 passed / 0 failed**.
+(2) "Gates 5/5 files, 69 tests" was wrong when written: `pnpm test:gates` runs **63**
+tests, and no gate file (nor any module a gate file imports) has changed since that
+record was committed, so 63 was also the true count at `5533587`. The gate-file set and
+its bidirectional content are unchanged — only the stated number was off.
+
+Docker MySQL 3307 and Postgres 5434 were already up (21h) and were not restarted.
+
 ## N2 — Inverse-side to-one family (the mainstream Prisma shape)
 
 `user.update({ where, data: { profile: { create: { bio } } } })` still refuses ([UpdateOperation.ts:1720](../../src/query-engine-v2/UpdateOperation.ts:1720)); `createMany`/`deleteMany` on the inverse side likewise.
