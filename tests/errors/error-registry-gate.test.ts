@@ -691,3 +691,39 @@ describe("surface 4 — the user-facing errors docs", () => {
     expect(undocumented).toEqual([]);
   });
 });
+
+const CLONE_TABLE_PATTERN = /const CLONE_CONSTRUCTORS = \[([^\]]*)\]/;
+
+describe("surface 5 — the execution-context clone table", () => {
+  // The lived defect: CLONE_CONSTRUCTORS in src/drivers/driver-error-context.ts
+  // was a hand-maintained list, and three newer classes were absent — their
+  // instances silently downgraded to the base VibORMError when cloned through
+  // attachExecutionContext, erasing the literal `code` T1 pinned. Same idiom as
+  // surface 4: scan the source, so a class added to the registry but not the
+  // clone table is a NAMED failure, not a latent downgrade.
+  const CLONE_SOURCE = readFileSync(
+    join(SRC, "drivers", "driver-error-context.ts"),
+    "utf8"
+  );
+  const cloneTable = CLONE_SOURCE.match(CLONE_TABLE_PATTERN)?.[1] ?? "";
+
+  it("declares the table this gate audits", () => {
+    expect(cloneTable.length).toBeGreaterThan(0);
+  });
+
+  it("lists every registered class, or handles it by name", () => {
+    // ValidationError is deliberately absent from the array: it clones through
+    // cloneValidationError (issues need structural copying). Any other absence
+    // is the downgrade bug returning.
+    const handledElsewhere = new Set(["ValidationError"]);
+    const missing = REGISTRY.filter(
+      (row) =>
+        !(handledElsewhere.has(row.name) || cloneTable.includes(row.name))
+    ).map(
+      (row) =>
+        `${row.name} is missing from CLONE_CONSTRUCTORS (src/drivers/driver-error-context.ts) — its instances downgrade to VibORMError when cloned`
+    );
+    expect(missing).toEqual([]);
+    expect(CLONE_SOURCE.includes("cloneValidationError")).toBe(true);
+  });
+});
