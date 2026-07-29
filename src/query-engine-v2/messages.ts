@@ -97,6 +97,19 @@ export function nestedReplacement(
 }
 
 // ---------------------------------------------------------------------------
+/**
+ * CLASS IV (T4c) — V1's `relationFailure` occupied-slot message, verbatim: a root
+ * update (or, since N5-U1, a nested update TARGET) transitions a key a child-held,
+ * non-cascade relation references while that relation's old slot still holds rows.
+ * Both askers say it identically because it is one rule at two depths.
+ */
+export function relationKeyOccupiedMessage(
+  relationName: string,
+  action: string
+): string {
+  return `Cannot update relation '${relationName}' with onUpdate('${action}') while the current relation is occupied.`;
+}
+
 // Extension-only shapes — no V1 behavior to equal (catalogued, PLAN P−1.2).
 // These describe shapes V2 supports beyond V1, or V2's own unsupported-shape
 // rejections. They carry a `query-engine-v2` prefix so they never masquerade

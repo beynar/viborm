@@ -1846,6 +1846,19 @@ them is a §1 multi-field-produce distinction, not a new step kind.
 Throw-site census 76 → 75, and `interpretReferencedKeyTransition` became kind-BLIND in the
 body — the guard belongs to the relation, the ordering to the kind.
 
+The same absorption one level down (`RelationWritePart`, a nested update TARGET rewriting
+its own primary key) needed one thing ordering alone does not carry: the LEGALITY. An
+occupied old slot is a typed rejection at the root, and at depth the referential action
+would instead have nulled those children silently. So CLASS IV's read + verdict pair became
+a PART (`RelationKeyOccupiedPart`) — §3's own answer to "where does a read that decides
+something live". The root's version rides the operation's `relationKeyGuards` list only
+because a root HAS one; at depth there is no list and a Part is the mechanism already
+there. One rule at two depths, one message. What still refuses is a junction edge AND a
+non-cascade child-held edge on the SAME transitioning target: a junction reads membership
+at PLANNING correlated to the parent key, so post-transition ordering has it read a key no
+row carries yet while pre-transition ordering strands the other edge. Neither order serves
+both, and the fix is the same two-source split, carried into the junction Part.
+
 ---
 
 ## 9. Invariants (the executable contract)

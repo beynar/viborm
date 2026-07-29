@@ -965,6 +965,14 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // counting `new UnsupportedOperationError(` across the engine directory, and
   // it was re-derived by running the test after both lanes were applied.
   //
+  // The merge is NOT net-zero, and its own entry is the last one below: the two
+  // absorptions INTERSECT inside `RelationWritePart.interpretChildParts`, and
+  // their intersection wants a value neither lane's mechanism can produce. One
+  // site was added for it, so the sequence is 76 -> 74 (N4) -> 73 (N5) -> 74
+  // (merge). A lane's own certification cannot catch that shape — it is green
+  // in each worktree separately — which is why it is recorded here as a merge
+  // finding rather than folded into either lane's entry.
+  //
   // The two lanes touch DISJOINT sites. N4 edits the depth seams
   // (`RelationWritePart.interpretChildParts`, `RelationUpsertPart`'s arm split,
   // `RelationJunctionPart`'s located-target wall, `nested-target-parts`' planned
@@ -1116,6 +1124,95 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // fails 15 of 22; handing the adopt family the located planned source instead of
   // `after` fails 15 of 22; dropping `correlationParentId` turns the required-FK `set`
   // into `requires a planned parent id to correlate its probe` (2 of 22).
+  // 73 -> 73 (N5-U1b, the same ordering AT DEPTH; the lane measured this as 75 -> 75
+  // — see the MERGE NOTE above): one site DELETED, one ADDED — a
+  // strictly narrower refusal in the same place, so the count holds while the surface
+  // shrinks. `RelationWritePart.interpretChildParts`' "transitions the target primary
+  // key '…' while writing a child-held edge whose foreign key does not cascade on
+  // update" is gone; "… while writing BOTH a many-to-many edge and a child-held edge
+  // whose foreign key does not cascade on update" takes its place.
+  //
+  // Same refusal, same cause, one level down: a nested update TARGET rewriting its own
+  // primary key while carrying a deeper edge. T3b1 gave it the cascade ordering (write
+  // the edge against the PRE-transition literal, let `ON UPDATE CASCADE` carry it) and
+  // refused everything else, its own comment naming the alternative: "V1 orders the edge
+  // against the POST-transition id instead". That is now what happens — the target's
+  // post-transition key is `getUpdatedPrimaryKeyValue` over the where-pinned locator and
+  // its own SET (compile-known exactly as at the root), the deeper edges are built
+  // against it, and `reorderAfterChildren` goes FALSE so the self-UPDATE runs first.
+  //
+  // The absorption needed the LEGALITY as well as the ordering, or depth would have
+  // diverged from the root: an OCCUPIED old slot, which the root rejects with V1's
+  // `Cannot update relation '…' with onUpdate('…') while the current relation is
+  // occupied.`, would instead have let the referential action silently null those
+  // children (setNull) or raise a bare ForeignKeyError (restrict). So CLASS IV's
+  // read+verdict pair became a Part (`RelationKeyOccupiedPart`) — which is what Parts are
+  // for; the root's version rides the operation's own `relationKeyGuards` list because
+  // the root HAS one. One rule, two depths, one message (`relationKeyOccupiedMessage`,
+  // lifted to `messages.ts` so both askers say it identically).
+  //
+  // THE NEW SITE IS NARROWER, and its reason is measured, not assumed: a junction reads
+  // MEMBERSHIP at PLANNING, correlated to the parent key, and planning runs before the
+  // self-UPDATE writes the new one. Post-transition ordering would have the junction read
+  // a key no row carries yet; pre-transition ordering strands the non-cascade edge.
+  // Neither order serves both edges, so a payload carrying BOTH on one transitioning
+  // target refuses. A junction ALONE is untouched (still the cascade ordering, still
+  // executing), and a non-cascade edge alone is now absorbed — so what the old site
+  // refused and this one does not is every single-family shape. Closing the mix needs the
+  // junction's membership read on the pre-transition key while its writes use the
+  // post-transition one: the two-source split N5-U1 built for `set`
+  // (`RelationSetConfig.correlationParentId`), carried into `RelationJunctionPart`. Named
+  // for a follow-up, not smuggled in here.
+  //
+  // Witnessed in `nested-update-pk-transition-cascade.test.ts`, both substrates, on the
+  // SELF-relation schema that already bracketed this boundary. Its child-held arm was
+  // RETARGETED from a decline assertion to an accept-and-execute one on the SAME payload
+  // (authorized, with the reasoning in the file header); two arms were added — the
+  // occupied-slot rejection, and the mixed-edge refusal. Falsified: restoring the
+  // pre-transition ordering fails the 2 child-held arms; removing the depth occupied
+  // guard fails the 2 occupied arms (they silently null the occupant instead).
+  //
+  // 73 -> 74 (MERGE, N4-U1 × N5-U1b): one site ADDED, and it exists ONLY because the two
+  // lanes met. Neither lane could see it: each was green in its own worktree, and the
+  // shape it refuses declined in BOTH lanes for each lane's own reason.
+  //
+  // `RelationWritePart.interpretChildParts` now answers two questions that used to be
+  // one. N4-U1 answers "where does the deeper edge's parent value COME from" — the
+  // `where`'s literal when it names the target's primary key, else a `planned` source
+  // into this part's own probe. N5-U1b answers "WHEN is that edge written, and against
+  // WHICH side of a primary-key transition" — before the self-UPDATE on the
+  // pre-transition value when the deeper FK cascades, after it on the post-transition
+  // value when it does not. Their intersection — a target named by a NON-primary-key
+  // unique whose SET also rewrites its primary key, carrying a non-cascade deeper edge —
+  // needs a value NEITHER mechanism produces: the probe runs before the self-UPDATE, so
+  // the `planned` source reads the key the transition is about to vacate, and no
+  // `ParentIdSource` transforms (`literal`, `planned`, `ref` each carry a value
+  // verbatim). The CLASS IV occupied guard has the same want: it needs the
+  // pre-transition literal to name the slot it checks.
+  //
+  // Not a regression in either direction, and that is checkable rather than argued: at
+  // the shared base `f49047b` this payload declined on N4's site (it did not locate by
+  // the primary key) AND on N5's (a non-cascade deeper edge under a transition). Both of
+  // those sites are gone; this one stands where they overlapped, and it is strictly
+  // narrower than either — it requires all three of a non-PK locator, a PK-rewriting
+  // SET, and a non-cascading deeper FK, where each old site required one.
+  //
+  // Closing it is the SAME follow-on unit N5's record already names for its three
+  // survivors (sweep (a)/(b)/(d)): a `planned` parent-id source that applies the SET's
+  // operand to the located value at COMPILE, resolved through `getUpdatedPrimaryKeyValue`
+  // in `referencedFieldValue`. This site is therefore the FOURTH claim on that one
+  // mechanism, not a new mechanism of its own.
+  //
+  // Witnessed in `nested-update-pk-transition-cascade.test.ts` (the file that already
+  // brackets this boundary): the merge refusal is asserted as a CONSTRUCTION-time decline
+  // with nothing written, beside the two shapes it is narrower than — the same payload
+  // located BY the primary key executes (N5-U1b's absorption), and the same non-PK
+  // locator with no PK transition executes (N4-U1's absorption). Falsified, with the
+  // failure MEASURED rather than predicted: dropping the refusal and letting the
+  // `planned` source through writes the deeper edge against the VACATED key — on that
+  // schema the FK constraint catches it and a bare `ForeignKeyError` replaces the typed
+  // construction decline (2 of the file's 12 fail), and where another row already holds
+  // the vacated key nothing catches it at all.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1126,7 +1223,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(73);
+    expect(sites).toBe(74);
   });
 });
 

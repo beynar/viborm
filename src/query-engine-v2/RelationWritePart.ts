@@ -2,6 +2,7 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { splitToOneUpdateTarget } from "@validation/relations/to-one-update-form";
+import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import {
   getFkDirection,
   type RelationMutation,
@@ -9,7 +10,10 @@ import {
 } from "../query-engine/builders/relation-data-builder";
 import { buildInsert } from "../query-engine/builders/values-builder";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
-import { getTableName } from "../query-engine/context/query-scope";
+import {
+  createQueryScope,
+  getTableName,
+} from "../query-engine/context/query-scope";
 import {
   buildDelete,
   buildDeleteMany,
@@ -18,11 +22,15 @@ import {
   buildUpdate,
   buildUpdateMany,
 } from "../query-engine/operations";
-import { assertPortablePrimaryKeyUpdateInput } from "../query-engine/operations/mutation-identity";
+import {
+  assertPortablePrimaryKeyUpdateInput,
+  getUpdatedPrimaryKeyValue,
+} from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import { assertRelationKeyUpdatesAreCompilable } from "../query-engine/relation-key-legality";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
 import {
+  absenceGuard,
   affectedRows,
   exactlyOneRow,
   nestedWriteFailure,
@@ -30,6 +38,7 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import {
+  relationKeyOccupiedMessage,
   relationTargetNotFound,
   setRequiredOrphan,
   upsertPremiseChanged,
@@ -50,7 +59,7 @@ import {
   plannedParentId,
 } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
-import { UnsupportedOperationError } from "./shared";
+import { getStepModelName, UnsupportedOperationError } from "./shared";
 
 /**
  * The correlated child-write family (PLAN P2c): nested `update` / `updateMany` /
@@ -176,25 +185,14 @@ export class RelationWritePart implements Part {
     // inside `update`/`updateMany` data was, pre-T3b, such a shape; mechanism 1 now
     // folds it one level deeper (see `interpretChildParts`).
     if (config.kind === "update" || config.kind === "updateMany") {
-      const built = this.interpretChildParts();
+      const built = this.interpretChildParts(scope);
       this.childParts = built.childParts;
       this.reorderAfterChildren = built.reorderAfterChildren;
       this.updateScalarData = built.scalarData;
       this.probeCarriesLocatedPk = built.parentIsLocatedPk;
-      // V1's PK-arithmetic portability check on the nested child data (float/decimal
-      // non-portability, divide-by-zero, one-op) — a payload legality gate at
-      // construction (before the probe), matching RelationUpdates. Reuses V1's
-      // verbatim messages. Applied to the scalar assignments only (nested relation
-      // writes are not PK arithmetic).
-      if (config.data) {
-        assertPortablePrimaryKeyUpdateInput(
-          config.childScope.model,
-          config.kind,
-          {
-            data: built.scalarData,
-          }
-        );
-      }
+      // MERGE (N4 + N5): the PK-arithmetic portability check that used to stand here
+      // moved INTO `interpretChildParts` (N5-U1b) — it must run before that method
+      // derives a post-transition primary key from the same scalar assignments.
     }
     if (config.upsertCreateData !== undefined) {
       // Family F: the absent-arm insert. Allocate its own write id and validate the
@@ -602,7 +600,7 @@ export class RelationWritePart implements Part {
    * captured PK), an inverse-side to-one `update` with no unique `where`, or a build
    * without the recursion seam still routes the whole tree to V1.
    */
-  private interpretChildParts(): {
+  private interpretChildParts(scope: StepScope): {
     childParts: readonly Part[];
     reorderAfterChildren: boolean;
     scalarData: Record<string, unknown>;
@@ -615,6 +613,16 @@ export class RelationWritePart implements Part {
       );
     }
     const { scalarData, relations } = separateData(childScope, data);
+    // V1's PK-arithmetic portability check on the nested child data (float/decimal
+    // non-portability, divide-by-zero, one-op) — a payload legality gate at construction
+    // (before the probe), matching RelationUpdates, on the scalar assignments only
+    // (nested relation writes are not PK arithmetic). It runs HERE rather than after this
+    // method because N5-U1 derives a post-transition primary key from those same
+    // assignments below, and that derivation is only sound once the operand is known
+    // portable — the same precondition `resolveCreateParent` states at the root.
+    assertPortablePrimaryKeyUpdateInput(childScope.model, kind, {
+      data: scalarData,
+    });
     // CLASS IV (T4c) — V1's `assertRelationKeyUpdatesAreCompilable`, reused: the
     // located target's own relation-key fields may not be rewritten by a non-literal
     // op while it mutates that relation (`authorId: { increment }` alongside
@@ -658,17 +666,8 @@ export class RelationWritePart implements Part {
       (entry) => entry.fieldName === this.config.childPrimaryKey
     );
     const parentIsLocatedPk = pkEntry === undefined;
-    const childParts = this.config.nestedBuilder(
-      childScope,
-      parentIsLocatedPk
-        ? plannedParentId(this.probeId, this.config.childPrimaryKey)
-        : literalParentId(pkEntry.value),
-      relations,
-      this.config.txMode
-    );
-    // Reorder the self-UPDATE after the child edges when the SET rewrites this target's
-    // own PK (a transition the deeper FK references): the child edge is written against
-    // the pre-transition literal and the FK's ON UPDATE CASCADE carries it forward.
+    const primaryKey = this.config.childPrimaryKey;
+    // Does this target's own SET rewrite the primary key the deeper edges reference?
     //
     // Named reorder obligation (TO-ONE.md §7.7): the root reorders on its full
     // referenced-column union (PK ∪ every child-referenced column, D4-style non-PK
@@ -677,33 +676,96 @@ export class RelationWritePart implements Part {
     // FK references a non-PK column of the target to V1 (the literal/planned parent id
     // carries only the target's PK per-field). So checking the PK here is complete —
     // no D4-style deep non-PK reference is silently reordered wrong; it never arrives.
-    const reorderAfterChildren =
-      childParts.length > 0 &&
-      Object.hasOwn(scalarData, this.config.childPrimaryKey);
-    // The pre-transition-literal + reorder trick is sound ONLY when every deeper edge
-    // that references the transitioning PK carries ON UPDATE CASCADE (an implicit m2m
-    // junction FK — serializer default — the only PK-transition shape in the absorbed
-    // census). A child-held one-to-many / inverse-side one-to-one edge whose FK does
-    // NOT cascade (default NO ACTION) would be stranded: the edge is written against the
-    // pre-transition id, then rewriting the PK orphans it (a ForeignKeyError V1 never
-    // raises — V1 orders the edge against the POST-transition id instead). That shape is
-    // outside the reorder/cascade surface; route the whole tree to V1 (no census key
-    // reaches it — every absorbed PK-transition witness is a self-m2m junction edge).
-    if (
-      reorderAfterChildren &&
-      !pkTransitionCascadeSafe(
-        childScope,
-        relations,
-        this.config.childPrimaryKey
-      )
-    ) {
+    const transitionsPk = Object.hasOwn(scalarData, primaryKey);
+    // Two orderings, one per referential action, and the action is what picks:
+    //
+    //  · CASCADE (the implicit m2m junction FK, serializer default): write the edge
+    //    against the PRE-transition literal FIRST, then let the self-UPDATE's
+    //    `ON UPDATE CASCADE` carry it old → new. `reorderAfterChildren`.
+    //  · NON-cascade (a child-held one-to-many / inverse-side one-to-one FK, NO ACTION
+    //    by default): the same order strands the edge on the id the transition vacates.
+    //    N5-U1 gives it the ordering the root already had — write against the
+    //    POST-transition literal AFTER the self-UPDATE — plus the CLASS IV occupied
+    //    guard the root emits for exactly this situation, so an OCCUPIED old slot is the
+    //    same typed rejection at depth that it is at the root instead of the referential
+    //    action silently nulling those children.
+    const postTransition =
+      transitionsPk &&
+      !pkTransitionCascadeSafe(childScope, relations, primaryKey);
+    if (postTransition && hasJunctionRelation(relations)) {
+      // A junction alongside a non-cascade edge is the one mix this ordering cannot
+      // serve: a junction Part reads MEMBERSHIP at planning, correlated to the parent
+      // key, and planning runs before the self-UPDATE has written the new one — so the
+      // post-transition ordering would have it read a key no row carries yet, while the
+      // pre-transition ordering strands the non-cascade edge. Neither order is right for
+      // both edges at once; closing it needs the junction's membership read to correlate
+      // on the pre-transition key while its writes use the post-transition one, which is
+      // the two-source split `RelationSetConfig.correlationParentId` makes for `set`,
+      // carried into `RelationJunctionPart`. Named, measured, and not smuggled in here.
       throw new UnsupportedOperationError(
-        `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${this.config.childPrimaryKey}' while writing a child-held edge whose foreign key does not cascade on update.`
+        `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${primaryKey}' while writing both a many-to-many edge and a child-held edge whose foreign key does not cascade on update.`
       );
     }
+    const childParts: Part[] = [];
+    let parentSource: ParentIdSource;
+    if (pkEntry === undefined) {
+      if (postTransition) {
+        // MERGE (N4 × N5) — the one shape neither lane's mechanism reaches, and it
+        // exists only where the two absorptions MEET. N4 lets the target be named by
+        // any unique, giving the deeper edges a `planned` source into this part's
+        // probe; N5 orders a NON-cascade deeper edge after the self-UPDATE and binds
+        // it to the POST-transition key. Intersect them and the edge needs a value
+        // that is neither: the probe runs BEFORE the self-UPDATE, so a `planned`
+        // source reads the key the transition is about to vacate, and no
+        // `ParentIdSource` applies the SET's operand to a planned value at compile —
+        // `literal`, `planned` and `ref` each carry a value verbatim, none transforms
+        // it. The occupied guard below needs the same pre-transition literal to say
+        // which slot it is checking. Both wants are the ONE mechanism N5's own record
+        // names for a follow-on unit (an operand-applying `planned` source), so this
+        // fails closed rather than binding a stale key. Neither lane REGRESSES here:
+        // at the shared base both spellings of this payload already declined.
+        throw new UnsupportedOperationError(
+          `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${primaryKey}' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key.`
+        );
+      }
+      parentSource = plannedParentId(this.probeId, primaryKey);
+    } else {
+      if (postTransition) {
+        childParts.push(
+          ...buildPkTransitionOccupiedGuards({
+            scope,
+            childScope,
+            relations,
+            transitioningPk: primaryKey,
+            before: pkEntry.value,
+            txMode: this.config.txMode,
+          })
+        );
+      }
+      parentSource = literalParentId(
+        postTransition
+          ? getUpdatedPrimaryKeyValue(
+              childScope.model,
+              primaryKey,
+              pkEntry.value,
+              scalarData[primaryKey],
+              getStepModelName(childScope.model, relationName)
+            )
+          : pkEntry.value
+      );
+    }
+    childParts.push(
+      ...this.config.nestedBuilder(
+        childScope,
+        parentSource,
+        relations,
+        this.config.txMode
+      )
+    );
     return {
       childParts,
-      reorderAfterChildren,
+      reorderAfterChildren:
+        childParts.length > 0 && transitionsPk && !postTransition,
       scalarData,
       parentIsLocatedPk: parentIsLocatedPk && childParts.length > 0,
     };
@@ -830,6 +892,142 @@ function pkTransitionCascadeSafe(
     }
   }
   return true;
+}
+
+/** Whether any deeper relation goes through a junction — the one edge kind whose
+ *  PLANNING read is correlated to the parent key, which is why it cannot share the
+ *  post-transition ordering (see {@link RelationWritePart.interpretChildParts}). */
+function hasJunctionRelation(
+  relations: Record<string, RelationMutation>
+): boolean {
+  return Object.values(relations).some(
+    (mutation) => mutation.relationInfo.type === "manyToMany"
+  );
+}
+
+/**
+ * CLASS IV AT DEPTH (N5-U1) — the occupied-slot rejection the root emits for a
+ * non-cascade referenced-key transition, for a nested update TARGET that transitions
+ * its OWN primary key.
+ *
+ * The root's version ({@link UpdateOperation} `pushOccupiedGuard`) reads the old slot
+ * through the operation's own `relationKeyGuards` list; at depth there is no such list,
+ * so the same read/verdict pair is a Part — which is the point of Parts. Both ask one
+ * question: does any child still carry the key this update is about to move? Occupied is
+ * V1's typed `Cannot update relation '…' with onUpdate('…') while the current relation
+ * is occupied.`; empty is what makes the post-transition ordering correct, because it
+ * means no edge is being left behind on the vacated key.
+ *
+ * One Part per deeper relation that actually holds a non-cascade foreign key referencing
+ * the transitioning primary key — the same predicate {@link pkTransitionCascadeSafe}
+ * answers, here reported per relation instead of as one boolean.
+ */
+function buildPkTransitionOccupiedGuards(args: {
+  scope: StepScope;
+  childScope: QueryScope;
+  relations: Record<string, RelationMutation>;
+  transitioningPk: string;
+  before: unknown;
+  txMode: boolean;
+}): RelationKeyOccupiedPart[] {
+  const { scope, childScope, relations, transitioningPk, before, txMode } =
+    args;
+  const guards: RelationKeyOccupiedPart[] = [];
+  for (const [relationName, mutation] of Object.entries(relations)) {
+    const info = mutation.relationInfo;
+    if (info.type === "manyToMany") continue;
+    const fk = getFkDirection(childScope, info);
+    if (
+      fk.holdsFK ||
+      fk.onUpdate === "cascade" ||
+      !fk.pkFields.includes(transitioningPk)
+    ) {
+      continue;
+    }
+    const deeperScope = createQueryScope(childScope.adapter, info.targetModel);
+    guards.push(
+      new RelationKeyOccupiedPart(scope, {
+        deeperScope,
+        deeperName: getStepModelName(info.targetModel, relationName),
+        relationName,
+        action: fk.onUpdate ?? "restrict",
+        fkField: fk.fkFields[fk.pkFields.indexOf(transitioningPk)]!,
+        before,
+        txMode,
+      })
+    );
+  }
+  return guards;
+}
+
+interface RelationKeyOccupiedConfig {
+  readonly deeperScope: QueryScope;
+  readonly deeperName: string;
+  readonly relationName: string;
+  readonly action: string;
+  readonly fkField: string;
+  readonly before: unknown;
+  readonly txMode: boolean;
+}
+
+/** The read + verdict pair described by {@link buildPkTransitionOccupiedGuards}.
+ *  Transaction mode inspects the locked planning probe and throws before any write;
+ *  batch mode pins the empty-slot decision with a `notExists` guard (`raceable: true` —
+ *  a concurrent plant can invalidate it), exactly as the root's does. */
+class RelationKeyOccupiedPart implements Part {
+  private readonly config: RelationKeyOccupiedConfig;
+  private readonly probeId: string;
+  private readonly guardId: string;
+  private readonly statement: Sql;
+
+  constructor(scope: StepScope, config: RelationKeyOccupiedConfig) {
+    this.config = config;
+    this.probeId = scope.allocate(`${config.deeperName}.transition.find`);
+    this.guardId = scope.allocate(`${config.deeperName}.guard.occupied`);
+    this.statement = buildFind(
+      config.deeperScope,
+      {
+        where: { [config.fkField]: { equals: config.before } },
+        select: {
+          [getPrimaryKeyFields(config.deeperScope.model)[0]!]: true,
+        },
+        forUpdate: config.txMode,
+      },
+      { limit: 1 }
+    );
+  }
+
+  planning(): readonly OperationStep[] {
+    return [
+      {
+        id: this.probeId,
+        kind: "read",
+        statement: this.statement,
+        outputs: { rows: { kind: "rows" } },
+      },
+    ];
+  }
+
+  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
+    const message = relationKeyOccupiedMessage(
+      this.config.relationName,
+      this.config.action
+    );
+    if (this.config.txMode) {
+      const rows = known[planningKey(this.probeId, "rows")];
+      if (Array.isArray(rows) && rows.length > 0) {
+        throw new NestedWriteError(message, this.config.relationName);
+      }
+      return [];
+    }
+    return [
+      absenceGuard(
+        this.guardId,
+        this.statement,
+        nestedWriteFailure(message, this.config.relationName, true)
+      ),
+    ];
+  }
 }
 
 // ---------------------------------------------------------------------------

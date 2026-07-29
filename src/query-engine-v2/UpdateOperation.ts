@@ -59,6 +59,7 @@ import {
 } from "./fragment-builders";
 import {
   nestedReplacement,
+  relationKeyOccupiedMessage,
   relationTargetNotFound,
   upsertPremiseChanged,
 } from "./messages";
@@ -3501,14 +3502,6 @@ function updateManyCarriesRelations(
       Object.keys(separateData(childScope, item.data).relations).length > 0
     );
   });
-}
-
-/** CLASS IV (T4c): V1's `relationFailure` occupied-slot message, verbatim. */
-function relationKeyOccupiedMessage(
-  relationName: string,
-  action: string
-): string {
-  return `Cannot update relation '${relationName}' with onUpdate('${action}') while the current relation is occupied.`;
 }
 
 /** Whether a PK transition is a no-op (V1's `notExistsWhenChanged` never fires). The

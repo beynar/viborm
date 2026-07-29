@@ -648,6 +648,24 @@ Those coincide everywhere except under a transition. The field splits them and d
 path's pre-transition + reorder ordering, and the to-many upsert's uncorrelated verdict — which
 was MEASURED to equal its verdict with no transition in the payload rather than assumed.
 
+**At depth (`RelationWritePart.ts`, the other half of N5-U1).** A nested update TARGET
+rewriting its own primary key while carrying a deeper edge had the same shape and the same
+fix, and the old refusal named the alternative itself: "V1 orders the edge against the
+POST-transition id instead". It now does. The one thing ordering alone would NOT have
+given is the LEGALITY: an occupied old slot, which the root rejects typed, would otherwise
+have let the referential action silently null those children. So CLASS IV's read+verdict
+pair became a Part (`RelationKeyOccupiedPart`) — the root's version rides the operation's
+`relationKeyGuards` list because the root has one; at depth there is no list, and a Part is
+what the architecture already provides. One rule, two depths, one message.
+
+The refusal that replaces it is strictly narrower and its reason is measured: a junction
+reads MEMBERSHIP at PLANNING, correlated to the parent key, and planning runs before the
+self-UPDATE writes the new one — so a payload carrying BOTH a junction edge and a
+non-cascade child-held edge on one transitioning target has no single ordering that serves
+both. A junction alone still cascades; a non-cascade edge alone is absorbed. Closing the
+mix needs `correlationParentId`'s two-source split carried into `RelationJunctionPart`.
+Census net 75 → 75 (one site deleted, one narrower site added in the same place).
+
 **Evidence.** `tests/query-engine-v2/post-transition-adopt-behavior.ts` (10 final-state
 witnesses on every driver leg and both substrates) + `post-transition-adopt.test.ts` (the
 statement-order and bound-value claims, plus the no-transition byte-identity half). Falsified

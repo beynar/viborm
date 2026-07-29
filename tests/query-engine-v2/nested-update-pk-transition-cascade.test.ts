@@ -22,22 +22,49 @@ import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
  *    engine runs the whole tree natively (the absorbed "nested identity transition"
  *    census witness: the junction's sourceId cascades 1→7).
  *  - a **child-held** one-to-many FK defaults to NO ACTION → the edge written against
- *    the old id would be stranded when the PK moves. The `pkTransitionCascadeSafe` guard
- *    DECLINES that shape ({@link UnsupportedOperationError}); with V1 deleted the decline
- *    is terminal (its native absorption is post-P6 backlog). Because the decline fires at
- *    construction — before any I/O — the seeded state is untouched.
+ *    the old id would be stranded when the PK moves.
  *
- * These two arms bracket the guard: remove it and the child-held arm executes and
- * strands the FK (a ForeignKeyError / wrong state, caught here as a non-decline); widen
- * it to catch m2m and the m2m arm stops executing (its state pin fails). A second root's
- * subtree is asserted untouched in every arm.
+ * **RETARGETED BY N5-U1 (authorized test change).** The child-held arm used to assert
+ * the DECLINE, on the reasoning that "the reorder/cascade trick is unsound for the
+ * NO-ACTION child FK" — true of that trick, and only of it. N5-U1 gives the non-cascade
+ * case the OTHER ordering instead: the deeper edge is written against the target's
+ * POST-transition primary key, AFTER the self-UPDATE, with the CLASS IV occupied guard
+ * (the same one the root emits) proving no child was left behind on the vacated key. So
+ * the same payload now EXECUTES, and this file asserts the state it produces rather than
+ * the refusal it used to raise. The third arm below is the guard's own witness: an
+ * OCCUPIED old slot is the typed occupied rejection at depth exactly as it is at the
+ * root, with nothing written.
+ *
+ * The three arms still bracket the mechanism: order the deeper edge before the
+ * self-UPDATE and the child-held arm strands the FK (its state pin fails); widen the
+ * non-cascade branch to catch m2m and the m2m arm stops cascading (its link pin fails);
+ * drop the occupied guard and the third arm silently nulls a child instead of rejecting.
+ * A second root's subtree is asserted untouched in every arm.
+ *
+ * **TWO ARMS ADDED AT THE N4/N5 MERGE.** N4-U1 lets this same nested target be located by
+ * any unique, handing the deeper edges a `planned` source into the part's own probe
+ * instead of a `where`-pinned literal. That absorption and N5-U1's ordering INTERSECT
+ * here, and their intersection is the one shape neither mechanism serves: a target named
+ * by a non-primary-key unique whose SET also rewrites its primary key, carrying a
+ * non-cascade deeper edge. The probe runs BEFORE the self-UPDATE, so the planned source
+ * reads the key the transition is about to vacate, and no `ParentIdSource` applies the
+ * SET's operand to a planned value. The last two arms bracket exactly that: the
+ * intersection refuses at construction with nothing written, and the same non-PK locator
+ * with NO transition in the SET executes, landing the edge on the located row's key.
+ * Falsified, and the measurement is what the comment says: drop the merge refusal and the
+ * deeper edge is written against the VACATED key — here the FK constraint catches it and
+ * a bare `ForeignKeyError` surfaces instead of the typed construction decline (2 of 12
+ * fail), and on a schema where another row already holds the vacated key nothing would
+ * catch it at all.
  */
 
 const cascadeSchema = (() => {
   const node = s
     .model({
       id: s.int().id(),
-      label: s.string(),
+      // Unique, so the nested target can be located by a NON-primary-key unique —
+      // the N4-U1 spelling the two merge arms below need.
+      label: s.string().unique(),
       parentId: s.int().nullable(),
       // Child-held self FK, referential action UNSET → NO ACTION on update.
       parent: s
@@ -114,6 +141,7 @@ function op(edge: Record<string, unknown>) {
 
 const CHILD_HELD_EDGE = { children: { connect: { id: 5 } } };
 const M2M_EDGE = { links: { connect: { id: 5 } } };
+const OCCUPIED_AT_DEPTH = /current relation is occupied/;
 
 interface Snapshot {
   parents: [number, number | null][];
@@ -146,17 +174,73 @@ function freshClient(substrate: "tx" | "batch"): {
 describe("nested update PK-transition cascade boundary (finding #1)", () => {
   for (const substrate of ["tx", "batch"] as const) {
     test(
-      `child-held deeper edge under a PK transition declines with no partial mutation (${substrate})`,
+      `child-held deeper edge under a PK transition adopts onto the new key (${substrate})`,
       { timeout: 30_000 },
       async () => {
         const { client } = freshClient(substrate);
         await push(client as any, { force: true });
         await seed(client);
 
-        // The reorder/cascade trick is unsound for the NO-ACTION child FK: the shape
-        // declines at construction, before any I/O — the seeded state is untouched.
+        // No child carries the target's key 1, so the occupied guard passes and the
+        // deeper connect is written against 7 — the key the self-UPDATE just wrote.
+        await (client as any).node.update(op(CHILD_HELD_EDGE));
+        expect((await snapshot(client)).parents).toEqual([
+          [3, 10],
+          [4, 20],
+          [5, 7],
+          [7, 10],
+          [10, null],
+          [20, null],
+        ]);
+        await client.$disconnect();
+      }
+    );
+
+    test(
+      `an OCCUPIED old slot rejects the depth transition with nothing written (${substrate})`,
+      { timeout: 30_000 },
+      async () => {
+        const { client } = freshClient(substrate);
+        await push(client as any, { force: true });
+        await seed(client);
+        // Give the transition target a child of its own: the NO-ACTION referential
+        // action would strand it, so the depth occupied guard rejects — V1's verbatim
+        // wording, the same the root emits, before any write.
+        await (client as any).node.create({
+          data: { id: 6, label: "occupant", parentId: 1 },
+        });
+
         await expect(
           (client as any).node.update(op(CHILD_HELD_EDGE))
+        ).rejects.toThrow(OCCUPIED_AT_DEPTH);
+        expect((await snapshot(client)).parents).toEqual([
+          [1, 10],
+          [3, 10],
+          [4, 20],
+          [5, null],
+          [6, 1],
+          [10, null],
+          [20, null],
+        ]);
+        await client.$disconnect();
+      }
+    );
+
+    test(
+      `both edge kinds at once is the one mix neither ordering serves (${substrate})`,
+      { timeout: 30_000 },
+      async () => {
+        const { client } = freshClient(substrate);
+        await push(client as any, { force: true });
+        await seed(client);
+        // A junction reads MEMBERSHIP at planning, correlated to the parent key, and
+        // planning runs before the self-UPDATE writes the new one — so the
+        // post-transition ordering the child-held edge needs would have the junction
+        // read a key no row carries yet, while the pre-transition ordering the junction
+        // needs strands the child-held edge. The refusal names both edges, fires at
+        // construction, and leaves the seed untouched.
+        await expect(
+          (client as any).node.update(op({ ...CHILD_HELD_EDGE, ...M2M_EDGE }))
         ).rejects.toBeInstanceOf(UnsupportedOperationError);
         expect((await snapshot(client)).parents).toEqual([
           [1, 10],
@@ -189,6 +273,77 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           [20, null],
         ]);
         expect(state.links).toContainEqual([7, [5]]);
+        await client.$disconnect();
+      }
+    );
+
+    test(
+      `a non-PK locator plus a PK transition is the merge's one refusal (${substrate})`,
+      { timeout: 30_000 },
+      async () => {
+        const { client } = freshClient(substrate);
+        await push(client as any, { force: true });
+        await seed(client);
+
+        // N4-U1's provenance (locate by `label`, Ref the probe) and N5-U1b's ordering
+        // (bind the deeper edge to the POST-transition key) cannot both be served: the
+        // probe already ran, so the value it publishes is the key 7 replaces. Refused at
+        // construction, before any statement, rather than binding the vacated key.
+        await expect(
+          (client as any).node.update({
+            where: { id: 10 },
+            data: {
+              children: {
+                update: {
+                  where: { label: "target" },
+                  data: { id: 7, ...CHILD_HELD_EDGE },
+                },
+              },
+            },
+          })
+        ).rejects.toBeInstanceOf(UnsupportedOperationError);
+        expect((await snapshot(client)).parents).toEqual([
+          [1, 10],
+          [3, 10],
+          [4, 20],
+          [5, null],
+          [10, null],
+          [20, null],
+        ]);
+        await client.$disconnect();
+      }
+    );
+
+    test(
+      `the same non-PK locator with no PK transition executes (${substrate})`,
+      { timeout: 30_000 },
+      async () => {
+        const { client } = freshClient(substrate);
+        await push(client as any, { force: true });
+        await seed(client);
+
+        // Drop the `id` from the SET and the intersection dissolves: N4-U1's planned
+        // source is the whole answer, and node 5's FK lands on 1 — the key of THE ROW
+        // THE PROBE LOCKED, not a value re-derived from the `where`.
+        await (client as any).node.update({
+          where: { id: 10 },
+          data: {
+            children: {
+              update: {
+                where: { label: "target" },
+                data: { label: "renamed", ...CHILD_HELD_EDGE },
+              },
+            },
+          },
+        });
+        expect((await snapshot(client)).parents).toEqual([
+          [1, 10],
+          [3, 10],
+          [4, 20],
+          [5, 1],
+          [10, null],
+          [20, null],
+        ]);
         await client.$disconnect();
       }
     );
