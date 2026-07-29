@@ -59,7 +59,11 @@ import {
   plannedParentId,
 } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
-import { getStepModelName, UnsupportedOperationError } from "./shared";
+import {
+  getStepModelName,
+  sameScalarValue,
+  UnsupportedOperationError,
+} from "./shared";
 
 /**
  * The correlated child-write family (PLAN P2c): nested `update` / `updateMany` /
@@ -676,7 +680,36 @@ export class RelationWritePart implements Part {
     // FK references a non-PK column of the target to V1 (the literal/planned parent id
     // carries only the target's PK per-field). So checking the PK here is complete —
     // no D4-style deep non-PK reference is silently reordered wrong; it never arrives.
-    const transitionsPk = Object.hasOwn(scalarData, primaryKey);
+    //
+    // A SET that names the primary key is not automatically a TRANSITION. `set` to the
+    // value the key already carries and `increment: 0` write the key without MOVING it,
+    // and the root has always answered that with `{ regime: "none" }` — no occupied
+    // guard, no reordering, the ordinary parts byte-identical (pinned by "allows
+    // same-value set on an occupied setNull relation" and "allows increment zero …" in
+    // `relation-key-update-legality.test.ts`). Depth owes the same answer, from the same
+    // two literals: the where-pinned pre-value and `getUpdatedPrimaryKeyValue` over the
+    // operand, both already in hand here. Asking `Object.hasOwn` alone made an occupied
+    // slot a REJECTION at depth for a payload the root ACCEPTS, under a message claiming
+    // a transition that is not happening — one rule answering two ways.
+    //
+    // Only the where-pinned spelling can be decided: a target named by another unique
+    // has no compile-time pre-value to compare against, so a no-op there is
+    // indistinguishable from a move and takes the ordinary transition path — the same
+    // place the root's `pastSurface` leaves an unpinned pre-value.
+    const setsPk = Object.hasOwn(scalarData, primaryKey);
+    const afterPk =
+      setsPk && pkEntry !== undefined
+        ? getUpdatedPrimaryKeyValue(
+            childScope.model,
+            primaryKey,
+            pkEntry.value,
+            scalarData[primaryKey],
+            getStepModelName(childScope.model, relationName)
+          )
+        : undefined;
+    const transitionsPk =
+      setsPk &&
+      !(pkEntry !== undefined && sameScalarValue(pkEntry.value, afterPk));
     // Two orderings, one per referential action, and the action is what picks:
     //
     //  · CASCADE (the implicit m2m junction FK, serializer default): write the edge
@@ -742,17 +775,7 @@ export class RelationWritePart implements Part {
           })
         );
       }
-      parentSource = literalParentId(
-        postTransition
-          ? getUpdatedPrimaryKeyValue(
-              childScope.model,
-              primaryKey,
-              pkEntry.value,
-              scalarData[primaryKey],
-              getStepModelName(childScope.model, relationName)
-            )
-          : pkEntry.value
-      );
+      parentSource = literalParentId(postTransition ? afterPk : pkEntry.value);
     }
     childParts.push(
       ...this.config.nestedBuilder(

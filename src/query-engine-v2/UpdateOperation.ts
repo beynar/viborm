@@ -108,6 +108,7 @@ import {
   isRecord,
   type NestedTargetLocate,
   type SubOperationOptions,
+  sameScalarValue,
   selectExecutionMode,
   UnsupportedOperationError,
 } from "./shared";
@@ -3536,26 +3537,6 @@ function updateManyCarriesRelations(
       Object.keys(separateData(childScope, item.data).relations).length > 0
     );
   });
-}
-
-/** Whether a PK transition is a no-op (V1's `notExistsWhenChanged` never fires). The
- *  pre- and post-transition values are both compile-time literals (the where-pinned
- *  value and `getUpdatedPrimaryKeyValue`), so an int/bigint/string PK compares by
- *  value and a Date by instant. */
-function sameScalarValue(before: unknown, after: unknown): boolean {
-  if (before instanceof Date && after instanceof Date) {
-    return before.getTime() === after.getTime();
-  }
-  if (typeof before === typeof after) return before === after;
-  // Cross-type numeric identity (a bigint PK a portable op returned as bigint vs a
-  // number literal `where`): compare by string form, never a lossy Number() cast.
-  if (
-    (typeof before === "bigint" || typeof before === "number") &&
-    (typeof after === "bigint" || typeof after === "number")
-  ) {
-    return String(before) === String(after);
-  }
-  return false;
 }
 
 function normalizeItems(

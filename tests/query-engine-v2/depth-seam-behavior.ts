@@ -201,7 +201,7 @@ const MUST_LOCATE_BY_PK = /must locate the target by its primary key/;
  * result parsing cannot be rolled back"), which would make the whole batch leg
  * vacuous. The same seam `located-parent-ref-behavior.ts` uses, for the same reason.
  */
-function makeSeamRunner(driver: AnyDriver) {
+export function makeSeamRunner(driver: AnyDriver) {
   const schemas = createSchemaRegistry(depthSeamSchema);
   const engine = new QueryEngine(
     driver,
@@ -223,10 +223,10 @@ function makeSeamRunner(driver: AnyDriver) {
     );
 }
 
-function makeSeamClient(driver: AnyDriver) {
+export function makeSeamClient(driver: AnyDriver) {
   return createClient({ schema: depthSeamSchema, driver });
 }
-type SeamClient = ReturnType<typeof makeSeamClient>;
+export type SeamClient = ReturnType<typeof makeSeamClient>;
 
 /**
  * Two projects with the SAME title in two different workspaces. The decoy is seeded
@@ -234,7 +234,7 @@ type SeamClient = ReturnType<typeof makeSeamClient>;
  * `where`, takes "the first row", or falls back to a scan attaches the grandchild to
  * it — and every assertion names the project id, not just a row count.
  */
-async function seedProjects(client: SeamClient): Promise<void> {
+export async function seedProjects(client: SeamClient): Promise<void> {
   await client.workspace.create({ data: { id: 1, slug: "decoy-ws" } });
   await client.workspace.create({ data: { id: 2, slug: "target-ws" } });
   await client.project.create({

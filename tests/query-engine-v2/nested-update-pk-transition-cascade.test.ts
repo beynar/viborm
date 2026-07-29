@@ -56,6 +56,17 @@ import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
  * a bare `ForeignKeyError` surfaces instead of the typed construction decline (2 of 12
  * fail), and on a schema where another row already holds the vacated key nothing would
  * catch it at all.
+ *
+ * **TWO ARMS ADDED IN THE FIX ROUND.** N5-U1b claimed "one rule, two depths, one
+ * message" and shipped one and a half: depth read "the SET names the primary key" as
+ * "the primary key transitions", so `id: { set: <current> }` and `id: { increment: 0 }`
+ * dragged an occupied old slot into a rejection the ROOT does not make (`sameScalarValue`
+ * is its `{ regime: "none" }`, pinned by two tests in
+ * `tests/query-engine/relation-key-update-legality.test.ts`). Nothing here could catch
+ * it, because the false rejection needs an OCCUPANT — with the slot empty the identical
+ * payload ran, which is why the arm above and these two differ only in the operand. The
+ * two new arms are those root tests asked at depth; they fail 4/4 without the no-op
+ * verdict, and the message they used to get asserted a transition that was not happening.
  */
 
 const cascadeSchema = (() => {
@@ -225,6 +236,55 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         await client.$disconnect();
       }
     );
+
+    for (const [name, operand] of [
+      ["same-value set", { set: 1 }],
+      ["increment zero", { increment: 0 }],
+    ] as const) {
+      test(
+        `a ${name} on the primary key moves no slot, so an occupant is fine (${substrate})`,
+        { timeout: 30_000 },
+        async () => {
+          const { client } = freshClient(substrate);
+          await push(client as any, { force: true });
+          await seed(client);
+          // The SAME occupant as the arm above — the difference is only the operand.
+          await (client as any).node.create({
+            data: { id: 6, label: "occupant", parentId: 1 },
+          });
+
+          // The ROOT accepts exactly this rule ("allows same-value set on an occupied
+          // setNull relation" / "allows increment zero …" in
+          // `tests/query-engine/relation-key-update-legality.test.ts`): the SET writes
+          // the key's CURRENT value, so nothing is vacated and no child is stranded.
+          // Depth must answer the same, or the occupied guard's own message — which
+          // says a transition is happening — is false on its face.
+          await (client as any).node.update({
+            where: { id: 10 },
+            data: {
+              children: {
+                update: {
+                  where: { id: 1 },
+                  data: { id: operand, ...CHILD_HELD_EDGE },
+                },
+              },
+            },
+          });
+          expect((await snapshot(client)).parents).toEqual([
+            [1, 10],
+            [3, 10],
+            [4, 20],
+            // The deeper connect landed on the key the target still carries …
+            [5, 1],
+            // … and the occupant was neither rejected nor nulled.
+            [6, 1],
+            [10, null],
+            [20, null],
+          ]);
+          await client.$disconnect();
+        }
+      );
+    }
 
     test(
       `both edge kinds at once is the one mix neither ordering serves (${substrate})`,

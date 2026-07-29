@@ -1277,6 +1277,20 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // schema the FK constraint catches it and a bare `ForeignKeyError` replaces the typed
   // construction decline (2 of the file's 12 fail), and where another row already holds
   // the vacated key nothing catches it at all.
+  //
+  // 74 -> 74 (FIX ROUND, no site added or removed, recorded because it changes what
+  // REACHES one of them). `interpretChildParts` asks a question BEFORE the two above:
+  // does the SET move the primary key at all? It used to answer `Object.hasOwn` and
+  // nothing else, so `id: { set: <current> }` / `id: { increment: 0 }` counted as a
+  // transition and an occupied old slot became a rejection at depth for a payload the
+  // ROOT accepts (the two `sameScalarValue` no-op cases pinned in
+  // `relation-key-update-legality.test.ts` — the very regression THIS log's sweep-(d)
+  // entry names as disqualifying, shipped one level down). The root's no-op verdict now
+  // runs here too, from `shared.ts` so there is one function rather than two copies
+  // drifting. The merge refusal above and the occupied guard are untouched in reach for
+  // every payload that actually moves a key; only no-ops stopped arriving. Witnessed by
+  // two arms in `nested-update-pk-transition-cascade.test.ts` on both substrates (4 of
+  // that file's 16 fail without the verdict).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

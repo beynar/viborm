@@ -125,6 +125,40 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Whether a referenced-key transition is a NO-OP — an `increment: 0` or a `set` to the
+ * value the key already carries. The SET writes something, but the key does not MOVE, so
+ * no slot is vacated, no child is stranded, and the ordinary parts hold unchanged: no
+ * occupied guard, no post-transition ordering, no reorder.
+ *
+ * One home (X2), because two levels ask it of the same payload and must answer alike:
+ * the ROOT's `interpretReferencedKeyTransition` ({@link UpdateOperation}, whose
+ * `{ regime: "none" }` this decides) and the nested update TARGET's
+ * `interpretChildParts` ({@link RelationWritePart}, deciding whether its own primary key
+ * transitions at all). Split, the root accepted a same-value SET on an occupied relation
+ * — pinned by `relation-key-update-legality.test.ts` — while depth rejected it with a
+ * message asserting a transition that is not happening.
+ *
+ * Both operands are compile-time literals (the where-pinned pre-value and
+ * `getUpdatedPrimaryKeyValue`), so an int/bigint/string key compares by value and a Date
+ * by instant.
+ */
+export function sameScalarValue(before: unknown, after: unknown): boolean {
+  if (before instanceof Date && after instanceof Date) {
+    return before.getTime() === after.getTime();
+  }
+  if (typeof before === typeof after) return before === after;
+  // Cross-type numeric identity (a bigint PK a portable op returned as bigint vs a
+  // number literal `where`): compare by string form, never a lossy Number() cast.
+  if (
+    (typeof before === "bigint" || typeof before === "number") &&
+    (typeof after === "bigint" || typeof after === "number")
+  ) {
+    return String(before) === String(after);
+  }
+  return false;
+}
+
+/**
  * Can this create-data value address the written row in a compile-time `where`?
  *
  * A NULL never can: SQL unique constraints do not equate NULLs, so a nullable

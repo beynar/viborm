@@ -770,6 +770,72 @@ appending to the same driver-file block, the census log, the plan). The sixth,
 N5's move of the PK-arithmetic portability check INTO that method was kept, since its
 post-transition derivation depends on the operand already being known portable.
 
+### N4 × N5 — fix round (two blocking findings; both were assumptions the gates could not see)
+
+Everything above was green when it was written. Two claims in it were still false, and
+neither could fail: one was data-dependent in a way no seeded row reached, the other was
+a provenance claim the whole bed was blind to.
+
+**1. "One rule, two depths, one message" was not true as shipped.** The N5-U1b entry above
+says an occupied old slot became the same typed rejection at depth that it is at the root.
+Measured, it was the same rejection *plus one the root does not make*: `interpretChildParts`
+decided "the primary key transitions" from `Object.hasOwn(scalarData, primaryKey)` alone and
+then emitted the occupied guard unconditionally. The root's counterpart,
+`interpretReferencedKeyTransition`, first asks whether the transition MOVES anything —
+`sameScalarValue(before, after)`, its `{ regime: "none" }` — because `id: { set: <current> }`
+and `id: { increment: 0 }` write the key without vacating its slot. So `proj.update({ data:
+{ id: 10, tasks: { create } } })` on an occupied `setNull` relation was ACCEPTED at the root
+(pinned by "allows same-value set on an occupied setNull relation" and "allows increment
+zero …" in `relation-key-update-legality.test.ts`) and REJECTED one level down,
+under a message asserting a transition that was not happening. Not a regression against
+`f49047b` — the shape threw `UnsupportedOperationError` there — but the wave's absorption
+newly ADMITTED it and then gave it a verdict contradicting the engine's own rule.
+
+Nothing in the estate could catch it, because the false rejection is data-dependent: with
+the old slot EMPTY the identical payload runs. N5-U2's own record had already named this
+exact hazard as disqualifying for sweep (d) — "a Ref-correlated guard without that decision
+moved to compile would reject an occupied slot the engine deliberately accepts: a
+REGRESSION, not a boundary". The lane refused to ship it at the root and shipped it at depth.
+
+Fixed at the one site that already held both operands: `interpretChildParts` derives `after`
+with `getUpdatedPrimaryKeyValue` from the where-pinned pre-value and takes the root's own
+no-op verdict, so a no-op emits no occupied guard, no post-transition ordering and no
+reorder, and the deeper edges bind the key the target already carries. `sameScalarValue`
+moved to `shared.ts` — the split copy is exactly how one rule came to answer two ways, so
+now there is one function and both levels call it. Only the where-pinned spelling can be
+decided; a target named by another unique has no compile-time pre-value, which is the same
+place the root's `pastSurface` leaves an unpinned one. Witnessed by two arms mirroring the
+two pinned root tests, on both substrates, in `nested-update-pk-transition-cascade.test.ts`;
+they fail 4/4 without the fix.
+
+**2. N4-U1's located-parent Ref had no falsifying witness.** The depth-seam bed pairs every
+absorbed shape with a decoy, and the file header claims those decoys catch both "take the
+first row" and "re-read the `where`". Only the first half is true. Each decoy differs from
+its target in the very column the selector names (`code: 'P-DECOY'` vs `'P-TARGET'`), so an
+implementation that re-resolves that selector a second time lands on the same row and every
+assertion still passes. Measured: substituting a second, uncorrelated planning read for the
+`planned` source into this part's probe passed **801/801** of `tests/query-engine-v2` — the
+28 depth-seam arms, the 12 cascade arms, `located-parent-ref.test.ts`, the gates, all of it.
+What that silently loses is the lock: `correlatedProbeStatement` carries
+`forUpdate: this.config.txMode`, so the probe's row is LOCKED and a re-read's is not.
+
+N1 had already built the instrument for the same claim one level up
+(`CorruptLocatePGliteDriver`) and N4 inherited the decoys instead. It is now aimed at the
+depth probe, in `depth-seam.test.ts`: corrupt what the probe RETURNED to another live row's
+key and the grandchild must follow the corruption, because that is the row the operation
+acted on. Re-measured with the witness in place, the same substitution now fails **1 of
+809** in `tests/query-engine-v2`, and the one is this witness — it is the only assertion in
+the estate that can tell a located value from a re-derived one. Two more arms come with it —
+the batch substrate's split-witness guard re-checks the located key against the selector and
+aborts with nothing written (stronger, and for that reason blind to provenance, which is why
+the provenance claim is measured on the transaction substrate), and a probe row missing the
+key fails closed at planning on both substrates, pinning that the deeper edges Ref a
+DECLARED `firstRowField` output rather than a raw row read.
+
+**Census unchanged at 74** (re-derived by running `route-inventory.test.ts`): no refusal was
+added or removed. The no-op fix narrows what reaches an EXISTING guard, and the merge
+refusal's three conditions are untouched.
+
 ## N6 — Beyond Prisma (decision-gated; each unit needs a maintainer yes)
 
 | Unit | What | Decision |
