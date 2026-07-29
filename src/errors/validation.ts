@@ -43,6 +43,9 @@ export function publicOperationName(operation: Operation): Operation {
 export class ValidationError extends VibORMError {
   static override readonly diagnosticName = "ValidationError";
 
+  /** Literal discriminant: this class always carries `VALIDATION_FAILED`. */
+  declare readonly code: typeof VibORMErrorCode.VALIDATION_FAILED;
+
   /** Validation issues */
   readonly issues: ValidationIssue[];
   /**

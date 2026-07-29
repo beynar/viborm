@@ -6,6 +6,9 @@ import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
 export class CacheInvalidTTLError extends VibORMError {
   static override readonly diagnosticName = "CacheInvalidTTLError";
 
+  /** Literal discriminant: this class always carries `CACHE_INVALID_TTL`. */
+  declare readonly code: typeof VibORMErrorCode.CACHE_INVALID_TTL;
+
   constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
     super(message, VibORMErrorCode.CACHE_INVALID_TTL, {
       meta: options?.meta,
@@ -19,6 +22,9 @@ export class CacheInvalidTTLError extends VibORMError {
 export class CacheInvalidKeyError extends VibORMError {
   static override readonly diagnosticName = "CacheInvalidKeyError";
 
+  /** Literal discriminant: this class always carries `CACHE_INVALID_KEY`. */
+  declare readonly code: typeof VibORMErrorCode.CACHE_INVALID_KEY;
+
   constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
     super(message, VibORMErrorCode.CACHE_INVALID_KEY, {
       meta: options?.meta,
@@ -31,6 +37,9 @@ export class CacheInvalidKeyError extends VibORMError {
  */
 export class CacheOperationNotCacheableError extends VibORMError {
   static override readonly diagnosticName = "CacheOperationNotCacheableError";
+
+  /** Literal discriminant: this class always carries `CACHE_OPERATION_NOT_CACHEABLE`. */
+  declare readonly code: typeof VibORMErrorCode.CACHE_OPERATION_NOT_CACHEABLE;
 
   constructor(
     operation: string,
@@ -52,6 +61,9 @@ export class CacheOperationNotCacheableError extends VibORMError {
  */
 export class CacheConfigurationError extends VibORMError {
   static override readonly diagnosticName = "CacheConfigurationError";
+
+  /** Literal discriminant: this class always carries `CACHE_CONFIGURATION`. */
+  declare readonly code: typeof VibORMErrorCode.CACHE_CONFIGURATION;
 
   constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
     super(message, VibORMErrorCode.CACHE_CONFIGURATION, {

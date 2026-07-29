@@ -7,6 +7,9 @@ import type { DiagnosticDisclosure } from "./diagnostics";
 export class UniqueConstraintError extends VibORMError {
   static override readonly diagnosticName = "UniqueConstraintError";
 
+  /** Literal discriminant: this class always carries `UNIQUE_CONSTRAINT`. */
+  declare readonly code: typeof VibORMErrorCode.UNIQUE_CONSTRAINT;
+
   constructor(
     message: string,
     options?: {
@@ -37,6 +40,9 @@ export class UniqueConstraintError extends VibORMError {
 export class ForeignKeyError extends VibORMError {
   static override readonly diagnosticName = "ForeignKeyError";
 
+  /** Literal discriminant: this class always carries `FOREIGN_KEY_CONSTRAINT`. */
+  declare readonly code: typeof VibORMErrorCode.FOREIGN_KEY_CONSTRAINT;
+
   constructor(
     message: string,
     options?: {
@@ -62,6 +68,9 @@ export class ForeignKeyError extends VibORMError {
  */
 export class NotNullConstraintError extends VibORMError {
   static override readonly diagnosticName = "NotNullConstraintError";
+
+  /** Literal discriminant: this class always carries `NOT_NULL_CONSTRAINT`. */
+  declare readonly code: typeof VibORMErrorCode.NOT_NULL_CONSTRAINT;
 
   constructor(
     message: string,
@@ -91,6 +100,9 @@ export class NotNullConstraintError extends VibORMError {
  */
 export class CheckConstraintError extends VibORMError {
   static override readonly diagnosticName = "CheckConstraintError";
+
+  /** Literal discriminant: this class always carries `CHECK_CONSTRAINT`. */
+  declare readonly code: typeof VibORMErrorCode.CHECK_CONSTRAINT;
 
   constructor(
     message: string,
@@ -128,6 +140,9 @@ export class CheckConstraintError extends VibORMError {
  */
 export class ValueTooLongError extends VibORMError {
   static override readonly diagnosticName = "ValueTooLongError";
+
+  /** Literal discriminant: this class always carries `VALUE_TOO_LONG`. */
+  declare readonly code: typeof VibORMErrorCode.VALUE_TOO_LONG;
 
   constructor(
     message: string,
