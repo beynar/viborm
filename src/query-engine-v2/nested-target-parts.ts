@@ -734,28 +734,33 @@ function buildNestedFreshCreateParts(input: {
   return [new NestedFreshCreatePart(op)];
 }
 
-export function buildLiteralParentCreateManyPart(input: {
-  scope: StepScope;
+/**
+ * The construction-time half a nested `createMany` leaf shares across both parent-id
+ * provenances: the user rows, the skipDuplicates disposition, and V1's portability
+ * guard on the PRE-injection rows.
+ *
+ * X1b mechanism 3 — createMany skipDuplicates at depth. The composed skip leaf
+ * (T4a CLASS VI, generalized one level past the create root): the skip rides the
+ * plan (a dialect whose skip IS a SQL leaf carries `ON CONFLICT DO NOTHING` /
+ * `INSERT OR IGNORE`; a `recoverableUniqueError` dialect — MySQL — has no leaf,
+ * so each per-row statement carries the savepoint-wrapped `onUniqueConflict: skip`
+ * executor effect). Byte-identical to `CreateOperation.foldCreateMany`.
+ */
+function planNestedCreateMany(input: {
   engine: QueryEngine;
   childScope: QueryScope;
-  childName: string;
   relationName: string;
-  fk: ReturnType<typeof getFkDirection>;
-  parentId: ParentIdSource;
   createManyInput: unknown;
-}): Part {
-  const { scope, engine, childScope, childName, relationName, fk, parentId } =
-    input;
+}): {
+  userRows: readonly Record<string, unknown>[];
+  skipDuplicates: boolean;
+  recoverUnique: boolean;
+} {
+  const { engine, childScope, relationName } = input;
   const createMany = requireRecord(
     input.createManyInput,
     `${relationName}.createMany`
   );
-  // X1b mechanism 3 — createMany skipDuplicates at depth. The composed skip leaf
-  // (T4a CLASS VI, generalized one level past the create root): the skip rides the
-  // plan (a dialect whose skip IS a SQL leaf carries `ON CONFLICT DO NOTHING` /
-  // `INSERT OR IGNORE`; a `recoverableUniqueError` dialect — MySQL — has no leaf,
-  // so each per-row statement carries the savepoint-wrapped `onUniqueConflict: skip`
-  // executor effect). Byte-identical to `CreateOperation.foldCreateMany`.
   const skipDuplicates = createMany.skipDuplicates === true;
   const userRows = normalizeItems(createMany.data, relationName);
   if (skipDuplicates) {
@@ -771,6 +776,34 @@ export function buildLiteralParentCreateManyPart(input: {
       groups.some((group) => group.columns.length === 0)
     );
   }
+  return {
+    userRows,
+    skipDuplicates,
+    recoverUnique:
+      skipDuplicates &&
+      engine.adapter.mutations.skipDuplicatesStrategy ===
+        "recoverableUniqueError",
+  };
+}
+
+export function buildLiteralParentCreateManyPart(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  childScope: QueryScope;
+  childName: string;
+  relationName: string;
+  fk: ReturnType<typeof getFkDirection>;
+  parentId: ParentIdSource;
+  createManyInput: unknown;
+}): Part {
+  const { scope, engine, childScope, childName, relationName, fk, parentId } =
+    input;
+  const { userRows, skipDuplicates, recoverUnique } = planNestedCreateMany({
+    engine,
+    childScope,
+    relationName,
+    createManyInput: input.createManyInput,
+  });
   const inject = literalFkInject(
     engine,
     childScope,
@@ -785,10 +818,6 @@ export function buildLiteralParentCreateManyPart(input: {
     { data: rows, skipDuplicates },
     false
   );
-  const recoverUnique =
-    skipDuplicates &&
-    engine.adapter.mutations.skipDuplicatesStrategy ===
-      "recoverableUniqueError";
   const steps: OperationStep[] = plan.statements.map((statement) => ({
     id: scope.allocate(`${childName}.createMany`),
     kind: "write" as const,
@@ -797,6 +826,88 @@ export function buildLiteralParentCreateManyPart(input: {
     ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
   }));
   return new LiteralParentWriteParts(steps);
+}
+
+/**
+ * N1-U1 — the PLANNED-parent `createMany` leaf: the same bulk plan the literal leaf
+ * builds, with the located parent's referenced column(s) resolved at COMPILE from the
+ * planning row ({@link plannedFkInject}) instead of at construction. This is the
+ * located-parent Ref applied to the bulk arm — `update({ where: { email }, data: {
+ * posts: { createMany } } })` compiles to the SAME statements as the `where: { id }`
+ * spelling, differing only in where the foreign key's value comes from.
+ *
+ * Step ids are allocated at CONSTRUCTION (the {@link Part} contract: ids are allocated
+ * once, `compile` is a deterministic construction over them). The plan's statement
+ * count is a function of which COLUMNS each row carries — `buildValueGroups` runs
+ * maximal contiguous same-shape runs, and `shouldOmitInsertValue` omits only
+ * `undefined` — never of their VALUES, and the injected foreign key is an `Sql`
+ * fragment under both provenances. So a construction-time shape plan built with a
+ * placeholder foreign key yields exactly the statements compile rebuilds; the
+ * alignment is ASSERTED at compile, never assumed.
+ */
+export function buildPlannedParentCreateManyPart(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  childScope: QueryScope;
+  childName: string;
+  relationName: string;
+  fk: ReturnType<typeof getFkDirection>;
+  parentId: ParentIdSource;
+  createManyInput: unknown;
+}): Part {
+  const { scope, engine, childScope, childName, relationName, fk, parentId } =
+    input;
+  const { userRows, skipDuplicates, recoverUnique } = planNestedCreateMany({
+    engine,
+    childScope,
+    relationName,
+    createManyInput: input.createManyInput,
+  });
+  if (userRows.length === 0) return new LiteralParentWriteParts([]);
+  const shapeInject = Object.fromEntries(
+    fk.fkFields.map((fkField) => [
+      fkField,
+      referenceSql(engine, childScope.model, fkField, null),
+    ])
+  );
+  const stepIds = buildCreateManyPlan(
+    childScope,
+    {
+      data: userRows.map((row) => ({ ...row, ...shapeInject })),
+      skipDuplicates,
+    },
+    false
+  ).statements.map(() => scope.allocate(`${childName}.createMany`));
+  return new PlannedParentCreatePart((known) => {
+    const inject = plannedFkInject(
+      engine,
+      childScope,
+      fk,
+      relationName,
+      parentId,
+      known
+    );
+    const plan = buildCreateManyPlan(
+      childScope,
+      {
+        data: userRows.map((row) => ({ ...row, ...inject })),
+        skipDuplicates,
+      },
+      false
+    );
+    if (plan.statements.length !== stepIds.length) {
+      throw new QueryEngineError(
+        `query-engine-v2 planned-parent createMany on relation '${relationName}' compiled ${plan.statements.length} statements for ${stepIds.length} allocated step ids.`
+      );
+    }
+    return plan.statements.map((statement, index) => ({
+      id: stepIds[index]!,
+      kind: "write" as const,
+      statement: statement.sql,
+      outputs: {},
+      ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
+    }));
+  });
 }
 
 /**

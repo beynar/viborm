@@ -24,6 +24,51 @@ Today, `update({ where, data: { <child writes> } })` demands the referenced pare
 
 **Acceptance:** `update({ where: { email }, data: { posts: { create } } })` executes identically to the `where: { id }` spelling on all local dialects + both substrates; the B6 family (unpinned PK-transition variants) re-audited against the Ref; census drops with per-site justifications.
 
+### N1-U1 — delivered
+
+`UpdateOperation.resolveLiteralCreateParent` became `resolveCreateParent`: when no
+compile-time literal names the referenced parent column, the column joins `locateFields`
+(so the locate SELECTs it *and* declares it as a `firstRowField` output) and the create
+leaf gets a `plannedParentId`, resolving the foreign key at compile from the row the
+locate ACTED ON. The literal path is untouched for the pinned single-field case — the
+`where: { id }` spelling compiles byte-identically, pays no extra column and no extra
+statement. The single-`create` leaf was already per-field compound-ready from T4a
+(`buildPlannedParentCreatePart` / `plannedFkInject`); N1-U1 adds
+`buildPlannedParentCreateManyPart` for the bulk arm, allocating step ids at construction
+from a shape plan and ASSERTING (not assuming) that the compile-built plan has the same
+statement count.
+
+Census **78 → 77**: the refusal is deleted, not narrowed. Four sites were re-justified
+rather than absorbed, each with the Ref explicitly considered — see the count-evolution
+entry in `route-inventory.test.ts`. Notably `resolveCreateParent`'s "pre-transition value
+is not pinned" survivor: the Ref *does* reach the pre-transition value, but the
+absorption needs the post-transition derivation ordered against the root UPDATE, which is
+**N5-U2**'s unit.
+
+Witnesses: `located-parent-ref-behavior.ts` (7 shapes × every driver leg × both
+substrates — state parity between spellings, the wrong-row decoy, a D4 non-PK referenced
+column, `createMany`, the X1b create subtree); `located-parent-ref.test.ts` (plan parity:
+identical statement count and write SQL between spellings; staleness injection: the FK
+follows the locate's returned value, a value corrupted to a non-existent key fails closed,
+an absent declared output fails closed at planning); `staleness-injection.test.ts` (race
+story: a concurrent parent delete aborts the batch typed with no orphan);
+`upsert-family-behavior.ts` (the upsert's UPDATE arm rides the same Ref; its CREATE arm's
+produced-identity provenance is unaffected).
+
+Four tests were deliberately RETARGETED from a decline to an accept-and-execute assertion
+on the SAME payload, each with the reason written at the site:
+`nested-update-d4-deep-nonpk-reference.test.ts` (this is also the depth-≥2 witness — the
+Ref under X1c delegation), `extended-where-unique-behavior.ts` (the Pin-Rule claim
+survives, sharpened), and the two construction-surface tests in `update-family.test.ts` /
+`upsert-family.test.ts`.
+
+**Measured, not fixed — recorded for a later wave.** In BATCH mode the root-presence guard
+and the root UPDATE both address the ORIGINAL `where`, while child edges address the
+captured located row. Under a concurrent rename-plus-reinsert on the discriminator those
+two can name different rows. This is pre-existing for every alternate-unique locate (a
+`connect` under `where: { email }` splits the same way) and is NOT introduced by the Ref —
+but N1 makes the spelling common, so it is named here rather than left implicit.
+
 ## N2 — Inverse-side to-one family (the mainstream Prisma shape)
 
 `user.update({ where, data: { profile: { create: { bio } } } })` still refuses ([UpdateOperation.ts:1720](../../src/query-engine-v2/UpdateOperation.ts:1720)); `createMany`/`deleteMany` on the inverse side likewise.

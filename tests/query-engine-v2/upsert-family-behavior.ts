@@ -329,5 +329,89 @@ export function runUpsertFamilyBehavior(options: {
         }
       }
     );
+
+    // N1-U1 — the located-parent Ref reaches the upsert's UPDATE ARM. The arm is an
+    // `UpdateOperation` whose locate is the upsert's own superset read, so the same
+    // mechanism applies: the `where` names `email`, the child's foreign key needs
+    // `id`, and the value comes from the located row. Both arms are witnessed —
+    // the update arm because that is where the Ref lives, and the create arm
+    // because its parent id is a PRODUCED identity (a fresh auto-increment row),
+    // a different provenance that must stay unaffected.
+    test(
+      "upsert UPDATE arm: a nested create by a non-PK unique rides the located-parent Ref",
+      { timeout: 30_000 },
+      async () => {
+        const { driver, client, dispose } = await setup();
+        try {
+          // A decoy seeded FIRST, so it holds the lower generated id.
+          await client.user.create({ data: { email: "decoy@x", score: 0 } });
+          await client.user.create({ data: { email: "arm@x", score: 5 } });
+          const result = await createUpsertFamilyExecutor(driver).executeUpsert(
+            "user",
+            upsertFamilySchema.user,
+            {
+              where: { email: "arm@x" },
+              create: { email: "arm@x", score: 0 },
+              update: {
+                posts: { create: { id: 50, title: "reffed", slug: "s50" } },
+              },
+              select: {
+                email: true,
+                posts: { select: { id: true, userId: true } },
+              },
+            }
+          );
+          expect(result).toEqual({
+            email: "arm@x",
+            posts: [{ id: 50, userId: 2 }],
+          });
+          await expect(
+            client.post.findMany({ where: { userId: 1 } })
+          ).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "upsert CREATE arm with the same payload still parents the child on the fresh row",
+      { timeout: 30_000 },
+      async () => {
+        const { driver, client, dispose } = await setup();
+        try {
+          await client.user.create({ data: { email: "decoy@x", score: 0 } });
+          const result = await createUpsertFamilyExecutor(driver).executeUpsert(
+            "user",
+            upsertFamilySchema.user,
+            {
+              where: { email: "absent@x" },
+              create: {
+                email: "absent@x",
+                score: 0,
+                posts: { create: { id: 51, title: "fresh", slug: "s51" } },
+              },
+              update: {
+                posts: { create: { id: 52, title: "never", slug: "s52" } },
+              },
+              select: {
+                email: true,
+                posts: { select: { id: true, userId: true } },
+              },
+            }
+          );
+          expect(result).toEqual({
+            email: "absent@x",
+            posts: [{ id: 51, userId: 2 }],
+          });
+          // The untaken update arm wrote nothing.
+          await expect(
+            client.post.findMany({ where: { id: 52 } })
+          ).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
   });
 }

@@ -743,3 +743,80 @@ describe("query-engine-v2 staleness injection (extended whereUnique)", () => {
     await client.$disconnect();
   });
 });
+
+// ---------------------------------------------------------------------------
+// N1-U1 — the located-parent Ref's race story. The Ref carries a value read at
+// planning, OUTSIDE the atomic batch, into a write INSIDE it. The premise it
+// depends on is the one the root-presence guard already pins: the located parent
+// still exists when the unit runs. These two injections prove that premise is
+// enforced for the Ref path specifically — a concurrent delete of the located
+// parent aborts the batch typed, with no orphaned child row left behind — and
+// that the pin is the EXISTING guard, not a new one (the Ref is dataflow; the
+// Pin Rule's race classification is untouched by it).
+// ---------------------------------------------------------------------------
+
+describe("query-engine-v2 staleness injection (located-parent Ref)", () => {
+  test("nested create by a non-PK unique: a concurrent parent delete aborts the batch typed", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "ref@x", count: 0 } });
+
+    const injector = makeClient(db);
+    await expect(
+      runUpdate(
+        db,
+        async () => {
+          await injector.user.delete({ where: { email: "ref@x" } });
+        },
+        "user",
+        updateFamilySchema.user,
+        {
+          where: { email: "ref@x" },
+          data: { posts: { create: { id: 90, title: "raced", slug: "s90" } } },
+          select: { email: true },
+        }
+      )
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    // No child rode a foreign key to a parent that no longer exists.
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await client.$disconnect();
+  });
+
+  test("nested createMany by a non-PK unique: a concurrent parent delete aborts the batch typed", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "refm@x", count: 0 } });
+
+    const injector = makeClient(db);
+    await expect(
+      runUpdate(
+        db,
+        async () => {
+          await injector.user.delete({ where: { email: "refm@x" } });
+        },
+        "user",
+        updateFamilySchema.user,
+        {
+          where: { email: "refm@x" },
+          data: {
+            posts: {
+              createMany: {
+                data: [
+                  { id: 91, title: "a", slug: "s91" },
+                  { id: 92, title: "b", slug: "s92" },
+                ],
+              },
+            },
+          },
+          select: { email: true },
+        }
+      )
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await client.$disconnect();
+  });
+});

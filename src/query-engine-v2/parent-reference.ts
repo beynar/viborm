@@ -65,5 +65,11 @@ export function referencedFieldValue(
       relationName
     );
   }
+  // No second guard for "the row does not carry this column". Every `planned` reference
+  // names a field the producing read declares as a `firstRowField` output, and the
+  // executor already fails the whole operation closed when a declared output is absent
+  // from the result (`extractOutput`) — during PLANNING, before any write. Repeating
+  // that check here would be redundant defense on an invariant that already has a
+  // guard, which is exactly what the one-guard-per-invariant rule forbids.
   return (row as Record<string, unknown>)[referencedField];
 }

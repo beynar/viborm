@@ -9,7 +9,6 @@ import {
 import { push } from "@migrations";
 import { hydrateSchemaNames, s } from "@schema";
 import { describe, expect, test } from "vitest";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 
 /**
  * W4-U1 — the EXTENDED unique `where` (Prisma >= 4.5).
@@ -29,9 +28,9 @@ import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
  *     conflict, not a race; and whose terminal read-back returns the row that
  *     arm actually INSERTED, addressed by the identity of that insert and never
  *     by the `where` (`ticket`, whose DB-generated PK forces the capture);
- *  4. a nested create under an extended `where` pins its parent column from the
- *     DISCRIMINATOR only; a column named by the filter half pins nothing and the
- *     pre-existing refusal fires unchanged.
+ *  4. a nested create under an extended `where` takes its parent column from the
+ *     DISCRIMINATOR or, since N1-U1, from the LOCATED ROW — never from the filter
+ *     half, which narrows which row is touched and names none.
  */
 export const extendedWhereUniqueSchema = (() => {
   const account = s
@@ -701,27 +700,55 @@ export function runExtendedWhereUniqueBehavior(options: {
       })
     );
 
+    // DELIBERATE RETARGET (N1-U1). This case used to pin an
+    // `UnsupportedOperationError`: with `id` named only by the AND branch, no
+    // compile-time literal held the referenced column, and the nested create
+    // refused. That refusal was literal-only propagation, not the Pin Rule, and
+    // N1 removed its cause — the locate now SELECTS the referenced column and the
+    // create reads it from the located row. What the Pin Rule actually forbids is
+    // unchanged and still witnessed here: nothing is read FROM the filter half.
+    // `resolveCreateParent` consults `getWhereUniqueEntries` — the discriminator
+    // alone — and when that does not name the referenced column it goes to the
+    // LOCATED ROW, never to the AND branch. The second case is the falsification:
+    // a filter naming a referenced value that excludes the discriminator's row
+    // must produce NOT-FOUND with nothing written; an implementation that read
+    // the filter as a pin would insert a login against it.
     test(
-      "a filter naming the referenced column pins NOTHING — the refusal stands",
+      "a filter naming the referenced column pins NOTHING — the value comes from the located row",
       { timeout: 30_000 },
       run(async (client) => {
-        // `id` is fixed by the AND branch, not by the discriminator. If the
-        // filter half were allowed to pin, this would silently succeed with a
-        // literal parent FK; instead the pre-existing refusal fires unchanged.
+        const result = await client.account.update({
+          where: { email: "live@x", AND: [{ id: 1 }] },
+          data: { logins: { create: { id: 101, label: "not smuggled" } } },
+          select: {
+            id: true,
+            logins: { select: { id: true, accountId: true } },
+          },
+        });
+        expect(result).toEqual({
+          id: 1,
+          logins: [{ id: 101, accountId: 1 }],
+        });
+      })
+    );
+
+    test(
+      "a filter naming another row's referenced value is NOT-FOUND, never a pin",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // `live@x` is account 1; the filter demands `id: 2`. The two halves
+        // intersect nothing, so the locate misses and the whole tree aborts.
         const rejection = await client.account
           .update({
-            where: { email: "live@x", AND: [{ id: 1 }] },
-            data: { logins: { create: { id: 101, label: "smuggled" } } },
+            where: { email: "live@x", AND: [{ id: 2 }] },
+            data: { logins: { create: { id: 102, label: "smuggled" } } },
             select: { id: true },
           })
           .then(
             () => undefined,
             (error: unknown) => error
           );
-        expect(rejection).toBeInstanceOf(UnsupportedOperationError);
-        expect((rejection as Error).message).toContain(
-          "requires the referenced parent column 'id' to be pinned by the unique where"
-        );
+        expect(rejection).toBeInstanceOf(NotFoundError);
         expect(await client.login.findMany({ select: { id: true } })).toEqual(
           []
         );

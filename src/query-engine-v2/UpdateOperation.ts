@@ -67,6 +67,8 @@ import {
   buildLiteralParentCreatePart,
   buildNestedTargetChildParts,
   buildNestedTargetUpdatePart,
+  buildPlannedParentCreateManyPart,
+  buildPlannedParentCreatePart,
   targetNeedsFullUpdate,
 } from "./nested-target-parts";
 import {
@@ -320,6 +322,11 @@ export class UpdateOperation {
   // the family-A parent-held correlation filters, which read/ref the parent's FK
   // columns from the located row.
   private readonly parentIdSource!: ReturnType<typeof plannedParentId>;
+  // The locate read's step id, needed while the relations are being interpreted (the
+  // `locate` step itself is assembled at the end of the constructor): a child-held
+  // nested create whose referenced parent column no compile-time literal names threads
+  // it as a `planned` parent id into that read (N1-U1).
+  private readonly locateId: string;
   private readonly locate: StatementStep;
   // Whether the non-fold path emits a parent-row UPDATE (a scalar SET ∪ to-one FK
   // folds). Built at compile so it can address the captured PK (V1's `WHERE id`);
@@ -533,6 +540,7 @@ export class UpdateOperation {
 
     const parentName = getStepModelName(model, "parent");
     const locateId = scope.allocate(`${parentName}.locate`);
+    this.locateId = locateId;
     const updateId = scope.allocate(`${parentName}.update`);
     this.updateId = updateId;
     this.terminalId = scope.allocate(`${parentName}.select`);
@@ -1291,12 +1299,13 @@ export class UpdateOperation {
   }
 
   /**
-   * A child-held nested `create`/`createMany` under the update root (T3b-2 family E).
-   * The located parent's referenced column is a construction-time literal — pinned by
-   * the unique `where` (the common PK case) or rewritten by the root SET (D4) — so the
-   * fresh child rides the same {@link buildLiteralParentCreatePart} leaf the child-held
-   * recursion uses. Anything whose FK is knowable only from the located row (a planned
-   * FK), a compound key, or a non-literal (arithmetic) rewrite routes the tree to V1.
+   * A child-held nested `create`/`createMany` under the update root (T3b-2 family E,
+   * generalized by N1-U1). The fresh child's foreign key is the located parent's
+   * referenced column, resolved by {@link resolveCreateParent} to either a
+   * construction-time literal (the `where` pins it, or the root SET rewrites it) or a
+   * `planned` read of the LOCATE step — the located-parent Ref. Both provenances feed
+   * the same leaf builders and compile to the same statements; only where the value
+   * comes from differs.
    */
   private interpretChildHeldCreate(args: {
     kind: string;
@@ -1316,57 +1325,68 @@ export class UpdateOperation {
       childName,
       input,
     } = args;
-    const { parentId, afterRoot } = this.resolveLiteralCreateParent(
+    const { parentId, afterRoot } = this.resolveCreateParent(
       input,
       fk,
       relationName
     );
     // A transitioned-PK parent (T4b CLASS III) orders its fresh INSERT AFTER the root
-    // UPDATE; every other literal-FK create rides the normal child-part order.
+    // UPDATE; every other create — literal or located-parent Ref — rides the normal
+    // child-part order (its referenced column is not rewritten, so the value the fresh
+    // row references already exists before the root UPDATE runs).
     const target = afterRoot ? input.afterRootCreateParts : input.childParts;
+    const leaf = {
+      scope: input.scope,
+      engine: this.engine,
+      childScope,
+      childName,
+      relationName,
+      fk,
+      parentId,
+    } as const;
     if (kind === "create") {
+      const creates = normalizeItems(parsedRelation.create, relationName);
+      const txMode = this.mode === "transaction";
       target.push(
-        ...buildLiteralParentCreatePart({
-          scope: input.scope,
-          engine: this.engine,
-          childScope,
-          childName,
-          relationName,
-          fk,
-          parentId,
-          txMode: this.mode === "transaction",
-          creates: normalizeItems(parsedRelation.create, relationName),
-        })
+        ...(parentId.kind === "literal"
+          ? buildLiteralParentCreatePart({ ...leaf, txMode, creates })
+          : buildPlannedParentCreatePart({ ...leaf, txMode, creates }))
       );
       return;
     }
+    const createManyInput = parsedRelation.createMany;
     target.push(
-      buildLiteralParentCreateManyPart({
-        scope: input.scope,
-        engine: this.engine,
-        childScope,
-        childName,
-        relationName,
-        fk,
-        parentId,
-        createManyInput: parsedRelation.createMany,
-      })
+      parentId.kind === "literal"
+        ? buildLiteralParentCreateManyPart({ ...leaf, createManyInput })
+        : buildPlannedParentCreateManyPart({ ...leaf, createManyInput })
     );
   }
 
-  /** The construction-time literal a child-held nested create injects for its FK, and
-   *  where the fresh INSERT is ordered (`afterRoot`). A single-field referenced column,
-   *  resolved from:
-   *   - the unique `where`'s pinned value or a non-PK literal rewrite → `afterRoot: false`
-   *     (the fresh row rides the normal child order, UPDATE-before-INSERT or the cascade);
-   *   - a **transitioned PRIMARY KEY** (T4b CLASS III) → the fresh row references the
-   *     POST-transition id, derived at compile from the where-pinned pre-transition value by
+  /** Where a child-held nested create's foreign key comes from, and where the fresh
+   *  INSERT is ordered (`afterRoot`).
+   *
+   *  **No referenced column is rewritten by the root SET** (the ordinary case):
+   *   - a single referenced column the unique `where` PINS → a construction-time literal,
+   *     `afterRoot: false`. Byte-identical to the pre-N1 plan: no extra locate column, no
+   *     extra statement, no compile-time resolution;
+   *   - anything else — the `where: { email }` spelling, whose discriminator names a
+   *     DIFFERENT column than the one the child FK references — → the **located-parent
+   *     Ref** (N1-U1): the referenced column joins the locate read's select/outputs and
+   *     the fresh row's FK is resolved at compile from the row the locate ACTED ON (the
+   *     wrong-row doctrine: never from re-consulting the `where`). Still
+   *     `afterRoot: false` — the referenced value is not being rewritten, so it already
+   *     exists before the root UPDATE runs.
+   *
+   *  **A referenced column IS rewritten** (a transition):
+   *   - a **transitioned PRIMARY KEY** whose pre-transition value the `where` pins (T4b
+   *     CLASS III) → the fresh row references the POST-transition id, derived by
    *     `getUpdatedPrimaryKeyValue` (the same JS==SQL derivation the terminal read already
    *     trusts, portability guaranteed by `assertPortablePrimaryKeyUpdateInput` on the root
-   *     SET) → `afterRoot: true`, so the INSERT lands after the root UPDATE creates the row.
-   *  Any other shape (a compound key, a non-literal rewrite, or a PK whose pre-transition
-   *  value is not where-pinned) routes the whole tree to V1 — a documented narrower boundary. */
-  private resolveLiteralCreateParent(
+   *     SET) → `afterRoot: true`, so the INSERT lands after the root UPDATE creates the row;
+   *   - a non-PK referenced column rewritten to a literal → that literal, `afterRoot: false`.
+   *
+   *  The two survivors are typed refusals, not oversights — see each throw. */
+  private resolveCreateParent(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     fk: FkDirection,
     relationName: string
@@ -1418,9 +1438,21 @@ export class UpdateOperation {
     if (pinned) {
       return { parentId: literalParentId(pinned.value), afterRoot: false };
     }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update nested create on relation '${relationName}' requires the referenced parent column '${referencedField}' to be pinned by the unique where or rewritten by the update.`
-    );
+    // N1-U1 — THE LOCATED-PARENT REF. The unique `where` discriminates on some OTHER
+    // column (`where: { email }` while the child FK references `id`), so no compile-time
+    // literal names the referenced value. It is not unknowable — the locate read already
+    // reads this row; it just has to SELECT the column and hand it to the fresh child's
+    // FK at compile. Registering the field in `locateFields` is what makes the locate
+    // expose it (select + `firstRowField` output); `plannedParentId` is what makes the
+    // create leaf read it from the LOCATED ROW rather than re-deriving it from the
+    // `where` (ATOM §1's Ref, the wrong-row doctrine's requirement). Under a transaction
+    // the locate holds `FOR UPDATE`, so the value cannot move between read and write;
+    // under an atomic batch the root-presence guard pins the row inside the unit.
+    input.locateFields.add(referencedField);
+    return {
+      parentId: plannedParentId(this.locateId, referencedField),
+      afterRoot: false,
+    };
   }
 
   private interpretToManyKind(args: {

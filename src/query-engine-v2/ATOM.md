@@ -1717,6 +1717,46 @@ UNSUPPORTED_OPERATION`, distinct from `V9001 INTERNAL_ERROR`), defined in
 `src/errors/query.ts` (still `extends QueryEngineError`), exported from the package
 root, re-exported by `shared.ts` so the engine's import home is unchanged.
 
+**N1-U1 — the located-parent Ref (no vocabulary change; the Ref mechanism
+generalized, not extended).** A child-held nested `create`/`createMany` under `update`
+demanded that the parent column its foreign key references be a COMPILE-TIME LITERAL:
+pinned by the unique `where`, or rewritten by the root SET. That is why
+`update({ where: { email }, data: { posts: { create } } })` refused while the
+`where: { id }` spelling worked — one operation, two spellings, two answers. The value
+was never unknowable: the update's own locate reads that row. So
+`UpdateOperation.resolveCreateParent` (was `resolveLiteralCreateParent`) now falls back,
+when no literal names the referenced column, to registering it in `locateFields` — which
+puts it in the locate's SELECT **and** its `firstRowField` outputs — and handing the leaf
+a `plannedParentId`. The literal path REMAINS for the pinned single-field case: no extra
+locate column, no extra statement, byte-identical SQL, so the common spelling pays
+nothing. The leaf builders are the ones T4a already wrote
+(`buildPlannedParentCreatePart`, whose per-field `plannedFkInject` is inherently
+compound-ready); N1 adds only `buildPlannedParentCreateManyPart`, the bulk arm, whose
+step ids are allocated at construction from a shape plan (a createMany plan's statement
+count is a function of which COLUMNS each row carries, never of their values) and whose
+alignment with the compile-built plan is asserted, not assumed.
+
+Three properties this must keep, and how:
+
+- **Wrong-row (W4's doctrine).** The value comes from the row the locate ACTED ON —
+  `referencedFieldValue` reads the located planning row — never from re-consulting the
+  `where`. This is the same discipline that fixed the upsert create-arm read-back.
+- **The Pin Rule is untouched.** The Ref is DATAFLOW; `racePin` attribution still keys on
+  the DISCRIMINATOR alone (`getWhereUniqueEntries`), and no guard, probe, or pin is added
+  by this path. A filter half that happens to name the referenced column still pins
+  nothing — it narrows which row is located, and the located row is what answers.
+- **Fail-closed.** ATOM §9 inv. 2 forbids a final step reffing a planning step, so the
+  promised value is INLINED at compile (never emitted as a SQL `Ref`) — which also keeps
+  the exact-decimal spelling `referenceSql` gives a concrete FK. Because the field is a
+  DECLARED output, an absent value is the executor's typed failure during planning,
+  before any write; no second guard is added (one guard per invariant).
+
+Both substrates fall out with no substrate-specific code: planning runs against committed
+state ahead of the atomic unit in batch mode exactly as it does inside the transaction, so
+the inlined value is identical, and the existing root-presence guard is what pins the
+located parent's survival inside the batch. Throw-site census 78 → 77 (the refusal is
+DELETED, not narrowed).
+
 ---
 
 ## 9. Invariants (the executable contract)

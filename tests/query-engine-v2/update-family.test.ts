@@ -7,7 +7,6 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { isOperationValueReference } from "../../src/query-engine-v2/OperationFragment";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import {
   runUpdateFamilyBehavior,
@@ -358,7 +357,14 @@ describe("query-engine-v2 technique #1 witness (correlated disconnect probe)", (
 // ---------------------------------------------------------------------------
 
 describe("query-engine-v2 update construction surface", () => {
-  test("supported update constructs on V2; nested to-many create is the documented refusal", () => {
+  // DELIBERATE RETARGET (N1-U1). The second case used to be the file's decline
+  // example: a nested to-many `create` under an update located by a NON-PK unique
+  // had no compile-time literal for the child's foreign key and refused at
+  // construction. N1 threads that value from the locate read instead, so the same
+  // tree now constructs — and `located-parent-ref-behavior.ts` proves on every
+  // driver and both substrates that it also EXECUTES, persisting what the
+  // `where: { id }` spelling persists.
+  test("both a scalar update and a nested to-many create by a non-PK unique construct on V2", () => {
     const schemas = createSchemaRegistry(updateFamilySchema);
     const engine = new QueryEngine(
       new PGliteDriver(),
@@ -366,7 +372,7 @@ describe("query-engine-v2 update construction surface", () => {
     );
     const userModel = updateFamilySchema.user;
 
-    // Supported: a scalar update is V2-native — it constructs for the whole tree.
+    // A scalar update is V2-native — it constructs for the whole tree.
     expect(
       new UpdateOperation(engine, userModel, {
         where: { email: "r@x" },
@@ -375,15 +381,12 @@ describe("query-engine-v2 update construction surface", () => {
       })
     ).toBeInstanceOf(UpdateOperation);
 
-    // Outside V2's surface (a nested to-many `create` under `update`): V2 declines
-    // at construction, before any I/O, with the typed refusal.
     expect(
-      () =>
-        new UpdateOperation(engine, userModel, {
-          where: { email: "r@x" },
-          data: { posts: { create: { id: 1, title: "t", slug: "sr" } } },
-          select: { email: true, posts: { select: { id: true } } },
-        })
-    ).toThrow(UnsupportedOperationError);
+      new UpdateOperation(engine, userModel, {
+        where: { email: "r@x" },
+        data: { posts: { create: { id: 1, title: "t", slug: "sr" } } },
+        select: { email: true, posts: { select: { id: true } } },
+      })
+    ).toBeInstanceOf(UpdateOperation);
   });
 });

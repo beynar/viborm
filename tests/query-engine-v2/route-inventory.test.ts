@@ -657,6 +657,60 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // primary keys"), and `createMany` / `findMany` on it work — so the refusal narrows a model
   // that was never fully writable through the single-row create path either. See PLAN
   // "W4-U1 — Correction (review round U1)".
+  //
+  // 78 -> 77 (N1-U1, the located-parent Ref): DELETED —
+  // `UpdateOperation.resolveCreateParent` (was `resolveLiteralCreateParent`), "nested
+  // create on relation '…' requires the referenced parent column '…' to be pinned by the
+  // unique where or rewritten by the update". Its stated cause was literal-only
+  // propagation, verbatim: the value WAS knowable — the update's own locate reads the
+  // row — but the create leaf accepted only a compile-time literal, so
+  // `update({ where: { email }, data: { posts: { create } } })` refused while the
+  // `where: { id }` spelling worked. The site is gone, not narrowed: when the
+  // discriminator does not name the referenced column, the column joins the locate's
+  // select + `firstRowField` outputs and the create/createMany leaf resolves its foreign
+  // key from THE LOCATED ROW at compile (`plannedParentId` → `referencedFieldValue`),
+  // never by re-consulting the `where` (the W4 wrong-row doctrine).
+  //
+  // What the absorption is measured against: `located-parent-ref-behavior.ts` on every
+  // driver leg and both substrates (state parity between the two spellings, the wrong-row
+  // decoy, the D4 non-PK referenced column, createMany, the X1b create subtree);
+  // `located-parent-ref.test.ts` for PLAN parity (same statement count, same write SQL)
+  // and staleness injection (the foreign key follows the locate's returned value; a value
+  // corrupted to a non-existent key fails closed; an absent declared output fails closed
+  // at planning); `staleness-injection.test.ts` for the race story (a concurrent parent
+  // delete aborts the batch typed, no orphan written).
+  //
+  // Two tests were RETARGETED by this edit, both deliberately and both from a decline to
+  // an accept-and-execute assertion on the SAME payload:
+  //   · `nested-update-d4-deep-nonpk-reference.test.ts` — the X1c depth-2 case (a nested
+  //     update target whose grandchild FK references a non-PK unique of that target). Its
+  //     decline WAS this same site raised by the delegated update root; it now asserts the
+  //     persisted grandchild carries the located target's `code`, with a second org whose
+  //     code differs so "any row's code" cannot pass.
+  //   · `extended-where-unique-behavior.ts` — "a filter naming the referenced column pins
+  //     NOTHING". The Pin Rule content is unchanged and still witnessed (the value comes
+  //     from the located row, and a filter naming ANOTHER row's referenced value is
+  //     NOT-FOUND with nothing written); only the refusal it used to observe is gone.
+  //
+  // Sites the sweep considered and KEPT, with the Ref explicitly on the table:
+  //   · `resolveCreateParent`'s compound-key throw — the Ref reaches the no-transition
+  //     compound case (N1-U2 absorbs it); what remains is a compound reference with a
+  //     REWRITTEN member.
+  //   · `resolveCreateParent`'s "transitions primary key … not pinned by the unique where"
+  //     — the Ref DOES reach the pre-transition value (the locate row carries it), but the
+  //     absorption needs the post-transition derivation ordered against the root UPDATE,
+  //     which is N5-U2's unit ("located-only pre-transition PK"), not a dataflow change.
+  //   · `resolveCreateParent`'s "references a non-literal rewritten column" — Ref does NOT
+  //     help: the value comes from the root SET, not from the located row. What it needs is
+  //     `{ set: v }` unwrapping, a normalization question.
+  //   · `RelationWritePart` / `RelationUpsertPart` / `RelationJunctionPart`'s "must locate
+  //     the target by its primary key" family — the Ref generalizes there too (the target's
+  //     locate can return its PK), and that is exactly N4-U1's unit; kept here so the wave
+  //     that owns it does the measurement.
+  //   · `nested-target-parts.ts`'s "createMany … under a parent-held target one level
+  //     deeper" — N1 builds the planned-parent createMany leaf this site would consume, but
+  //     the site guards the PARENT-HELD probe path (a different parent-id provenance) and
+  //     N4-U3 owns it as the decline-surface gate's named backlog item.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -667,7 +721,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(78);
+    expect(sites).toBe(77);
   });
 });
 

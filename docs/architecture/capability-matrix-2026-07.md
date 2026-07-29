@@ -649,9 +649,9 @@ These are ordinary Prisma payloads:
 | Payload | Result |
 |---|---|
 | `user.update({ where:{ id }, data:{ profile:{ create:{ bio } } } })` on an **inverse-side to-one** | ❌ `does not support nested 'create' on the inverse-side to-one relation 'profile'` ([UpdateOperation.ts:1671](../../src/query-engine-v2/UpdateOperation.ts:1671)). `tests/query-engine-v2/to-one-update-family.test.ts:260-440` enumerates every other inverse-to-one kind — **no `create` case** |
-| `user.update({ where:{ email }, data:{ posts:{ create:{…} } } })` | ❌ `requires the referenced parent column 'id' to be pinned by the unique where or rewritten by the update`. Works with `where: { id }` |
+| `user.update({ where:{ email }, data:{ posts:{ create:{…} } } })` | ✅ since **N1-U1** (the located-parent Ref): the locate selects the referenced column and the nested create reads it from the located row, compiling to the same statements as the `where: { id }` spelling |
 | `post.update({ where:{ id }, data:{ tags:{ createMany:{ data:[…] } } } })` (M2M) | ❌ `does not support nested 'createMany' on many-to-many relation 'tags'` |
-| `tags: { update: { where:{ slug }, data:{ posts:{…} } } }` | ❌ must locate the target by its primary key |
+| `tags: { update: { where:{ slug }, data:{ posts:{…} } } }` | ❌ must locate the target by its primary key (N4-U1's unit: the same Ref generalizes, applied there) |
 | Two kinds on one to-one arm, or connect-by-other-unique on a parent-held to-one | ❌ see §1.5 |
 
 ## 3.C Deferred engineering (backlog, no direct user impact)
