@@ -114,6 +114,24 @@ T1 (errors)  ∥  T2 (clock)  ∥  T4 (expando)  ∥  T6 (asyncDispose)   — di
 
 Rough total: T1 = M, T2 = S, T4 = S, T6 = S, T7 = S, T3 = timeboxed spike. One workflow with four lanes + two followers + review + gate fits the established harness.
 
+### The four lanes merged — integration record
+
+The first wave (T1, T2, T4, T6) landed on `prisma-parity-v2` by cherry-pick in that order, nine commits, **zero conflicts in code**. The only textual collision was this document, which T4 and T6 both append to in different sections; it auto-merged and both dispositions are intact above.
+
+The one overlap the merge was watching — T1 and T4 both reaching into `src/query-engine/execution-context.ts` — turned out to be orthogonal at the line level and compatible at the type level. T4 replaced the expando probe (the `isErrorLogged` import and `isUnloggedError`); T1 retyped what `normalizeDriverError` hands back at the `attributed` binding in the same file. The narrowed return (`DriverFailure | VibORMError`) flows through T4's rewritten guard without a cast.
+
+Measured on the merged tree, nothing else running:
+
+- `pnpm test:types` — clean.
+- Full estate, once, `--minWorkers=1 --maxWorkers=4` — **8198 passed, 0 failed**, 246 files (4 skipped). Baseline at the merge base was 8108.
+- `pnpm test:gates` — **43/43**, unchanged. The parse-boundary ratchet is one of those four files, so T1's phase gate ("must not grow") is checked by the count holding, not by assertion.
+
+**The delta is fully accounted for.** The seven new files the lanes contribute carry exactly 90 tests (35 + 14 + 13 + 11 + 6 + 5 + 6), and 8108 + 90 = 8198. That arithmetic is the integration's real witness: it says no pre-existing test was dropped, retargeted, or silently flipped to skipped by four lanes editing in parallel — a thing a green run alone does not prove.
+
+Lint is at its pre-existing baseline, not improved and not worsened. `src/cache/driver.ts` reports three `noNegationElse` findings; all three exist verbatim at the merge base (lines 218/268/575 there, shifted to 226/276/583 by T2's clock insertions). Running Biome against test files by path also emits the repo's standing globals noise — an untouched control file produces 31 of the same errors.
+
+Still open after this wave, carried deliberately: docker legs (mysql 3307 / pg 5434) and benchmarks belong to the final gate, not to the merge; `classifyFailure`, `QueryFailure`, `EngineDefect` and `DriverFailure` are exported from `@errors` but **not** from `src/index.ts`, so making them public API remains a maintainer decision that T7 does not depend on; and T1 filed two pre-existing defects it found but did not fix — `getCloneConstructor` losing class identity for three error classes on re-normalization (which is *why* U2's public signature cannot be the bare union), and `raceableQueryFailure`'s `raceable` flag being dropped on the `query` arm.
+
 ## What success looks like
 
 - The W5-U2 bug class (building blind to an error-code change) is a **compile error**, not an audit finding or runtime tripwire.
