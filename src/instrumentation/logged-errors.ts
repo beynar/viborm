@@ -1,0 +1,45 @@
+/**
+ * Cross-layer record of errors the driver layer has already reported.
+ *
+ * One failure crosses two observers: the driver logs the failing *statement*
+ * (`logQuery`) and the query engine logs the failing *operation*. Both would
+ * report the same error object, so the driver marks what it has reported and
+ * the engine skips anything already marked.
+ *
+ * ## Why a module-scoped WeakSet, and not the instrumentation context
+ *
+ * The two layers do NOT share an `InstrumentationContext` instance. Every
+ * execution context carries its own frozen *copy*, minted per call by
+ * `snapshotExecutionContext` (`src/drivers/execution-context.ts`) — two
+ * snapshots of the same client instrumentation are different objects. A set
+ * owned by that context would therefore be empty on the reading side and every
+ * failure would be logged twice. Only the `logger` itself is passed by
+ * reference; the context around it is not.
+ *
+ * ## Why not a property on the error
+ *
+ * The error is handed to the caller. Stamping it (the former
+ * `Object.defineProperty(error, "logged", …)`) made an internal
+ * de-duplication convention part of the public error's shape, and it could not
+ * mark a frozen error at all — such an error was logged twice.
+ *
+ * ## Serverless note
+ *
+ * `src/instrumentation/AGENTS.md` Rule 2 keeps mutable state out of module
+ * scope so nothing survives a request in a reused isolate. A `WeakSet` holds
+ * no strong reference: an entry disappears with the error that keyed it, and
+ * an error object never outlives the request that threw it. There is nothing
+ * here to go stale, and nothing to grow.
+ */
+
+const loggedErrors = new WeakSet<Error>();
+
+/** Record that this error has been reported to the logger. */
+export function markErrorLogged(error: Error): void {
+  loggedErrors.add(error);
+}
+
+/** Whether this error has already been reported to the logger. */
+export function isErrorLogged(error: Error): boolean {
+  return loggedErrors.has(error);
+}

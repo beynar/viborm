@@ -12,6 +12,7 @@ import {
 } from "@errors";
 import type { InstrumentationContext } from "@instrumentation/context";
 import { ignoreObserverFailure } from "@instrumentation/ignore-observer-failure";
+import { markErrorLogged } from "@instrumentation/logged-errors";
 import { runWithTracer } from "@instrumentation/run-with-tracer";
 import {
   ATTR_DB_COLLECTION,
@@ -311,17 +312,11 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
 
     const isError = error instanceof Error;
 
-    if (isError) {
-      try {
-        Object.defineProperty(error, "logged", {
-          configurable: true,
-          value: true,
-        });
-      } catch {
-        // A frozen error may be logged twice by the outer executor, but
-        // instrumentation must not replace the database failure.
-      }
-    }
+    // Tell the outer operation observer this failure is already reported. The
+    // record lives outside the error (see markErrorLogged) so the caller's
+    // error keeps its own shape and a frozen error dedups like any other.
+    if (isError) markErrorLogged(error);
+
     const disclosure = this.getLoggingDisclosure(context);
     const sanitizedParams = disclosure.includeParams
       ? sanitizeDiagnosticParameters(params, disclosure)

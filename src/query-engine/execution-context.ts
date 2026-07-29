@@ -14,6 +14,7 @@ import {
 } from "@instrumentation";
 import type { InstrumentationContext } from "@instrumentation/context";
 import { ignoreObserverFailure } from "@instrumentation/ignore-observer-failure";
+import { isErrorLogged } from "@instrumentation/logged-errors";
 import { runWithTracer } from "@instrumentation/run-with-tracer";
 import { getNoopTracer, type VibORMSpanOptions } from "@instrumentation/tracer";
 import { isCacheManagedExecution } from "./cache-flow";
@@ -174,9 +175,13 @@ export function createCorrelationId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * Whether the driver layer has NOT already reported this failure. The record
+ * is kept beside the error rather than on it — see `@instrumentation/logged-errors`.
+ */
 function isUnloggedError(error: unknown): error is Error {
   try {
-    return error instanceof Error && !Reflect.has(error, "logged");
+    return error instanceof Error && !isErrorLogged(error);
   } catch {
     return false;
   }
