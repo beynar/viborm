@@ -68,14 +68,61 @@ function isAssertionFailure(
   );
 }
 
+/**
+ * Every error class {@link mapProviderError} constructs — the driver layer's failure
+ * vocabulary, named so it is visible at the call sites instead of erased to `Error`.
+ *
+ * The members are disjoint by `code` (T1-U1 gave each class its literal), so this union is a
+ * discriminated union: `if (failure.code === VibORMErrorCode.UNIQUE_CONSTRAINT)` selects
+ * `UniqueConstraintError`, and an exhaustive `switch` over the codes bottoms out at `never`.
+ *
+ * `mapProviderError` is annotated with it, which is the point: adding a ninth class to the
+ * mapper without adding it here is a compile error, not a silently widened return.
+ */
+export type DriverFailure =
+  | CheckConstraintError
+  | ForeignKeyError
+  | NestedWriteAssertionError
+  | NotNullConstraintError
+  | QueryError
+  | TransactionError
+  | UniqueConstraintError
+  | ValueTooLongError;
+
+/**
+ * What {@link normalizeDriverError} can hand back.
+ *
+ * Two arms, and the type is the union of both. A raw provider error is mapped to a
+ * {@link DriverFailure}. An error that is ALREADY a VibORM error is passed through with
+ * execution context attached — and that arm is honestly `VibORMError`, not `DriverFailure`,
+ * for two independent reasons: the incoming error can be any VibORM error the layers above
+ * threw (a `ValidationError`, an engine refusal), and `attachExecutionContext` clones through
+ * `getCloneConstructor`, whose prototype table does not list every class — a re-normalized
+ * `ValueTooLongError` comes back as a bare `VibORMError` (measured, `driver-error-context.ts`).
+ * Typing the whole function `DriverFailure` would be a claim neither arm can keep.
+ */
+export type NormalizedDriverError = DriverFailure | VibORMError;
+
 export function normalizeDriverError(
   error: unknown,
   context: DriverErrorContext
-): Error {
+): NormalizedDriverError {
   if (isKnownVibORMError(error)) {
     return attachExecutionContext(error, context);
   }
+  return mapProviderError(error, context);
+}
 
+/**
+ * Map a raw provider error onto the {@link DriverFailure} vocabulary. Split out of
+ * {@link normalizeDriverError} so the constructed union has a return type to be checked
+ * against — the passthrough arm above cannot carry that annotation, and a function has one
+ * return type. The body is the mapping exactly as it was; only its type is new.
+ */
+function mapProviderError(
+  error: unknown,
+  context: DriverErrorContext
+): DriverFailure {
   const cause = toError(error);
   const rawMessage = getErrorMessage(cause);
   const dbError = readDriverErrorShape(error);
@@ -249,11 +296,18 @@ export function normalizeDriverError(
   });
 }
 
+/**
+ * What {@link normalizeDriverConnectionError} can hand back — the connection variant of
+ * {@link NormalizedDriverError}. The constructed arm is exactly {@link ConnectionError}; the
+ * passthrough arm is `VibORMError` for the same two reasons documented there.
+ */
+export type NormalizedConnectionError = ConnectionError | VibORMError;
+
 export function normalizeDriverConnectionError(
   error: unknown,
   context: DriverErrorContext,
   message = "Database connection failed"
-): Error {
+): NormalizedConnectionError {
   if (isKnownVibORMError(error)) {
     return attachExecutionContext(error, context);
   }
@@ -362,7 +416,12 @@ function mapSQLiteConstraint(
   meta: VibORMErrorMeta,
   cause: Error,
   diagnostics: DiagnosticDisclosure | undefined
-): Error | undefined {
+):
+  | CheckConstraintError
+  | ForeignKeyError
+  | NotNullConstraintError
+  | UniqueConstraintError
+  | undefined {
   const isSQLiteConstraint =
     message.includes("SQLITE_CONSTRAINT") ||
     message.includes("UNIQUE constraint failed") ||
