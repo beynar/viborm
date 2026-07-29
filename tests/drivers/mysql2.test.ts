@@ -25,6 +25,7 @@ import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
 import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
 import { runInverseToOneCreateBehavior } from "../query-engine-v2/inverse-to-one-create-behavior";
+import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-create-many-behavior";
 import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
@@ -427,6 +428,22 @@ describeIf("MySQL2 Driver", () => {
         databaseUrl: TEST_CONNECTION_STRING,
       }),
     createStateDriver: createMySQL2Driver,
+  });
+
+  runJunctionCreateManyBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+  runJunctionCreateManyBehavior({
+    name: "MySQL2 atomic batch",
+    createDriver: () =>
+      new MySQL2BatchForcedDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+    createStateDriver: createMySQL2Driver,
+    // Same reason as the located-parent Ref leg above: the junction's per-row
+    // `skipDuplicates` INSERT is the savepoint-wrapped executor effect here.
+    skipDuplicatesInBatchIsInexpressible: true,
   });
 
   // TRANSACTION mode only. This suite drives the CLIENT, and a batch-only MySQL

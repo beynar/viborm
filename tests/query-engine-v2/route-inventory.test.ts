@@ -720,6 +720,95 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // by the compound staleness probe (corrupting ONE member moves the whole tuple — the
   // proof that every member travels from the same located row).
   //
+  // 77 -> 76 (N3-U1, `createMany` through a junction): DELETED — `buildJunctionParts`'
+  // `default:` arm, "query-engine-v2 does not support nested 'createMany' on many-to-many
+  // relation '…'". `createMany` was the LAST `RelationMutationKind` with no junction arm,
+  // so the arm that refused it was a catch-all standing in for exactly one kind. It is
+  // absorbed with no new mechanism: `createMany` reuses the `create` slot (per-row child
+  // INSERT then join row, the produced-identity backward `Ref` when the target key is
+  // DB-generated, the same one-level-deeper fold), plus `skipDuplicates` riding each
+  // row's INSERT through `buildCreateMany` — the SAME builder the root and child-held
+  // `createMany` families use, so the per-dialect split (`ON CONFLICT DO NOTHING` /
+  // `INSERT OR IGNORE` as a SQL leaf, the savepoint-wrapped `onUniqueConflict: "skip"`
+  // effect on MySQL) is decided in one place. Under the CREATE root the same shape opens
+  // by adding `createMany` to `assertCreateTreeKinds`' allowlist (that site NARROWS, it
+  // does not disappear: upsert / disconnect / set / delete / update / updateMany /
+  // deleteMany address a PRE-EXISTING membership a fresh parent cannot have). With every
+  // kind now handled the `default:` becomes an exhaustiveness `never` check — a
+  // `QueryEngineError` internal invariant no payload reaches, NOT a route.
+  //
+  // Semantics pinned deliberately (Prisma has no M2M `createMany` to match): a
+  // `skipDuplicates` skip drops the CHILD ROW's insert; the JOIN ROW is a different row,
+  // never itself a duplicate of what the data spells, and is written for every item. So a
+  // duplicate item leaves the pre-existing target untouched AND still links it. Both
+  // halves are asserted on one call in `junction-create-many-behavior.ts`. The rejected
+  // alternative — skip the join too — is not decidable at compile without a probe, and
+  // would make a duplicate item silently do nothing.
+  //
+  // Falsified: re-adding the refusal to the `createMany` arm fails 14 of the suite's 24
+  // witnesses (both substrates).
+  //
+  // 76 -> 77 (N3-U1, the new refusal the absorption REQUIRES): `resolveCreatePk` now
+  // refuses `skipDuplicates` when the target primary key is DB-generated. This is the one
+  // shape the produced-identity `Ref` genuinely cannot express: a skipped INSERT writes no
+  // row, so it produces no identity, and every dialect degrades differently — PostgreSQL's
+  // `ON CONFLICT DO NOTHING … RETURNING` yields zero rows, while SQLite's `INSERT OR
+  // IGNORE` and MySQL's rolled-back savepoint leave `insertId` at the PREVIOUS insert's
+  // value, a LIVE key belonging to an unrelated row.
+  //
+  // MEASURED, not argued (the refusal deleted, SQLite3 batch-only, `n3_labels` seeded
+  // `other`=1 then `existing`=2, article=1): `labels: { createMany: { data: [{ slug:
+  // 'existing' }], skipDuplicates: true } }` RESOLVED SUCCESSFULLY and joined the article
+  // to label 1 (`other`) — not label 2, the row the data named. No error, no constraint
+  // violation, no guard able to see it: the junction's foreign key was satisfied by the
+  // stale id. The same mutation on the RETURNING transaction path fails loudly
+  // (`TransactionError: Step 'label.create' did not produce row field 'id'`), which is why
+  // this has to be a CONSTRUCTION-time refusal rather than a lowering the executor catches.
+  // Supplying the primary key in the createMany data, or dropping `skipDuplicates`, both
+  // execute — so the refusal is a boundary on one combination, not on a feature.
+  //
+  // 77 -> 77 (N3-U2, a generated create-arm key in upsert-through-junction): NARROWED.
+  // `requireCreatePk` — "upsert-through-junction … requires the target primary key '…' in
+  // the create data" — refused EVERY create arm whose data omitted the target primary key.
+  // Its stated cause was that the arm's same-operation dedup ledger and its duplicate-item
+  // UPDATE address the target by that literal. W4's closure gave the plain `upsert` a
+  // SECOND identity source — a create payload spelling a COMPLETE unique constraint names
+  // the row it is about to insert — and the junction arm now takes the same one
+  // (`createDataUniqueWhere`, lifted to `shared.ts` so both askers ask once). The join row
+  // rides the produced `Ref` the create / connectOrCreate arms already build; the ledger
+  // key and the duplicate's UPDATE `where` ride the create-data unique, so no `Ref` ever
+  // reaches a `where`, and the identity derives from the row the INSERT ACTED ON (its own
+  // data) rather than from re-reading the item's `where` (the W4 wrong-row doctrine).
+  // The site survives, with its message naming exactly what is missing: neither the target
+  // primary key nor any complete unique constraint of the target model.
+  //
+  // HONEST QUALIFICATION, measured while doing this. The ledger justification the old
+  // refusal rested on is currently VACUOUS: the own-write preflight rejects any SECOND
+  // `upsert` item on one many-to-many relation — even two items with disjoint explicit
+  // primary keys — because a junction upsert reads membership and an earlier item writes
+  // it (A14). So `compileUpsert`'s duplicate branch is unreachable from the client and
+  // operation surfaces, and the refusal it justified was stricter than any reachable
+  // behavior required. The ledger is nonetheless keyed correctly here rather than left to
+  // mis-key if the preflight ever relaxes, and the unreachability itself is now pinned by
+  // a witness ("TWO upsert items on one M2M relation are the own-write preflight's, not
+  // the ledger's") that fails the moment the preflight changes.
+  //
+  // Falsified: reinstating the literal-primary-key-only requirement fails 4 of the 24
+  // witnesses (both substrates). One estate test was RETARGETED from a decline to an
+  // accept-and-execute assertion on the SAME payload — `many-to-many-behavior.ts`'s
+  // "upsert through the junction with a generated create-arm PK is an explicit typed
+  // refusal", now "… creates a target whose PK the database generates", asserting the join
+  // row carries the id THIS INSERT produced and not a decoy label's.
+  //
+  // N3-U3 (compound-PK M2M) changed NOTHING here, deliberately, and neither of its two
+  // refusals is an `UnsupportedOperationError` (a `QueryEngineError` on the query side,
+  // a plain `Error` in the migrations serializer), so neither was ever in this count. The
+  // measurement is in the N3 delivery record: the junction's whole vocabulary is scalar to
+  // its root — including the PUBLIC `.A()` / `.B()` schema API, which names exactly one
+  // junction column per side — so a compound side cannot even be SPELLED, let alone
+  // queried or migrated. Both sides refuse identically, at construction / DDL, before any
+  // I/O. Re-justified, not absorbed; the follow-up is named in the plan.
+  //
   // N1-U4 — THE SWEEP. Every surviving site whose stated reason cites a PIN, a
   // COMPILE-TIME LITERAL, or "must locate by its primary key … so the value is known",
   // with the located-parent Ref explicitly considered. Two verdicts only: absorbed (above),
@@ -758,7 +847,13 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     shared-PK fold N4-U4 owns — not a located-parent read.
   // (h) `RelationJunctionPart`'s "requires the target primary key in the create data"
   //     (3 sites) — the target of an M2M create is FRESH; there is no located row to read.
-  //     Owner: N3 (the junction's produced-identity path).
+  //     Owner: N3 (the junction's produced-identity path). SETTLED by N3-U2 for the
+  //     upsert site (narrowed to the create-data-unique identity source, see the
+  //     77 -> 77 entry below); the other two are unchanged, and both are honest: one
+  //     refuses an explicit-`null` / non-increment absent PK (`resolveCreatePk`), the
+  //     other a RELATION-CARRYING create arm whose deeper child Parts fold against a
+  //     compile-time `literalParentId` (`requireCreatePkValue`) — the latter is the
+  //     literal-parent precondition N4 owns, not a produced-identity question.
   // (i) "requires a child with one primary key" (`UpdateOperation`, `nested-target-parts`,
   //     `RelationUpsertPart` — 3 sites) — NOT a literal-propagation cause at all: these
   //     read the CHILD's own primary-key arity to address a targeted mutation, which no

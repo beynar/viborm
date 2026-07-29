@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationJunctionPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
+import type { Sql } from "@sql";
 import { getManyToManyJoinInfo } from "../query-engine/builders/many-to-many-utils";
 import {
   type RelationMutation,
@@ -16,6 +17,7 @@ import { ManyToManyStatements } from "../query-engine/ManyToManyStatements";
 import { manyToManyStatement } from "../query-engine/many-to-many-statement";
 import {
   buildCreate,
+  buildCreateMany,
   buildDelete,
   buildDeleteMany,
   buildFind,
@@ -53,7 +55,11 @@ import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import { literalParentId, type ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
-import { getStepModelName, UnsupportedOperationError } from "./shared";
+import {
+  createDataUniqueWhere,
+  getStepModelName,
+  UnsupportedOperationError,
+} from "./shared";
 
 /**
  * Many-to-many is not special (WHY §4.3): a junction is two FK edges plus a
@@ -90,6 +96,7 @@ export type JunctionKind =
   | "connect"
   | "connectOrCreate"
   | "create"
+  | "createMany"
   | "delete"
   | "deleteMany"
   | "disconnect"
@@ -114,8 +121,13 @@ export interface RelationJunctionConfig {
   readonly data?: readonly Record<string, unknown>[];
   /** deleteMany/updateMany: the correlated filter(s). */
   readonly filters?: readonly Record<string, unknown>[];
-  /** create: the child create data (scalar only) for each item. */
+  /** create / createMany: the child create data (scalar only) for each item. */
   readonly creates?: readonly Record<string, unknown>[];
+  /** createMany only (N3-U1): each child INSERT skips a duplicate instead of failing,
+   *  through the dialect's own primitive — `ON CONFLICT DO NOTHING` / `INSERT OR
+   *  IGNORE` as a SQL leaf, or the savepoint-wrapped `onUniqueConflict: "skip"`
+   *  executor effect on a `recoverableUniqueError` dialect (MySQL). */
+  readonly skipDuplicates?: boolean;
   /** connectOrCreate: each `{ where, create }` adopt-or-insert item. */
   readonly adopts?: readonly {
     readonly where: Record<string, unknown>;
@@ -222,7 +234,18 @@ interface AdoptSlot {
 interface UpsertSlot {
   readonly where: Record<string, unknown>;
   readonly create: Record<string, unknown>;
+  /** The join row's target value: a literal PK, or the backward `Ref` into this
+   *  slot's own INSERT capture when the PK is DB-generated (N3-U2). */
   readonly createPk: unknown;
+  /** Set when the create arm's PK is DB-generated: its INSERT captures the identity
+   *  the join row references (see {@link CreateSlot.generatedField}). */
+  readonly generatedField?: string;
+  /** The compile-time `where` that names the row this create arm inserts — the PK
+   *  literal, or W4's create-data unique. A duplicate item's UPDATE addresses the
+   *  target by it, so no `Ref` ever reaches a `where` (N3-U2). */
+  readonly addressWhere: Record<string, unknown>;
+  /** The same-operation dedup ledger's identity key for this create arm. */
+  readonly ledgerKey: string;
   readonly update: Record<string, unknown>;
   readonly membershipProbeId: string;
   readonly globalProbeId: string;
@@ -294,7 +317,7 @@ export class RelationJunctionPart implements Part {
         : [];
     this.bare = this.buildBareSlots(scope);
     this.creates =
-      kind === "create"
+      kind === "create" || kind === "createMany"
         ? (config.creates ?? []).map((create, index) =>
             this.buildCreateSlot(scope, create, index)
           )
@@ -369,6 +392,10 @@ export class RelationJunctionPart implements Part {
       case "updateMany":
         return this.compileUpdateMany(parent);
       case "create":
+      case "createMany":
+        // N3-U1: `createMany` IS `create` through the junction — the same per-row
+        // child INSERT + join row — plus the per-row duplicate skip its INSERT
+        // carries (see {@link RelationJunctionConfig.skipDuplicates}).
         return this.compileCreate(scope, parent, known);
       case "connectOrCreate":
         return this.compileConnectOrCreate(parent, known);
@@ -518,7 +545,13 @@ export class RelationJunctionPart implements Part {
       // `requireTarget`/the presence guard above.
       const scalar = data[index] ?? {};
       if (Object.keys(scalar).length > 0) {
-        writes.push(this.childUpdate(target.writeId, targetPk, scalar));
+        writes.push(
+          this.childUpdate(
+            target.writeId,
+            { [this.targetPkField]: targetPk },
+            scalar
+          )
+        );
       }
       for (const child of target.childParts) {
         writes.push(...child.compile(scope, known));
@@ -679,17 +712,25 @@ export class RelationJunctionPart implements Part {
         // Update arm (a scalar SET only when non-empty; a relation-only update arm
         // writes just its child Parts — mechanism 1 reused at the arm level).
         if (Object.keys(slot.update).length > 0) {
-          steps.push(this.childUpdate(slot.updateId, memberPk, slot.update));
+          steps.push(
+            this.childUpdate(
+              slot.updateId,
+              { [this.targetPkField]: memberPk },
+              slot.update
+            )
+          );
         }
         emitChildren(slot.updateChildParts);
         continue;
       }
-      if (created.has(pkKey(slot.createPk))) {
+      if (created.has(slot.ledgerKey)) {
         // Created+joined by an earlier same-target item — now a member (no guard;
-        // our own earlier insert guarantees its presence). Update it.
+        // our own earlier insert guarantees its presence). Update it, addressed by
+        // the earlier arm's compile-time identity (N3-U2: the PK literal, or the
+        // create-data unique when the PK is DB-generated — never a `Ref`).
         if (Object.keys(slot.update).length > 0) {
           steps.push(
-            this.childUpdate(slot.updateId, slot.createPk, slot.update)
+            this.childUpdate(slot.updateId, slot.addressWhere, slot.update)
           );
         }
         emitChildren(slot.updateChildParts);
@@ -704,7 +745,7 @@ export class RelationJunctionPart implements Part {
           this.config.relationName
         );
       }
-      created.add(pkKey(slot.createPk));
+      created.add(slot.ledgerKey);
       if (slot.createDelegated) {
         // X1c: the fresh create-arm target delegates its whole create to
         // `CreateOperation` (a parent-held to-one folds into its OWN INSERT); the
@@ -714,7 +755,12 @@ export class RelationJunctionPart implements Part {
         continue;
       }
       steps.push(
-        this.childInsert(slot.childId, slot.create, slot.where),
+        this.childInsert(
+          slot.childId,
+          slot.create,
+          slot.where,
+          slot.generatedField
+        ),
         this.joinInsert(slot.joinId, parent, slot.createPk)
       );
       // Create arm (mechanism 2): the fresh target's relations, emitted after its
@@ -874,15 +920,22 @@ export class RelationJunctionPart implements Part {
     const { childName } = this.config;
     const membershipProbeId = scope.allocate(`${childName}.member`);
     const globalProbeId = scope.allocate(`${childName}.find`);
+    const childId = scope.allocate(`${childName}.create`);
+    const identity = this.resolveUpsertCreateIdentity(item.create, childId);
     return {
       where: item.where,
       create: item.create,
-      createPk: this.requireCreatePk(item.create),
+      createPk: identity.pk,
+      ...(identity.generatedField
+        ? { generatedField: identity.generatedField }
+        : {}),
+      addressWhere: identity.addressWhere,
+      ledgerKey: identity.ledgerKey,
       update: item.update,
       membershipProbeId,
       globalProbeId,
       guardId: scope.allocate(`${childName}.guard.member`),
-      childId: scope.allocate(`${childName}.create`),
+      childId,
       updateId: scope.allocate(`${childName}.update`),
       joinId: scope.allocate(`${childName}.junction.insert`),
       createChildParts: this.config.upsertCreateChildParts?.[index] ?? [],
@@ -962,16 +1015,20 @@ export class RelationJunctionPart implements Part {
     };
   }
 
+  /** UPDATE the target addressed by a COMPILE-TIME `where` — the located member's
+   *  captured primary key, or (N3-U2, a duplicate item under a generated PK) the
+   *  create-data unique that names the row this operation's own INSERT wrote. Never
+   *  a `Ref`: the identity is always a literal by construction. */
   private childUpdate(
     id: string,
-    targetPk: unknown,
+    where: Record<string, unknown>,
     data: Record<string, unknown>
   ): StatementStep {
     return {
       id,
       kind: "write",
       statement: buildUpdate(this.childScope, {
-        where: { [this.targetPkField]: targetPk },
+        where,
         data,
         select: { [this.targetPkField]: true },
       }),
@@ -1003,17 +1060,34 @@ export class RelationJunctionPart implements Part {
     const returningTx =
       this.config.txMode &&
       this.config.engine.adapter.capabilities.supportsReturning;
-    const statement =
-      generatedField && returningTx
-        ? buildCreate(this.childScope, {
-            data: create,
-            select: { [generatedField]: true },
-          })
-        : buildInsert(
-            this.childScope,
-            getTableName(this.childScope.model),
-            create
-          );
+    // N3-U1 — a `createMany` row's INSERT carries the dialect's duplicate skip. It is
+    // built by the SAME `buildCreateMany` the root and child-held `createMany` families
+    // use, so the per-dialect split is decided in one place: dialects whose skip IS a
+    // SQL leaf get `ON CONFLICT DO NOTHING` / `INSERT OR IGNORE` in the statement, and
+    // a `recoverableUniqueError` dialect (MySQL) gets a plain INSERT plus the
+    // savepoint-wrapped executor effect below. `buildCreateMany` also runs V1's
+    // portability guard (`assertPortableCreateManySkip`) on the row — the sole check
+    // for the inexpressible default-only-row shape, raised at compile, before any write.
+    const skipDuplicates = this.config.skipDuplicates === true;
+    const recoverUnique =
+      skipDuplicates &&
+      this.config.engine.adapter.mutations.skipDuplicatesStrategy ===
+        "recoverableUniqueError";
+    let statement: Sql;
+    if (skipDuplicates) {
+      statement = buildCreateMany(this.childScope, [create], true);
+    } else if (generatedField && returningTx) {
+      statement = buildCreate(this.childScope, {
+        data: create,
+        select: { [generatedField]: true },
+      });
+    } else {
+      statement = buildInsert(
+        this.childScope,
+        getTableName(this.childScope.model),
+        create
+      );
+    }
     const step: StatementStep = {
       id,
       kind: "write",
@@ -1025,6 +1099,7 @@ export class RelationJunctionPart implements Part {
               : { kind: "insertId" },
           }
         : {},
+      ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
     };
     return where
       ? { ...step, racePin: childRacePin(this.childScope, where) }
@@ -1051,6 +1126,19 @@ export class RelationJunctionPart implements Part {
     if (pk !== undefined && pk !== null) return { pk };
     const scalar = this.childScope.model["~"].state.scalars[this.targetPkField];
     if (pk === undefined && scalar?.["~"].state.autoGenerate === "increment") {
+      // N3-U1 — the produced identity and `skipDuplicates` are mutually exclusive,
+      // and this is the one place that can say so. A skipped INSERT writes no row, so
+      // it produces no identity: PostgreSQL's `ON CONFLICT DO NOTHING … RETURNING`
+      // yields zero rows, while SQLite's `INSERT OR IGNORE` and MySQL's rolled-back
+      // savepoint leave `insertId` at the PREVIOUS insert's value — a live key
+      // belonging to another row. The join row would then link the parent to that
+      // row, silently, with no constraint able to notice (the wrong-row doctrine).
+      // Refused, never guessed.
+      if (this.config.skipDuplicates) {
+        throw new UnsupportedOperationError(
+          `query-engine-v2 createMany-through-junction for relation '${this.config.relationName}' cannot use 'skipDuplicates' when the target primary key '${this.targetPkField}' is database-generated: a skipped row produces no identity for its join row. Supply '${this.targetPkField}' in the createMany data, or drop 'skipDuplicates'.`
+        );
+      }
       return {
         pk: referenceSql(
           this.config.engine,
@@ -1066,20 +1154,69 @@ export class RelationJunctionPart implements Part {
     );
   }
 
-  /** The upsert create arm's target primary key — still a compile-time literal
-   *  the create data must carry: the arm's compile-time dedup ledger and its
-   *  duplicate-item UPDATE address the target by this value, so a *produced*
-   *  (DB-generated) identity is an explicit typed refusal here, never silent
-   *  wrongness. (create / connectOrCreate support the generated identity via
-   *  {@link resolveCreatePk}.) */
-  private requireCreatePk(create: Record<string, unknown>): unknown {
+  /**
+   * The upsert create arm's IDENTITY — N3-U2.
+   *
+   * The arm needs three things at compile: a value for the join row, a key for the
+   * same-operation dedup ledger, and a `where` the duplicate item's UPDATE addresses
+   * the just-created row by. Before N3-U2 all three came from ONE source, a literal
+   * primary key in the create data, so a DB-generated target PK was refused outright.
+   *
+   * W4's closure gave the plain `upsert` a second source: a create payload spelling a
+   * COMPLETE unique constraint NAMES the row it is about to insert
+   * ({@link createDataUniqueWhere}). The junction arm takes the same source — and
+   * splits the three needs across the two:
+   *
+   * - join value: the literal PK, or (generated `increment` PK) the backward `Ref`
+   *   into this slot's own INSERT capture, exactly as {@link resolveCreatePk} builds
+   *   it for `create` / `connectOrCreate`;
+   * - ledger key + duplicate-item UPDATE `where`: the literal PK, or the create-data
+   *   unique. Both are compile-time literals, so the duplicate's UPDATE never carries
+   *   a `Ref` into a `where`, and the identity derives from the row the INSERT ACTED
+   *   ON (its own data) — never from re-reading the item's `where`.
+   *
+   * A create payload with NEITHER source keeps the refusal, with the message naming
+   * exactly which of the two is missing.
+   */
+  private resolveUpsertCreateIdentity(
+    create: Record<string, unknown>,
+    childId: string
+  ): {
+    pk: unknown;
+    generatedField?: string;
+    addressWhere: Record<string, unknown>;
+    ledgerKey: string;
+  } {
     const pk = create[this.targetPkField];
-    if (pk === undefined || pk === null) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 upsert-through-junction for relation '${this.config.relationName}' requires the target primary key '${this.targetPkField}' in the create data.`
-      );
+    if (pk !== undefined && pk !== null) {
+      return {
+        pk,
+        addressWhere: { [this.targetPkField]: pk },
+        ledgerKey: `pk:${pkKey(pk)}`,
+      };
     }
-    return pk;
+    const scalar = this.childScope.model["~"].state.scalars[this.targetPkField];
+    const unique = createDataUniqueWhere(this.childScope.model, create);
+    if (
+      pk === undefined &&
+      scalar?.["~"].state.autoGenerate === "increment" &&
+      unique
+    ) {
+      return {
+        pk: referenceSql(
+          this.config.engine,
+          this.childScope.model,
+          this.targetPkField,
+          ref(childId, "id")
+        ),
+        generatedField: this.targetPkField,
+        addressWhere: unique,
+        ledgerKey: `unique:${stableKey(unique)}`,
+      };
+    }
+    throw new UnsupportedOperationError(
+      `query-engine-v2 upsert-through-junction for relation '${this.config.relationName}' cannot address the row its create arm inserts: the create data carries neither the target primary key '${this.targetPkField}' nor any complete unique constraint of '${this.config.childName}', and '${this.targetPkField}' is not a single database-generated increment identity.`
+    );
   }
 
   /** connectOrCreate found premise (batch): the adopted target still exists AND
@@ -1675,6 +1812,47 @@ export function buildJunctionParts(input: {
         );
         break;
       }
+      case "createMany": {
+        // N3-U1 — `createMany` through a junction is `create` through a junction, per
+        // row, plus the duplicate skip. No new mechanism: the same slot (child INSERT
+        // then join row), the same produced-identity `Ref` when the target primary key
+        // is DB-generated, the same one-level-deeper fold. The two differences are the
+        // ones `createMany` names anywhere else: the data is SCALAR-ONLY (the relation
+        // schema enforces it, so the fold below always yields empty child Parts), and
+        // `skipDuplicates` rides each row's INSERT.
+        //
+        // SEMANTICS, pinned deliberately because Prisma has no M2M `createMany` to
+        // match: `skipDuplicates` skips the CHILD ROW's insert. The JOIN ROW is a
+        // different row — never itself a duplicate of what the data spells — and is
+        // written for every item (idempotently, via the junction PK). So a skipped
+        // item still links its parent to the row that was already there. The rejected
+        // alternative (skip the join too) cannot be decided at compile without a probe,
+        // and would make a duplicate item silently do NOTHING — unobservable to the
+        // caller. Witnessed by `junction-create-many-behavior.ts`.
+        const payload = requireObject(
+          parsedRelation.createMany,
+          relationName,
+          kind,
+          "createMany"
+        );
+        const rows = normalizeCreates(payload.data, relationName);
+        // An empty `data` writes nothing, exactly as the child-held-FK nested
+        // `createMany` does (`CreateOperation.foldCreateMany`) — no Part, no steps.
+        if (rows.length > 0) {
+          const foldedMany = rows.map((create) => foldOrDelegateCreate(create));
+          parts.push(
+            new RelationJunctionPart(scope, {
+              ...base,
+              kind: "createMany",
+              skipDuplicates: payload.skipDuplicates === true,
+              creates: foldedMany.map((f) => f.scalar),
+              createChildParts: foldedMany.map((f) => f.childParts),
+              createDelegated: foldedMany.map((f) => f.delegated),
+            })
+          );
+        }
+        break;
+      }
       case "connectOrCreate":
         parts.push(
           new RelationJunctionPart(scope, {
@@ -1719,12 +1897,16 @@ export function buildJunctionParts(input: {
         );
         break;
       }
-      default:
-        // createMany and any other kind not enumerated stay V1's surface — route
-        // the whole tree to V1.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 does not support nested '${kind}' on many-to-many relation '${relationName}'.`
+      default: {
+        // Every `RelationMutationKind` now has a junction arm (N3-U1 closed the last
+        // one, `createMany`), so this is an internal exhaustiveness check, not a
+        // capability boundary: no user payload reaches it. It was an
+        // `UnsupportedOperationError` refusal until N3-U1 — census 77 -> 76.
+        const exhaustive: never = kind;
+        throw new QueryEngineError(
+          `query-engine-v2 junction part has no builder for '${exhaustive}'.`
         );
+      }
     }
   }
   return parts;
@@ -1819,10 +2001,19 @@ function adoptDedupKey(slot: {
   readonly generatedField?: string;
 }): string {
   if (!slot.generatedField) return `pk:${pkKey(slot.createPk)}`;
-  const entries = Object.keys(slot.where)
+  return `where:${stableKey(slot.where)}`;
+}
+
+/** A field-order-independent string for a compile-time `where` record — the shape a
+ *  dedup ledger keys on when the identity is a unique selector rather than a single
+ *  primary-key value. `bigint` is tagged because `JSON.stringify` cannot encode it. */
+function stableKey(record: Record<string, unknown>): string {
+  const entries = Object.keys(record)
     .sort()
-    .map((field) => [field, slot.where[field]] as const);
-  return `where:${JSON.stringify(entries, (_key, value) => (typeof value === "bigint" ? `${value}n` : value))}`;
+    .map((field) => [field, record[field]] as const);
+  return JSON.stringify(entries, (_key, value) =>
+    typeof value === "bigint" ? `${value}n` : value
+  );
 }
 
 function scalarOnly(

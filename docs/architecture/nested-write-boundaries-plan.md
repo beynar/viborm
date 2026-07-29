@@ -327,6 +327,154 @@ belong to the wave gate, not to this lane.
 | N3-U2 | **upsert-through-junction with a generated create-arm PK** — the dedup ledger learns the create-data-unique identity source W4's closure gave plain upserts. |
 | N3-U3 | Compound-PK M2M: measure what the correlation-utils refusal actually protects; absorb per-field or re-justify. |
 
+### N3-U1 — delivered
+
+`createMany` was the **last** `RelationMutationKind` with no junction arm, so
+`buildJunctionParts`' `default:` — "does not support nested `createMany` on many-to-many
+relation" — was a catch-all standing in for exactly one kind. It is absorbed with **no new
+mechanism**: `createMany` reuses the `create` slot (per-row child INSERT then join row, the
+produced-identity backward `Ref` when the target key is DB-generated, the same
+one-level-deeper fold), and `skipDuplicates` rides each row's INSERT through
+`buildCreateMany` — the SAME builder the root and child-held `createMany` families use, so
+the per-dialect split (`ON CONFLICT DO NOTHING` / `INSERT OR IGNORE` as a SQL leaf, the
+savepoint-wrapped `onUniqueConflict: "skip"` effect on MySQL) is decided in one place and
+V1's `assertPortableCreateManySkip` default-only-row guard comes free, unduplicated. Under
+the CREATE root the shape opens by adding `createMany` to `assertCreateTreeKinds`'
+allowlist; that site narrows rather than disappears (the remaining kinds address a
+PRE-EXISTING membership a fresh parent cannot have). With every kind handled, the
+`default:` becomes an exhaustiveness `never` check — a `QueryEngineError` internal
+invariant, not a route. Census **77 -> 76**.
+
+**The semantics of `skipDuplicates` here are a CHOICE, pinned deliberately** — Prisma has
+no M2M `createMany` to match. The skip drops the CHILD ROW's insert; the JOIN ROW is a
+different row, never itself a duplicate of what the data spells, and is written for every
+item. A duplicate item therefore leaves the pre-existing target untouched AND still links
+it. The rejected alternative — skip the join too — is not decidable at compile without a
+probe, and would make a duplicate item silently do nothing, unobservable to the caller.
+Both halves are asserted on ONE call in `junction-create-many-behavior.ts`.
+
+**The absorption REQUIRES one new refusal** (census **76 -> 77**): `skipDuplicates` with a
+DB-generated target primary key. A skipped INSERT writes no row, so it produces no
+identity, and every dialect degrades differently. Measured, refusal deleted, SQLite3
+batch-only, `n3_labels` seeded `other`=1 then `existing`=2, article=1: `labels: {
+createMany: { data: [{ slug: 'existing' }], skipDuplicates: true } }` **resolved
+successfully and joined the article to label 1 (`other`)** — not label 2, the row the data
+named. No error, no constraint violation: the junction foreign key was satisfied by the
+stale `insertId`. The same mutation on the RETURNING transaction path fails loudly
+(`TransactionError: Step 'label.create' did not produce row field 'id'`), which is why this
+has to be a construction-time refusal rather than a lowering the executor catches. Both
+escapes (supply the key, or drop `skipDuplicates`) execute.
+
+Witnesses: `junction-create-many-behavior.ts`, 12 tests per substrate, on PGlite (tx +
+forced batch) and every driver leg — both roots, explicit and DB-generated target keys, the
+N1 located-parent Ref composition (an update located by a non-PK unique, with a decoy
+asserted empty), `skipDuplicates` conflict counting (the duplicate's colour survives AND it
+is linked), the no-`skipDuplicates` fail-closed duplicate, the empty-`data` no-op, and the
+generated-key refusal with nothing written. MySQL's batch leg declares
+`skipDuplicatesInBatchIsInexpressible` (the savepoint effect has no atomic-batch lowering)
+and asserts the typed refusal with nothing written. Falsified: re-adding the refusal to the
+`createMany` arm fails **14 of the suite's 24** PGlite witnesses.
+
+### N3-U2 — delivered
+
+`requireCreatePk` refused EVERY junction upsert create arm whose data omitted the target
+primary key, on the stated ground that the arm's same-operation dedup ledger and its
+duplicate-item UPDATE address the target by that literal. W4's closure gave the plain
+`upsert` a second identity source — a create payload spelling a COMPLETE unique constraint
+names the row it is about to insert — and the junction arm now takes the same one.
+`createDataUniqueWhere` moved to `shared.ts` so both askers ask once (the X2 one-home norm).
+The three needs split across the two sources: the **join row** rides the produced `Ref` the
+create / connectOrCreate arms already build; the **ledger key** and the **duplicate's
+UPDATE `where`** ride the create-data unique. No `Ref` ever reaches a `where`, and the
+identity derives from the row the INSERT ACTED ON (its own data), never from re-reading the
+item's `where` — the W4 wrong-row doctrine. The site survives, narrowed, with its message
+naming exactly what is missing. Census **77 -> 77**.
+
+**Honest qualification, measured while doing this.** The ledger justification the old
+refusal rested on is currently **vacuous**: the own-write preflight rejects any SECOND
+`upsert` item on one many-to-many relation — even two items with disjoint explicit primary
+keys — because a junction upsert reads membership and an earlier item writes it (A14). So
+`compileUpsert`'s duplicate branch is unreachable from the client and operation surfaces,
+and the refusal it justified was stricter than any reachable behavior required. The ledger
+is keyed correctly here anyway rather than left to mis-key if the preflight ever relaxes,
+and the unreachability is now pinned by its own witness ("TWO upsert items on one M2M
+relation are the own-write preflight's, not the ledger's") that fails the moment the
+preflight changes.
+
+One estate test was **retargeted**, from a decline to an accept-and-execute assertion on
+the SAME payload: `many-to-many-behavior.ts`'s "upsert through the junction with a
+generated create-arm PK is an explicit typed refusal" is now "… creates a target whose PK
+the database generates", asserting the join row carries the id THIS INSERT produced and not
+a decoy label's. Falsified: reinstating the literal-primary-key-only requirement fails **4
+of the 24** PGlite witnesses.
+
+### N3-U3 — re-justified, not absorbed (measured)
+
+Both refusals fire at construction / DDL before any I/O, and they agree:
+`getRequiredSinglePrimaryKeyField` (`correlation-utils.ts:260`, a `QueryEngineError`) and
+`getPrimaryKeyFieldDef` (`migrations/serializer.ts:487`, a plain `Error`) both say
+"Many-to-many relations with compound PKs are not supported". Neither is an
+`UnsupportedOperationError`, so neither was ever in the census — N3-U3 changes no count.
+
+**What the refusal protects, measured rather than argued.** This is NOT the shape the T-era
+compound-FK work generalized. That work widened code that ALREADY looped index-aligned over
+`fkFields` / `pkFields` — the foreign-key vocabulary was per-field before it was compound.
+The junction vocabulary is scalar *to its root*:
+
+1. **The public schema API cannot spell it.** `.A(fieldName: string)` / `.B(fieldName:
+   string)` name exactly ONE junction column per side, and their state types, their
+   pair-agreement check (`state.A !== paired.B`), and the self-referential-pair rule are all
+   single-string. A compound side needs N column names per side — a public API change, not
+   a generalization.
+2. **`ManyToManyJoinInfo`'s six fields are scalar**, with **92 references across 7 files**
+   (`migrations/serializer.ts`, `OwnWriteLedger.ts`, `RelationMembership.ts`,
+   `ManyToManyStatements.ts`, `builders/many-to-many-utils.ts`, `schema/relation/helpers.ts`,
+   `query-engine-v2/RelationJunctionPart.ts`).
+3. **Every junction value is one `Sql`**: `buildJunctionParentValue` / `buildJunctionTargetValue`
+   return a single value, `buildJunctionTargetIn` builds a scalar IN-list,
+   `buildTargetPkSubquery` selects one column, `membershipRead` selects `{ [targetPkField]:
+   true }`, and `RelationJunctionPart` addresses every target by `{ [targetPkField]: pk }`,
+   dedups on `pkKey`, reads `pkOf(row)`, and captures ONE generated column.
+4. **The migration DDL is two columns**: a fixed 2-column table with a 2-column primary key,
+   one index and two single-column foreign keys.
+
+So the query side and the migration side are inseparable here for the reason the matrix
+already documents (a schema that migrates but cannot query is the vector/JSON-column
+mistake) — and *both* are gated behind an API that cannot name the columns. Left for a named
+follow-up: **"compound-key junctions"**, whose first unit is the `.A()` / `.B()` surface,
+not the query engine.
+
+### N3 — certification
+
+TS 5.9.3 typecheck clean; Biome clean on all 13 touched `.ts` files. Every number below
+measured on this branch, one vitest at a time, targeted suites (worktree lane).
+
+| Step | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean, no output |
+| `pnpm test:gates` | **65 passed / 65**, 5 files (63 -> 65: the two N3 side-1 witnesses) |
+| `tests/query-engine-v2/` | **712 passed / 0 failed**, 45 files |
+| Local driver legs (sqlite3 + libsql + pglite, both substrates each) | **2450 passed** |
+| Docker MySQL 3307 (`tests/drivers/mysql2.test.ts`) | **774 passed** (750 at the N1 gate; +24 = the N3 suite, 12 per substrate) |
+| Docker Postgres 5434 (pg + postgres.js, serial) | **882 passed**, 14 skipped (858 at the N1 gate; +24) |
+| Census pin | **77** — unchanged in TOTAL, changed in COMPOSITION: -1 (the junction `default:` arm) +1 (the `skipDuplicates` + generated-key refusal). Both edits are written into the count-evolution log with their falsifications |
+
+The N3 witnesses were confirmed EXECUTED (not collected-and-skipped) on both Docker legs,
+on both substrates each: `junction createMany + upsert identity (N3)` runs 12 tests under
+`transaction` and 12 under `atomic batch` on MySQL and on pg.
+
+Three estate tests were RETARGETED, each from a decline to a truthful replacement on the
+same family, each noted in place:
+  · `many-to-many-behavior.ts` — "upsert through the junction with a generated create-arm
+    PK is an explicit typed refusal" -> "… creates a target whose PK the database
+    generates" (N3-U2 absorbed the shape).
+  · `unsupported-operation-error.test.ts` — its live-refusal specimen WAS that same upsert
+    shape; it now uses the refusal N3-U1 added (M2M `createMany skipDuplicates` with a
+    DB-generated target key), which is in the same family and on the same relation.
+  · `capability-matrix-2026-07.md` §1.5 and §3.B rows, and `compatibility.mdx`'s nested-write
+    section, which claimed `createMany` worked in both contexts while the M2M arm refused —
+    the absorption makes the published claim true, and the surviving boundary is now stated.
+
 ## N4 — Depth-seam boundaries (after N1; B3/B8/B9)
 
 | Unit | What |

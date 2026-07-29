@@ -1489,13 +1489,17 @@ export class CreateOperation {
     kinds: readonly string[],
     relationName: string
   ): void {
-    // The M2M create-tree surface: create/connect/connectOrCreate only. `upsert`
-    // (and disconnect/set/delete) route to V1 — V1 rejects M2M upsert-under-create
-    // outright, so declining it here at construction yields V1's byte-identical
-    // NestedWriteError, never a compile-time hard failure.
+    // The M2M create-tree surface: create/createMany/connect/connectOrCreate. Every
+    // one of them only ADDS membership to a parent that cannot already have any
+    // (fresh-parent elision, ATOM §4). `createMany` joined the set in N3-U1 — it is
+    // the `create` slot per row plus the duplicate skip, and a fresh parent needs
+    // nothing more. The rest (upsert/disconnect/set/delete/update/updateMany/
+    // deleteMany) address a PRE-EXISTING membership a fresh parent cannot have, so
+    // they stay a typed refusal here.
     for (const kind of kinds) {
       if (
         kind !== "create" &&
+        kind !== "createMany" &&
         kind !== "connect" &&
         kind !== "connectOrCreate"
       ) {

@@ -676,6 +676,87 @@ describe("decline-surface gate: the located-parent Ref executes on the one engin
 });
 
 // ---------------------------------------------------------------------------
+// N3 — the M2M completions join the absorbed surface. `createMany` was the last
+// `RelationMutationKind` with no junction arm, and the junction `upsert`'s create arm
+// refused a DB-generated target key. Both now execute; each test names the mutation
+// that falsifies it.
+// ---------------------------------------------------------------------------
+describe("decline-surface gate: the M2M completions execute on the one engine (N3)", () => {
+  // N3-U1: `createMany` THROUGH A JUNCTION, both roots. `buildJunctionParts`' `default:`
+  // arm declined it as the last unhandled `RelationMutationKind`; it is now the `create`
+  // slot per row (child INSERT then join row) with `skipDuplicates` riding each INSERT.
+  // Re-adding a decline to the `createMany` arm makes both halves throw.
+  test("M2M createMany-through-junction executes on V2, under update AND create", async () => {
+    const c = await freshClient(m2m);
+    await c.post.create({ data: { id: "p1", title: "t" } });
+    await c.post.update({
+      where: { id: "p1" },
+      data: {
+        tags: {
+          createMany: {
+            data: [
+              { id: "t1", name: "x" },
+              { id: "t2", name: "y" },
+            ],
+          },
+        },
+      },
+    });
+    await c.post.create({
+      data: {
+        id: "p2",
+        title: "t2",
+        tags: { createMany: { data: [{ id: "t3", name: "z" }] } },
+      },
+    });
+    const linked = await c.post.findMany({
+      orderBy: { id: "asc" },
+      include: { tags: { orderBy: { id: "asc" } } },
+    });
+    expect(
+      linked.map((post: { id: string; tags: { id: string }[] }) => [
+        post.id,
+        post.tags.map((tag) => tag.id),
+      ])
+    ).toEqual([
+      ["p1", ["t1", "t2"]],
+      ["p2", ["t3"]],
+    ]);
+    await c.$disconnect();
+  });
+
+  // N3-U2: the junction `upsert` create arm with a DB-GENERATED target key. Was an
+  // `UnsupportedOperationError` ("requires the target primary key … in the create data")
+  // because the arm's dedup ledger addressed the target by a literal; the create-data
+  // unique (`label.name`) now names the row, and the join row rides the produced `Ref`.
+  // Reinstating the literal-only requirement makes this throw.
+  test("M2M upsert-through-junction with a generated create-arm PK executes on V2", async () => {
+    const c = await freshClient(m2m);
+    const article = await c.article.create({ data: { title: "a" } });
+    await c.article.update({
+      where: { id: article.id },
+      data: {
+        labels: {
+          upsert: {
+            where: { name: "gen" },
+            create: { name: "gen" },
+            update: { name: "gen2" },
+          },
+        },
+      },
+    });
+    const withLabels = await c.article.findUnique({
+      where: { id: article.id },
+      include: { labels: true },
+    });
+    expect(
+      (withLabels?.labels ?? []).map((label: { name: string }) => label.name)
+    ).toEqual(["gen"]);
+    await c.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The single engine either constructs a payload's whole tree or declines it with
 // an UnsupportedOperationError at construction — no fallback catches the decline.
 // Every conformance scenario constructs (the migration reached census zero before

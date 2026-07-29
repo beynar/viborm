@@ -1,5 +1,7 @@
 import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
+import { isSql } from "@sql";
+import { isBatchValueRef } from "../query-engine/builders/values-builder";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
@@ -120,6 +122,77 @@ export interface SubOperationOptions {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Can this create-data value address the written row in a compile-time `where`?
+ *
+ * A NULL never can: SQL unique constraints do not equate NULLs, so a nullable
+ * unique the create data sets to null names no row. Neither can a value the engine
+ * resolves later (raw `Sql`, a batch-value reference — what a later statement
+ * compares against need not be what the INSERT wrote), nor a structured value (a
+ * list, a JSON object): those are not columns a unique constraint of this schema
+ * spans, and equality on them is dialect business. Everything else — strings,
+ * numbers, bigints, booleans, `Date`, `Decimal`, byte arrays — is the literal the
+ * INSERT writes verbatim.
+ */
+function isAddressableLiteral(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (isSql(value) || isBatchValueRef(value) || Array.isArray(value)) {
+    return false;
+  }
+  if (typeof value !== "object") return true;
+  const prototype = Object.getPrototypeOf(value);
+  return !(prototype === Object.prototype || prototype === null);
+}
+
+/**
+ * The `whereUnique` for a COMPLETE unique constraint of `model` whose every column
+ * `createData` supplies as an addressable literal — **W4's create-data-unique
+ * identity source**: a create arm whose payload spells a whole unique NAMES the row
+ * it is about to insert, at compile time, without reading anything back. Single-column
+ * `.unique()`s first (declaration order), then compound uniques; `undefined` when none
+ * is complete.
+ *
+ * `state.uniques` is the model's single-column unique/id scalars, so a compound PK's
+ * members never appear there individually — half a compound key is a filter, never an
+ * identity.
+ *
+ * One home (X2): the root `upsert`'s create arm ({@link UpsertOperation}) and the
+ * junction upsert's create arm ({@link RelationJunctionPart}) ask the same question of
+ * the same payload, so they ask it here. The two differ only in what they DO with the
+ * answer — a read-back `where` there, a dedup-ledger key plus a duplicate-item UPDATE
+ * `where` here.
+ */
+export function createDataUniqueWhere(
+  model: Model<any>,
+  createData: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const state = model["~"].state;
+  for (const field of Object.keys(state.uniques)) {
+    const value = createData[field];
+    if (isAddressableLiteral(value)) return { [field]: value };
+  }
+  // Each compound unique is an ObjectSchema whose `entries` are its columns — the
+  // same shape `where-unique-builder` reads to compile a compound selector.
+  const compoundUniques: Record<string, { entries: Record<string, unknown> }> =
+    state.compoundUniques ?? {};
+  for (const [name, constraint] of Object.entries(compoundUniques)) {
+    const fields = Object.keys(constraint.entries);
+    if (fields.length === 0) continue;
+    const values: Record<string, unknown> = {};
+    let complete = true;
+    for (const field of fields) {
+      const value = createData[field];
+      if (!isAddressableLiteral(value)) {
+        complete = false;
+        break;
+      }
+      values[field] = value;
+    }
+    if (complete) return { [name]: values };
+  }
+  return undefined;
 }
 
 export type ExecutionMode = "transaction" | "batch";

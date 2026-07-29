@@ -62,6 +62,8 @@ Nested writes are supported inside `create`, `update`, and both branches of `ups
 
 `createMany`, `updateMany`, and `deleteMany` apply to to-many relations only. For a to-one relation use `create`, `update`, and `delete: true`.
 
+On a **many-to-many** relation, `createMany` inserts each row and links it to the parent. `skipDuplicates` there skips the child ROW's insert — the join row is a different row and is still written, so a skipped item leaves the existing target untouched and links it. It is refused (typed, before any write) when the target's primary key is database-generated: a skipped insert produces no identity for its join row. Supply the key, or drop `skipDuplicates`.
+
 **Shapes:**
 
 | Relation | Shape |

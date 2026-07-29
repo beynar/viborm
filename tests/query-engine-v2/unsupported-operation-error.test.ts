@@ -57,19 +57,20 @@ describe("UnsupportedOperationError public surface", () => {
       new PGliteDriver({ client: new PGlite() }),
       createModelRegistry(manyToManySchema, schemas)
     );
-    // upsert-through-junction with a DB-generated create-arm PK: the one
-    // deliberate M2M generated-PK refusal left (create/connectOrCreate absorb it).
+    // RETARGETED by N3-U2, which absorbed the specimen this test used to use
+    // (upsert-through-junction with a DB-generated create-arm PK — the create data's
+    // complete unique now names the row). Its replacement is the M2M generated-key
+    // refusal N3-U1 ADDED, in the same family and on the same relation: a
+    // `createMany skipDuplicates` whose target primary key is database-generated. A
+    // skipped INSERT produces no identity for its join row, and no guard can catch the
+    // stale-`insertId` join that results, so it is refused at construction.
     let caught: unknown;
     try {
       new UpdateOperation(engine, manyToManySchema.article, {
         where: { id: 1 },
         data: {
           labels: {
-            upsert: {
-              where: { name: "x" },
-              create: { name: "x" },
-              update: { name: "y" },
-            },
+            createMany: { data: [{ name: "x" }], skipDuplicates: true },
           },
         },
       });

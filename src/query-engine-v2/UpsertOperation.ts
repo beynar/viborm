@@ -1,16 +1,12 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpsertOperation is the architecture name.
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { isSql } from "@sql";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
 import { separateData } from "../query-engine/builders/relation-data-builder";
-import {
-  buildInsert,
-  isBatchValueRef,
-} from "../query-engine/builders/values-builder";
+import { buildInsert } from "../query-engine/builders/values-builder";
 import {
   getWhereUniqueEntries,
   getWhereUniqueFilters,
@@ -58,6 +54,7 @@ import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
 import {
+  createDataUniqueWhere,
   getStepModelName,
   isRecord,
   type SubOperationOptions,
@@ -94,29 +91,6 @@ interface ArmResult {
 type CreateArmIdentity =
   | { readonly kind: "known"; readonly where: Record<string, unknown> }
   | { readonly kind: "generated"; readonly field: string };
-
-/**
- * Can this create-data value address the written row in a compile-time `where`?
- *
- * A NULL never can: SQL unique constraints do not equate NULLs, so a nullable
- * unique the create data sets to null names no row (and in batch mode, where the
- * terminal read carries no exactly-one-row postcondition, the miss would be
- * SILENT). Neither can a value the engine resolves later (raw `Sql`, a batch-value
- * reference — what the read-back compares against need not be what the INSERT
- * wrote), nor a structured value (a list, a JSON object): those are not columns a
- * unique constraint of this schema spans, and equality on them is dialect
- * business. Everything else — strings, numbers, bigints, booleans, `Date`,
- * `Decimal`, byte arrays — is the literal the INSERT writes verbatim.
- */
-function isAddressableLiteral(value: unknown): boolean {
-  if (value === undefined || value === null) return false;
-  if (isSql(value) || isBatchValueRef(value) || Array.isArray(value)) {
-    return false;
-  }
-  if (typeof value !== "object") return true;
-  const prototype = Object.getPrototypeOf(value);
-  return !(prototype === Object.prototype || prototype === null);
-}
 
 /** A validated conditional filter on the located row (`targetWhere`/`setWhere`). */
 interface Conditional {
@@ -811,7 +785,10 @@ export class UpsertOperation {
         ),
       };
     }
-    const uniqueFromCreateData = this.createDataUniqueWhere();
+    const uniqueFromCreateData = createDataUniqueWhere(
+      this.model,
+      this.createData
+    );
     if (uniqueFromCreateData) {
       return { kind: "known", where: uniqueFromCreateData };
     }
@@ -827,46 +804,6 @@ export class UpsertOperation {
     throw new UnsupportedOperationError(
       `query-engine-v2 upsert cannot read back the row its create arm inserts for '${getStepModelName(this.model, "record")}': the create data carries neither a complete primary key ('${this.parentPrimaryKeys.join(", ")}') nor any complete unique constraint of the model, and the primary key is not a single database-generated identity.`
     );
-  }
-
-  /**
-   * The `whereUnique` for a COMPLETE unique constraint of the model whose every
-   * column the create data supplies as an addressable literal — source (2) of
-   * {@link UpsertOperation.createArmIdentity}. Single-column `.unique()`s first
-   * (declaration order), then compound uniques; `undefined` when none is complete.
-   *
-   * `state.uniques` is the model's single-column unique/id scalars, so a compound
-   * PK's members never appear there individually — a half of a compound key is a
-   * filter, never an identity.
-   */
-  private createDataUniqueWhere(): Record<string, unknown> | undefined {
-    const state = this.model["~"].state;
-    for (const field of Object.keys(state.uniques)) {
-      const value = this.createData[field];
-      if (isAddressableLiteral(value)) return { [field]: value };
-    }
-    // Each compound unique is an ObjectSchema whose `entries` are its columns —
-    // the same shape `where-unique-builder` reads to compile a compound selector.
-    const compoundUniques: Record<
-      string,
-      { entries: Record<string, unknown> }
-    > = state.compoundUniques ?? {};
-    for (const [name, constraint] of Object.entries(compoundUniques)) {
-      const fields = Object.keys(constraint.entries);
-      if (fields.length === 0) continue;
-      const values: Record<string, unknown> = {};
-      let complete = true;
-      for (const field of fields) {
-        const value = this.createData[field];
-        if (!isAddressableLiteral(value)) {
-          complete = false;
-          break;
-        }
-        values[field] = value;
-      }
-      if (complete) return { [name]: values };
-    }
-    return undefined;
   }
 
   /**

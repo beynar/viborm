@@ -19,8 +19,6 @@ type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
 const DELETE_MANY_MEMBERSHIP_DEPENDENCY =
   /depends on an earlier 'connect' membership write/;
 const NAME_DISAMBIGUATION = /\.name\(\)/;
-const UPSERT_GENERATED_PK_REFUSAL =
-  /upsert-through-junction .* requires the target primary key/;
 
 export interface ManyToManyBehaviorOptions {
   driverName: string;
@@ -716,31 +714,48 @@ export function runManyToManyBehavior({
       expect(await c.label.count()).toBe(2);
     });
 
-    test("upsert through the junction with a generated create-arm PK is an explicit typed refusal", async () => {
+    // RETARGETED by N3-U2, from a decline to an accept-and-execute assertion on the
+    // SAME payload. This test used to pin `upsert-through-junction … requires the
+    // target primary key in the create data`: the create arm's dedup ledger and its
+    // duplicate-item UPDATE addressed the target by a compile-time literal, so a
+    // DB-generated identity was refused. W4's create-data-unique identity source
+    // closes it — `create: { name: 'gen-up' }` spells a complete unique of `label`,
+    // which names the row this INSERT writes — and the join row rides the produced
+    // identity `Ref` the create / connectOrCreate arms already use. The surviving
+    // refusal (a create payload with NO identity source at all) is witnessed by
+    // `junction-create-many-behavior.ts`, on every driver leg and both substrates.
+    test("upsert through the junction creates a target whose PK the database generates", async () => {
       const c = requireClient(client);
       const created = await c.article.create({ data: { title: "Article 4" } });
+      // A decoy label the operation must not touch: the join row has to carry the id
+      // this INSERT produced, not "some label".
+      const decoy = await c.label.create({ data: { name: "gen-decoy" } });
 
-      // The upsert create arm's dedup ledger and duplicate-item UPDATE address
-      // the target by a compile-time literal, so a produced identity stays an
-      // honest UnsupportedOperationError (V8003), never silent wrongness.
-      await expect(
-        c.article.update({
-          where: { id: created.id },
-          data: {
-            labels: {
-              upsert: {
-                where: { name: "gen-up" },
-                create: { name: "gen-up" },
-                update: { name: "gen-up2" },
-              },
+      await c.article.update({
+        where: { id: created.id },
+        data: {
+          labels: {
+            upsert: {
+              where: { name: "gen-up" },
+              create: { name: "gen-up" },
+              update: { name: "gen-up2" },
             },
           },
-        })
-      ).rejects.toMatchObject({
-        name: "UnsupportedOperationError",
-        code: "V8003",
-        message: expect.stringMatching(UPSERT_GENERATED_PK_REFUSAL),
+        },
       });
+
+      const article = await c.article.findUnique({
+        where: { id: created.id },
+        include: { labels: true },
+      });
+      const linked = article?.labels ?? [];
+      expect(linked.map((label: { name: string }) => label.name)).toEqual([
+        "gen-up",
+      ]);
+      // The created row's id is the one the join row names, and it is NOT the decoy's.
+      const fresh = await c.label.findUnique({ where: { name: "gen-up" } });
+      expect(linked[0]?.id).toBe(fresh?.id);
+      expect(linked[0]?.id).not.toBe(decoy.id);
     });
   });
 }
