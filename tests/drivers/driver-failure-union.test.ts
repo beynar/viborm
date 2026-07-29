@@ -33,6 +33,7 @@ import {
   ValueTooLongError,
   VibORMErrorCode,
 } from "@errors";
+import { expectTypeOf } from "vitest";
 
 /**
  * The union, written out by hand. `toEqualTypeOf` compares both directions, so this fails if

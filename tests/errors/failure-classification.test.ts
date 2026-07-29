@@ -44,6 +44,7 @@ import {
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
+import { expectTypeOf } from "vitest";
 import {
   isRetryableRace,
   markRaceable,

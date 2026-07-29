@@ -31,6 +31,7 @@ import {
   ValueTooLongError,
   VibORMErrorCode,
 } from "@errors";
+import { expectTypeOf } from "vitest";
 
 /**
  * The eight classes `normalizeDriverError` constructs, spelled here as a local union so this

@@ -64,6 +64,7 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import ts from "typescript";
+import { expectTypeOf } from "vitest";
 import type { DriverFailure } from "../../src/drivers/error-mapping";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
