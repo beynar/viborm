@@ -720,6 +720,16 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // by the compound staleness probe (corrupting ONE member moves the whole tuple — the
   // proof that every member travels from the same located row).
   //
+  // MERGE NOTE (N2 and N3 were built in parallel on N1's tip and cherry-picked onto this
+  // branch, N2 first). Each lane started from 77 and each wrote its entries where its own
+  // author placed them relative to N1-U4's sweep — N3's here, ABOVE the sweep; N2's after
+  // it. That is why the file order (N3 then N2) is the reverse of the commit order (N2 then
+  // N3). Nothing about the chain depends on which order you read it in: the two lanes touch
+  // DISJOINT sites, so their deltas commute. Read in file order the chain is
+  // 77 -1 +1 +0 (N3) = 77, then -1 (N2) = 76; read in commit order it is 77 -1 (N2) = 76,
+  // then -1 +1 +0 (N3) = 76. Either way the pin below is 76, and the pin is measured by
+  // counting the sites, never derived from this arithmetic.
+  //
   // 77 -> 76 (N3-U1, `createMany` through a junction): DELETED — `buildJunctionParts`'
   // `default:` arm, "query-engine-v2 does not support nested 'createMany' on many-to-many
   // relation '…'". `createMany` was the LAST `RelationMutationKind` with no junction arm,
@@ -849,7 +859,8 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     (3 sites) — the target of an M2M create is FRESH; there is no located row to read.
   //     Owner: N3 (the junction's produced-identity path). SETTLED by N3-U2 for the
   //     upsert site (narrowed to the create-data-unique identity source, see the
-  //     77 -> 77 entry below); the other two are unchanged, and both are honest: one
+  //     77 -> 77 entry ABOVE — N3's entries sit before this sweep, see the MERGE NOTE);
+  //     the other two are unchanged, and both are honest: one
   //     refuses an explicit-`null` / non-increment absent PK (`resolveCreatePk`), the
   //     other a RELATION-CARRYING create arm whose deeper child Parts fold against a
   //     compile-time `literalParentId` (`requireCreatePkValue`) — the latter is the
