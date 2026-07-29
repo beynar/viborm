@@ -6,8 +6,13 @@
  * and delegates relation filters to relation-filter-builder.
  */
 
+import {
+  type AnyFieldRef,
+  formatFieldRef,
+  isFieldRef,
+} from "@schema/field-ref";
 import type { ScalarState } from "@schema/scalars";
-import type { Sql } from "@sql";
+import { isSql, type Sql, sql } from "@sql";
 import {
   createChildScope,
   getColumnName,
@@ -16,6 +21,7 @@ import {
   isScalarField,
 } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import { assertExactDecimalOperation } from "./decimal-portability";
 import { buildJsonFilter } from "./json-filter-builder";
 import {
   type BuildNestedWhere,
@@ -287,6 +293,7 @@ function buildScalarFilter(
       column,
       op,
       opValue,
+      alias,
       mode
     );
     if (condition) {
@@ -303,12 +310,78 @@ function buildScalarFilter(
 }
 
 /**
+ * Resolve a field reference against the CURRENT query scope.
+ *
+ * This is where Prisma's same-model rule lives. It is a resolution constraint,
+ * not a re-validation: the scope model is the only thing that can turn
+ * `post.likes` into a column, and the scope is a property of the query (a nested
+ * relation `where` re-scopes to the relation target) that the interned, model-blind
+ * filter schemas cannot see. Runs at SQL-build time, before any I/O.
+ */
+function fieldRefColumn(ctx: QueryScope, ref: AnyFieldRef, alias: string): Sql {
+  const scopeModel = ctx.model["~"].names.ts;
+  if (ref.model !== scopeModel) {
+    throw new QueryEngineError(
+      `Field reference '${formatFieldRef(ref)}' cannot be used while filtering '${
+        scopeModel ?? "unknown"
+      }': a field reference may only compare columns of the same model.`
+    );
+  }
+  if (!isScalarField(ctx.model, ref.field)) {
+    throw new QueryEngineError(
+      `Field reference '${formatFieldRef(ref)}' does not name a scalar field of '${scopeModel}'.`
+    );
+  }
+  return ctx.adapter.identifiers.column(
+    alias,
+    getColumnName(ctx.model, ref.field)
+  );
+}
+
+/**
+ * Splice a caller-supplied fragment into an operand position.
+ *
+ * PARENTHESIZED, always: the fragment is an expression the caller wrote, and
+ * the builder is about to wrap it in one (`col > <here>`, a case fold, a cast).
+ * Without the parentheses a fragment like `` sql`a + b` `` would rebind against
+ * the surrounding operator and answer a different question. The interpolations
+ * ride along untouched — an `Sql` nested inside an `Sql` is spliced as text and
+ * its values stay BOUND PARAMETERS (see `Sql.flatten`), so a value interpolated
+ * into a fragment operand is never concatenated into the statement.
+ *
+ * The fragment's TEXT is the caller's responsibility, dialect and all — the same
+ * trust model as `$queryRaw`, and outside the portability promise the rest of
+ * the filter language keeps.
+ */
+const fragmentOperand = (fragment: Sql): Sql => sql`(${fragment})`;
+
+/**
+ * The operand as a COLUMN EXPRESSION, or `undefined` when it is an ordinary
+ * value that has to be bound.
+ *
+ * A referenced column and a spliced fragment are the same thing to every
+ * operator below — an expression rather than a parameter — so they resolve
+ * together here and the operator-level branches stay one shape.
+ */
+function operandExpression(
+  ctx: QueryScope,
+  value: unknown,
+  alias: string
+): Sql | undefined {
+  if (isFieldRef(value)) return fieldRefColumn(ctx, value, alias);
+  if (isSql(value)) return fragmentOperand(value);
+  return undefined;
+}
+
+/**
  * Build a single filter operation
  *
  * @param ctx - Query context
  * @param column - Column SQL expression
  * @param operation - Filter operation name
  * @param value - Filter value
+ * @param alias - Table alias the filtered column is qualified with; a field
+ *   reference operand resolves to a column on the SAME alias (same row)
  * @param mode - Case sensitivity mode (default or insensitive)
  */
 function buildFilterOperation(
@@ -318,10 +391,27 @@ function buildFilterOperation(
   column: Sql,
   operation: string,
   value: unknown,
+  alias: string,
   mode: FilterMode = "default"
 ): Sql {
   const { adapter } = ctx;
-  const lit = (v: unknown) => scalarValueLiteral(ctx, fieldName, v);
+  const lit = (v: unknown) => {
+    if (isFieldRef(v)) {
+      // Reached only from an operator the schemas do NOT open to references
+      // (in/notIn/has/hasEvery/hasSome). Fail closed rather than bind the token.
+      throw new QueryEngineError(
+        `Field reference '${formatFieldRef(v)}' is not supported by the '${operation}' filter on '${fieldName}'.`
+      );
+    }
+    if (isSql(v)) {
+      // Same closure for the fragment: an operator that takes VALUES would
+      // otherwise bind the fragment object itself as a parameter.
+      throw new QueryEngineError(
+        `An SQL fragment is not supported by the '${operation}' filter on '${fieldName}'.`
+      );
+    }
+    return scalarValueLiteral(ctx, fieldName, v);
+  };
   const isInsensitive = mode === "insensitive";
   const isTextScalar =
     !scalarState.array &&
@@ -335,14 +425,75 @@ function buildFilterOperation(
       )
     : column;
 
+  // Operand builders. Each mirrors the treatment its LHS gets at the call site,
+  // so a referenced column is compared under the SAME collation/folding rules as
+  // a bound literal would be.
+  //
+  // Two halves of that mirroring differ in kind, and the tests reflect it:
+  //
+  //  - The FOLD is load-bearing and behavioral. A referenced column that is not
+  //    ASCII-folded compares against a folded LHS and stops matching, so
+  //    `tests/drivers/field-reference-behavior.ts` discriminates it on every
+  //    dialect with rows whose referenced column carries the upper case.
+  //  - `caseSensitiveText` on the OPERAND is structural symmetry, not a second
+  //    behavioral guard: all three dialects let a one-sided collation govern the
+  //    whole comparison (MySQL's `BINARY` coerces the comparison, SQLite takes
+  //    the left operand's explicit COLLATE, Postgres's is the identity), so with
+  //    the LHS already wrapped no query result can tell the operand's wrapper
+  //    apart. It is pinned as EMITTED SQL in
+  //    `tests/query-engine/field-reference-sql.test.ts` instead of being claimed
+  //    as behavior no test could actually witness.
+  /** Raw operand — pairs with a bare `column` LHS (ordered comparisons, LIKE-free text predicates). */
+  const plainOperand = (v: unknown) =>
+    operandExpression(ctx, v, alias) ?? lit(v);
+  /**
+   * An enum column compared against ANOTHER COLUMN goes through text on every
+   * dialect.
+   *
+   * PostgreSQL gives each enum field its own type, and `enum_a = enum_b` for
+   * two different types has no operator — the comparison fails outright with
+   * 42883, while SQLite and MySQL (which store the value as text) answer it
+   * fine. That is a portability hole in the worst direction: the same query
+   * that works on SQLite crashes on Postgres. Casting BOTH sides to text makes
+   * every dialect answer the same question — enum values compare by their
+   * spelling, which is what a literal operand already does.
+   *
+   * Only the referenced-column path takes the cast: `role = $1` still binds an
+   * enum-typed parameter, so ordinary equality keeps using the column's index.
+   */
+  const isEnumScalar = !scalarState.array && scalarState.type === "enum";
+  const comparableText = (expr: Sql) =>
+    isEnumScalar ? adapter.expressions.cast(expr, "text") : expr;
+
+  /**
+   * The (LHS, operand) pair for an exact `equals`/`not` comparison. Both sides
+   * are built together because a referenced enum operand changes the LHS too.
+   */
+  const exactComparison = (v: unknown): [Sql, Sql] => {
+    const expr = operandExpression(ctx, v, alias);
+    if (!expr) return [exactTextColumn, lit(v)];
+    if (!isTextScalar) return [column, expr];
+    const asExactText = (e: Sql) =>
+      adapter.expressions.caseSensitiveText(comparableText(e));
+    return [asExactText(column), asExactText(expr)];
+  };
+  /** Case-folded operand — pairs with `foldedTextColumn`. */
+  const foldedOperand = (v: unknown) => {
+    const expr = operandExpression(ctx, v, alias);
+    if (!expr) return adapter.expressions.asciiCaseFold(lit(v));
+    return isTextScalar
+      ? adapter.expressions.caseSensitiveText(
+          adapter.expressions.asciiCaseFold(expr)
+        )
+      : expr;
+  };
+
   // Portable insensitive mode folds ASCII A-Z only, then uses exact text
   // predicates. This avoids provider-native Unicode/collation divergence.
-  const foldedLiteral = (v: unknown) =>
-    adapter.expressions.asciiCaseFold(lit(v));
   const insensitiveEq = (v: unknown) =>
-    adapter.operators.eq(foldedTextColumn, foldedLiteral(v));
+    adapter.operators.eq(foldedTextColumn, foldedOperand(v));
   const insensitiveNeq = (v: unknown) =>
-    adapter.operators.neq(foldedTextColumn, foldedLiteral(v));
+    adapter.operators.neq(foldedTextColumn, foldedOperand(v));
 
   switch (operation) {
     // Equality
@@ -361,10 +512,19 @@ function buildFilterOperation(
       if (scalarState.type === "json") {
         return adapter.operators.eq(column, adapter.json.value(value));
       }
-      if (isInsensitive && typeof value === "string") {
+      // A reference is an OBJECT, so it has to be admitted to the insensitive
+      // path explicitly: gating on `typeof value === "string"` alone dropped a
+      // referenced-column operand straight through to the exact predicate and
+      // silently ignored `mode` — `equals` stayed case-sensitive while
+      // `contains`/`startsWith`/`endsWith` (which never had the guard) folded,
+      // so the two disagreed on the same filter object.
+      if (
+        isInsensitive &&
+        (typeof value === "string" || isFieldRef(value) || isSql(value))
+      ) {
         return insensitiveEq(value);
       }
-      return adapter.operators.eq(exactTextColumn, lit(value));
+      return adapter.operators.eq(...exactComparison(value));
 
     case "not":
       if (value === null) {
@@ -376,6 +536,14 @@ function buildFilterOperation(
       if (scalarState.array && Array.isArray(value)) {
         return adapter.operators.neq(column, adapter.arrays.value(value));
       }
+      // A field reference and an SQL fragment are both OBJECTS, so they must be
+      // recognized before the nested-filter branch — otherwise their own keys
+      // would read as filter operations.
+      if (isFieldRef(value) || isSql(value)) {
+        return isInsensitive
+          ? insensitiveNeq(value)
+          : adapter.operators.neq(...exactComparison(value));
+      }
       if (typeof value === "object" && value !== null) {
         // Nested filter: { not: { contains: "foo" } }
         const nested = buildScalarFilterObject(
@@ -383,6 +551,7 @@ function buildFilterOperation(
           fieldName,
           column,
           value as Record<string, unknown>,
+          alias,
           mode
         );
         return adapter.operators.not(nested);
@@ -390,20 +559,25 @@ function buildFilterOperation(
       if (isInsensitive && typeof value === "string") {
         return insensitiveNeq(value);
       }
-      return adapter.operators.neq(exactTextColumn, lit(value));
+      return adapter.operators.neq(...exactComparison(value));
 
-    // Comparison
+    // Comparison. Ordering a decimal needs an exact decimal type to order it
+    // WITH; where there is none the comparison is refused, never approximated.
     case "lt":
-      return adapter.operators.lt(column, lit(value));
+      assertExactDecimalOperation(ctx, fieldName, operation);
+      return adapter.operators.lt(column, plainOperand(value));
 
     case "lte":
-      return adapter.operators.lte(column, lit(value));
+      assertExactDecimalOperation(ctx, fieldName, operation);
+      return adapter.operators.lte(column, plainOperand(value));
 
     case "gt":
-      return adapter.operators.gt(column, lit(value));
+      assertExactDecimalOperation(ctx, fieldName, operation);
+      return adapter.operators.gt(column, plainOperand(value));
 
     case "gte":
-      return adapter.operators.gte(column, lit(value));
+      assertExactDecimalOperation(ctx, fieldName, operation);
+      return adapter.operators.gte(column, plainOperand(value));
 
     // Set membership
     case "in": {
@@ -446,27 +620,28 @@ function buildFilterOperation(
       );
     }
 
-    // String operations use adapter-owned exact substring predicates, so user
-    // values are always literal and database LIKE behavior cannot diverge.
+    // String operations use adapter-owned exact substring predicates (POSITION /
+    // instr / LOCATE + LEFT/RIGHT), never LIKE patterns, so the operand may be a
+    // referenced column as naturally as a bound literal.
     case "contains": {
       return isInsensitive
-        ? adapter.operators.containsText(foldedTextColumn, foldedLiteral(value))
-        : adapter.operators.containsText(column, lit(value));
+        ? adapter.operators.containsText(foldedTextColumn, foldedOperand(value))
+        : adapter.operators.containsText(column, plainOperand(value));
     }
 
     case "startsWith": {
       return isInsensitive
         ? adapter.operators.startsWithText(
             foldedTextColumn,
-            foldedLiteral(value)
+            foldedOperand(value)
           )
-        : adapter.operators.startsWithText(column, lit(value));
+        : adapter.operators.startsWithText(column, plainOperand(value));
     }
 
     case "endsWith": {
       return isInsensitive
-        ? adapter.operators.endsWithText(foldedTextColumn, foldedLiteral(value))
-        : adapter.operators.endsWithText(column, lit(value));
+        ? adapter.operators.endsWithText(foldedTextColumn, foldedOperand(value))
+        : adapter.operators.endsWithText(column, plainOperand(value));
     }
 
     // Array operations (for array/list scalars)
@@ -521,6 +696,7 @@ function buildScalarFilterObject(
   fieldName: string,
   column: Sql,
   filter: Record<string, unknown>,
+  alias: string,
   mode: FilterMode = "default"
 ): Sql {
   const scalarState = getScalarState(ctx, fieldName);
@@ -544,6 +720,7 @@ function buildScalarFilterObject(
       column,
       op,
       value,
+      alias,
       nestedMode
     );
     if (condition) {

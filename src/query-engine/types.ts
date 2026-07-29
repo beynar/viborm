@@ -105,7 +105,15 @@ export interface PrepareOptions {
 }
 
 /**
- * All supported operations
+ * All supported operations.
+ *
+ * NOTE — `createManyAndReturn` / `updateManyAndReturn` / `deleteManyAndReturn`
+ * are INTERNAL names, not client operations. The public surface has ONE name per
+ * bulk family (maintainer decision D-1): `createMany` / `updateMany` /
+ * `deleteMany` take an optional `select`, and its presence routes the tree to the
+ * row-returning arm. These three tokens name that arm inside the SQL-building
+ * substrate (result shape, program lowering, identity helpers); the client never
+ * spells them, and they share their family's arg schema.
  */
 export type Operation =
   | "findFirst"
@@ -119,6 +127,7 @@ export type Operation =
   | "updateManyAndReturn"
   | "delete"
   | "deleteMany"
+  | "deleteManyAndReturn"
   | "upsert"
   | "count"
   | "aggregate"
@@ -141,13 +150,18 @@ export function isBatchOperation(op: Operation): op is BatchOperation {
 /** Batch mutations that return the affected rows instead of a count */
 export type ManyAndReturnOperation =
   | "createManyAndReturn"
-  | "updateManyAndReturn";
+  | "updateManyAndReturn"
+  | "deleteManyAndReturn";
 
 /** Check if operation is a batch mutation returning rows */
 export function isManyAndReturnOperation(
   op: Operation
 ): op is ManyAndReturnOperation {
-  return op === "createManyAndReturn" || op === "updateManyAndReturn";
+  return (
+    op === "createManyAndReturn" ||
+    op === "updateManyAndReturn" ||
+    op === "deleteManyAndReturn"
+  );
 }
 
 /**
@@ -173,6 +187,13 @@ export interface ExpectedResultShape {
   relations: ReadonlyMap<string, ExpectedResultShape>;
   aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;
   relationCounts: ReadonlySet<string>;
+  /**
+   * This relation was paged with a negative `take`: the subquery ran the
+   * reversed order with an absolute limit, so its rows arrive last-first and
+   * the parser restores the logical order — the nested mirror of what
+   * `ReadOperation.parse` does for a top-level negative `take`.
+   */
+  reversed?: boolean;
 }
 
 /** Minimal SQL-construction state shared by related model scopes. */

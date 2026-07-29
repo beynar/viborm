@@ -24,6 +24,7 @@ export type ProgramWriteOperation =
   | "updateManyAndReturn"
   | "delete"
   | "deleteMany"
+  | "deleteManyAndReturn"
   | "upsert";
 
 const PROGRAM_READ_OPERATION_SET: ReadonlySet<Operation> = new Set([

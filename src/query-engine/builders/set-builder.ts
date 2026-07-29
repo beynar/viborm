@@ -8,6 +8,7 @@
 import { isSql, type Sql, sql } from "@sql";
 import { getColumnName, getScalarFieldNames, isRelation } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
+import { assertExactDecimalOperation } from "./decimal-portability";
 import { scalarValueLiteral } from "./values-builder";
 
 /**
@@ -103,19 +104,37 @@ function buildAssignment(
     );
   }
 
+  // Atomic arithmetic stays server-side, so it is exact wherever the dialect's
+  // decimal type is. Where there is no exact decimal type it is refused (see
+  // assertExactDecimalOperation) rather than computed through a double. The
+  // operand binds through scalarValueLiteral so a decimal is cast into the
+  // dialect's exact type instead of arriving as a string MySQL would compare
+  // and compute with as a float.
   // increment: add to current value
   if ("increment" in op && op.increment !== undefined) {
-    return adapter.set.increment(column, adapter.literals.value(op.increment));
+    assertExactDecimalOperation(ctx, fieldName, "increment");
+    return adapter.set.increment(
+      column,
+      scalarValueLiteral(ctx, fieldName, op.increment)
+    );
   }
 
   // decrement: subtract from current value
   if ("decrement" in op && op.decrement !== undefined) {
-    return adapter.set.decrement(column, adapter.literals.value(op.decrement));
+    assertExactDecimalOperation(ctx, fieldName, "decrement");
+    return adapter.set.decrement(
+      column,
+      scalarValueLiteral(ctx, fieldName, op.decrement)
+    );
   }
 
   // multiply: multiply current value
   if ("multiply" in op && op.multiply !== undefined) {
-    return adapter.set.multiply(column, adapter.literals.value(op.multiply));
+    assertExactDecimalOperation(ctx, fieldName, "multiply");
+    return adapter.set.multiply(
+      column,
+      scalarValueLiteral(ctx, fieldName, op.multiply)
+    );
   }
 
   // divide: divide current value. Integer columns must divide as integers
@@ -125,9 +144,10 @@ function buildAssignment(
     const scalarType =
       ctx.model["~"].state.scalars[fieldName]?.["~"].state.type;
     const columnIsInteger = scalarType === "int" || scalarType === "bigint";
+    assertExactDecimalOperation(ctx, fieldName, "divide");
     return adapter.set.divide(
       column,
-      adapter.literals.value(op.divide),
+      scalarValueLiteral(ctx, fieldName, op.divide),
       columnIsInteger
     );
   }

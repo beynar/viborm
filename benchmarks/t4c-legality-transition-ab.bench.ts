@@ -8,9 +8,9 @@
  * correlated upsert part runs and takes its update branch on the occupied child),
  * proving the legality gate adds no per-call planning read on the accepted path.
  *
- * The `queryEngine` escape hatch runs the identical workload through the frozen V1
- * runtime and the native V2 engine on two seeded in-memory SQLite databases.
- * Ratio = V2 hz / V1 hz (higher = V2 faster). Numbers, not adjectives.
+ * Single-armed since P6 deleted V1 and the `queryEngine` escape hatch it used to A/B
+ * against; the recorded V2/V1 ratio stays in
+ * `docs/architecture/engine-unification/PERF.md`.
  *
  * Run: pnpm bench -- benchmarks/t4c-legality-transition-ab.bench.ts
  */
@@ -46,9 +46,9 @@ const schema = (() => {
 
 const COUNT = 200;
 
-const makeClient = async (engine: "v1" | "v2") => {
+const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
-  const client = createClient({ schema, driver, queryEngine: engine });
+  const client = createClient({ schema, driver });
   await push(client, { force: true });
   // Each parent owns one child, so the transition upsert takes its update branch.
   for (let i = 0; i < COUNT; i += 1) {
@@ -60,8 +60,7 @@ const makeClient = async (engine: "v1" | "v2") => {
   return client;
 };
 
-const v1 = await makeClient("v1");
-const v2 = await makeClient("v2");
+const client = await makeClient();
 let n = 0;
 
 // A no-op PK transition (`{ increment: 0 }`) beside a child upsert: the legality
@@ -80,11 +79,8 @@ const op = (i: number) => ({
   },
 });
 
-describe("CLASS IV A/B: legality-gated referenced-key transition upsert", () => {
-  bench("v1 parent.update > id increment 0 + child.upsert", async () => {
-    await (v1 as any).parent.update(op(n++ % COUNT));
-  });
-  bench("v2 parent.update > id increment 0 + child.upsert", async () => {
-    await (v2 as any).parent.update(op(n++ % COUNT));
+describe("CLASS IV: legality-gated referenced-key transition upsert", () => {
+  bench("parent.update > id increment 0 + child.upsert", async () => {
+    await (client as any).parent.update(op(n++ % COUNT));
   });
 });

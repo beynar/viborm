@@ -93,27 +93,41 @@ const schema = {
   constrainedInput,
 };
 
-type ManyAndReturnClientConfig = VibORMConfig & {
+type ImplicitReturningClientConfig = VibORMConfig & {
   schema: typeof schema;
   driver: AnyDriver;
 };
 
-type ManyAndReturnClient = VibORMClient<ManyAndReturnClientConfig>;
+type ImplicitReturningClient = VibORMClient<ImplicitReturningClientConfig>;
 
-export interface ManyAndReturnBehaviorOptions {
+export interface ImplicitReturningBehaviorOptions {
   driverName: string;
   createDriver: () => AnyDriver;
 }
 
-export function runManyAndReturnBehavior({
+/**
+ * IMPLICIT RETURNING on the bulk writes, per driver. There is no
+ * `createManyAndReturn` / `updateManyAndReturn` any more (maintainer decision
+ * D-1): `createMany` / `updateMany` / `deleteMany` return `{ count }` unless the
+ * call carries a `select`, in which case they return the affected rows. Because
+ * `select` is the only way to ask for rows, a "return everything" assertion must
+ * name every column — which is exactly what the surface promises.
+ *
+ * `deleteMany` with `select` has no Prisma counterpart at all, and it is the case
+ * where the driver split actually matters: a returning driver deletes and returns
+ * in one statement, a non-returning one must READ the rows before removing them.
+ * The MySQL leg is what proves that ordering behaviorally.
+ */
+export function runImplicitReturningBehavior({
   driverName,
   createDriver,
-}: ManyAndReturnBehaviorOptions) {
-  describe(`${driverName} createManyAndReturn / updateManyAndReturn`, () => {
-    let client: ManyAndReturnClient | undefined;
-    // `createManyAndReturn` with `skipDuplicates` is the one documented deliberate
-    // refusal on a NON-returning driver (route-inventory category ii): there is no
-    // portable `ON CONFLICT DO NOTHING` that also reports which rows it inserted.
+}: ImplicitReturningBehaviorOptions) {
+  describe(`${driverName} bulk-write implicit returning`, () => {
+    let client: ImplicitReturningClient | undefined;
+    // `createMany` with BOTH `skipDuplicates` and `select` is the one documented
+    // deliberate refusal on a NON-returning driver (route-inventory category ii):
+    // there is no portable `ON CONFLICT DO NOTHING` that also reports which rows
+    // it inserted. The `{ count }` arm supports skipDuplicates everywhere.
     const supportsReturning =
       createDriver().adapter.capabilities.supportsReturning;
 
@@ -130,12 +144,20 @@ export function runManyAndReturnBehavior({
       }
     });
 
-    test("createManyAndReturn returns the created rows", async () => {
-      const rows = await client!.gadget.createManyAndReturn({
+    test("createMany without select returns { count }, with select returns rows", async () => {
+      // The whole point of the implicit form: same operation, same payload plus
+      // one key, two different result shapes.
+      const counted = await client!.gadget.createMany({
+        data: [{ id: "g0", code: "c0", name: "Counted" }],
+      });
+      expect(counted).toEqual({ count: 1 });
+
+      const rows = await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha" },
           { id: "g2", code: "c2", name: "Beta", qty: 5 },
         ],
+        select: { id: true, code: true, name: true, qty: true },
       });
 
       expect(rows).toHaveLength(2);
@@ -149,8 +171,8 @@ export function runManyAndReturnBehavior({
       expect(byId.get("g2")).toMatchObject({ id: "g2", qty: 5 });
     });
 
-    test("createManyAndReturn with select returns only selected fields", async () => {
-      const rows = await client!.gadget.createManyAndReturn({
+    test("createMany with a narrow select returns only selected fields", async () => {
+      const rows = await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha" },
           { id: "g2", code: "c2", name: "Beta" },
@@ -165,9 +187,128 @@ export function runManyAndReturnBehavior({
       expect(rows.map((r) => r.name).sort()).toEqual(["Alpha", "Beta"]);
     });
 
-    test("createManyAndReturn assigns auto-increment ids", async () => {
-      const rows = await client!.ticket.createManyAndReturn({
+    /**
+     * A bulk write's `select` is SCALAR-ONLY, on every driver, and both
+     * spellings of "give me a relation too" are refused at the parse boundary
+     * BEFORE anything is written.
+     *
+     * This is the fail-closed replacement for a projection that used to be
+     * accepted and answered with wrong data: a relation embedded in a
+     * `RETURNING` list has no alias to correlate against, so a to-many always
+     * came back `[]` and a self-referencing to-one came back `null`, while the
+     * same projection through `findMany` returned the real rows. The refusal is
+     * a ValidationError, so the write does not happen either.
+     */
+    test("a relation in a bulk write's select is refused, not silently emptied", async () => {
+      await client!.warehouse.create({ data: { id: "w1" } });
+
+      // Spelled through the untyped seam: nested excess-property checking does
+      // not fire through the client's generic signature when a valid sibling key
+      // is present (the same pre-existing TS limitation noted in
+      // tests/client/operations.test.ts). The type-level exclusion is asserted
+      // directly in tests/client/implicit-returning-types.test.ts; this test is
+      // about the RUNTIME parse boundary, which is the enforced one.
+      const untyped = client as unknown as Record<
+        string,
+        Record<string, (args: Record<string, unknown>) => Promise<unknown>>
+      >;
+      const refusals: (() => Promise<unknown>)[] = [
+        () =>
+          untyped.inventory!.createMany!({
+            data: [{ id: "i1", warehouseId: "w1" }],
+            select: { id: true, warehouse: { select: { id: true } } },
+          }),
+        () =>
+          untyped.inventory!.updateMany!({
+            where: {},
+            data: { warehouseId: "w1" },
+            select: { id: true, warehouse: true },
+          }),
+        () =>
+          untyped.warehouse!.deleteMany!({
+            where: {},
+            select: { id: true, inventory: { select: { id: true } } },
+          }),
+        () =>
+          untyped.warehouse!.updateMany!({
+            where: {},
+            data: { id: "w1" },
+            select: { id: true, _count: true },
+          }),
+      ];
+
+      for (const call of refusals) {
+        let thrown: unknown;
+        try {
+          await call();
+        } catch (error) {
+          thrown = error;
+        }
+        const message = (thrown as Error | undefined)?.message ?? "";
+        expect(message).toContain("is not supported on");
+        expect(message).toContain("Read the relation in a separate query.");
+      }
+
+      // Nothing was written, and the warehouse is still there: each refusal
+      // happened at the parse boundary.
+      expect(await client!.inventory.count()).toBe(0);
+      expect(await client!.warehouse.count()).toBe(1);
+
+      // The scalar projection of the same operations still works.
+      expect(
+        await client!.inventory.createMany({
+          data: [{ id: "i1", warehouseId: "w1" }],
+          select: { id: true, warehouseId: true },
+        })
+      ).toEqual([{ id: "i1", warehouseId: "w1" }]);
+    });
+
+    /**
+     * The `include` spelling, refused with a message that names the alternative.
+     * The message must NOT be the one the W3 wave shipped ("relations cannot be
+     * joined in" was offered as a property of the write statement, which was not
+     * the real reason and read as a capability claim); it points at a separate
+     * query, which is what the surface actually requires.
+     */
+    test("include is refused with a message that names the alternative", async () => {
+      const untyped = client as unknown as Record<
+        string,
+        Record<string, (args: Record<string, unknown>) => Promise<unknown>>
+      >;
+      for (const call of [
+        () =>
+          untyped.gadget!.createMany!({
+            data: [{ id: "g1", code: "c1", name: "A" }],
+            include: { nothing: true },
+          }),
+        () =>
+          untyped.gadget!.updateMany!({
+            where: {},
+            data: { name: "A" },
+            include: { nothing: true },
+          }),
+        () =>
+          untyped.gadget!.deleteMany!({
+            where: {},
+            include: { nothing: true },
+          }),
+      ]) {
+        let thrown: unknown;
+        try {
+          await call();
+        } catch (error) {
+          thrown = error;
+        }
+        const message = (thrown as Error | undefined)?.message ?? "";
+        expect(message).toContain("'include' is not supported on");
+        expect(message).toContain("read relations in a separate query");
+      }
+    });
+
+    test("createMany with select assigns auto-increment ids", async () => {
+      const rows = await client!.ticket.createMany({
         data: [{ label: "one" }, { label: "two" }, { label: "three" }],
+        select: { id: true, label: true },
       });
 
       expect(rows).toHaveLength(3);
@@ -199,14 +340,15 @@ export function runManyAndReturnBehavior({
       expect(idsByLabel.get("generated")).not.toBe(20);
     });
 
-    test("createManyAndReturn restores input order across increment row shapes", async () => {
-      const rows = await client!.ticket.createManyAndReturn({
+    test("createMany with select restores input order across increment row shapes", async () => {
+      const rows = await client!.ticket.createMany({
         data: [
           { id: 100, label: "explicit-first" },
           { label: "generated-first" },
           { id: 200, label: "explicit-second" },
           { label: "generated-second" },
         ],
+        select: { id: true, label: true },
       });
 
       expect(rows.map((row) => row.label)).toEqual([
@@ -220,13 +362,14 @@ export function runManyAndReturnBehavior({
       expect(new Set(rows.map((row) => row.id)).size).toBe(4);
     });
 
-    test("createManyAndReturn preserves bigint generation and order", async () => {
-      const rows = await client!.bigTicket.createManyAndReturn({
+    test("createMany with select preserves bigint generation and order", async () => {
+      const rows = await client!.bigTicket.createMany({
         data: [
           { id: 100n, label: "explicit" },
           { label: "generated" },
           { id: 200n, label: "explicit-later" },
         ],
+        select: { id: true, label: true },
       });
 
       expect(rows.map((row) => row.label)).toEqual([
@@ -241,12 +384,13 @@ export function runManyAndReturnBehavior({
     });
 
     test("application defaults remain values while increment defaults stay database-owned", async () => {
-      const rows = await client!.defaultTicket.createManyAndReturn({
+      const rows = await client!.defaultTicket.createMany({
         data: [
           {},
           { id: 50, label: "explicit" },
           { label: "application-default" },
         ],
+        select: { id: true, label: true },
       });
 
       expect(rows.map((row) => row.label)).toEqual([
@@ -260,8 +404,9 @@ export function runManyAndReturnBehavior({
     });
 
     test("default-only createMany rows use database generation", async () => {
-      const created = await client!.defaultOnlyTicket.createManyAndReturn({
+      const created = await client!.defaultOnlyTicket.createMany({
         data: [{}, {}],
+        select: { id: true },
       });
 
       expect(created).toHaveLength(2);
@@ -343,18 +488,19 @@ export function runManyAndReturnBehavior({
       expect(await client!.bigTicket.count()).toBe(0);
     });
 
-    test("createManyAndReturn skips only duplicate rows and returns inserted rows", async () => {
+    test("createMany with select skips only duplicate rows and returns inserted rows", async () => {
       await client!.gadget.create({
         data: { id: "g1", code: "c1", name: "Existing" },
       });
 
       const call = () =>
-        client!.gadget.createManyAndReturn({
+        client!.gadget.createMany({
           data: [
             { id: "g1", code: "c1", name: "Duplicate" },
             { id: "g3", code: "c3", name: "Fresh" },
           ],
           skipDuplicates: true,
+          select: { id: true, name: true },
         });
 
       if (!supportsReturning) {
@@ -362,8 +508,19 @@ export function runManyAndReturnBehavior({
         // non-returning driver cannot both skip duplicates and report the inserted
         // rows. Maintainer-authorized; its absorption is post-P6 backlog.
         await expect(call()).rejects.toThrow(
-          "does not support skipDuplicates on a non-returning driver"
+          "does not support 'skipDuplicates' on a driver without RETURNING"
         );
+        // The same payload WITHOUT `select` is the supported `{ count }` form —
+        // the refusal is scoped to asking for the rows back, not to skipping.
+        await expect(
+          client!.gadget.createMany({
+            data: [
+              { id: "g1", code: "c1", name: "Duplicate" },
+              { id: "g3", code: "c3", name: "Fresh" },
+            ],
+            skipDuplicates: true,
+          })
+        ).resolves.toEqual({ count: 1 });
         return;
       }
 
@@ -427,7 +584,7 @@ export function runManyAndReturnBehavior({
       expect(await client!.constrainedInput.count()).toBe(0);
     });
 
-    test("updateManyAndReturn returns the updated rows", async () => {
+    test("updateMany without select returns { count }, with select returns rows", async () => {
       await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha", qty: 1 },
@@ -436,9 +593,16 @@ export function runManyAndReturnBehavior({
         ],
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const counted = await client!.gadget.updateMany({
+        where: { qty: { lt: 5 } },
+        data: { qty: { increment: 0 } },
+      });
+      expect(counted).toEqual({ count: 2 });
+
+      const rows = await client!.gadget.updateMany({
         where: { qty: { lt: 5 } },
         data: { name: "Updated" },
+        select: { id: true, name: true },
       });
 
       expect(rows).toHaveLength(2);
@@ -453,7 +617,7 @@ export function runManyAndReturnBehavior({
       expect(untouched?.name).toBe("Gamma");
     });
 
-    test("updateManyAndReturn applies atomic operations and select", async () => {
+    test("updateMany with select applies atomic operations", async () => {
       await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha", qty: 1 },
@@ -461,7 +625,7 @@ export function runManyAndReturnBehavior({
         ],
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const rows = await client!.gadget.updateMany({
         data: { qty: { increment: 10 } },
         select: { id: true, qty: true },
       });
@@ -475,7 +639,7 @@ export function runManyAndReturnBehavior({
       }
     });
 
-    test("updateManyAndReturn applies atomic decrement and multiply", async () => {
+    test("updateMany with select applies atomic decrement and multiply", async () => {
       await client!.gadget.createMany({
         data: [
           { id: "g1", code: "c1", name: "Alpha", qty: 10 },
@@ -483,7 +647,7 @@ export function runManyAndReturnBehavior({
         ],
       });
 
-      const decremented = await client!.gadget.updateManyAndReturn({
+      const decremented = await client!.gadget.updateMany({
         data: { qty: { decrement: 3 } },
         select: { id: true, qty: true },
       });
@@ -492,7 +656,7 @@ export function runManyAndReturnBehavior({
       expect(decrementedById.get("g1")).toBe(7);
       expect(decrementedById.get("g2")).toBe(1);
 
-      const multiplied = await client!.gadget.updateManyAndReturn({
+      const multiplied = await client!.gadget.updateMany({
         data: { qty: { multiply: 5 } },
         select: { id: true, qty: true },
       });
@@ -507,12 +671,12 @@ export function runManyAndReturnBehavior({
       expect(persisted.map((r) => r.qty)).toEqual([35, 5]);
     });
 
-    test("updateManyAndReturn applies atomic divide (exact quotient)", async () => {
+    test("updateMany with select applies atomic divide (exact quotient)", async () => {
       await client!.gadget.create({
         data: { id: "g1", code: "c1", name: "Exact", qty: 8 },
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const rows = await client!.gadget.updateMany({
         data: { qty: { divide: 2 } },
         select: { id: true, qty: true },
       });
@@ -537,7 +701,7 @@ export function runManyAndReturnBehavior({
         data: { id: "g1", code: "c1", name: "Inexact", qty: 7 },
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const rows = await client!.gadget.updateMany({
         data: { qty: { divide: 2 } },
         select: { id: true, qty: true },
       });
@@ -551,17 +715,86 @@ export function runManyAndReturnBehavior({
       expect(persisted?.qty).toBe(3);
     });
 
-    test("updateManyAndReturn returns empty array when nothing matches", async () => {
+    test("updateMany with select returns empty array when nothing matches", async () => {
       await client!.gadget.create({
         data: { id: "g1", code: "c1", name: "Alpha" },
       });
 
-      const rows = await client!.gadget.updateManyAndReturn({
+      const rows = await client!.gadget.updateMany({
         where: { name: "Nope" },
         data: { qty: 99 },
+        select: { id: true },
       });
 
       expect(rows).toEqual([]);
+      // The same no-match payload without `select` is `{ count: 0 }`.
+      await expect(
+        client!.gadget.updateMany({
+          where: { name: "Nope" },
+          data: { qty: 99 },
+        })
+      ).resolves.toEqual({ count: 0 });
+    });
+
+    test("deleteMany without select returns { count }, with select returns the deleted rows", async () => {
+      await client!.gadget.createMany({
+        data: [
+          { id: "g1", code: "c1", name: "Alpha", qty: 1 },
+          { id: "g2", code: "c2", name: "Beta", qty: 2 },
+          { id: "g3", code: "c3", name: "Gamma", qty: 10 },
+        ],
+      });
+
+      const rows = await client!.gadget.deleteMany({
+        where: { qty: { lt: 5 } },
+        select: { id: true, name: true, qty: true },
+      });
+
+      expect(rows).toHaveLength(2);
+      expect(rows.map((r) => r.id).sort()).toEqual(["g1", "g2"]);
+      for (const row of rows) {
+        expect(Object.keys(row).sort()).toEqual(["id", "name", "qty"]);
+      }
+      // The returned rows are the rows that are GONE — the projection is read
+      // from the pre-delete state, and the delete really happened.
+      expect(await client!.gadget.findMany()).toHaveLength(1);
+      expect(
+        (await client!.gadget.findUnique({ where: { id: "g3" } }))?.name
+      ).toBe("Gamma");
+
+      const counted = await client!.gadget.deleteMany({ where: { qty: 10 } });
+      expect(counted).toEqual({ count: 1 });
+      expect(await client!.gadget.count()).toBe(0);
+    });
+
+    test("deleteMany with select returns [] when nothing matches and deletes nothing", async () => {
+      await client!.gadget.create({
+        data: { id: "g1", code: "c1", name: "Alpha" },
+      });
+
+      const rows = await client!.gadget.deleteMany({
+        where: { name: "Nope" },
+        select: { id: true },
+      });
+
+      expect(rows).toEqual([]);
+      expect(await client!.gadget.count()).toBe(1);
+    });
+
+    test("deleteMany with select over every row returns them all", async () => {
+      // No `where`: the captured set (non-returning path) and the RETURNING set
+      // must both cover the whole table.
+      await client!.ticket.createMany({
+        data: [{ label: "one" }, { label: "two" }, { label: "three" }],
+      });
+
+      const rows = await client!.ticket.deleteMany({
+        select: { id: true, label: true },
+      });
+
+      expect(rows.map((r) => r.label).sort()).toEqual(["one", "three", "two"]);
+      expect(new Set(rows.map((r) => r.id)).size).toBe(3);
+      expect(await client!.ticket.count()).toBe(0);
     });
   });
 }

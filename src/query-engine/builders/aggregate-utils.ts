@@ -9,6 +9,7 @@ import type { Sql } from "@sql";
 import { getColumnName } from "../context";
 import { getAggregateResultKey } from "../result-aliases";
 import type { QueryScope } from "../types";
+import { assertExactDecimalOperation } from "./decimal-portability";
 
 /**
  * Aggregate function types
@@ -105,6 +106,10 @@ export function buildAggregateColumn(
 
   const scalars = ctx.model["~"].state.scalars;
   const pairs: [string, Sql][] = entries.map(([field]) => {
+    // Every aggregate over a decimal — min/max included, since they are an
+    // ordering — needs an exact decimal type to be exact. Refused where there
+    // is none rather than computed through a double.
+    assertExactDecimalOperation(ctx, field, `_${aggType}`);
     // Resolve field name to actual column name (handles .map() overrides)
     const columnName = getColumnName(ctx.model, field);
     let expr = aggFn(adapter.identifiers.column(alias, columnName));

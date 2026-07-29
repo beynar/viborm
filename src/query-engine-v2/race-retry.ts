@@ -1,4 +1,9 @@
-import { isVibORMError, UniqueConstraintError, VibORMErrorCode } from "@errors";
+import {
+  classifyFailure,
+  isVibORMError,
+  UniqueConstraintError,
+  VibORMErrorCode,
+} from "@errors";
 import type { TargetConstraintPin } from "./OperationFragment";
 
 /**
@@ -13,9 +18,10 @@ import type { TargetConstraintPin } from "./OperationFragment";
  *      failed write step's `racePin` (the create-branch loser — ATOM §1), or a
  *      deadlock/serialization failure raised while a `racePin` write was in
  *      flight — the executor marks these via {@link markRaceable};
- *   2. any VibORM error already carrying `meta.raceable === true` (the guard
+ *   2. any EXPECTED failure already carrying `meta.raceable === true` (the guard
  *      abort classes: materialized-set pins, the M2M symmetric-difference
- *      guards) — recognized from the error itself, no marking needed.
+ *      guards) — recognized from the error itself, no marking needed. "Expected"
+ *      is {@link classifyFailure}'s verdict: a defect is never a race.
  *
  * A violation that matches **no** racePin and is not `meta.raceable` is not a
  * race: it propagates without retry (both directions are proven by test).
@@ -37,6 +43,15 @@ export function markRaceable(error: unknown): void {
  * Whether a surfaced error is a retryable write race (V1's
  * `isExplicitProgramRace`): pinned by the executor, or self-declared
  * `meta.raceable`.
+ *
+ * The self-declared arm reads {@link classifyFailure} rather than `isVibORMError`, which is the
+ * same single check with the semantics spelled out: only an EXPECTED failure can be a race. A
+ * defect — an engine invariant break, a raw throwable — is never re-run, whatever metadata it
+ * happens to be wearing. Every error that actually carries `meta.raceable` is a
+ * guard abort raised by `failureError` / `query-engine/batch-error-attribution.ts` —
+ * a `NestedWriteError`, or the upsert skip premise's `TransactionError`
+ * (`raceableQueryFailure`) — and both classify as expected, so the once-only
+ * retry policy and the set of errors that retry are unchanged.
  */
 export function isRetryableRace(error: unknown): boolean {
   if (
@@ -45,7 +60,10 @@ export function isRetryableRace(error: unknown): boolean {
     PINNED_RETRYABLE_RACES.has(error)
   )
     return true;
-  return isVibORMError(error) && error.meta.raceable === true;
+  const classified = classifyFailure(error);
+  return (
+    classified.kind === "failure" && classified.error.meta.raceable === true
+  );
 }
 
 /**

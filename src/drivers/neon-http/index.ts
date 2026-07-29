@@ -12,10 +12,13 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { QueryError, unsupportedGeospatial, unsupportedVector } from "@errors";
 import type {
   NeonQueryFunction,
@@ -25,6 +28,7 @@ import { Driver, type QueryExecutionContext } from "../driver";
 import { isNormalizedResultRow } from "../normalized-result";
 import {
   normalizePostgresRowCount,
+  type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
 import type { BatchQuery, QueryResult } from "../types";
@@ -214,6 +218,27 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
     );
   }
 
+  /**
+   * Neon HTTP sends the whole batch as one request through `client.transaction`
+   * and offers no callback transaction. The provider opens and closes that
+   * transaction server-side in a single round trip: VibORM has no BEGIN to
+   * configure, no interactive body to interrupt, and no slot to wait for, so
+   * every option is refused rather than quietly dropped.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "unsupported",
+      isolationLevelReason:
+        "Neon HTTP submits the batch as one request and never exposes a transaction VibORM can issue SET TRANSACTION ISOLATION LEVEL on",
+      timeout: false,
+      timeoutReason:
+        "Neon HTTP runs a batch as one provider call with no interactive body to interrupt",
+      maxWait: "unsupported",
+      maxWaitReason:
+        "Neon HTTP submits the batch immediately with no connection to acquire",
+    };
+  }
+
   protected transaction<T>(
     _client: NeonQuery | NeonTx,
     _fn: (tx: NeonTx) => Promise<T>
@@ -291,8 +316,11 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: NeonHTTPClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: NeonHTTPClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, NeonHTTPDriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { databaseUrl, options, pgvector, postgis, ...restConfig } = config;
 
@@ -303,7 +331,7 @@ export function createClient<C extends DriverConfig>(
     postgis,
   });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: NeonHTTPDriver }>;

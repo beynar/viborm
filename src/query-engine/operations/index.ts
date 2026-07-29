@@ -15,7 +15,11 @@ export {
   buildCreateManyPlan,
   type CreateManyPlan,
 } from "./create";
-export { buildDelete, buildDeleteMany } from "./delete";
+export {
+  buildDelete,
+  buildDeleteMany,
+  buildDeleteManyAndReturn,
+} from "./delete";
 export {
   buildFind,
   type FindArgs,

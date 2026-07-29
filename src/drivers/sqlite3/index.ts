@@ -8,10 +8,13 @@ import { Buffer } from "node:buffer";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import Database from "better-sqlite3";
 import { Driver, type DriverResultParser } from "../driver";
 import {
@@ -20,6 +23,7 @@ import {
   runTransactionLifecycle,
   sqliteBinaryToUint8Array,
   sqliteResultParser,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -74,7 +78,11 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
     const options = this.driverOptions.options ?? {};
 
-    return new Database(dataDir, options);
+    const db = new Database(dataDir, options);
+    // better-sqlite3 happens to enable this already; stated explicitly so FK
+    // enforcement is a viborm guarantee, not an inherited library default.
+    db.pragma("foreign_keys = ON");
+    return db;
   }
 
   protected async closeClient(db: SQLite3Database): Promise<void> {
@@ -123,6 +131,23 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     return { rows: [] as T[], rowCount: result.changes };
   }
 
+  /**
+   * SQLite has no isolation-level statement: one writer at a time on one
+   * connection makes every transaction serializable already. `Serializable` is
+   * therefore honored by construction, with no SQL to emit; the three weaker
+   * levels are refused because pretending to relax isolation we cannot relax
+   * would misreport what the transaction actually guarantees.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "serializable-only",
+      isolationLevelReason:
+        "SQLite serializes transactions on a single connection and has no statement to weaken isolation, so only Serializable can be honored truthfully",
+      timeout: true,
+      maxWait: "queue",
+    };
+  }
+
   protected async transaction<T>(
     client: SQLite3Database,
     fn: (tx: SQLite3Database) => Promise<T>
@@ -155,14 +180,17 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: SQLite3ClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: SQLite3ClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, SQLite3DriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { client, dataDir, options, ...restConfig } = config;
 
   const driver = new SQLite3Driver({ client, dataDir, options });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: SQLite3Driver }>;

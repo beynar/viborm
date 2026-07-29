@@ -1,0 +1,244 @@
+---
+title: Field references and SQL fragments
+description: Compare a column against another column of the same row, or against an SQL expression you write yourself
+icon: Columns3
+---
+
+Every ordinary filter operand becomes a bound parameter. Pass a **callback** instead and
+the operand becomes an expression: another column of the same row, or a fragment of SQL
+you wrote.
+
+```ts
+// posts that were viewed more often than they were liked
+const trending = await client.post.findMany({
+  where: { views: { gt: (ctx) => ctx.fields.likes } },
+});
+// ... WHERE "t0"."views" > "t0"."likes"
+```
+
+The callback is handed a context with two things on it:
+
+| | |
+|---|---|
+| `ctx.fields` | the **current model's** columns — `ctx.fields.likes` is a field reference |
+| `ctx.sql` | the tagged template — `` ctx.sql`"likes" * 2` `` is an SQL fragment |
+
+It is called once, while the payload is validated, and its return value takes its place.
+Nothing downstream — the SQL builder, the cache key — ever sees a function. Return
+anything other than a field reference or an SQL fragment and the call is refused:
+
+```ts
+await client.post.findMany({ where: { views: { gt: () => 42 } } });
+// A filter callback must return a field reference (ctx.fields.<field>) or an SQL
+// fragment (ctx.sql`…`); it returned a value of type 'number'.
+```
+
+<Callout type="warn">
+  Keep the callback **pure**. It is called during validation, and a payload may be
+  validated more than once (`upsert` re-parses the arm it takes). A callback that returns
+  the same thing every time is indistinguishable from a value; one that counts its calls
+  or mutates state gets exactly what it asks for.
+</Callout>
+
+## Where callbacks work
+
+| Position | Field reference | SQL fragment |
+|---|---|---|
+| `equals`, `not` | ✅ every non-list scalar, enums included | ✅ |
+| `lt`, `lte`, `gt`, `gte` | ✅ int, float, decimal, bigint, string, datetime, date, time | ✅ |
+| Bare shorthand `{ views: (ctx) => … }` | ✅ (normalizes to `equals`) | ✅ |
+| `contains`, `startsWith`, `endsWith` | ✅ string — **token only**, see below | ❌ |
+| `in`, `notIn` | ❌ | ❌ |
+| Ordered comparison on an **enum** | ❌ (no portable answer — see below) | ❌ |
+| List operators (`has`, `hasEvery`, `hasSome`, `isEmpty`) | ❌ | ❌ |
+| JSON, blob, vector, point operands | ❌ | ❌ |
+| `orderBy`, `create`/`update` data | ❌ | ❌ |
+| `having` / `groupBy` | ❌ (Prisma excludes them too) | ❌ |
+
+Unsupported positions are rejected with an explicit message — an operand is never silently
+bound as a value. JSON is the one worth saying out loud: a JSON operand accepts any
+object, so a reference is a *structurally valid* JSON document there. It is refused
+anyway, in filters and in `create`/`update` data alike, because a JSON `equals`/`array_*`
+operand is compared as a whole document rather than as a column expression.
+
+## The token behind `ctx.fields`
+
+`ctx.fields.likes` returns a **field reference token**. The callback is how you reach one;
+the token is the mechanism, and a token you stored earlier is just as valid an operand:
+
+```ts
+import { createModelFieldRefs } from "viborm";
+
+const postFields = createModelFieldRefs("post", post);
+await client.post.findMany({ where: { views: { gt: postFields.likes } } });
+```
+
+The text predicates (`contains` / `startsWith` / `endsWith`) accept the token and nothing
+else — no fragment, and so no callback either. The callback surface is drawn at the
+comparison operators, where the builder treats every operand the same way.
+
+## SQL fragments
+
+`ctx.sql` is the ordinary tagged template. The fragment is spliced into the comparison
+**parenthesized**, and every interpolation stays a bound parameter:
+
+```ts
+await client.post.findMany({
+  where: { views: { gt: (ctx) => ctx.sql`"likes" * ${2}` } },
+});
+// ... WHERE "t0"."views" > ("likes" * $1)   -- values: [2]
+```
+
+A fragment may be any expression the comparison accepts, a scalar subquery included:
+
+```ts
+await client.post.findMany({
+  where: {
+    views: {
+      gte: (ctx) => ctx.sql`SELECT MAX("views") FROM "posts"`,
+    },
+  },
+});
+```
+
+<Callout type="warn">
+  **The fragment's text is yours, dialect and all.** This is the same trust model as
+  `$queryRaw`: viborm does not parse it, does not rewrite it, and does not translate it
+  between providers. A fragment naming a Postgres function will not run on SQLite. Values
+  interpolated into it are always bound — never concatenate user input into the template
+  text yourself.
+</Callout>
+
+## Enums
+
+Two enum columns compare by their **spelling**, on every provider:
+
+```ts
+// posts whose editorial status has caught up with their review status
+await client.post.findMany({
+  where: { status: { equals: (ctx) => ctx.fields.reviewStatus } },
+});
+// ... WHERE CAST("t0"."status" AS TEXT) = CAST("t0"."review_status" AS TEXT)
+```
+
+The cast is not cosmetic. PostgreSQL gives every enum field its own type, and there is
+no `=` between two different enum types — without it the query fails outright there
+while SQLite and MySQL, which compare the values as text, answer it. The cast only
+applies when the operand is a *column*: `{ status: "draft" }` still binds an enum-typed
+parameter against the bare column.
+
+Ordered comparison (`lt`/`lte`/`gt`/`gte`) on an enum is refused on every provider,
+with a reference or with a literal:
+
+```ts
+await client.post.findMany({ where: { status: { gt: "draft" } } });
+// Filter operation 'gt' is not supported on an enum field: PostgreSQL orders enum
+// values by their declaration order while MySQL and SQLite compare them as text, so
+// the same query would answer differently per provider.
+```
+
+There is no answer that agrees across providers, so there is no answer. Model the field
+as a string or an int if you need ordering.
+
+## Case sensitivity
+
+`mode: "insensitive"` applies to a referenced column exactly as it applies to a literal:
+both sides of the comparison are folded, for `equals`/`not` and for
+`contains`/`startsWith`/`endsWith` alike.
+
+```ts
+// matches a row whose title is "Same-Text" and whose slug is "same-text"
+await client.post.findMany({
+  where: { title: { equals: (ctx) => ctx.fields.slug, mode: "insensitive" } },
+});
+```
+
+The fold is ASCII `A-Z` only, and it is the same portable fold literal operands get —
+`'É'` and `'é'` stay distinct on every provider. Default mode is byte-exact on both sides
+regardless of the server's own collation, so a MySQL database configured with a
+case-insensitive default collation still answers a default-mode comparison
+case-sensitively.
+
+## Mixing with literals
+
+A callback sits beside ordinary operands in the same filter object:
+
+```ts
+await client.post.findMany({
+  where: {
+    views: {
+      gt: (ctx) => ctx.fields.likes,
+      lt: (ctx) => ctx.sql`${10_000}`,
+      gte: 0,
+    },
+  },
+});
+```
+
+## Same model only
+
+A field reference may only be used while filtering the model it belongs to — that is what
+makes it a same-row comparison. `ctx.fields` is keyed to the model in scope, and inside a
+nested relation filter that scope is the *relation's target*:
+
+```ts
+await client.user.findMany({
+  where: {
+    // ctx here is `post`, not `user`
+    posts: { some: { views: { gt: (ctx) => ctx.fields.likes } } },
+  },
+});
+```
+
+Naming a field the scope does not have is a type error, and a runtime one for untyped
+callers:
+
+```ts
+await client.user.findMany({
+  where: { posts: { some: { title: { equals: (ctx) => ctx.fields.nickname } } } },
+  //                                                             ^ Type error
+});
+// Unknown scalar field "nickname" on model 'post'. Known fields: id, title, …
+```
+
+There is deliberately no way to reach an *enclosing* scope's columns: a field reference
+compares two columns of the same row, and correlated references are a separate feature.
+A token from another model, held directly, is refused when the query is built — before
+any statement reaches the database:
+
+```ts
+await client.post.findMany({
+  where: { title: { equals: userFields.name } },
+});
+// Field reference 'user.name' cannot be used while filtering 'post':
+// a field reference may only compare columns of the same model.
+```
+
+## Types
+
+A reference carries its scalar type, so the compiler rejects cross-type comparisons:
+
+```ts
+await client.post.findMany({
+  //                        ^ Type error: an int reference is not a string operand
+  where: { title: { equals: (ctx) => ctx.fields.views } },
+});
+```
+
+## Writes and caching
+
+Callbacks work in `updateMany` and `deleteMany` filters as well:
+
+```ts
+await client.post.updateMany({
+  where: { views: { gt: (ctx) => ctx.fields.likes } },
+  data: { trending: true },
+});
+```
+
+They are **not** accepted in `data` — assigning one column from another is a separate
+feature and is not supported.
+
+A cached read (`$withCache`) keys on the payload after the callback has been resolved, so
+two different spellings of the same comparison share one cache entry, and a fragment's
+interpolated values are part of the key.

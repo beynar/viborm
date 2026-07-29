@@ -245,6 +245,63 @@ export abstract class MigrationDriver {
     context?: DDLContext
   ): string;
 
+  /**
+   * Resolves the replacement for a removed enum value on a specific column.
+   * Precedence: per-column mapping (columnValueReplacements, keyed
+   * "tableName.columnName") → flat valueReplacements → defaultReplacement.
+   * Returns undefined when no replacement is configured.
+   */
+  protected getEnumValueReplacement(
+    op: AlterEnumOperation,
+    tableName: string,
+    columnName: string,
+    removedValue: string
+  ): string | null | undefined {
+    const perColumn =
+      op.columnValueReplacements?.[`${tableName}.${columnName}`];
+    if (perColumn && removedValue in perColumn) {
+      return perColumn[removedValue];
+    }
+    if (op.valueReplacements && removedValue in op.valueReplacements) {
+      return op.valueReplacements[removedValue];
+    }
+    return op.defaultReplacement;
+  }
+
+  /**
+   * Builds the UPDATE statements that migrate rows off removed enum values,
+   * honoring per-column mappings. Dialects run these before the type change
+   * (Postgres: while columns are text; MySQL: before MODIFY COLUMN; SQLite:
+   * before table recreation).
+   */
+  protected buildEnumReplacementUpdates(op: AlterEnumOperation): string[] {
+    const { removeValues, dependentColumns } = op;
+    if (!(removeValues?.length && dependentColumns?.length)) {
+      return [];
+    }
+
+    const statements: string[] = [];
+    for (const { tableName, columnName } of dependentColumns) {
+      for (const removedValue of removeValues) {
+        const replacement = this.getEnumValueReplacement(
+          op,
+          tableName,
+          columnName,
+          removedValue
+        );
+        if (replacement === undefined) {
+          continue;
+        }
+        const newValue =
+          replacement === null ? "NULL" : this.escapeValue(replacement);
+        statements.push(
+          `UPDATE ${this.escapeIdentifier(tableName)} SET ${this.escapeIdentifier(columnName)} = ${newValue} WHERE ${this.escapeIdentifier(columnName)} = ${this.escapeValue(removedValue)}`
+        );
+      }
+    }
+    return statements;
+  }
+
   // ===========================================================================
   // HELPER METHODS (can be overridden)
   // ===========================================================================

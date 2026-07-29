@@ -8,7 +8,7 @@
 import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
-import { s } from "@schema";
+import { DbNull, s } from "@schema";
 import {
   afterAll,
   beforeAll,
@@ -98,7 +98,9 @@ const schema = { parentModel, childModel };
 // =============================================================================
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
 >;
 
 // Test data
@@ -270,8 +272,16 @@ describe("Relation Types Integration Test", () => {
     type ParentCreateManyArgs = Parameters<
       typeof client.parentModel.createMany
     >[0];
+    // Implicit returning: the result type is conditional on `select`, so probe
+    // it with a concrete select-LESS argument rather than the generic's
+    // constraint (which carries an OPTIONAL select and would answer for neither
+    // arm honestly).
     type ParentCreateManyResult = Awaited<
-      ReturnType<typeof client.parentModel.createMany>
+      ReturnType<
+        typeof client.parentModel.createMany<{
+          data: NonNullable<ParentCreateManyArgs["data"]>;
+        }>
+      >
     >;
 
     expectTypeOf<{
@@ -294,13 +304,36 @@ describe("Relation Types Integration Test", () => {
     expectTypeOf<ParentCreateManyResult>().toEqualTypeOf<BatchPayload>();
   });
 
-  test("type: createMany rejects select and include", () => {
+  test("type: createMany accepts select (implicit returning) and rejects include", () => {
     type ParentCreateManyArgs = Parameters<
       typeof client.parentModel.createMany
     >[0];
 
-    expectTypeOf<ParentCreateManyArgs>().not.toHaveProperty("select");
-    expectTypeOf<ParentCreateManyArgs>().not.toHaveProperty("include");
+    // `select` became part of the surface in W3-B: its presence is what makes a
+    // bulk write return rows. `include` stays out — a RETURNING row set cannot
+    // carry a joined relation.
+    expectTypeOf<
+      "select" extends keyof ParentCreateManyArgs ? true : false
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      "include" extends keyof ParentCreateManyArgs ? true : false
+    >().toEqualTypeOf<false>();
+  });
+
+  test("type: createMany with select returns rows, not BatchPayload", () => {
+    type ParentCreateManyArgs = Parameters<
+      typeof client.parentModel.createMany
+    >[0];
+    type ParentCreateManyRows = Awaited<
+      ReturnType<
+        typeof client.parentModel.createMany<{
+          data: NonNullable<ParentCreateManyArgs["data"]>;
+          select: { id: true };
+        }>
+      >
+    >;
+
+    expectTypeOf<ParentCreateManyRows>().toEqualTypeOf<{ id: string }[]>();
   });
 
   test("type: groupBy by accepts only scalar keys", () => {
@@ -339,7 +372,8 @@ describe("Relation Types Integration Test", () => {
         timeRequired: testTime,
         timeNullable: null,
         jsonRequired: { name: "test", value: 123 },
-        jsonNullable: null,
+        // A JSON column has two nulls; `DbNull` names the database one
+        jsonNullable: DbNull,
         status: "ACTIVE",
         blobNullable: null,
       },
@@ -444,8 +478,11 @@ describe("Relation Types Integration Test", () => {
     expect(parent.intNullable).toBeNull();
     expect(typeof parent.floatRequired).toBe("number");
     expect(parent.floatRequired).toBeCloseTo(3.14);
-    expect(typeof parent.decimalRequired).toBe("number");
-    expect(parent.decimalRequired).toBeCloseTo(99.99);
+    // W6-U1: a decimal comes back as its exact canonical string, through a
+    // relation as much as at the top level. `toBeCloseTo` was the tell that the
+    // old value was approximate — an exact one can be compared exactly.
+    expect(typeof parent.decimalRequired).toBe("string");
+    expect(parent.decimalRequired).toBe("99.99");
 
     // Boolean types
     expect(typeof parent.booleanRequired).toBe("boolean");
@@ -492,9 +529,10 @@ describe("Relation Types Integration Test", () => {
       number | null
     >();
     expectTypeOf(childWithParent.parent.floatRequired).toEqualTypeOf<number>();
+    // W6-U1: decimals read as exact strings, through relations too
     expectTypeOf(
       childWithParent.parent.decimalRequired
-    ).toEqualTypeOf<number>();
+    ).toEqualTypeOf<string>();
     expectTypeOf(
       childWithParent.parent.booleanRequired
     ).toEqualTypeOf<boolean>();

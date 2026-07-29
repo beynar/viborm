@@ -414,7 +414,7 @@ describe("driver execution context concurrency", () => {
     });
 
     const firstRequest = firstClient
-      .$queryRaw(QUERY, ["failure"])
+      .$queryRawUnsafe(QUERY, "failure")
       .catch((error) => error);
     await driver.started.get("failure")?.promise;
 
@@ -431,16 +431,16 @@ describe("driver execution context concurrency", () => {
         },
       },
     });
-    const secondRequest = secondClient.$queryRaw(QUERY, ["success"]);
+    const secondRequest = secondClient.$queryRawUnsafe(QUERY, "success");
     await driver.started.get("success")?.promise;
     driver.releases.get("success")?.resolve();
     driver.releases.get("failure")?.resolve();
 
-    await expect(secondRequest).resolves.toMatchObject({ rowCount: 1 });
+    await expect(secondRequest).resolves.toEqual([{ id: "success" }]);
     const firstError = await firstRequest;
     if (!isVibORMError(firstError)) throw new Error("expected a VibORMError");
     expect(firstError).toMatchObject({
-      meta: { model: "$raw", operation: "$queryRaw" },
+      meta: { model: "$raw", operation: "$queryRawUnsafe" },
     });
     expect(firstError.meta).not.toHaveProperty("query");
     expect(firstError.meta).not.toHaveProperty("params");
@@ -448,13 +448,13 @@ describe("driver execution context concurrency", () => {
     expect(firstCapture.events[0]).toMatchObject({
       level: "error",
       model: "$raw",
-      operation: "$queryRaw",
+      operation: "$queryRawUnsafe",
     });
     expect(secondCapture.events).toHaveLength(1);
     expect(secondCapture.events[0]).toMatchObject({
       level: "query",
       model: "$raw",
-      operation: "$queryRaw",
+      operation: "$queryRawUnsafe",
       sql: QUERY,
       params: ["success"],
     });

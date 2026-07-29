@@ -2,10 +2,22 @@ import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
 import type { DiagnosticDisclosure } from "./diagnostics";
 
 /**
+ * Every code {@link ConnectionError} can carry. `CLIENT_INITIALIZATION` is NOT here — it has
+ * its own class ({@link ClientInitializationError}).
+ */
+export type ConnectionErrorCode =
+  | typeof VibORMErrorCode.CONNECTION_FAILED
+  | typeof VibORMErrorCode.CONNECTION_TIMEOUT
+  | typeof VibORMErrorCode.CONNECTION_CLOSED;
+
+/**
  * Connection-related errors
  */
 export class ConnectionError extends VibORMError {
   static override readonly diagnosticName = "ConnectionError";
+
+  /** Discriminant: one of {@link ConnectionErrorCode}, never a code outside the family. */
+  declare readonly code: ConnectionErrorCode;
 
   constructor(
     message: string,
@@ -13,7 +25,7 @@ export class ConnectionError extends VibORMError {
       cause?: Error | undefined;
       diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
-      code?: VibORMErrorCode | undefined;
+      code?: ConnectionErrorCode | undefined;
     }
   ) {
     const opts: {
@@ -29,10 +41,68 @@ export class ConnectionError extends VibORMError {
 }
 
 /**
+ * Client construction failures (Prisma P1012)
+ *
+ * Raised while a client is being built or while its schema-shaped surface is being resolved:
+ * a missing driver, a schema that fails name hydration, or an access to a model the schema
+ * does not define. These are configuration faults, not query faults — nothing has reached the
+ * database yet.
+ *
+ * Prisma raises `PrismaClientInitializationError` for the same category and exposes its code
+ * on `errorCode`; P1012 is Prisma's "Schema validation error", the closest documented code for
+ * a client that cannot be constructed from the given schema and configuration. VibORM
+ * publishes it through the shared `prismaCode` getter.
+ */
+export class ClientInitializationError extends VibORMError {
+  static override readonly diagnosticName = "ClientInitializationError";
+
+  /** Literal discriminant: this class always carries `CLIENT_INITIALIZATION`. */
+  declare readonly code: typeof VibORMErrorCode.CLIENT_INITIALIZATION;
+
+  constructor(
+    message: string,
+    options?: {
+      cause?: Error | undefined;
+      meta?: VibORMErrorMeta | undefined;
+    }
+  ) {
+    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    if (options?.cause) opts.cause = options.cause;
+    if (options?.meta) opts.meta = options.meta;
+    super(message, VibORMErrorCode.CLIENT_INITIALIZATION, opts);
+  }
+}
+
+/**
+ * Type guard for client initialization errors
+ */
+export function isClientInitializationError(
+  error: unknown
+): error is ClientInitializationError {
+  return error instanceof ClientInitializationError;
+}
+
+/**
+ * Every code {@link QueryError} can carry.
+ *
+ * The `V2xxx` query family plus `INVALID_INPUT`, which the raw-SQL helpers raise through this
+ * class when a caller hands `$queryRaw` something that is neither a tagged template nor an
+ * `Sql` fragment (`client/raw.ts`) — measured at the construction sites, not assumed.
+ */
+export type QueryErrorCode =
+  | typeof VibORMErrorCode.QUERY_FAILED
+  | typeof VibORMErrorCode.QUERY_TIMEOUT
+  | typeof VibORMErrorCode.QUERY_SYNTAX
+  | typeof VibORMErrorCode.INVALID_INPUT;
+
+/**
  * Query execution errors
  */
 export class QueryError extends VibORMError {
   static override readonly diagnosticName = "QueryError";
+
+  /** Discriminant: one of {@link QueryErrorCode}, never a code outside the family. */
+  declare readonly code: QueryErrorCode;
 
   constructor(
     message: string,
@@ -40,7 +110,7 @@ export class QueryError extends VibORMError {
       cause?: Error | undefined;
       diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
-      code?: VibORMErrorCode | undefined;
+      code?: QueryErrorCode | undefined;
     }
   ) {
     const opts: {
@@ -61,6 +131,9 @@ export class QueryError extends VibORMError {
 export class NotFoundError extends VibORMError {
   static override readonly diagnosticName = "NotFoundError";
 
+  /** Literal discriminant: this class always carries `RECORD_NOT_FOUND`. */
+  declare readonly code: typeof VibORMErrorCode.RECORD_NOT_FOUND;
+
   constructor(
     model: string,
     operation: string,
@@ -77,10 +150,31 @@ export class NotFoundError extends VibORMError {
 }
 
 /**
+ * Every code {@link NestedWriteError} can carry.
+ *
+ * `NESTED_WRITE_ASSERTION_FAILED` is in the union even though
+ * {@link NestedWriteAssertionError} owns that code as a class: the un-attributable batch floor
+ * (`OperationExecutor.attributeGuardFailure`, `query-engine/batch-error-attribution.ts`)
+ * deliberately re-raises the V7006 floor as a `NestedWriteError` so the surfaced error carries
+ * the assertion code without claiming the driver-mapped class. Measured at the construction
+ * sites; the two are told apart by class, not by code.
+ */
+export type NestedWriteErrorCode =
+  | typeof VibORMErrorCode.NESTED_WRITE_FAILED
+  | typeof VibORMErrorCode.NESTED_CREATE_FAILED
+  | typeof VibORMErrorCode.NESTED_UPDATE_FAILED
+  | typeof VibORMErrorCode.NESTED_DELETE_FAILED
+  | typeof VibORMErrorCode.NESTED_CONNECT_FAILED
+  | typeof VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED;
+
+/**
  * Nested write operation errors
  */
 export class NestedWriteError extends VibORMError {
   static override readonly diagnosticName = "NestedWriteError";
+
+  /** Discriminant: one of {@link NestedWriteErrorCode}, never a code outside the family. */
+  declare readonly code: NestedWriteErrorCode;
 
   constructor(
     message: string,
@@ -89,7 +183,7 @@ export class NestedWriteError extends VibORMError {
       cause?: Error | undefined;
       diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
-      code?: VibORMErrorCode | undefined;
+      code?: NestedWriteErrorCode | undefined;
     }
   ) {
     const opts: {
@@ -117,6 +211,9 @@ export class NestedWriteError extends VibORMError {
 export class NestedWriteAssertionError extends VibORMError {
   static override readonly diagnosticName = "NestedWriteAssertionError";
 
+  /** Literal discriminant: this class always carries `NESTED_WRITE_ASSERTION_FAILED`. */
+  declare readonly code: typeof VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED;
+
   constructor(
     message: string,
     options?: {
@@ -143,6 +240,9 @@ export class NestedWriteAssertionError extends VibORMError {
 export class FeatureNotSupportedError extends VibORMError {
   static override readonly diagnosticName = "FeatureNotSupportedError";
 
+  /** Literal discriminant: this class always carries `FEATURE_NOT_SUPPORTED`. */
+  declare readonly code: typeof VibORMErrorCode.FEATURE_NOT_SUPPORTED;
+
   constructor(feature: string, method: string, suggestion?: string) {
     const message = suggestion
       ? `${feature}.${method} is not supported. ${suggestion}`
@@ -159,16 +259,22 @@ export class FeatureNotSupportedError extends VibORMError {
  * Thrown when attempting to execute a PendingOperation in an invalid way,
  * such as awaiting after executeWith() or calling executeWith() after await.
  */
+/** Every code {@link PendingOperationError} can carry. */
+export type PendingOperationErrorCode =
+  | typeof VibORMErrorCode.OPERATION_ALREADY_EXECUTED
+  | typeof VibORMErrorCode.OPERATION_EXECUTION_CONFLICT
+  | typeof VibORMErrorCode.OPERATION_CLIENT_MISMATCH
+  | typeof VibORMErrorCode.OPERATION_SCOPE_MISMATCH;
+
 export class PendingOperationError extends VibORMError {
   static override readonly diagnosticName = "PendingOperationError";
 
+  /** Discriminant: one of {@link PendingOperationErrorCode}, never a code outside the family. */
+  declare readonly code: PendingOperationErrorCode;
+
   constructor(
     message: string,
-    code:
-      | VibORMErrorCode.OPERATION_ALREADY_EXECUTED
-      | VibORMErrorCode.OPERATION_EXECUTION_CONFLICT
-      | VibORMErrorCode.OPERATION_CLIENT_MISMATCH
-      | VibORMErrorCode.OPERATION_SCOPE_MISMATCH,
+    code: PendingOperationErrorCode,
     options?: { meta?: VibORMErrorMeta }
   ) {
     super(message, code, { meta: options?.meta });
@@ -264,8 +370,62 @@ export function isPendingOperationError(
 /**
  * Internal query engine error
  */
+/**
+ * Every code a {@link QueryEngineError} can carry — its own `INTERNAL_ERROR`, plus the
+ * `UNSUPPORTED_OPERATION` its {@link UnsupportedOperationError} subclass narrows to. A wider
+ * type here would be a lie about the class; a narrower one would make the subclass's `code`
+ * an illegal override.
+ */
+export type QueryEngineErrorCode =
+  | typeof VibORMErrorCode.INTERNAL_ERROR
+  | typeof VibORMErrorCode.UNSUPPORTED_OPERATION;
+
 export class QueryEngineError extends VibORMError {
-  static override readonly diagnosticName = "QueryEngineError";
+  // Annotated `string` (not the literal) so a subclass may narrow it — the
+  // pattern VibORMError itself uses for its subclasses.
+  static override readonly diagnosticName: string = "QueryEngineError";
+
+  /**
+   * Discriminant. `INTERNAL_ERROR` for a bare engine error; the
+   * {@link UnsupportedOperationError} subclass narrows it to `UNSUPPORTED_OPERATION`, which is
+   * why this is the family and not a single literal — a code check alone cannot separate the
+   * two, so {@link classifyFailure} separates them by class.
+   */
+  declare readonly code: QueryEngineErrorCode;
+
+  constructor(
+    message: string,
+    options?: {
+      cause?: Error | undefined;
+      meta?: VibORMErrorMeta | undefined;
+      /** Subclass seam: a distinct taxonomy code (default INTERNAL_ERROR). */
+      code?: QueryEngineErrorCode | undefined;
+    }
+  ) {
+    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
+    if (options?.cause) opts.cause = options.cause;
+    if (options?.meta) opts.meta = options.meta;
+    super(message, options?.code ?? VibORMErrorCode.INTERNAL_ERROR, opts);
+  }
+}
+
+/**
+ * A payload SHAPE the query engine deliberately does not express — a documented
+ * capability boundary (a compound key or non-literal fold past a proven surface,
+ * an inexpressible sub-shape, a parity refusal), NOT an engine crash. Distinct
+ * from {@link FeatureNotSupportedError} (a dialect/driver capability gap): this
+ * is shape-capability. It extends {@link QueryEngineError} so pre-existing
+ * `instanceof QueryEngineError` handling keeps working, but carries its own
+ * name and code (`V8003 UNSUPPORTED_OPERATION`) so a deliberate refusal is
+ * distinguishable from `V9001 INTERNAL_ERROR` programmatically and in logs.
+ * Users can `instanceof UnsupportedOperationError` (exported from the package
+ * root) to branch on it.
+ */
+export class UnsupportedOperationError extends QueryEngineError {
+  static override readonly diagnosticName = "UnsupportedOperationError";
+
+  /** Literal discriminant: this class always carries `UNSUPPORTED_OPERATION`. */
+  declare readonly code: typeof VibORMErrorCode.UNSUPPORTED_OPERATION;
 
   constructor(
     message: string,
@@ -274,11 +434,20 @@ export class QueryEngineError extends VibORMError {
       meta?: VibORMErrorMeta | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.INTERNAL_ERROR, opts);
+    super(message, {
+      ...options,
+      code: VibORMErrorCode.UNSUPPORTED_OPERATION,
+    });
   }
+}
+
+/**
+ * Type guard for unsupported-operation (shape-capability) refusals
+ */
+export function isUnsupportedOperationError(
+  error: unknown
+): error is UnsupportedOperationError {
+  return error instanceof UnsupportedOperationError;
 }
 
 /**

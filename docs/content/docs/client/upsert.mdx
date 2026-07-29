@@ -21,6 +21,54 @@ const user = await client.user.upsert({
 
 `upsert` is atomic and race-safe: concurrent upserts on the same key never fail with a duplicate error — one creates, the other updates.
 
+<Callout type="warn">
+The `where` may narrow the unique lookup with non-unique scalar filters (see
+[Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup)),
+but think twice before doing it here. When the unique key matches a row the
+filter excludes, there is nothing to update, so the **create** branch runs — and
+walks straight into the unique key that row already holds. The
+`UniqueConstraintError` surfaces immediately: it is a genuine conflict, not a
+race, so it is not retried. That is the same outcome a hand-written
+find-then-create would produce, and the P2002-equivalent Prisma reports for the
+same shape.
+
+When the create branch runs and *succeeds*, the record you get back is the row
+that was just created — always. It is addressed by its own identity, never by the
+`where`. Your `create` payload is under no obligation to satisfy any part of the
+`where`, not the filter half and not the unique key itself; whatever it writes is
+what comes back.
+</Callout>
+
+## What the create branch needs in `create`
+
+To hand back the row it just inserted, `upsert` has to be able to name that row.
+It works this out from your `create` data alone — never from the `where` — and
+any one of these is enough:
+
+- every **primary key** field, as a literal;
+- every column of some **unique constraint** of the model (a `.unique()` column,
+  or a whole compound unique);
+- nothing at all, when the model's single primary key is a database-generated
+  `increment` — the insert captures the value the database assigns.
+
+Almost every model satisfies at least one of these without you doing anything.
+The exception is a model whose primary key is a *generated compound* key and
+which has no other unique constraint: nothing in `create` can name the inserted
+row, so `upsert` refuses with an `UnsupportedOperationError` instead of guessing.
+The refusal only fires when the create branch is actually taken — the same call
+updates normally when the row exists — and such a model cannot be written through
+`create` either (use `createMany`, or add a unique constraint).
+
+<Callout>
+On drivers with no interactive transactions (Cloudflare D1, Neon HTTP), the third
+case above — a generated `increment` primary key with no other unique in `create`
+— cannot be merged into a `$transaction([...])` array, because the captured id is
+per-operation state a shared batch cannot isolate. It throws a `TransactionError`
+rather than emit a colliding batch; `await` the `upsert` on its own instead. The
+first two cases capture nothing and batch normally, so including a unique key in
+`create` is enough to avoid this entirely.
+</Callout>
+
 ## Options
 
 ```ts

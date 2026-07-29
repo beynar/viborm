@@ -11,9 +11,11 @@
  * - Output verification
  * - Optional vs required relation differences
  * - Nested filtering
+ * - The to-one shorthand `{ author: {...} }` === `{ author: { is: {...} } }`
  */
 
-import { type InferInput, parse } from "@validation";
+import { s } from "@schema";
+import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import {
   optionalManyToOneSchemas,
@@ -341,5 +343,194 @@ describe("ToMany Filter - Self-Referential (User.manager)", () => {
         expect(result.value.is?.manager?.is).toBeNull();
       }
     });
+  });
+});
+
+// =============================================================================
+// TO-ONE SHORTHAND (Prisma parity)
+// =============================================================================
+
+/**
+ * A target model carrying a scalar field literally named `is` — the
+ * documented collision case for the shorthand's disambiguation rule.
+ */
+const CollisionTarget = s.model({
+  id: s.string().id(),
+  is: s.string(),
+  isNot: s.string(),
+  label: s.string(),
+});
+
+const CollisionHolder = s.model({
+  id: s.string().id(),
+  targetId: s.string(),
+  target: s
+    .manyToOne(() => CollisionTarget)
+    .fields("targetId")
+    .references("id"),
+});
+
+const collisionRegistry = createSchemaRegistry({
+  CollisionTarget,
+  CollisionHolder,
+});
+const collisionFilter =
+  collisionRegistry.proxy.CollisionHolder.relations.target.filter;
+
+describe("ToOne Filter - shorthand desugaring (Post.author)", () => {
+  const schema = requiredManyToOneSchemas.filter;
+  type FilterInput = InferInput<typeof schema>;
+
+  test("type: accepts a bare target where as the shorthand", () => {
+    expectTypeOf<{ name?: string }>().toMatchTypeOf<FilterInput>();
+  });
+
+  test("type: the shorthand cannot carry `is`/`isNot`", () => {
+    // The two spellings stay mutually exclusive at the type level, so the
+    // explicit-only `{ is: null }` is still rejected for a required relation.
+    expectTypeOf<{ is: null }>().not.toMatchTypeOf<FilterInput>(
+      {} as FilterInput
+    );
+  });
+
+  test("runtime: shorthand parses identically to the explicit `is` form", () => {
+    const shorthand = parse(schema, { name: "Alice" });
+    const explicit = parse(schema, { is: { name: "Alice" } });
+    expect(shorthand.issues).toBeUndefined();
+    expect(explicit.issues).toBeUndefined();
+    if (!(shorthand.issues || explicit.issues)) {
+      expect(shorthand.value).toEqual(explicit.value);
+      expect(shorthand.value).toEqual({ is: { name: { equals: "Alice" } } });
+    }
+  });
+
+  test("runtime: compound shorthand with several scalar keys", () => {
+    const result = parse(schema, {
+      name: "Alice",
+      email: { contains: "@example.com" },
+    });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value).toEqual({
+        is: {
+          name: { equals: "Alice" },
+          email: { contains: "@example.com" },
+        },
+      });
+    }
+  });
+
+  test("runtime: shorthand desugars at every nesting level", () => {
+    const shorthand = parse(schema, { posts: { some: { published: true } } });
+    const explicit = parse(schema, {
+      is: { posts: { some: { published: true } } },
+    });
+    expect(shorthand.issues).toBeUndefined();
+    if (!(shorthand.issues || explicit.issues)) {
+      expect(shorthand.value).toEqual(explicit.value);
+    }
+  });
+
+  test("runtime: shorthand carries AND/OR/NOT through to the target where", () => {
+    const result = parse(schema, {
+      OR: [{ name: "Alice" }, { name: "Bob" }],
+    });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value).toEqual({
+        is: {
+          OR: [{ name: { equals: "Alice" } }, { name: { equals: "Bob" } }],
+        },
+      });
+    }
+  });
+
+  test("runtime: `{}` reads as the vacuous explicit filter", () => {
+    const result = parse(schema, {});
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value).toEqual({});
+    }
+  });
+
+  test("runtime: a mix of explicit and shorthand keys is rejected", () => {
+    // Not every key is `is`/`isNot`, so the WHOLE object reads as a target
+    // where — where `is` is not a field. Fail closed, do not silently split.
+    const result = parse(schema, { is: { name: "Alice" }, email: "a@b.c" });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: a malformed explicit filter reports its own key error", () => {
+    const result = parse(schema, { is: { nam: "Alice" } });
+    expect(result.issues?.[0]?.message).toContain("nam");
+  });
+
+  test("runtime: isNot still works alongside the shorthand", () => {
+    const result = parse(schema, { isNot: { name: "Bob" } });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value).toEqual({ isNot: { name: { equals: "Bob" } } });
+    }
+  });
+
+  test("runtime: null is still rejected for a required relation", () => {
+    const result = parse(schema, null);
+    expect(result.issues).toBeDefined();
+  });
+});
+
+describe("ToOne Filter - shorthand on an optional relation (Profile.user)", () => {
+  const schema = optionalOneToOneSchemas.filter;
+
+  test("runtime: bare null still normalizes to { is: null }", () => {
+    const result = parse(schema, null);
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value).toEqual({ is: null });
+    }
+  });
+
+  test("runtime: shorthand equals the explicit `is` form", () => {
+    const shorthand = parse(schema, { username: "alice" });
+    const explicit = parse(schema, { is: { username: "alice" } });
+    expect(shorthand.issues).toBeUndefined();
+    if (!(shorthand.issues || explicit.issues)) {
+      expect(shorthand.value).toEqual(explicit.value);
+    }
+  });
+
+  test("runtime: `{ is: null }` still means the relation is absent", () => {
+    const result = parse(schema, { is: null });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value).toEqual({ is: null });
+    }
+  });
+});
+
+describe("ToOne Filter - `is`/`isNot` collision rule", () => {
+  test("runtime: an is-only object always reads as the explicit filter", () => {
+    // Target.is is a string scalar, but `{ is: "x" }` has no key outside
+    // {is, isNot}, so it is the EXPLICIT form and "x" is not a where object.
+    const result = parse(collisionFilter, { is: "x" });
+    expect(result.issues).toBeDefined();
+  });
+
+  test("runtime: the collided field is reachable through the explicit form", () => {
+    const result = parse(collisionFilter, { is: { is: "x" } });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value).toEqual({ is: { is: { equals: "x" } } });
+    }
+  });
+
+  test("runtime: a shorthand with another key still reaches the collided field", () => {
+    const result = parse(collisionFilter, { is: "x", label: "y" });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(result.value).toEqual({
+        is: { is: { equals: "x" }, label: { equals: "y" } },
+      });
+    }
   });
 });

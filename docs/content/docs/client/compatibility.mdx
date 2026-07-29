@@ -14,17 +14,35 @@ Everything in the API works the same on every database unless noted under [Datab
 
 | Operation | Status | Notes |
 |-----------|--------|-------|
-| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). |
+| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). The selector may also carry non-unique scalar filters and `AND`/`OR`/`NOT` (Prisma ≥ 4.5) — see [Unique selectors](#unique-selectors). |
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
-| `createMany` / `createManyAndReturn` | ✅ | Returns `{ count }` (or the created rows). Relation nesting isn't supported inside `createMany`. |
-| `update` / `updateMany` / `updateManyAndReturn` | ✅ | `update` requires a unique `where` and throws when missing; the `Many` forms return `{ count }` (or rows). |
-| `upsert` | ✅ | Requires unique `where`, `create`, and `update`. |
-| `delete` / `deleteMany` | ✅ | `delete` requires a unique `where` and throws when missing; `deleteMany` returns `{ count }`. |
-| `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. |
+| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`). Relation nesting isn't supported inside `createMany`. |
+| `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
+| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only. Prisma 6's `limit` is supported, with Prisma's own caveat: it caps how many rows are affected, not which. |
+| `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
+| `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
+| `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported. |
+| `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. `_min`/`_max`/`_sum`/`_avg` over a `s.decimal()` are refused on SQLite — see [Decimals on SQLite](#decimals-on-sqlite). |
 | `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
-| `$queryRaw` / `$executeRaw` | Different | Take an explicit `(sql, params)` / `Sql` fragment rather than Prisma's tagged template. See [Raw SQL differences](#type-and-api-differences). |
+| `$queryRaw` / `$executeRaw` | ✅ | Tagged templates that bind every interpolation, exactly like Prisma's. `$queryRaw` returns `T[]`, `$executeRaw` returns the affected count. See [Raw SQL](/docs/client/raw-sql). |
+| `$queryRawUnsafe` / `$executeRawUnsafe` | ✅ | Prisma's signatures: a statement string plus positional parameters. |
+
+## Unique selectors
+
+`findUnique`, `findUniqueOrThrow`, `update`, `delete` and `upsert` take Prisma
+≥ 4.5's extended unique `where`: at least one unique discriminator (a unique
+scalar, or a complete compound constraint) plus any non-unique **scalar** filters
+and `AND` / `OR` / `NOT`. Full semantics, per operation, are in
+[Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup).
+
+Two deliberate divergences:
+
+| | VibORM | Prisma |
+|--|--------|--------|
+| Relation filters inside a unique `where` | Refused by name — the same `where` compiles into the `UPDATE`/`DELETE` statement, where a correlated subquery cannot be answered identically on every database (MySQL error 1093). Use `findFirst` / `updateMany` / `deleteMany`. | Accepted |
+| Nested relation-write target selectors (`connect`, `disconnect`, `set`, nested `update`/`upsert`/`delete`) and `cursor` | Unique discriminators only | Extended there too |
 
 ## Relation filters
 
@@ -48,8 +66,8 @@ Nested writes are supported inside `create`, `update`, and both branches of `ups
 
 | Relation | Shape |
 |----------|-------|
-| To-one `update` | `update: { ...data }` |
-| To-many `update` | `update: { where, data }` (or an array of them) |
+| To-one `update` | `update: { ...data }` or `update: { where?, data }` — here `where` is a NON-unique filter the connected record must satisfy |
+| To-many `update` | `update: { where, data }` (or an array of them) — here `where` is a unique selector |
 | To-one `upsert` | `upsert: { create, update }` |
 | To-many `upsert` | `upsert: { where, create, update }` (or an array) |
 | To-many `updateMany` | `updateMany: { where?, data }` (or an array) |
@@ -58,6 +76,7 @@ Nested writes are supported inside `create`, `update`, and both branches of `ups
 **Behavior:**
 
 - A nested `update` or `delete` with a specific target throws if that record isn't found (or belongs to another parent).
+- A to-one `update: { where, data }` throws the same not-found error when the connected record fails the filter; the whole operation rolls back. The two spellings are told apart structurally — an object with a `data` key whose value is an object is the envelope. On a related model owning a field named `data` that shape means two different things (set the row's fields, or store the document), so VibORM **refuses** it instead of picking one as Prisma does: spell the envelope out, `update: { where: {}, data: { … } }`.
 - Nested `updateMany` and `deleteMany` may match zero rows without throwing.
 - A nested `upsert` creates only when nothing matches `where`; if the match belongs to another parent, it's rejected rather than stolen or duplicated.
 - You can't `disconnect`, empty-`set`, or otherwise orphan records on a **required** relation.
@@ -82,6 +101,7 @@ database's locale or ICU installation.
 |----------|-----------|
 | Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** support batch mode only. Cloudflare D1 support uses the binding because its `batch()` primitive provides the required atomic boundary. See [Transactions](/docs/client/transactions). |
 | Vector / geospatial | PostgreSQL with the relevant extension enabled; unsupported (and clearly errors) elsewhere. |
+| Ordering, aggregating and arithmetic on a `s.decimal()` | **SQLite refuses them**; PostgreSQL and MySQL answer them exactly. SQLite has no exact decimal type, so viborm stores decimals in a `TEXT` column there and raises `UnsupportedOperationError` (`V8003`) rather than routing the answer through a double. See [the row below](#decimals-on-sqlite). |
 
 JSON filter paths use one portable grammar. Segments containing `"` or `\`
 reject before SQL generation on every database; they never degrade to an empty
@@ -93,6 +113,74 @@ SQLite. Existing tables require the explicit collation migration described in
 the [MySQL migration driver guide](/docs/migration/drivers/mysql); upgrading the
 package does not rewrite deployed tables.
 
+### Decimals on SQLite
+
+Storage, reads, and equality filters (`equals`, `not`, `in`, `notIn`) are exact
+on **every** database, as are `count`, `distinct`, `groupBy` on the column, and
+`set`. What SQLite cannot do exactly, it refuses:
+
+| Operation on a decimal | postgres | mysql | sqlite |
+|---|---|---|---|
+| `lt` / `lte` / `gt` / `gte`, `orderBy` | exact | exact | **`UnsupportedOperationError`** |
+| `_min` / `_max` / `_sum` / `_avg` (including `groupBy` and `having`) | exact | exact | **`UnsupportedOperationError`** |
+| `increment` / `decrement` / `multiply` / `divide` | exact | exact | **`UnsupportedOperationError`** |
+
+The `orderBy` refusal covers **every spelling of an ordering**, not just the
+bare one: `take` / `skip` / `cursor` windows, `findFirst`, ordering through a
+to-one relation, ordering inside a nested read, and `groupBy`'s `orderBy`.
+`_count` is never refused — counting rows needs no ordering.
+
+A `gt` that silently skips a row differing in the 20th digit is worse than an
+error, so it is an error, and the error names the field, the reason, and the two
+workarounds (`s.float()` for approximate ordering, scaled integers in an
+`s.bigInt()` for exact ordered money). Full detail, including the column-type
+migration, is in [the Decimal scalar page](/docs/schema/scalars/decimal).
+
+## Errors and Prisma error codes
+
+VibORM throws typed error classes with a stable `V####` code on `error.code`. Each class
+declares the exact code it carries, so `if (error.code === "V3001")` narrows to
+`UniqueConstraintError` with compiler support and a `switch` over a union of error types can
+be checked for exhaustiveness — see [the errors page](/docs/client/errors) for the full
+taxonomy and the narrowing rules. For code written against Prisma, every error also carries
+`error.prismaCode` — the Prisma code with the same meaning, or `undefined` when VibORM
+claims none. Porting a handler is a one-token edit:
+
+```ts
+try {
+  await client.user.create({ data });
+} catch (error) {
+  if (error.prismaCode === "P2002") {
+    // unique constraint — the same branch a Prisma app already has
+  }
+}
+```
+
+| VibORM error | `code` | `prismaCode` | Prisma meaning |
+|--------------|--------|--------------|----------------|
+| `UniqueConstraintError` | `V3001` | `P2002` | Unique constraint failed |
+| `ForeignKeyError` | `V3002` | `P2003` | Foreign key constraint failed |
+| `NotNullConstraintError` | `V3003` | `P2011` | Null constraint violation |
+| `CheckConstraintError` | `V3004` | `P2004` | A constraint failed on the database |
+| `ValueTooLongError` | `V3005` | `P2000` | Value too long for the column's type |
+| `NotFoundError` | `V6001` | `P2025` | Required records were not found |
+| `ValidationError` | `V4001` | `P2009` | Failed to validate the query |
+| `ConnectionError` | `V1001` / `V1002` / `V1003` | `P1001` / `P1002` / `P1017` | Can't reach / timed out / server closed the connection |
+| `ClientInitializationError` | `V1004` | `P1012` | Client could not be constructed from the given schema and configuration |
+
+**The table is deliberately partial.** Transaction failures, nested-write failures, cache,
+migration and pending-operation errors report `prismaCode: undefined` rather than a
+near-neighbour code — an unclaimed code is honest, a wrong one silently mis-routes your
+`catch`. For retry decisions use `error.isRetryable()`, which covers deadlocks,
+serialization failures, and timeouts on every database.
+
+`error.toJSON()` includes `prismaCode` when one is claimed and omits the key entirely
+otherwise.
+
+**`ValueTooLongError` is PostgreSQL and MySQL only.** SQLite does not enforce declared
+column lengths — an over-long value is stored, not rejected — so no `P2000` can be raised
+there. Prisma behaves the same way.
+
 ## Type and API differences
 
 | Area | VibORM |
@@ -100,5 +188,6 @@ package does not rewrite deployed tables.
 | Type generation | Types are inferred from your schema — there's no `prisma generate` step. |
 | Prisma helper types | VibORM doesn't expose `XOR`, `Exact`, `SelectSubset`, or generated model helper types. |
 | Create/update inputs | A single blended input surface rather than Prisma's separate checked/unchecked variants. |
-| `omit` | Model-level omit only; no per-query `omit`. |
-| Raw SQL | `$queryRaw(sql, params)` and `$executeRaw(sqlFragment)` use explicit shapes, not tagged templates, and return a `QueryResult`. |
+| Bulk writes that return rows | Implicit: `createMany` / `updateMany` return rows when the call carries a `select`, and `{ count }` otherwise. Prisma's `createManyAndReturn` / `updateManyAndReturn` methods do not exist — migrate `createManyAndReturn(args)` to `createMany({ ...args, select })`, same for `updateManyAndReturn`. `deleteMany` takes `select` too, which Prisma has no form of. On all three the `select` is scalar-only and `include` is rejected: viborm does not project relations into a bulk write's returned rows, and refuses rather than answer wrongly. Prisma does accept relations on `createManyAndReturn`/`updateManyAndReturn`; read them in a separate query instead. |
+| `omit` | Query-level and client-level `omit` match Prisma, including `select`/`omit` exclusivity, the local `{ field: false }` override of a client default, and the refusal of an `omit` that empties the result. Two differences: viborm also has a SCHEMA-level `.omit()` (Prisma has none) which is a HARD exclusion no client or query can undo — the field has neither a `select` nor an `omit` key; and `omit` on a bulk write returns rows, following the implicit-returning rule above. See [Omitting fields](/docs/client/omit). |
+| Raw SQL | Prisma's shape: tagged `$queryRaw`/`$executeRaw` plus `$queryRawUnsafe`/`$executeRawUnsafe`. `$queryRaw` answers `T[]`, `$executeRaw` answers the affected count. `$queryRaw`/`$executeRaw` still accept the pre-1.0 `(sql: string, params?)` form for one release, with a deprecation notice on the `warning` log channel. `$transaction([...])` takes model operations only — run raw SQL inside the interactive form. See [Raw SQL](/docs/client/raw-sql). |

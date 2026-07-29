@@ -1,7 +1,12 @@
 import type { Sql } from "@sql";
+import { assertExactDecimalAggregate } from "../builders/decimal-portability";
+import { scalarValueLiteral } from "../builders/values-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
+
+/** Turns a HAVING operand into bound SQL in the domain it is compared against. */
+type HavingOperand = (value: unknown) => Sql;
 
 export function buildHaving(
   ctx: QueryScope,
@@ -79,35 +84,21 @@ function buildHavingLogicalAnd(
 
 /**
  * Build OR logical operator for HAVING
+ *
+ * A disjunction of nothing is FALSE, so an empty (or wholly vacuous) OR must
+ * emit the dialect FALSE literal rather than dropping the key — returning
+ * `undefined` here would silently widen the result to every group, which is
+ * accept-and-ignore of a payload the caller wrote deliberately. This mirrors
+ * `buildLogicalOr` in ../builders/where-builder.ts, so `having: { OR: [] }`
+ * and `where: { OR: [] }` agree. AND and NOT of nothing are TRUE, which is
+ * exactly what dropping the key already achieves, so only this arm differs.
+ *
+ * The having schema types `OR` as `v.array(havingSchema)` and nothing else
+ * (src/validation/model/args/aggregate.ts), so a non-array never arrives here
+ * and this arm does not restate that typing — it takes the operands the way
+ * `buildHavingLogicalAnd` does.
  */
 function buildHavingLogicalOr(
-  ctx: QueryScope,
-  value: unknown,
-  alias: string,
-  byFields: string[]
-): Sql | undefined {
-  if (!Array.isArray(value)) return undefined;
-
-  const conditions: Sql[] = [];
-
-  for (const item of value) {
-    const condition = buildHaving(
-      ctx,
-      item as Record<string, unknown>,
-      alias,
-      byFields
-    );
-    if (condition) conditions.push(condition);
-  }
-
-  if (conditions.length === 0) return undefined;
-  return ctx.adapter.operators.or(...conditions);
-}
-
-/**
- * Build NOT logical operator for HAVING
- */
-function buildHavingLogicalNot(
   ctx: QueryScope,
   value: unknown,
   alias: string,
@@ -126,10 +117,52 @@ function buildHavingLogicalNot(
     if (condition) conditions.push(condition);
   }
 
-  if (conditions.length === 0) return undefined;
+  if (conditions.length === 0) return ctx.adapter.literals.false();
+  return ctx.adapter.operators.or(...conditions);
+}
 
-  const combined = ctx.adapter.operators.and(...conditions);
-  return ctx.adapter.operators.not(combined);
+/**
+ * Build NOT logical operator for HAVING
+ *
+ * Prisma semantics: NOT: [c1, c2] negates each item and ANDs the negations
+ * (NOT c1 AND NOT c2 — "all conditions must return false"), not
+ * NOT (c1 AND c2). The two readings only agree when the arms can be true
+ * together; when they are mutually exclusive — the ordinary case, since arms
+ * are usually written to exclude *different* groups — NOT (c1 AND c2) negates
+ * a contradiction and therefore returns EVERY group, i.e. exactly the ones the
+ * caller asked to exclude. This mirrors `buildLogicalNot` in
+ * ../builders/where-builder.ts so that the same payload resolves identically
+ * in `having` and in `where`.
+ *
+ * The object form NOT: { ... } is a single item, so it becomes NOT (that
+ * object's implicit AND) exactly as before — per-arm negation distributes over
+ * ARRAY items, never over the keys inside one item.
+ *
+ * A NOT of nothing is TRUE, which is what returning `undefined` (drop the key)
+ * already achieves, matching where-builder's empty-NOT arm.
+ */
+function buildHavingLogicalNot(
+  ctx: QueryScope,
+  value: unknown,
+  alias: string,
+  byFields: string[]
+): Sql | undefined {
+  const items = Array.isArray(value) ? value : [value];
+  const negations: Sql[] = [];
+
+  for (const item of items) {
+    const condition = buildHaving(
+      ctx,
+      item as Record<string, unknown>,
+      alias,
+      byFields
+    );
+    if (condition) negations.push(ctx.adapter.operators.not(condition));
+  }
+
+  if (negations.length === 0) return undefined;
+
+  return ctx.adapter.operators.and(...negations);
 }
 
 /**
@@ -180,6 +213,12 @@ function buildFieldKeyedHaving(
     for (const [aggType, filter] of Object.entries(aggregateValue)) {
       if (filter === undefined) continue;
 
+      // Filtering groups by MIN/MAX/SUM/AVG of a decimal is the same ordered
+      // question `aggregate()` refuses; without this it was answered through
+      // SQLite's storage-class ordering, where a TEXT column compares constant
+      // against any number.
+      assertExactDecimalAggregate(ctx, fieldName, aggType);
+
       // Build the aggregate expression
       let aggExpr: Sql;
       switch (aggType) {
@@ -203,8 +242,17 @@ function buildFieldKeyedHaving(
           continue;
       }
 
-      // Build the comparison condition
-      const filterCondition = buildScalarHaving(ctx, aggExpr, filter);
+      // Build the comparison condition. `_count` compares against a row count,
+      // so it binds as a plain value; every other aggregate answers in the
+      // column's own domain and must bind through that domain's literal — a
+      // decimal operand bound as a plain string is compared as a double on
+      // MySQL, which is exactly what the CAST in `literals.decimal` exists to
+      // prevent.
+      const operand: HavingOperand =
+        aggType === "_count"
+          ? (operandValue) => adapter.literals.value(operandValue)
+          : (operandValue) => scalarValueLiteral(ctx, fieldName, operandValue);
+      const filterCondition = buildScalarHaving(ctx, aggExpr, filter, operand);
       if (filterCondition) conditions.push(filterCondition);
     }
 
@@ -232,13 +280,14 @@ function buildFieldKeyedHaving(
 function buildScalarHaving(
   ctx: QueryScope,
   column: Sql,
-  filter: unknown
+  filter: unknown,
+  operand: HavingOperand
 ): Sql | undefined {
   const { adapter } = ctx;
 
   // Direct value (equality)
   if (typeof filter !== "object" || filter === null) {
-    return adapter.operators.eq(column, adapter.literals.value(filter));
+    return adapter.operators.eq(column, operand(filter));
   }
 
   const conditions: Sql[] = [];
@@ -252,35 +301,27 @@ function buildScalarHaving(
         conditions.push(
           value === null
             ? adapter.operators.isNull(column)
-            : adapter.operators.eq(column, adapter.literals.value(value))
+            : adapter.operators.eq(column, operand(value))
         );
         break;
       case "not":
         conditions.push(
           value === null
             ? adapter.operators.isNotNull(column)
-            : adapter.operators.neq(column, adapter.literals.value(value))
+            : adapter.operators.neq(column, operand(value))
         );
         break;
       case "gt":
-        conditions.push(
-          adapter.operators.gt(column, adapter.literals.value(value))
-        );
+        conditions.push(adapter.operators.gt(column, operand(value)));
         break;
       case "gte":
-        conditions.push(
-          adapter.operators.gte(column, adapter.literals.value(value))
-        );
+        conditions.push(adapter.operators.gte(column, operand(value)));
         break;
       case "lt":
-        conditions.push(
-          adapter.operators.lt(column, adapter.literals.value(value))
-        );
+        conditions.push(adapter.operators.lt(column, operand(value)));
         break;
       case "lte":
-        conditions.push(
-          adapter.operators.lte(column, adapter.literals.value(value))
-        );
+        conditions.push(adapter.operators.lte(column, operand(value)));
         break;
       case "in": {
         if (!Array.isArray(value)) {
@@ -293,7 +334,7 @@ function buildScalarHaving(
           conditions.push(adapter.literals.false());
           break;
         }
-        const values = value.map((v) => adapter.literals.value(v));
+        const values = value.map((v) => operand(v));
         conditions.push(
           adapter.operators.in(column, adapter.literals.list(values))
         );
@@ -310,7 +351,7 @@ function buildScalarHaving(
           conditions.push(adapter.literals.true());
           break;
         }
-        const values = value.map((v) => adapter.literals.value(v));
+        const values = value.map((v) => operand(v));
         conditions.push(
           adapter.operators.notIn(column, adapter.literals.list(values))
         );

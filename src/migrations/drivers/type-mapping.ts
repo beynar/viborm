@@ -42,7 +42,12 @@ export const SQLITE_TYPE_DEFAULTS = {
   string: SQLITE.STRING.TEXT.type,
   int: SQLITE.INT.INTEGER.type,
   float: SQLITE.FLOAT.REAL.type,
-  decimal: SQLITE.DECIMAL.REAL.type,
+  // TEXT, not REAL: SQLite has no exact decimal type, and REAL (or anything
+  // with NUMERIC affinity) rounds a fractional value into a double as it is
+  // stored. TEXT keeps the canonical spelling byte-exact at any precision. The
+  // operations text cannot answer exactly are refused, not approximated —
+  // see adapter capability `supportsExactDecimal`.
+  decimal: SQLITE.DECIMAL.TEXT.type,
   boolean: SQLITE.BOOLEAN.INTEGER.type,
   datetime: SQLITE.DATETIME.TEXT.type,
   date: SQLITE.DATETIME.TEXT.type,
@@ -192,8 +197,11 @@ export function getSQLiteType(context: ScalarTypeContext): string {
     case "boolean":
       return SQLITE_TYPE_DEFAULTS.int;
     case "float":
-    case "decimal":
       return SQLITE_TYPE_DEFAULTS.float;
+    // NOT the float default (W6-U1): a decimal column is TEXT on SQLite so the
+    // exact spelling survives. REAL rounds it into a double on the way in.
+    case "decimal":
+      return SQLITE_TYPE_DEFAULTS.decimal;
     case "datetime":
     case "date":
     case "time":

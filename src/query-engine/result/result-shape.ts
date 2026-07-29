@@ -26,6 +26,7 @@ const MODEL_ROW_OPERATIONS = new Set<Operation>([
   "update",
   "updateManyAndReturn",
   "delete",
+  "deleteManyAndReturn",
   "upsert",
 ]);
 
@@ -181,6 +182,17 @@ function buildModelShape(
   return createShape(rawKeys, relations, new Map(), relationCounts);
 }
 
+/**
+ * A negative nested `take` runs the relation subquery in reversed order with an
+ * absolute limit; the rows therefore arrive last-first and the shape carries the
+ * instruction to restore the logical order (top-level parity, `ReadOperation`).
+ */
+function pagesBackward(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const take = getOwnValue(value, "take");
+  return typeof take === "number" && take < 0;
+}
+
 function addSelectedRelations(
   modelRelations: Model<any>["~"]["state"]["relations"],
   selection: Record<string, unknown> | undefined,
@@ -194,9 +206,10 @@ function addSelectedRelations(
     const targetModel = relation["~"].state.getter();
     rawKeys.push(relationName);
     selectedOutputKeys.add(relationName);
+    const shape = buildModelShape(targetModel, getNestedSelection(value));
     relations.set(
       relationName,
-      buildModelShape(targetModel, getNestedSelection(value))
+      pagesBackward(value) ? { ...shape, reversed: true } : shape
     );
   }
 }

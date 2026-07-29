@@ -8,10 +8,13 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import {
   PGlite,
   type PGliteOptions,
@@ -23,6 +26,7 @@ import { normalizeProviderRowCount } from "../normalized-result";
 import {
   nestedTransactionDispatchError,
   runProviderManagedTransaction,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -128,6 +132,19 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     };
   }
 
+  /**
+   * PGlite is a full PostgreSQL, so the isolation level is a real post-BEGIN
+   * statement. It is also single-connection, so top-level transactions queue —
+   * and that queue wait is exactly what `maxWait` bounds.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "post-begin",
+      timeout: true,
+      maxWait: "queue",
+    };
+  }
+
   protected transaction<T>(
     client: PGlite | Transaction,
     fn: (tx: Transaction) => Promise<T>
@@ -150,7 +167,12 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(config: PGliteConfig<C>) {
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: PGliteConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, PGliteDriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
+) {
   const { client, dataDir, options, pgvector, postgis, ...restConfig } = config;
 
   const driver = new PGliteDriver({
@@ -161,7 +183,7 @@ export function createClient<C extends DriverConfig>(config: PGliteConfig<C>) {
     postgis,
   });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: PGliteDriver }>;

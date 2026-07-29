@@ -58,6 +58,40 @@ Drivers marked "Unsupported" reject instead of running non-atomically. See
 per driver.
 </Callout>
 
+## Closing the Connection
+
+`await client.$disconnect()` closes the client's driver. Where the platform has
+the explicit-resource-management protocol, `await using` does the same thing at
+the end of the block — including when the block is left by a throw:
+
+```ts
+await using client = createClient({ driver, schema });
+
+const users = await client.user.findMany();
+// leaving this block closes `driver`, thrown or not
+```
+
+Disposal and `$disconnect()` are the same close path, so combining them in
+either order closes once and throws nothing. Drivers are disposable too
+(`await using driver = new PgDriver({ ... })`).
+
+The interactive transaction client is deliberately **not** disposable: inside
+`$transaction(async (tx) => ...)`, the transaction owns its driver's lifetime,
+and a `using` block that tried to close it would be fighting the transaction.
+
+<Callout type="info">
+**Type requirements.** Nothing here raises the compiler floor for code that
+never writes `await using`: viborm's disposal member is declared so that it
+degrades to nothing when `Symbol.asyncDispose` is not declared in your
+`lib`/`@types`. The measured floor for consuming the package is `lib: ["es2022"]`
+with `skipLibCheck` on and no `@types/node` required — the same floor as before
+`await using` existed, verified by `pnpm test:package:consumer-floor`.
+
+To *use* `await using` you need `Symbol.asyncDispose` declared — either a `lib`
+including `esnext.disposable` (TypeScript ≥5.2) or `@types/node` ≥20, which
+polyfills it — and a runtime that has the symbol (Node ≥18.18).
+</Callout>
+
 ## Choosing a Driver
 
 - **Node.js traditional**: Use `pg`, `mysql2`, or `sqlite3`

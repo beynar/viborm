@@ -58,6 +58,30 @@ const client = createClient({
 });
 ```
 
+## Large integers
+
+SQLite's `INTEGER` is 64-bit, so a value past `2^53` cannot survive as a JS
+number. Typed reads opt the statement into Bun's `safeIntegers` mode, so a
+`s.bigInt()` field round-trips exactly — the same guarantee `sqlite3` and
+`libsql` give:
+
+```typescript
+await client.measurement.create({
+  data: { id: "m-1", views: 9_007_199_254_740_993n },
+});
+
+const row = await client.measurement.findUnique({ where: { id: "m-1" } });
+row?.views; // 9007199254740993n — exact
+```
+
+`$queryRawUnsafe` bypasses the result parser and stays driver-native, so
+INTEGER columns come back as plain (possibly rounded) numbers there. Read large
+integers through a typed query, or through the tagged `` $queryRaw`...` ``.
+
+Bun 1.1.14 or newer is required: on older builds the statement has no
+`safeIntegers`, and viborm refuses the read with a `FeatureNotSupportedError`
+rather than hand back a rounded value.
+
 ## Transactions
 
 Bun SQLite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).

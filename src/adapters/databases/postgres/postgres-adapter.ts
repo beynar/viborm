@@ -78,6 +78,12 @@ export class PostgresAdapter implements DatabaseAdapter {
     // context. Stringifying (not raw binding) keeps primitives valid: a bare
     // 'hello' is not valid JSON input, '"hello"' is.
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
+
+    // `numeric` is exact and unconstrained, so the cast is all it takes. PG
+    // would usually infer `numeric` from the column context anyway; saying it
+    // makes the comparison independent of what the surrounding expression does
+    // to the operand's inferred type.
+    decimal: (canonical: string): Sql => sql`CAST(${canonical} AS NUMERIC)`,
   };
 
   // ============================================================
@@ -149,6 +155,8 @@ export class PostgresAdapter implements DatabaseAdapter {
       integer: "INTEGER",
       boolean: "BOOLEAN",
       numeric: "NUMERIC",
+      // Same type `literals.decimal` casts into: exact and unconstrained.
+      decimal: "NUMERIC",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`encode(${expr}, 'hex')`,
@@ -197,6 +205,18 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     extractText: (column: Sql, path: string[]): Sql =>
       sql`${column}#>>${path}::text[]`,
+
+    // jsonb_typeof gates the cast: a non-number (or an absent path, where
+    // jsonb_typeof is NULL) short-circuits to NULL instead of raising
+    // "invalid input syntax for type double precision"
+    numberAtPath: (column: Sql, path: string[]): Sql =>
+      sql`(CASE WHEN jsonb_typeof(${column}#>${path}::text[]) = 'number' THEN (${column}#>>${path}::text[])::double precision END)`,
+
+    // COLLATE "C" pins byte (= code point) ordering; the database's default
+    // collation (en_US.UTF-8 and friends) orders 'a' before 'B', which would
+    // make < / > disagree with MySQL and SQLite
+    stringAtPath: (column: Sql, path: string[]): Sql =>
+      sql`((CASE WHEN jsonb_typeof(${column}#>${path}::text[]) = 'string' THEN ${column}#>>${path}::text[] END) COLLATE "C")`,
 
     contains: (target: Sql, value: Sql): Sql => sql`${target} @> ${value}`,
 
@@ -376,6 +396,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsVector: false,
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
     supportsMutationTargetInSubquery: true,
+    supportsMutationRowLimit: false, // PostgreSQL has no UPDATE/DELETE ... LIMIT
+    supportsExactDecimal: true, // `numeric`: exact, unconstrained precision
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

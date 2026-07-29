@@ -26,7 +26,7 @@ Without a native type override, scalars map to these column types:
 | `s.string()`    | `string`        | `text`               | `TEXT`           | `TEXT`    |
 | `s.int()`       | `number`        | `integer`            | `INT`            | `INTEGER` |
 | `s.float()`     | `number`        | `double precision`   | `DOUBLE`         | `REAL`    |
-| `s.decimal()`   | `number`        | `numeric`            | `DECIMAL(65,30)` | `REAL`    |
+| `s.decimal()`   | `string`        | `numeric`            | `DECIMAL(65,30)` | `TEXT`    |
 | `s.bigInt()`    | `bigint`        | `bigint`             | `BIGINT`         | `INTEGER` |
 | `s.boolean()`   | `boolean`       | `boolean`            | `TINYINT(1)`     | `INTEGER` |
 | `s.dateTime()`  | `Date`          | `timestamptz`        | `DATETIME(3)`    | `TEXT`    |
@@ -93,8 +93,16 @@ Without a native type override, scalars map to these column types:
 | `PG.DECIMAL.MONEY` | `money` |
 | `MYSQL.DECIMAL.DECIMAL(p?, s?)` | `DECIMAL(p,s)` |
 | `MYSQL.DECIMAL.NUMERIC(p?, s?)` | `NUMERIC(p,s)` |
-| `SQLITE.DECIMAL.REAL` | `REAL` (default, no exact decimal) |
-| `SQLITE.DECIMAL.NUMERIC` | `NUMERIC` |
+| `SQLITE.DECIMAL.TEXT` | `TEXT` (default — the only exact one) |
+| `SQLITE.DECIMAL.REAL` | `REAL` (approximate) |
+| `SQLITE.DECIMAL.NUMERIC` | `NUMERIC` (approximate) |
+
+SQLite has no exact decimal type, so a decimal column is `TEXT` by default: the
+canonical spelling survives byte-exact at any precision, and the operations text
+cannot answer exactly (ordering, `_sum`, `_avg`, …) are
+[refused rather than approximated](/docs/schema/scalars/decimal). `REAL` and
+`NUMERIC` both round a fractional value into an IEEE-754 double on the way in —
+they stay available for schemas that deliberately want that.
 
 ## BigInt
 

@@ -8,10 +8,13 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import type { D1Database } from "@cloudflare/workers-types";
 import { QueryError } from "@errors";
 import {
@@ -24,6 +27,7 @@ import {
   classifySQLiteStatementResult,
   convertValuesForSQLite,
   sqliteResultParser,
+  type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
 import type { BatchQuery, QueryResult } from "../types";
@@ -50,6 +54,7 @@ const ROW_PRODUCING_OPERATIONS = new Set([
   "create",
   "createManyAndReturn",
   "delete",
+  "deleteManyAndReturn",
   "exist",
   "findFirst",
   "findMany",
@@ -195,6 +200,25 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     );
   }
 
+  /**
+   * D1 bindings expose `batch()` and no callback transaction. There is no
+   * BEGIN to configure, no interactive body to time out, and no slot to wait
+   * for — every option is refused rather than quietly dropped.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "unsupported",
+      isolationLevelReason:
+        "D1 bindings execute batches through batch(), which opens no transaction VibORM can set an isolation level on",
+      timeout: false,
+      timeoutReason:
+        "D1 bindings run a batch as one provider call with no interactive body to interrupt",
+      maxWait: "unsupported",
+      maxWaitReason:
+        "D1 bindings submit the batch immediately with no connection to acquire",
+    };
+  }
+
   protected transaction<T>(
     _client: D1Database,
     _fn: (tx: D1Database) => Promise<T>
@@ -265,14 +289,17 @@ export class D1Driver extends Driver<D1Database, D1Database> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: D1ClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: D1ClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, D1DriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { database, ...restConfig } = config;
 
   const driver = new D1Driver({ database });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: D1Driver }>;

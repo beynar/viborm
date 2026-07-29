@@ -7,16 +7,20 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver, type QueryExecutionContext } from "../driver";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
   nestedTransactionDispatchError,
   runProviderManagedTransaction,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -156,6 +160,21 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     };
   }
 
+  /**
+   * Bun's `sql.begin()` owns BEGIN and connection acquisition, so the isolation
+   * level goes in as the transaction's first statement and there is no
+   * acquisition step VibORM can bound.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "post-begin",
+      timeout: true,
+      maxWait: "unsupported",
+      maxWaitReason:
+        "Bun SQL acquires the connection inside sql.begin(), which VibORM cannot observe or bound — the wait would be unbounded no matter what maxWait said",
+    };
+  }
+
   protected async transaction<T>(
     client: BunSQL | BunSQLTransaction,
     fn: (tx: BunSQLTransaction) => Promise<T>
@@ -179,8 +198,11 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: BunSQLClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: BunSQLClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, BunSQLDriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { client, databaseUrl, options, pgvector, postgis, ...restConfig } =
     config;
@@ -193,7 +215,7 @@ export function createClient<C extends DriverConfig>(
     postgis,
   });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: BunSQLDriver }>;

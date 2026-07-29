@@ -5,8 +5,19 @@ import type { Sql } from "@sql";
  *
  * Instead of hardcoding SQL type names like "TEXT" or "VARCHAR",
  * use these logical types and let each adapter map to the correct syntax.
+ *
+ * `numeric` and `decimal` are DIFFERENT casts and must stay different. `numeric`
+ * is the approximate/whatever-the-dialect-calls-a-number cast used for `float`;
+ * `decimal` is the EXACT decimal domain of the `s.decimal()` storage column, and
+ * it is the only one a decimal value may pass through. Spelling a decimal as
+ * `numeric` is silent corruption on two of the three dialects: SQLite's NUMERIC
+ * affinity turns the canonical TEXT spelling into a double, and MySQL's bare
+ * `DECIMAL` means `DECIMAL(10,0)` — it rounds away EVERY fraction, so a key of
+ * `9.5` lands as `10`. Each adapter maps `decimal` to the same type its
+ * `literals.decimal` binds into, so a value reaches a decimal column the same
+ * way whether it arrives as a literal or as a cast expression.
  */
-export type CastType = "text" | "integer" | "boolean" | "numeric";
+export type CastType = "text" | "integer" | "boolean" | "numeric" | "decimal";
 
 /**
  * @internal Adapter-owned SQL for atomic batch reference storage.

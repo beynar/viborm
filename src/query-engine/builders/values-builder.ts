@@ -8,9 +8,12 @@
 import type {
   BatchReferenceSqlAdapter,
   CastType,
+  DatabaseAdapter,
 } from "@adapters/database-adapter";
+import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
+import { canonicalizeDecimal } from "@validation/primitives/decimal";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
 import { shouldOmitInsertValue } from "./generated-scalar";
@@ -186,6 +189,38 @@ function assertApplicationGeneratedValues(
 }
 
 /**
+ * Lower a JSON null sentinel to the value it names. This is the ONE place the
+ * two nulls of a JSON column part ways in write position:
+ *
+ *   - `DbNull`   -> SQL NULL: the column holds no document.
+ *   - `JsonNull` -> the JSON document `null`, serialized like any other
+ *     document, so PG stores `'null'::jsonb`, MySQL a JSON null, and SQLite
+ *     the canonical text `null` — the three spellings the filter side
+ *     compares against.
+ *
+ * `AnyNull` is filter-only and the validation layer refuses it in write
+ * position by name (see {@link file://../../validation/primitives/json-null.ts});
+ * the throw here is the fail-closed backstop for an untyped caller reaching
+ * the builder directly, not a second validation pass.
+ */
+function jsonNullWriteValue(
+  ctx: QueryScope,
+  fieldName: string,
+  kind: JsonNullKind
+): Sql {
+  switch (kind) {
+    case "DbNull":
+      return ctx.adapter.literals.null();
+    case "JsonNull":
+      return ctx.adapter.literals.json(null);
+    default:
+      throw new QueryEngineError(
+        `AnyNull matches both nulls, so it cannot be written to field '${fieldName}'. Use DbNull for the database NULL or JsonNull for the JSON value null.`
+      );
+  }
+}
+
+/**
  * Build value SQL for a single field, handling special types
  */
 export function buildScalarSqlValue(
@@ -196,6 +231,11 @@ export function buildScalarSqlValue(
 ): Sql {
   if (value === undefined || value === null) {
     return ctx.adapter.literals.null();
+  }
+
+  const sentinel = jsonNullKindOf(value);
+  if (sentinel) {
+    return jsonNullWriteValue(ctx, fieldName, sentinel);
   }
 
   const loweredValue = lowerBatchResolvableValue(ctx.adapter, value);
@@ -230,7 +270,42 @@ export function buildScalarSqlValue(
     return ctx.adapter.literals.dateTime(loweredValue);
   }
 
+  if (scalarType === "decimal") {
+    return decimalLiteral(ctx.adapter, fieldName, loweredValue);
+  }
+
   return ctx.adapter.literals.value(loweredValue);
+}
+
+/**
+ * Bind a decimal through the dialect's exact-decimal path.
+ *
+ * The value has already been canonicalized by the decimal schema on the way in;
+ * canonicalizing again here is cheap and closes the paths that reach a binding
+ * without one (a `set` inside an atomic update object, a connect-derived FK,
+ * a relation-correlated FK lowered by `referenceSql`). A value that cannot be
+ * canonicalized is a bug upstream, not a value to bind — binding it would hand
+ * the database a float spelling for an exact column.
+ *
+ * This takes the ADAPTER rather than a `QueryScope` because the FK lowering in
+ * `query-engine-v2/fragment-builders.ts` reaches it holding the destination
+ * model, not the destination scope, and every decimal binding in the codebase
+ * has to be this one function or the two spellings drift apart — which is
+ * exactly how a decimal relation key came to be written two different ways in
+ * one statement pair.
+ */
+export function decimalLiteral(
+  adapter: DatabaseAdapter,
+  fieldName: string,
+  value: unknown
+): Sql {
+  const canonical = canonicalizeDecimal(value);
+  if (canonical === undefined) {
+    throw new QueryEngineError(
+      `Decimal field '${fieldName}' received a value that is not an exact decimal.`
+    );
+  }
+  return adapter.literals.decimal(canonical);
 }
 
 /**
@@ -243,6 +318,10 @@ export function scalarValueLiteral(
   fieldName: string,
   value: unknown
 ): Sql {
+  const sentinel = jsonNullKindOf(value);
+  if (sentinel) {
+    return jsonNullWriteValue(ctx, fieldName, sentinel);
+  }
   const state = ctx.model["~"].state.scalars[fieldName]?.["~"].state;
   // Whole-list values (e.g. { set: [...] }) use the dialect's storage format
   if (state?.array && Array.isArray(value)) {
@@ -254,6 +333,9 @@ export function scalarValueLiteral(
   // JSON scalars store serialized JSON, primitives included (see buildScalarSqlValue)
   if (state?.type === "json" && value !== null && value !== undefined) {
     return ctx.adapter.literals.json(value);
+  }
+  if (state?.type === "decimal" && value !== null && value !== undefined) {
+    return decimalLiteral(ctx.adapter, fieldName, value);
   }
   return ctx.adapter.literals.value(value);
 }
@@ -268,6 +350,14 @@ function castBatchRefValue(
   return castType ? ctx.adapter.expressions.cast(value, castType) : value;
 }
 
+/**
+ * The cast a value must wear to land in this field's column domain.
+ *
+ * `decimal` is deliberately NOT `numeric`: `numeric` is the float cast, and on
+ * two of three dialects it destroys an exact decimal (SQLite NUMERIC affinity
+ * rounds the canonical spelling into a double; MySQL's bare `DECIMAL` is
+ * `DECIMAL(10,0)` and rounds away every fraction). See {@link CastType}.
+ */
 export function getScalarCastType(
   model: Model<any>,
   fieldName: string
@@ -279,8 +369,9 @@ export function getScalarCastType(
     case "bigint":
       return "integer";
     case "float":
-    case "decimal":
       return "numeric";
+    case "decimal":
+      return "decimal";
     case "boolean":
       return "boolean";
     case "string":

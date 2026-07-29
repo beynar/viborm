@@ -1,4 +1,4 @@
-import { QueryEngineError, TransactionError } from "@errors";
+import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { ParentIdSource } from "./RelationUpsertPart";
@@ -32,6 +32,14 @@ export interface NestedTargetLocate {
   /** The enclosing parent's columns the correlation reads (child-held: the parent's
    *  referenced columns; parent-held: the parent's FK columns). */
   readonly parentFields: readonly string[];
+  /** W4-U3 — the to-one `update: { where, data }` wrapper's NON-unique filter on the
+   *  currently connected record. ANDed into the locate (and the batch presence guard)
+   *  alongside the correlation: a connected row that fails it makes the locate empty,
+   *  so the target's own not-found fires and the whole operation aborts atomically,
+   *  state unchanged. Absent for the bare `update: <data>` spelling — then the locate
+   *  is byte-identical to pre-W4-U3. Never compiled into the WRITE (which addresses
+   *  the captured primary key), so a relation filter here is portable. */
+  readonly filter?: Record<string, unknown>;
   readonly relationName: string;
   /** V1's byte-identical `Cannot … relation … for this parent` not-found message
    *  the enclosing caller sources from `relationTargetNotFound(info, "update")`. */
@@ -90,9 +98,13 @@ export interface SubOperationOptions {
    * projection of mechanism 1/2 (a parent-held to-one write needing child-SET
    * folding, or a non-PK / compound referenced edge — D4) is not folded in place by
    * the child-Part builder; the whole target UPDATE delegates to this operation, the
-   * update-root analogue of `nestedFresh`. It carries the ALREADY-VALIDATED update
-   * `data` (the enclosing op's whole-args parse validated the tree; no re-parse), it
-   * emits NO terminal read (the enclosing op owns the result), it shares the
+   * update-root analogue of `nestedFresh`. It carries the ALREADY-PARSED update
+   * `data` — the enclosing operation's relation-schema parse produced it, and that
+   * schema IS this target's `core.update`, so every scalar SET and relation payload
+   * below is already in post-transform form and NOTHING here parses again (a
+   * transform is not idempotent: a JSON write's `{ set: … }` envelope is itself a
+   * legal JSON document, so a second pass persists the ORM's envelope as the user's
+   * data). It emits NO terminal read (the enclosing op owns the result), it shares the
    * enclosing `StepScope`, and it LOCATES + CORRELATES the target to its enclosing
    * parent ({@link NestedTargetLocate}). Every mechanism the update ROOT already
    * carries — a parent-held to-one before-root write folded into the SET, a
@@ -156,8 +168,14 @@ export function noAtomicSubstrateError(
  * decline-surface gate proves no accept-and-execute shape raises it. Any other construction
  * error (a `ValidationError` from the parse boundary, the own-write preflight rejection) is a
  * real failure the schema / preflight raises and likewise propagates.
+ *
+ * The class itself lives in `src/errors/query.ts` (public surface: its own
+ * `diagnosticName` and `V8003 UNSUPPORTED_OPERATION` code, exported from the
+ * package root so users can `instanceof` a deliberate capability boundary
+ * instead of seeing a `V9001` engine crash); re-exported here so every engine
+ * throw site and test keeps one import home.
  */
-export class UnsupportedOperationError extends QueryEngineError {}
+export { UnsupportedOperationError } from "@errors";
 
 export function getStepModelName(model: Model<any>, fallback: string): string {
   return model["~"].names.ts ?? model["~"].names.sql ?? fallback;

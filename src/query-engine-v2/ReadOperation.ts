@@ -63,7 +63,12 @@ export class ReadOperation {
   private readonly base: ReadBase;
   private readonly requestedOperation: string;
   private readonly throwIfNotFound: boolean;
-  private readonly args: Record<string, unknown>;
+  /**
+   * The validated payload — also the cache flow's keying surface (see
+   * {@link ExecutableOperation.validatedArgs}), which is why it is readable
+   * rather than private.
+   */
+  readonly validatedArgs: Record<string, unknown>;
   private readonly read: StatementStep;
 
   constructor(
@@ -94,7 +99,7 @@ export class ReadOperation {
 
     // Validate through V1's own validator so arg errors are byte-identical
     // (it also runs `assertPortablePrimaryKeyUpdateInput`, a no-op for reads).
-    this.args = validate<Record<string, unknown>>(
+    this.validatedArgs = validate<Record<string, unknown>>(
       engine.schemaRegistry,
       model,
       base as Operation,
@@ -131,14 +136,15 @@ export class ReadOperation {
     const parsed = new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
-    ).parse<T>(this.base as Operation, rows, this.args);
+      this.engine.driver,
+      this.engine.decimalDecode
+    ).parse<T>(this.base as Operation, rows, this.validatedArgs);
     // A negative `take` on findMany selects from the end but is executed as a
     // reversed positive limit; the row order is restored here, exactly as V1.
     const ordered =
       this.base === "findMany" &&
-      typeof this.args.take === "number" &&
-      this.args.take < 0 &&
+      typeof this.validatedArgs.take === "number" &&
+      this.validatedArgs.take < 0 &&
       Array.isArray(parsed)
         ? ([...parsed].reverse() as T)
         : parsed;
@@ -155,12 +161,24 @@ export class ReadOperation {
 
   private buildReadSql(): Sql {
     const ctx = createQueryScope(this.engine.adapter, this.model);
-    const args = this.args;
+    const args = this.validatedArgs;
     switch (this.base) {
       case "findUnique":
         return buildFindUnique(ctx, requireFindUniqueArgs(args));
-      case "findFirst":
-        return buildFind(ctx, args, { limit: 1 });
+      case "findFirst": {
+        const take = args.take;
+        if (take !== undefined && typeof take !== "number") {
+          throw new QueryEngineError(
+            "query-engine-v2 findFirst received a non-numeric take value."
+          );
+        }
+        // Prisma parity: a negative take selects from the end of the window —
+        // the signed unit limit makes buildFind flip the order while still
+        // emitting LIMIT 1; take 0 is an empty window (LIMIT 0 → null).
+        return buildFind(ctx, args, {
+          limit: take === undefined ? 1 : Math.sign(take),
+        });
+      }
       case "findMany": {
         const take = args.take;
         if (take !== undefined && typeof take !== "number") {

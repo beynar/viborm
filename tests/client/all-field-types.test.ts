@@ -12,7 +12,7 @@ const enumRequired = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
-import { s } from "@schema";
+import { AnyNull, DbNull, JsonNull, s } from "@schema";
 import {
   afterAll,
   beforeAll,
@@ -186,7 +186,9 @@ const schema = { allFieldsModel };
 // =============================================================================
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
 >;
 
 beforeAll(async () => {
@@ -580,7 +582,8 @@ describe("All Scalar Types Integration Test", () => {
         dateArrayNullable: null,
         timeNullable: null,
         timeArrayNullable: null,
-        jsonNullable: null,
+        // A JSON column has two nulls; `DbNull` names the database one
+        jsonNullable: DbNull,
         enumNullable: null,
         blobNullable: null,
       },
@@ -667,7 +670,8 @@ describe("All Scalar Types Integration Test", () => {
         datetimeNullable: null,
         dateNullable: null,
         timeNullable: null,
-        jsonNullable: null,
+        // A JSON column has two nulls; `DbNull` names the database one
+        jsonNullable: DbNull,
         enumNullable: null,
         blobNullable: null,
       },
@@ -1171,11 +1175,14 @@ describe("Compile-time type verification", () => {
     // =========================================================================
     // DECIMAL TYPES - Compile-time
     // =========================================================================
-    expectTypeOf(found.decimalRequired).toEqualTypeOf<number>();
-    expectTypeOf(found.decimalNullable).toEqualTypeOf<number | null>();
-    expectTypeOf(found.decimalArray).toEqualTypeOf<number[]>();
-    expectTypeOf(found.decimalArrayNullable).toEqualTypeOf<number[] | null>();
-    expectTypeOf(found.decimalWithDefault).toEqualTypeOf<number>();
+    // W6-U1: a decimal READS as its exact canonical string. A JS number cannot
+    // carry what a `numeric` / `DECIMAL(65,30)` column holds, so the result type
+    // is `string` on every dialect. Writes still accept `string | number`.
+    expectTypeOf(found.decimalRequired).toEqualTypeOf<string>();
+    expectTypeOf(found.decimalNullable).toEqualTypeOf<string | null>();
+    expectTypeOf(found.decimalArray).toEqualTypeOf<string[]>();
+    expectTypeOf(found.decimalArrayNullable).toEqualTypeOf<string[] | null>();
+    expectTypeOf(found.decimalWithDefault).toEqualTypeOf<string>();
 
     // =========================================================================
     // BIGINT TYPES - Compile-time
@@ -1251,3 +1258,54 @@ describe("Compile-time type verification", () => {
     expectTypeOf(found.blobNullable).toEqualTypeOf<Uint8Array | null>();
   });
 });
+
+// =============================================================================
+// JSON NULL SENTINELS — the slots each token is (and is not) assignable to.
+// Compile-time only: these functions are never called; `tsc --noEmit` is the
+// assertion, and an `@ts-expect-error` that stops erroring fails the build.
+// =============================================================================
+
+type AllFieldsClient = Awaited<
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
+>;
+type CreateArgs = Parameters<AllFieldsClient["allFieldsModel"]["create"]>[0];
+type UpdateArgs = Parameters<AllFieldsClient["allFieldsModel"]["update"]>[0];
+type FindArgs = Parameters<AllFieldsClient["allFieldsModel"]["findMany"]>[0];
+
+// biome-ignore lint/correctness/noUnusedVariables: compile-time assertions
+function jsonNullSentinelSlots() {
+  const writesNullable: CreateArgs["data"]["jsonNullable"][] = [
+    DbNull,
+    JsonNull,
+    { a: 1 },
+    undefined,
+  ];
+  const updatesNullable: NonNullable<UpdateArgs["data"]>["jsonNullable"][] = [
+    DbNull,
+    JsonNull,
+  ];
+  const filters: NonNullable<NonNullable<FindArgs>["where"]> = {
+    jsonNullable: { equals: AnyNull, not: DbNull },
+  };
+
+  // A bare null no longer names either null …
+  // @ts-expect-error - null is ambiguous in write position
+  const bareNull: CreateArgs["data"]["jsonNullable"] = null;
+  // … and AnyNull is a question, not a value.
+  // @ts-expect-error - AnyNull is filter-only
+  const anyNullWrite: CreateArgs["data"]["jsonNullable"] = AnyNull;
+  // A NOT NULL json column cannot hold the database NULL.
+  // @ts-expect-error - DbNull needs a nullable column
+  const dbNullRequired: CreateArgs["data"]["jsonRequired"] = DbNull;
+
+  return [
+    writesNullable,
+    updatesNullable,
+    filters,
+    bareNull,
+    anyNullWrite,
+    dbNullRequired,
+  ];
+}

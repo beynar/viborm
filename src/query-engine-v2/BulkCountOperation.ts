@@ -23,10 +23,18 @@ type BulkCountKind = "updateMany" | "deleteMany";
  * public result is `{ count }` — one write step whose `rowCount` **source**
  * carries the count (ATOM §1). There is no planning read and no decision: the
  * `WHERE` filter is a scalar predicate, so the whole operation is one statement,
- * reusing V1's `buildUpdateMany` / `buildDeleteMany` verbatim. `updateMany` with
- * relation data is rejected by V1's own validation schema (reused here), so a
- * relation payload never reaches the builder — parity is inherited, not
- * re-derived.
+ * reusing V1's `buildUpdateMany` / `buildDeleteMany` verbatim. `updateMany`
+ * `data` binds to the model's SCALAR-ONLY update schema
+ * (`core.scalarUpdate`, see `getUpdateManyArgs`), so a relation key in `data`
+ * rejects at the parse boundary with a ValidationError naming the key
+ * ("Unknown key: <relation>") and never reaches the SET builder, which would
+ * silently skip it.
+ *
+ * `limit` (Prisma 6.x) caps the affected row count, so the returned count is
+ * `min(matching, limit)`. `limit: 0` is the one shape with NO statement at all:
+ * the operation compiles to an empty plan and answers `{ count: 0 }`. Executing
+ * a capped-to-nothing write would be a pointless round trip, and on the
+ * PK-subquery dialects it would still take locks.
  */
 export class BulkCountOperation {
   readonly mode: ExecutionMode;
@@ -35,7 +43,8 @@ export class BulkCountOperation {
   private readonly model: Model<any>;
   private readonly kind: BulkCountKind;
   private readonly args: Record<string, unknown>;
-  private readonly write: StatementStep;
+  /** `undefined` only for `limit: 0` — the write that affects nothing. */
+  private readonly write: StatementStep | undefined;
 
   constructor(
     engine: QueryEngine,
@@ -48,9 +57,10 @@ export class BulkCountOperation {
     this.kind = kind;
     this.mode = selectExecutionMode(engine, kind);
 
-    // V1's validator applies the model's updateMany/deleteMany arg schema (which
-    // forbids relation data on updateMany) and the portable-PK-update check, so
-    // an unsupported payload rejects with V1's exact ValidationError.
+    // The parse boundary applies the model's updateMany/deleteMany arg schema
+    // (updateMany `data` is scalar-only, so a relation key rejects as an
+    // unknown key) and the portable-PK-update check, so an unsupported payload
+    // rejects with a typed ValidationError before any statement is built.
     this.args = validate<Record<string, unknown>>(
       engine.schemaRegistry,
       model,
@@ -58,12 +68,15 @@ export class BulkCountOperation {
       args
     );
 
-    this.write = {
-      id: kind,
-      kind: "write",
-      statement: this.buildWriteSql(),
-      outputs: { count: { kind: "rowCount" } },
-    };
+    this.write =
+      this.limit() === 0
+        ? undefined
+        : {
+            id: kind,
+            kind: "write",
+            statement: this.buildWriteSql(),
+            outputs: { count: { kind: "rowCount" } },
+          };
   }
 
   planning(): OperationFragment {
@@ -71,6 +84,7 @@ export class BulkCountOperation {
   }
 
   compile(_known: Readonly<Record<string, unknown>>): OperationFragment {
+    if (!this.write) return { steps: [], outputs: {} };
     return {
       steps: [this.write],
       outputs: { count: ref(this.write.id, "count") },
@@ -78,7 +92,9 @@ export class BulkCountOperation {
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {
-    const count = outputs.count;
+    // `limit: 0` compiled to nothing, so there is no rowCount to read: the
+    // answer is the count the caller asked for, zero.
+    const count = this.write ? outputs.count : 0;
     if (typeof count !== "number" && typeof count !== "bigint") {
       throw new QueryEngineError(
         `query-engine-v2 ${this.kind} did not resolve a numeric count.`
@@ -89,15 +105,26 @@ export class BulkCountOperation {
     return new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>(this.kind as Operation, { rowCount: Number(count) }, this.args);
+  }
+
+  /** The validated `limit`, or `undefined` when the caller omitted it. */
+  private limit(): number | undefined {
+    return typeof this.args.limit === "number" ? this.args.limit : undefined;
   }
 
   private buildWriteSql(): Sql {
     const ctx = createQueryScope(this.engine.adapter, this.model);
     const where = isRecord(this.args.where) ? this.args.where : undefined;
+    const limit = this.limit();
+    const scope = {
+      ...(where ? { where } : {}),
+      ...(limit === undefined ? {} : { limit }),
+    };
     if (this.kind === "deleteMany") {
-      return buildDeleteMany(ctx, where ? { where } : {});
+      return buildDeleteMany(ctx, scope);
     }
     const data = this.args.data;
     if (!isRecord(data)) {
@@ -105,6 +132,6 @@ export class BulkCountOperation {
         "query-engine-v2 updateMany is missing a data object."
       );
     }
-    return buildUpdateMany(ctx, where ? { where, data } : { data });
+    return buildUpdateMany(ctx, { ...scope, data });
   }
 }

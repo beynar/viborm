@@ -171,11 +171,10 @@ async function tableExists(
   if (client.$driver.connect) {
     await client.$driver.connect();
   }
-  const res = await client.$queryRaw(
+  const rows = await client.$queryRawUnsafe(
     "SELECT 1 FROM information_schema.tables WHERE table_name = $1",
-    [table]
+    table
   );
-  const rows = res.rows ?? res;
   return Array.isArray(rows) && rows.length > 0;
 }
 

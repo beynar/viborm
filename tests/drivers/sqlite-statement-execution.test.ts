@@ -32,6 +32,10 @@ function createBunStatementDriver(
     all,
     get: vi.fn(() => result.rows[0] ?? null),
     run,
+    // Real bun:sqlite statements carry this; the typed read path calls it so
+    // INTEGER values past 2^53 survive. Whether each path opts in is pinned by
+    // sqlite-integer-safety.test.ts — these cases are about result metadata.
+    safeIntegers: vi.fn(() => statement),
     values: vi.fn(() => []),
   };
   const database = {

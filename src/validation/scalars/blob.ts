@@ -1,25 +1,28 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // FILTER TYPES
 // =============================================================================
 
+// `in`/`notIn` elements are plain (non-nullable) blobs even when the field
+// itself is nullable — a null can never be a member of a set under SQL's
+// three-valued logic, which is also how Prisma types `BytesNullableFilter`.
+const blobList = v.blob({ array: true });
+
 type BlobFilterBase<S extends V.Schema> = {
   equals: S;
+  in: V.Blob<{ array: true }>;
+  notIn: V.Blob<{ array: true }>;
 };
 
-type BlobFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      BlobFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<BlobFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type BlobFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  BlobFilterBase<S>
 >;
 
 // =============================================================================
@@ -39,13 +42,10 @@ const buildBlobFilterSchema = <S extends V.Schema>(
 ): BlobFilterSchema<S> => {
   const filter = v.object({
     equals: schema,
+    in: blobList,
+    notIn: blobList,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<S, BlobFilterBase<S>>(filter, schema);
 };
 
 const buildBlobUpdateSchema = <S extends V.Schema>(

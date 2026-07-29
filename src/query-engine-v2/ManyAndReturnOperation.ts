@@ -1,10 +1,16 @@
 // biome-ignore-all lint/style/useFilenamingConvention: ManyAndReturnOperation is the architecture name.
-import { QueryEngineError, TransactionError } from "@errors";
+import {
+  publicOperationName,
+  QueryEngineError,
+  TransactionError,
+} from "@errors";
 import type { Model } from "@schema/model";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import { createQueryScope } from "../query-engine/context/query-scope";
 import {
   buildCreateManyPlan,
+  buildDeleteMany,
+  buildDeleteManyAndReturn,
   buildFind,
   buildFindUnique,
   buildUpdateMany,
@@ -36,13 +42,27 @@ import {
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
-type AndReturnKind = "createManyAndReturn" | "updateManyAndReturn";
+/**
+ * INTERNAL names only (see {@link Operation} in query-engine/types). The client
+ * spells these as `createMany` / `updateMany` **with a `select`** — the
+ * `createManyAndReturn` / `updateManyAndReturn` operations were removed from the
+ * public surface (maintainer decision D-1) and replaced by implicit returning.
+ *
+ * {@link publicOperationName} (the ONE map, in @errors, so `ValidationError`
+ * applies it too) maps back for every user-facing message. Nothing a caller can
+ * read may name one of these tokens: the same client answers
+ * `Unknown operation 'createManyAndReturn'` if one is actually spelled.
+ */
+type AndReturnKind =
+  | "createManyAndReturn"
+  | "updateManyAndReturn"
+  | "deleteManyAndReturn";
 
 /**
- * The `*AndReturn` batch mutations (PLAN P4 item 2a) — the named non-boring
- * stragglers. Both return the affected rows, and both are the consumer that
- * makes the census's **ordered source list whose rows concatenate** (ATOM §1)
- * live:
+ * The row-returning arm of the bulk mutations (PLAN P4 item 2a; W3-B made it
+ * implicit). Reached only when the client payload carries a `select`. Both kinds
+ * return the affected rows, and both are the consumer that makes the census's
+ * **ordered source list whose rows concatenate** (ATOM §1) live:
  *
  * - **returning drivers** (`supportsReturning`): `createManyAndReturn` is one
  *   `INSERT … RETURNING` per input row, whose rows concatenate in input order
@@ -54,11 +74,21 @@ type AndReturnKind = "createManyAndReturn" | "updateManyAndReturn";
  *   `updateManyAndReturn` captures the target PK set at planning (locked),
  *   applies one bulk `UPDATE`, then re-reads the (possibly PK-shifted) rows —
  *   the captured set is planning-time only and inlined at compile (§3 corollary).
+ *   `deleteManyAndReturn` is the same technique with the two statements SWAPPED:
+ *   the projection must be read BEFORE the `DELETE`, because a deleted row cannot
+ *   be read back. Both live in the same atomic scope and address the same
+ *   FOR-UPDATE-locked PK set, so the rows returned are exactly the rows deleted.
  *
- * - **non-returning drivers in forced batch**: V1 refuses because public result
+ * - **non-returning drivers in forced batch**: refused, because public result
  *   parsing cannot be rolled back after an atomic batch commits. That refusal is
- *   KEPT AS CONTRACT (ATOM §7): V2 refuses with the byte-identical typed
- *   `TransactionError` — never weakened into a route or a silent divergence.
+ *   KEPT AS CONTRACT (ATOM §7) and now names the public spelling — a bulk write
+ *   `with 'select'` — never weakened into a route or a silent divergence. The
+ *   `{ count }` arm of the same family is unaffected and still runs there.
+ *
+ * `updateMany`/`deleteMany` `limit` (Prisma 6.x) caps this arm exactly as it
+ * caps `{ count }`: the rows returned ARE the rows affected, so a capped write
+ * hands back at most `limit` of them. `limit: 0` compiles to the empty plan and
+ * parses to `[]` — the row-shaped spelling of `{ count: 0 }`.
  *
  * One operation, two leaves (WHY §4.1); no new step kind, no new executor branch.
  */
@@ -104,11 +134,11 @@ export class ManyAndReturnOperation {
     // happens after the atomic unit commits and cannot be rolled back.
     if (this.mode === "batch" && !supportsReturning) {
       throw new TransactionError(
-        `Driver '${engine.driver.driverName}' cannot execute '${kind}' because public result parsing cannot be rolled back.`,
+        `Driver '${engine.driver.driverName}' cannot execute '${publicOperationName(kind)}' with 'select' because public result parsing cannot be rolled back.`,
         {
           meta: {
             driver: engine.driver.driverName,
-            operation: kind,
+            operation: publicOperationName(kind),
           },
         }
       );
@@ -123,14 +153,50 @@ export class ManyAndReturnOperation {
       return;
     }
 
-    // updateManyAndReturn
-    const data = requireRecord(this.args.data, "updateManyAndReturn", "data");
+    // `limit: 0` on a returning bulk write: nothing is affected, so nothing
+    // comes back and no statement runs — the same short-circuit the `{ count }`
+    // arm applies (BulkCountOperation), reached through the empty static plan.
+    if (this.limit() === 0) {
+      this.staticSteps = [];
+      this.staticOutput = undefined;
+      this.captureRead = undefined;
+      this.updateData = undefined;
+      return;
+    }
+
+    if (kind === "deleteManyAndReturn") {
+      this.updateData = undefined;
+      if (supportsReturning) {
+        const step: StatementStep = {
+          id: this.scope.allocate(`${this.modelName()}.deleteManyReturn`),
+          kind: "write",
+          statement: buildDeleteManyAndReturn(this.ctx(), {
+            ...this.bulkScope(),
+            ...(this.select ? { select: this.select } : {}),
+          }),
+          outputs: { result: { kind: "rows" } },
+        };
+        this.staticSteps = [step];
+        this.staticOutput = ref(step.id, "result");
+        this.captureRead = undefined;
+        return;
+      }
+      // Non-returning: lock the target PK set at planning, then read-then-delete
+      // that exact set at compile.
+      this.staticSteps = undefined;
+      this.staticOutput = undefined;
+      this.captureRead = this.buildPkCapture("deleteManyReturn");
+      return;
+    }
+
+    // updateMany with select
+    const data = requireRecord(this.args.data, "updateMany", "data");
     if (supportsReturning) {
       const step: StatementStep = {
         id: this.scope.allocate(`${this.modelName()}.updateManyReturn`),
         kind: "write",
         statement: buildUpdateManyAndReturn(this.ctx(), {
-          ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+          ...this.bulkScope(),
           data,
           ...(this.select ? { select: this.select } : {}),
         }),
@@ -148,14 +214,48 @@ export class ManyAndReturnOperation {
     this.staticSteps = undefined;
     this.staticOutput = undefined;
     this.updateData = data;
-    this.captureRead = {
-      id: this.scope.allocate(`${this.modelName()}.updateManyReturn.capture`),
+    this.captureRead = this.buildPkCapture("updateManyReturn");
+  }
+
+  /** The validated `limit`, or `undefined` when the caller omitted it. */
+  private limit(): number | undefined {
+    return typeof this.args.limit === "number" ? this.args.limit : undefined;
+  }
+
+  /** The `where`/`limit` pair the bulk builders take, both optional. */
+  private bulkScope(): { where?: Record<string, unknown>; limit?: number } {
+    const limit = this.limit();
+    return {
+      ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+      ...(limit === undefined ? {} : { limit }),
+    };
+  }
+
+  /**
+   * The planning capture shared by both non-returning arms: the target primary
+   * keys, FOR UPDATE, so the affected set cannot drift between planning and the
+   * write inside the same transaction envelope.
+   *
+   * `limit` is applied HERE rather than on the write. The capture already
+   * decides the affected set — the write and the re-read both address it by
+   * captured PK — so capping the capture caps everything downstream, and the
+   * dialect that takes this path (MySQL) never needs its native `UPDATE … LIMIT`
+   * in this arm.
+   */
+  private buildPkCapture(label: string): StatementStep {
+    const limit = this.limit();
+    return {
+      id: this.scope.allocate(`${this.modelName()}.${label}.capture`),
       kind: "read",
-      statement: buildFind(this.ctx(), {
-        ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
-        select: this.pkSelect(),
-        forUpdate: true,
-      }),
+      statement: buildFind(
+        this.ctx(),
+        {
+          ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+          select: this.pkSelect(),
+          forUpdate: true,
+        },
+        limit === undefined ? {} : { limit }
+      ),
       outputs: { rows: { kind: "rows" } },
     };
   }
@@ -178,7 +278,9 @@ export class ManyAndReturnOperation {
         outputs: { result: this.staticOutput },
       };
     }
-    return this.compileCapturedUpdate(known);
+    return this.kind === "deleteManyAndReturn"
+      ? this.compileCapturedDelete(known)
+      : this.compileCapturedUpdate(known);
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {
@@ -189,36 +291,89 @@ export class ManyAndReturnOperation {
     const rows = outputs.result;
     if (!Array.isArray(rows)) {
       throw new QueryEngineError(
-        `query-engine-v2 ${this.kind} did not expose its result rows.`
+        `query-engine-v2 ${publicOperationName(this.kind)} with 'select' did not expose its result rows.`
       );
     }
     return new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>(this.kind as Operation, rows, this.args);
   }
 
-  private compileCapturedUpdate(
+  /**
+   * The planning capture's rows, or `undefined` when nothing matched (both
+   * non-returning arms then compile to an empty plan and parse to `[]`, the way
+   * V1's `requiresRowsFrom` skipped the write and the read).
+   */
+  private capturedRows(
     known: Readonly<Record<string, unknown>>
-  ): OperationFragment {
-    if (!(this.captureRead && this.updateData)) {
+  ): Record<string, unknown>[] | undefined {
+    if (!this.captureRead) {
       throw new QueryEngineError(
-        "query-engine-v2 updateManyAndReturn lost its capture plan."
+        `query-engine-v2 ${publicOperationName(this.kind)} with 'select' lost its capture plan.`
       );
     }
     const captured = known[planningKey(this.captureRead.id, "rows")];
     if (!Array.isArray(captured)) {
       throw new QueryEngineError(
-        "query-engine-v2 updateManyAndReturn planning did not expose the captured rows."
+        `query-engine-v2 ${publicOperationName(this.kind)} with 'select' planning did not expose the captured rows.`
       );
     }
-    // Nothing matched: no update, an empty result (V1 skips the write and read
-    // when the capture is empty — `requiresRowsFrom`).
-    if (captured.length === 0) return { steps: [], outputs: {} };
+    if (captured.length === 0) return undefined;
+    return captured as Record<string, unknown>[];
+  }
+
+  /**
+   * Non-returning `deleteMany` with `select`: read the projection of the locked
+   * PK set, THEN delete that same set, both in one atomic scope. The order is the
+   * whole point — after the DELETE there is nothing left to read — and addressing
+   * both statements by the captured PKs (not by the user's filter) is what makes
+   * "the rows returned are the rows deleted" true even if the filter is over a
+   * column the delete would have changed the visibility of.
+   */
+  private compileCapturedDelete(
+    known: Readonly<Record<string, unknown>>
+  ): OperationFragment {
+    const rows = this.capturedRows(known);
+    if (!rows) return { steps: [], outputs: {} };
 
     const ctx = this.ctx();
-    const rows = captured as Record<string, unknown>[];
+    const targetWhere = this.capturedFilterWhere(ctx, rows);
+    const readStep: StatementStep = {
+      id: this.scope.allocate(`${this.modelName()}.deleteManyReturn.read`),
+      kind: "read",
+      statement: buildFind(ctx, {
+        where: targetWhere,
+        ...(this.select ? { select: this.select } : {}),
+      }),
+      outputs: { result: { kind: "rows" } },
+    };
+    const writeStep: StatementStep = {
+      id: this.scope.allocate(`${this.modelName()}.deleteManyReturn.write`),
+      kind: "write",
+      statement: buildDeleteMany(ctx, { where: targetWhere }),
+      outputs: {},
+    };
+    return {
+      steps: [readStep, writeStep],
+      outputs: { result: ref(readStep.id, "result") },
+    };
+  }
+
+  private compileCapturedUpdate(
+    known: Readonly<Record<string, unknown>>
+  ): OperationFragment {
+    if (!this.updateData) {
+      throw new QueryEngineError(
+        "query-engine-v2 updateMany with 'select' lost its update data."
+      );
+    }
+    const rows = this.capturedRows(known);
+    if (!rows) return { steps: [], outputs: {} };
+
+    const ctx = this.ctx();
     const beforeWhere = this.capturedFilterWhere(ctx, rows);
     const afterWhere = this.capturedFilterWhere(ctx, rows, this.updateData);
 
@@ -258,20 +413,22 @@ export class ManyAndReturnOperation {
     const data = this.args.data;
     if (!Array.isArray(data)) {
       throw new QueryEngineError(
-        "query-engine-v2 createManyAndReturn requires a data array."
+        "query-engine-v2 createMany with 'select' requires a data array."
       );
     }
     if (data.length === 0) return { steps: [], output: undefined };
 
     const skipDuplicates = this.args.skipDuplicates === true;
-    // Non-returning skipDuplicates cannot be expressed as linear steps: a skipped
-    // INSERT still refetches into an unconditional read, which would return the
-    // pre-existing row V1 correctly omits. This shape routes to V1 whole-tree —
-    // an honest per-tree route, not a weakened refusal (the refusal is ATOM §7's
-    // batch case, above).
+    // Non-returning `skipDuplicates` + `select` cannot be expressed as linear
+    // steps: a skipped INSERT still refetches into an unconditional read, which
+    // would hand back the PRE-EXISTING row as though it had just been created.
+    // There is no portable statement that reports which rows a skip actually
+    // inserted, so this is a typed V8003 refusal — never a silently wrong row set.
+    // (The `{ count }` arm of `createMany` supports `skipDuplicates` everywhere;
+    // only asking for the rows back is refused here.)
     if (skipDuplicates && !supportsReturning) {
       throw new UnsupportedOperationError(
-        "query-engine-v2 createManyAndReturn does not support skipDuplicates on a non-returning driver."
+        "createMany with 'select' does not support 'skipDuplicates' on a driver without RETURNING: the rows a skip actually inserted cannot be identified. Drop 'select' to get { count }, or drop 'skipDuplicates'."
       );
     }
 
@@ -295,7 +452,7 @@ export class ManyAndReturnOperation {
       const inputIndex = statement.inputIndexes[0];
       if (inputIndex === undefined || statement.inputIndexes.length !== 1) {
         throw new QueryEngineError(
-          "query-engine-v2 createManyAndReturn expected one input per statement."
+          "query-engine-v2 createMany with 'select' expected one input per statement."
         );
       }
       if (supportsReturning) {
@@ -337,7 +494,7 @@ export class ManyAndReturnOperation {
     for (const reference of resultRefs) {
       if (reference === undefined) {
         throw new QueryEngineError(
-          "query-engine-v2 createManyAndReturn left an input row without a result."
+          "query-engine-v2 createMany with 'select' left an input row without a result."
         );
       }
       output.push(reference);

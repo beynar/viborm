@@ -1,29 +1,86 @@
 // Relation Select & Include Schemas
 
-import type { ModelState } from "@schema/model";
+import type { AnyModel, ModelState } from "@schema/model";
+import type { StringKeyOf } from "@schema/model/helper";
 import type { RelationState } from "@schema/relation/types";
+import { withOmitProjection } from "../model/args/omit";
+import {
+  type PaginationSkipSchema,
+  type PaginationTakeSchema,
+  paginationSkip,
+  paginationTake,
+} from "../model/args/pagination";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
-import { createSchema, fail, ok } from "../primitives/helpers";
+import { projectableScalarNames } from "../model/core/projection";
 import v, { type V } from "../primitives/v";
-import type { GetTargetSchemas, SchemaGetter } from "./helpers";
+import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 
 // =============================================================================
 // TRANSFORM HELPERS
 // =============================================================================
 
+const getTargetState = <S extends RelationState>(
+  relationState: S
+): ModelState => relationState.getter()["~"].state as ModelState;
+
+const getTargetModel = <S extends RelationState>(relationState: S): AnyModel =>
+  relationState.getter() as AnyModel;
+
 const buildSelectionFromState = <S extends RelationState>(
   relationState: S
 ): Record<string, true> => {
-  const state = relationState.getter()["~"].state as ModelState;
   const select: Record<string, true> = {};
-  const omits = new Set<string>(Object.keys(state.omit || {}));
-  for (const field of Object.keys(state.scalars)) {
-    if (!omits.has(field)) {
-      select[field] = true;
-    }
+  for (const field of projectableScalarNames(getTargetModel(relationState))) {
+    select[field] = true;
   }
   return select;
 };
+
+/**
+ * The label a nested node's `omit` failure carries. Relations name themselves
+ * when the schema disambiguated them (`.name()`); otherwise the message still
+ * names the target model, which is the part a caller needs.
+ */
+const nestedOmitLabel = <S extends RelationState>(relationState: S): string =>
+  relationState.name ? `include.${relationState.name}` : "a nested include";
+
+/**
+ * A relation node accepts `omit` exactly like a top-level operation does:
+ * exclusive with `select`, composable with `include`, and desugared into the
+ * explicit `select` it denotes before anything downstream sees it. Wrapping the
+ * node schema with the SAME helper the top level uses is what keeps the two
+ * surfaces from drifting — and it runs BEFORE `includeToField`, which then finds
+ * a `select` already in place and leaves it alone.
+ */
+const withNestedOmit = <S extends RelationState, Schema extends V.Object<any>>(
+  relationState: S,
+  schema: Schema
+): Schema =>
+  withOmitProjection(
+    schema as never,
+    getTargetModel(relationState),
+    nestedOmitLabel(relationState)
+  ) as never;
+
+/**
+ * Nested `distinct`: scalar field names of the RELATED model, deduplicating
+ * that relation's ordered rows before `take`/`skip` window them (the same
+ * enum-of-scalars schema the top-level findMany args use).
+ */
+type NestedDistinctSchema<S extends RelationState> = V.Enum<
+  StringKeyOf<TargetModel<S>["~"]["state"]["scalars"]>[],
+  { array: true }
+>;
+
+const nestedDistinct = <S extends RelationState>(
+  relationState: S
+): NestedDistinctSchema<S> =>
+  v.enum(
+    Object.keys(getTargetState(relationState).scalars) as StringKeyOf<
+      TargetModel<S>["~"]["state"]["scalars"]
+    >[],
+    { array: true }
+  );
 
 type IncludeToField<Schema extends V.Object<any>> = V.Coerce<
   Schema,
@@ -45,30 +102,6 @@ const includeToField =
       select,
     };
   };
-
-/**
- * Nested to-many `take`: non-negative numbers only.
- *
- * Prisma's negative-take ("last N") semantics are only implemented for
- * top-level queries (reverse order + reverse results). The nested include
- * builder would pass a negative value straight to LIMIT — a runtime error on
- * Postgres and silently ALL rows on SQLite — so reject it at validation.
- * Nested `cursor` is rejected the same way, by omission: strict objects fail
- * on unknown keys.
- */
-type NestedTakeSchema = V.Schema<number, number>;
-const nestedTake: NestedTakeSchema = createSchema("number", (value) => {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fail("Expected finite number");
-  }
-  if (value < 0) {
-    return fail(
-      "Negative 'take' is not supported in nested relation queries. " +
-        "Use a positive take with the opposite orderBy direction instead."
-    );
-  }
-  return ok(value);
-});
 
 type BooleanToSelect = V.Coerce<
   V.Boolean,
@@ -107,6 +140,7 @@ export type ToOneIncludeSchema<S extends RelationState> = V.Union<
       V.Object<{
         select: () => GetTargetSchemas<S>["core"]["select"];
         include: () => GetTargetSchemas<S>["core"]["include"];
+        omit: () => GetTargetSchemas<S>["core"]["omit"];
       }>
     >,
   ]
@@ -121,11 +155,15 @@ export const toOneIncludeFactory = <
   return v.union([
     booleanToSelect(state),
     v.coerce(
-      rejectSelectInclude(
-        v.object({
-          select: () => targetSchemas().core.select,
-          include: () => targetSchemas().core.include,
-        })
+      withNestedOmit(
+        state,
+        rejectSelectInclude(
+          v.object({
+            select: () => targetSchemas().core.select,
+            include: () => targetSchemas().core.include,
+            omit: () => targetSchemas().core.omit,
+          })
+        )
       ),
       includeToField(state)
     ),
@@ -133,8 +171,16 @@ export const toOneIncludeFactory = <
 };
 
 /**
- * To-many include: true or nested { where, orderBy, take, skip, select, include }
+ * To-many include: true or nested
+ * { where, orderBy, take, skip, cursor, distinct, select, include }
  * `select` and `include` are mutually exclusive on the same node (Prisma parity)
+ *
+ * `take`/`skip`/`cursor`/`distinct` are the very schemas the top level uses: a
+ * negative `take` is Prisma's "last N" (the relation subquery runs the reversed
+ * order with an absolute limit and the parser restores the logical order), a
+ * non-integer take or a negative skip is refused with the top-level message,
+ * `cursor` is a whereUnique of the RELATED model applied per parent, and
+ * `distinct` names scalars of the RELATED model.
  */
 export type ToManyIncludeSchema<S extends RelationState> = V.Union<
   readonly [
@@ -148,10 +194,13 @@ export type ToManyIncludeSchema<S extends RelationState> = V.Union<
             V.Array<GetTargetSchemas<S>["core"]["orderBy"]>,
           ]
         >;
-        take: NestedTakeSchema;
-        skip: V.Number;
+        take: PaginationTakeSchema;
+        skip: PaginationSkipSchema;
+        cursor: () => GetTargetSchemas<S>["core"]["whereUnique"];
+        distinct: NestedDistinctSchema<S>;
         select: () => GetTargetSchemas<S>["core"]["select"];
         include: () => GetTargetSchemas<S>["core"]["include"];
+        omit: () => GetTargetSchemas<S>["core"]["omit"];
       }>
     >,
   ]
@@ -166,18 +215,24 @@ export const toManyIncludeFactory = <
   return v.union([
     booleanToSelect(state),
     v.coerce(
-      rejectSelectInclude(
-        v.object({
-          where: () => targetSchemas().core.where,
-          orderBy: () => {
-            const orderBySchema = targetSchemas().core.orderBy;
-            return v.union([orderBySchema, v.array(orderBySchema)]);
-          },
-          take: nestedTake,
-          skip: v.number(),
-          select: () => targetSchemas().core.select,
-          include: () => targetSchemas().core.include,
-        })
+      withNestedOmit(
+        state,
+        rejectSelectInclude(
+          v.object({
+            where: () => targetSchemas().core.where,
+            orderBy: () => {
+              const orderBySchema = targetSchemas().core.orderBy;
+              return v.union([orderBySchema, v.array(orderBySchema)]);
+            },
+            take: paginationTake(),
+            skip: paginationSkip(),
+            cursor: () => targetSchemas().core.whereUnique,
+            distinct: nestedDistinct(state),
+            select: () => targetSchemas().core.select,
+            include: () => targetSchemas().core.include,
+            omit: () => targetSchemas().core.omit,
+          })
+        )
       ),
       includeToField(state)
     ),

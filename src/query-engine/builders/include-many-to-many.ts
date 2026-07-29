@@ -7,8 +7,7 @@ import {
   buildManyToManyJoinParts,
   getManyToManyJoinInfo,
 } from "./many-to-many-utils";
-import { buildOrderByParts } from "./orderby-builder";
-import { buildWhere } from "./where-builder";
+import { buildNestedReadWindow } from "./nested-read-window";
 
 /**
  * Build include for manyToMany relation using LATERAL join.
@@ -31,8 +30,8 @@ export function buildManyToManyLateralInclude(
   includeValue: Record<string, unknown>
 ): IncludeResult {
   const { adapter } = ctx;
-  const { select, include, where, orderBy, take, skip } =
-    includeValue as IncludeOptions;
+  const options = includeValue as IncludeOptions;
+  const { select, include } = options;
 
   const junctionAlias = ctx.nextAlias();
   const targetAlias = ctx.nextAlias();
@@ -56,33 +55,28 @@ export function buildManyToManyLateralInclude(
   const jsonExpr = selectResult.sql;
   const nestedJoins = selectResult.lateralJoins;
 
-  // Build inner where on target
-  const innerWhere = buildWhere(childCtx, where, targetAlias);
-
-  // Combine conditions
-  const conditions: Sql[] = [correlationCondition, joinCondition];
-  if (innerWhere) {
-    conditions.push(innerWhere);
-  }
-  const whereCondition = adapter.operators.and(...conditions);
-
-  const orderByParts = buildOrderByParts(childCtx, orderBy, targetAlias);
-  const innerJoins = [...nestedJoins, ...orderByParts.joins];
+  // Correlation, junction join, relation filter, cursor and window in one place
+  const window = buildNestedReadWindow(childCtx, options, targetAlias, [
+    correlationCondition,
+    joinCondition,
+  ]);
+  const innerJoins = [...nestedJoins, ...window.joins];
 
   // Build inner query using shared helper
   const jsonColAlias = "_json";
   const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, jsonColAlias);
 
-  const innerQuery = assembleInnerQuery(
-    adapter,
-    aliasedJsonExpr,
-    fromClause,
-    innerJoins.length > 0 ? innerJoins : undefined,
-    whereCondition,
-    orderByParts.orderBy,
-    take,
-    skip
-  );
+  const innerQuery = assembleInnerQuery(adapter, {
+    selectExpr: aliasedJsonExpr,
+    from: fromClause,
+    joins: innerJoins,
+    where: window.where,
+    orderBy: window.orderBy,
+    take: window.limit,
+    skip: window.offset,
+    distinct: window.distinct,
+    distinctColumnAliases: [jsonColAlias],
+  });
 
   // Wrap with aggregation inside the lateral subquery
   const innerAlias = ctx.nextAlias();
@@ -126,8 +120,8 @@ export function buildManyToManyInclude(
   includeValue: Record<string, unknown>
 ): Sql {
   const { adapter } = ctx;
-  const { select, include, where, orderBy, take, skip } =
-    includeValue as IncludeOptions;
+  const options = includeValue as IncludeOptions;
+  const { select, include } = options;
 
   const junctionAlias = ctx.nextAlias();
   const targetAlias = ctx.nextAlias();
@@ -148,32 +142,27 @@ export function buildManyToManyInclude(
   // Build the JSON object for selected fields
   const jsonExpr = buildNestedSelection(childCtx, select, include).sql;
 
-  // Build inner where on target
-  const innerWhere = buildWhere(childCtx, where, targetAlias);
-
-  // Combine conditions
-  const conditions: Sql[] = [correlationCondition, joinCondition];
-  if (innerWhere) {
-    conditions.push(innerWhere);
-  }
-  const whereCondition = adapter.operators.and(...conditions);
-
-  const orderByParts = buildOrderByParts(childCtx, orderBy, targetAlias);
+  // Correlation, junction join, relation filter, cursor and window in one place
+  const window = buildNestedReadWindow(childCtx, options, targetAlias, [
+    correlationCondition,
+    joinCondition,
+  ]);
 
   // Build inner query using shared helper
   const jsonColAlias = "_json";
   const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, jsonColAlias);
 
-  const innerQuery = assembleInnerQuery(
-    adapter,
-    aliasedJsonExpr,
-    fromClause,
-    orderByParts.joins.length > 0 ? orderByParts.joins : undefined,
-    whereCondition,
-    orderByParts.orderBy,
-    take,
-    skip
-  );
+  const innerQuery = assembleInnerQuery(adapter, {
+    selectExpr: aliasedJsonExpr,
+    from: fromClause,
+    joins: window.joins,
+    where: window.where,
+    orderBy: window.orderBy,
+    take: window.limit,
+    skip: window.offset,
+    distinct: window.distinct,
+    distinctColumnAliases: [jsonColAlias],
+  });
 
   // Wrap with aggregation
   const subAlias = ctx.nextAlias();

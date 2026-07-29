@@ -15,3 +15,22 @@ export const paginationSkip = (): PaginationSkipSchema =>
       return skip;
     })
   );
+
+export type BulkWriteLimitSchema = V.Schema<number, number>;
+
+/**
+ * `limit` on `updateMany` / `deleteMany` (Prisma 6.x): a cap on how MANY rows
+ * the bulk write may affect. Non-negative — unlike `take`, a negative value has
+ * no "from the other end" meaning here, because a bulk write has no `orderBy`
+ * and therefore no ends. `0` is legal and means "affect nothing".
+ */
+export const bulkWriteLimit = (): BulkWriteLimitSchema =>
+  v.pipe(
+    v.integer(),
+    v.transformAction<number, number>((limit) => {
+      if (limit < 0) {
+        throw new Error("limit must be greater than or equal to 0");
+      }
+      return limit;
+    })
+  );

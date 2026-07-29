@@ -6,10 +6,9 @@
  * V1. T3d absorbed the whole result-shaping surface onto V2. This benchmarks the
  * absorbed shape head-to-head: an existing-row `update` that sets a scalar and
  * refetches an included to-many relation (`user.update({ where, data: { name },
- * include: { posts } })`). The `queryEngine` escape hatch runs the identical
- * workload through the frozen V1 runtime and the native V2 engine on two seeded
- * in-memory SQLite databases. Ratio = V2 hz / V1 hz (higher = V2 faster).
- * Numbers, not adjectives.
+ * include: { posts } })`). Single-armed since P6 deleted V1 and the `queryEngine`
+ * escape hatch it used to A/B against; the recorded V2/V1 ratio stays in
+ * `docs/architecture/engine-unification/PERF.md`.
  *
  * Run: pnpm bench -- benchmarks/t3d-class-i-include-ab.bench.ts
  */
@@ -42,9 +41,9 @@ const schema = (() => {
   return { user, post };
 })();
 
-const makeClient = async (engine: "v1" | "v2") => {
+const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
-  const client = createClient({ schema, driver, queryEngine: engine });
+  const client = createClient({ schema, driver });
   await push(client, { force: true });
   // 200 users, each owning two posts — the update refetches the included to-many.
   for (let i = 0; i < 200; i += 1) {
@@ -64,8 +63,7 @@ const makeClient = async (engine: "v1" | "v2") => {
   return client;
 };
 
-const v1 = await makeClient("v1");
-const v2 = await makeClient("v2");
+const client = await makeClient();
 let n = 0;
 
 const op = (i: number) => ({
@@ -74,11 +72,8 @@ const op = (i: number) => ({
   include: { posts: true },
 });
 
-describe("CLASS I A/B: update with include (refetch a to-many)", () => {
-  bench("v1 user.update > include: posts", async () => {
-    await (v1 as any).user.update(op(n++ % 200));
-  });
-  bench("v2 user.update > include: posts", async () => {
-    await (v2 as any).user.update(op(n++ % 200));
+describe("CLASS I: update with include (refetch a to-many)", () => {
+  bench("user.update > include: posts", async () => {
+    await (client as any).user.update(op(n++ % 200));
   });
 });

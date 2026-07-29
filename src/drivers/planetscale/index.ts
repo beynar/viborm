@@ -9,10 +9,13 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import type { Client, Config, Connection } from "@planetscale/database";
 import {
   Driver,
@@ -24,9 +27,12 @@ import {
   normalizeProviderRowCount,
 } from "../normalized-result";
 import {
+  type DriverTransactionOptions,
+  isolationLevelStatement,
   mysqlResultParser,
   nestedTransactionDispatchError,
   runTransactionLifecycle,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 import { createValidatedPlanetScaleFetch } from "./response-contract";
@@ -134,9 +140,26 @@ export class PlanetScaleDriver extends Driver<
     return toQueryResult<T>(result, operation);
   }
 
+  /**
+   * MySQL semantics: the level must be set before BEGIN, and this driver owns
+   * both statements on one `Connection`. Every transaction gets a fresh HTTP
+   * `Connection` created synchronously, so there is no slot to wait for.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "pre-begin",
+      timeout: true,
+      maxWait: "unsupported",
+      maxWaitReason:
+        "each PlanetScale transaction gets its own HTTP connection created without waiting, so there is no acquisition maxWait could bound",
+    };
+  }
+
   protected async transaction<T>(
     client: PlanetScaleClient | PlanetScaleTransaction,
-    fn: (tx: PlanetScaleTransaction) => Promise<T>
+    fn: (tx: PlanetScaleTransaction) => Promise<T>,
+    _context?: QueryExecutionContext,
+    options?: DriverTransactionOptions
   ): Promise<T> {
     if (!("transaction" in client)) {
       throw nestedTransactionDispatchError(this.driverName);
@@ -144,12 +167,18 @@ export class PlanetScaleDriver extends Driver<
 
     const connection: Connection =
       "connection" in client ? client.connection() : client;
+    const isolationLevel = options?.isolationLevel;
 
     return runTransactionLifecycle({
       begin: async () => {
         // Vitess SINGLE mode rejects cross-shard transactions instead of using
         // best-effort multi-shard commit semantics.
         await connection.execute("SET transaction_mode = 'single'");
+        // Session-scoped-next-transaction: must precede BEGIN on this same
+        // connection to bind to the transaction it opens.
+        if (isolationLevel) {
+          await connection.execute(isolationLevelStatement(isolationLevel));
+        }
         await connection.execute("BEGIN");
       },
       callback: () => fn(connection),
@@ -175,8 +204,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: PlanetScaleClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: PlanetScaleClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, PlanetScaleDriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { client, databaseUrl, options, ...restConfig } = config;
 
@@ -186,7 +218,7 @@ export function createClient<C extends DriverConfig>(
     options,
   });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: PlanetScaleDriver }>;

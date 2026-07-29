@@ -2,6 +2,35 @@
  * Where Unique Builder
  *
  * Builds WHERE clauses from unique selector objects.
+ *
+ * ## The two halves of a unique `where`, and why they are separate
+ *
+ * Since Prisma >= 4.5 a top-level unique `where` may carry, alongside its unique
+ * DISCRIMINATOR (a single unique field, or a complete compound constraint),
+ * ordinary non-unique scalar FILTERS and `AND` / `OR` / `NOT`. The two halves are
+ * not interchangeable, and this module is where that distinction is enforced:
+ *
+ * - {@link buildWhereUnique} compiles **both** halves — the row a statement
+ *   addresses is `discriminator ∧ filters`.
+ * - {@link getWhereUniqueEntries} returns **only** the discriminator. Every
+ *   consumer that reads a `where` as a set of compile-time LITERALS goes through
+ *   it: the Pin Rule (a nested create pins the parent column the `where` fixes),
+ *   `racePin` attribution (`uniqueConflictTarget`), upsert's probe-first locate,
+ *   the own-write ledger's target constraints, and cursor comparison. An extra
+ *   filter is a PREDICATE, not a value: it can never name the row, so it must
+ *   never contribute a pin, a conflict target, or an identity.
+ *
+ * Keeping the split in the extraction function rather than at each call site is
+ * deliberate: a new consumer that reaches for the discriminator gets the right
+ * half by default, and forgetting to strip filters is not a thing one can do.
+ *
+ * **What the discriminator is NOT.** It names the row the caller ASKED FOR — it
+ * does not name a row a statement WROTE. A write's own result must be addressed
+ * by the identity of that write (a literal primary key, or the identity the
+ * INSERT captured), never by the selector that chose its arm: `create` data is
+ * under no obligation to satisfy `where`, so the two can name different rows.
+ * That is why nothing here exposes "the discriminator as a where" — see
+ * `UpsertOperation.createArmIdentity`.
  */
 
 import type { Model } from "@schema/model";
@@ -9,25 +38,33 @@ import type { Sql } from "@sql";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
 import { buildScalarSqlValue } from "./values-builder";
+import { buildWhere } from "./where-builder";
 
 /**
  * Build WHERE from a unique input (for findUnique, update, delete)
- * Unique input can be a single field or compound key
+ * Unique input can be a single field or compound key, optionally narrowed by
+ * non-unique scalar filters and AND/OR/NOT (Prisma >= 4.5).
  *
  * Handles:
  * - Single field: { id: "123" }
  * - Compound ID: { email_orgId: { email: "a@b.com", orgId: "org1" } }
  * - Named compound: { uq_name_org: { name: "Alice", orgId: "org1" } }
+ * - Extended: { id: "123", archived: { equals: false }, NOT: { role: "admin" } }
  */
 export function buildWhereUnique(
   ctx: QueryScope,
   where: Record<string, unknown>,
   alias: string
 ): Sql {
-  const entries = getWhereUniqueEntries(ctx, where);
+  const { entries, filters } = partitionWhereUnique(ctx, where);
   const conditions = entries.map(({ fieldName, value }) =>
     buildUniqueEquality(ctx, fieldName, value, alias)
   );
+
+  if (filters) {
+    const filterSql = buildWhere(ctx, filters, alias);
+    if (filterSql) conditions.push(filterSql);
+  }
 
   return ctx.adapter.operators.and(...conditions);
 }
@@ -44,13 +81,33 @@ export type WhereUniqueEntry = {
   value: unknown;
 };
 
+export type WhereUniquePartition = {
+  /** The unique discriminator, flattened to one entry per constrained column. */
+  readonly entries: WhereUniqueEntry[];
+  /** The discriminator's own keys, as written (a compound stays one key). */
+  readonly discriminator: Record<string, unknown>;
+  /** The non-unique remainder: scalar filters and AND/OR/NOT. */
+  readonly filters: Record<string, unknown> | undefined;
+};
+
 type WhereUniqueModelContext = { model: Model<any> };
 
-export function getWhereUniqueEntries(
+/**
+ * Split a unique `where` into its discriminator and its extra filters.
+ *
+ * A key is a discriminator iff it names a single-field unique or a compound
+ * constraint; a compound must be COMPLETE (every field present) or this throws,
+ * exactly as before — a half-specified compound names no row. Anything else is
+ * filter material. At least one discriminator is required.
+ */
+export function partitionWhereUnique(
   ctx: WhereUniqueModelContext,
   where: Record<string, unknown>
-): WhereUniqueEntry[] {
+): WhereUniquePartition {
   const entries: WhereUniqueEntry[] = [];
+  const discriminator: Record<string, unknown> = {};
+  let filters: Record<string, unknown> | undefined;
+
   for (const [key, value] of Object.entries(where)) {
     if (value === undefined) {
       continue;
@@ -58,6 +115,7 @@ export function getWhereUniqueEntries(
 
     if (isUniqueScalarDiscriminator(ctx, key)) {
       entries.push({ fieldName: key, value });
+      discriminator[key] = value;
       continue;
     }
 
@@ -66,12 +124,14 @@ export function getWhereUniqueEntries(
       entries.push(
         ...buildCompoundUniqueConditions(key, compoundConstraint, value)
       );
+      discriminator[key] = value;
       continue;
     }
 
-    throw new QueryEngineError(
-      `whereUnique field '${key}' is not a unique discriminator.`
-    );
+    // Not a discriminator: an extended `where`'s filter half. It narrows the row
+    // the statement addresses and NEVER contributes a pin (see the module note).
+    filters ??= {};
+    filters[key] = value;
   }
 
   if (entries.length === 0) {
@@ -80,7 +140,26 @@ export function getWhereUniqueEntries(
     );
   }
 
-  return entries;
+  return { entries, discriminator, filters };
+}
+
+/** The extra (non-discriminator) filter half of a unique `where`, if any. */
+export function getWhereUniqueFilters(
+  ctx: WhereUniqueModelContext,
+  where: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  return partitionWhereUnique(ctx, where).filters;
+}
+
+/**
+ * The unique discriminator of a `where`, flattened to one entry per constrained
+ * column. Extra filters are NOT here, by construction — see the module note.
+ */
+export function getWhereUniqueEntries(
+  ctx: WhereUniqueModelContext,
+  where: Record<string, unknown>
+): WhereUniqueEntry[] {
+  return partitionWhereUnique(ctx, where).entries;
 }
 
 function isUniqueScalarDiscriminator(

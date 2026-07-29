@@ -169,6 +169,8 @@ if (!otel) return fn();  // Execute without tracing
 ### Rule 2: Instance-Scoped State
 All mutable state lives inside `createTracerWrapper()` closure, not at module level. This ensures serverless compatibility (Cloudflare Workers, Lambda).
 
+**One deliberate exception:** `logged-errors.ts` keeps a module-scoped `WeakSet<Error>`. The rule exists so nothing survives a request in a reused isolate; a `WeakSet` holds no strong reference, so an entry disappears with the error that keyed it and an error never outlives its request. It also cannot live on an `InstrumentationContext` — every execution context carries a fresh frozen *copy* of it (`snapshotExecutionContext`), so the driver and the query engine never see the same context object. See the module header.
+
 ```typescript
 // ✅ Correct: state inside closure
 function createTracerWrapper() {

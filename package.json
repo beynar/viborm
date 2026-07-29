@@ -18,6 +18,10 @@
       "types": "./dist/driver.d.mts",
       "import": "./dist/driver.mjs"
     },
+    "./sql": {
+      "types": "./dist/sql.d.mts",
+      "import": "./dist/sql.mjs"
+    },
     "./pg": {
       "types": "./dist/pg.d.mts",
       "import": "./dist/pg.mjs"
@@ -119,7 +123,7 @@
     "test:ui": "vitest --ui",
     "test:types": "tsc --noEmit",
     "test:runtime": "vitest run tests/runtime/",
-    "test:gates": "vitest run tests/query-engine-v2/architecture-gates.test.ts tests/query-engine-v2/decline-surface-gate.test.ts tests/query-engine-v2/dead-symbol-gate.test.ts tests/query-engine-v2/parse-boundary-gate.test.ts",
+    "test:gates": "vitest run tests/query-engine-v2/architecture-gates.test.ts tests/query-engine-v2/decline-surface-gate.test.ts tests/query-engine-v2/dead-symbol-gate.test.ts tests/query-engine-v2/parse-boundary-gate.test.ts tests/errors/error-registry-gate.test.ts",
     "test:pg": "vitest run --no-file-parallelism tests/drivers/pg.test.ts tests/drivers/postgres.test.ts",
     "test:pglite": "vitest run tests/drivers/pglite.test.ts",
     "test:sqlite": "vitest run tests/drivers/sqlite3.test.ts tests/drivers/libsql.test.ts",
@@ -134,6 +138,7 @@
     "db:generate": "prisma generate",
     "package:build": "tsdown",
     "test:package:error-names": "pnpm package:build && node tests/package-error-names-smoke.mjs",
+    "test:package:consumer-floor": "pnpm package:build && node scripts/consumer-type-floor.mjs",
     "test:package:phase7": "pnpm package:build && node tests/package-error-names-smoke.mjs && node tests/package-otel-absent-smoke.mjs",
     "package:dev": "tsdown --watch",
     "size": "size-limit",

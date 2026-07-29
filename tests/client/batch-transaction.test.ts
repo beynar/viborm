@@ -10,6 +10,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
 import { PGliteDriver } from "@drivers/pglite";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TransactionError, VibORMErrorCode } from "@errors";
@@ -19,6 +20,7 @@ import {
   PendingOperation,
 } from "@query-engine/pending-operation";
 import { s } from "@schema";
+import type Database from "better-sqlite3";
 import {
   afterAll,
   beforeAll,
@@ -103,6 +105,25 @@ class BatchOnlyPGliteDriver extends PGliteDriver {
   }
 }
 
+/** The SQLite dialect's batch-only shape (D1's), on a local file-free driver. */
+class BatchOnlySQLite3Driver extends SQLite3Driver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+
+  protected override async executeBatch<T>(
+    client: Database.Database,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (tx) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(await this.executeRaw<T>(tx, query.sql, query.params));
+      }
+      return results;
+    });
+  }
+}
+
 type TransactionCapableClient<TClient> = TClient & {
   $transaction<TResult>(
     operation:
@@ -122,7 +143,10 @@ const withTransactions = <TClient>(
 
 let db: PGlite;
 let client: ReturnType<
-  typeof createClient<{ schema: typeof schema; driver: PGliteDriver }>
+  typeof createClient<
+    typeof schema,
+    { schema: typeof schema; driver: PGliteDriver }
+  >
 >;
 
 beforeAll(async () => {
@@ -140,8 +164,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean up data between tests
-  await client.$queryRaw(`DELETE FROM "post"`);
-  await client.$queryRaw(`DELETE FROM "user"`);
+  await client.$executeRawUnsafe(`DELETE FROM "post"`);
+  await client.$executeRawUnsafe(`DELETE FROM "user"`);
 });
 
 // =============================================================================
@@ -373,25 +397,25 @@ describe("$transaction with callback", () => {
     expect(users).toHaveLength(0);
   });
 
-  test("rejects every callback option before inspecting it or running the callback", async () => {
+  /**
+   * REWRITTEN for decision D-2 (W5-U3). This test used to pin "every second
+   * argument is rejected", including `{}`. Options are now accepted, so the
+   * contract it defends changes shape: a *malformed* options object is still
+   * refused before the callback runs, an empty one asks for nothing and is
+   * simply allowed through, and a misspelling never passes for the real thing.
+   */
+  test("refuses a malformed options object before running the callback", async () => {
     let callbackCalled = false;
-    let getterCalled = false;
-    const accessorOptions = {};
-    Object.defineProperty(accessorOptions, "timeout", {
-      get() {
-        getterCalled = true;
-        return 5;
-      },
-    });
     const symbolOptions = { [Symbol("timeout")]: 5 };
     const transaction = withTransactions(client).$transaction;
 
     for (const options of [
-      {},
-      { timeout: 5 },
-      { isolationLevel: "serializable" },
-      accessorOptions,
-      symbolOptions,
+      { isolationLevel: "serializable" }, // Prisma spells it "Serializable"
+      { isolationLevels: "Serializable" }, // misspelled key
+      { timeout: 0 }, // not a positive duration
+      { timeout: "5s" }, // not a number
+      symbolOptions, // symbol keys are still keys, not free passes
+      42, // not an object at all
     ]) {
       await expect(
         Reflect.apply(transaction, client, [
@@ -406,10 +430,38 @@ describe("$transaction with callback", () => {
       });
     }
 
-    expect({ callbackCalled, getterCalled }).toEqual({
-      callbackCalled: false,
-      getterCalled: false,
-    });
+    expect(callbackCalled).toBe(false);
+  });
+
+  test("an empty options object asks for nothing and runs the callback", async () => {
+    let callbackCalled = false;
+    const transaction = withTransactions(client).$transaction;
+
+    await Reflect.apply(transaction, client, [
+      async () => {
+        callbackCalled = true;
+      },
+      {},
+    ]);
+
+    expect(callbackCalled).toBe(true);
+  });
+
+  test("an option this driver honors reaches the callback", async () => {
+    let callbackCalled = false;
+    const transaction = withTransactions(client).$transaction;
+
+    // PGlite honors all four levels; the typed refusals a driver *cannot*
+    // honor are pinned per driver in tests/drivers/transaction-portability and
+    // proved in tests/drivers/transaction-options-behavior.
+    await Reflect.apply(transaction, client, [
+      async () => {
+        callbackCalled = true;
+      },
+      { isolationLevel: "Serializable", timeout: 5000, maxWait: 5000 },
+    ]);
+
+    expect(callbackCalled).toBe(true);
   });
 
   test("rejects callback transactions for non-atomic drivers", async () => {
@@ -607,14 +659,594 @@ describe("$transaction with array (batch mode)", () => {
     await nonAtomicClient.$disconnect();
   });
 
-  test("rejects batch options before the empty-array fast path", async () => {
+  /**
+   * REWRITTEN for decision D-2 (W5-U3). The old pin asserted `{}` was rejected
+   * here. What must survive is the *ordering*: the empty-array fast path
+   * returns before any driver call, so an option that could not be honored has
+   * to be refused before that return — otherwise it would be accepted and
+   * ignored on exactly the path where nothing runs.
+   */
+  test("refuses an unhonorable batch option before the empty-array fast path", async () => {
     const transaction = withTransactions(client).$transaction;
+    // timeout is not on offer for the array form on any driver.
     await expect(
-      Reflect.apply(transaction, client, [[], {}])
+      Reflect.apply(transaction, client, [[], { timeout: 5 }])
     ).rejects.toMatchObject({
       name: "TransactionError",
       code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
     });
+    await expect(
+      Reflect.apply(transaction, client, [[], { isolationLevel: "bogus" }])
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
+    });
+    // An empty options object asks for nothing, so the fast path still applies.
+    await expect(Reflect.apply(transaction, client, [[], {}])).resolves.toEqual(
+      []
+    );
+  });
+});
+
+/**
+ * `limit: 0` is the bulk write that affects nothing: it compiles to an EMPTY
+ * fragment (BulkCountOperation / ManyAndReturnOperation), so it contributes
+ * zero statements to a shared batch. The documented answer is `{ count: 0 }` /
+ * `[]` with no batch caveat (delete-many.mdx, update-many.mdx).
+ *
+ * A batch made only of such writes therefore has NOTHING to send — which is not
+ * the same thing as a payload that "cannot be batched atomically", the refusal
+ * it used to draw on a batch-only driver. The refusal also contradicted itself:
+ * adding any statement-emitting sibling made the same operation succeed.
+ */
+describe("$transaction([...]) with statement-free operations", () => {
+  const bootBatchOnly = async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    await push(setupClient, { force: true });
+    return createClient({
+      schema,
+      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+    });
+  };
+
+  test("batch-only: a sole limit-0 deleteMany is the documented no-op", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await batchOnlyClient.user.create({
+        data: { id: "1", name: "Keep", email: "keep@test.com" },
+      });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({ where: { id: "1" }, limit: 0 }),
+        ])
+      ).resolves.toEqual([{ count: 0 }]);
+
+      expect(await batchOnlyClient.user.findMany()).toHaveLength(1);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a sole limit-0 updateMany is the documented no-op", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await batchOnlyClient.user.create({
+        data: { id: "1", name: "Keep", email: "keep@test.com" },
+      });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.updateMany({
+            where: { id: "1" },
+            data: { name: "Changed" },
+            limit: 0,
+          }),
+        ])
+      ).resolves.toEqual([{ count: 0 }]);
+
+      expect((await batchOnlyClient.user.findMany())[0]?.name).toBe("Keep");
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a sole limit-0 row-returning deleteMany returns no rows", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await batchOnlyClient.user.create({
+        data: { id: "1", name: "Keep", email: "keep@test.com" },
+      });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({
+            where: { id: "1" },
+            limit: 0,
+            select: { id: true },
+          }),
+        ])
+      ).resolves.toEqual([[]]);
+
+      expect(await batchOnlyClient.user.findMany()).toHaveLength(1);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a batch of nothing but limit-0 writes answers once per operation", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await batchOnlyClient.user.create({
+        data: { id: "1", name: "Keep", email: "keep@test.com" },
+      });
+
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({ where: { id: "1" }, limit: 0 }),
+          batchOnlyClient.user.updateMany({
+            data: { name: "Changed" },
+            limit: 0,
+          }),
+        ])
+      ).resolves.toEqual([{ count: 0 }, { count: 0 }]);
+
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "1", name: "Keep", email: "keep@test.com" },
+      ]);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a limit-0 sibling still leaves the real write atomic", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      // The mixed batch commits: the no-op answers 0, the real write lands.
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({
+            where: { id: "nobody" },
+            limit: 0,
+          }),
+          batchOnlyClient.user.create({
+            data: { id: "1", name: "Real", email: "real@test.com" },
+          }),
+        ])
+      ).resolves.toMatchObject([{ count: 0 }, { id: "1", name: "Real" }]);
+      expect(await batchOnlyClient.user.findMany()).toHaveLength(1);
+
+      // …and when a sibling fails, the mixed batch still rolls back whole.
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({
+            where: { id: "nobody" },
+            limit: 0,
+          }),
+          batchOnlyClient.user.create({
+            data: { id: "2", name: "Second", email: "second@test.com" },
+          }),
+          batchOnlyClient.user.create({
+            data: { id: "3", name: "Clash", email: "real@test.com" },
+          }),
+        ])
+      ).rejects.toThrow();
+      expect(await batchOnlyClient.user.findMany()).toHaveLength(1);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("transaction driver: the same batches give the same answers", async () => {
+    await client.user.create({
+      data: { id: "1", name: "Keep", email: "keep@test.com" },
+    });
+
+    await expect(
+      withTransactions(client).$transaction([
+        client.user.deleteMany({ where: { id: "1" }, limit: 0 }),
+        client.user.updateMany({ data: { name: "Changed" }, limit: 0 }),
+      ])
+    ).resolves.toEqual([{ count: 0 }, { count: 0 }]);
+
+    await expect(
+      withTransactions(client).$transaction([
+        client.user.deleteMany({
+          where: { id: "1" },
+          limit: 0,
+          select: { id: true },
+        }),
+      ])
+    ).resolves.toEqual([[]]);
+
+    expect(await client.user.findMany()).toEqual([
+      { id: "1", name: "Keep", email: "keep@test.com" },
+    ]);
+  });
+});
+
+/**
+ * On a batch-only driver an `update` / `delete` carries its root presence check
+ * as an in-batch GUARD whose declared failure is `notFound`. When the guard
+ * fires, the client attributes the abort by re-probing each guard's premise —
+ * but the atomic batch has already rolled back by then, so a premise a SIBLING
+ * operation broke inside the same batch holds again and blames nobody. The raw
+ * driver-mapped `NestedWriteAssertionError` (V7006, no Prisma code, a message
+ * about connect/disconnect targets) then escaped in place of the guard's own
+ * `NotFoundError` / P2025 that the transaction path produces.
+ */
+describe("$transaction([...]) guard attribution after rollback", () => {
+  const bootBatchOnly = async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    await push(setupClient, { force: true });
+    await setupClient.user.create({
+      data: { id: "b", name: "Bea", email: "bea@test.com" },
+    });
+    return createClient({
+      schema,
+      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+    });
+  };
+
+  test("batch-only: a sibling delete makes the update's own NotFoundError", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({ where: { id: "b" } }),
+          batchOnlyClient.user.update({
+            where: { id: "b" },
+            data: { name: "GONE" },
+          }),
+        ])
+      ).rejects.toMatchObject({
+        name: "NotFoundError",
+        code: VibORMErrorCode.RECORD_NOT_FOUND,
+        prismaCode: "P2025",
+        message: "No user record found for update",
+      });
+
+      // The batch rolled back whole, as it always did.
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "b", name: "Bea", email: "bea@test.com" },
+      ]);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: a sibling that invalidates an extended whereUnique names the delete", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.updateMany({
+            where: { id: "b" },
+            data: { name: "renamed" },
+          }),
+          batchOnlyClient.user.delete({ where: { id: "b", name: "Bea" } }),
+        ])
+      ).rejects.toMatchObject({
+        name: "NotFoundError",
+        code: VibORMErrorCode.RECORD_NOT_FOUND,
+        prismaCode: "P2025",
+        message: "No user record found for delete",
+      });
+
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "b", name: "Bea", email: "bea@test.com" },
+      ]);
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("transaction driver: the same batches raise the same typed errors", async () => {
+    await client.user.create({
+      data: { id: "b", name: "Bea", email: "bea@test.com" },
+    });
+
+    await expect(
+      withTransactions(client).$transaction([
+        client.user.deleteMany({ where: { id: "b" } }),
+        client.user.update({ where: { id: "b" }, data: { name: "GONE" } }),
+      ])
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+      code: VibORMErrorCode.RECORD_NOT_FOUND,
+      prismaCode: "P2025",
+      message: "No user record found for update",
+    });
+
+    await expect(
+      withTransactions(client).$transaction([
+        client.user.updateMany({
+          where: { id: "b" },
+          data: { name: "renamed" },
+        }),
+        client.user.delete({ where: { id: "b", name: "Bea" } }),
+      ])
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+      code: VibORMErrorCode.RECORD_NOT_FOUND,
+      prismaCode: "P2025",
+      message: "No user record found for delete",
+    });
+
+    expect(await client.user.findMany()).toEqual([
+      { id: "b", name: "Bea", email: "bea@test.com" },
+    ]);
+  });
+
+  test("batch-only: a premise the rollback does NOT restore is still attributed to its own guard", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      // Connecting a post that never existed: the re-probe still fails after the
+      // rollback, so this path was already attributed and must stay that way.
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.update({
+            where: { id: "b" },
+            data: { posts: { connect: { id: "never-existed" } } },
+          }),
+        ])
+      ).rejects.toMatchObject({
+        name: "NestedWriteError",
+        message: expect.stringContaining("was not found"),
+      });
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only: guards that disagree stay un-attributable rather than guess", async () => {
+    const batchOnlyClient = await bootBatchOnly();
+    try {
+      // The post belongs to a DIFFERENT author, so deleting "b" below breaks no
+      // foreign key and the batch reaches the guards.
+      await batchOnlyClient.user.create({
+        data: { id: "c", name: "Cyd", email: "cyd@test.com" },
+      });
+      await batchOnlyClient.post.create({
+        data: { id: "p", title: "Post", authorId: "c" },
+      });
+
+      // Two guards, two different (model, operation) attributions: the user
+      // update's premise is the one a sibling broke, but after the rollback
+      // both probe clean, so nothing here identifies WHICH fired. It fails
+      // closed with the raw assertion rather than blaming one at random.
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.deleteMany({ where: { id: "b" } }),
+          batchOnlyClient.user.update({
+            where: { id: "b" },
+            data: { name: "GONE" },
+          }),
+          batchOnlyClient.post.update({
+            where: { id: "p" },
+            data: { title: "Retitled" },
+          }),
+        ])
+      ).rejects.toMatchObject({
+        name: "NestedWriteAssertionError",
+        code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
+      });
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+});
+
+/**
+ * The other side of the attribution rule above: a batch failure NO guard caused.
+ *
+ * A native batch is normalized against the joined SQL, so one guard's assertion
+ * statement arms the assertion detector for every statement in the batch — and a
+ * literal `divide: 0` on a plain numeric column reaches the database (the
+ * pre-flight refusals cover produced values and PK fields, not literals), where
+ * it raises the very SQLSTATE the Postgres assertion trick uses. Reconstructing
+ * the guard's failure there reports `NotFoundError` / P2025 for a row that is
+ * present and untouched — a specific, actionable, WRONG claim, and further from
+ * the transaction path than the raw error it replaced.
+ */
+describe("$transaction([...]) attribution of a failure no guard caused", () => {
+  const counter = s
+    .model({ id: s.string().id(), n: s.int(), label: s.string() })
+    .map("batch_attribution_counter");
+  const counterSchema = { counter };
+
+  const bootCounters = async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema: counterSchema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    await push(setupClient, { force: true });
+    await setupClient.counter.create({ data: { id: "a", n: 10, label: "A" } });
+    await setupClient.counter.create({ data: { id: "b", n: 20, label: "B" } });
+    return {
+      batchOnly: createClient({
+        schema: counterSchema,
+        driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+      }),
+      transactional: setupClient,
+    };
+  };
+
+  const intact = [
+    { id: "a", n: 10, label: "A" },
+    { id: "b", n: 20, label: "B" },
+  ];
+
+  test("batch-only: a divide-by-zero is not reported as the sole guard's NotFoundError", async () => {
+    const { batchOnly, transactional } = await bootCounters();
+    try {
+      const failure = await withTransactions(batchOnly)
+        .$transaction([
+          batchOnly.counter.update({
+            where: { id: "a" },
+            data: { n: { divide: 0 } },
+          }),
+        ])
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error & { prismaCode?: string | null }
+        );
+
+      expect(failure).toBeDefined();
+      // Row "a" is right there, so P2025 would assert something false about it.
+      expect(failure?.name).not.toBe("NotFoundError");
+      expect(failure?.prismaCode ?? null).not.toBe("P2025");
+      expect(
+        await transactional.counter.findMany({ orderBy: { id: "asc" } })
+      ).toEqual(intact);
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+
+  test("batch-only: a healthy guarded sibling does not lend the failure its name", async () => {
+    const { batchOnly, transactional } = await bootCounters();
+    try {
+      const failure = await withTransactions(batchOnly)
+        .$transaction([
+          batchOnly.counter.update({
+            where: { id: "b" },
+            data: { label: "changed" },
+          }),
+          batchOnly.counter.update({
+            where: { id: "a" },
+            data: { n: { divide: 0 } },
+          }),
+        ])
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error & { prismaCode?: string | null }
+        );
+
+      expect(failure).toBeDefined();
+      expect(failure?.name).not.toBe("NotFoundError");
+      expect(failure?.prismaCode ?? null).not.toBe("P2025");
+      expect(
+        await transactional.counter.findMany({ orderBy: { id: "asc" } })
+      ).toEqual(intact);
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+
+  test("transaction driver: the same payload never claimed a missing record", async () => {
+    const { batchOnly, transactional } = await bootCounters();
+    try {
+      const failure = await withTransactions(transactional)
+        .$transaction([
+          transactional.counter.update({
+            where: { id: "a" },
+            data: { n: { divide: 0 } },
+          }),
+        ])
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error & { prismaCode?: string | null }
+        );
+
+      expect(failure).toBeDefined();
+      expect(failure?.name).not.toBe("NotFoundError");
+      expect(failure?.prismaCode ?? null).not.toBe("P2025");
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+});
+
+/**
+ * The same rule on the SQLite dialect — the one every batch-only SQLite driver
+ * runs, D1 included. Its assertion trick is `json_extract` on invalid JSON, but
+ * an ORDINARY path filter is spelled with the `->` / `->>` operators, so the
+ * counterfeit shape looks nothing like the trick and a signature that knew only
+ * the function name read it as harmless.
+ *
+ * The malformed row is inserted with a raw statement: viborm's own writes are
+ * always valid JSON, but the column can hold anything a legacy row, another
+ * writer, or a raw statement put there — and `->` raises SQLite's "malformed
+ * JSON" the moment the filter reaches it.
+ */
+describe("$transaction([...]) attribution on the SQLite dialect", () => {
+  const doc = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      payload: s.json().nullable(),
+    })
+    .map("batch_attribution_hazard_docs");
+  const docSchema = { doc };
+
+  const bootDocs = async ({ malformed }: { malformed: boolean }) => {
+    const batchOnly = createClient({
+      schema: docSchema,
+      driver: new BatchOnlySQLite3Driver({ dataDir: ":memory:" }),
+    });
+    await push(batchOnly, { force: true });
+    await batchOnly.doc.create({
+      data: { id: "b", label: "Bea", payload: { a: 1 } },
+    });
+    if (malformed) {
+      await batchOnly.$executeRawUnsafe(
+        "INSERT INTO batch_attribution_hazard_docs (id, label, payload) VALUES ('junk', 'J', 'not json')"
+      );
+    }
+    return batchOnly;
+  };
+
+  const hazardBatch = (batchOnly: Awaited<ReturnType<typeof bootDocs>>) => [
+    batchOnly.doc.update({ where: { id: "b" }, data: { label: "x" } }),
+    batchOnly.doc.updateMany({
+      where: { payload: { path: ["a"], equals: 1 } },
+      data: { label: "y" },
+    }),
+  ];
+
+  test("batch-only: a malformed-JSON path filter is not the guard's NotFoundError", async () => {
+    const batchOnly = await bootDocs({ malformed: true });
+    try {
+      const failure = await withTransactions(batchOnly)
+        .$transaction(hazardBatch(batchOnly))
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error & { prismaCode?: string | null }
+        );
+
+      expect(failure).toBeDefined();
+      // Row "b" is right there — reading it is what makes P2025 a lie.
+      expect(failure?.name).not.toBe("NotFoundError");
+      expect(failure?.prismaCode ?? null).not.toBe("P2025");
+      expect(
+        await batchOnly.doc.findUnique({ where: { id: "b" } })
+      ).toMatchObject({ id: "b", label: "Bea" });
+    } finally {
+      await batchOnly.$disconnect();
+    }
+  });
+
+  test("batch-only: the identical batch without the malformed row commits", async () => {
+    const batchOnly = await bootDocs({ malformed: false });
+    try {
+      // The control: the JSON error is the sole cause above, and the fix costs
+      // this batch nothing.
+      await withTransactions(batchOnly).$transaction(hazardBatch(batchOnly));
+      expect(
+        await batchOnly.doc.findUnique({ where: { id: "b" } })
+      ).toMatchObject({ id: "b", label: "y" });
+    } finally {
+      await batchOnly.$disconnect();
+    }
   });
 });
 

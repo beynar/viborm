@@ -81,7 +81,8 @@ export function buildCreate(ctx: QueryScope, args: CreateArgs): Sql {
  * @returns SQL statement
  */
 /**
- * Build SQL for createManyAndReturn operation
+ * Build SQL for the row-returning arm of `createMany` — internally named
+ * `createManyAndReturn`; the client spells it `createMany` with a `select`.
  *
  * INSERT ... RETURNING on adapters that support it. On adapters without
  * RETURNING this returns the bare INSERT; the operation program refetches the

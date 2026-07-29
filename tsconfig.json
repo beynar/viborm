@@ -18,7 +18,7 @@
     "skipLibCheck": true,
     "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": true,
-    "lib": ["es2022", "DOM"],
+    "lib": ["es2022", "DOM", "esnext.disposable"],
     "types": ["node", "bun", "vitest/globals"],
     "paths": {
       "@schema/*": ["./src/schema/*"],

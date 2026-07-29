@@ -33,8 +33,49 @@ export {
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./query-engine/pending-operation.js";
+// Field references (`{ gt: (ctx) => ctx.fields.likes }`) — column-to-column filters.
+// `createModelFieldRefs` is the token factory the callback uses internally, and with
+// `client.$fields` gone (D-8) it is the only way to hold a token WITHOUT a callback —
+// which the filtering docs teach as `import { createModelFieldRefs } from "viborm"`.
+export {
+  type AnyFieldRef,
+  createModelFieldRefs,
+  type FieldRef,
+  isFieldRef,
+  type ModelFieldRefs,
+} from "./schema/field-ref.js";
 // Schema builder — every doc example teaches `import { s } from "viborm"`
 export { s } from "./schema/index.js";
+// JSON null sentinels (Prisma `DbNull` / `JsonNull` / `AnyNull` parity) — the
+// two nulls of a nullable JSON column, told apart by name
+export {
+  type AnyJsonNullSentinel,
+  AnyNull,
+  DbNull,
+  isJsonNullSentinel,
+  JsonNull,
+  type JsonNullKind,
+  JsonNullSentinel,
+} from "./schema/json-null.js";
+// The JSON write-position value type (no bare top-level `null` — use a sentinel)
+export type { InputJsonValue, JsonValue } from "./validation/index.js";
+
+// =============================================================================
+// RAW SQL
+// =============================================================================
+
+// Tagged-template SQL and the composition helpers `$queryRaw`/`$executeRaw`
+// interpolations are built from. Also available as `viborm/sql`.
+export {
+  empty,
+  isSql,
+  join,
+  type RawValue,
+  raw,
+  Sql,
+  sql,
+  type Value,
+} from "./sql/sql.js";
 
 // =============================================================================
 // ERRORS
@@ -43,6 +84,7 @@ export { s } from "./schema/index.js";
 export {
   // Specific errors
   CheckConstraintError,
+  ClientInitializationError,
   ConnectionError,
   type DiagnosticDisclosure,
   FeatureNotSupportedError,
@@ -53,10 +95,15 @@ export {
   NestedWriteError,
   NotFoundError,
   NotNullConstraintError,
+  // Prisma error-code compatibility (`error.prismaCode`)
+  type PrismaErrorCode,
   QueryError,
   TransactionError,
+  toPrismaErrorCode,
   UniqueConstraintError,
+  UnsupportedOperationError,
   ValidationError,
+  ValueTooLongError,
   // Base error
   VibORMError,
   VibORMErrorCode,

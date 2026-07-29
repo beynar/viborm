@@ -4,6 +4,7 @@ import {
   CacheInvalidTTLError,
   CacheOperationNotCacheableError,
   CheckConstraintError,
+  ClientInitializationError,
   ConnectionError,
   type DiagnosticDisclosure,
   FeatureNotSupportedError,
@@ -22,7 +23,9 @@ import {
   sanitizeErrorMetadata,
   TransactionError,
   UniqueConstraintError,
+  UnsupportedOperationError,
   ValidationError,
+  ValueTooLongError,
   VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
@@ -205,6 +208,7 @@ function isOperation(value: unknown): value is Operation {
       "createManyAndReturn",
       "delete",
       "deleteMany",
+      "deleteManyAndReturn",
       "exist",
       "findFirst",
       "findMany",
@@ -218,51 +222,40 @@ function isOperation(value: unknown): value is Operation {
   );
 }
 
+// Every concrete VibORMError subclass whose identity must survive cloning.
+// ValidationError is absent on purpose: cloneValidationError handles it.
+const CLONE_CONSTRUCTORS = [
+  CacheConfigurationError,
+  CacheInvalidKeyError,
+  CacheInvalidTTLError,
+  CacheOperationNotCacheableError,
+  CheckConstraintError,
+  ClientInitializationError,
+  ConnectionError,
+  FeatureNotSupportedError,
+  ForeignKeyError,
+  InvalidTransactionInputError,
+  MigrationError,
+  NestedWriteAssertionError,
+  NestedWriteError,
+  NotFoundError,
+  NotNullConstraintError,
+  PendingOperationError,
+  QueryEngineError,
+  QueryError,
+  TransactionError,
+  UniqueConstraintError,
+  UnsupportedOperationError,
+  ValueTooLongError,
+] as const;
+
 function getCloneConstructor(error: VibORMError): unknown {
   try {
     const prototype = Object.getPrototypeOf(error);
-    if (prototype === CacheConfigurationError.prototype) {
-      return CacheConfigurationError;
-    }
-    if (prototype === CacheInvalidKeyError.prototype) {
-      return CacheInvalidKeyError;
-    }
-    if (prototype === CacheInvalidTTLError.prototype) {
-      return CacheInvalidTTLError;
-    }
-    if (prototype === CacheOperationNotCacheableError.prototype) {
-      return CacheOperationNotCacheableError;
-    }
-    if (prototype === CheckConstraintError.prototype) {
-      return CheckConstraintError;
-    }
-    if (prototype === ConnectionError.prototype) return ConnectionError;
-    if (prototype === FeatureNotSupportedError.prototype) {
-      return FeatureNotSupportedError;
-    }
-    if (prototype === ForeignKeyError.prototype) return ForeignKeyError;
-    if (prototype === InvalidTransactionInputError.prototype) {
-      return InvalidTransactionInputError;
-    }
-    if (prototype === MigrationError.prototype) return MigrationError;
-    if (prototype === NestedWriteAssertionError.prototype) {
-      return NestedWriteAssertionError;
-    }
-    if (prototype === NestedWriteError.prototype) return NestedWriteError;
-    if (prototype === NotFoundError.prototype) return NotFoundError;
-    if (prototype === NotNullConstraintError.prototype) {
-      return NotNullConstraintError;
-    }
-    if (prototype === PendingOperationError.prototype) {
-      return PendingOperationError;
-    }
-    if (prototype === QueryEngineError.prototype) return QueryEngineError;
-    if (prototype === QueryError.prototype) return QueryError;
-    if (prototype === TransactionError.prototype) return TransactionError;
-    if (prototype === UniqueConstraintError.prototype) {
-      return UniqueConstraintError;
-    }
-    return VibORMError;
+    return (
+      CLONE_CONSTRUCTORS.find((ctor) => ctor.prototype === prototype) ??
+      VibORMError
+    );
   } catch {
     return VibORMError;
   }

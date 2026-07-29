@@ -24,6 +24,7 @@ import {
   sanitizeSqlState,
   sanitizeString,
   sanitizeTrustedCode,
+  sanitizeTrustedPrismaCode,
   TRUNCATED_DIAGNOSTIC_VALUE,
   UNREADABLE_DIAGNOSTIC_VALUE,
 } from "./diagnostic-safety";
@@ -52,6 +53,8 @@ interface TrustedErrorSnapshot {
   readonly message: string;
   readonly meta: Record<string, unknown>;
   readonly name: string;
+  /** Prisma-compatible code, present only when the taxonomy claims one. */
+  readonly prismaCode?: string | undefined;
   readonly timestamp: string;
 }
 
@@ -111,7 +114,9 @@ const ERROR_META_KEYS = new Set([
   "timeout",
   "type",
 ]);
-const LOG_META_KEYS = new Set(["event", "status"]);
+// `deprecation` carries ORM-authored constant notice text (never user data or
+// query text), so it is disclosed on the warning channel unconditionally.
+const LOG_META_KEYS = new Set(["deprecation", "event", "status"]);
 const STRING_META_KEYS = new Set([
   "actualChecksum",
   "column",
@@ -119,6 +124,7 @@ const STRING_META_KEYS = new Set([
   "constraint",
   "context",
   "correlationId",
+  "deprecation",
   "dialect",
   "driver",
   "expectedChecksum",
@@ -235,6 +241,7 @@ export function registerTrustedError(
     message: string;
     meta: Record<string, unknown>;
     name: string;
+    prismaCode?: string | undefined;
     timestamp: Date;
   }
 ): void {
@@ -252,6 +259,7 @@ export function registerTrustedError(
       sanitizeErrorMetadata(snapshot.meta, disclosure)
     ),
     name: boundTrustedString(snapshot.name),
+    prismaCode: sanitizeTrustedPrismaCode(snapshot.prismaCode),
     timestamp: safeDateString(snapshot.timestamp),
   });
   defineHidden(error, TRUSTED_ERROR_SNAPSHOT, trusted);
@@ -266,6 +274,9 @@ export function serializeTrustedError(
   defineSafe(serialized, "name", snapshot.name);
   defineSafe(serialized, "message", snapshot.message);
   defineSafe(serialized, "code", snapshot.code);
+  if (snapshot.prismaCode !== undefined) {
+    defineSafe(serialized, "prismaCode", snapshot.prismaCode);
+  }
   defineSafe(
     serialized,
     "meta",
@@ -459,6 +470,9 @@ function sanitizeError(
 
   if (trusted) {
     defineSafe(sanitized, "code", trusted.code);
+    if (trusted.prismaCode !== undefined) {
+      defineSafe(sanitized, "prismaCode", trusted.prismaCode);
+    }
   } else {
     for (const key of SAFE_ERROR_KEYS) {
       const value = safeRead(error, key);
@@ -483,6 +497,7 @@ function sanitizeError(
       message: trusted.message,
       meta: trusted.meta,
       name: trusted.name,
+      prismaCode: trusted.prismaCode,
       timestamp: new Date(trusted.timestamp),
     });
   }
@@ -601,6 +616,9 @@ function getTrustedErrorSnapshot(
   const message = safeRead(snapshot, "message");
   const meta = safeRead(snapshot, "meta");
   const name = safeRead(snapshot, "name");
+  const prismaCode = sanitizeTrustedPrismaCode(
+    safeRead(snapshot, "prismaCode")
+  );
   const timestamp = safeRead(snapshot, "timestamp");
   if (
     (cause !== undefined && !isError(cause)) ||
@@ -613,7 +631,16 @@ function getTrustedErrorSnapshot(
   ) {
     return undefined;
   }
-  return { cause, code, disclosure, message, meta, name, timestamp };
+  return {
+    cause,
+    code,
+    disclosure,
+    message,
+    meta,
+    name,
+    prismaCode,
+    timestamp,
+  };
 }
 
 function isResolvedDisclosure(

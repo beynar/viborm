@@ -41,6 +41,7 @@
     "client/sorting",
     "client/pagination",
     "client/transactions",
+    "client/errors",
     "client/compatibility",
     "---Cache---",
     "cache/index",

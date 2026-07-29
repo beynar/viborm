@@ -246,14 +246,38 @@ describe("transaction entry gates and poison", () => {
     expect(driver.providerExecutions).toBe(0);
   });
 
-  test("removed options win before capability checks", async () => {
+  /**
+   * REWRITTEN for decision D-2 (W5-U3). The old pin read "removed options win
+   * before capability checks" and used `{}` to prove it. Options are no longer
+   * removed, so the surviving contract is the ordering: an option verdict —
+   * malformed (`V5005`) or unhonorable (`V8003`) — is reached before the
+   * driver's own capability check, and no provider work happens either way.
+   */
+  test("an option verdict wins before capability checks", async () => {
     const driver = new NoAtomicDriver();
+    // Malformed input loses first, whatever the driver can do.
     await expect(
-      Reflect.apply(driver._transaction, driver, [async () => undefined, {}])
+      Reflect.apply(driver._transaction, driver, [
+        async () => undefined,
+        { timeout: -1 },
+      ])
     ).rejects.toMatchObject({ code: "V5005" });
     await expect(
       Reflect.apply(driver._executeBatch, driver, [[], { timeout: 1 }])
     ).rejects.toMatchObject({ code: "V5005" });
+    // A well-formed option this driver never declared support for is a typed
+    // refusal, and it still beats the "supports neither transactions nor batch"
+    // capability error below.
+    await expect(
+      Reflect.apply(driver._transaction, driver, [
+        async () => undefined,
+        { isolationLevel: "Serializable" },
+      ])
+    ).rejects.toMatchObject({ code: "V8003" });
+    // Asking for nothing lets the capability check speak, as it always did.
+    await expect(
+      Reflect.apply(driver._transaction, driver, [async () => undefined, {}])
+    ).rejects.toMatchObject({ code: "V5001" });
     expect(driver.providerExecutions).toBe(0);
   });
 

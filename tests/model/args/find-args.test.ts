@@ -217,6 +217,35 @@ describe("Find Args - Top-level Select/Include Exclusivity Runtime", () => {
       "Mutually exclusive fields cannot be used together: select, include"
     );
   });
+
+  // The refusal reads the projection's VALUE, not its key. The spread-an-
+  // optional idiom spelled out — `{ select: args.select, include: args.include }`
+  // with one or both undefined — names at most ONE projection, and the parse
+  // boundary treats an explicitly-`undefined` key as absent everywhere else.
+  test("runtime: findMany accepts a select beside an undefined include", () => {
+    const result = parse(authorSchemas.args.findMany, {
+      select: { id: true },
+      include: undefined,
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: findMany accepts an include beside an undefined select", () => {
+    const result = parse(authorSchemas.args.findMany, {
+      select: undefined,
+      include: { posts: true },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: findUnique accepts both spelled undefined", () => {
+    const result = parse(authorSchemas.args.findUnique, {
+      where: { id: "author-1" },
+      select: undefined,
+      include: undefined,
+    });
+    expect(result.issues).toBeUndefined();
+  });
 });
 
 // =============================================================================
@@ -338,17 +367,32 @@ describe("FindMany Args - Nested Relation OrderBy Types", () => {
     expectTypeOf(input).toMatchTypeOf<CommentInput>();
   });
 
-  test("type: rejects four-hop to-one relation orderBy", () => {
+  test("type: accepts an eight-hop to-one relation orderBy", () => {
+    // MAX_RELATION_ORDER_DEPTH (src/validation/relations/order-by.ts) is 8.
     const input = {
       orderBy: {
-        manager: { manager: { manager: { username: "asc" } } },
+        manager: {
+          manager: {
+            manager: {
+              manager: {
+                manager: {
+                  manager: { manager: { manager: { username: "asc" } } },
+                },
+              },
+            },
+          },
+        },
       },
     } satisfies UserInput;
 
     expectTypeOf(input).toMatchTypeOf<UserInput>();
+  });
 
-    // @ts-expect-error relation orderBy is capped at three relation hops
-    const tooDeep: UserInput = { orderBy: { manager: { manager: { manager: { manager: { username: "asc" } } } } } };
+  test("type: rejects a nine-hop to-one relation orderBy", () => {
+    // Stays on ONE line (like the to-many case below): split across lines, the
+    // error is reported on an inner property and @ts-expect-error misses it.
+    // @ts-expect-error relation orderBy is capped at eight relation hops
+    const tooDeep: UserInput = { orderBy: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { username: "asc" } } } } } } } } } } };
     expect(tooDeep).toBeDefined();
   });
 
@@ -543,5 +587,79 @@ describe("FindMany Args - Author Model Runtime (with relations)", () => {
       take: 10,
     });
     expect(result.issues).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// DISTINCT — findFirst support + bare-string shorthand
+// =============================================================================
+
+describe("Distinct Args - findMany and findFirst", () => {
+  const findMany = simpleSchemas.args.findMany;
+  const findFirst = simpleSchemas.args.findFirst;
+
+  test("type: findMany accepts a bare string and an array", () => {
+    type Input = InferInput<typeof simpleSchemas.args.findMany>;
+    expectTypeOf<{ distinct: "name" }>().toMatchTypeOf<Input>();
+    expectTypeOf<{ distinct: ["name", "email"] }>().toMatchTypeOf<Input>();
+  });
+
+  test("type: findFirst accepts distinct in both spellings", () => {
+    type Input = InferInput<typeof simpleSchemas.args.findFirst>;
+    expectTypeOf<{ distinct: "name" }>().toMatchTypeOf<Input>();
+    expectTypeOf<{ distinct: ["name"] }>().toMatchTypeOf<Input>();
+  });
+
+  test("type: a non-scalar name is not assignable", () => {
+    type Input = InferInput<typeof simpleSchemas.args.findFirst>;
+    expectTypeOf<{ distinct: "nope" }>().not.toMatchTypeOf<Input>();
+  });
+
+  test("runtime: findFirst accepts distinct as an array", () => {
+    const result = parse(findFirst, { distinct: ["name"] });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues) {
+      expect(argsOutput(result.value).distinct).toEqual(["name"]);
+    }
+  });
+
+  test("runtime: a bare string normalizes to a one-element array", () => {
+    for (const schema of [findMany, findFirst]) {
+      const result = parse(schema, { distinct: "name" });
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(argsOutput(result.value).distinct).toEqual(["name"]);
+      }
+    }
+  });
+
+  test("runtime: string and array spellings produce the same output", () => {
+    const fromString = parse(findFirst, { distinct: "email" });
+    const fromArray = parse(findFirst, { distinct: ["email"] });
+    expect(fromString.issues).toBeUndefined();
+    expect(fromArray.issues).toBeUndefined();
+    if (!(fromString.issues || fromArray.issues)) {
+      expect(argsOutput(fromString.value).distinct).toEqual(
+        argsOutput(fromArray.value).distinct
+      );
+    }
+  });
+
+  test("runtime: rejects an unknown field name in either spelling", () => {
+    expect(parse(findFirst, { distinct: "nope" }).issues).toBeDefined();
+    expect(parse(findFirst, { distinct: ["nope"] }).issues).toBeDefined();
+    expect(parse(findMany, { distinct: "nope" }).issues).toBeDefined();
+  });
+
+  test("runtime: findFirst still rejects unknown top-level keys", () => {
+    expect(parse(findFirst, { distinctt: ["name"] }).issues).toBeDefined();
+  });
+
+  test("runtime: findUnique does not accept distinct (Prisma parity)", () => {
+    const result = parse(simpleSchemas.args.findUnique, {
+      where: { id: "1" },
+      distinct: ["name"],
+    });
+    expect(result.issues).toBeDefined();
   });
 });

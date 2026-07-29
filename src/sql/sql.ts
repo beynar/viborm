@@ -151,9 +151,23 @@ export class Sql {
 }
 
 /**
- * Create raw SQL statement.
+ * Splice text into a statement verbatim — nothing here is bound as a
+ * parameter. Two shapes live under this one name:
+ *
+ * - `raw("ORDER BY name DESC")` — Prisma's unsafe string splice. The caller
+ *   owns the escaping; never hand it user input.
+ * - ``raw`TRUE` `` — the tagged-template form the adapters use for dialect
+ *   keywords. Interpolations are concatenated into the text, not bound.
  */
-function raw(strings: readonly string[], ...values: readonly RawValue[]) {
+function raw(value: string): Sql;
+function raw(strings: readonly string[], ...values: readonly RawValue[]): Sql;
+function raw(
+  strings: string | readonly string[],
+  ...values: readonly RawValue[]
+): Sql {
+  if (typeof strings === "string") {
+    return new Sql([strings], []);
+  }
   const concatenated = strings.reduce((acc, string, index) => {
     return acc + string + (values[index] ?? "");
   }, "");
@@ -162,9 +176,12 @@ function raw(strings: readonly string[], ...values: readonly RawValue[]) {
 
 /**
  * Create a SQL query for a list of values.
+ *
+ * Values are `RawValue`s, matching Prisma: a nested `Sql` is spliced as a
+ * fragment, anything else becomes a bound parameter.
  */
 function join(
-  values: readonly Sql[],
+  values: readonly RawValue[],
   separator = ",",
   prefix = "",
   suffix = ""
@@ -218,7 +235,7 @@ const sqlProxy = new Proxy(sql, {
   join: typeof join;
 };
 
-export { sqlProxy as sql };
+export { empty, join, raw, sqlProxy as sql };
 
 /**
  * Type guard for Sql fragments. Structural check rather than instanceof so it

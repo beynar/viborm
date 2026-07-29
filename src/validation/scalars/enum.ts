@@ -1,29 +1,43 @@
 import type { ScalarState } from "@schema/scalars/common";
-import v, { type V } from "../primitives/v";
 import type { EnumSchema, EnumValues } from "@validation/primitives/enum";
+import v, { type V } from "../primitives/v";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // FILTER TYPES
 // =============================================================================
 
-type EnumFilterBase<S extends V.Schema, Values extends string[]> = {
-  equals: S;
+/**
+ * Equality operand: a literal, a field reference to another enum column, an SQL
+ * fragment, or a callback returning one of the latter two.
+ */
+type EnumOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"enum", S, C>;
+
+type EnumFilterBase<
+  S extends V.Schema,
+  Values extends string[],
+  C extends V.Operand<any>,
+> = {
+  equals: EnumOperand<S, C>;
   in: V.Enum<Values, { array: true }>;
   notIn: V.Enum<Values, { array: true }>;
+  lt: V.Schema<never, never>;
+  lte: V.Schema<never, never>;
+  gt: V.Schema<never, never>;
+  gte: V.Schema<never, never>;
 };
 
-type EnumFilterSchema<S extends V.Schema, Values extends string[]> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      EnumFilterBase<S, Values> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<EnumFilterBase<S, Values>>]
-        >;
-      }
-    >,
-  ]
->;
+type EnumFilterSchema<
+  S extends V.Schema,
+  Values extends string[],
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<EnumOperand<S, C>, EnumFilterBase<S, Values, C>>;
 
 type EnumListFilterBase<S extends V.Schema, Values extends string[]> = {
   equals: S;
@@ -36,21 +50,7 @@ type EnumListFilterBase<S extends V.Schema, Values extends string[]> = {
 type EnumListFilterSchema<
   S extends V.Schema,
   Values extends string[],
-> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      EnumListFilterBase<S, Values> & {
-        not: V.Union<
-          readonly [
-            V.ShorthandFilter<S>,
-            V.Object<EnumListFilterBase<S, Values>>,
-          ]
-        >;
-      }
-    >,
-  ]
->;
+> = NegatableFilterSchema<S, EnumListFilterBase<S, Values>>;
 
 // =============================================================================
 // UPDATE TYPES
@@ -88,27 +88,50 @@ type EnumListUpdateSchema<
 // SCHEMA BUILDERS
 // =============================================================================
 
+/**
+ * Ordered comparison on an enum has no portable answer, so it is refused —
+ * loudly, rather than by being quietly absent.
+ *
+ * PostgreSQL stores an enum as its own type and orders it by DECLARATION
+ * order; MySQL's `ENUM` compares as text once either side is coerced, and
+ * SQLite stores plain text. `role > 'moderator'` would therefore select
+ * different rows per provider, which is exactly the silent divergence a
+ * portable ORM must not ship. `equals`/`not`/`in`/`notIn` are unaffected:
+ * equality agrees everywhere.
+ */
+const orderedEnumRefusal = (operator: string) =>
+  v.refused(
+    `Filter operation '${operator}' is not supported on an enum field: PostgreSQL orders enum values by their declaration order while MySQL and SQLite compare them as text, so the same query would answer differently per provider. Use 'equals'/'in', or model the field as a string or int if you need ordering.`
+  );
+
 const enumBase = <Values extends string[]>(values: Values) => v.enum(values);
 
 const enumList = <Values extends string[]>(values: Values) =>
   v.enum(values, { array: true });
 
-const buildEnumFilterSchema = <S extends V.Schema, Values extends string[]>(
+const buildEnumFilterSchema = <
+  S extends V.Schema,
+  Values extends string[],
+  C extends V.Operand<any>,
+>(
   schema: S,
   values: Values
-): EnumFilterSchema<S, Values> => {
+): EnumFilterSchema<S, Values, C> => {
   const list = enumList(values);
+  const operand = v.comparisonOperand("enum", schema);
   const filter = v.object({
-    equals: schema,
+    equals: operand,
     in: list,
     notIn: list,
+    lt: orderedEnumRefusal("lt"),
+    lte: orderedEnumRefusal("lte"),
+    gt: orderedEnumRefusal("gt"),
+    gte: orderedEnumRefusal("gte"),
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<
+    EnumOperand<S, C>,
+    EnumFilterBase<S, Values, C>
+  >(filter, operand);
 };
 
 const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
@@ -127,10 +150,10 @@ const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
   const filter = enumListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, EnumListFilterBase<S, Values>>(
+    filter,
+    schema
+  );
 };
 
 const buildEnumUpdateSchema = <S extends V.Schema>(
@@ -169,6 +192,7 @@ const buildEnumListUpdateSchema = <S extends V.Schema, Values extends string[]>(
 export interface EnumSchemas<
   Values extends string[],
   F extends ScalarState<"enum">,
+  C extends V.Operand<any> = V.Operand<any>,
 > {
   base: F["base"];
   create: V.Enum<Values, F>;
@@ -177,12 +201,15 @@ export interface EnumSchemas<
     : EnumUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? EnumListFilterSchema<F["base"], Values>
-    : EnumFilterSchema<F["base"], Values>;
+    : EnumFilterSchema<F["base"], Values, C>;
 }
 
-export const buildEnumSchema = <F extends ScalarState<"enum">>(
+export const buildEnumSchema = <
+  F extends ScalarState<"enum">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): EnumSchemas<EnumValues<F["base"]>, F> => {
+): EnumSchemas<EnumValues<F["base"]>, F, C> => {
   const values = (state.base as EnumSchema<EnumValues<F["base"]>>).values;
   return {
     base: state.base as F["base"],
@@ -193,5 +220,5 @@ export const buildEnumSchema = <F extends ScalarState<"enum">>(
     filter: state.array
       ? buildEnumListFilterSchema(state.base, values)
       : buildEnumFilterSchema(state.base, values),
-  } as EnumSchemas<EnumValues<F["base"]>, F>;
+  } as EnumSchemas<EnumValues<F["base"]>, F, C>;
 };

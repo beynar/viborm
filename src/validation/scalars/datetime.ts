@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // BASE TYPES
@@ -13,28 +17,29 @@ const datetimeList = v.isoTimestamp({ array: true });
 // FILTER TYPES
 // =============================================================================
 
-type DateTimeFilterBase<S extends V.Schema> = {
-  equals: S;
+/**
+ * Comparison operand: a literal, a field reference to another datetime column, an
+ * SQL fragment, or a callback returning one of the latter two.
+ */
+type DateTimeOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"datetime", S, C>;
+
+type DateTimeFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: DateTimeOperand<S, C>;
   in: V.IsoTimestamp<{ array: true }>;
   notIn: V.IsoTimestamp<{ array: true }>;
-  lt: V.IsoTimestamp;
-  lte: V.IsoTimestamp;
-  gt: V.IsoTimestamp;
-  gte: V.IsoTimestamp;
+  lt: DateTimeOperand<V.IsoTimestamp, C>;
+  lte: DateTimeOperand<V.IsoTimestamp, C>;
+  gt: DateTimeOperand<V.IsoTimestamp, C>;
+  gte: DateTimeOperand<V.IsoTimestamp, C>;
 };
 
-type DateTimeFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      DateTimeFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<DateTimeFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
->;
+type DateTimeFilterSchema<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<DateTimeOperand<S, C>, DateTimeFilterBase<S, C>>;
 
 type DateTimeListFilterBase<S extends V.Schema> = {
   equals: S;
@@ -44,17 +49,9 @@ type DateTimeListFilterBase<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type DateTimeListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      DateTimeListFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<DateTimeListFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type DateTimeListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  DateTimeListFilterBase<S>
 >;
 
 // =============================================================================
@@ -93,24 +90,26 @@ type DateTimeListUpdateSchema<S extends V.Schema> = V.Union<
 const datetimeFilterBase = v.object({
   in: datetimeList,
   notIn: datetimeList,
-  lt: datetimeBase,
-  lte: datetimeBase,
-  gt: datetimeBase,
-  gte: datetimeBase,
+  lt: v.comparisonOperand("datetime", datetimeBase),
+  lte: v.comparisonOperand("datetime", datetimeBase),
+  gt: v.comparisonOperand("datetime", datetimeBase),
+  gte: v.comparisonOperand("datetime", datetimeBase),
 });
 
-const buildDateTimeFilterSchema = <S extends V.Schema>(
+const buildDateTimeFilterSchema = <
+  S extends V.Schema,
+  C extends V.Operand<any>,
+>(
   schema: S
-): DateTimeFilterSchema<S> => {
+): DateTimeFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("datetime", schema);
   const filter = datetimeFilterBase.extend({
-    equals: schema,
+    equals: operand,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<
+    DateTimeOperand<S, C>,
+    DateTimeFilterBase<S, C>
+  >(filter, operand);
 };
 
 const datetimeListFilterBase = v.object({
@@ -126,10 +125,10 @@ const buildDateTimeListFilterSchema = <S extends V.Schema>(
   const filter = datetimeListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, DateTimeListFilterBase<S>>(
+    filter,
+    schema
+  );
 };
 
 const buildDateTimeUpdateSchema = <S extends V.Schema>(
@@ -157,7 +156,10 @@ const buildDateTimeListUpdateSchema = <S extends V.Schema>(
     }),
   ]);
 
-export interface DateTimeSchemas<F extends ScalarState<"datetime">> {
+export interface DateTimeSchemas<
+  F extends ScalarState<"datetime">,
+  C extends V.Operand<any> = V.Operand<any>,
+> {
   base: F["base"];
   create: V.IsoTimestamp<F>;
   update: F["array"] extends true
@@ -165,15 +167,18 @@ export interface DateTimeSchemas<F extends ScalarState<"datetime">> {
     : DateTimeUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? DateTimeListFilterSchema<F["base"]>
-    : DateTimeFilterSchema<F["base"]>;
+    : DateTimeFilterSchema<F["base"], C>;
 }
 
 const internFilter = createScalarInterner<unknown>();
 const internUpdate = createScalarInterner<unknown>();
 
-export const buildDateTimeSchema = <F extends ScalarState<"datetime">>(
+export const buildDateTimeSchema = <
+  F extends ScalarState<"datetime">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): DateTimeSchemas<F> => {
+): DateTimeSchemas<F, C> => {
   const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
@@ -188,5 +193,5 @@ export const buildDateTimeSchema = <F extends ScalarState<"datetime">>(
         ? buildDateTimeListFilterSchema(state.base)
         : buildDateTimeFilterSchema(state.base)
     ) as never,
-  } as DateTimeSchemas<F>;
+  } as DateTimeSchemas<F, C>;
 };

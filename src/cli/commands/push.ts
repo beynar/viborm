@@ -14,6 +14,7 @@ import { getMigrationDriver } from "../../migrations/drivers";
 import { push } from "../../migrations/push";
 import { normalizeDialect } from "../../migrations/utils";
 import { displayOperations, displaySQL, interactiveResolve } from "../prompts";
+import { createRecordingResolver } from "../resolve-recorder";
 import { loadConfig } from "../utils";
 
 export const pushCommand = new Command("push")
@@ -104,10 +105,18 @@ export const pushCommand = new Command("push")
       // 4. Introspect and diff
       spinner.start("Comparing schemas...");
 
+      // Record every interactive decision made during the dry-run pass so the
+      // apply pass can replay it verbatim. Without this, re-planning for apply
+      // would fall back to force semantics and a change the user resolved as
+      // "rename" would silently execute as DROP + ADD (data loss).
+      const recorder = options.force
+        ? undefined
+        : createRecordingResolver(interactiveResolve);
+
       const result = await push(client, {
         force: options.force,
         dryRun: true, // First run as dry-run to preview
-        resolve: options.force ? undefined : interactiveResolve,
+        resolve: recorder?.resolve,
       });
 
       spinner.stop("Schema comparison complete");
@@ -179,9 +188,15 @@ export const pushCommand = new Command("push")
       // 10. Apply changes
       spinner.start("Applying changes...");
 
+      // --force keeps force semantics (no interactive pass at all). The
+      // interactive path replays the recorded dry-run decisions instead of
+      // re-prompting; force stays false there so a change that was never
+      // resolved during the dry run (e.g. concurrent drift between the two
+      // planning passes) aborts instead of degrading to add+drop.
       const applyResult = await push(client, {
-        force: true,
+        force: options.force,
         dryRun: false,
+        resolve: recorder?.replay,
       });
 
       spinner.stop(`Applied ${applyResult.operations.length} change(s)`);

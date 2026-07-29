@@ -23,27 +23,35 @@ import { sql } from "@sql";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { MySQL2BatchForcedDriver } from "./batch-forced-mysql2";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
+import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
+import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
+import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
-import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
 import { runNestedWriteConcurrencyBehavior } from "./nested-write-concurrency-behavior";
 import { runNonReturningMutationAtomicityBehavior } from "./non-returning-mutation-atomicity-behavior";
+import { runOmitBehavior } from "./omit-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -187,12 +195,30 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
 
-  runManyAndReturnBehavior({
+  runImplicitReturningBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runBulkWriteLimitBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
 
   runListJsonFilterBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runJsonNullSentinelBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  // MySQL's default collation is case- and accent-INSENSITIVE, so it is the
+  // only leg where the collation wrappers on a referenced operand can be
+  // observed to matter at all.
+  runFieldReferenceBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
@@ -222,6 +248,11 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
   runNestedOrderByBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runOmitBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
@@ -266,6 +297,12 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
 
+  runDecimalExactnessBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+    exactDecimal: true,
+  });
+
   runFullScalarRoundtripBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
@@ -282,6 +319,11 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runLikeEscapeBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runBlobFilterBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
@@ -344,6 +386,7 @@ describeIf("MySQL2 Driver", () => {
     name: "MySQL2 transaction",
     createDriver: createMySQL2Driver,
   });
+
   runUpdateFamilyBehavior({
     name: "MySQL2 atomic batch",
     createDriver: () =>
@@ -351,6 +394,24 @@ describeIf("MySQL2 Driver", () => {
         databaseUrl: TEST_CONNECTION_STRING,
       }),
     createStateDriver: createMySQL2Driver,
+  });
+
+  // TRANSACTION mode only. This suite drives the CLIENT, and a batch-only MySQL
+  // is non-returning: `assertRoutedAtomicResolution` refuses update / delete /
+  // upsert before any I/O there (the same boundary noted for CLASS III below).
+  // The batch-substrate leg of extended whereUnique is carried by the
+  // RETURNING-capable batch-only drivers (PGlite, SQLite3, LibSQL, pg).
+  runExtendedWhereUniqueBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+
+  // Same reason: MySQL is non-returning, so the batch-substrate leg of the to-one
+  // `update { where, data }` form is carried by the RETURNING-capable batch-only
+  // drivers (PGlite, SQLite3, LibSQL, pg).
+  runToOneUpdateWhereBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
   });
 
   runUpsertFamilyBehavior({

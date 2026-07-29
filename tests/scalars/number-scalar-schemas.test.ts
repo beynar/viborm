@@ -4,7 +4,7 @@
  * Systematically tests type inference AND runtime validation for all number scalar variants:
  * - Int (integer numbers)
  * - Float (floating-point numbers)
- * - Decimal (decimal numbers, same as float at runtime)
+ * - Decimal (exact decimals: accepts string | number, produces a canonical string)
  *
  * For each number type, tests these variants:
  * - Raw (required)
@@ -31,8 +31,12 @@ import {
   minValue,
   number,
   pipe,
+  regex,
+  string,
 } from "valibot";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+const TWO_DECIMAL_PRICE = /^\d+\.\d{2}$/;
 
 type InferScalarInput<
   State extends ScalarState,
@@ -1054,6 +1058,11 @@ describe("Float Scalar", () => {
 describe("Decimal Scalar", () => {
   // ===========================================================================
   // RAW DECIMAL SCALAR (required, no modifiers)
+  //
+  // W6-U1: a decimal is string-backed. It ACCEPTS `string | number` and always
+  // PRODUCES the canonical decimal string, because the value a `numeric` /
+  // `DECIMAL(65,30)` column holds does not fit in a double. Every assertion
+  // below is the new contract, not a relaxed version of the old one.
   // ===========================================================================
 
   describe("Raw Decimal Scalar", () => {
@@ -1062,43 +1071,66 @@ describe("Decimal Scalar", () => {
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
-      test("type: base is number", () => {
+      test("type: base accepts string | number", () => {
         type Base = InferDecimalInput<State, "base">;
-        expectTypeOf<Base>().toEqualTypeOf<number>();
+        expectTypeOf<Base>().toEqualTypeOf<string | number>();
       });
 
-      test("runtime: parses decimal", () => {
+      test("type: base OUTPUT is string", () => {
+        type Out = InferOutput<State["base"]>;
+        expectTypeOf<Out>().toEqualTypeOf<string>();
+      });
+
+      test("runtime: parses an exact decimal string, digits intact", () => {
+        const r1 = parse(schemas.base, "123.456");
+        if (r1.issues) throw new Error("Expected success");
+        expect(r1.value).toBe("123.456");
+
+        // 30 fraction digits survive; a double would have kept ~15
+        const r2 = parse(schemas.base, "0.000000000000000000000000000001");
+        if (r2.issues) throw new Error("Expected success");
+        expect(r2.value).toBe("0.000000000000000000000000000001");
+      });
+
+      test("runtime: parses a number, naming the double it was given", () => {
         const r1 = parse(schemas.base, 123.456);
         if (r1.issues) throw new Error("Expected success");
-        expect(r1.value).toBe(123.456);
+        expect(r1.value).toBe("123.456");
 
-        const r2 = parse(schemas.base, 0.001);
+        const r2 = parse(schemas.base, 100);
         if (r2.issues) throw new Error("Expected success");
-        expect(r2.value).toBe(0.001);
+        expect(r2.value).toBe("100");
       });
 
-      test("runtime: parses integer", () => {
-        const result = parse(schemas.base, 100);
+      test("runtime: canonicalizes, so one number has one spelling", () => {
+        const result = parse(schemas.base, "1.10");
         if (result.issues) throw new Error("Expected success");
-        expect(result.value).toBe(100);
+        expect(result.value).toBe("1.1");
       });
 
-      test("runtime: rejects non-number", () => {
-        expect(parse(schemas.base, "123.45").issues).toBeDefined();
+      test("runtime: rejects non-decimals, exponents included", () => {
+        expect(parse(schemas.base, "1e3").issues).toBeDefined();
+        expect(parse(schemas.base, "12.3.4").issues).toBeDefined();
+        expect(parse(schemas.base, "abc").issues).toBeDefined();
+        expect(parse(schemas.base, Number.NaN).issues).toBeDefined();
         expect(parse(schemas.base, null).issues).toBeDefined();
       });
     });
 
     describe("create", () => {
-      test("type: create is required number", () => {
+      test("type: create is a required string | number", () => {
         type Create = InferDecimalInput<State, "create">;
-        expectTypeOf<Create>().toEqualTypeOf<number>();
+        expectTypeOf<Create>().toEqualTypeOf<string | number>();
       });
 
-      test("runtime: accepts decimal", () => {
-        const result = parse(schemas.create, 99.99);
-        if (result.issues) throw new Error("Expected success");
-        expect(result.value).toBe(99.99);
+      test("runtime: accepts both spellings", () => {
+        const fromString = parse(schemas.create, "99.99");
+        if (fromString.issues) throw new Error("Expected success");
+        expect(fromString.value).toBe("99.99");
+
+        const fromNumber = parse(schemas.create, 99.99);
+        if (fromNumber.issues) throw new Error("Expected success");
+        expect(fromNumber.value).toBe("99.99");
       });
 
       test("runtime: rejects undefined (required)", () => {
@@ -1109,38 +1141,46 @@ describe("Decimal Scalar", () => {
     describe("update", () => {
       test("type: update accepts arithmetic operations", () => {
         type Update = InferDecimalInput<State, "update">;
+        expectTypeOf<string>().toExtend<Update>();
         expectTypeOf<number>().toExtend<Update>();
-        expectTypeOf<{ set: number }>().toExtend<Update>();
+        expectTypeOf<{ set: string }>().toExtend<Update>();
+        expectTypeOf<{ increment: string }>().toExtend<Update>();
         expectTypeOf<{ increment: number }>().toExtend<Update>();
-        expectTypeOf<{ decrement: number }>().toExtend<Update>();
-        expectTypeOf<{ multiply: number }>().toExtend<Update>();
-        expectTypeOf<{ divide: number }>().toExtend<Update>();
+        expectTypeOf<{ decrement: string }>().toExtend<Update>();
+        expectTypeOf<{ multiply: string }>().toExtend<Update>();
+        expectTypeOf<{ divide: string }>().toExtend<Update>();
       });
 
       test("runtime: shorthand transforms to { set: value }", () => {
-        const result = parse(schemas.update, 123.45);
+        const result = parse(schemas.update, "123.45");
         if (result.issues) throw new Error("Expected success");
-        expect(result.value).toEqual({ set: 123.45 });
+        expect(result.value).toEqual({ set: "123.45" });
       });
 
-      test("runtime: arithmetic operations pass through", () => {
-        const result = parse(schemas.update, { increment: 0.01 });
+      test("runtime: arithmetic operands canonicalize too", () => {
+        const result = parse(schemas.update, { increment: "0.010" });
         if (result.issues) throw new Error("Expected success");
-        expect(result.value).toEqual({ increment: 0.01 });
+        expect(result.value).toEqual({ increment: "0.01" });
       });
     });
 
     describe("filter", () => {
       test("runtime: shorthand transforms to { equals: value }", () => {
-        const result = parse(schemas.filter, 123.45);
+        const result = parse(schemas.filter, "123.45");
         if (result.issues) throw new Error("Expected success");
-        expect(result.value).toEqual({ equals: 123.45 });
+        expect(result.value).toEqual({ equals: "123.45" });
       });
 
-      test("runtime: comparison filters pass through", () => {
-        const result = parse(schemas.filter, { lt: 1000.0 });
+      test("runtime: comparison filters pass through canonicalized", () => {
+        const result = parse(schemas.filter, { lt: "1000.0" });
         if (result.issues) throw new Error("Expected success");
-        expect(result.value).toEqual({ lt: 1000.0 });
+        expect(result.value).toEqual({ lt: "1000" });
+      });
+
+      test("runtime: in/notIn take lists of exact decimals", () => {
+        const result = parse(schemas.filter, { in: ["9", "10", "0.10"] });
+        if (result.issues) throw new Error("Expected success");
+        expect(result.value).toEqual({ in: ["9", "10", "0.1"] });
       });
     });
   });
@@ -1155,9 +1195,9 @@ describe("Decimal Scalar", () => {
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
-      test("type: base is number | null", () => {
+      test("type: base is string | number | null", () => {
         type Base = InferDecimalInput<State, "base">;
-        expectTypeOf<Base>().toEqualTypeOf<number | null>();
+        expectTypeOf<Base>().toEqualTypeOf<string | number | null>();
       });
     });
 
@@ -1180,16 +1220,27 @@ describe("Decimal Scalar", () => {
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
-      test("type: base is number[]", () => {
+      test("type: base is (string | number)[]", () => {
         type Base = InferDecimalInput<State, "base">;
-        expectTypeOf<Base>().toEqualTypeOf<number[]>();
+        expectTypeOf<Base>().toEqualTypeOf<(string | number)[]>();
+      });
+
+      test("type: base OUTPUT is string[]", () => {
+        type Out = InferOutput<State["base"]>;
+        expectTypeOf<Out>().toEqualTypeOf<string[]>();
       });
     });
 
     describe("create", () => {
-      test("type: create is required number[]", () => {
+      test("type: create is a required (string | number)[]", () => {
         type Create = InferDecimalInput<State, "create">;
-        expectTypeOf<Create>().toEqualTypeOf<number[]>();
+        expectTypeOf<Create>().toEqualTypeOf<(string | number)[]>();
+      });
+
+      test("runtime: every element canonicalizes", () => {
+        const result = parse(schemas.create, ["1.10", 2, "-0"]);
+        if (result.issues) throw new Error("Expected success");
+        expect(result.value).toEqual(["1.1", "2", "0"]);
       });
     });
   });
@@ -1204,9 +1255,9 @@ describe("Decimal Scalar", () => {
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
-      test("type: base is number[] | null", () => {
+      test("type: base is (string | number)[] | null", () => {
         type Base = InferDecimalInput<State, "base">;
-        expectTypeOf<Base>().toEqualTypeOf<number[] | null>();
+        expectTypeOf<Base>().toEqualTypeOf<(string | number)[] | null>();
       });
     });
 
@@ -1221,47 +1272,48 @@ describe("Decimal Scalar", () => {
 
   // ===========================================================================
   // CUSTOM SCHEMA VALIDATION
+  //
+  // `.schema()` on a decimal now takes a schema over the STRING form, since
+  // that is what the scalar produces. A number-based refinement (`minValue`)
+  // no longer type-checks here on purpose: it would be refining a value the
+  // scalar never yields.
   // ===========================================================================
 
   describe("Custom Schema Validation", () => {
-    describe("positive price validation", () => {
-      const priceSchema = pipe(number(), minValue(0.01));
+    describe("two-decimal-place price validation", () => {
+      const priceSchema = pipe(string(), regex(TWO_DECIMAL_PRICE));
       const scalar = decimal().schema(priceSchema);
       const schemas = getScalarSchemas(scalar["~"].state);
 
-      test("runtime: accepts valid price", () => {
-        const r1 = parse(schemas.base, 0.01);
+      test("runtime: accepts a well-formed price", () => {
+        const r1 = parse(schemas.base, "0.01");
         if (r1.issues) throw new Error("Expected success");
-        expect(r1.value).toBe(0.01);
+        expect(r1.value).toBe("0.01");
 
-        const r2 = parse(schemas.base, 99.99);
+        const r2 = parse(schemas.base, "99.99");
         if (r2.issues) throw new Error("Expected success");
-        expect(r2.value).toBe(99.99);
-
-        const r3 = parse(schemas.base, 1000.5);
-        if (r3.issues) throw new Error("Expected success");
-        expect(r3.value).toBe(1000.5);
+        expect(r2.value).toBe("99.99");
       });
 
-      test("runtime: rejects zero or negative price", () => {
-        expect(parse(schemas.base, 0).issues).toBeDefined();
-        expect(parse(schemas.base, -10).issues).toBeDefined();
+      test("runtime: rejects a price that is not two decimal places", () => {
+        expect(parse(schemas.base, "10").issues).toBeDefined();
+        expect(parse(schemas.base, "10.5").issues).toBeDefined();
       });
     });
 
     describe("branded type preservation", () => {
-      const currencySchema = pipe(number(), minValue(0), brand("USD"));
+      const currencySchema = pipe(string(), brand("USD"));
       const scalar = decimal().schema(currencySchema);
       type BrandedOutput = InferOutput<(typeof scalar)["~"]["state"]["base"]>;
 
       test("type: base output preserves brand", () => {
-        expectTypeOf<BrandedOutput>().toExtend<number & Brand<"USD">>();
+        expectTypeOf<BrandedOutput>().toExtend<string & Brand<"USD">>();
       });
 
       test("runtime: validates and returns branded value", () => {
-        const result = parse(getScalarSchemas(scalar["~"].state).base, 19.99);
+        const result = parse(getScalarSchemas(scalar["~"].state).base, "19.99");
         if (result.issues) throw new Error("Expected success");
-        expect(result.value).toBe(19.99);
+        expect(result.value).toBe("19.99");
       });
     });
   });

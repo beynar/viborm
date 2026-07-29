@@ -6,7 +6,7 @@ import {
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
 import { s } from "@schema";
-import type { JsonValue } from "@validation";
+import type { InputJsonValue } from "@validation";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const measurement = s
@@ -48,7 +48,10 @@ export interface ScalarRoundtripBehaviorOptions {
 }
 
 const TAKEN_AT = new Date("2024-01-15T10:30:00.123Z");
-const AMOUNT = 123.456;
+// A decimal is written and read as an exact string (W6-U1). This one is
+// representable as a double too — the values that are NOT are exercised by the
+// exact-decimal suite below.
+const AMOUNT = "123.456";
 // One past Number.MAX_SAFE_INTEGER: silently corrupts if it travels as a JS number
 const VIEWS = 9_007_199_254_740_993n;
 
@@ -131,14 +134,14 @@ export function runScalarRoundtripBehavior({
       expect(row?.takenAt.toISOString()).toBe(updatedAt.toISOString());
     });
 
-    test("decimal preserves fractional digits", async () => {
+    test("decimal reads back as its exact canonical string", async () => {
       await seed();
 
       const row = await requireClient(client).measurement.findUnique({
         where: { id: "m-1" },
       });
 
-      expect(typeof row?.amount).toBe("number");
+      expect(typeof row?.amount).toBe("string");
       expect(row?.amount).toBe(AMOUNT);
     });
 
@@ -164,7 +167,7 @@ export function runScalarRoundtripBehavior({
           readings: {
             createMany: {
               data: [
-                { id: "r-1", recordedAt, price: 0.001, count: VIEWS + 1n },
+                { id: "r-1", recordedAt, price: "0.001", count: VIEWS + 1n },
               ],
             },
           },
@@ -180,8 +183,8 @@ export function runScalarRoundtripBehavior({
       const nested = row?.readings[0];
       expect(nested?.recordedAt).toBeInstanceOf(Date);
       expect(nested?.recordedAt.toISOString()).toBe(recordedAt.toISOString());
-      expect(typeof nested?.price).toBe("number");
-      expect(nested?.price).toBe(0.001);
+      expect(typeof nested?.price).toBe("string");
+      expect(nested?.price).toBe("0.001");
       expect(typeof nested?.count).toBe("bigint");
       expect(nested?.count).toBe(VIEWS + 1n);
     });
@@ -259,14 +262,16 @@ type FullValues = {
   text: string;
   count: number;
   ratio: number;
-  price: number;
+  price: string;
   views: bigint;
   active: boolean;
   happenedAt: Date;
   localAt: Date;
   bornOn: Date;
   wakeAt: string;
-  meta: JsonValue;
+  // Write position: a JSON field takes any document except a bare
+  // top-level null, which needs the DbNull/JsonNull sentinels
+  meta: InputJsonValue;
   payload: Uint8Array;
   kind: "alpha" | "beta";
 };
@@ -275,7 +280,8 @@ const FULL_VALUES: FullValues = {
   text: 'plain text with {"json": true} inside',
   count: 42,
   ratio: 1.5,
-  price: 123.456,
+  // A decimal is an exact string: 30 fraction digits, past what a double holds
+  price: "123.456000000000000000000000000001",
   // One past Number.MAX_SAFE_INTEGER: corrupts if it travels as a JS number
   views: 9_007_199_254_740_993n,
   active: true,
@@ -304,7 +310,7 @@ function expectFullValues(
   expect(typeof r.ratio).toBe("number");
   expect(r.ratio).toBe(expected.ratio);
 
-  expect(typeof r.price).toBe("number");
+  expect(typeof r.price).toBe("string");
   expect(r.price).toBe(expected.price);
 
   expect(typeof r.views).toBe("bigint");
@@ -396,7 +402,7 @@ export function runFullScalarRoundtripBehavior({
     });
 
     test("json primitives round-trip with exact types", async () => {
-      const cases: [string, JsonValue][] = [
+      const cases: [string, InputJsonValue][] = [
         ["j-string", "hello"],
         ["j-number", 42],
         ["j-boolean", true],

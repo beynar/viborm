@@ -13,11 +13,16 @@ import {
 } from "@drivers/postgres";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
+import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
+import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runOmitBehavior } from "./omit-behavior";
 import { runRelationReadAggregateBehavior } from "./relation-read-aggregate-behavior";
 import {
   runFullScalarRoundtripBehavior,
@@ -414,7 +419,27 @@ describeIf("postgres.js Driver", () => {
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 
+  runFieldReferenceBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
   runScalarRoundtripBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runDecimalExactnessBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    exactDecimal: true,
+  });
+
+  // Real postgres.js param serialization for a LIST of bytea bind params
+  runBlobFilterBehavior({
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
@@ -455,6 +480,21 @@ describeIf("postgres.js Driver", () => {
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runNestedOrderByBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runOmitBehavior({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Bulk-write `limit` IS wired here for the reason given in pg.test.ts: its
+  // PostgreSQL form binds a `LIMIT` inside a subquery inside an UPDATE's WHERE,
+  // which is a parameter ORDERING this file's charter covers.
+  runBulkWriteLimitBehavior({
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),

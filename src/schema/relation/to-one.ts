@@ -35,7 +35,14 @@ export class ToOneRelation<State extends ToOneRelationState> {
   }
 
   /**
-   * Specify the foreign key field(s) on this model
+   * Specify the foreign key field(s) on this model.
+   *
+   * Bare `string`, NOT this model's scalar names, and it cannot be otherwise:
+   * the relation is a member of the very object literal that defines the model,
+   * so at the moment `.fields()` is called the sibling scalars have no type yet.
+   * A typo is caught by `validateSchema` / `validateSchemaOrThrow` instead —
+   * runtime, not the editor. Probed in
+   * `tests/client/contextual-typing-gate.test.ts`.
    */
   fields<const T extends string[]>(...fields: T) {
     return new ToOneRelation<State & { fields: T }>({
@@ -45,7 +52,20 @@ export class ToOneRelation<State extends ToOneRelationState> {
   }
 
   /**
-   * Specify the referenced field(s) on the target model
+   * Specify the referenced field(s) on the target model.
+   *
+   * Also bare `string`, and this one is not obviously forced — the target IS
+   * reachable, through `State["getter"]`. It was tried: constraining to
+   * `State["getter"] extends () => infer M ? Extract<keyof M["~"]["state"]["scalars"], string> : string`
+   * costs 123 type errors across the estate, because resolving the getter's
+   * return type is exactly what `RelationState.getter` is typed `any` to avoid.
+   * A self-referential relation is the clearest witness: in
+   * `node: { parent: s.manyToOne(() => node).fields("parentId").references("id") }`
+   * the target's scalars resolve to `never` while `node` is still being
+   * inferred, so the correct `"id"` becomes a compile error; mutually-recursive
+   * pairs collapse both consts to `any` the same way. Runtime schema validation
+   * is the guard here too. Probed in
+   * `tests/client/contextual-typing-gate.test.ts`.
    */
   references<const T extends string[]>(...refs: T) {
     return new ToOneRelation<State & { references: T }>({

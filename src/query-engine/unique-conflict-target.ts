@@ -1,5 +1,5 @@
 import { getPrimaryKeyFields } from "./builders/correlation-utils";
-import { getWhereUniqueEntries } from "./builders/where-unique-builder";
+import { partitionWhereUnique } from "./builders/where-unique-builder";
 import { getTableName } from "./context";
 import type { UniqueConflictPin } from "./operation-program";
 import type { QueryScope } from "./types";
@@ -15,7 +15,11 @@ export function uniqueConflictTarget(
   ctx: QueryScope,
   where: Record<string, unknown>
 ): UniqueConflictPin["target"] {
-  const entries = getWhereUniqueEntries(ctx, where);
+  // DISCRIMINATOR ONLY. An extended `where`'s extra filters narrow which row the
+  // statement touches; they name no constraint, so they must not enter the
+  // conflict target a `racePin` is attributed against (a violation matched to a
+  // filter-derived target would classify a genuine conflict as a retryable race).
+  const { entries, discriminator } = partitionWhereUnique(ctx, where);
   const fields = entries.map(({ fieldName }) => fieldName);
   const columns = entries.map(
     ({ fieldName }) => ctx.model["~"].getFieldName(fieldName).sql
@@ -25,9 +29,7 @@ export function uniqueConflictTarget(
   const isPrimary =
     primaryKeys.length === entries.length &&
     primaryKeys.every((field, index) => field === entries[index]?.fieldName);
-  const [selector] = Object.keys(where).filter(
-    (key) => where[key] !== undefined
-  );
+  const [selector] = Object.keys(discriminator);
   let constraints: string[];
   if (isPrimary) {
     constraints = [`${table}_pkey`, "PRIMARY"];

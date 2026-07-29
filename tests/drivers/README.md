@@ -37,3 +37,12 @@ drops tables it doesn't know, so parallel files clobber each other.
 
 Hosted drivers (D1, Neon HTTP, PlanetScale, ...) have no local fixtures yet —
 see [nested-write-provider-gaps.md](./nested-write-provider-gaps.md).
+
+## Bun-gated probes
+
+vitest cannot load `bun:sqlite` or Bun's `SQL`, so the Bun drivers are proven by
+spawning Bun itself: `*-runtime.test.ts` runs `bun` under `test.runIf` and skips
+cleanly when it is not on PATH. `bun-sqlite-runtime.test.ts` spawns
+`bun-sqlite-runtime-probe.ts`, a plain script (not `*.test.ts`, so vitest never
+collects it) that drives the real client against a real in-memory database and
+signals failure by exiting non-zero.

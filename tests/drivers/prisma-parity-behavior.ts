@@ -20,6 +20,10 @@ const roleAccount = s
 
 const schema = { ...windowUserPostSchema, roleAccount };
 
+/** Refusal messages these checks match on, hoisted so no test rebuilds them. */
+const EMPTY_SELECT_REFUSAL = /needs at least one truthy value/;
+const UNGROUPED_COLUMN_REFUSAL = /must be included in 'by'/;
+
 type ParityClientConfig = VibORMConfig & {
   schema: typeof schema;
   driver: AnyDriver;
@@ -205,9 +209,7 @@ export function runPrismaParityBehavior({
 
       test("contains stays case-sensitive without mode", async () => {
         expect(await findIds({ name: { contains: "LI" } })).toEqual([]);
-        expect(await findIds({ name: { contains: "li" } })).toEqual([
-          "alice",
-        ]);
+        expect(await findIds({ name: { contains: "li" } })).toEqual(["alice"]);
       });
 
       test("startsWith stays case-sensitive without mode", async () => {
@@ -219,15 +221,11 @@ export function runPrismaParityBehavior({
 
       test("endsWith stays case-sensitive without mode", async () => {
         expect(await findIds({ name: { endsWith: "ICE" } })).toEqual([]);
-        expect(await findIds({ name: { endsWith: "ice" } })).toEqual([
-          "alice",
-        ]);
+        expect(await findIds({ name: { endsWith: "ice" } })).toEqual(["alice"]);
       });
 
       test("default substring filters treat wildcard characters literally", async () => {
-        expect(await findIds({ name: { contains: "%" } })).toEqual([
-          "percent",
-        ]);
+        expect(await findIds({ name: { contains: "%" } })).toEqual(["percent"]);
         expect(await findIds({ name: { startsWith: "100%" } })).toEqual([
           "percent",
         ]);
@@ -243,9 +241,7 @@ export function runPrismaParityBehavior({
       });
 
       test("default substring filters handle empty and non-ASCII values exactly", async () => {
-        expect(await findIds({ name: { contains: "Éc" } })).toEqual([
-          "accent",
-        ]);
+        expect(await findIds({ name: { contains: "Éc" } })).toEqual(["accent"]);
         expect(await findIds({ name: { contains: "éc" } })).toEqual([]);
         expect(await findIds({ name: { startsWith: "É" } })).toEqual([
           "accent",
@@ -463,13 +459,13 @@ export function runPrismaParityBehavior({
       test("empty select object throws", async () => {
         await expect(
           requireClient(client).user.findMany({ select: {} })
-        ).rejects.toThrow(/needs at least one truthy value/);
+        ).rejects.toThrow(EMPTY_SELECT_REFUSAL);
       });
 
       test("all-false select throws", async () => {
         await expect(
           requireClient(client).user.findMany({ select: { id: false } })
-        ).rejects.toThrow(/needs at least one truthy value/);
+        ).rejects.toThrow(EMPTY_SELECT_REFUSAL);
       });
     });
 
@@ -516,7 +512,7 @@ export function runPrismaParityBehavior({
             by: ["authorId"],
             orderBy: { views: "asc" },
           })
-        ).rejects.toThrow(/must be included in 'by'/);
+        ).rejects.toThrow(UNGROUPED_COLUMN_REFUSAL);
       });
 
       test("orderBy a grouped column still works", async () => {
@@ -666,6 +662,318 @@ export function runPrismaParityBehavior({
           { authorId: "u1", published: true, _sum: { views: 100 } },
           { authorId: "u2", published: true, _sum: { views: 200 } },
         ]);
+      });
+
+      // Grouped by authorId the seed yields exactly two groups, computed by
+      // hand: u1 = {p1 (100 views), p2 (50)} -> _count 2, _sum 150;
+      // u2 = {p3 (200)} -> _count 1, _sum 200. Every combinator below is
+      // asserted against those two groups, and each arm is chosen to match
+      // exactly ONE of them so AND/OR/NOT cannot be confused with each other.
+      describe("having boolean combinators", () => {
+        // matches u1 only
+        const countIsTwo = { id: { _count: { equals: 2 } } };
+        // matches u2 only
+        const sumIsTwoHundred = { views: { _sum: { equals: 200 } } };
+
+        test("OR of two single-group conditions matches both groups", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            _sum: { views: true },
+            having: { OR: [countIsTwo, sumIsTwoHundred] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([
+            { authorId: "u1", _count: 2, _sum: { views: 150 } },
+            { authorId: "u2", _count: 1, _sum: { views: 200 } },
+          ]);
+        });
+
+        test("OR with a single unmatchable arm keeps only the other", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { OR: [countIsTwo, { views: { _sum: { equals: 9999 } } }] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(["u1"]);
+        });
+
+        test("AND of the same two conditions matches nothing", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { AND: [countIsTwo, sumIsTwoHundred] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("AND accepts a bare object as well as an array", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { AND: countIsTwo },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u1", _count: 2 }]);
+        });
+
+        test("AND nested inside OR evaluates the inner conjunction", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _sum: { views: true },
+            having: {
+              OR: [
+                // u1: _count 2 AND _sum 150 -> true
+                { AND: [countIsTwo, { views: { _sum: { equals: 150 } } }] },
+                // u2: _sum 200 -> true
+                sumIsTwoHundred,
+              ],
+            },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([
+            { authorId: "u1", _sum: { views: 150 } },
+            { authorId: "u2", _sum: { views: 200 } },
+          ]);
+        });
+
+        test("AND nested inside OR fails the arm when one conjunct misses", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            // u1 satisfies _count 2 but not _sum 200; u2 the reverse
+            having: { OR: [{ AND: [countIsTwo, sumIsTwoHundred] }] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("NOT of an aggregate condition selects the complement", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { NOT: countIsTwo },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u2", _count: 1 }]);
+        });
+
+        // Prisma negates each NOT-array item individually and ANDs the
+        // negations (NOT c1 AND NOT c2 — "all conditions must return false"),
+        // never NOT (c1 AND c2). This is the same rule `where` follows; see
+        // the "NOT array negates each condition and ANDs them" case above and
+        // buildLogicalNot in src/query-engine/builders/where-builder.ts.
+        //
+        // Both arms below are DISCRIMINATING on purpose: each matches exactly
+        // one of the two groups, so the conjunction c1 AND c2 is empty and the
+        // wrong reading NOT (c1 AND c2) would widen to EVERY group — the exact
+        // opposite of the empty set Prisma returns. An array whose arms can be
+        // true together (e.g. two conditions both matching u1) agrees under
+        // both readings and pins nothing.
+        test("NOT array negates each arm and ANDs the negations (Prisma parity)", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            // NOT c1 AND NOT c2: u1 fails NOT c1, u2 fails NOT c2 -> {}.
+            // NOT (c1 AND c2) would be NOT(false) -> both groups.
+            having: { NOT: [countIsTwo, sumIsTwoHundred] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("NOT array with one unmatchable arm keeps the other complement", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            // NOT c1 AND NOT (unmatchable): only u2 survives.
+            // NOT (c1 AND unmatchable) would again be NOT(false) -> both.
+            having: {
+              NOT: [countIsTwo, { views: { _sum: { equals: 9999 } } }],
+            },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u2", _count: 1 }]);
+        });
+
+        test("NOT array on a `by` field agrees with the same NOT array in where", async () => {
+          const c = requireClient(client);
+          const notArray = [{ authorId: "u1" }, { authorId: "u2" }];
+          // `having` and `where` must resolve the identical payload the same
+          // way — this is the cross-builder drift guard. Both exclude every
+          // author, so both come back empty; under NOT (c1 AND c2) `having`
+          // would return both groups while `where` returned nothing.
+          const groups = await c.post.groupBy({
+            by: ["authorId"],
+            having: { NOT: notArray },
+            orderBy: { authorId: "asc" },
+          });
+          const rows = await c.post.findMany({
+            where: { NOT: notArray },
+            select: { authorId: true },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(
+            rows.map((r) => r.authorId)
+          );
+          expect(groups).toEqual([]);
+        });
+
+        test("NOT array of a single item matches the object form", async () => {
+          const c = requireClient(client);
+          const asArray = await c.post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { NOT: [countIsTwo] },
+            orderBy: { authorId: "asc" },
+          });
+          const asObject = await c.post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { NOT: countIsTwo },
+            orderBy: { authorId: "asc" },
+          });
+          expect(asArray).toEqual(asObject);
+          expect(asArray).toEqual([{ authorId: "u2", _count: 1 }]);
+        });
+
+        test("NOT of a multi-key object negates that object's conjunction", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            // The OBJECT form is one item, so its own implicit AND is negated:
+            // NOT(_count = 2 AND _sum = 150) -> u1 out, u2 in. Per-arm
+            // negation applies to ARRAY items, not to keys within one item.
+            having: {
+              NOT: {
+                id: { _count: { equals: 2 } },
+                views: { _sum: { equals: 150 } },
+              },
+            },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u2", _count: 1 }]);
+        });
+
+        test("NOT inside OR restores the excluded group", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { OR: [{ NOT: countIsTwo }, countIsTwo] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(["u1", "u2"]);
+        });
+
+        test("a combinator conjoins with sibling field-keyed conditions", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            // authorId is in `by`, so it filters directly; ANDed with the OR
+            having: {
+              authorId: "u2",
+              OR: [countIsTwo, sumIsTwoHundred],
+            },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(["u2"]);
+        });
+
+        test("a field-keyed condition inside an OR arm still requires `by`", async () => {
+          await expect(
+            requireClient(client).post.groupBy({
+              by: ["authorId"],
+              having: { OR: [{ title: "Post 1" }] },
+            })
+          ).rejects.toThrow(UNGROUPED_COLUMN_REFUSAL);
+        });
+
+        // Empty-combinator identities. OR of nothing is FALSE, AND/NOT of
+        // nothing are TRUE — the same truth table `where` already compiles
+        // (where-builder.ts `buildLogicalOr` emits the dialect FALSE literal).
+        // These are asserted through real SQL rather than generated text
+        // because the failure mode being pinned is an accept-and-ignore: a
+        // dropped `OR` key produces a syntactically valid query with the
+        // wrong extension.
+        test("empty OR matches no group, exactly like empty OR in where", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { OR: [] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+
+          // The parity claim, asserted side by side so the two builders
+          // cannot drift: `where: { OR: [] }` is already FALSE today.
+          const rows = await requireClient(client).post.findMany({
+            where: { OR: [] },
+          });
+          expect(rows).toEqual([]);
+        });
+
+        test("empty OR is false, not absent, when conjoined with a sibling", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            // If the empty OR were dropped, this would degrade to the
+            // sibling alone and return u2.
+            having: { authorId: "u2", OR: [] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("empty OR nested in AND poisons the conjunction", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { AND: [{ OR: [] }, countIsTwo] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([]);
+        });
+
+        test("empty OR nested in OR contributes nothing but is not vacuous", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { OR: [{ OR: [] }, countIsTwo] },
+            orderBy: { authorId: "asc" },
+          });
+          // FALSE OR (_count = 2) -> u1 only. An outer OR that swallowed the
+          // inner empty arm as "no condition" would also give u1 here, so the
+          // AND case above is the one that separates the two behaviors.
+          expect(groups).toEqual([{ authorId: "u1", _count: 2 }]);
+        });
+
+        test("empty OR under NOT is true and keeps every group", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { NOT: { OR: [] } },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups.map((g) => g.authorId)).toEqual(["u1", "u2"]);
+        });
+
+        test("empty AND and empty NOT stay true and keep every group", async () => {
+          const emptyAnd = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { AND: [] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(emptyAnd.map((g) => g.authorId)).toEqual(["u1", "u2"]);
+
+          const emptyNot = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            having: { NOT: [] },
+            orderBy: { authorId: "asc" },
+          });
+          expect(emptyNot.map((g) => g.authorId)).toEqual(["u1", "u2"]);
+        });
+
+        test("empty AND still conjoins its sibling rather than erasing it", async () => {
+          const groups = await requireClient(client).post.groupBy({
+            by: ["authorId"],
+            _count: true,
+            having: { AND: [], ...countIsTwo },
+            orderBy: { authorId: "asc" },
+          });
+          expect(groups).toEqual([{ authorId: "u1", _count: 2 }]);
+        });
       });
     });
   });

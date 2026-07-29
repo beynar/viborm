@@ -1,13 +1,20 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpsertOperation is the architecture name.
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
+import { isSql } from "@sql";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
 import { separateData } from "../query-engine/builders/relation-data-builder";
-import { buildInsert } from "../query-engine/builders/values-builder";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
+import {
+  buildInsert,
+  isBatchValueRef,
+} from "../query-engine/builders/values-builder";
+import {
+  getWhereUniqueEntries,
+  getWhereUniqueFilters,
+} from "../query-engine/builders/where-unique-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
@@ -18,6 +25,7 @@ import {
   assertUpdateOwnWriteSafety,
 } from "../query-engine/OwnWriteAnalyzer";
 import {
+  buildCreate,
   buildFind,
   buildFindUnique,
   buildUpdate,
@@ -36,6 +44,7 @@ import {
   presenceGuard,
   queryFailure,
   raceableQueryFailure,
+  referenceSql,
 } from "./fragment-builders";
 import { upsertSkipPremiseChanged } from "./messages";
 import {
@@ -65,6 +74,48 @@ type ExecutionMode = "transaction" | "batch";
 interface ArmResult {
   readonly steps: OperationStep[];
   readonly resultId: string;
+}
+
+/**
+ * How the scalar create arm addresses the row its INSERT actually writes.
+ *
+ * - `known` — the CREATE DATA already spells a complete unique identity: every
+ *   primary-key field as a literal, or every column of some other unique
+ *   constraint of the model. The read-back targets that `whereUnique` directly and
+ *   the INSERT captures nothing.
+ * - `generated` — the model's single primary key is a DB-generated identity
+ *   (`increment`) the create data omits AND the create data spells no other
+ *   complete unique, so the INSERT must CAPTURE the value the database produced
+ *   and the read-back addresses the row by it.
+ *
+ * There is deliberately no third shape: any other create payload names no row the
+ * upsert can read back, and `createArmIdentity` refuses instead of guessing.
+ */
+type CreateArmIdentity =
+  | { readonly kind: "known"; readonly where: Record<string, unknown> }
+  | { readonly kind: "generated"; readonly field: string };
+
+/**
+ * Can this create-data value address the written row in a compile-time `where`?
+ *
+ * A NULL never can: SQL unique constraints do not equate NULLs, so a nullable
+ * unique the create data sets to null names no row (and in batch mode, where the
+ * terminal read carries no exactly-one-row postcondition, the miss would be
+ * SILENT). Neither can a value the engine resolves later (raw `Sql`, a batch-value
+ * reference — what the read-back compares against need not be what the INSERT
+ * wrote), nor a structured value (a list, a JSON object): those are not columns a
+ * unique constraint of this schema spans, and equality on them is dialect
+ * business. Everything else — strings, numbers, bigints, booleans, `Date`,
+ * `Decimal`, byte arrays — is the literal the INSERT writes verbatim.
+ */
+function isAddressableLiteral(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (isSql(value) || isBatchValueRef(value) || Array.isArray(value)) {
+    return false;
+  }
+  if (typeof value !== "object") return true;
+  const prototype = Object.getPrototypeOf(value);
+  return !(prototype === Object.prototype || prototype === null);
 }
 
 /** A validated conditional filter on the located row (`targetWhere`/`setWhere`). */
@@ -109,6 +160,13 @@ export class UpsertOperation {
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
   private readonly parentWhere: Record<string, unknown>;
+  /**
+   * The extended `where`'s FILTER half (Prisma >= 4.5), or `undefined` for a
+   * plain unique `where`. Its presence changes one thing beyond the SQL the
+   * builder already emits: the create arm loses its `racePin` — see
+   * {@link UpsertOperation.createArmRacePin}.
+   */
+  private readonly whereFilters: Record<string, unknown> | undefined;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly createData: Record<string, unknown>;
   private readonly updateData: Record<string, unknown>;
@@ -202,11 +260,12 @@ export class UpsertOperation {
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     this.parentWhere = parseValidated(
-      parentSchemas.core.whereUnique,
+      parentSchemas.core.whereUniqueExtended,
       where,
       "upsert",
       "where"
     );
+    this.whereFilters = getWhereUniqueFilters(parent, this.parentWhere);
     // The scalar arms parse their own scalar data here; the delegated arms leave
     // it empty (the sub-op validates and builds the FULL payload itself).
     this.createData = createHasRelations
@@ -225,18 +284,31 @@ export class UpsertOperation {
           "upsert",
           "update"
         );
-    this.parsedSelect = isRecord(args.select)
-      ? parseValidated(
-          parentSchemas.core.select,
-          args.select,
-          "upsert",
-          "select"
-        )
+    // The projection is parsed as ONE object rather than key by key, because
+    // `omit` is only meaningful next to `select`: the schema refuses the pair and
+    // rewrites a surviving `omit` into the `select` it denotes
+    // (@validation/model/args/omit). Everything else about upsert's deliberate
+    // no-whole-args-parse stance is unchanged — this schema carries the three
+    // projection keys and nothing else, so neither arm is validated here.
+    const projection = parseValidated(
+      parentSchemas.core.upsertProjection,
+      {
+        select: args.select,
+        include: args.include,
+        omit: args.omit,
+      },
+      "upsert",
+      ""
+    );
+    this.parsedSelect = isRecord(projection?.select)
+      ? projection.select
       : defaultSelect(model);
     // `include` rides alongside the projection (the `create`/`update` surface). A
     // relation projection forces the terminal-read path (lateral joins), never the
     // scalar RETURNING fold, on both the scalar and delegated arms.
-    this.parsedInclude = isRecord(args.include) ? args.include : undefined;
+    this.parsedInclude = isRecord(projection?.include)
+      ? projection.include
+      : undefined;
     this.resultArgs = {
       select: this.parsedSelect,
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
@@ -289,8 +361,18 @@ export class UpsertOperation {
     // The delegated arms shape their own terminal read, so they carry the same
     // `select`/`include` this upsert would apply (an explicit select, else the
     // sub-op defaults the scalar projection; `include` rides alongside).
+    // `select` is forwarded whenever the CALLER asked for a projection — either
+    // spelling. `omit` never reaches an arm as itself: it was already desugared
+    // into `this.parsedSelect`, so forwarding that is what makes an omit-only
+    // upsert project the same columns on both arms. Without a caller projection
+    // the key stays absent and each arm defaults its own scalar list, exactly as
+    // before.
+    const callerProjected =
+      args.select !== undefined || args.omit !== undefined;
     const subSelect: Record<string, unknown> = {
-      ...(isRecord(args.select) ? { select: args.select } : {}),
+      ...(callerProjected && this.parsedSelect
+        ? { select: this.parsedSelect }
+        : {}),
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
     };
     const subOptions: SubOperationOptions = { scope, skipOwnWrite: true };
@@ -353,7 +435,8 @@ export class UpsertOperation {
     return new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>("upsert", outputs.result, this.resultArgs);
   }
 
@@ -382,20 +465,28 @@ export class UpsertOperation {
       return { steps, resultId: resultStepId(fragment, "upsert create arm") };
     }
     const parent = createQueryScope(this.engine.adapter, this.model);
+    // How this INSERT's row will be addressed afterwards — decided BEFORE the
+    // statement is built, because a DB-generated identity changes the statement
+    // itself (it has to capture the value the database produces).
+    const identity = this.createArmIdentity();
     const create: StatementStep = {
       id: this.createId,
       kind: "write",
-      statement: buildInsert(parent, getTableName(this.model), this.createData),
-      outputs: {},
+      ...this.createArmInsert(parent, identity),
       // The missing premise is enforced by the unique constraint the `where`
-      // targets; its violation is the raceable create-branch signal.
-      racePin: childRacePin(parent, this.parentWhere),
+      // targets; its violation is the raceable create-branch signal — but only
+      // when the locate actually PROVED that premise (see `createArmRacePin`).
+      ...this.createArmRacePin(parent),
     };
-    // The created row is read back by its own primary key when the create data
-    // carries it — the `where` may target a non-PK unique the create data does
-    // not reproduce, so reading by `where` could miss the row it just inserted.
+    // The terminal read addresses the row this INSERT wrote — its literal primary
+    // key, or the identity the INSERT captured. Never the `where`: the `where` may
+    // target a unique the create data does not reproduce, and then reading by it
+    // answers with a DIFFERENT row (or none at all).
     return {
-      steps: [create, this.buildTerminal(this.createArmTerminalWhere())],
+      steps: [
+        create,
+        this.buildTerminal(this.createArmTerminalWhere(identity)),
+      ],
       resultId: this.terminalId,
     };
   }
@@ -407,13 +498,37 @@ export class UpsertOperation {
     steps: readonly OperationStep[]
   ): OperationStep[] {
     const parent = createQueryScope(this.engine.adapter, this.model);
-    const racePin = childRacePin(parent, this.parentWhere);
+    const pin = this.createArmRacePin(parent);
+    if (!pin.racePin) return [...steps];
+    const racePin = pin.racePin;
     const rootWriteStepId = this.createArmOp?.rootWriteStepId;
     return steps.map((step) =>
       step.id === rootWriteStepId && step.kind === "write" && !step.racePin
         ? { ...step, racePin }
         : step
     );
+  }
+
+  /**
+   * The create arm's raceable missing premise — present only for a PLAIN unique
+   * `where`.
+   *
+   * `racePin` claims "the locate proved unique key K was free, so a violation on
+   * K means someone else took it between our read and our write — re-plan and
+   * adopt". With an extended `where` the locate proves something weaker: no row
+   * matches `K ∧ filters`. A row on K may exist and be excluded by the filter,
+   * and then the INSERT's violation is a GENUINE CONFLICT, not a race: re-planning
+   * re-reads the same excluded row, takes the create arm again, and violates
+   * again. Pinning it would buy one pointless retry and mis-attribute a real
+   * P2002-equivalent as raceable, so the pin is withheld and the
+   * `UniqueConstraintError` surfaces on the first attempt — Prisma's behaviour for
+   * the same payload.
+   */
+  private createArmRacePin(parent: QueryScope): {
+    racePin?: ReturnType<typeof childRacePin>;
+  } {
+    if (this.whereFilters) return {};
+    return { racePin: childRacePin(parent, this.parentWhere) };
   }
 
   /** Present → skip (conditional no-match) or update (all conditionals match). */
@@ -636,22 +751,178 @@ export class UpsertOperation {
   }
 
   /**
-   * The create arm's terminal where: the created row's primary key when the
-   * create data carries every PK field (the common provided-PK case), else the
-   * original `where` — the fallback for an auto-generated identity, whose created
-   * row is addressable only by the unique `where` it was inserted to satisfy.
+   * How the scalar create arm addresses the row it is about to INSERT — decided
+   * from the CREATE DATA, never from the `where`.
+   *
+   * Prisma does not require `create` to satisfy `where`, so the `where` names a
+   * row that may not be the one the INSERT writes. Reading back by it is a silent
+   * wrong answer whenever the two diverge: with an extended `where` (unique key
+   * matches, filter excludes → create arm) the unique half addresses the very row
+   * the filter EXCLUDED, so the upsert would return a pre-existing row it never
+   * touched; with a plain `where` it addresses a row that does not exist and the
+   * terminal read fails. Both are fixed at the source — by addressing the row that
+   * was actually inserted. Three sources can name it, tried in this order:
+   *
+   * 1. **literal primary key** — every PK field is a literal in the create data;
+   * 2. **a COMPLETE unique constraint of the model carried by the create data** —
+   *    a single `.unique()` column, or every column of one compound unique. That
+   *    constraint names exactly the row this INSERT wrote: the database enforces
+   *    that at most one row holds those values, and this statement just wrote a
+   *    row holding them. Like (1) it is derived from the create data alone, so it
+   *    is immune to the wrong-row bug even when a DIFFERENT live row satisfies
+   *    the `where`;
+   * 3. **a captured DB-generated identity** — the model's single PK is an
+   *    `increment` the create data omits, so the INSERT captures what the database
+   *    produced (see {@link UpsertOperation.createArmInsert}) and the read-back
+   *    references it, exactly as {@link CreateOperation}'s root create does.
+   *
+   * **Why (2) outranks (3), uniformly and not just in batch mode.** All three are
+   * equally correct; (1) and (2) are additionally CAPTURE-FREE — they compile to a
+   * plain INSERT with no output, whereas (3) makes the statement itself depend on
+   * the execution mode and the driver (`… RETURNING pk` in a returning-driver
+   * transaction, the driver's `insertId` scratch otherwise). That scratch is
+   * per-operation state a SHARED driver batch cannot isolate, so an operation that
+   * needs it is refused from `$transaction([…])` on a batch-only driver
+   * ({@link OperationExecutor.prepareSharedBatch}) — data-dependently, since only
+   * the create arm carries it. Compile cannot see whether it will be merged into a
+   * shared batch, so a batch-only preference would still leave that refusal
+   * reachable for the mainstream `increment` PK + unique-in-create-data model.
+   * Preferring the capture-free identity ALWAYS gives one compiled shape per
+   * (model, args) pair on every substrate and every driver, and shrinks the
+   * refusal to the shapes that genuinely have no other identity.
+   *
+   * A create payload carrying none of the three names no row this operation can
+   * read back, so it is refused rather than guessed at — and only when the create
+   * arm is actually TAKEN (this runs at compile), so an upsert that updates is
+   * never affected.
    */
-  private createArmTerminalWhere(): Record<string, unknown> {
-    const hasEveryPk = this.parentPrimaryKeys.every(
+  private createArmIdentity(): CreateArmIdentity {
+    const literalPrimaryKey = this.parentPrimaryKeys.every(
       (pk) => this.createData[pk] !== undefined
     );
-    if (!hasEveryPk) return this.parentWhere;
-    return buildPrimaryKeyWhereUnique(
-      this.model,
-      Object.fromEntries(
-        this.parentPrimaryKeys.map((pk) => [pk, this.createData[pk]])
-      )
+    if (literalPrimaryKey) {
+      return {
+        kind: "known",
+        where: buildPrimaryKeyWhereUnique(
+          this.model,
+          Object.fromEntries(
+            this.parentPrimaryKeys.map((pk) => [pk, this.createData[pk]])
+          )
+        ),
+      };
+    }
+    const uniqueFromCreateData = this.createDataUniqueWhere();
+    if (uniqueFromCreateData) {
+      return { kind: "known", where: uniqueFromCreateData };
+    }
+    const [only] = this.parentPrimaryKeys;
+    if (
+      this.parentPrimaryKeys.length === 1 &&
+      only !== undefined &&
+      this.model["~"].state.scalars[only]?.["~"].state.autoGenerate ===
+        "increment"
+    ) {
+      return { kind: "generated", field: only };
+    }
+    throw new UnsupportedOperationError(
+      `query-engine-v2 upsert cannot read back the row its create arm inserts for '${getStepModelName(this.model, "record")}': the create data carries neither a complete primary key ('${this.parentPrimaryKeys.join(", ")}') nor any complete unique constraint of the model, and the primary key is not a single database-generated identity.`
     );
+  }
+
+  /**
+   * The `whereUnique` for a COMPLETE unique constraint of the model whose every
+   * column the create data supplies as an addressable literal — source (2) of
+   * {@link UpsertOperation.createArmIdentity}. Single-column `.unique()`s first
+   * (declaration order), then compound uniques; `undefined` when none is complete.
+   *
+   * `state.uniques` is the model's single-column unique/id scalars, so a compound
+   * PK's members never appear there individually — a half of a compound key is a
+   * filter, never an identity.
+   */
+  private createDataUniqueWhere(): Record<string, unknown> | undefined {
+    const state = this.model["~"].state;
+    for (const field of Object.keys(state.uniques)) {
+      const value = this.createData[field];
+      if (isAddressableLiteral(value)) return { [field]: value };
+    }
+    // Each compound unique is an ObjectSchema whose `entries` are its columns —
+    // the same shape `where-unique-builder` reads to compile a compound selector.
+    const compoundUniques: Record<
+      string,
+      { entries: Record<string, unknown> }
+    > = state.compoundUniques ?? {};
+    for (const [name, constraint] of Object.entries(compoundUniques)) {
+      const fields = Object.keys(constraint.entries);
+      if (fields.length === 0) continue;
+      const values: Record<string, unknown> = {};
+      let complete = true;
+      for (const field of fields) {
+        const value = this.createData[field];
+        if (!isAddressableLiteral(value)) {
+          complete = false;
+          break;
+        }
+        values[field] = value;
+      }
+      if (complete) return { [name]: values };
+    }
+    return undefined;
+  }
+
+  /**
+   * The create arm's INSERT statement and outputs. A `known` identity is a plain
+   * INSERT that produces nothing. A `generated` identity must CAPTURE what the
+   * database assigned: `INSERT … RETURNING pk` on a returning driver in
+   * transaction mode, else the driver's `insertId` (which the executor threads
+   * through its batch-ref scratch store in batch mode) — the same two shapes
+   * {@link CreateOperation}'s root INSERT uses.
+   */
+  private createArmInsert(
+    parent: QueryScope,
+    identity: CreateArmIdentity
+  ): Pick<StatementStep, "statement" | "outputs"> {
+    if (identity.kind === "known") {
+      return {
+        statement: buildInsert(
+          parent,
+          getTableName(this.model),
+          this.createData
+        ),
+        outputs: {},
+      };
+    }
+    const capture =
+      this.mode === "transaction" &&
+      this.engine.adapter.capabilities.supportsReturning;
+    return {
+      statement: capture
+        ? buildCreate(parent, {
+            data: this.createData,
+            select: { [identity.field]: true },
+          })
+        : buildInsert(parent, getTableName(this.model), this.createData),
+      outputs: {
+        id: capture
+          ? { kind: "firstRowField", field: identity.field }
+          : { kind: "insertId" },
+      },
+    };
+  }
+
+  /** The create arm's terminal where: the literal primary key the create data
+   *  carries, or a backward reference to the identity the INSERT captured. */
+  private createArmTerminalWhere(
+    identity: CreateArmIdentity
+  ): Record<string, unknown> {
+    if (identity.kind === "known") return identity.where;
+    return {
+      [identity.field]: referenceSql(
+        this.engine,
+        this.model,
+        identity.field,
+        ref(this.createId, "id")
+      ),
+    };
   }
 
   private pkSelect(): Record<string, boolean> {
@@ -665,9 +936,15 @@ export class UpsertOperation {
   ): readonly Conditional[] {
     const txMode = this.mode === "transaction";
     const parentName = getStepModelName(this.model, "parent");
-    const uniqueFilters = getWhereUniqueEntries(parent, this.parentWhere).map(
-      ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
-    );
+    // The probe asks the SAME question the locate does — `where ∧ conditional` —
+    // so an extended `where`'s filter half rides along with the discriminator
+    // equalities. (It is a PREDICATE here, which is exactly what a probe wants;
+    // it still contributes no pin, because it never reaches `racePin`.)
+    const uniqueFilters: Record<string, unknown>[] = getWhereUniqueEntries(
+      parent,
+      this.parentWhere
+    ).map(({ fieldName, value }) => ({ [fieldName]: { equals: value } }));
+    if (this.whereFilters) uniqueFilters.push(this.whereFilters);
     const conditionals: Conditional[] = [];
     for (const field of ["targetWhere", "setWhere"] as const) {
       const raw = inputs[field];
@@ -746,13 +1023,19 @@ function defaultSelect(model: Model<any>): Record<string, unknown> {
 
 function assertUpsertKeys(value: Record<string, unknown>): void {
   const required = ["where", "create", "update"] as const;
-  const optional = new Set(["select", "include", "targetWhere", "setWhere"]);
+  const optional = new Set([
+    "select",
+    "include",
+    "omit",
+    "targetWhere",
+    "setWhere",
+  ]);
   const allowed = new Set<string>([...required, ...optional]);
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
   const missing = required.filter((key) => !Object.hasOwn(value, key));
   if (unexpected.length === 0 && missing.length === 0) return;
   throw new UnsupportedOperationError(
-    `upsert arguments require ${required.join(", ")} (optional select, include, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
+    `upsert arguments require ${required.join(", ")} (optional select, include, omit, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
   );
 }
 

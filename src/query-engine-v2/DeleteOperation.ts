@@ -237,7 +237,8 @@ export class DeleteOperation {
     return new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>("delete", outputs.result, this.resultArgs);
   }
 

@@ -3,9 +3,9 @@
  *
  * A m2m junction UPDATE target whose data carries its OWN m2m relation write, folded
  * one level deeper (`workspace.update({ projects: { update: { data: { tags: { connect }
- * } } } })`). The `queryEngine` escape hatch runs the identical workload through the
- * frozen V1 runtime and the native V2 engine on two seeded in-memory SQLite databases.
- * Ratio = V2 hz / V1 hz (higher = V2 faster). Numbers, not adjectives.
+ * } } } })`). Single-armed since P6 deleted V1 and the `queryEngine` escape hatch it
+ * used to A/B against; the recorded V2/V1 ratio stays in
+ * `docs/architecture/engine-unification/PERF.md`.
  *
  * Run: pnpm bench -- benchmarks/t3b2-deep-junction-ab.bench.ts
  */
@@ -32,9 +32,9 @@ const schema = (() => {
   return { workspace, project, tag };
 })();
 
-const makeClient = async (engine: "v1" | "v2") => {
+const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
-  const client = createClient({ schema, driver, queryEngine: engine });
+  const client = createClient({ schema, driver });
   await push(client, { force: true });
   // 200 workspaces, each owning one project (member); 200 tags to connect at depth.
   for (let i = 0; i < 200; i += 1) {
@@ -46,8 +46,7 @@ const makeClient = async (engine: "v1" | "v2") => {
   return client;
 };
 
-const v1 = await makeClient("v1");
-const v2 = await makeClient("v2");
+const client = await makeClient();
 let n = 0;
 
 const op = (i: number) => ({
@@ -62,11 +61,8 @@ const op = (i: number) => ({
   },
 });
 
-describe("deep-junction A/B: m2m update target folds a deeper m2m connect", () => {
-  bench("v1 workspace.update > projects.update > tags.connect", async () => {
-    await (v1 as any).workspace.update(op(n++ % 200));
-  });
-  bench("v2 workspace.update > projects.update > tags.connect", async () => {
-    await (v2 as any).workspace.update(op(n++ % 200));
+describe("deep-junction: m2m update target folds a deeper m2m connect", () => {
+  bench("workspace.update > projects.update > tags.connect", async () => {
+    await (client as any).workspace.update(op(n++ % 200));
   });
 });

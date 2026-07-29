@@ -2,9 +2,10 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
+import { createClient as createPGliteClient } from "@drivers/pglite";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { QueryResult } from "@drivers/types";
-import { VibORMErrorCode } from "@errors";
+import { TransactionError, VibORMErrorCode } from "@errors";
 import {
   isPendingOperation,
   type PendingOperation,
@@ -159,15 +160,32 @@ describe("nested public transaction contract", () => {
     expect(driver.statements).toEqual(["BEGIN", "COMMIT"]);
   });
 
-  test("removed options reject asynchronously before the empty fast path", async () => {
+  /**
+   * REWRITTEN for decision D-2 (W5-U3). The old pin asserted `{}` was rejected
+   * on the nested form. What must survive is that a nested refusal still
+   * arrives *through the Promise API* (never as a synchronous throw that would
+   * escape the callback's own error handling) and still lands before the empty
+   * fast path, without disturbing the outer transaction.
+   */
+  test("a nested refusal rejects asynchronously before the empty fast path", async () => {
     const driver = new RecordingTransactionDriver();
     const client = createContractClient(driver);
 
     await runTransaction(client, async (tx: object) => {
-      const nested = runTransaction(tx, [], {});
-      await expect(nested).rejects.toMatchObject({
+      // A nested $transaction is a SAVEPOINT: its isolation level is fixed by
+      // the outer transaction, so asking is a typed refusal.
+      const refused = runTransaction(tx, [], {
+        isolationLevel: "Serializable",
+      });
+      await expect(refused).rejects.toMatchObject({ code: "V8003" });
+
+      const malformed = runTransaction(tx, [], { timeout: 5 });
+      await expect(malformed).rejects.toMatchObject({
         code: VibORMErrorCode.INVALID_TRANSACTION_INPUT,
       });
+
+      // Asking for nothing still takes the empty fast path.
+      await expect(runTransaction(tx, [], {})).resolves.toEqual([]);
     });
     expect(driver.statements).toEqual(["BEGIN", "COMMIT"]);
   });
@@ -206,5 +224,41 @@ describe("nested public transaction contract", () => {
     ).toBe(true);
     expect(driver.statements.at(-1)).toBe("ROLLBACK");
     expect(driver.statements).not.toContain("COMMIT");
+  });
+});
+
+describe("single-connection root client during a callback transaction", () => {
+  /**
+   * Witness for the refusal in `assertBaseOperationAllowedDuringTransaction`:
+   * on a single-connection driver, a ROOT-client operation issued inside a
+   * callback transaction must be refused with a typed TransactionError — not
+   * silently join (and roll back with) a transaction it was never handed.
+   * Discovered missing during the T3 ALS spike: under an ambient driver store
+   * the refusal disappeared and the whole estate stayed green.
+   */
+  test("refuses a root-client operation while the connection is transaction-bound", async () => {
+    const { PGlite } = await import("@electric-sql/pglite");
+    const client = await createPGliteClient({ schema, client: new PGlite() });
+    try {
+      // No push: the create is refused before any SQL reaches the database.
+      const failure = await client
+        .$transaction(async (_tx) => {
+          // Deliberately `client`, not `_tx` — the misuse under test.
+          await client.record.create({ data: { id: "escapee" } });
+        })
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        );
+      expect(failure).toBeInstanceOf(TransactionError);
+      const refusal = failure as TransactionError;
+      expect(refusal.message).toMatch(/cannot use the originating client/);
+      expect(refusal.meta).toMatchObject({
+        driver: "pglite",
+        method: "$transaction(callback)",
+      });
+    } finally {
+      await client.$disconnect();
+    }
   });
 });

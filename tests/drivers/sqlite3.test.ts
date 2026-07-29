@@ -22,26 +22,36 @@ import { seedWindowUserPosts } from "../fixtures/user-post-seed";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
+import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
 import { runUpdateNestedUpsertBehavior } from "../query-engine-v2/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "../query-engine-v2/upsert-family-behavior";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
+import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
+import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
+import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
-import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
+import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runNestedWriteJsonEnvelopeBehavior } from "./nested-write-json-envelope-behavior";
+import { runOmitBehavior } from "./omit-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -413,7 +423,6 @@ describe("SQLite3 Driver", () => {
     test("maps raw foreign key constraint errors", async () => {
       const driver = createInMemorySQLite3Driver();
       await setupSQLite3UserPostDatabase(driver);
-      await driver._executeRaw("PRAGMA foreign_keys = ON");
 
       await expect(
         driver._executeRaw(
@@ -716,11 +725,25 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
 
+  runNestedPaginationBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
+  runOmitBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
   runNestedWriteBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
   runNestedWriteAdvancedBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runNestedWriteJsonEnvelopeBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
@@ -740,11 +763,19 @@ describe("SQLite3 Driver", () => {
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
-  runManyAndReturnBehavior({
+  runImplicitReturningBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runBulkWriteLimitBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
   runListJsonFilterBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runJsonNullSentinelBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
@@ -772,7 +803,21 @@ describe("SQLite3 Driver", () => {
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
+  runDecimalExactnessBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+    exactDecimal: false,
+  });
   runLikeEscapeBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runBlobFilterBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+
+  runFieldReferenceBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
@@ -850,6 +895,24 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runUpdateFamilyBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runExtendedWhereUniqueBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runExtendedWhereUniqueBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runToOneUpdateWhereBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runToOneUpdateWhereBehavior({
     name: "SQLite3 atomic batch",
     createDriver: createBatchOnlySQLite3Driver,
   });

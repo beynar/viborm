@@ -90,6 +90,16 @@ export {
   hydrateSchemaNames,
   isSchemaHydrated,
 } from "./hydration";
+// JSON null sentinels — the two nulls of a nullable JSON column, told apart
+export {
+  type AnyJsonNullSentinel,
+  AnyNull,
+  DbNull,
+  isJsonNullSentinel,
+  JsonNull,
+  type JsonNullKind,
+  JsonNullSentinel,
+} from "./json-null";
 export * from "./model";
 export { Model } from "./model";
 export type { Getter, ReferentialAction, RelationType } from "./relation";

@@ -46,7 +46,9 @@ const schema = { ...clientUserPostSchema, membership };
 // =============================================================================
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
 >;
 
 beforeAll(async () => {
@@ -93,6 +95,19 @@ async function createTestMemberships() {
       role: "viewer",
     },
   });
+}
+
+/**
+ * Capture the error produced by an operation regardless of whether the client
+ * throws synchronously (eager validation) or rejects the awaited promise.
+ */
+async function captureThrown(fn: () => unknown): Promise<unknown> {
+  try {
+    await fn();
+    return undefined;
+  } catch (error) {
+    return error;
+  }
 }
 
 // =============================================================================
@@ -157,6 +172,44 @@ describe("Find Operations", () => {
       expect(result?.posts).toBeInstanceOf(Array);
       expect(result?.posts.length).toBe(3);
     });
+
+    // Regression witness: the old code hardcoded LIMIT 1 and ignored take, so
+    // take: -1 returned the FIRST row of the asc window (Bob) instead of the
+    // last (Alice), and take: 0 returned a row instead of null.
+    test("take -1 returns the last row of the orderBy window", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirst({
+        where: { age: { not: null } },
+        orderBy: { age: "asc" },
+        take: -1,
+      });
+      expect(result?.name).toBe("Alice"); // Alice is 30, Bob is 25
+    });
+
+    test("take -1 applies the where filter before taking from the end", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirst({
+        where: { name: { in: ["Alice", "Bob"] } },
+        orderBy: { name: "asc" },
+        take: -1,
+      });
+      expect(result?.name).toBe("Bob");
+    });
+
+    test("take 0 returns null even when rows match", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirst({ take: 0 });
+      expect(result).toBeNull();
+    });
+
+    test("positive take still returns the first row", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirst({
+        orderBy: { name: "asc" },
+        take: 5,
+      });
+      expect(result?.name).toBe("Alice");
+    });
   });
 
   describe("findFirstOrThrow", () => {
@@ -181,6 +234,28 @@ describe("Find Operations", () => {
           "No user record found for findFirstOrThrow"
         );
       }
+    });
+
+    test("take -1 returns the last row of the orderBy window", async () => {
+      await createStandardUserPostUsers(client);
+      const result = await client.user.findFirstOrThrow({
+        where: { age: { not: null } },
+        orderBy: { age: "asc" },
+        take: -1,
+      });
+      expect(result.name).toBe("Alice"); // Alice is 30, Bob is 25
+    });
+
+    test("take 0 throws NotFoundError even when rows match", async () => {
+      await createStandardUserPostUsers(client);
+      const error = await captureThrown(() =>
+        client.user.findFirstOrThrow({ take: 0 })
+      );
+      expect(error).toBeInstanceOf(NotFoundError);
+      expect(error).toHaveProperty(
+        "message",
+        "No user record found for findFirstOrThrow"
+      );
     });
   });
 
@@ -656,6 +731,185 @@ describe("Update Operations", () => {
 
       expect(result).toEqual({ count: 0 });
     });
+
+    test("rejects relation data alongside scalars and leaves the DB unchanged", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateMany({
+          where: { id: alice.id },
+          // NOTE: no @ts-expect-error here — nested excess-property checking
+          // does not fire through the client's generic signature when another
+          // valid key is present (pre-existing surface-wide TS limitation, it
+          // affects typo'd scalar keys on every operation too). The runtime
+          // parse boundary is the enforced rejection for this shape; the
+          // relation-only test below proves the type-level exclusion.
+          data: {
+            name: "Smuggler",
+            posts: {
+              create: {
+                id: "post-smuggled",
+                title: "Smuggled",
+                authorId: alice.id,
+              },
+            },
+          },
+        })
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain("posts");
+
+      // Neither the scalar update nor the nested create was applied.
+      const user = await client.user.findUnique({ where: { id: alice.id } });
+      expect(user?.name).toBe("Alice");
+      const smuggled = await client.post.findUnique({
+        where: { id: "post-smuggled" },
+      });
+      expect(smuggled).toBeNull();
+    });
+
+    test("rejects relation-only data with a ValidationError naming the key", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateMany({
+          where: { id: alice.id },
+          data: {
+            // @ts-expect-error updateMany data is scalar-only; relation keys are rejected
+            posts: {
+              create: {
+                id: "post-smuggled",
+                title: "Smuggled",
+                authorId: alice.id,
+              },
+            },
+          },
+        })
+      );
+
+      // A loud ValidationError naming the relation key, not a misleading
+      // "No fields to update" QueryEngineError.
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain("posts");
+
+      const smuggled = await client.post.findUnique({
+        where: { id: "post-smuggled" },
+      });
+      expect(smuggled).toBeNull();
+    });
+  });
+
+  describe("updateMany with select (implicit returning)", () => {
+    test("scalar-only data updates and returns the affected rows", async () => {
+      await createStandardUserPostUsers(client);
+
+      const rows = await client.user.updateMany({
+        where: { age: { gte: 25 } },
+        data: { name: "Returned" },
+        select: { id: true, name: true },
+      });
+
+      expect(rows.length).toBe(2);
+      for (const row of rows) {
+        expect(row.name).toBe("Returned");
+      }
+    });
+
+    test("the same call without select returns { count }", async () => {
+      await createStandardUserPostUsers(client);
+
+      const result = await client.user.updateMany({
+        where: { age: { gte: 25 } },
+        data: { name: "Counted" },
+      });
+
+      expect(result).toEqual({ count: 2 });
+    });
+
+    test("include is rejected with a message naming the alternative", async () => {
+      await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateMany({
+          where: { age: { gte: 25 } },
+          data: { name: "Included" },
+          // @ts-expect-error include is not part of the bulk-write surface
+          include: { posts: true },
+        })
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain(
+        "'include' is not supported on 'updateMany'"
+      );
+    });
+
+    test("rejects relation data alongside scalars and leaves the DB unchanged", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateMany({
+          where: { id: alice.id },
+          select: { id: true },
+          // NOTE: no @ts-expect-error here — nested excess-property checking
+          // does not fire through the client's generic signature when another
+          // valid key is present (pre-existing surface-wide TS limitation).
+          // The runtime parse boundary is the enforced rejection for this
+          // shape; the relation-only test below proves the type-level
+          // exclusion.
+          data: {
+            name: "Smuggler",
+            posts: {
+              create: {
+                id: "post-smuggled",
+                title: "Smuggled",
+                authorId: alice.id,
+              },
+            },
+          },
+        })
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain("posts");
+
+      const user = await client.user.findUnique({ where: { id: alice.id } });
+      expect(user?.name).toBe("Alice");
+      const smuggled = await client.post.findUnique({
+        where: { id: "post-smuggled" },
+      });
+      expect(smuggled).toBeNull();
+    });
+
+    test("rejects relation-only data with a ValidationError naming the key", async () => {
+      const { alice } = await createStandardUserPostUsers(client);
+
+      const error = await captureThrown(() =>
+        client.user.updateMany({
+          where: { id: alice.id },
+          select: { id: true },
+          data: {
+            // @ts-expect-error updateMany data is scalar-only; relation keys are rejected
+            posts: {
+              create: {
+                id: "post-smuggled",
+                title: "Smuggled",
+                authorId: alice.id,
+              },
+            },
+          },
+        })
+      );
+
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as Error).message).toContain("posts");
+
+      const smuggled = await client.post.findUnique({
+        where: { id: "post-smuggled" },
+      });
+      expect(smuggled).toBeNull();
+    });
   });
 });
 
@@ -1091,51 +1345,62 @@ describe("Transaction & Raw SQL", () => {
   });
 
   describe("$executeRaw", () => {
-    test("executes raw SQL query", async () => {
+    test("returns the affected count for mutations", async () => {
       await createStandardUserPostUsers(client);
 
-      const result = await client.$executeRaw<{ name: string }>(
-        sql`SELECT "name" FROM "user" WHERE "name" = ${"Alice"}`
-      );
-
-      expect(result.rows.length).toBe(1);
-      expect(result.rows[0]?.name).toBe("Alice");
-    });
-
-    test("returns rowCount for mutations", async () => {
-      await createStandardUserPostUsers(client);
-
-      const result = await client.$executeRaw(
+      const affected = await client.$executeRaw(
         sql`UPDATE "user" SET "age" = ${99} WHERE "age" IS NOT NULL`
       );
 
-      expect(result.rowCount).toBe(2); // Alice and Bob
+      expect(affected).toBe(2); // Alice and Bob
+    });
+
+    test("binds a tagged interpolation", async () => {
+      await createStandardUserPostUsers(client);
+
+      const affected =
+        await client.$executeRaw`UPDATE "user" SET "age" = ${77} WHERE "name" = ${"Alice"}`;
+
+      expect(affected).toBe(1);
     });
   });
 
   describe("$queryRaw", () => {
-    test("executes raw SQL string with params", async () => {
+    test("binds tagged interpolations and returns the rows", async () => {
       await createStandardUserPostUsers(client);
 
-      const result = await client.$queryRaw<{ name: string }>(
-        'SELECT "name" FROM "user" WHERE "age" >= $1',
-        [25]
-      );
+      const rows = await client.$queryRaw<{
+        name: string;
+      }>`SELECT "name" FROM "user" WHERE "age" >= ${25}`;
 
-      expect(result.rows.length).toBe(2); // Alice (30) and Bob (25)
+      expect(rows.length).toBe(2); // Alice (30) and Bob (25)
     });
 
     test("returns all rows", async () => {
       await createStandardUserPostUsers(client);
 
-      const result = await client.$queryRaw<{ id: string; name: string }>(
-        'SELECT "id", "name" FROM "user" ORDER BY "name" ASC'
+      const rows = await client.$queryRaw<{
+        id: string;
+        name: string;
+      }>`SELECT "id", "name" FROM "user" ORDER BY "name" ASC`;
+
+      expect(rows.length).toBe(3);
+      expect(rows[0]?.name).toBe("Alice");
+      expect(rows[1]?.name).toBe("Bob");
+      expect(rows[2]?.name).toBe("Charlie");
+    });
+  });
+
+  describe("$queryRawUnsafe", () => {
+    test("executes a hand-written statement with positional params", async () => {
+      await createStandardUserPostUsers(client);
+
+      const rows = await client.$queryRawUnsafe<{ name: string }>(
+        'SELECT "name" FROM "user" WHERE "age" >= $1',
+        25
       );
 
-      expect(result.rows.length).toBe(3);
-      expect(result.rows[0]?.name).toBe("Alice");
-      expect(result.rows[1]?.name).toBe("Bob");
-      expect(result.rows[2]?.name).toBe("Charlie");
+      expect(rows.length).toBe(2); // Alice (30) and Bob (25)
     });
   });
 });

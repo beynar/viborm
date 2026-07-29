@@ -57,6 +57,34 @@ const jsonPathLeg = (segment: string): string => {
   return `$."${segment}"`;
 };
 
+/** Chain one bound `-> '$leg'` per path segment ('$' alone = document root). */
+const jsonExtract = (column: Sql, path: string[]): Sql => {
+  let expr = sql`${column} -> '$'`;
+  for (const segment of path) {
+    const leg = jsonPathLeg(segment);
+    expr = sql`${expr} -> ${leg}`;
+  }
+  return expr;
+};
+
+/** Same chain, but the final leg uses `->>` so strings come back unquoted. */
+const jsonExtractText = (column: Sql, path: string[]): Sql => {
+  const legs: string[] = [];
+  for (const segment of path) {
+    const leg = jsonPathLeg(segment);
+    legs.push(leg);
+  }
+  const last = legs.pop();
+  if (last === undefined) {
+    return sql`${column} ->> '$'`;
+  }
+  let expr: Sql = column;
+  for (const leg of legs) {
+    expr = sql`${expr} -> ${leg}`;
+  }
+  return sql`${expr} ->> ${last}`;
+};
+
 /**
  * Concatenate two JSON array texts by string surgery: strip `left`'s closing
  * bracket and `right`'s opening bracket. SQLite has no JSON array-concat
@@ -109,6 +137,15 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     // SQLite requires JSON values to be stringified
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
+
+    // SQLite has no exact decimal type, so a decimal lives in a TEXT column as
+    // its canonical spelling and the operand stays text. Casting to NUMERIC or
+    // REAL here would put the comparison through a double — which is exactly
+    // what the TEXT column exists to avoid. Text equality is EXACT numeric
+    // equality precisely because both sides are canonical; the operators that
+    // text cannot answer (ordering, aggregation, arithmetic) are refused
+    // outright rather than answered approximately.
+    decimal: (canonical: string): Sql => sql`${canonical}`,
   };
 
   // ============================================================
@@ -180,6 +217,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
       integer: "INTEGER",
       boolean: "INTEGER",
       numeric: "NUMERIC",
+      // TEXT, matching the storage column and `literals.decimal`. `CAST(x AS
+      // NUMERIC)` would put the canonical spelling through a double — the exact
+      // thing the TEXT column exists to avoid.
+      decimal: "TEXT",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`lower(hex(${expr}))`,
@@ -223,32 +264,21 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // `->` returns the value as canonical JSON text ('"str"', '2', 'null'),
     // the same format json.value binds, so extracted values compare with
     // plain equality (json_extract would return native SQL values instead)
-    extract: (column: Sql, path: string[]): Sql => {
-      let expr = sql`${column} -> '$'`;
-      for (const segment of path) {
-        const leg = jsonPathLeg(segment);
-        expr = sql`${expr} -> ${leg}`;
-      }
-      return expr;
-    },
+    extract: jsonExtract,
 
     // `->>` returns text with strings unquoted, for LIKE matching
-    extractText: (column: Sql, path: string[]): Sql => {
-      const legs: string[] = [];
-      for (const segment of path) {
-        const leg = jsonPathLeg(segment);
-        legs.push(leg);
-      }
-      const last = legs.pop();
-      if (last === undefined) {
-        return sql`${column} ->> '$'`;
-      }
-      let expr: Sql = column;
-      for (const leg of legs) {
-        expr = sql`${expr} -> ${leg}`;
-      }
-      return sql`${expr} ->> ${last}`;
-    },
+    extractText: jsonExtractText,
+
+    // json_type reads the chained `->` result (canonical JSON text), so it
+    // sees 'integer'/'real' only for real JSON numbers; every other shape —
+    // and an absent path, where `->` is NULL — falls through to NULL
+    numberAtPath: (column: Sql, path: string[]): Sql =>
+      sql`(CASE WHEN json_type(${jsonExtract(column, path)}) IN ('integer', 'real') THEN CAST(${jsonExtractText(column, path)} AS REAL) END)`,
+
+    // COLLATE BINARY is SQLite's default for these columns; naming it keeps
+    // the code-point ordering contract explicit alongside PG's COLLATE "C"
+    stringAtPath: (column: Sql, path: string[]): Sql =>
+      sql`((CASE WHEN json_type(${jsonExtract(column, path)}) = 'text' THEN ${jsonExtractText(column, path)} END) COLLATE BINARY)`,
 
     // json_each pairs match hasEvery; the json_type guard keeps scalar
     // targets and NULLs from matching (mirrors PG @> / MySQL JSON_CONTAINS)
@@ -475,6 +505,11 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsVector: false,
     supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
     supportsMutationTargetInSubquery: true,
+    // UPDATE/DELETE ... LIMIT needs SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which is
+    // off in the builds this project targets (better-sqlite3, libSQL, D1).
+    supportsMutationRowLimit: false,
+    // No exact decimal type exists in SQLite — see the flag's own docs.
+    supportsExactDecimal: false,
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;

@@ -22,6 +22,17 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+/**
+ * A JSON value in WRITE position: everything `JsonValue` allows EXCEPT a bare
+ * top-level `null`.
+ *
+ * Once `DbNull` and `JsonNull` exist, a top-level `null` no longer says which
+ * of the two nulls it means, so it is not a legal write value — the same line
+ * Prisma draws with its own `InputJsonValue`. Nested nulls are untouched:
+ * `{ a: null }` is an ordinary document.
+ */
+export type InputJsonValue = Exclude<JsonValue, null>;
+
 export interface BaseJsonSchema<
   Opts extends ScalarOptions<JsonValue, any> | undefined = undefined,
 > extends VibSchema<

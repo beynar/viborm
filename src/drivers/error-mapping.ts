@@ -9,6 +9,7 @@ import {
   QueryError,
   TransactionError,
   UniqueConstraintError,
+  ValueTooLongError,
   type VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
@@ -24,6 +25,9 @@ const POSTGRES_UNIQUE = "23505";
 const POSTGRES_FOREIGN_KEY = "23503";
 const POSTGRES_NOT_NULL = "23502";
 const POSTGRES_CHECK = "23514";
+// string_data_right_truncation — Prisma maps this SQLSTATE to LengthMismatch/P2000
+// (quaint/src/connector/postgres/error.rs)
+const POSTGRES_VALUE_TOO_LONG = "22001";
 const POSTGRES_SERIALIZATION = "40001";
 const POSTGRES_DEADLOCK = "40P01";
 
@@ -32,6 +36,10 @@ const MYSQL_FOREIGN_KEY = 1452;
 const MYSQL_FOREIGN_KEY_ROW_IS_REFERENCED = 1451;
 const MYSQL_NOT_NULL = 1048;
 const MYSQL_CHECK = 3819;
+// ER_DATA_TOO_LONG — Prisma maps errno 1406 to LengthMismatch/P2000
+// (quaint/src/connector/mysql/error.rs). SQLite has no counterpart: it does not enforce
+// declared column lengths, and quaint's SQLite connector leaves SQLITE_TOOBIG unmapped.
+const MYSQL_DATA_TOO_LONG = 1406;
 const MYSQL_DEADLOCK = 1213;
 const MYSQL_LOCK_WAIT_TIMEOUT = 1205;
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
@@ -41,7 +49,7 @@ const MYSQL_ERRNO_IN_MESSAGE_PATTERN = /\(errno (\d+)\)/;
 // dialect-specific trick: division by zero on PG (SQLSTATE 22012), invalid
 // JSON via JSON_EXTRACT/json_extract on MySQL (errno 3141) and SQLite
 // ("malformed JSON"). The statements are identifiable by their column alias.
-const ASSERTION_MARKER = "__viborm_assert__";
+export const ASSERTION_MARKER = "__viborm_assert__";
 const POSTGRES_DIVISION_BY_ZERO = "22012";
 const MYSQL_INVALID_JSON_TEXT = 3141;
 
@@ -60,14 +68,61 @@ function isAssertionFailure(
   );
 }
 
+/**
+ * Every error class {@link mapProviderError} constructs — the driver layer's failure
+ * vocabulary, named so it is visible at the call sites instead of erased to `Error`.
+ *
+ * The members are disjoint by `code` (T1-U1 gave each class its literal), so this union is a
+ * discriminated union: `if (failure.code === VibORMErrorCode.UNIQUE_CONSTRAINT)` selects
+ * `UniqueConstraintError`, and an exhaustive `switch` over the codes bottoms out at `never`.
+ *
+ * `mapProviderError` is annotated with it, which is the point: adding a ninth class to the
+ * mapper without adding it here is a compile error, not a silently widened return.
+ */
+export type DriverFailure =
+  | CheckConstraintError
+  | ForeignKeyError
+  | NestedWriteAssertionError
+  | NotNullConstraintError
+  | QueryError
+  | TransactionError
+  | UniqueConstraintError
+  | ValueTooLongError;
+
+/**
+ * What {@link normalizeDriverError} can hand back.
+ *
+ * Two arms, and the type is the union of both. A raw provider error is mapped to a
+ * {@link DriverFailure}. An error that is ALREADY a VibORM error is passed through with
+ * execution context attached — and that arm is honestly `VibORMError`, not `DriverFailure`,
+ * for two independent reasons: the incoming error can be any VibORM error the layers above
+ * threw (a `ValidationError`, an engine refusal), and `attachExecutionContext` clones through
+ * `getCloneConstructor`, whose prototype table does not list every class — a re-normalized
+ * `ValueTooLongError` comes back as a bare `VibORMError` (measured, `driver-error-context.ts`).
+ * Typing the whole function `DriverFailure` would be a claim neither arm can keep.
+ */
+export type NormalizedDriverError = DriverFailure | VibORMError;
+
 export function normalizeDriverError(
   error: unknown,
   context: DriverErrorContext
-): Error {
+): NormalizedDriverError {
   if (isKnownVibORMError(error)) {
     return attachExecutionContext(error, context);
   }
+  return mapProviderError(error, context);
+}
 
+/**
+ * Map a raw provider error onto the {@link DriverFailure} vocabulary. Split out of
+ * {@link normalizeDriverError} so the constructed union has a return type to be checked
+ * against — the passthrough arm above cannot carry that annotation, and a function has one
+ * return type. The body is the mapping exactly as it was; only its type is new.
+ */
+function mapProviderError(
+  error: unknown,
+  context: DriverErrorContext
+): DriverFailure {
   const cause = toError(error);
   const rawMessage = getErrorMessage(cause);
   const dbError = readDriverErrorShape(error);
@@ -118,6 +173,14 @@ export function normalizeDriverError(
 
   if (code === POSTGRES_CHECK || code === "SQLITE_CONSTRAINT_CHECK") {
     return new CheckConstraintError("Check constraint violation", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
+  if (code === POSTGRES_VALUE_TOO_LONG) {
+    return new ValueTooLongError("Value too long for column type", {
       cause,
       diagnostics,
       meta,
@@ -179,6 +242,14 @@ export function normalizeDriverError(
     });
   }
 
+  if (errno === MYSQL_DATA_TOO_LONG || code === "ER_DATA_TOO_LONG") {
+    return new ValueTooLongError("Value too long for column type", {
+      cause,
+      diagnostics,
+      meta,
+    });
+  }
+
   if (
     errno === MYSQL_DEADLOCK ||
     errno === MYSQL_LOCK_WAIT_TIMEOUT ||
@@ -225,11 +296,18 @@ export function normalizeDriverError(
   });
 }
 
+/**
+ * What {@link normalizeDriverConnectionError} can hand back — the connection variant of
+ * {@link NormalizedDriverError}. The constructed arm is exactly {@link ConnectionError}; the
+ * passthrough arm is `VibORMError` for the same two reasons documented there.
+ */
+export type NormalizedConnectionError = ConnectionError | VibORMError;
+
 export function normalizeDriverConnectionError(
   error: unknown,
   context: DriverErrorContext,
   message = "Database connection failed"
-): Error {
+): NormalizedConnectionError {
   if (isKnownVibORMError(error)) {
     return attachExecutionContext(error, context);
   }
@@ -338,7 +416,12 @@ function mapSQLiteConstraint(
   meta: VibORMErrorMeta,
   cause: Error,
   diagnostics: DiagnosticDisclosure | undefined
-): Error | undefined {
+):
+  | CheckConstraintError
+  | ForeignKeyError
+  | NotNullConstraintError
+  | UniqueConstraintError
+  | undefined {
   const isSQLiteConstraint =
     message.includes("SQLITE_CONSTRAINT") ||
     message.includes("UNIQUE constraint failed") ||

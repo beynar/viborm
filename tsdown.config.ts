@@ -13,6 +13,9 @@ export default defineConfig({
     // Driver base (viborm/driver)
     driver: "./src/drivers/exports.ts",
 
+    // Raw SQL helpers (viborm/sql) — also re-exported from the package root
+    sql: "./src/sql/sql.ts",
+
     // PostgreSQL drivers (viborm/pg, viborm/postgres, etc.)
     pg: "./src/drivers/pg/index.ts",
     postgres: "./src/drivers/postgres/index.ts",

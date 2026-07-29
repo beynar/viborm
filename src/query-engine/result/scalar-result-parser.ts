@@ -1,5 +1,6 @@
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { canonicalizeDecimal } from "@validation/primitives/decimal";
 import type { Operation } from "../types";
 import { QueryEngineError } from "../types";
 import { malformedScalarValue } from "./result-parser-contract";
@@ -254,8 +255,7 @@ function parseTypedValueDefault(
       return parsed;
     }
 
-    case "float":
-    case "decimal": {
+    case "float": {
       const parsed = parseFiniteProviderNumber(value);
       if (parsed === undefined) {
         return malformedScalarValue(
@@ -266,6 +266,24 @@ function parseTypedValueDefault(
         );
       }
       return parsed;
+    }
+
+    // A decimal NEVER becomes a JS number here. Every provider hands the value
+    // over as text already (PG `numeric`, mysql2 `DECIMAL`, SQLite's TEXT
+    // column, and the `CAST(... AS TEXT)` the JSON select/aggregate paths add),
+    // so the only work is agreeing on one spelling. Routing it through a double
+    // — even briefly — is the precision loss this scalar exists to prevent.
+    case "decimal": {
+      const canonical = canonicalizeDecimal(value);
+      if (canonical === undefined) {
+        return malformedScalarValue(
+          provider,
+          operation,
+          scalarType,
+          "the value is not an exact decimal"
+        );
+      }
+      return canonical;
     }
 
     case "boolean": {

@@ -88,6 +88,8 @@ viborm:v2:user:findMany:abc123def456...  // with cacheVersion: 2
 
 The hash uses a fast non-cryptographic algorithm (djb2 variant) on stable-stringified args. Stability means `{a: 1, b: 2}` and `{b: 2, a: 1}` produce the same hash.
 
+**Branded operand tokens key in a reserved namespace.** A value that is not JSON — a `DbNull`/`JsonNull`/`AnyNull` sentinel, a field reference, an SQL fragment, plus the scalars JSON cannot carry (bigint, `Date`, bytes) — serializes inside delimiters (`U+001F` … `U+001E`) that `JSON.stringify` can never emit, so no user document can forge one. Without it a sentinel and the ordinary document `{ kind: "DbNull" }` hashed alike and a cached client served one query's rows for the other. Note that changing the serialization changes every hash: entries written by an older build are simply never read again (they expire on their own TTL), and `cacheVersion` is a key PREFIX that does not feed the hash, so it neither hides that nor needs bumping for it.
+
 **Cache Versioning:** Setting `cacheVersion` in client config adds a version prefix to all keys. Bump the version when schema changes to automatically invalidate stale cache entries with incompatible shapes.
 
 ### Stale-While-Revalidate (SWR)

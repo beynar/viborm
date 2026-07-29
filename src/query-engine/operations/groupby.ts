@@ -10,6 +10,10 @@ import {
   buildAggregateColumn,
   buildCountAggregate,
 } from "../builders/aggregate-utils";
+import {
+  assertExactDecimalAggregate,
+  assertExactDecimalOperation,
+} from "../builders/decimal-portability";
 import { buildSingleOrder } from "../builders/sort-order-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
@@ -252,6 +256,9 @@ function buildGroupByOrderBy(
         );
       }
       const columnName = getColumnName(ctx.model, key);
+      // groupBy builds its own ORDER BY rather than reusing the orderby-builder,
+      // so it needs its own copy of the decimal gate.
+      assertExactDecimalOperation(ctx, key, "orderBy");
       const column = adapter.identifiers.column(alias, columnName);
       orders.push(buildSingleOrder(ctx, column, value));
     }
@@ -274,6 +281,10 @@ function buildOrderByAggregate(
   }
 
   const columnName = getColumnName(ctx.model, field);
+  // Ordering by an aggregate is exact only where the aggregate is — the same
+  // rule the aggregate builder applies to SELECTED aggregates, which is why
+  // `aggregate({ _max })` refused while `groupBy({ orderBy: { _max } })` did not.
+  assertExactDecimalAggregate(ctx, field, aggKey);
   const column = adapter.identifiers.column(alias, columnName);
 
   switch (aggKey) {

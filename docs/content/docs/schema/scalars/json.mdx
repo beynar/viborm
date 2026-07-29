@@ -142,6 +142,38 @@ await client.user.update({
 });
 ```
 
+## Writing null
+
+A nullable JSON column has **two** nulls: the database `NULL` (no document at
+all) and the JSON value `null` (a document that happens to be `null`). A bare
+`null` does not say which one you mean, so it is rejected in write position —
+at compile time and at runtime — and two exported sentinels name them instead:
+
+```ts
+import { DbNull, JsonNull } from "viborm";
+
+// The column holds no document
+await client.user.update({ where: { id }, data: { preferences: DbNull } });
+
+// The column holds the JSON document `null`
+await client.user.update({ where: { id }, data: { preferences: JsonNull } });
+
+// Rejected: "null is ambiguous in JSON write data…"
+await client.user.update({ where: { id }, data: { preferences: null } });
+```
+
+Only the top level is affected — `{ theme: null }` is an ordinary document and
+stays legal. `DbNull` requires a `.nullable()` field; `JsonNull` works on any
+JSON field, since the JSON value `null` is a document like any other. `AnyNull`
+is filter-only: "either null" is a question, not a value.
+
+The write type for a JSON field is exported as `InputJsonValue` (every
+`JsonValue` except a top-level `null`), which is useful when a fixture or
+helper needs to name it.
+
+See [JSON Filters](/docs/client/filtering/json#the-two-nulls) for the matching
+filter side.
+
 ## JSON vs Separate Scalars
 
 | Approach         | Pros                       | Cons                            |

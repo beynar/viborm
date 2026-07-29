@@ -36,8 +36,9 @@ export interface ClientRawBehaviorOptions {
 
 /**
  * Client surface that had no cross-driver execution coverage:
- * - $queryRaw (raw string + params, in each driver's placeholder style)
- * - $executeRaw (sql`` template; the client renders placeholders per adapter)
+ * - $queryRaw (tagged template; the client binds and renders per adapter)
+ * - $queryRawUnsafe (hand-written statement + positional params)
+ * - $executeRaw / $executeRawUnsafe (affected-row count)
  * - findFirstOrThrow / findUniqueOrThrow (found + NotFoundError)
  * - exist (true / false)
  */
@@ -47,8 +48,9 @@ export function runClientRawBehavior({
 }: ClientRawBehaviorOptions) {
   describe(`${driverName} client raw/orThrow/exist behavior`, () => {
     let client: ClientRawClient;
-    // $queryRaw takes a plain SQL string, so the test supplies the driver's
-    // native placeholder style ($n for postgres wire protocol, ? elsewhere).
+    // The Unsafe variants take a hand-written statement, so those tests supply
+    // the driver's native placeholder style ($n for the postgres wire
+    // protocol, ? elsewhere). The tagged forms need no such knowledge.
     let placeholder: (index: number) => string;
 
     beforeEach(async () => {
@@ -72,60 +74,88 @@ export function runClientRawBehavior({
     });
 
     describe("$queryRaw", () => {
-      test("selects with a parameter and rows round-trip", async () => {
-        const result = await client.$queryRaw<{
+      test("binds a tagged interpolation and rows round-trip", async () => {
+        const rows = await client.$queryRaw<{
           id: string;
           label: string;
           qty: number | bigint;
-        }>(
-          `SELECT id, label, qty FROM client_raw_items WHERE qty >= ${placeholder(
-            1
-          )} ORDER BY id`,
-          [5]
-        );
+        }>`SELECT id, label, qty FROM client_raw_items WHERE qty >= ${5} ORDER BY id`;
 
-        // Raw rows are driver-native: most drivers hand INTEGER columns back
-        // as JS numbers, but LibSQL reads with intMode "bigint" so they
-        // arrive as BigInt (the ORM's typed read path normalizes int fields;
-        // $queryRaw deliberately does not). Normalize before comparing.
-        expect(result.rows.map((r) => ({ ...r, qty: Number(r.qty) }))).toEqual([
+        // Raw rows are driver-native, and "native" is not one type. The TAGGED
+        // form routes through driver._execute — the same path that opts sqlite3
+        // and bun-sqlite into safeIntegers(true) — so INTEGER columns arrive as
+        // BigInt on the whole sqlite3 family, and LibSQL does the same via
+        // intMode "bigint". Postgres and MySQL hand back JS numbers. Either way
+        // nothing here normalizes: the ORM's typed read path converts int
+        // fields, $queryRaw deliberately does not. Normalize before comparing.
+        // (Only $queryRawUnsafe and the legacy string form take _executeRaw,
+        // which deliberately stays off the safe-integer opt-in.)
+        expect(rows.map((r) => ({ ...r, qty: Number(r.qty) }))).toEqual([
           { id: "i2", label: "Beta", qty: 5 },
           { id: "i3", label: "Gamma", qty: 9 },
         ]);
       });
 
-      test("binds multiple parameters in order", async () => {
-        const result = await client.$queryRaw<{ id: string }>(
+      test("binds multiple tagged interpolations in order", async () => {
+        const rows = await client.$queryRaw<{
+          id: string;
+        }>`SELECT id FROM client_raw_items WHERE qty > ${1} AND label = ${"Beta"}`;
+
+        expect(rows).toEqual([{ id: "i2" }]);
+      });
+
+      test("accepts a prebuilt sql`` fragment", async () => {
+        const rows = await client.$queryRaw<{ label: string }>(
+          sql`SELECT label FROM client_raw_items WHERE qty >= ${5} ORDER BY label`
+        );
+
+        expect(rows).toEqual([{ label: "Beta" }, { label: "Gamma" }]);
+      });
+    });
+
+    describe("$queryRawUnsafe", () => {
+      test("splices the statement verbatim and binds positional params", async () => {
+        const rows = await client.$queryRawUnsafe<{ id: string }>(
           `SELECT id FROM client_raw_items WHERE qty > ${placeholder(
             1
           )} AND label = ${placeholder(2)}`,
-          [1, "Beta"]
+          1,
+          "Beta"
         );
 
-        expect(result.rows).toEqual([{ id: "i2" }]);
+        expect(rows).toEqual([{ id: "i2" }]);
       });
     });
 
     describe("$executeRaw", () => {
-      test("selects through the sql template with bound values", async () => {
-        const result = await client.$executeRaw<{ label: string }>(
-          sql`SELECT label FROM client_raw_items WHERE qty >= ${5} ORDER BY label`
-        );
-
-        expect(result.rows).toEqual([{ label: "Beta" }, { label: "Gamma" }]);
-      });
-
-      test("mutates and reports rowCount, visible to the ORM read path", async () => {
-        const result = await client.$executeRaw(
-          sql`UPDATE client_raw_items SET qty = ${100} WHERE qty >= ${5}`
-        );
-        expect(result.rowCount).toBe(2);
+      test("mutates and answers the affected count, visible to the ORM read path", async () => {
+        const affected =
+          await client.$executeRaw`UPDATE client_raw_items SET qty = ${100} WHERE qty >= ${5}`;
+        expect(affected).toBe(2);
 
         const bumped = await client.item.findMany({
           where: { qty: 100 },
           orderBy: { id: "asc" },
         });
         expect(bumped.map((i) => i.id)).toEqual(["i2", "i3"]);
+      });
+    });
+
+    describe("$executeRawUnsafe", () => {
+      test("mutates through a hand-written statement", async () => {
+        const affected = await client.$executeRawUnsafe(
+          `UPDATE client_raw_items SET qty = ${placeholder(
+            1
+          )} WHERE label = ${placeholder(2)}`,
+          42,
+          "Alpha"
+        );
+        expect(affected).toBe(1);
+
+        const alpha = await client.item.findUniqueOrThrow({
+          where: { id: "i1" },
+        });
+        expect(alpha.qty).toBe(42);
       });
     });
 

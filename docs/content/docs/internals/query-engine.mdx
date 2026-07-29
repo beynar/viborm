@@ -132,6 +132,9 @@ the next published compatibility release; no runtime metadata object exists.
 ## Architecture Gates
 
 `pnpm test:gates` enforces lifecycle ownership, compiler/runtime/result import
-boundaries, the narrow `QueryScope`, removal of the retired subsystem, and an
-acyclic query-engine runtime import graph. Shared provider suites then prove the
-same portable behavior on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite.
+boundaries, the narrow `QueryScope`, removal of the retired subsystem, an
+acyclic query-engine runtime import graph, and — outside the engine — that every
+concrete error class reaches all four surfaces of the taxonomy (the driver-failure
+union, `classifyFailure`, the Prisma-code map, and the published errors page).
+Shared provider suites then prove the same portable behavior on PostgreSQL,
+MySQL, SQLite, LibSQL, and PGlite.

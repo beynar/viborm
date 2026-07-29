@@ -5,7 +5,7 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
-import { s } from "@schema";
+import { DbNull, s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const entry = s
@@ -382,7 +382,7 @@ export function runListJsonFilterBehavior({
             },
             { id: "j3", name: "string-root", metadata: "just a string" },
             { id: "j4", name: "array-root", metadata: ["alpha", "beta"] },
-            { id: "j5", name: "missing", metadata: null },
+            { id: "j5", name: "missing", metadata: DbNull },
           ],
         });
       }
@@ -606,6 +606,426 @@ export function runListJsonFilterBehavior({
             metadata: { path: ["theme"], not: { equals: "dark" } },
           })
         ).toEqual(["light"]);
+      });
+
+      describe("mode: insensitive", () => {
+        test("folds ASCII A-Z on all three string operators", async () => {
+          await seedJsonDocs();
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                string_contains: "ARK",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["dark"]);
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                string_starts_with: "LIGHT",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["light"]);
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                string_ends_with: "ISH",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["light"]);
+        });
+
+        test("mode: default keeps the exact-text contract", async () => {
+          await seedJsonDocs();
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                string_contains: "ARK",
+                mode: "default",
+              },
+            })
+          ).toEqual([]);
+        });
+
+        test("folds ASCII only — accents are never case-folded", async () => {
+          await seedJsonDocs();
+          // 'Écl' folds to 'Écl' (É is outside A-Z), so it still matches
+          expect(
+            await findNames({
+              metadata: {
+                path: ["accent"],
+                string_starts_with: "ÉCL",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["dark"]);
+          // 'écl' does NOT fold to 'Écl' — same ASCII-only contract the
+          // scalar insensitive filters pin in prisma-parity-behavior
+          expect(
+            await findNames({
+              metadata: {
+                path: ["accent"],
+                string_starts_with: "écl",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual([]);
+        });
+
+        test("wildcards stay literal under the fold", async () => {
+          await seedJsonDocs();
+          expect(
+            await findNames({
+              metadata: {
+                path: ["literal"],
+                string_contains: "%_\\DONE",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["dark"]);
+        });
+
+        test("a nested not inherits the mode", async () => {
+          await seedJsonDocs();
+          // Only rows that HAVE $.theme and do not contain 'ark' survive
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                mode: "insensitive",
+                not: { string_contains: "ARK" },
+              },
+            })
+          ).toEqual(["light"]);
+        });
+
+        test("a nested not may override the inherited mode", async () => {
+          await seedJsonDocs();
+          // The inner arm is case-sensitive, so 'ARK' matches nothing and
+          // NOT(false) keeps every row that has $.theme
+          expect(
+            await findNames({
+              metadata: {
+                path: ["theme"],
+                mode: "insensitive",
+                string_contains: "",
+                not: { string_contains: "ARK", mode: "default" },
+              },
+            })
+          ).toEqual(["dark", "light"]);
+        });
+
+        test("string paths carry the mode too", async () => {
+          await seedJsonDocs();
+          expect(
+            await findNames({
+              metadata: {
+                path: "$.theme",
+                string_contains: "ARK",
+                mode: "insensitive",
+              },
+            })
+          ).toEqual(["dark"]);
+        });
+
+        test("an inert mode is refused, not ignored", async () => {
+          await seedJsonDocs();
+          await expect(
+            findNames({
+              metadata: {
+                path: ["theme"],
+                equals: "dark",
+                mode: "insensitive",
+              },
+            })
+          ).rejects.toThrow("mode: 'insensitive'");
+          expect(await requireClient(client).entry.count()).toBe(5);
+        });
+      });
+    });
+
+    describe("json string paths ('$.a.b')", () => {
+      // Same corpus as the array-form path tests, so every assertion here
+      // can be read as "the string form is the array form"
+      async function seedStringPathDocs(): Promise<void> {
+        await requireClient(client).entry.createMany({
+          data: [
+            {
+              id: "p1",
+              name: "dark",
+              metadata: {
+                theme: "dark",
+                level: 2,
+                pet: { name: "Fido", toys: ["ball", "rope"] },
+                "weird.key": "gotcha",
+              },
+            },
+            { id: "p2", name: "string-root", metadata: "just a string" },
+            { id: "p3", name: "array-root", metadata: ["alpha", "beta"] },
+          ],
+        });
+      }
+
+      test("dot paths equal their array form", async () => {
+        await seedStringPathDocs();
+        expect(
+          await findNames({ metadata: { path: "$.theme", equals: "dark" } })
+        ).toEqual(
+          await findNames({ metadata: { path: ["theme"], equals: "dark" } })
+        );
+        expect(
+          await findNames({ metadata: { path: "$.pet.name", equals: "Fido" } })
+        ).toEqual(["dark"]);
+      });
+
+      test("bracket segments address array elements", async () => {
+        await seedStringPathDocs();
+        expect(
+          await findNames({
+            metadata: { path: "$.pet.toys[0]", equals: "ball" },
+          })
+        ).toEqual(["dark"]);
+        expect(
+          await findNames({ metadata: { path: "$[1]", equals: "beta" } })
+        ).toEqual(["array-root"]);
+      });
+
+      test("'$' alone is the document root", async () => {
+        await seedStringPathDocs();
+        expect(
+          await findNames({ metadata: { path: "$", string_contains: "just" } })
+        ).toEqual(["string-root"]);
+      });
+
+      test("every operator accepts the string form", async () => {
+        await seedStringPathDocs();
+        expect(
+          await findNames({ metadata: { path: "$.level", gte: 2 } })
+        ).toEqual(["dark"]);
+        expect(
+          await findNames({
+            metadata: { path: "$.pet.toys", array_contains: "rope" },
+          })
+        ).toEqual(["dark"]);
+        expect(
+          await findNames({
+            metadata: { path: "$.theme", not: { equals: "dark" } },
+          })
+        ).toEqual([]);
+      });
+
+      test("a dot is always a separator — literal dots need the array form", async () => {
+        await seedStringPathDocs();
+        // '$.weird.key' walks two steps and finds nothing; the array form is
+        // the only way to address a key that contains a dot
+        expect(
+          await findNames({
+            metadata: { path: "$.weird.key", equals: "gotcha" },
+          })
+        ).toEqual([]);
+        expect(
+          await findNames({
+            metadata: { path: ["weird.key"], equals: "gotcha" },
+          })
+        ).toEqual(["dark"]);
+      });
+
+      test("unsupported path grammar rejects before execution", async () => {
+        await seedStringPathDocs();
+        for (const path of [
+          "theme",
+          "$.",
+          "$.a.",
+          "$theme",
+          "$.a[",
+          "$.a[]",
+          "$.a[last]",
+          "$.a[-1]",
+          "$.a[*]",
+          "$.*",
+        ]) {
+          await expect(
+            findNames({ metadata: { path, equals: "dark" } })
+          ).rejects.toThrow("unsupported path string");
+        }
+        expect(await requireClient(client).entry.count()).toBe(3);
+      });
+
+      test("quoted labels keep the portable-path refusal", async () => {
+        await seedStringPathDocs();
+        // The parsed segment carries a '"', which no dialect can address
+        await expect(
+          findNames({ metadata: { path: '$."a b"', equals: "x" } })
+        ).rejects.toThrow("portable JSON path");
+        await expect(
+          findNames({ metadata: { path: "$.a\\b", equals: "x" } })
+        ).rejects.toThrow("portable JSON path");
+      });
+    });
+
+    describe("json comparison filters (lt/lte/gt/gte)", () => {
+      // Every JSON value shape sits at the SAME path ($.score) so one filter
+      // sweeps them all: the operand's JS class decides which rows can match
+      // and every other shape must drop out silently on every dialect.
+      async function seedComparisonDocs(): Promise<void> {
+        await requireClient(client).entry.createMany({
+          data: [
+            { id: "c1", name: "num-1", metadata: { score: 1 } },
+            { id: "c2", name: "num-2.5", metadata: { score: 2.5 } },
+            { id: "c3", name: "num-10", metadata: { score: 10 } },
+            { id: "c4", name: "numeric-string", metadata: { score: "10" } },
+            { id: "c5", name: "str-apple", metadata: { score: "apple" } },
+            { id: "c6", name: "str-Banana", metadata: { score: "Banana" } },
+            { id: "c7", name: "str-accent", metadata: { score: "Éclair" } },
+            { id: "c8", name: "bool", metadata: { score: true } },
+            { id: "c9", name: "json-null", metadata: { score: null } },
+            { id: "c10", name: "absent", metadata: { other: 1 } },
+            { id: "c11", name: "null-column", metadata: DbNull },
+            {
+              id: "c12",
+              name: "nested",
+              metadata: { deep: { score: 7 }, list: [3, 8] },
+            },
+            { id: "c13", name: "num-root", metadata: 42 },
+            { id: "c14", name: "str-root", metadata: "zebra" },
+          ],
+        });
+      }
+
+      test("numeric operands compare numbers only", async () => {
+        await seedComparisonDocs();
+        expect(
+          await findNames({ metadata: { path: ["score"], gt: 2 } })
+        ).toEqual(["num-10", "num-2.5"]);
+        expect(
+          await findNames({ metadata: { path: ["score"], gte: 2.5 } })
+        ).toEqual(["num-10", "num-2.5"]);
+        expect(
+          await findNames({ metadata: { path: ["score"], lt: 2.5 } })
+        ).toEqual(["num-1"]);
+        expect(
+          await findNames({ metadata: { path: ["score"], lte: 2.5 } })
+        ).toEqual(["num-1", "num-2.5"]);
+      });
+
+      test("numeric operands never match a numeric string or other types", async () => {
+        await seedComparisonDocs();
+        // gt: 0 would sweep every row if strings/bools/null/absent leaked
+        // into the numeric comparison class
+        expect(
+          await findNames({ metadata: { path: ["score"], gt: 0 } })
+        ).toEqual(["num-1", "num-10", "num-2.5"]);
+        // "10" is a JSON string: it is not a number, on any dialect
+        expect(
+          await findNames({ metadata: { path: ["score"], gte: 10 } })
+        ).toEqual(["num-10"]);
+      });
+
+      test("string operands compare strings only, by code point", async () => {
+        await seedComparisonDocs();
+        expect(
+          await findNames({ metadata: { path: ["score"], gt: "" } })
+        ).toEqual(["numeric-string", "str-Banana", "str-accent", "str-apple"]);
+        expect(
+          await findNames({ metadata: { path: ["score"], lt: "apple" } })
+        ).toEqual(["numeric-string", "str-Banana"]);
+        expect(
+          await findNames({ metadata: { path: ["score"], gte: "apple" } })
+        ).toEqual(["str-accent", "str-apple"]);
+      });
+
+      test("string ordering is byte order, not the database's locale collation", async () => {
+        await seedComparisonDocs();
+        // Locale collations (en_US and friends) sort 'Banana' AFTER 'a';
+        // code-point order puts every uppercase ASCII letter before 'a'
+        expect(
+          await findNames({ metadata: { path: ["score"], gt: "a" } })
+        ).toEqual(["str-accent", "str-apple"]);
+        // Non-ASCII UTF-8 bytes (0xC3…) outrank every ASCII byte
+        expect(
+          await findNames({ metadata: { path: ["score"], gt: "zzz" } })
+        ).toEqual(["str-accent"]);
+      });
+
+      test("mixed operand classes never cross", async () => {
+        await seedComparisonDocs();
+        // The number 10 is not > the string "9"; the string "10" is not < 11
+        expect(
+          await findNames({ metadata: { path: ["score"], gt: "9" } })
+        ).toEqual(["str-Banana", "str-accent", "str-apple"]);
+        expect(
+          await findNames({ metadata: { path: ["score"], lt: 11 } })
+        ).toEqual(["num-1", "num-10", "num-2.5"]);
+      });
+
+      test("absent paths and NULL columns never match and never error", async () => {
+        await seedComparisonDocs();
+        expect(
+          await findNames({ metadata: { path: ["nope"], gt: 0 } })
+        ).toEqual([]);
+        expect(
+          await findNames({ metadata: { path: ["nope"], gt: "" } })
+        ).toEqual([]);
+        expect(
+          await findNames({ metadata: { path: ["deep", "missing"], lt: 100 } })
+        ).toEqual([]);
+        expect(await requireClient(client).entry.count()).toBe(14);
+      });
+
+      test("comparisons combine as AND inside one filter object", async () => {
+        await seedComparisonDocs();
+        expect(
+          await findNames({ metadata: { path: ["score"], gt: 1, lt: 10 } })
+        ).toEqual(["num-2.5"]);
+        expect(
+          await findNames({
+            metadata: { path: ["score"], gte: 1, lte: 2.5 },
+          })
+        ).toEqual(["num-1", "num-2.5"]);
+      });
+
+      test("comparisons reach nested objects and array indices", async () => {
+        await seedComparisonDocs();
+        expect(
+          await findNames({ metadata: { path: ["deep", "score"], gte: 7 } })
+        ).toEqual(["nested"]);
+        expect(
+          await findNames({ metadata: { path: ["list", "1"], gt: 5 } })
+        ).toEqual(["nested"]);
+        expect(
+          await findNames({ metadata: { path: ["list", "0"], gt: 5 } })
+        ).toEqual([]);
+      });
+
+      test("comparisons without a path apply to the document root", async () => {
+        await seedComparisonDocs();
+        expect(await findNames({ metadata: { gt: 40 } })).toEqual(["num-root"]);
+        expect(await findNames({ metadata: { lt: "zzz" } })).toEqual([
+          "str-root",
+        ]);
+      });
+
+      test("not inherits the path and drops non-comparable rows", async () => {
+        await seedComparisonDocs();
+        // NOT(NULL) is NULL, so only rows that ARE numbers and fail the
+        // comparison survive — the same shape as `not` on equals
+        expect(
+          await findNames({ metadata: { path: ["score"], not: { gt: 2 } } })
+        ).toEqual(["num-1"]);
+      });
+
+      test("non-number, non-string operands reject before execution", async () => {
+        await seedComparisonDocs();
+        await expect(
+          findNames({ metadata: { path: ["score"], gt: true } })
+        ).rejects.toThrow();
+        expect(await requireClient(client).entry.count()).toBe(14);
       });
     });
   });

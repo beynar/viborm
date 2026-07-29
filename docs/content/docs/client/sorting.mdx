@@ -164,9 +164,10 @@ const posts = await client.post.findMany({
 ```
 
 <Callout type="info">
-  Relation sorting follows to-one relations up to three relation hops.
-  To-many relations in the middle of a sort path are rejected; use `_count`
-  aggregate sorting for to-many relations instead.
+  Relation sorting follows to-one relations up to eight relation hops; a
+  ninth is rejected before SQL generation. To-many relations in the middle of
+  a sort path are rejected too; use `_count` aggregate sorting for to-many
+  relations instead.
 </Callout>
 
 ## Aggregate Sorting

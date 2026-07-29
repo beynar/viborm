@@ -7,10 +7,13 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
@@ -21,6 +24,7 @@ import {
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
   runProviderManagedTransaction,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -175,6 +179,22 @@ export class PostgresDriver extends Driver<
     };
   }
 
+  /**
+   * postgres.js owns BEGIN inside `client.begin()`, so the isolation level goes
+   * in as the transaction's first statement. It also owns connection
+   * acquisition inside that same call: there is no acquisition step VibORM can
+   * bound or abandon, so `maxWait` is refused rather than faked.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "post-begin",
+      timeout: true,
+      maxWait: "unsupported",
+      maxWaitReason:
+        "postgres.js acquires the connection inside client.begin(), which VibORM cannot observe or bound — the wait would be unbounded no matter what maxWait said",
+    };
+  }
+
   protected async transaction<T>(
     client: PostgresClient | PostgresTransaction,
     fn: (tx: PostgresTransaction) => Promise<T>
@@ -198,8 +218,11 @@ export class PostgresDriver extends Driver<
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: PostgresClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: PostgresClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, PostgresDriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const {
     client,
@@ -221,7 +244,7 @@ export function createClient<C extends DriverConfig>(
     postgis,
   });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: PostgresDriver }>;

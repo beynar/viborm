@@ -115,9 +115,15 @@ export function parseAggregateResult(
         `aggregate field "${field}" is not part of the active model`
       );
     }
-    result[field] = typed
-      ? parseField(scalar, fieldValue, operation)
-      : parseAggregateNumber(ctx, operation, field, fieldValue);
+    // `_avg` normally widens to a JS number — but an average OF decimals is
+    // still a decimal, computed exactly by the database and cast to text on the
+    // way out. Parsing it as a number would reintroduce, in the one place it is
+    // most likely to matter, exactly the float error this scalar avoids.
+    const isDecimal = scalar["~"].state.type === "decimal";
+    result[field] =
+      typed || isDecimal
+        ? parseField(scalar, fieldValue, operation)
+        : parseAggregateNumber(ctx, operation, field, fieldValue);
   }
   return result;
 }

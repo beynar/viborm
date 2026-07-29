@@ -12,6 +12,7 @@ import {
 } from "@errors";
 import type { InstrumentationContext } from "@instrumentation/context";
 import { ignoreObserverFailure } from "@instrumentation/ignore-observer-failure";
+import { markErrorLogged } from "@instrumentation/logged-errors";
 import { runWithTracer } from "@instrumentation/run-with-tracer";
 import {
   ATTR_DB_COLLECTION,
@@ -40,6 +41,10 @@ import {
   snapshotExecutionContext,
 } from "./execution-context";
 import { SavepointQueue } from "./savepoint-queue";
+import type {
+  DriverTransactionOptions,
+  TransactionOptionSupport,
+} from "./shared/transaction-options";
 import type {
   BatchQuery,
   Dialect,
@@ -169,12 +174,41 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
 
   /**
    * Run a transaction with the client.
+   *
+   * `options` carries only what this driver itself must act on, and only when
+   * its {@link transactionOptionSupport} declaration says it can:
+   * `isolationLevel` for `"pre-begin"` drivers (MySQL family, where the level
+   * must be set on the connection before BEGIN) and `maxWaitMs` for
+   * `"acquisition"` drivers (pooled acquire that can be abandoned safely).
+   * Post-BEGIN isolation levels, `timeout`, and queue-bounded `maxWait` are
+   * applied by the base class and never reach a driver.
    */
   protected abstract transaction<T>(
     client: TClient | TTransaction,
     fn: (tx: TTransaction) => Promise<T>,
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    options?: DriverTransactionOptions
   ): Promise<T>;
+
+  /**
+   * This driver's honest answer for every public transaction option. The
+   * default refuses all three: a driver that has not declared its contract
+   * must not silently appear to honor one.
+   *
+   * `tests/drivers/transaction-portability.test.ts` pins every advertised
+   * driver's declaration, one cell per driver per option.
+   */
+  protected transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "unsupported",
+      isolationLevelReason:
+        "this driver has not declared an isolation-level contract",
+      timeout: false,
+      timeoutReason: "this driver has not declared a timeout contract",
+      maxWait: "unsupported",
+      maxWaitReason: "this driver has not declared a maxWait contract",
+    };
+  }
 
   constructor(
     dialect: Dialect,
@@ -278,17 +312,11 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
 
     const isError = error instanceof Error;
 
-    if (isError) {
-      try {
-        Object.defineProperty(error, "logged", {
-          configurable: true,
-          value: true,
-        });
-      } catch {
-        // A frozen error may be logged twice by the outer executor, but
-        // instrumentation must not replace the database failure.
-      }
-    }
+    // Tell the outer operation observer this failure is already reported. The
+    // record lives outside the error (see markErrorLogged) so the caller's
+    // error keeps its own shape and a frozen error dedups like any other.
+    if (isError) markErrorLogged(error);
+
     const disclosure = this.getLoggingDisclosure(context);
     const sanitizedParams = disclosure.includeParams
       ? sanitizeDiagnosticParameters(params, disclosure)

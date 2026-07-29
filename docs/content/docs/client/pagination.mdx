@@ -80,6 +80,10 @@ const page2 = await client.user.findMany({
 - A bare ascending order places `null` last; a bare descending order places
   `null` first. Use `{ sort, nulls }` to choose explicitly.
 - A cursor that doesn't match an existing row returns an empty page.
+- A `cursor` takes unique discriminators only. Unlike the `where` of
+  [`findUnique`](/docs/client/find-unique#narrowing-a-unique-lookup), it does not
+  accept extra scalar filters — a cursor is an exact row address, not a lookup to
+  narrow.
 - Cursor pagination works with plain scalar `asc`/`desc` ordering only —
   relation ordering and vector-distance ordering must be queried without a
   cursor.

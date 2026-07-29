@@ -2,6 +2,8 @@
 // VibORM Validation - Runtime and Type-Level Namespace
 // =============================================================================
 
+import type { JsonNullKind } from "@schema/json-null";
+import type { ScalarType } from "@schema/scalars/common";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -20,6 +22,8 @@ import type { BooleanSchema } from "./boolean";
 import { boolean } from "./boolean";
 import type { DateSchema } from "./date";
 import { date } from "./date";
+import type { DecimalInput, DecimalOutput, DecimalSchema } from "./decimal";
+import { decimal } from "./decimal";
 import type { EnumSchema } from "./enum";
 import { enum_ } from "./enum";
 import type { ComputeEntriesFromObject } from "./from-object";
@@ -28,6 +32,8 @@ import type { IsoDateSchema, IsoTimeSchema, IsoTimestampSchema } from "./iso";
 import { isoDate, isoTime, isoTimestamp } from "./iso";
 import type { JsonSchema, JsonValue } from "./json";
 import { json } from "./json";
+import type { JsonNullOrSchema, JsonWriteSchema } from "./json-null";
+import { jsonNullOr, jsonWrite } from "./json-null";
 import { lazy, lazyRef } from "./lazy";
 import type { LiteralSchema, LiteralValue } from "./literal";
 import { literal } from "./literal";
@@ -38,6 +44,18 @@ import { integer, number } from "./number";
 import type { ObjectOptions, ObjectSchema } from "./object";
 import { object } from "./object";
 import { omit } from "./omit";
+import type {
+  ComparisonOperandSchema,
+  FieldRefOrSchema,
+  NoFieldRefSchema,
+  OperandCtx,
+} from "./operand";
+import {
+  comparisonOperand,
+  fieldRefOr,
+  noFieldRef,
+  noOperandExpression,
+} from "./operand";
 import type { OptionalSchema, WrappableSchema } from "./optional";
 import { optional } from "./optional";
 import type { PipeAction, PipeSchema } from "./pipe";
@@ -46,6 +64,7 @@ import type { PointSchema } from "./point";
 import { point } from "./point";
 import type { ComputeEntriesFromKeys, RecordSchema } from "./record";
 import { fromKeys, record } from "./record";
+import { refused } from "./refused";
 import { shorthandArray, shorthandFilter, shorthandUpdate } from "./shorthand";
 import { singleOrArray } from "./single-or-array";
 import type { StringSchema } from "./string";
@@ -87,6 +106,7 @@ export const v = {
   integer,
   boolean,
   bigint,
+  decimal,
   literal,
   enum: enum_,
   json,
@@ -126,6 +146,17 @@ export const v = {
   shorthandFilter,
   shorthandUpdate,
   shorthandArray,
+  // Comparison operands: field references (Prisma FieldRef parity), SQL
+  // fragments, and the callback that sugars both
+  comparisonOperand,
+  fieldRefOr,
+  noFieldRef,
+  noOperandExpression,
+  // JSON null sentinels (Prisma DbNull/JsonNull/AnyNull parity)
+  jsonNullOr,
+  jsonWrite,
+  // Keys that exist only to explain why they are refused
+  refused,
 } as const;
 
 export default v;
@@ -183,6 +214,19 @@ export namespace V {
   export type Integer<
     Opts extends ScalarOptions<number, any> | undefined = undefined,
   > = IntegerSchema<ComputeInput<number, Opts>, ComputeOutput<number, Opts>>;
+
+  /**
+   * Type-level decimal schema. Input and output differ on purpose: a decimal
+   * accepts `string | number` and always reads back as an exact `string`.
+   * @example V.Decimal - Required decimal
+   * @example V.Decimal<{ nullable: true }> - Nullable decimal
+   */
+  export type Decimal<
+    Opts extends ScalarOptions<DecimalInput, any> | undefined = undefined,
+  > = DecimalSchema<
+    ComputeInput<DecimalInput, Opts>,
+    ComputeOutput<DecimalOutput, Opts>
+  >;
 
   /**
    * Type-level boolean schema.
@@ -423,6 +467,60 @@ export namespace V {
     TWrapped,
     [TWrapped[" vibInferred"]["1"]]
   >;
+
+  /**
+   * Type-level comparison operand that also accepts a field reference of the
+   * given scalar type.
+   * @example V.FieldRefOr<"int", V.Integer>
+   */
+  export type FieldRefOr<
+    TType extends ScalarType,
+    TSchema extends VibSchema<any, any>,
+  > = FieldRefOrSchema<TType, TSchema>;
+
+  /**
+   * Type-level comparison operand: the value, a field reference of the given
+   * scalar type, an SQL fragment, or a callback returning one of the latter two
+   * from `TCtx` — the context of the model being filtered.
+   * @example V.ComparisonOperand<"int", V.Integer, V.OperandCtx<typeof post>>
+   */
+  export type ComparisonOperand<
+    TType extends ScalarType,
+    TSchema extends VibSchema<any, any>,
+    TCtx extends OperandCtx<any> = OperandCtx<any>,
+  > = ComparisonOperandSchema<TType, TSchema, TCtx>;
+
+  /**
+   * Type-level operand callback context: `{ fields, sql }` keyed to the scalars
+   * of the model being filtered.
+   */
+  export type Operand<TModel> = OperandCtx<TModel>;
+
+  /**
+   * Type-level re-closing wrapper: same shape as the wrapped schema, but a
+   * field reference anywhere inside the parsed value is rejected.
+   */
+  export type NoFieldRef<TSchema extends VibSchema<any, any>> =
+    NoFieldRefSchema<TSchema>;
+
+  /**
+   * Type-level JSON filter operand that also accepts the named JSON null
+   * sentinels (`DbNull` / `JsonNull` / `AnyNull`).
+   * @example V.JsonNullOr<"DbNull" | "JsonNull" | "AnyNull", V.Json>
+   */
+  export type JsonNullOr<
+    TAllowed extends JsonNullKind,
+    TSchema extends VibSchema<any, any>,
+  > = JsonNullOrSchema<TAllowed, TSchema>;
+
+  /**
+   * Type-level JSON write slot: the sentinels in `TAllowed`, the whole JSON
+   * document language, and no bare top-level `null` (Prisma's rule).
+   */
+  export type JsonWrite<
+    TAllowed extends JsonNullKind,
+    TSchema extends VibSchema<any, any>,
+  > = JsonWriteSchema<TAllowed, TSchema>;
 
   export type SingleOrArray<TWrapped extends VibSchema<any, any>> = V.Union<
     readonly [

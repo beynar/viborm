@@ -190,6 +190,38 @@ describe("Mutation Args - Top-level Select/Include Exclusivity Runtime", () => {
       "Mutually exclusive fields cannot be used together: select, include"
     );
   });
+
+  // The refusal reads the projection's VALUE, not its key: an
+  // explicitly-`undefined` key is an ABSENT key everywhere else at this
+  // boundary, so a payload naming one projection and leaving the other
+  // undefined names exactly ONE projection.
+  test("runtime: create accepts a select beside an undefined include", () => {
+    const result = parse(authorSchemas.args.create, {
+      data: { id: "author-1", name: "Alice" },
+      select: { id: true },
+      include: undefined,
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: update accepts an include beside an undefined select", () => {
+    const result = parse(authorSchemas.args.update, {
+      where: { id: "author-1" },
+      data: { name: "Updated Name" },
+      select: undefined,
+      include: { posts: true },
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: delete accepts both spelled undefined", () => {
+    const result = parse(authorSchemas.args.delete, {
+      where: { id: "author-1" },
+      select: undefined,
+      include: undefined,
+    });
+    expect(result.issues).toBeUndefined();
+  });
 });
 
 // =============================================================================

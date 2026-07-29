@@ -398,8 +398,14 @@ describe("ToMany Include (Author.posts)", () => {
       }>().toMatchTypeOf<IncludeInput>();
     });
 
-    test("type: rejects cursor option", () => {
+    // Retargeted (W3-A unit 2): `cursor` exists on to-many relation args now,
+    // but only as a whereUnique of the related model — never a bare scalar.
+    test("type: rejects a non-whereUnique cursor", () => {
       expectTypeOf<{ cursor: string }>().not.toMatchTypeOf<IncludeInput>();
+    });
+
+    test("type: accepts a whereUnique cursor", () => {
+      expectTypeOf<{ cursor: { id: string } }>().toMatchTypeOf<IncludeInput>();
     });
   });
 
@@ -450,18 +456,59 @@ describe("ToMany Include (Author.posts)", () => {
       }
     });
 
-    test("runtime: rejects cursor - not implemented for nested relations", () => {
+    // Retargeted (W3-A unit 2): nested `cursor` is a whereUnique of the RELATED
+    // model — accepted in that shape, still refused as a bare scalar.
+    test("runtime: rejects a cursor that is not a whereUnique object", () => {
       const input = { cursor: "cursor-value" };
       const result = parse(schema, input);
       expect(result.issues).toBeDefined();
-      expect(result.issues?.[0]?.message).toContain("cursor");
     });
 
-    test("runtime: rejects negative take - not implemented for nested relations", () => {
-      const input = { take: -5 };
+    test("runtime: accepts a whereUnique cursor", () => {
+      const input = { cursor: { id: "post-1" } };
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(output(result.value).cursor).toEqual({ id: "post-1" });
+      }
+    });
+
+    test("runtime: accepts distinct over related scalar fields", () => {
+      const input = { distinct: ["title"] };
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(output(result.value).distinct).toEqual(["title"]);
+      }
+    });
+
+    test("runtime: rejects a distinct field the related model does not have", () => {
+      const input = { distinct: ["nope"] };
       const result = parse(schema, input);
       expect(result.issues).toBeDefined();
-      expect(result.issues?.[0]?.message).toContain("take");
+    });
+
+    // Retargeted (W3-A unit 1): nested `take` is now the top-level take schema —
+    // a negative value is Prisma's "last N", a non-integer is still refused.
+    test("runtime: accepts negative take - Prisma 'last N' semantics", () => {
+      const input = { take: -5 };
+      const result = parse(schema, input);
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(output(result.value).take).toBe(-5);
+      }
+    });
+
+    test("runtime: rejects a non-integer take", () => {
+      const input = { take: 1.5 };
+      const result = parse(schema, input);
+      expect(result.issues).toBeDefined();
+    });
+
+    test("runtime: rejects a negative skip", () => {
+      const input = { skip: -1 };
+      const result = parse(schema, input);
+      expect(result.issues).toBeDefined();
     });
 
     test("runtime: accepts with nested include - transforms nested boolean", () => {

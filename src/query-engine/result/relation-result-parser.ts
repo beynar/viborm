@@ -77,7 +77,10 @@ export function parseRelationValueDefault(
       shape,
       parsers
     );
-    return rows.map(itemParser);
+    const parsed = rows.map(itemParser);
+    // A negative nested `take` was executed as a reversed window — restore the
+    // logical order here, exactly as the top level does for its own rows.
+    return shape?.reversed ? parsed.reverse() : parsed;
   }
 
   if (!isResultRow(value)) {

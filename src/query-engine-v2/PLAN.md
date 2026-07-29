@@ -1543,6 +1543,96 @@ capability-gated on `supportsAddForeignKeyViaAlter`): forward-reference FKs are 
 SQLite/LibSQL keep FKs inline (lazy resolution). The X1c oracles' referenced-model-first ordering
 was a convenience, not a requirement.
 
+### X1c fix round — the delegated target parsed its data TWICE (silent wrong JSON data)
+
+The `nestedTarget` mode skipped the whole-args parse, the `where` parse and the `select` parse, but
+NOT the two per-field parses inside the constructor: it still ran `relationSchemas.update` over each
+nested relation payload and `core.scalarUpdate` over the scalar SET. The subtree it receives is the
+enclosing operation's parse OUTPUT, so those payloads were transformed a second time.
+
+For an idempotent transform that was only waste. **The JSON write is not idempotent, and it is the
+one write whose validated form is a legal INPUT of the same schema**: `payload: { z: 1 }` validates
+to `{ payload: { set: { z: 1 } } }`, and `{ set: { z: 1 } }` is an ordinary JSON document, so the
+second pass wrapped it again and `{"set":{"z":1}}` — the ORM's own envelope — was persisted as the
+user's data. Silently, on both substrates. Reachable from any delegated shape: the delegation seam
+itself, a depth-2 / depth-3 to-one chain, a delegated to-many target, and the `data`-column escape
+`nested-writes.mdx` documents (which landed the wrong VALUE by the same route). The same second pass
+also killed the W4-U4 JSON null sentinels with a misattributed `Expected JSON-compatible value`:
+`{ set: JsonNull }` is neither a sentinel (the brand is on the inner value) nor a JSON-compatible
+document.
+
+Fixed structurally, not with a JSON special case: the nested-target entry consumes the parsed tree
+directly (`separateData`'s parser now exposes the relation payload it already narrowed, so nothing
+narrows `unknown` twice and the X2 shape-check ceiling is unchanged). The standalone and upsert-arm
+paths are byte-identical — they hold RAW data, so their per-field parse remains their one and only
+transform, the same parse-once rule c5ee344 set when it reverted a re-parse on upsert args. Cleared
+by inspection: `nestedFresh` (create) already consumed its data as-is, upsert's arms are handed the
+RAW payload, and the Part builders hold no schema. Witnesses in
+`tests/drivers/nested-write-json-envelope-behavior.ts` (PGlite tx + PGlite atomic batch + SQLite3)
+pin the persisted VALUE at each shape, with a string and an `increment` riding the same payloads as
+controls; restoring the re-parse fails 27 of 30 and leaves exactly the 3 non-delegated controls
+green. The `nested-writes.mdx` escape guidance needed no rewording — the engine now honors it.
+
+---
+
+## W3-B — implicit returning; the `*AndReturn` operations REMOVED *(delivered)*
+
+Maintainer decision D-1 (`docs/architecture/prisma-parity-v2-plan.md`):
+`createManyAndReturn` / `updateManyAndReturn` are **deleted from the public
+surface** — no alias, no deprecation shim, a deliberate breaking divergence from
+Prisma's method names. `createMany` / `updateMany` take an optional `select`, and
+its PRESENCE makes the SAME family return the affected rows (typed `T[]`) instead
+of `{ count }`.
+
+- **One discriminant, one home.** `returnsRows(args)` in `routing.ts`
+  (`args.select !== undefined`) chooses the arm; `BulkWriteResult<S, Args>` in
+  `@client/types` is its type-level twin (`Args extends { select: … }`). Both
+  treat an explicitly-`undefined` select as absent, so the spread-an-optional
+  idiom cannot type as rows and return a count.
+- **The machinery is untouched.** `ManyAndReturnOperation` keeps its file and its
+  two internal kind names; they are now INTERNAL names for the row-returning arm
+  (see the naming note in ATOM.md §1) and share the ONE public arg schema per
+  family — the validator maps both to it, so there is no second schema to drift.
+- **Both refusals survive, rescoped and reworded** to name the public form and to
+  say what still works: the ATOM §7 batch-only refusal is now
+  `cannot execute 'createMany' with 'select'` (the `{ count }` arm still runs
+  there), and the one deliberate route (`skipDuplicates` + `select` on a
+  non-returning driver) names both escapes. Nothing became silently permissive.
+- **Gates edited deliberately:** the route-inventory client surface pin 18 → 16
+  families (a smaller surface, not a smaller capability) and the REMAINING_ROUTE
+  case respelled in the implicit form and driven through the public routing seam.
+  The executor operation-token gate needed no edit — `OperationExecutor.ts` never
+  named either operation.
+
+### W3-U5 — `deleteMany` with `select` (the superset Prisma has no form of)
+
+The same rule, applied to the one bulk family that never had a returning form
+anywhere: `deleteMany({ where, select })` returns the rows it removed. It fell
+out of the existing machinery with no new vocabulary and no new step kind —
+
+- **returning drivers:** one `DELETE … RETURNING` (`buildDeleteManyAndReturn`,
+  symmetric with the update builder);
+- **non-returning (MySQL):** the SAME planning capture as `updateMany` — the
+  target PKs, FOR UPDATE — and then, at compile, the two statements in the
+  **opposite order**: read the projection FIRST, delete second, both addressed by
+  the captured PK set inside one atomic scope. That order is the only real design
+  content here (after the DELETE there is nothing left to read), so it is pinned
+  structurally, without a database, in
+  `tests/query-engine-v2/non-returning-delete-plan.test.ts`; the behavioral proof
+  is the shared driver suite on the Docker MySQL leg.
+
+Count consistency needs no postcondition for the same reason `updateMany`'s
+doesn't: the captured rows are FOR-UPDATE-locked in the same transaction envelope
+as the DELETE, so the affected set cannot drift from the capture.
+
+Kill signal for a future phase: if the row-returning arm ever needs a *second*
+discriminant (a flag beside `select`, or a distinct operation name creeping back
+in), the implicit form has failed and the removal should be revisited as a
+decision, not patched around. A related one for W3-U5: if the delete arm ever
+needs a postcondition to stay honest, the FOR-UPDATE capture is not doing what
+this section claims and the claim — not the postcondition — is what should be
+re-examined first.
+
 ---
 
 ## What failure looks like (so it can be seen early)

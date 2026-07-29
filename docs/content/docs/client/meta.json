@@ -19,9 +19,12 @@
     "nested-writes",
     "filtering",
     "selecting",
+    "omit",
     "sorting",
     "pagination",
     "transactions",
+    "raw-sql",
+    "errors",
     "compatibility"
   ]
 }

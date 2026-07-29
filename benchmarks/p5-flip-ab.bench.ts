@@ -1,11 +1,14 @@
 /**
- * PLAN P5 item 4 — the default-flip A/B benchmark.
+ * PLAN P5 item 4 — the default-flip benchmark, now single-armed.
  *
- * The escape hatch (`queryEngine: "v1" | "v2"`) lets one process run identical
- * workloads through the frozen V1 runtime and the flipped V2 engine on separate
- * in-memory SQLite databases seeded identically. Ratios are V2 hz / V1 hz
- * (higher = V2 faster). Read the numbers, name the regressions — PERF.md
- * precedent is numbers, not adjectives.
+ * It was an A/B: the `queryEngine: "v1" | "v2"` escape hatch ran identical
+ * workloads through the frozen V1 runtime and the flipped V2 engine. V1 and the
+ * hatch were deleted at P6, so the second arm no longer exists — the recorded
+ * V2/V1 ratios live in `docs/architecture/engine-unification/PERF.md` and stay
+ * there as history. What remains here is a standing cost baseline for the one
+ * engine. (The `queryEngine` key outlived the option it named and was silently
+ * ignored, so both arms had been measuring V2 against V2; the client config now
+ * refuses a key it does not read.)
  *
  * Run: pnpm bench -- benchmarks/p5-flip-ab.bench.ts
  */
@@ -16,12 +19,11 @@ import { s } from "@schema";
 import { bench, describe } from "vitest";
 import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
 
-const makeClient = async (engine: "v1" | "v2") => {
+const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
   const client = createClient({
     schema: sqliteUserPostSchema,
     driver,
-    queryEngine: engine,
   });
   await push(client, { force: true });
   for (let i = 0; i < 200; i++) {
@@ -30,8 +32,8 @@ const makeClient = async (engine: "v1" | "v2") => {
       [`u_${i}`, `User ${i}`, `u${i}@example.com`, 30]
     );
   }
-  // Posts for the T2 update-root to-one A/B (parent-held connectOrCreate under
-  // update): each post p_i starts owned by u_i.
+  // Posts for the T2 update-root to-one case (parent-held connectOrCreate
+  // under update): each post p_i starts owned by u_i.
   for (let i = 0; i < 200; i++) {
     await driver._executeRaw(
       'INSERT INTO "posts" ("id", "title", "content", "published", "views", "authorId") VALUES (?, ?, ?, ?, ?, ?)',
@@ -41,68 +43,42 @@ const makeClient = async (engine: "v1" | "v2") => {
   return client;
 };
 
-const v1 = await makeClient("v1");
-const v2 = await makeClient("v2");
+const client = await makeClient();
 let n = 0;
 
-describe("flip A/B: findMany", () => {
-  bench("v1 findMany", async () => {
-    await v1.user.findMany({ take: 50 });
-  });
-  bench("v2 findMany", async () => {
-    await v2.user.findMany({ take: 50 });
+describe("flip: findMany", () => {
+  bench("findMany", async () => {
+    await client.user.findMany({ take: 50 });
   });
 });
 
-describe("flip A/B: findUnique", () => {
-  bench("v1 findUnique", async () => {
-    await v1.user.findUnique({ where: { id: `u_${n++ % 200}` } });
-  });
-  bench("v2 findUnique", async () => {
-    await v2.user.findUnique({ where: { id: `u_${n++ % 200}` } });
+describe("flip: findUnique", () => {
+  bench("findUnique", async () => {
+    await client.user.findUnique({ where: { id: `u_${n++ % 200}` } });
   });
 });
 
-describe("flip A/B: scalar update", () => {
-  bench("v1 update", async () => {
-    await v1.user.update({
-      where: { id: `u_${n++ % 200}` },
-      data: { age: (n % 40) + 18 },
-    });
-  });
-  bench("v2 update", async () => {
-    await v2.user.update({
+describe("flip: scalar update", () => {
+  bench("update", async () => {
+    await client.user.update({
       where: { id: `u_${n++ % 200}` },
       data: { age: (n % 40) + 18 },
     });
   });
 });
 
-describe("flip A/B: updateMany", () => {
-  bench("v1 updateMany", async () => {
-    await v1.user.updateMany({
-      where: { age: { gte: 0 } },
-      data: { age: (n++ % 40) + 18 },
-    });
-  });
-  bench("v2 updateMany", async () => {
-    await v2.user.updateMany({
+describe("flip: updateMany", () => {
+  bench("updateMany", async () => {
+    await client.user.updateMany({
       where: { age: { gte: 0 } },
       data: { age: (n++ % 40) + 18 },
     });
   });
 });
 
-describe("flip A/B: upsert (update branch)", () => {
-  bench("v1 upsert", async () => {
-    await v1.user.upsert({
-      where: { id: `u_${n++ % 200}` },
-      create: { id: "unused", name: "x", email: "x@x.com", age: 1 },
-      update: { age: (n % 40) + 18 },
-    });
-  });
-  bench("v2 upsert", async () => {
-    await v2.user.upsert({
+describe("flip: upsert (update branch)", () => {
+  bench("upsert", async () => {
+    await client.user.upsert({
       where: { id: `u_${n++ % 200}` },
       create: { id: "unused", name: "x", email: "x@x.com", age: 1 },
       update: { age: (n % 40) + 18 },
@@ -112,61 +88,36 @@ describe("flip A/B: upsert (update branch)", () => {
 
 // T3a family A — the FK-holder-side (parent-held) to-one `update` under an update
 // root: `post.update({ author: { update } })` locates the referenced user through
-// the post's own authorId and mutates it. Absorbed on V2 (was a whole-tree route to
-// V1); this A/B is the honest V2-vs-V1 cost of the newly-native path.
-describe("flip A/B: parent-held to-one update (family A)", () => {
-  bench("v1 parent-held to-one update", async () => {
-    await v1.post.update({
-      where: { id: `p_${n++ % 200}` },
-      data: { author: { update: { name: `PH ${n}` } } },
-    });
-  });
-  bench("v2 parent-held to-one update", async () => {
-    await v2.post.update({
+// the post's own authorId and mutates it. Absorbed by T3a (it was a whole-tree
+// route to V1); this measures the cost of the newly-native path.
+describe("flip: parent-held to-one update (family A)", () => {
+  bench("parent-held to-one update", async () => {
+    await client.post.update({
       where: { id: `p_${n++ % 200}` },
       data: { author: { update: { name: `PH ${n}` } } },
     });
   });
 });
 
-// The create family (P6-prerequisite). Unique ids per call per arm (the two arms
-// run on separate in-memory DBs) so each INSERT is a fresh row, never a PK
-// collision. The nested create exercises the child-held-FK fold.
-let cScalarV1 = 0;
-let cScalarV2 = 0;
-let cNestV1 = 0;
-let cNestV2 = 0;
+// The create family (P6-prerequisite). A unique id per call so each INSERT is a
+// fresh row, never a PK collision. The nested create exercises the
+// child-held-FK fold.
+let cScalar = 0;
+let cNest = 0;
 
-describe("flip A/B: scalar create", () => {
-  bench("v1 create", async () => {
-    const id = `cs1_${cScalarV1++}`;
-    await v1.user.create({
-      data: { id, name: "New", email: `${id}@x.com`, age: 20 },
-    });
-  });
-  bench("v2 create", async () => {
-    const id = `cs2_${cScalarV2++}`;
-    await v2.user.create({
+describe("flip: scalar create", () => {
+  bench("create", async () => {
+    const id = `cs_${cScalar++}`;
+    await client.user.create({
       data: { id, name: "New", email: `${id}@x.com`, age: 20 },
     });
   });
 });
 
-describe("flip A/B: nested create (user + one post)", () => {
-  bench("v1 create nested", async () => {
-    const id = `cn1_${cNestV1++}`;
-    await v1.user.create({
-      data: {
-        id,
-        name: "New",
-        email: `${id}@x.com`,
-        posts: { create: { id: `${id}_p`, title: "T" } },
-      },
-    });
-  });
-  bench("v2 create nested", async () => {
-    const id = `cn2_${cNestV2++}`;
-    await v2.user.create({
+describe("flip: nested create (user + one post)", () => {
+  bench("create nested", async () => {
+    const id = `cn_${cNest++}`;
+    await client.user.create({
       data: {
         id,
         name: "New",
@@ -179,23 +130,12 @@ describe("flip A/B: nested create (user + one post)", () => {
 
 // T1: parent-held to-one create — post carries the FK (authorId), so `author:
 // { create }` is a BEFORE-parent write (INSERT author, then INSERT post with
-// authorId = author.id). The T1 absorption; A/B vs V1's staged runtime.
-let phV1 = 0;
-let phV2 = 0;
-describe("flip A/B: parent-held to-one create (post + before-parent author)", () => {
-  bench("v1 create parent-held", async () => {
-    const id = `ph1_${phV1++}`;
-    await v1.post.create({
-      data: {
-        id,
-        title: "T",
-        author: { create: { id: `${id}_a`, name: "A", email: `${id}@x.com` } },
-      },
-    });
-  });
-  bench("v2 create parent-held", async () => {
-    const id = `ph2_${phV2++}`;
-    await v2.post.create({
+// authorId = author.id). The T1 absorption.
+let ph = 0;
+describe("flip: parent-held to-one create (post + before-parent author)", () => {
+  bench("create parent-held", async () => {
+    const id = `ph_${ph++}`;
+    await client.post.create({
       data: {
         id,
         title: "T",
@@ -207,34 +147,19 @@ describe("flip A/B: parent-held to-one create (post + before-parent author)", ()
 
 // T2 (TO-ONE.md §7): parent-held to-one connectOrCreate under UPDATE — the gated
 // residual entry. The probe finds the existing target (FOUND arm), and the root
-// parent UPDATE folds authorId = the found user's id. The A/B vs V1's staged
-// runtime (decision read + updateParentForeignKey). Two arms, separate DBs.
-let cocV1 = 0;
-let cocV2 = 0;
-describe("flip A/B: parent-held connectOrCreate under update (FOUND, T2)", () => {
-  bench("v1 update connectOrCreate", async () => {
-    const k = cocV1++ % 200;
-    await v1.post.update({
+// parent UPDATE folds authorId = the found user's id (one decision read plus
+// updateParentForeignKey).
+let coc = 0;
+describe("flip: parent-held connectOrCreate under update (FOUND, T2)", () => {
+  bench("update connectOrCreate", async () => {
+    const k = coc++ % 200;
+    await client.post.update({
       where: { id: `p_${k}` },
       data: {
         author: {
           connectOrCreate: {
             where: { id: `u_${(k + 1) % 200}` },
-            create: { id: `noop1_${k}`, name: "X", email: `noop1_${k}@x.com` },
-          },
-        },
-      },
-    });
-  });
-  bench("v2 update connectOrCreate", async () => {
-    const k = cocV2++ % 200;
-    await v2.post.update({
-      where: { id: `p_${k}` },
-      data: {
-        author: {
-          connectOrCreate: {
-            where: { id: `u_${(k + 1) % 200}` },
-            create: { id: `noop2_${k}`, name: "X", email: `noop2_${k}@x.com` },
+            create: { id: `noop_${k}`, name: "X", email: `noop_${k}@x.com` },
           },
         },
       },
@@ -242,11 +167,10 @@ describe("flip A/B: parent-held connectOrCreate under update (FOUND, T2)", () =>
   });
 });
 
-// T3b-1 family B (TO-ONE.md §7.7, mechanism 1) — the deep-tree A/B. A nested
-// to-many `update` whose located target carries its own relation write: on V2 the
-// child builds its own child Parts (a self-m2m junction update), correlated to its
-// literal PK. On V1 the whole tree routes to V1's staged runtime. Idempotent (the
-// friend's label is re-set), so both arms run on separate DBs against a fixed seed.
+// T3b-1 family B (TO-ONE.md §7.7, mechanism 1) — the deep tree. A nested to-many
+// `update` whose located target carries its own relation write: the child builds
+// its own child Parts (a self-m2m junction update), correlated to its literal PK.
+// Idempotent (the friend's label is re-set), so it runs against a fixed seed.
 const membershipSchema = (() => {
   const node = s
     .model({
@@ -271,12 +195,11 @@ const membershipSchema = (() => {
   return { node };
 })();
 
-const makeMembershipClient = async (engine: "v1" | "v2") => {
+const makeMembershipClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
   const client = createClient({
     schema: membershipSchema,
     driver,
-    queryEngine: engine,
   });
   await push(client, { force: true });
   // Root 1 → child 2 → friend 3 (child 2 connected to friend 3).
@@ -290,30 +213,12 @@ const makeMembershipClient = async (engine: "v1" | "v2") => {
   return client;
 };
 
-const bv1 = await makeMembershipClient("v1");
-const bv2 = await makeMembershipClient("v2");
+const membershipClient = await makeMembershipClient();
 let bN = 0;
 
-describe("flip A/B: family-B deep tree (nested to-many update → self-m2m junction update)", () => {
-  bench("v1 nested update > junction update", async () => {
-    await bv1.node.update({
-      where: { id: 1 },
-      data: {
-        children: {
-          update: {
-            where: { id: 2 },
-            data: {
-              friends: {
-                update: { where: { id: 3 }, data: { label: `f${bN++}` } },
-              },
-            },
-          },
-        },
-      },
-    });
-  });
-  bench("v2 nested update > junction update", async () => {
-    await bv2.node.update({
+describe("flip: family-B deep tree (nested to-many update → self-m2m junction update)", () => {
+  bench("nested update > junction update", async () => {
+    await membershipClient.node.update({
       where: { id: 1 },
       data: {
         children: {

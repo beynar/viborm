@@ -8,7 +8,7 @@ import {
 } from "../common";
 import type { NativeType } from "../native-types";
 
-const decimalBase = v.number();
+const decimalBase = v.decimal();
 
 export class DecimalScalar<State extends ScalarState<"decimal">> {
   private readonly state: State;
@@ -26,7 +26,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
         hasDefault: true,
         default: null,
         optional: true,
-        base: v.number<{
+        base: v.decimal<{
           nullable: true;
           array: State["array"];
         }>({
@@ -42,7 +42,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
     return new DecimalScalar(
       updateState(this, {
         array: true,
-        base: v.number<{
+        base: v.decimal<{
           nullable: State["nullable"];
           array: true;
         }>({
@@ -79,11 +79,11 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
     );
   }
 
-  schema<S extends StandardSchemaOf<number>>(schema: S) {
+  schema<S extends StandardSchemaOf<string>>(schema: S) {
     return new DecimalScalar(
       updateState(this, {
         schema,
-        base: v.number<{
+        base: v.decimal<{
           nullable: State["nullable"];
           array: State["array"];
           schema: S;

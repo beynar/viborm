@@ -16,6 +16,7 @@
  * This allows convenient updates like: update({ data: { foo: "bar" } }) instead of update({ data: { set: { foo: "bar" } } }).
  */
 
+import { DbNull, JsonNull, type JsonNullSentinel } from "@schema/json-null";
 import type { ScalarState } from "@schema/scalars/common";
 import { json } from "@schema/scalars/json/scalar";
 import { type InferInput, parse } from "@validation";
@@ -156,7 +157,16 @@ describe("Raw JSON Scalar", () => {
       expectTypeOf<{ foo: string }>().toExtend<Update>();
       expectTypeOf<number>().toExtend<Update>();
       expectTypeOf<string>().toExtend<Update>();
-      expectTypeOf<null>().toExtend<Update>();
+    });
+
+    // A bare top-level null no longer says WHICH null it means, so the write
+    // slot takes a named sentinel instead. This field is not nullable, so only
+    // the JSON null value is storable.
+    test("type: update refuses a bare null and takes JsonNull", () => {
+      type Update = InferJsonInput<State, "update">;
+      expectTypeOf<null>().not.toExtend<Update>();
+      expectTypeOf<JsonNullSentinel<"JsonNull">>().toExtend<Update>();
+      expectTypeOf<JsonNullSentinel<"DbNull">>().not.toExtend<Update>();
     });
 
     test("runtime: raw object value coerces to set", () => {
@@ -174,10 +184,20 @@ describe("Raw JSON Scalar", () => {
       const r2 = parse(schemas.update, "hello");
       if (r2.issues) throw new Error("Expected success");
       expect(r2.value).toEqual({ set: "hello" });
+    });
 
-      const r3 = parse(schemas.update, null);
-      if (r3.issues) throw new Error("Expected success");
-      expect(r3.value).toEqual({ set: null });
+    test("runtime: a bare null is refused, JsonNull is not", () => {
+      const refused = parse(schemas.update, null);
+      expect(refused.issues?.[0]?.message).toContain("null is ambiguous");
+
+      const jsonNull = parse(schemas.update, JsonNull);
+      if (jsonNull.issues) throw new Error("Expected success");
+      expect(jsonNull.value).toEqual({ set: JsonNull });
+    });
+
+    test("runtime: DbNull is refused on a non-nullable JSON field", () => {
+      const result = parse(schemas.update, DbNull);
+      expect(result.issues?.[0]?.message).toContain("DbNull is not supported");
     });
 
     test("runtime: raw array value coerces to set", () => {
@@ -305,7 +325,16 @@ describe("Nullable JSON Scalar", () => {
   describe("create", () => {
     test("type: create is optional (has default null)", () => {
       type Create = InferJsonInput<State, "create">;
-      expectTypeOf<{ foo: string } | null | undefined>().toExtend<Create>();
+      expectTypeOf<{ foo: string } | undefined>().toExtend<Create>();
+    });
+
+    // Both nulls are storable here, and each has to be named
+    test("type: create takes DbNull and JsonNull, not a bare null", () => {
+      type Create = InferJsonInput<State, "create">;
+      expectTypeOf<null>().not.toExtend<Create>();
+      expectTypeOf<JsonNullSentinel<"DbNull">>().toExtend<Create>();
+      expectTypeOf<JsonNullSentinel<"JsonNull">>().toExtend<Create>();
+      expectTypeOf<JsonNullSentinel<"AnyNull">>().not.toExtend<Create>();
     });
 
     test("runtime: accepts valid JSON", () => {
@@ -314,10 +343,17 @@ describe("Nullable JSON Scalar", () => {
       expect(result.value).toEqual({ data: "test" });
     });
 
-    test("runtime: accepts null", () => {
-      const result = parse(schemas.create, null);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toBe(null);
+    test("runtime: refuses a bare null, accepts both sentinels", () => {
+      const refused = parse(schemas.create, null);
+      expect(refused.issues?.[0]?.message).toContain("null is ambiguous");
+
+      const dbNull = parse(schemas.create, DbNull);
+      if (dbNull.issues) throw new Error("Expected success");
+      expect(dbNull.value).toBe(DbNull);
+
+      const jsonNull = parse(schemas.create, JsonNull);
+      if (jsonNull.issues) throw new Error("Expected success");
+      expect(jsonNull.value).toBe(JsonNull);
     });
 
     test("runtime: undefined defaults to null", () => {
@@ -330,14 +366,23 @@ describe("Nullable JSON Scalar", () => {
   describe("update", () => {
     test("type: update accepts raw value (shorthand)", () => {
       type Update = InferJsonInput<State, "update">;
-      expectTypeOf<null>().toExtend<Update>();
       expectTypeOf<{ foo: string }>().toExtend<Update>();
+      expectTypeOf<null>().not.toExtend<Update>();
+      expectTypeOf<JsonNullSentinel<"DbNull">>().toExtend<Update>();
+      expectTypeOf<JsonNullSentinel<"JsonNull">>().toExtend<Update>();
     });
 
-    test("runtime: raw null value coerces to set", () => {
-      const result = parse(schemas.update, null);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ set: null });
+    test("runtime: a bare null is refused; sentinels coerce to set", () => {
+      const refused = parse(schemas.update, null);
+      expect(refused.issues?.[0]?.message).toContain("null is ambiguous");
+
+      const dbNull = parse(schemas.update, DbNull);
+      if (dbNull.issues) throw new Error("Expected success");
+      expect(dbNull.value).toEqual({ set: DbNull });
+
+      const jsonNull = parse(schemas.update, JsonNull);
+      if (jsonNull.issues) throw new Error("Expected success");
+      expect(jsonNull.value).toEqual({ set: JsonNull });
     });
 
     test("runtime: raw object value coerces to set", () => {
@@ -508,7 +553,8 @@ describe("Nullable Custom Schema JSON Scalar", () => {
   describe("create", () => {
     test("type: create is optional (has default null)", () => {
       type Create = InferJsonInput<State, "create">;
-      expectTypeOf<Config | null | undefined>().toExtend<Create>();
+      expectTypeOf<Config | undefined>().toExtend<Create>();
+      expectTypeOf<JsonNullSentinel<"DbNull">>().toExtend<Create>();
     });
 
     test("runtime: undefined defaults to null", () => {

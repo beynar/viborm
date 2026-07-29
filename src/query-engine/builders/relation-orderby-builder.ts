@@ -15,6 +15,7 @@ import {
 } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
+import { assertExactDecimalOperation } from "./decimal-portability";
 import { buildRelationCount } from "./relation-count-builder";
 import { buildSingleOrder } from "./sort-order-builder";
 
@@ -27,7 +28,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
-const MAX_RELATION_ORDER_DEPTH = 3;
+/**
+ * Maximum number of to-one relation hops an `orderBy` chain may cross.
+ *
+ * MIRROR of MAX_RELATION_ORDER_DEPTH in src/validation/relations/order-by.ts,
+ * which is the front line — the orderBy schema simply stops offering relation
+ * keys past the cap, so an over-deep chain is rejected there as an unknown key.
+ * This check is the engine's defense in depth. The two constants must stay
+ * equal; tests/query-engine/orderby-relation-depth.test.ts pins that they do.
+ *
+ * Raised 3 -> 8 by decision D-5 (docs/architecture/prisma-parity-v2-plan.md).
+ */
+const MAX_RELATION_ORDER_DEPTH = 8;
 
 export function buildRelationOrders(
   ctx: QueryScope,
@@ -144,6 +156,11 @@ function buildToOneRelationOrders(
         `Unknown relation orderBy field '${fieldPath}'.`
       );
     }
+
+    // Ordered on the RELATED model's column, so the gate is asked against the
+    // related model's scope — a decimal one hop away sorts by bytes exactly as
+    // wrongly as a local one.
+    assertExactDecimalOperation(targetCtx, field, "orderBy", fieldPath);
 
     const columnName = getColumnName(relationInfo.targetModel, field);
     const column = ctx.adapter.identifiers.column(relatedAlias, columnName);

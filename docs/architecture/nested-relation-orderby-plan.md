@@ -1,6 +1,15 @@
 # Multi-level nested relation orderBy — phased plan
 
-Status: **proposed**. Anchor: branch `prisma-parity`.
+Status: **delivered — historical record.** Anchor: branch `prisma-parity`.
+
+> **The depth cap in this document is out of date.** The plan was written and
+> executed against a cap of **3** relation hops; decision D-5 (unit W1-U7 on
+> `prisma-parity-v2`) raised it to **8**. The live constants are
+> `MAX_RELATION_ORDER_DEPTH` in `src/validation/relations/order-by.ts` and
+> `src/query-engine/builders/relation-orderby-builder.ts`, pinned equal by
+> `tests/query-engine/orderby-relation-depth.test.ts`; the user-facing statement
+> is in `docs/content/docs/client/sorting.mdx`. Everything below is preserved as
+> the original design record — read "3 hops" as "the cap at the time".
 
 ## Problem & first principles
 

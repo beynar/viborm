@@ -3,6 +3,10 @@ import { NestedWriteError, NotFoundError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import {
+  splitToOneUpdateTarget,
+  type ToOneUpdateTarget,
+} from "@validation/relations/to-one-update-form";
+import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
@@ -191,6 +195,11 @@ type ParentHeldTarget =
       readonly writeId: string;
       readonly correlation: ParentHeldCorrelation;
       readonly probe: StatementStep;
+      /** W4-U3 — the `update: { where, data }` wrapper's NON-unique filter on the
+       *  currently connected record, ANDed into the locate probe AND the batch
+       *  split-witness guard (never the write, which addresses the captured PK).
+       *  Absent for the bare `update: <data>` spelling. */
+      readonly filter?: Record<string, unknown>;
       readonly data: Record<string, unknown>;
       // T3b family A-remainder — the located target's own child Parts, built from its
       // `data` relations and correlated to its captured PK (a `planned` source on this
@@ -392,17 +401,27 @@ export class UpdateOperation {
     // INSIDE the taken whenTrue branch only — an invalid UNTAKEN update branch (the
     // create arm is taken) must not reject the whole tree — so the caller runs these
     // three legality analyses per-arm via `assertArmLegality()` instead.
-    // X1c: a nested UPDATE target subtree carries its ALREADY-VALIDATED update data
-    // (the enclosing op's whole-args parse validated the whole tree; a schema's
-    // transformed output is non-idempotent under re-parse, X2), locates + correlates
-    // to its enclosing parent, and emits no terminal read. Its own-write is covered by
-    // the enclosing operation's whole-tree preflight walk.
+    // X1c: a nested UPDATE target subtree carries its ALREADY-PARSED update data — the
+    // enclosing operation's relation-schema parse produced it, and that schema is the
+    // target's own `core.update`, so every scalar SET and every relation payload below
+    // is already in its post-transform form. It is therefore consumed AS-IS: no
+    // whole-args parse here, no `where`/`select` parse, and no per-field re-parse below
+    // (a transform is not idempotent — X2, and the lesson upsert's arms record). The
+    // subtree locates + correlates to its enclosing parent and emits no terminal read;
+    // its own-write is covered by the enclosing operation's whole-tree preflight walk.
     const nestedTarget = options.nestedTarget;
     this.nestedTarget = nestedTarget?.locate;
     this.suppressTerminal = nestedTarget !== undefined;
     const deferLegality = options.deferArmLegality === true;
-    if (!(deferLegality || nestedTarget))
-      parseValidated(parentSchemas.args.update, args, "update", "");
+    // The whole-args parse is ALSO where `omit` becomes the `select` it denotes
+    // (@validation/model/args/omit), so the projection below is read from ITS
+    // output: an omit-only payload has no raw `args.select` to find. Reading the
+    // parsed value additionally removes a double parse — `select` used to be
+    // parsed here, discarded, and parsed again from the raw args.
+    const validatedArgs =
+      deferLegality || nestedTarget
+        ? undefined
+        : parseValidated(parentSchemas.args.update, args, "update", "");
     const where = nestedTarget
       ? (nestedTarget.locate.where ?? {})
       : requireRecord(args.where, "update.where");
@@ -468,30 +487,36 @@ export class UpdateOperation {
     // validated by the enclosing tree parse — re-parsing a transformed value is
     // non-idempotent (X2); a parent-held / to-one target has no `where` at all (it
     // locates by correlation alone), so `{}` is its non-selector. The standalone /
-    // upsert-arm path parses its user `where` through the whereUnique schema.
+    // upsert-arm path parses its user `where` through the EXTENDED whereUnique
+    // schema (W4-U1): a top-level `where` may carry non-unique scalar filters and
+    // AND/OR/NOT alongside its discriminator. A NESTED target keeps the strict
+    // one — and reaches this branch already validated by the enclosing parse.
     this.parentWhere = nestedTarget
       ? where
       : parseValidated(
-          parentSchemas.core.whereUnique,
+          parentSchemas.core.whereUniqueExtended,
           where,
           "update",
           "where"
         );
-    this.parsedSelect =
-      !nestedTarget && isRecord(args.select)
-        ? parseValidated(
-            parentSchemas.core.select,
-            args.select,
-            "update",
-            "select"
-          )
-        : defaultSelect(model);
+    // The projection comes from the whole-args parse when there was one — that
+    // parse is where `omit` became the `select` it denotes, so an omit-only
+    // payload has nothing to find in the raw args. The two paths that skip it
+    // read the args as given: an upsert update ARM is handed its parent's
+    // already-parsed projection, and a nested target carries none at all.
+    const projectionArgs = validatedArgs ?? (nestedTarget ? undefined : args);
+    const projectedSelect = projectionArgs?.select;
+    const projectedInclude = projectionArgs?.include;
+    this.parsedSelect = isRecord(projectedSelect)
+      ? projectedSelect
+      : defaultSelect(model);
     // `include` rides alongside the (default or explicit-scalar) projection —
     // the same result-shaping surface `create` owns. A relation projection forces
     // the proven terminal-read path (below): lateral joins, not the RETURNING fold.
     // A nested target emits no terminal read, so it carries no projection.
-    this.parsedInclude =
-      !nestedTarget && isRecord(args.include) ? args.include : undefined;
+    this.parsedInclude = isRecord(projectedInclude)
+      ? projectedInclude
+      : undefined;
     this.resultArgs = {
       select: this.parsedSelect,
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
@@ -551,15 +576,25 @@ export class UpdateOperation {
           `No validation schema exists for relation '${relationName}'.`
         );
       }
-      // `data[relationName]` is already whole-args-validated (the `args.update` parse
-      // above) and `parseValidated` accepts `unknown`, so the pre-check is redundant —
-      // the relation schema re-parse is the one home that both narrows and validates.
-      const parsedRelation = parseValidated(
-        relationSchemas.update,
-        data[relationName],
-        "update",
-        `data.${relationName}`
-      );
+      // THE ONE transform of this relation payload. A standalone update holds the RAW
+      // `data` (the whole-args parse above validates and its output is discarded), and
+      // an upsert update arm has no whole-args parse at all, so for both the relation
+      // schema here is where the payload is narrowed AND transformed — exactly once.
+      // X1c: a nested target holds the ENCLOSING parse's OUTPUT, which already ran THIS
+      // schema over this key (a target's `core.update` carries its relations' `update`
+      // entries), so it is consumed as-is. Re-parsing a transformed value is not a
+      // no-op: a JSON write's `{ set: … }` envelope is itself a legal JSON document, so
+      // a second pass wraps it AGAIN and the ORM's envelope lands in the user's column,
+      // and a JSON null sentinel fails the second pass outright. Parse once (X2, and
+      // the same lesson upsert's arms record) — never re-parse parsed data.
+      const parsedRelation = nestedTarget
+        ? mutation.payload
+        : parseValidated(
+            relationSchemas.update,
+            data[relationName],
+            "update",
+            `data.${relationName}`
+          );
       this.interpretRelation({
         scope,
         parent,
@@ -591,12 +626,18 @@ export class UpdateOperation {
     if (Object.keys(separated.scalarData).length > 0) {
       Object.assign(
         parentSet,
-        parseValidated(
-          parentSchemas.core.scalarUpdate,
-          separated.scalarData,
-          "update",
-          "data"
-        )
+        // The same parse-once rule the relation payloads follow: a nested target's
+        // scalar SET is ALREADY this schema's output (the enclosing tree parse ran the
+        // target's `core.update` over it), so it is assigned as-is. A second pass over
+        // a JSON write's `{ set: … }` envelope re-wraps it into the column.
+        nestedTarget
+          ? separated.scalarData
+          : parseValidated(
+              parentSchemas.core.scalarUpdate,
+              separated.scalarData,
+              "update",
+              "data"
+            )
       );
     }
     for (const link of toOneLinks) Object.assign(parentSet, link.assignment);
@@ -920,7 +961,8 @@ export class UpdateOperation {
     return new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>("update", outputs.result, this.resultArgs);
   }
 
@@ -1595,7 +1637,10 @@ export class UpdateOperation {
         return;
       case "update":
         // Correlated targeted update with NO unique selector — the FK correlation
-        // (fk = parent) is the whole locator (TO-ONE.md §7.2).
+        // (fk = parent) is the whole locator (TO-ONE.md §7.2). W4-U3's optional
+        // `{ where, data }` wrapper arrives already told apart from bare data by the
+        // relation schema, as its canonical envelope; the filter narrows that
+        // locator. See `splitToOneUpdateTarget`.
         input.childParts.push(
           buildToOneUpdatePart(writeBase, parsedRelation.update)
         );
@@ -1937,6 +1982,16 @@ export class UpdateOperation {
         );
         return;
       case "update": {
+        // W4-U3: the to-one `update` payload reaches here as the relation schema's
+        // canonical envelope — bare data and Prisma's `{ where?, data }` wrapper are
+        // told apart ONCE, at the parse, off the user's own payload (a schema output
+        // rewrites scalar shorthands and is not a faithful witness of the form). The
+        // wrapper's `where` is a NON-unique filter on the currently connected record;
+        // it rides the locate, never the write. The bare form yields no filter and is
+        // byte-identical to pre-W4-U3.
+        const target = splitToOneUpdateTarget(
+          normalizeSingle(input.parsedRelation.update, relationName, "update")
+        );
         // X1c: a parent-held to-one UPDATE target whose own data carries the
         // located-target projection of mechanism 1/2 (a deeper parent-held to-one —
         // child-SET folding on the referenced row — or a D4 edge) delegates its WHOLE
@@ -1946,14 +2001,21 @@ export class UpdateOperation {
           input,
           relationName,
           relationInfo,
-          fk
+          fk,
+          target
         );
         if (delegated) {
           input.childParts.push(delegated);
           return;
         }
         input.parentHeldTargets.push(
-          this.interpretParentHeldUpdate(input, relationName, relationInfo, fk)
+          this.interpretParentHeldUpdate(
+            input,
+            relationName,
+            relationInfo,
+            fk,
+            target
+          )
         );
         return;
       }
@@ -1990,28 +2052,25 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
-    fk: FkDirection
+    fk: FkDirection,
+    target: ToOneUpdateTarget
   ): Part | undefined {
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const data = normalizeSingle(
-      input.parsedRelation.update,
-      relationName,
-      "update"
-    );
-    if (!targetNeedsFullUpdate(childScope, data)) return undefined;
+    if (!targetNeedsFullUpdate(childScope, target.data)) return undefined;
     for (const field of fk.fkFields) input.parentFkLocateFields.add(field);
     return buildNestedTargetUpdatePart({
       scope: input.scope,
       engine: this.engine,
       targetModel: relationInfo.targetModel,
-      data,
+      data: target.data,
       locate: {
         parentId: input.parentIdSource,
         childFields: fk.pkFields,
         parentFields: fk.fkFields,
+        ...(target.filter ? { filter: target.filter } : {}),
         relationName,
         notFoundMessage: relationTargetNotFound(relationInfo, "update"),
       },
@@ -2079,7 +2138,8 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
-    fk: FkDirection
+    fk: FkDirection,
+    target: ToOneUpdateTarget
   ): ParentHeldTarget {
     const childScope = createQueryScope(
       this.engine.adapter,
@@ -2097,7 +2157,7 @@ export class UpdateOperation {
     const built = this.parentHeldUpdateData(
       input,
       childScope,
-      normalizeSingle(input.parsedRelation.update, relationName, "update"),
+      target.data,
       probeId,
       childPrimaryKey
     );
@@ -2118,7 +2178,9 @@ export class UpdateOperation {
         childPrimaryKey,
         correlation,
         undefined,
-        true
+        true,
+        undefined,
+        target.filter
       ),
       outputs: hasChildParts
         ? {
@@ -2152,6 +2214,7 @@ export class UpdateOperation {
       writeId: input.scope.allocate(`${childName}.update`),
       correlation,
       probe,
+      ...(target.filter ? { filter: target.filter } : {}),
       data: built.scalarData,
       childParts: built.childParts,
       reorderAfterChildren: built.reorderAfterChildren,
@@ -2362,14 +2425,19 @@ export class UpdateOperation {
   }
 
   /** The correlated locate probe for a parent-held `update`/`upsert`: `WHERE
-   *  <referenced> = <finalFk> [AND <pk> = <capturedPk>]`, one row, FOR UPDATE in tx. */
+   *  <referenced> = <finalFk> [AND <filter>] [AND <pk> = <capturedPk>]`, one row, FOR
+   *  UPDATE in tx. `filter` is W4-U3's non-unique `update: { where, data }` term on the
+   *  currently connected record — a plain `WhereInput` handed to the find builder whole;
+   *  a connected row that fails it leaves the probe empty, which is already this
+   *  family's target-not-found abort (`parentHeldCapturedPk`). */
   private parentHeldProbeStatement(
     childScope: QueryScope,
     childPrimaryKey: string,
     correlation: ParentHeldCorrelation,
     capturedPk: unknown,
     useRef: boolean,
-    known?: Readonly<Record<string, unknown>>
+    known?: Readonly<Record<string, unknown>>,
+    filter?: Record<string, unknown>
   ): Sql {
     return buildFind(
       childScope,
@@ -2383,6 +2451,7 @@ export class UpdateOperation {
               known,
               useRef
             ),
+            ...(filter && Object.keys(filter).length > 0 ? [filter] : []),
             ...(capturedPk === undefined
               ? []
               : [{ [childPrimaryKey]: { equals: capturedPk } }]),
@@ -2737,7 +2806,12 @@ export class UpdateOperation {
             target.correlation,
             capturedPk,
             false,
-            known
+            known,
+            // W4-U3: the batch guard re-asserts the wrapper's filter alongside the
+            // correlation and the captured PK — a concurrent write that makes the
+            // connected row fail the filter aborts the batch typed, exactly as the
+            // tx path's locked probe would have.
+            target.filter
           ),
           nestedWriteFailure(
             relationTargetNotFound(target.relationInfo, "update"),
@@ -3160,15 +3234,25 @@ export class UpdateOperation {
   }
 
   /** A nested target's own unique-selector equality filters (a child-held to-many
-   *  `update`); `[]` for a to-one / parent-held target located by correlation alone. */
+   *  `update`); `[]` for a to-one / parent-held target located by correlation alone.
+   *  W4-U3's non-unique `filter` (the to-one `{ where, data }` wrapper) rides along
+   *  verbatim — it is an ordinary `WhereInput`, not a unique discriminator, so it is
+   *  handed to the find builder whole rather than decomposed into equalities. */
   private nestedTargetWhereFilters(
     parent: QueryScope
   ): Record<string, unknown>[] {
+    const filters: Record<string, unknown>[] = [];
     const where = this.nestedTarget?.where;
-    if (!where) return [];
-    return getWhereUniqueEntries(parent, where).map(({ fieldName, value }) => ({
-      [fieldName]: { equals: value },
-    }));
+    if (where) {
+      filters.push(
+        ...getWhereUniqueEntries(parent, where).map(({ fieldName, value }) => ({
+          [fieldName]: { equals: value },
+        }))
+      );
+    }
+    const filter = this.nestedTarget?.filter;
+    if (filter && Object.keys(filter).length > 0) filters.push(filter);
+    return filters;
   }
 
   /** `child.<childField> = parent.<referenced>` per correlation field — a SQL `Ref` to

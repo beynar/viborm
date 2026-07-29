@@ -5,6 +5,9 @@
  */
 
 import { CacheInvalidKeyError } from "@errors";
+import { isFieldRef } from "@schema/field-ref";
+import { isJsonNullSentinel } from "@schema/json-null";
+import { isSql } from "@sql";
 
 /**
  * Prefix for all VibORM cache keys
@@ -79,13 +82,69 @@ function hashArgs(args: unknown): string {
 }
 
 /**
+ * The two bytes that open and close a NON-JSON value's serialization: U+001F
+ * (unit separator) and U+001E (record separator).
+ *
+ * They are what makes the token below UNFORGEABLE, and the reason is
+ * mechanical: every string this serializer emits — operand values AND object
+ * keys — goes through `JSON.stringify`, and JSON escapes every code point below
+ * U+0020 into a printable six-character escape. A raw separator byte can
+ * therefore never appear in the output by any route except the one deliberately
+ * taken here, so a user document may spell the LETTERS of a token but never the
+ * token. (Verified across the whole C0/C1 range, and for lone surrogates, by
+ * the "no JSON value can forge a brand token" test.)
+ */
+const BRAND_OPEN = "\u001F";
+const BRAND_CLOSE = "\u001E";
+
+/**
+ * Serialize a value that is not a JSON value — one of the branded operand
+ * tokens, or a scalar JSON cannot carry — into the reserved namespace.
+ *
+ * `namespace` names the KIND and `body` distinguishes two values of that kind;
+ * the delimiters are balanced, so a token nested inside another token's body
+ * (an `Sql` whose bound values hold a `Date`) stays unambiguous.
+ */
+function brandToken(namespace: string, body: string): string {
+  return `${BRAND_OPEN}viborm.${namespace}:${body}${BRAND_CLOSE}`;
+}
+
+/**
  * Stable JSON stringify that handles:
  * - Sorted object keys (deterministic)
  * - Date objects (ISO string)
- * - BigInt (string with 'n' suffix)
+ * - BigInt
  * - Uint8Array (base64)
+ * - SQL fragments (statement text + bound values)
+ * - Field references (the model and field they name)
+ * - JSON null sentinels (`DbNull` / `JsonNull` / `AnyNull`)
  * - undefined values (omitted)
  * - Circular references (throws)
+ *
+ * It is only ever handed a VALIDATED payload (see
+ * `PendingOperation.cacheKeyArgs`), so the non-JSON values it can meet are the
+ * ones validation deliberately admits: a field reference, an SQL fragment, and
+ * a JSON null sentinel.
+ *
+ * EVERY ONE OF THEM KEYS IN THE RESERVED NAMESPACE, because a user document is
+ * allowed to look exactly like any of them. A JSON column takes an arbitrary
+ * object, so `{ kind: "DbNull" }` is ordinary user data — and while the sentinel
+ * carries `kind` as an own enumerable key precisely so a structural serializer
+ * could tell the three apart, that only moved the collision one shape over:
+ * walking `Object.keys` made `equals: DbNull` and `equals: { kind: "DbNull" }`
+ * the same cache entry, and a cached client served one query's rows for the
+ * other, in both directions, for the whole TTL.
+ *
+ * The sentinel is the one that collided in production spelling — a JSON filter
+ * operand admits both a sentinel and an arbitrary document. The other two
+ * cannot meet their look-alike at one position TODAY, and only because
+ * validation holds those doors shut (`v.noFieldRef` refuses a reference
+ * wherever arbitrary data is legal; `v.json` refuses a real `Sql` as
+ * non-JSON-compatible) — while the fragment's look-alike still reached the
+ * fragment branch and crashed there, see the note on it below. A key builder
+ * that is correct only because a schema elsewhere is holding a door is one
+ * refactor from being wrong again, so the rule here is structural instead:
+ * what is not a JSON value does not serialize like one.
  */
 function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
   if (value === null) return "null";
@@ -102,11 +161,50 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
   }
 
   if (type === "bigint") {
-    return `"${value}n"`;
+    return brandToken("bigint", String(value));
+  }
+
+  if (type !== "object") {
+    // Functions and symbols are not cacheable
+    throw new CacheInvalidKeyError(`Uncacheable value type: ${type}`);
+  }
+
+  // A fragment is identified by what it will EMIT, not by its instance fields:
+  // an `Sql` memoizes its flattened text on first read, so enumerating its own
+  // properties would key the same fragment differently depending on whether
+  // anything had compiled it yet.
+  //
+  // THE METHOD IS PART OF THE TEST because `isSql` is a duck-type probe
+  // (`strings` and `values`, both arrays), and a JSON column may legally hold
+  // `{ strings: [], values: [] }` — validation says so in as many words
+  // (`v.noFieldRef`: such a document "is honest user data and must stay
+  // accepted"). That document reached here as a fragment and threw a bare
+  // `TypeError: value.toStatement is not a function` out of cache key
+  // generation. A real fragment carries the method that flattens it and a
+  // document cannot, because `v.json` refuses a function; so the look-alike
+  // falls through to the object branch below and keys as the data it is.
+  if (isSql(value) && typeof value.toStatement === "function") {
+    return brandToken(
+      "sql",
+      `${JSON.stringify(value.toStatement("?"))}:${stableStringify(value.values, seen)}`
+    );
+  }
+
+  // A reference names a COLUMN: the model and field are its identity, and its
+  // `type`/`list` are derived from them by `createModelFieldRefs`.
+  if (isFieldRef(value)) {
+    return brandToken(
+      "field-ref",
+      `${JSON.stringify(value.model)}:${JSON.stringify(value.field)}`
+    );
+  }
+
+  if (isJsonNullSentinel(value)) {
+    return brandToken("json-null", value.kind);
   }
 
   if (value instanceof Date) {
-    return `"${value.toISOString()}"`;
+    return brandToken("date", value.toISOString());
   }
 
   if (value instanceof Uint8Array) {
@@ -121,7 +219,7 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
       }
       base64 = btoa(binary);
     }
-    return `"base64:${base64}"`;
+    return brandToken("bytes", base64);
   }
 
   if (Array.isArray(value)) {
@@ -131,21 +229,16 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
     return `[${value.map((v) => stableStringify(v, seen)).join(",")}]`;
   }
 
-  if (type === "object") {
-    if (seen.has(value as object))
-      throw new CacheInvalidKeyError("Circular reference in cache key args");
-    seen.add(value as object);
+  if (seen.has(value as object))
+    throw new CacheInvalidKeyError("Circular reference in cache key args");
+  seen.add(value as object);
 
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj).sort();
-    const pairs = keys
-      .filter((k) => obj[k] !== undefined)
-      .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k], seen)}`);
-    return `{${pairs.join(",")}}`;
-  }
-
-  // Functions and symbols are not cacheable
-  throw new CacheInvalidKeyError(`Uncacheable value type: ${type}`);
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const pairs = keys
+    .filter((k) => obj[k] !== undefined)
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k], seen)}`);
+  return `{${pairs.join(",")}}`;
 }
 
 /**

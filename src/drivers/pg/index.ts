@@ -7,10 +7,13 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import {
   TransactionError,
   unsupportedGeospatial,
@@ -19,9 +22,12 @@ import {
 import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
 import { Driver, type QueryExecutionContext } from "../driver";
 import {
+  acquireWithMaxWait,
+  type DriverTransactionOptions,
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
   runTransactionLifecycle,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -134,9 +140,24 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     };
   }
 
+  /**
+   * PostgreSQL takes the isolation level as the first statement inside the
+   * transaction, and node-postgres hands out a pooled client we can wait for
+   * with a bound (and release if we stop waiting).
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "post-begin",
+      timeout: true,
+      maxWait: "acquisition",
+    };
+  }
+
   protected async transaction<T>(
     client: Pool | PoolClient,
-    fn: (tx: PoolClient) => Promise<T>
+    fn: (tx: PoolClient) => Promise<T>,
+    _context?: QueryExecutionContext,
+    options?: DriverTransactionOptions
   ): Promise<T> {
     if ("release" in client) {
       throw nestedTransactionDispatchError(this.driverName);
@@ -144,7 +165,12 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 
     // Start a new transaction
     const pool = client as Pool;
-    const poolClient = await pool.connect();
+    const poolClient = await acquireWithMaxWait(
+      () => pool.connect(),
+      (acquired) => acquired.release(),
+      options?.maxWaitMs,
+      { driverName: this.driverName, form: "callback" }
+    );
     let releaseError: Error | boolean | undefined;
     const queryOrDiscard = async (statement: string) => {
       try {
@@ -188,8 +214,11 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: PgClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: PgClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, PgDriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const {
     pool,
@@ -209,7 +238,7 @@ export function createClient<C extends DriverConfig>(
 
   const driver = new PgDriver(driverOptions);
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: PgDriver }>;

@@ -1,6 +1,8 @@
 import {
+  ClientInitializationError,
   QueryError,
   ValidationError,
+  ValueTooLongError,
   VibORMError,
   VibORMErrorCode,
 } from "../dist/index.mjs";
@@ -24,6 +26,11 @@ const cases = [
       { message: "id is required", path: "data.id" },
     ]),
   ],
+  ["ValueTooLongError", new ValueTooLongError("value too long")],
+  [
+    "ClientInitializationError",
+    new ClientInitializationError("driver is required"),
+  ],
 ];
 
 for (const [expectedName, error] of cases) {
@@ -34,6 +41,32 @@ for (const [expectedName, error] of cases) {
   if (serializedName !== expectedName) {
     throw new Error(
       `Expected serialized name ${expectedName}, got ${String(serializedName)}`
+    );
+  }
+}
+
+// Prisma-code compatibility has to survive bundling too: a `catch` written for Prisma reads
+// error.prismaCode off the packed build, and the serialized form carries it alongside `code`.
+const prismaCases = [
+  ["ValueTooLongError", new ValueTooLongError("value too long"), "P2000"],
+  [
+    "ClientInitializationError",
+    new ClientInitializationError("driver is required"),
+    "P1012",
+  ],
+  ["QueryError", new QueryError("query failure"), undefined],
+];
+
+for (const [label, error, expected] of prismaCases) {
+  if (error.prismaCode !== expected) {
+    throw new Error(
+      `Expected ${label}.prismaCode ${String(expected)}, got ${String(error.prismaCode)}`
+    );
+  }
+  const serialized = error.toJSON().prismaCode;
+  if (serialized !== expected) {
+    throw new Error(
+      `Expected serialized ${label}.prismaCode ${String(expected)}, got ${String(serialized)}`
     );
   }
 }

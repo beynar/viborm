@@ -170,7 +170,14 @@ describe("strict scalar result contracts", () => {
     expect(parseField("flag", 0n)).toBe(false);
     expect(parseField("integer", "-42")).toBe(-42);
     expect(parseField("float", "1e2")).toBe(100);
-    expect(parseField("decimal", "-0.5")).toBe(-0.5);
+    // W6-U1: a decimal decodes to its canonical STRING, never a double. The
+    // provider hands it over as text on every dialect; the only work is
+    // agreeing on one spelling.
+    expect(parseField("decimal", "-0.5")).toBe("-0.5");
+    expect(parseField("decimal", "-0.500")).toBe("-0.5");
+    expect(parseField("decimal", "1.000000000000000000000000000001")).toBe(
+      "1.000000000000000000000000000001"
+    );
     expect(parseField("large", "9007199254740993")).toBe(
       9_007_199_254_740_993n
     );

@@ -1,8 +1,8 @@
 // Model Class Implementation
 // Defines database models with scalars and relations
 
-import v from "@validation/primitives/v";
 import type { ObjectSchema, VibSchema } from "@validation";
+import v from "@validation/primitives/v";
 import type { AnyRelation } from "../relation";
 import type { Scalar } from "../scalars/base";
 import type { HydratedSchemaNames, SchemaNames } from "../scalars/common";
@@ -85,6 +85,36 @@ export type UpdateIndexDefinition<
   Index extends IndexDefinition,
 > = [...State["indexes"], Index];
 
+/** The name a compound `.id()` / `.unique()` constraint may be given. */
+export interface CompoundKeyOptions {
+  name?: string;
+}
+
+/**
+ * An options bag that carries the surface's own keys and NOTHING else.
+ *
+ * A generic `O extends Options` is no guard on its own: when inference produces
+ * a bag the constraint would reject, TypeScript CLAMPS `O` to the constraint and
+ * only excess-property checking is left to catch the stray key — and that needs
+ * a fresh object literal, so `.index(["a"], sharedIndexOptions)` sails through
+ * with `uniqu: true` recorded as nothing at all. Demanding `never` for the
+ * unknown keys refuses structurally instead, whatever the argument's freshness.
+ * Same instrument as `UnknownOmitKeys` below.
+ */
+type ExactOptions<Given, Allowed> = Given &
+  Record<Exclude<keyof Given, keyof Allowed>, never>;
+
+/**
+ * The constraint name: the caller's `name` when they gave one, otherwise the
+ * underscore-joined field names. Read off the options bag rather than a separate
+ * inferred parameter so that ONE type parameter carries the whole literal — the
+ * parameter `ExactOptions` needs in order to see the unknown keys.
+ */
+type CompoundKeyName<
+  Keys extends string[],
+  O extends CompoundKeyOptions,
+> = O extends { name: infer N extends string } ? N : NameFromKeys<Keys>;
+
 export const mergeIndexDefinitions = <
   State extends ModelState,
   Index extends IndexDefinition,
@@ -99,6 +129,47 @@ export type UpdateState<
   State extends ModelState,
   Update extends Partial<ModelState>,
 > = Omit<State, keyof Update> & Update;
+
+/**
+ * The keys a proposed `.omit()` names that this model does NOT have as a
+ * scalar: the typos and the relation names.
+ *
+ * `Hidden` is inferred from the argument's own keys and is deliberately NOT
+ * constrained to the scalar names. A constrained type parameter is no guard
+ * here: when inference produces something the constraint rejects, TypeScript
+ * silently CLAMPS the parameter to the constraint and only excess-property
+ * checking — which needs a fresh object literal — is left to catch the bad
+ * key. Anything non-fresh (`as const`, a spread, an annotated variable, a
+ * widened `Record<string, true>`) then sails through and records a
+ * hidden-column claim nobody wrote. Excluding the unknown keys and demanding
+ * `never` for them refuses structurally instead, whatever the argument's
+ * freshness, and a `never` the caller cannot produce is a compile error at the
+ * offending key.
+ *
+ * Relations are absent from the accepted set because `State["scalars"]` is the
+ * scalar half of the shape (`ScalarMap`), the same source `.index()` /
+ * `.id()` / `.unique()` key off. Reading it never touches a relation's
+ * `getter`, the member that must not be resolved while two model consts still
+ * refer to each other (see `RelationState.getter`).
+ */
+type UnknownOmitKeys<Hidden extends string, State extends ModelState> = Exclude<
+  Hidden,
+  StringKeyOf<State["scalars"]>
+>;
+
+/**
+ * This model's scalar names, each optionally flagged `true`.
+ *
+ * It carries NO refusal — `UnknownOmitKeys` does that — and it adds no
+ * requirement, every key being optional. It is in the parameter for one
+ * reason: an editor offers the keys of a CONCRETE contextual type, and
+ * `Record<Hidden, true>` is not concrete until `Hidden` has been inferred from
+ * the very literal being typed. Without this member `.omit({ ` autocompletes
+ * the global scope; with it, the model's scalars.
+ */
+export type ModelOmitInput<State extends ModelState> = Partial<
+  Record<StringKeyOf<State["scalars"]>, true>
+>;
 
 /**
  * Merge a new compound constraint into the existing record so repeated
@@ -152,17 +223,49 @@ export class Model<State extends ModelState> {
     >;
   }
 
-  omit<OmitItems extends Record<string, true>>(items: OmitItems) {
+  /**
+   * Hide scalars from every result of this model — the schema-level exclusion.
+   *
+   * Keyed to the model's own SCALARS, so a typo or a relation name is a
+   * compile error instead of an `omit` that quietly hides nothing. That
+   * matters more here than anywhere else the builder takes field names: this
+   * is the spelling used for secrets, and a silently-ignored key is a leaked
+   * column. The refusal is per KEY, not per call: `{ secret: true, tokne:
+   * true }` fails on `tokne` even though `secret` is real — two secrets with
+   * one misspelled is the realistic case, and it is exactly the case an
+   * excess-property-only refusal would wave through (see `UnknownOmitKeys`).
+   *
+   * Every value must be `true`. `false` has no meaning here (model-level omit
+   * only ever hides) and a flag that may be `undefined` hides nothing at
+   * runtime — `projectableScalarNames` compares against `true` — so
+   * `Record<Hidden, true>` refuses both rather than recording a claim the
+   * runtime would not honor.
+   *
+   * The literal survives the round trip — `.omit({ secret: true })` carries
+   * exactly `{ secret: true }` into the state, not a widened record — which is
+   * what every downstream `keyof State["omit"]` reads. `Hidden` defaults to
+   * `never` for the one call with nothing to infer from, `.omit({})`: a bare
+   * `extends string` would fall back to `string` there and hand the state a
+   * record keyed by every conceivable name.
+   */
+  omit<Hidden extends string = never>(
+    items: Record<Hidden, true> &
+      Record<UnknownOmitKeys<Hidden, State>, never> &
+      ModelOmitInput<State>
+  ) {
     return new Model({
       ...this.state,
       omit: items,
-    }) as unknown as Model<UpdateState<State, { omit: OmitItems }>>;
+    }) as unknown as Model<UpdateState<State, { omit: Record<Hidden, true> }>>;
   }
 
   index<
     const Keys extends StringKeyOf<State["scalars"]>[],
     O extends IndexOptions = IndexOptions,
-  >(fields: Keys, options: O = {} as O) {
+  >(
+    fields: Keys,
+    options: ExactOptions<O, IndexOptions> = {} as ExactOptions<O, IndexOptions>
+  ) {
     return new Model({
       ...this.state,
       indexes: mergeIndexDefinitions(this.state, { fields, options }),
@@ -176,8 +279,8 @@ export class Model<State extends ModelState> {
 
   id<
     const Keys extends StringKeyOf<State["scalars"]>[],
-    Name extends string | undefined = undefined,
-  >(fields: Keys, options?: { name?: Name }) {
+    const O extends CompoundKeyOptions = Record<never, never>,
+  >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
@@ -204,9 +307,7 @@ export class Model<State extends ModelState> {
           compoundId: MergeCompound<
             State["compoundId"],
             {
-              [K in Name extends undefined
-                ? NameFromKeys<Keys>
-                : Name]: ObjectSchema<{
+              [K in CompoundKeyName<Keys, O>]: ObjectSchema<{
                 [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
               }>;
             }
@@ -218,8 +319,8 @@ export class Model<State extends ModelState> {
 
   unique<
     const Keys extends StringKeyOf<State["scalars"]>[],
-    Name extends string | undefined = undefined,
-  >(fields: Keys, options?: { name?: Name }) {
+    const O extends CompoundKeyOptions = Record<never, never>,
+  >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);
     const fieldsRecord = fields.reduce(
       (acc, fieldName) => {
@@ -246,9 +347,7 @@ export class Model<State extends ModelState> {
           compoundUniques: MergeCompound<
             State["compoundUniques"],
             {
-              [K in Name extends undefined
-                ? NameFromKeys<Keys>
-                : Name]: ObjectSchema<{
+              [K in CompoundKeyName<Keys, O>]: ObjectSchema<{
                 [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
               }>;
             }

@@ -92,14 +92,12 @@ The full `Operations` union (see `src/client/types.ts`):
 | `findUniqueOrThrow` | Get record by unique constraint or throw |
 | `exist` | Check whether any row matches |
 | `create` | Create single record |
-| `createMany` | Create multiple records |
-| `createManyAndReturn` | Create multiple records and return them |
+| `createMany` | Create multiple records; returns `{ count }`, or the created rows when `select` is present |
 | `update` | Update a record by unique constraint |
-| `updateMany` | Update multiple records |
-| `updateManyAndReturn` | Update multiple records and return them |
+| `updateMany` | Update multiple records; returns `{ count }`, or the updated rows when `select` is present |
 | `upsert` | Create or update on conflict |
 | `delete` | Delete a record by unique constraint |
-| `deleteMany` | Delete multiple records |
+| `deleteMany` | Delete multiple records; returns `{ count }`, or the deleted rows when `select` is present |
 | `count` | Count matching records |
 | `aggregate` | Aggregate functions (SUM, AVG, etc.) |
 | `groupBy` | Group rows and aggregate per group |

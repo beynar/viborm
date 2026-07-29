@@ -841,5 +841,92 @@ describe("object schema", () => {
       expect("nickname" in value).toBe(true);
       expect(value.nickname).toBeUndefined();
     });
+
+    // The DENSE half of the same rule. It used to be the fast path's rule only:
+    // on `partial: false` / `atLeast` schemas a key present with an explicit
+    // `undefined` was validated AGAINST its schema, so the spread-an-optional
+    // idiom (`{ select: maybeSelect }`) failed with the schema's own type error
+    // ("Expected object") on every args schema built with `atLeast` —
+    // `createMany`, `updateMany`, `create`, `update`, `upsert` — while the
+    // identical call on a fully-partial schema (`deleteMany`, `findMany`)
+    // succeeded. Same rule, both paths, no surface can disagree with another.
+
+    test("atLeast: an optional key spelled undefined parses like an absent key", () => {
+      const schema = v.object(
+        {
+          data: v.object({ name: v.string() }),
+          select: v.object({ name: v.boolean() }),
+        },
+        { atLeast: ["data"] }
+      );
+
+      const absent = parse(schema, { data: { name: "Alice" } });
+      const explicit = parse(schema, {
+        data: { name: "Alice" },
+        select: undefined,
+      });
+
+      expect(absent.issues).toBeUndefined();
+      expect(explicit.issues).toBeUndefined();
+      // Byte-identical outputs: nothing downstream can tell the two apart.
+      expect((explicit as { value: unknown }).value).toEqual(
+        (absent as { value: unknown }).value
+      );
+    });
+
+    test("atLeast: a required key spelled undefined is the missing-field error", () => {
+      const schema = v.object(
+        {
+          data: v.object({ name: v.string() }),
+          select: v.object({ name: v.boolean() }),
+        },
+        { atLeast: ["data"] }
+      );
+
+      const result = parse(schema, { data: undefined, select: { name: true } });
+      expect(result.issues).toBeDefined();
+      // Names the key that is missing rather than reporting its type.
+      expect(result.issues?.[0]?.message).toBe("Missing required field: data");
+    });
+
+    test("atLeast: a default still fires for a key spelled undefined", () => {
+      const schema = v.object(
+        { id: v.string(), qty: v.number({ default: 7 }) },
+        { atLeast: ["id"] }
+      );
+
+      const result = parse(schema, { id: "1", qty: undefined });
+      expect(result.issues).toBeUndefined();
+      expect((result as { value: { qty: number } }).value.qty).toBe(7);
+    });
+
+    test("partial: false honors the same rule", () => {
+      const schema = v.object(
+        { name: v.string(), age: v.number() },
+        { partial: false }
+      );
+
+      const result = parse(schema, { name: "Alice", age: undefined });
+      expect(result.issues).toBeDefined();
+      expect(result.issues?.[0]?.message).toBe("Missing required field: age");
+    });
+
+    test("atLeast: a real value on the dense path is still validated", () => {
+      const schema = v.object(
+        {
+          data: v.object({ name: v.string() }),
+          select: v.object({ name: v.boolean() }),
+        },
+        { atLeast: ["data"] }
+      );
+
+      // The rule is about `undefined` only — a malformed present value must
+      // still reject, or the fix would be an accept-and-ignore.
+      const result = parse(schema, {
+        data: { name: "Alice" },
+        select: "nope",
+      });
+      expect(result.issues).toBeDefined();
+    });
   });
 });

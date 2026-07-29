@@ -8,10 +8,13 @@ import { Buffer } from "node:buffer";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
 import { QueryError, TransactionError } from "@errors";
 import type { Pool, PoolConnection, PoolOptions } from "mysql2/promise";
 import {
@@ -25,10 +28,14 @@ import {
   normalizeProviderRowCount,
 } from "../normalized-result";
 import {
+  acquireWithMaxWait,
+  type DriverTransactionOptions,
+  isolationLevelStatement,
   mysqlResultParser,
   nestedTransactionDispatchError,
   parseMySQLUrl,
   runTransactionLifecycle,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -207,9 +214,26 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
     return toQueryResult<T>(result, fields, operation);
   }
 
+  /**
+   * MySQL rejects `SET TRANSACTION ISOLATION LEVEL` once a transaction is open
+   * (ER_CANT_CHANGE_TX_CHARACTERISTICS), so the level must be set on the
+   * transaction's own connection *before* BEGIN, where it applies to exactly
+   * the next transaction on that session. mysql2 pools hand out a connection we
+   * can wait for with a bound and release if we stop waiting.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "pre-begin",
+      timeout: true,
+      maxWait: "acquisition",
+    };
+  }
+
   protected async transaction<T>(
     client: Pool | PoolConnection,
-    fn: (tx: PoolConnection) => Promise<T>
+    fn: (tx: PoolConnection) => Promise<T>,
+    _context?: QueryExecutionContext,
+    options?: DriverTransactionOptions
   ): Promise<T> {
     if (!("getConnection" in client)) {
       throw nestedTransactionDispatchError(this.driverName);
@@ -217,7 +241,12 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 
     // Start a new transaction from pool
     const pool = client as Pool;
-    const connection = await pool.getConnection();
+    const connection = await acquireWithMaxWait(
+      () => pool.getConnection(),
+      (acquired) => acquired.release(),
+      options?.maxWaitMs,
+      { driverName: this.driverName, form: "callback" }
+    );
     let shouldDestroy = false;
     const runOrDestroy = async (operation: () => Promise<void>) => {
       try {
@@ -227,8 +256,17 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
         throw error;
       }
     };
+    const isolationLevel = options?.isolationLevel;
     return runTransactionLifecycle({
-      begin: () => runOrDestroy(() => connection.beginTransaction()),
+      begin: () =>
+        runOrDestroy(async () => {
+          // Session-scoped-next-transaction: this statement must land before
+          // beginTransaction() to bind to the transaction it opens.
+          if (isolationLevel) {
+            await connection.query(isolationLevelStatement(isolationLevel));
+          }
+          await connection.beginTransaction();
+        }),
       callback: () => fn(connection),
       commit: () => runOrDestroy(() => connection.commit()),
       rollback: () => runOrDestroy(() => connection.rollback()),
@@ -261,8 +299,11 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: MySQL2ClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: MySQL2ClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { pool, options = {}, databaseUrl, ...restConfig } = config;
 
@@ -275,7 +316,7 @@ export function createClient<C extends DriverConfig>(
     options,
   });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: MySQL2Driver }>;

@@ -81,8 +81,11 @@ const DELETED_KEY_GATES = [
 
 // X2's measured shape-check surface (comments included — a stable, greppable ceiling).
 // These may only shrink; growth is a re-introduced re-validation branch.
-const MAX_PAYLOAD_RECORD_CASTS = 38;
-const MAX_SHAPE_THROW_MESSAGES = 23;
+// 38 -> 37 / 23 -> 22 (W4-U3 fix round): the to-one `update` payload now arrives as
+// the relation schema's canonical envelope, so `buildToOneUpdatePart` no longer
+// re-checks its shape or casts it — the split reads the envelope and fails closed.
+const MAX_PAYLOAD_RECORD_CASTS = 37;
+const MAX_SHAPE_THROW_MESSAGES = 22;
 
 const PARSE_VALIDATED_DEF = /export function parseValidated\b/;
 const INFER_OUTPUT_CAST = /as InferOutput\b/;

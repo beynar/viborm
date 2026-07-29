@@ -1,18 +1,14 @@
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import type { ScalarState } from "@schema/scalars";
-import { createSchema, fail } from "../../primitives/helpers";
 import v, { type V } from "../../primitives/v";
 import type { VibSchema } from "../../types";
 import type { ScalarSchemas } from "../index";
 
 const orderEnum = v.enum(["asc", "desc"]);
 const vectorDistanceMetricSchema = v.enum(["l2", "cosine"]);
-const forbiddenOrderByKeySchema = (key: string): VibSchema<never, never> => {
-  return createSchema<never, never>("forbidden_orderby_key", () =>
-    fail(`OrderBy key '${key}' is not valid here.`)
-  );
-};
+const forbiddenOrderByKeySchema = (key: string): VibSchema<never, never> =>
+  v.refused(`OrderBy key '${key}' is not valid here.`);
 
 export const sortOrderSchema = v.union([
   orderEnum,

@@ -40,7 +40,9 @@ const schema = { user: User, profile: Profile };
 const UNIQUE_VIOLATION = /unique|duplicate/i;
 
 let client: Awaited<
-  ReturnType<typeof PGliteCreateClient<{ schema: typeof schema }>>
+  ReturnType<
+    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
+  >
 >;
 
 beforeAll(async () => {

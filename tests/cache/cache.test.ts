@@ -5,6 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createTestClock } from "../fixtures/test-clock";
 
 // Test schema
 const user = s.model({
@@ -32,6 +33,71 @@ beforeEach(async () => {
   // Clean up data between tests
   await pglite.exec(`DELETE FROM "user"`);
 });
+
+/**
+ * A client for the tests that turn on time passing.
+ *
+ * Three things a TTL test needs, none of which is a sleep:
+ *
+ * - `clock` — the cache's source of time. `advance(ms)` ages entries and fires
+ *   the memory driver's eviction timers, so "the TTL passed" becomes a fact the
+ *   test states rather than a duration it hopes was long enough.
+ * - `settle()` — the cache writes on a miss in the background. `waitUntil` is
+ *   the production hook for exactly that promise (it is what a Worker hands to
+ *   `ctx.waitUntil`), and `setInBackground` schedules through it before the
+ *   read returns, so draining it is enough to know the entry has landed.
+ * - `nextRevalidation()` — SWR revalidation runs a real query. Snapshot it
+ *   BEFORE the stale read that triggers it, await it after: the cache reports
+ *   the revalidation finished, which is the event the old sleeps were guessing
+ *   at.
+ */
+function cachedClient() {
+  const clock = createTestClock();
+  const background: Promise<unknown>[] = [];
+  let finishedRevalidations = 0;
+  const waiting: Array<{ target: number; resolve: () => void }> = [];
+
+  const client = VibORM.create({
+    schema,
+    driver,
+    cache: new MemoryCache({ clock }),
+    waitUntil: (promise) => {
+      background.push(promise);
+    },
+    instrumentation: {
+      logging: {
+        cache: (event) => {
+          const { event: name, status } = event.meta ?? {};
+          // "start" opens a revalidation; anything else closes it.
+          if (name !== "revalidate" || status === "start") return;
+          finishedRevalidations += 1;
+          for (const waiter of waiting.splice(0)) {
+            if (finishedRevalidations >= waiter.target) waiter.resolve();
+            else waiting.push(waiter);
+          }
+        },
+      },
+    },
+  });
+
+  return {
+    client,
+    clock,
+    /** Drain every background cache write this client has scheduled. */
+    settle: async () => {
+      while (background.length > 0) {
+        await Promise.all(background.splice(0));
+      }
+    },
+    /** Take before the stale read; await after. */
+    nextRevalidation: (): Promise<void> => {
+      const target = finishedRevalidations + 1;
+      return new Promise<void>((resolve) => {
+        waiting.push({ target, resolve });
+      });
+    },
+  };
+}
 
 describe("Cache", () => {
   describe("$withCache basic operations", () => {
@@ -183,12 +249,7 @@ describe("Cache", () => {
 
   describe("TTL expiration", () => {
     it("expires cache after TTL", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const { client, clock, settle } = cachedClient();
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -199,14 +260,15 @@ describe("Cache", () => {
         .$withCache({ key: "short-ttl", ttl: 50 }) // 50ms
         .user.findMany();
       expect(result1).toHaveLength(1);
+      await settle();
 
       // Add more data
       await pglite.exec(
         `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
       );
 
-      // Wait for TTL to expire
-      await new Promise((r) => setTimeout(r, 100));
+      // Let the TTL expire
+      clock.advance(100);
 
       // Should fetch fresh data (cache expired)
       const result2 = await client
@@ -246,12 +308,7 @@ describe("Cache", () => {
 
   describe("SWR (stale-while-revalidate)", () => {
     it("swr: true defaults to 2x TTL for stale window", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const { client, clock, settle, nextRevalidation } = cachedClient();
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -261,9 +318,10 @@ describe("Cache", () => {
       await client
         .$withCache({ key: "swr-default-ttl", ttl: 30, swr: true })
         .user.findMany();
+      await settle();
 
-      // Wait past TTL (30ms) but within 2x TTL (60ms) - data should still be in storage
-      await new Promise((r) => setTimeout(r, 40));
+      // Move past TTL (30ms) but within 2x TTL (60ms) - data should still be in storage
+      clock.advance(40);
 
       // Add more data
       await pglite.exec(
@@ -271,22 +329,20 @@ describe("Cache", () => {
       );
 
       // Should return stale data (SWR serves from storage)
+      const revalidated = nextRevalidation();
       const staleResult = await client
         .$withCache({ key: "swr-default-ttl", ttl: 30, swr: true })
         .user.findMany();
       expect(staleResult).toHaveLength(1);
 
-      // Cleanup
+      // Cleanup — after the revalidation this read kicked off has read the row
+      // it is about to delete.
+      await revalidated;
       await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-default-1'`);
     });
 
     it("swr: false disables stale-while-revalidate", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const { client, clock, settle } = cachedClient();
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -296,9 +352,10 @@ describe("Cache", () => {
       await client
         .$withCache({ key: "swr-disabled", ttl: 30, swr: false })
         .user.findMany();
+      await settle();
 
-      // Wait past TTL
-      await new Promise((r) => setTimeout(r, 50));
+      // Move past TTL
+      clock.advance(50);
 
       // Add more data
       await pglite.exec(
@@ -316,12 +373,7 @@ describe("Cache", () => {
     });
 
     it("accepts custom SWR TTL as number", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const { client, clock, settle, nextRevalidation } = cachedClient();
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -331,9 +383,10 @@ describe("Cache", () => {
       await client
         .$withCache({ key: "swr-custom-ttl", ttl: 30, swr: 100 })
         .user.findMany();
+      await settle();
 
-      // Wait for cache to become stale (past 30ms TTL)
-      await new Promise((r) => setTimeout(r, 50));
+      // Age the entry past its 30ms TTL, into the stale window
+      clock.advance(50);
 
       // Add more data AFTER cache is stale
       await pglite.exec(
@@ -341,13 +394,14 @@ describe("Cache", () => {
       );
 
       // Should return stale data immediately (SWR pattern)
+      const revalidated = nextRevalidation();
       const staleResult = await client
         .$withCache({ key: "swr-custom-ttl", ttl: 30, swr: 100 })
         .user.findMany();
       expect(staleResult).toHaveLength(1);
 
       // Wait for background revalidation
-      await new Promise((r) => setTimeout(r, 100));
+      await revalidated;
 
       // Now should have fresh data
       const freshResult = await client
@@ -360,12 +414,7 @@ describe("Cache", () => {
     });
 
     it("accepts custom SWR TTL as string", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const { client, clock, settle, nextRevalidation } = cachedClient();
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -375,9 +424,10 @@ describe("Cache", () => {
       await client
         .$withCache({ key: "swr-string-ttl", ttl: 30, swr: "200ms" })
         .user.findMany();
+      await settle();
 
-      // Wait for cache to become stale
-      await new Promise((r) => setTimeout(r, 50));
+      // Age the entry until it is stale
+      clock.advance(50);
 
       // Add more data
       await pglite.exec(
@@ -385,13 +435,14 @@ describe("Cache", () => {
       );
 
       // Should return stale data
+      const revalidated = nextRevalidation();
       const staleResult = await client
         .$withCache({ key: "swr-string-ttl", ttl: 30, swr: "200ms" })
         .user.findMany();
       expect(staleResult).toHaveLength(1);
 
       // Wait for revalidation
-      await new Promise((r) => setTimeout(r, 100));
+      await revalidated;
 
       const freshResult = await client
         .$withCache({ key: "swr-string-ttl", ttl: 30, swr: "200ms" })
@@ -403,12 +454,7 @@ describe("Cache", () => {
     });
 
     it("returns stale data and revalidates in background", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const { client, clock, settle, nextRevalidation } = cachedClient();
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -418,9 +464,10 @@ describe("Cache", () => {
       await client
         .$withCache({ key: "swr-test", ttl: 30, swr: true })
         .user.findMany();
+      await settle();
 
-      // Wait for cache to become stale (but not expired from storage - 2x TTL)
-      await new Promise((r) => setTimeout(r, 50));
+      // Age the entry until it is stale (but not expired from storage - 2x TTL)
+      clock.advance(50);
 
       // Add more data AFTER cache is stale
       await pglite.exec(
@@ -428,13 +475,14 @@ describe("Cache", () => {
       );
 
       // Should return stale data immediately (SWR pattern)
+      const revalidated = nextRevalidation();
       const staleResult = await client
         .$withCache({ key: "swr-test", ttl: 30, swr: true })
         .user.findMany();
       expect(staleResult).toHaveLength(1); // Stale data returned immediately
 
       // Wait for background revalidation to complete
-      await new Promise((r) => setTimeout(r, 100));
+      await revalidated;
 
       // Now should have fresh data (revalidation completed)
       const freshResult = await client

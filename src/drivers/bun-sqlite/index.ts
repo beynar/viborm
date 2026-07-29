@@ -7,10 +7,14 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
-  createClient as baseCreateClient,
+  createClientFromDriverConfig,
   type DriverConfig,
+  type NoExtraDriverConfigKeys,
+  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
+import type { Schema } from "@client/types";
+import { FeatureNotSupportedError } from "@errors";
 import { Driver, type DriverResultParser } from "../driver";
 import {
   convertValuesForSQLite,
@@ -18,6 +22,7 @@ import {
   runTransactionLifecycle,
   sqliteBinaryToUint8Array,
   sqliteResultParser,
+  type TransactionOptionSupport,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -43,7 +48,32 @@ interface BunSQLiteStatement<T = unknown> {
     changes: number;
     lastInsertRowid: number | bigint;
   };
+  /**
+   * Reads INTEGER columns as BigInt instead of lossy JS numbers. Present on
+   * `bun:sqlite` statements since Bun 1.1.14; the driver refuses to read
+   * rather than return corrupted values when it is missing.
+   */
+  safeIntegers(safe: boolean): BunSQLiteStatement<T>;
   values(...params: unknown[]): unknown[][];
+}
+
+/**
+ * `safeIntegers()` is what keeps an INTEGER past 2^53 from being rounded on
+ * the way out of SQLite. A `bun:sqlite` old enough to lack it cannot answer
+ * the query truthfully, so the read is refused instead of silently returning
+ * a corrupted number — the one outcome that must never ship.
+ */
+function requireSafeIntegers<T>(
+  stmt: BunSQLiteStatement<T>
+): BunSQLiteStatement<T> {
+  if (typeof stmt.safeIntegers !== "function") {
+    throw new FeatureNotSupportedError(
+      "bun:sqlite",
+      "Statement.safeIntegers",
+      "This Bun build cannot read INTEGER columns as BigInt, so any value past 2^53 would come back silently rounded. Upgrade to Bun 1.1.14 or newer."
+    );
+  }
+  return stmt;
 }
 
 function convertValuesForBunSQLite(values: unknown[]): unknown[] {
@@ -103,9 +133,23 @@ export class BunSQLiteDriver extends Driver<
     const { Database } = await import("bun:sqlite");
 
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
-    const options = this.driverOptions.options ?? {};
+    const options = this.driverOptions.options;
 
-    return new Database(dataDir, options) as unknown as BunSQLiteDatabase;
+    // bun:sqlite derives its open flags from this object and rejects one that
+    // names no access mode: `new Database(path, {})` throws SQLITE_MISUSE
+    // ("flags must include SQLITE_OPEN_READONLY or SQLITE_OPEN_READWRITE").
+    // An options bag that says nothing must mean nothing, so the argument is
+    // omitted entirely and Bun applies its own default (readwrite + create).
+    const db = (options === undefined || Object.keys(options).length === 0
+      ? new Database(dataDir)
+      : new Database(dataDir, options)) as unknown as BunSQLiteDatabase;
+
+    // bun:sqlite leaves SQLite's foreign_keys default (OFF), which would let a
+    // dangling FK write report success while sqlite3 and libsql refuse it.
+    // Enforcement is a viborm guarantee, not an inherited library default.
+    db.exec("PRAGMA foreign_keys = ON");
+
+    return db;
   }
 
   protected async closeClient(db: BunSQLiteDatabase): Promise<void> {
@@ -118,7 +162,7 @@ export class BunSQLiteDriver extends Driver<
     params: unknown[]
   ): Promise<QueryResult<T>> {
     const values = convertValuesForBunSQLite(params);
-    return this.runStatement<T>(client, sql, values);
+    return this.runStatement<T>(client, sql, values, true);
   }
 
   protected async executeRaw<T>(
@@ -127,23 +171,48 @@ export class BunSQLiteDriver extends Driver<
     params?: unknown[]
   ): Promise<QueryResult<T>> {
     const values = params ? convertValuesForBunSQLite(params) : undefined;
-    return this.runStatement<T>(client, sql, values);
+    // Raw results bypass the result parser — keep bun:sqlite's plain numbers
+    // instead of surfacing BigInt to raw callers, matching sqlite3
+    return this.runStatement<T>(client, sql, values, false);
   }
 
   private runStatement<T>(
     db: BunSQLiteDatabase,
     sql: string,
-    values?: unknown[]
+    values: unknown[] | undefined,
+    safeIntegers: boolean
   ): QueryResult<T> {
     const stmt = db.prepare(sql);
 
     if (stmt.columnNames.length > 0) {
+      if (safeIntegers) {
+        // INTEGER columns come back as BigInt so values >2^53 survive; the
+        // result parser converts int columns back to number
+        requireSafeIntegers(stmt).safeIntegers(true);
+      }
       const rows = (values ? stmt.all(...values) : stmt.all()) as T[];
       return { rows, rowCount: rows.length };
     }
 
     const result = values ? stmt.run(...values) : stmt.run();
     return { rows: [] as T[], rowCount: result.changes };
+  }
+
+  /**
+   * SQLite has no isolation-level statement: one writer at a time on one
+   * connection makes every transaction serializable already. `Serializable` is
+   * therefore honored by construction, with no SQL to emit; the three weaker
+   * levels are refused because pretending to relax isolation we cannot relax
+   * would misreport what the transaction actually guarantees.
+   */
+  protected override transactionOptionSupport(): TransactionOptionSupport {
+    return {
+      isolationLevel: "serializable-only",
+      isolationLevelReason:
+        "SQLite serializes transactions on a single connection and has no statement to weaken isolation, so only Serializable can be honored truthfully",
+      timeout: true,
+      maxWait: "queue",
+    };
   }
 
   protected async transaction<T>(
@@ -178,14 +247,17 @@ export class BunSQLiteDriver extends Driver<
 // CONVENIENCE FUNCTION
 // ============================================================
 
-export function createClient<C extends DriverConfig>(
-  config: BunSQLiteClientConfig<C>
+export function createClient<S extends Schema, C extends DriverConfig<S>>(
+  config: BunSQLiteClientConfig<C> &
+    DriverConfig<S> &
+    NoExtraDriverConfigKeys<C, BunSQLiteDriverOptions, S> &
+    NoExtraNestedConfigKeys<C, S>
 ) {
   const { client, dataDir, options, ...restConfig } = config;
 
   const driver = new BunSQLiteDriver({ client, dataDir, options });
 
-  return baseCreateClient({
+  return createClientFromDriverConfig({
     ...restConfig,
     driver,
   }) as VibORMClient<C & { driver: BunSQLiteDriver }>;

@@ -9,7 +9,7 @@
  */
 
 import { validateSchemaOrThrow } from "../../schema/validation";
-import type { DiffOperation, PushResult, Resolver } from "../types";
+import type { DiffOperation, PushResult, ResolveCallback } from "../types";
 import { executeDDLStatements, generateDDLStatements } from "./executor";
 import { formatOperation, formatOperations } from "./format";
 import {
@@ -26,15 +26,31 @@ export type { MigrationClient, PushOptions } from "./planner";
 export { formatOperation, formatOperations, introspect };
 
 /**
+ * The unknown keys of a proposed push options bag.
+ *
+ * `push` is the one migration entry point where a silently-ignored key destroys
+ * data: `dryRnu` executes the DDL the caller meant to preview, `forceRest`
+ * skips the drop they asked for, `skipValidaton` runs a schema the validator
+ * would have refused. A FRESH literal was already refused by excess-property
+ * checking; a bag held in a variable — `const opts = { dryRun: ci }` reused
+ * across two pushes — was not, and EPC is the only thing that was watching.
+ * Demanding `never` for the unknown keys refuses regardless of freshness. Same
+ * instrument as the model builder's `ExactOptions` and the client config's
+ * `NoExtraConfigKeys`.
+ */
+type ExactPushOptions<O> = O &
+  Record<Exclude<keyof O, keyof PushOptions>, never>;
+
+/**
  * Pushes schema changes directly to the database.
  *
  * @param client - VibORM client containing driver and schema
  * @param options - Push options
  * @returns Push result with operations and SQL statements
  */
-export async function push(
+export async function push<O extends PushOptions = PushOptions>(
   client: MigrationClient,
-  options: PushOptions = {}
+  options: ExactPushOptions<O> = {} as ExactPushOptions<O>
 ): Promise<PushResult> {
   const dryRun = options.dryRun ?? false;
   // The CLI validates before push; programmatic callers must not skip it —
@@ -73,10 +89,19 @@ export async function push(
 /**
  * Generates DDL statements for transforming current schema to desired schema
  * without executing them. Useful for generating migration files.
+ *
+ * The option is `resolve`, not `resolver`. It used to be `resolver`, and
+ * `resolver` was a key nothing read: this function forwards its options to
+ * `push`, and `PushOptions` calls the callback `resolve`. So a caller who passed
+ * `generateDDL(client, { resolver })` got the DEFAULT resolution for every
+ * ambiguous change and no indication their resolver had been dropped. The
+ * mismatch survived because `push` took a plain `PushOptions` parameter, where
+ * only excess-property checking was watching and a spread argument is not fresh;
+ * `ExactPushOptions` refuses it structurally and turned it into a compile error.
  */
 export async function generateDDL(
   client: MigrationClient,
-  options: { resolver?: Resolver } = {}
+  options: { resolve?: ResolveCallback } = {}
 ): Promise<{ operations: DiffOperation[]; sql: string[] }> {
   const result = await push(client, {
     ...options,

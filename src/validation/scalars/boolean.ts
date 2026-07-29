@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // =============================================================================
 // BASE TYPES
@@ -13,22 +17,23 @@ const booleanList = v.boolean({ array: true });
 // FILTER TYPES
 // =============================================================================
 
-type BooleanFilterBase<S extends V.Schema> = {
-  equals: S;
+/**
+ * Equality operand: a literal, a field reference to another boolean column, an
+ * SQL fragment, or a callback returning one of the latter two.
+ */
+type BooleanOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"boolean", S, C>;
+
+type BooleanFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: BooleanOperand<S, C>;
 };
 
-type BooleanFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      BooleanFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<BooleanFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
->;
+type BooleanFilterSchema<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<BooleanOperand<S, C>, BooleanFilterBase<S, C>>;
 
 type BooleanListFilterBase<S extends V.Schema> = {
   equals: S;
@@ -38,17 +43,9 @@ type BooleanListFilterBase<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type BooleanListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      BooleanListFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<BooleanListFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
+type BooleanListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  BooleanListFilterBase<S>
 >;
 
 // =============================================================================
@@ -78,18 +75,17 @@ type BooleanListUpdateSchema<S extends V.Schema> = V.Union<
 // FILTER SCHEMA BUILDERS
 // =============================================================================
 
-const buildBooleanFilterSchema = <S extends V.Schema>(
+const buildBooleanFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
-): BooleanFilterSchema<S> => {
+): BooleanFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("boolean", schema);
   const filter = v.object({
-    equals: schema,
+    equals: operand,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<
+    BooleanOperand<S, C>,
+    BooleanFilterBase<S, C>
+  >(filter, operand);
 };
 
 const booleanListFilterBase = v.object({
@@ -105,10 +101,10 @@ const buildBooleanListFilterSchema = <S extends V.Schema>(
   const filter = booleanListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, BooleanListFilterBase<S>>(
+    filter,
+    schema
+  );
 };
 
 // =============================================================================
@@ -144,7 +140,10 @@ const buildBooleanListUpdateSchema = <S extends V.Schema>(
 // BOOLEAN SCHEMA BUILDER
 // =============================================================================
 
-export interface BooleanSchemas<F extends ScalarState<"boolean">> {
+export interface BooleanSchemas<
+  F extends ScalarState<"boolean">,
+  C extends V.Operand<any> = V.Operand<any>,
+> {
   base: F["base"];
   create: V.Boolean<F>;
   update: F["array"] extends true
@@ -152,15 +151,18 @@ export interface BooleanSchemas<F extends ScalarState<"boolean">> {
     : BooleanUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? BooleanListFilterSchema<F["base"]>
-    : BooleanFilterSchema<F["base"]>;
+    : BooleanFilterSchema<F["base"], C>;
 }
 
 const internFilter = createScalarInterner<unknown>();
 const internUpdate = createScalarInterner<unknown>();
 
-export const buildBooleanSchema = <F extends ScalarState<"boolean">>(
+export const buildBooleanSchema = <
+  F extends ScalarState<"boolean">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): BooleanSchemas<F> => {
+): BooleanSchemas<F, C> => {
   const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
@@ -175,5 +177,5 @@ export const buildBooleanSchema = <F extends ScalarState<"boolean">>(
         ? buildBooleanListFilterSchema(state.base)
         : buildBooleanFilterSchema(state.base)
     ) as never,
-  } as BooleanSchemas<F>;
+  } as BooleanSchemas<F, C>;
 };

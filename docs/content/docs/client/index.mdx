@@ -39,15 +39,15 @@ Every operation works identically on every database. Prisma-inspired, not a drop
 | Operation | Description | Returns |
 |-----------|-------------|---------|
 | [`create`](/docs/client/create) | Create a record, with relations | `T` |
-| [`createMany`](/docs/client/create-many) | Create multiple records | `{ count }` |
+| [`createMany`](/docs/client/create-many) | Create multiple records | `{ count }`, or `T[]` with `select` |
 | [`update`](/docs/client/update) | Update a record | `T` |
-| [`updateMany`](/docs/client/update-many) | Update every match | `{ count }` |
+| [`updateMany`](/docs/client/update-many) | Update every match | `{ count }`, or `T[]` with `select` |
 | [`upsert`](/docs/client/upsert) | Create or update | `T` |
 | [`delete`](/docs/client/delete) | Delete a record | `T` |
-| [`deleteMany`](/docs/client/delete-many) | Delete every match | `{ count }` |
+| [`deleteMany`](/docs/client/delete-many) | Delete every match | `{ count }`, or `T[]` with `select` |
 | [Nested writes](/docs/client/nested-writes) | Write related records in one call | — |
 
-`createManyAndReturn` and `updateManyAndReturn` return the affected rows instead of a count — documented on their base operation's page.
+`createMany`, `updateMany`, and `deleteMany` return the affected rows instead of a count when the call carries a `select` — there are no separate `createManyAndReturn` / `updateManyAndReturn` methods, and `deleteMany` gains a returning form Prisma does not have. See each operation's page.
 
 ## Quick Examples
 

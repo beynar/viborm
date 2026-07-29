@@ -9,19 +9,27 @@ import { windowUserPostSchema } from "../fixtures/user-post-schema";
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
 import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow-behavior";
 import { runBatchRefSmokeBehavior } from "./batch-ref-smoke-behavior";
+import { runBlobFilterBehavior } from "./blob-filter-behavior";
+import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
+import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
+import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
+import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
-import { runManyAndReturnBehavior } from "./many-and-return-behavior";
 import { runManyToManyBehavior } from "./many-to-many-behavior";
 import { runNestedOrderByBehavior } from "./nested-orderby-behavior";
+import { runNestedPaginationBehavior } from "./nested-pagination-behavior";
 import { runNestedWriteAdvancedBehavior } from "./nested-write-advanced-behavior";
 import { runNestedWriteBehavior } from "./nested-write-behavior";
+import { runNestedWriteJsonEnvelopeBehavior } from "./nested-write-json-envelope-behavior";
+import { runOmitBehavior } from "./omit-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
@@ -81,6 +89,16 @@ describe("PGlite Driver", () => {
     createDriver: createInMemoryPGliteDriver,
   });
 
+  runNestedPaginationBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+
+  runOmitBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+
   runNestedWriteBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
@@ -92,6 +110,16 @@ describe("PGlite Driver", () => {
   runNestedWriteAdvancedBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
+  });
+  // Both substrates: the delegated update target must persist the same JSON
+  // document whether the fragment runs as a transaction or as one atomic batch.
+  runNestedWriteJsonEnvelopeBehavior({
+    driverName: "PGlite (tx)",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runNestedWriteJsonEnvelopeBehavior({
+    driverName: "PGlite (batch)",
+    createDriver: createBatchOnlyPGliteDriver,
   });
   runManyToManyBehavior({
     driverName: "PGlite",
@@ -105,15 +133,38 @@ describe("PGlite Driver", () => {
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });
-  runManyAndReturnBehavior({
+  runImplicitReturningBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
+  });
+  runBulkWriteLimitBehavior({
+    driverName: "PGlite (tx)",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  // `limit: 0` compiles to no statement at all, which is a different shape on
+  // the batch-only path: the shared batch has nothing to send for it.
+  runBulkWriteLimitBehavior({
+    driverName: "PGlite (batch)",
+    createDriver: createBatchOnlyPGliteDriver,
   });
   runListJsonFilterBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });
+  runJsonNullSentinelBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
   runLikeEscapeBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runBlobFilterBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+
+  runFieldReferenceBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });
@@ -145,6 +196,11 @@ describe("PGlite Driver", () => {
   runScalarRoundtripBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
+  });
+  runDecimalExactnessBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+    exactDecimal: true,
   });
   runFullScalarRoundtripBehavior({
     driverName: "PGlite",

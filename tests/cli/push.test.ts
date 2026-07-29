@@ -391,6 +391,187 @@ describe("push command", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // interactive resolutions are honored by the APPLY pass (not just the dry run)
+  //
+  // The apply pass re-plans from scratch; the recorded dry-run decisions must
+  // be replayed there. Regression target: the apply pass used to run with
+  // force:true and NO resolver, so a change the user answered "rename" to was
+  // silently re-resolved as DROP + ADD — column data loss.
+  //
+  // Setup mirrors seedUserWithExtraColumn: the config module is import-cached,
+  // so instead of editing the schema we apply it, seed a row, then RENAME the
+  // column in the DB. The next push then sees an ambiguous column change
+  // (dropped "mail" / added "email", same type) routed through
+  // interactiveResolve.
+  // ---------------------------------------------------------------------------
+  const NULLABLE_EMAIL_MODEL = `
+    const user = s.model({
+      id: s.string().id(),
+      email: s.string().nullable(),
+    });
+    const schema = { user };
+  `;
+
+  async function seedRenamedEmailColumn(
+    model: string,
+    emailValue: string
+  ): Promise<void> {
+    writePersistentConfig(project, model);
+    queueAnswers([true]);
+    await runPush([]);
+    await execOnDb(
+      project,
+      `INSERT INTO "user" (id, email) VALUES ('u1', '${emailValue}')`
+    );
+    await execOnDb(project, 'ALTER TABLE "user" RENAME COLUMN email TO mail');
+  }
+
+  /** email value of the seeded row u1 (undefined if the row is gone). */
+  function emailOfSeededRow(): Promise<string | null | undefined> {
+    return withDb(project, async (query) => {
+      const res = await query(`SELECT email FROM "user" WHERE id = 'u1'`);
+      return res.rows[0]?.email;
+    });
+  }
+
+  it("honors a dry-run 'rename' resolution on apply: data survives under the new column name", async () => {
+    await seedRenamedEmailColumn(NO_UNIQUE_MODEL, "keep@me.dev");
+
+    // Dry-run prompts: the rename/add+drop select, then the apply confirm.
+    // The trailing "addAndDrop" is a tripwire: it is only consumed if the
+    // apply pass re-prompts (which must never happen) — and consuming it
+    // would drop the data and fail the assertions below.
+    queueAnswers(["rename", true, "addAndDrop"]);
+    const result = await runPush([]);
+
+    expect(result.thrown).toBeUndefined();
+    expect(result.exitCode).toBeNull();
+    expect(result.output).toContain("Applied");
+    const columns = await columnsOf(project, "user");
+    expect(columns).toContain("email");
+    expect(columns).not.toContain("mail");
+    // The decisive assertion: the VALUE survived the rename. The old
+    // force-reapply behavior executed DROP + ADD instead, losing it.
+    expect(await emailOfSeededRow()).toBe("keep@me.dev");
+  });
+
+  it("honors a dry-run 'addAndDrop' resolution on apply: old column dropped, value intentionally gone", async () => {
+    await seedRenamedEmailColumn(NULLABLE_EMAIL_MODEL, "gone@me.dev");
+
+    // Trailing "rename" tripwire: only consumed on an (illegal) apply-pass
+    // re-prompt, which would preserve the value and fail the null assertion.
+    queueAnswers(["addAndDrop", true, "rename"]);
+    const result = await runPush([]);
+
+    expect(result.thrown).toBeUndefined();
+    expect(result.exitCode).toBeNull();
+    expect(result.output).toContain("Applied");
+    const columns = await columnsOf(project, "user");
+    expect(columns).toContain("email");
+    expect(columns).not.toContain("mail");
+    // add+drop was honored: the row survives, the value does not.
+    expect(await emailOfSeededRow()).toBeNull();
+  });
+
+  it("reject still aborts during the dry run: no DDL applied, seeded value intact", async () => {
+    writePersistentConfig(project, NO_UNIQUE_MODEL);
+    queueAnswers([true]);
+    await runPush([]);
+    await execOnDb(project, 'ALTER TABLE "user" ADD COLUMN nickname text');
+    await execOnDb(
+      project,
+      `INSERT INTO "user" (id, email, nickname) VALUES ('u1', 'a@b.c', 'nick')`
+    );
+
+    // Destructive drop-column confirm -> NO -> change.reject() during the
+    // DRY RUN, before any confirm or apply pass.
+    queueAnswers([false]);
+    const result = await runPush([]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output.toLowerCase()).toContain("reject");
+    expect(await columnsOf(project, "user")).toContain("nickname");
+    const nickname = await withDb(project, async (query) => {
+      const res = await query(`SELECT nickname FROM "user" WHERE id = 'u1'`);
+      return res.rows[0]?.nickname;
+    });
+    expect(nickname).toBe("nick");
+  });
+
+  it("--force never consults the resolver for an ambiguous change: add+drop semantics", async () => {
+    await seedRenamedEmailColumn(NULLABLE_EMAIL_MODEL, "bye@me.dev");
+
+    // Only the apply confirm is queued: --force must not present the
+    // rename/add+drop select on either pass.
+    queueAnswers([true]);
+    const result = await runPush(["--force"]);
+
+    expect(result.thrown).toBeUndefined();
+    expect(result.exitCode).toBeNull();
+    expect(result.output).toContain("Applied");
+    const columns = await columnsOf(project, "user");
+    expect(columns).toContain("email");
+    expect(columns).not.toContain("mail");
+    expect(await emailOfSeededRow()).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // enum value removal: the interactive mapValues answer must reach the DDL
+  //
+  // Regression target: resolveWithCallback stores the answer in
+  // alterEnum.columnValueReplacements, which generateAlterEnum used to ignore —
+  // no UPDATE was emitted for the mapped rows, so casting the column back to
+  // the recreated enum failed on rows still holding the removed value.
+  //
+  // Same config-cache workaround as above: apply the schema (enum active |
+  // inactive), then widen the DB enum directly with an extra 'pending' value
+  // and seed a row holding it. The next push wants to remove 'pending' from a
+  // non-nullable column, which routes through the mapValues prompt.
+  // ---------------------------------------------------------------------------
+  const ENUM_MODEL = `
+    const user = s.model({
+      id: s.string().id(),
+      status: s.enum(["active", "inactive"]),
+    });
+    const schema = { user };
+  `;
+
+  it("honors a mapValues resolution: rows carry the mapped value after apply", async () => {
+    writePersistentConfig(project, ENUM_MODEL);
+    queueAnswers([true]);
+    await runPush([]);
+
+    await execOnDb(project, "ALTER TYPE user_status_enum ADD VALUE 'pending'");
+    await execOnDb(
+      project,
+      `INSERT INTO "user" (id, status) VALUES ('u1', 'pending'), ('u2', 'active')`
+    );
+
+    // Prompts: the `Map "pending" to:` select (options active | inactive — we
+    // pick the NON-first option so the mock's first-option default can't fake
+    // a pass), then the apply confirm. Trailing "active" is a tripwire: only
+    // an (illegal) apply-pass re-prompt consumes it, which would map to
+    // 'active' and fail the u1 assertion below.
+    queueAnswers(["inactive", true, "active"]);
+    const result = await runPush([]);
+
+    expect(result.thrown).toBeUndefined();
+    expect(result.exitCode).toBeNull();
+    expect(result.output).toContain("Applied");
+
+    // The decisive assertion: the seeded 'pending' row carries the MAPPED
+    // value, and the untouched row kept its own.
+    const rows = await withDb(project, async (query) => {
+      const res = await query(`SELECT id, status FROM "user" ORDER BY id`);
+      return res.rows;
+    });
+    expect(rows).toEqual([
+      { id: "u1", status: "inactive" },
+      { id: "u2", status: "active" },
+    ]);
+  });
+
+  // ---------------------------------------------------------------------------
   // --force-reset
   // ---------------------------------------------------------------------------
   it("--force-reset cancelled (NO): no reset, existing table kept", async () => {

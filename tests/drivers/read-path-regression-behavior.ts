@@ -10,9 +10,7 @@ import { sql } from "@sql";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const AMBIGUOUS_RELATION_PATTERN = /Ambiguous relation .*\.name\(\)/s;
-const CURSOR_PATTERN = /cursor/;
 const EMPTY_SELECT_PATTERN = /at least one truthy value/i;
-const TAKE_PATTERN = /take/i;
 
 // =============================================================================
 // Schema 1: two named relations between the same models + mapped FK column
@@ -177,7 +175,8 @@ export interface ReadPathRegressionBehaviorOptions {
  * 2. Relation is/isNot null must respect .map()-ed FK columns.
  * 3. Many-to-many joins must respect .map()-ed PK columns.
  * 4. String scalars containing JSON-looking text must round-trip as strings.
- * 5. Nested cursor / negative take must be rejected, not silently ignored.
+ * 5. Nested cursor and nested negative take page the relation per parent
+ *    instead of being ignored or mis-paginated.
  */
 export function runReadPathRegressionBehavior({
   driverName,
@@ -292,20 +291,41 @@ export function runReadPathRegressionBehavior({
         expect(groups).toEqual([{ editorId: "u2", _count: 1 }]);
       });
 
-      test("nested cursor is rejected instead of silently ignored", async () => {
-        // `cursor` is also rejected at the type level; cast to reach the runtime guard
-        const invalidInclude = { authored: { cursor: { id: "p1" } } } as never;
-        await expect(
-          client.user.findMany({ include: invalidInclude })
-        ).rejects.toThrow(CURSOR_PATTERN);
+      // Retargeted (W3-A unit 2): a nested cursor is honored per parent instead
+      // of refused; a cursor naming no row still yields an empty window.
+      test("nested cursor pages per parent instead of being ignored", async () => {
+        const paged = await client.user.findUnique({
+          where: { id: "u1" },
+          include: {
+            authored: { orderBy: { id: "asc" }, cursor: { id: "p1" } },
+          },
+        });
+        expect(paged?.authored.map((p) => p.id)).toEqual(["p1"]);
+
+        const missing = await client.user.findUnique({
+          where: { id: "u1" },
+          include: {
+            authored: { orderBy: { id: "asc" }, cursor: { id: "nope" } },
+          },
+        });
+        expect(missing?.authored).toEqual([]);
       });
 
-      test("nested negative take is rejected instead of mis-paginating", async () => {
-        await expect(
-          client.user.findMany({
-            include: { authored: { take: -1 } },
-          })
-        ).rejects.toThrow(TAKE_PATTERN);
+      // Retargeted (W3-A unit 1): a nested negative take is no longer refused —
+      // it pages backward and returns the window in logical order.
+      test("nested negative take pages backward in logical order", async () => {
+        await client.post.create({
+          data: { id: "p3", title: "Alice again", authorId: "u1" },
+        });
+        await client.post.create({
+          data: { id: "p4", title: "Alice once more", authorId: "u1" },
+        });
+
+        const alice = await client.user.findUnique({
+          where: { id: "u1" },
+          include: { authored: { orderBy: { id: "asc" }, take: -2 } },
+        });
+        expect(alice?.authored.map((p) => p.id)).toEqual(["p3", "p4"]);
 
         const limited = await client.user.findUnique({
           where: { id: "u2" },

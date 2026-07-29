@@ -311,7 +311,10 @@ describe("InferSelectInclude result types", () => {
 describe("nested write mutation result shaping", () => {
   let client: Awaited<
     ReturnType<
-      typeof PGliteCreateClient<{ schema: typeof clientUserPostSchema }>
+      typeof PGliteCreateClient<
+        typeof clientUserPostSchema,
+        { schema: typeof clientUserPostSchema }
+      >
     >
   >;
 

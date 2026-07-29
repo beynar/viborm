@@ -61,6 +61,19 @@ export interface ExecutableOperation {
    * operation carries this semantics; the executor only invokes the hook.
    */
   assertBatchPreparable?(): void;
+  /**
+   * The payload this operation VALIDATED, as the schema layer left it: shorthands
+   * expanded, defaults applied, and operand callbacks already resolved to the
+   * field reference or SQL fragment they returned.
+   *
+   * The cache flow keys on this and never on the caller's raw payload — a
+   * payload carrying a callback has no stable serialization until validation has
+   * run it, and two spellings of the same comparison must land on one key.
+   * Present on the read families, which are the only cacheable operations
+   * ({@link file://../query-engine/cache-flow.ts}); a caller that asks any other
+   * operation for it gets a loud refusal rather than a raw-payload fallback.
+   */
+  readonly validatedArgs?: Record<string, unknown>;
 }
 
 interface BatchEntry {
@@ -221,11 +234,14 @@ export class OperationExecutor {
    * merges with other pending operations into ONE driver batch. It exposes the
    * body queries, the guard index map (re-attributed by the client at the merge
    * offset), and a `parseResult` closure — the exact shape V1's batch runtime
-   * returns, so a mixed V1/V2 array batches through one uniform path. Routed V2
-   * operations never thread an `insertId` across a write boundary (only the
-   * un-routed insert-with-generated-id family does), so no shared scratch state
-   * is needed; a fragment that somehow does fails closed rather than emit a
-   * colliding batch.
+   * returns, so a mixed V1/V2 array batches through one uniform path. A fragment
+   * that threads an `insertId` across a write boundary (a DB-generated identity
+   * a later step consumes — a generated-PK row whose produced id feeds another
+   * write, including a junction row referencing it) uses per-operation scratch
+   * state the shared merged batch cannot isolate — it FAILS CLOSED with the
+   * typed refusal below rather than emit a colliding batch. Such an operation
+   * runs through its own atomic unit (`execute`), never the shared-batch merge,
+   * on batch-only drivers.
    */
   async prepareSharedBatch<T>(
     operation: ExecutableOperation,
@@ -635,12 +651,18 @@ function failureError(failure: Failure, context: QueryExecutionContext): Error {
       context.operation ?? "query"
     );
   }
-  return new TransactionError(failure.message, {
+  const error = new TransactionError(failure.message, {
     meta: {
       model: context.model ?? "record",
       operation: context.operation ?? "query",
     },
   });
+  // A `query` guard abort can be raceable too — the sole producer is the
+  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM §2). The
+  // mark is what lets the routed retry re-plan and converge; dropping it here
+  // strands the flag the fragment validator required.
+  if (failure.raceable) error.meta.raceable = true;
+  return error;
 }
 
 function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {

@@ -22,7 +22,26 @@ export {
   sqliteResultParser,
 } from "./sqlite-utils";
 export {
-  assertNoTransactionOptions,
+  acquireWithMaxWait,
+  type BatchTransactionOptions,
+  type DriverTransactionOptions,
+  type IsolationLevelPlacement,
+  isolationLevelStatement,
+  type MaxWaitSupport,
+  parseTransactionOptions,
+  resolveTransactionPlan,
+  runWithTransactionTimeout,
+  TRANSACTION_ISOLATION_LEVELS,
+  type TransactionForm,
+  type TransactionIsolationLevel,
+  type TransactionOptionContext,
+  type TransactionOptionSupport,
+  type TransactionOptions,
+  type TransactionPlan,
+  transactionMaxWaitError,
+  transactionTimeoutError,
+} from "./transaction-options";
+export {
   createTransactionCleanupError,
   nestedTransactionDispatchError,
   type ProviderManagedTransaction,

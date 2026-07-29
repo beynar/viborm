@@ -411,7 +411,8 @@ export class CreateOperation {
     return new ResultParser(
       this.engine.adapter,
       this.model,
-      this.engine.driver
+      this.engine.driver,
+      this.engine.decimalDecode
     ).parse<T>("create", outputs.result, this.resultArgs);
   }
 

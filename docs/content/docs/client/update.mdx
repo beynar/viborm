@@ -13,6 +13,24 @@ const user = await client.user.update({
 });
 ```
 
+## Conditional Updates
+
+The `where` may narrow the unique lookup with ordinary non-unique scalar filters
+and `AND` / `OR` / `NOT` — a compare-and-set, in one statement:
+
+```ts
+// bump the version only if it is still the one we read
+await client.document.update({
+  where: { id: "doc_1", version: 7 },
+  data: { body, version: { increment: 1 } },
+});
+```
+
+If the unique key matches but the filter excludes the row, the update is a
+`NotFoundError` and **nothing is written** — not a silent no-op. See
+[Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup)
+for the full `where` shape and its two divergences from Prisma.
+
 ## Scalar Operations
 
 ```ts

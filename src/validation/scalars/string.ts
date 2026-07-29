@@ -1,6 +1,10 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildNegatableFilterSchema,
+  type NegatableFilterSchema,
+} from "./negatable-filter";
 
 // Base schemas
 const stringBase = v.string();
@@ -10,55 +14,67 @@ const stringList = v.string({ array: true });
 const stringFilterBase = v.object({
   in: stringList,
   notIn: stringList,
-  contains: stringBase,
-  startsWith: stringBase,
-  endsWith: stringBase,
+  contains: v.fieldRefOr("string", stringBase),
+  startsWith: v.fieldRefOr("string", stringBase),
+  endsWith: v.fieldRefOr("string", stringBase),
   mode: v.enum(["default", "insensitive"]),
 });
 
-type StringFilterBase<S extends V.Schema> = {
-  equals: S;
-  lt: S;
-  lte: S;
-  gt: S;
-  gte: S;
+/**
+ * Comparison operand: a literal, a field reference to another string column, an
+ * SQL fragment, or a callback returning one of the latter two.
+ */
+type StringOperand<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = V.ComparisonOperand<"string", S, C>;
+
+/**
+ * The text-predicate operand: a literal or a field reference, and nothing else.
+ *
+ * `contains` / `startsWith` / `endsWith` compile a referenced column fine (the
+ * builder uses exact substring predicates, never LIKE patterns), so the
+ * reference stays. The fragment — and with it the callback that returns one —
+ * is drawn at the comparison operators only, where the builder's operand
+ * handling is uniform. Acceptance that outran the builder would be
+ * accept-and-ignore with extra steps.
+ */
+type StringTextOperand = V.FieldRefOr<"string", V.String>;
+
+type StringFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: StringOperand<S, C>;
+  lt: StringOperand<S, C>;
+  lte: StringOperand<S, C>;
+  gt: StringOperand<S, C>;
+  gte: StringOperand<S, C>;
   in: V.String<{ array: true }>;
   notIn: V.String<{ array: true }>;
-  contains: V.String;
-  startsWith: V.String;
-  endsWith: V.String;
+  contains: StringTextOperand;
+  startsWith: StringTextOperand;
+  endsWith: StringTextOperand;
   mode: V.Enum<["default", "insensitive"]>;
 };
 
-type StringFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      StringFilterBase<S> & {
-        not: V.Union<
-          readonly [V.ShorthandFilter<S>, V.Object<StringFilterBase<S>>]
-        >;
-      }
-    >,
-  ]
->;
+type StringFilterSchema<
+  S extends V.Schema,
+  C extends V.Operand<any>,
+> = NegatableFilterSchema<StringOperand<S, C>, StringFilterBase<S, C>>;
 
-const buildStringFilterSchema = <S extends V.Schema>(
+const buildStringFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
-): StringFilterSchema<S> => {
+): StringFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("string", schema);
   const filter = stringFilterBase.extend({
-    equals: schema,
-    lt: schema,
-    lte: schema,
-    gt: schema,
-    gte: schema,
+    equals: operand,
+    lt: operand,
+    lte: operand,
+    gt: operand,
+    gte: operand,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({
-      not: v.union([v.shorthandFilter(schema), filter]),
-    }),
-  ]);
+  return buildNegatableFilterSchema<
+    StringOperand<S, C>,
+    StringFilterBase<S, C>
+  >(filter, operand);
 };
 
 type StringListFilterBaseSchema<S extends V.Schema> = {
@@ -69,20 +85,9 @@ type StringListFilterBaseSchema<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type StringListFilterSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandFilter<S>,
-    V.Object<
-      StringListFilterBaseSchema<S> & {
-        not: V.Union<
-          readonly [
-            V.ShorthandFilter<S>,
-            V.Object<StringListFilterBaseSchema<S>>,
-          ]
-        >;
-      }
-    >,
-  ]
+type StringListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+  S,
+  StringListFilterBaseSchema<S>
 >;
 
 const stringListFilterBase = v.object({
@@ -98,10 +103,10 @@ const buildStringListFilterSchema = <S extends V.Schema>(
   const filter = stringListFilterBase.extend({
     equals: schema,
   });
-  return v.union([
-    v.shorthandFilter(schema),
-    filter.extend({ not: v.union([v.shorthandFilter(schema), filter]) }),
-  ]);
+  return buildNegatableFilterSchema<S, StringListFilterBaseSchema<S>>(
+    filter,
+    schema
+  );
 };
 
 type StringUpdateSchema<S extends V.Schema> = V.Union<
@@ -144,7 +149,10 @@ const buildStringListUpdateSchema = <S extends V.Schema>(
   ]);
 };
 
-export interface StringSchemas<F extends ScalarState<"string">> {
+export interface StringSchemas<
+  F extends ScalarState<"string">,
+  C extends V.Operand<any> = V.Operand<any>,
+> {
   base: F["base"];
   create: V.String<F>;
   update: F["array"] extends true
@@ -152,15 +160,18 @@ export interface StringSchemas<F extends ScalarState<"string">> {
     : StringUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? StringListFilterSchema<F["base"]>
-    : StringFilterSchema<F["base"]>;
+    : StringFilterSchema<F["base"], C>;
 }
 
 const internFilter = createScalarInterner<unknown>();
 const internUpdate = createScalarInterner<unknown>();
 
-export const buildStringSchema = <F extends ScalarState<"string">>(
+export const buildStringSchema = <
+  F extends ScalarState<"string">,
+  C extends V.Operand<any> = V.Operand<any>,
+>(
   state: F
-): StringSchemas<F> => {
+): StringSchemas<F, C> => {
   const key = scalarInternKey(state);
   return {
     base: state.base as F["base"],
@@ -175,5 +186,5 @@ export const buildStringSchema = <F extends ScalarState<"string">>(
         ? buildStringListFilterSchema(state.base)
         : buildStringFilterSchema(state.base)
     ) as never,
-  } as StringSchemas<F>;
+  } as StringSchemas<F, C>;
 };

@@ -10,6 +10,7 @@ import { buildWhere } from "../builders/where-builder";
 import { buildWhereUnique } from "../builders/where-unique-builder";
 import { getTableName } from "../context";
 import type { QueryScope } from "../types";
+import { buildBulkLimitWhere } from "./bulk-limit";
 
 interface DeleteArgs {
   where: Record<string, unknown>;
@@ -19,6 +20,12 @@ interface DeleteArgs {
 
 interface DeleteManyArgs {
   where?: Record<string, unknown>;
+  /**
+   * Cap on the number of rows the DELETE may affect (Prisma 6.x `limit`).
+   * WHICH rows are removed is unspecified — there is no `orderBy` on a bulk
+   * write. `0` never reaches here; the operation layer short-circuits it.
+   */
+  limit?: number;
 }
 
 /**
@@ -73,7 +80,37 @@ export function buildDeleteMany(ctx: QueryScope, args: DeleteManyArgs): Sql {
     tableName
   );
 
+  // Apply the row cap: a native LIMIT suffix, or a PK-subquery WHERE.
+  const limited = buildBulkLimitWhere(ctx, whereSql, args.where, args.limit);
+
   // Build DELETE
   const table = adapter.identifiers.escape(tableName);
-  return adapter.mutations.delete(table, whereSql);
+  const deleteSql = adapter.mutations.delete(table, limited.where);
+  return limited.suffix ? sql`${deleteSql} ${limited.suffix}` : deleteSql;
+}
+
+/**
+ * Build SQL for the row-returning arm of `deleteMany` — internally named
+ * `deleteManyAndReturn`; the client spells it `deleteMany` with a `select`.
+ * (Prisma has no equivalent operation at all.)
+ *
+ * DELETE ... RETURNING on adapters that support it. On adapters without
+ * RETURNING this statement is never built: the operation reads the matching rows
+ * and deletes them inside one atomic scope instead, because a row cannot be read
+ * back after it is gone.
+ */
+export function buildDeleteManyAndReturn(
+  ctx: QueryScope,
+  args: DeleteManyArgs & { select?: Record<string, unknown> }
+): Sql {
+  const deleteSql = buildDeleteMany(ctx, args);
+
+  const returningCols = buildSelect(ctx, args.select, undefined, "");
+  const returningSql = ctx.adapter.mutations.returning(returningCols);
+
+  if (returningSql.strings.join("").trim() === "") {
+    return deleteSql;
+  }
+
+  return sql`${deleteSql} ${returningSql}`;
 }

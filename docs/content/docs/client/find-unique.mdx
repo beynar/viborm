@@ -96,22 +96,72 @@ const user = await client.user.findUnique({
 
 ## Valid Unique Scalars
 
-You can only use scalars marked as unique:
+The `where` must name at least one unique **discriminator** — a scalar marked
+unique, or a complete compound constraint:
 
 ```ts
 const user = s.model({
   id: s.string().id(),           // ✅ Primary key
   email: s.string().unique(),    // ✅ Unique scalar
-  name: s.string(),              // ❌ Not unique
+  name: s.string(),              // ❌ Not a discriminator on its own
 });
 
 // Valid
 await client.user.findUnique({ where: { id: "..." } });
 await client.user.findUnique({ where: { email: "..." } });
 
-// Invalid - TypeScript error
+// Invalid - TypeScript error, and a ValidationError at runtime
 await client.user.findUnique({ where: { name: "..." } });
 ```
+
+## Narrowing a Unique Lookup
+
+Alongside the discriminator you may pass ordinary **non-unique scalar filters**
+and `AND` / `OR` / `NOT`. The row must satisfy all of it:
+
+```ts
+// "the user with this id, but only if they're still active"
+const user = await client.user.findUnique({
+  where: {
+    id: "user_123",
+    status: "active",
+    NOT: { deletedAt: { not: null } },
+  },
+});
+// null when the id exists but the filter excludes it
+```
+
+The discriminator is still required — the extra filters narrow a unique lookup,
+they never replace it. A `where` with only filters is a `ValidationError`, not a
+scan.
+
+The same `where` shape is accepted by
+[`update`](/docs/client/update), [`delete`](/docs/client/delete) and
+[`upsert`](/docs/client/upsert). What "excluded" means there is per operation:
+
+| Operation | Unique key matches, filter excludes |
+|-----------|-------------------------------------|
+| `findUnique` | `null` |
+| `findUniqueOrThrow` | `NotFoundError` |
+| `update` / `delete` | `NotFoundError`, nothing written |
+| `upsert` | the **create** branch runs — and then hits the unique key that is already taken, so a `UniqueConstraintError` surfaces |
+
+<Callout type="warn">
+Two deliberate divergences from Prisma, both refused rather than half-answered:
+
+- **Relation filters are not accepted** inside a unique `where` (Prisma accepts
+  them). The filter half of a unique `where` also compiles into the `UPDATE` /
+  `DELETE` statement, where the target table carries no alias and MySQL rejects a
+  subquery that reads the table being mutated — so a relation filter could not
+  answer the same on every database from that position. Use
+  [`findFirst`](/docs/client/find-first), `updateMany` or `deleteMany` to filter
+  by a relation.
+- **Nested target selectors keep the strict form.** A `where` inside a relation
+  write — `connect`, `disconnect`, `set`, or a nested
+  `update` / `upsert` / `delete` — accepts unique discriminators only, as does
+  `cursor`. A nested target is located against its parent by primary key, and a
+  cursor is an exact row address.
+</Callout>
 
 To get-or-create a record atomically, use [`upsert`](/docs/client/upsert) instead of a `findUnique` + `create` pair.
 

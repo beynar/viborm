@@ -31,14 +31,14 @@ Status legend:
 
 | Area | Prisma Client | VibORM | Status |
 |------|---------------|--------|--------|
-| Single-record reads | `findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow` with `where`, `orderBy`, `select`, `include` | Same core operations; unique reads require real unique selectors and or-throw variants throw `NotFoundError` | `Supported` |
+| Single-record reads | `findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow` with `where`, `orderBy`, `select`, `include` | Same core operations; unique reads require a real unique discriminator (which may be narrowed by non-unique scalar filters and `AND`/`OR`/`NOT`, Prisma ≥4.5) and or-throw variants throw `NotFoundError` | `Supported` |
 | Multi-record reads | `findMany` with filters, ordering, pagination, `distinct`, `select`, `include` | Supports scalar/relation filters, scalar and supported relation ordering, cursor/offset pagination, negative `take`, `distinct`, `select`, `include` | `Supported` |
 | Create one | `create` with scalar data, nested writes, `select`, `include` | Supports scalar data and documented nested writes; unsupported nested write keys reject before parent mutation | `Supported` |
-| Create many | `createMany` returns `{ count }`; `createManyAndReturn` is provider-specific | `createMany` returns `{ count }`; `skipDuplicates` skips duplicate-key conflicts only; `createManyAndReturn` returns inserted rows | `Supported` |
+| Create many | `createMany` returns `{ count }`; `createManyAndReturn` is a separate provider-specific method | `createMany` returns `{ count }`, or the inserted rows when the call carries a `select` (implicit returning — there is no `createManyAndReturn` method); `skipDuplicates` skips duplicate-key conflicts only, and combining it with `select` needs a `RETURNING` dialect | `Different` |
 | Update one | `update` by unique selector; returns updated row; supports atomic numeric ops and nested writes | Requires unique `where`; throws on missing row; supports scalar updates, atomic numeric ops, and documented nested writes | `Supported` |
-| Update many | `updateMany` returns `{ count }`; `updateManyAndReturn` is provider-specific | `updateMany` returns `{ count }`; no `updateManyAndReturn` | `Subset` |
+| Update many | `updateMany` returns `{ count }`; `updateManyAndReturn` is a separate provider-specific method | `updateMany` returns `{ count }`, or the updated rows when the call carries a `select` (implicit returning — there is no `updateManyAndReturn` method) | `Different` |
 | Upsert | `upsert` with unique `where`, `create`, `update`; returns row | Same core shape; supported nested writes are allowed in covered branches | `Supported` |
-| Delete | `delete` by unique selector returns deleted row; `deleteMany` returns `{ count }` | Same core shape; `delete` throws on missing row and non-returning dialects fetch before delete where safe | `Supported` |
+| Delete | `delete` by unique selector returns deleted row; `deleteMany` returns `{ count }` | Same core shape; `delete` throws on missing row and non-returning dialects fetch before delete where safe. `deleteMany` additionally returns the deleted rows when the call carries a `select` — a superset Prisma has no form of | `Different` |
 
 ### Advanced Queries
 
@@ -55,8 +55,8 @@ Status legend:
 | `groupBy` | `by`, aggregates, `having`, `orderBy`, `skip`, `take`; no `select` | Supports scalar `by`, aggregate selections, `having`, order, `skip`, `take`; invalid group/having shapes reject | `Supported` |
 | Nested writes | Broad nested create/connect/update/delete/upsert matrix | Supports `create`, `createMany`, `connect`, `connectOrCreate`, nullable/correlated `disconnect`, `delete`, `set`, `update`, to-many `updateMany`, `upsert`, and to-many `deleteMany`; callback-transaction and atomic-batch paths propagate generated and updated primary keys where the shape is safe; create-branch update/delete-like shapes are excluded | `Subset` |
 | Transactions | Callback and array `$transaction` | Callback transactions on transactional drivers; batch mode on transactional or atomic-batch drivers | `Supported` |
-| Query-level `omit` | Prisma supports per-query `omit` | VibORM has model-level omit only; query-level Prisma `omit` is not part of this roadmap | `Unsupported` |
-| Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | `$queryRaw(sql, params?)` and `$executeRaw(Sql)` intentionally use VibORM's explicit shapes | `Different` |
+| `omit` | Prisma supports per-query and client-level `omit` | Supports both, including `select`/`omit` exclusivity and the local `{ field: false }` override of a client default; VibORM additionally has a schema-level `.omit()` that is a hard exclusion no query can undo | `Supported` |
+| Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | Tagged `$queryRaw` (returns `T[]`) / `$executeRaw` (returns the affected count) plus `$queryRawUnsafe`/`$executeRawUnsafe`; also on the interactive transaction client. `sql`/`join`/`empty`/`raw` are exported from the package root | `Supported` |
 | Existence check | Emulated with `count`/`findFirst` in Prisma | `exist({ where })` is a VibORM extension returning `boolean`; no `exists` alias | `Different` |
 
 ```typescript
@@ -545,14 +545,15 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - All scalar types (string, int, float, boolean, dateTime, json, enum, etc.)
 - PostgreSQL, MySQL, and SQLite adapters, including `push` migrations for all three
 - Query caching with TTL and SWR
-- Transactions (callback and batch modes)
+- Transactions (callback and batch modes), with Prisma's `{ isolationLevel, timeout, maxWait }` options honored or refused per driver — never ignored
 - OpenTelemetry instrumentation
 
 **Known limitations:**
 - Full Prisma parity is not complete; VibORM is Prisma-inspired.
 - Parent `create` and the create branch of parent `upsert` intentionally exclude update/delete-like nested operations.
 - Impossible or unsafe primary-key dataflow shapes reject before mutation instead of partially applying nested writes.
-- Raw query APIs intentionally differ from Prisma: `$queryRaw` uses `string, params?`, and `$executeRaw` uses a `Sql` fragment.
+- Raw queries are Prisma-shaped tagged templates; the pre-1.0 `$queryRaw(string, params?)` form still runs for one release behind a deprecation notice, and `$transaction([...])` takes model operations only (raw SQL goes in the interactive form).
+- Transaction options are honored where the driver can honor them and refused with a typed `UnsupportedOperationError` (naming the option and the reason) where it cannot; see the per-driver table in the Transactions docs.
 - Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1 binding and Neon HTTP need external runs before claiming hosted verification.
 
 **Future features** (documented in `features-docs/`):

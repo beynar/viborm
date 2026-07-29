@@ -123,6 +123,15 @@ export class MySQLAdapter implements DatabaseAdapter {
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
 
     dateTime: (iso: string): Sql => sql`${toMySqlDateTime(iso)}`,
+
+    // The cast is load-bearing, not decoration. MySQL's comparison rules say
+    // that when one side is a number and the other a string, BOTH are converted
+    // to double and compared as floating point — so `amount = '0.1'` against a
+    // DECIMAL(65,30) column would silently answer at float precision on an
+    // otherwise exact column. Casting the operand keeps the whole comparison in
+    // MySQL's exact decimal domain, at the same 65/30 the DDL uses.
+    decimal: (canonical: string): Sql =>
+      sql`CAST(${canonical} AS DECIMAL(65,30))`,
   };
 
   // ============================================================
@@ -195,6 +204,10 @@ export class MySQLAdapter implements DatabaseAdapter {
       integer: "SIGNED",
       boolean: "UNSIGNED",
       numeric: "DECIMAL",
+      // NOT the bare `DECIMAL` above: bare `DECIMAL` is `DECIMAL(10,0)`, which
+      // rounds every fraction away. The exact-decimal cast carries the same
+      // 65/30 the DDL and `literals.decimal` use.
+      decimal: "DECIMAL(65,30)",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`LOWER(HEX(${expr}))`,
@@ -240,6 +253,21 @@ export class MySQLAdapter implements DatabaseAdapter {
 
     extractText: (column: Sql, path: string[]): Sql =>
       sql`JSON_UNQUOTE(JSON_EXTRACT(${column}, ${buildJsonPath(path)}))`,
+
+    // JSON_TYPE spells numbers three ways depending on how the literal was
+    // stored; anything else (including an absent path, where JSON_TYPE is
+    // NULL) falls through the CASE to NULL
+    numberAtPath: (column: Sql, path: string[]): Sql => {
+      const jsonPath = buildJsonPath(path);
+      return sql`(CASE WHEN JSON_TYPE(JSON_EXTRACT(${column}, ${jsonPath})) IN ('INTEGER', 'DOUBLE', 'DECIMAL') THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(${column}, ${jsonPath})) AS DOUBLE) END)`;
+    },
+
+    // CAST(... AS BINARY) yields VARBINARY, so < / > compare bytes instead of
+    // the column's (case- and accent-insensitive by default) collation
+    stringAtPath: (column: Sql, path: string[]): Sql => {
+      const jsonPath = buildJsonPath(path);
+      return sql`(CASE WHEN JSON_TYPE(JSON_EXTRACT(${column}, ${jsonPath})) = 'STRING' THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(${column}, ${jsonPath})) AS BINARY) END)`;
+    },
 
     contains: (target: Sql, value: Sql): Sql =>
       sql`JSON_CONTAINS(${target}, ${value})`,
@@ -476,6 +504,11 @@ export class MySQLAdapter implements DatabaseAdapter {
     // table when this is false (requires MySQL 8.0.14+ for outer references
     // in derived tables).
     supportsMutationTargetInSubquery: false,
+    // MySQL's single-table UPDATE/DELETE take a native LIMIT, which is also the
+    // only portable spelling here: the PK-subquery form would re-read the
+    // mutated table and trip the same ERROR 1093 as above.
+    supportsMutationRowLimit: true,
+    supportsExactDecimal: true, // `DECIMAL(65,30)`: exact, fixed precision
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;

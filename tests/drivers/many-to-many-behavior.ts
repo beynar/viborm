@@ -19,6 +19,8 @@ type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
 const DELETE_MANY_MEMBERSHIP_DEPENDENCY =
   /depends on an earlier 'connect' membership write/;
 const NAME_DISAMBIGUATION = /\.name\(\)/;
+const UPSERT_GENERATED_PK_REFUSAL =
+  /upsert-through-junction .* requires the target primary key/;
 
 export interface ManyToManyBehaviorOptions {
   driverName: string;
@@ -603,6 +605,142 @@ export function runManyToManyBehavior({
       expect(
         (after?.follows ?? []).map((user: { id: string }) => user.id)
       ).toEqual(["u3"]);
+    });
+
+    // ------------------------------------------------------------------
+    // DB-generated (auto-increment) primary keys on BOTH junction sides —
+    // the regression class the string-PK fixtures above missed: the child
+    // INSERT *produces* the identity the join row references (RETURNING on
+    // returning tx drivers, driver insertId elsewhere; scratch-threaded in
+    // batch mode), and the fresh parent's own produced id feeds the join.
+    // ------------------------------------------------------------------
+
+    test("create through the junction with a DB-generated target primary key", async () => {
+      const c = requireClient(client);
+
+      // Pre-existing target: the same create also CONNECTs it, so the join rows
+      // reference both a produced target id and the fresh parent's produced id.
+      const connected = await c.label.create({ data: { name: "gen-pre" } });
+      const created = await c.article.create({
+        data: {
+          title: "Article 1",
+          labels: {
+            create: [{ name: "gen-a" }, { name: "gen-b" }],
+            connect: { id: connected.id },
+          },
+        },
+      });
+
+      const article = await c.article.findUnique({
+        where: { id: created.id },
+        include: { labels: true },
+      });
+      expect(
+        (article?.labels ?? [])
+          .map((label: { name: string }) => label.name)
+          .sort()
+      ).toEqual(["gen-a", "gen-b", "gen-pre"]);
+      // Each created label carries a real generated identity.
+      const ids = (article?.labels ?? []).map(
+        (label: { id: number }) => label.id
+      );
+      expect(new Set(ids).size).toBe(3);
+      for (const id of ids) {
+        expect(typeof id).toBe("number");
+      }
+    });
+
+    test("junction create with a generated target PK under an update root", async () => {
+      const c = requireClient(client);
+
+      const created = await c.article.create({ data: { title: "Article 2" } });
+      await c.article.update({
+        where: { id: created.id },
+        data: { labels: { create: { name: "gen-upd" } } },
+      });
+
+      const article = await c.article.findUnique({
+        where: { id: created.id },
+        include: { labels: true },
+      });
+      expect(
+        (article?.labels ?? []).map((label: { name: string }) => label.name)
+      ).toEqual(["gen-upd"]);
+      const label = await c.label.findUnique({ where: { name: "gen-upd" } });
+      expect(typeof label?.id).toBe("number");
+    });
+
+    test("connectOrCreate with a generated target PK connects existing and creates missing", async () => {
+      const c = requireClient(client);
+
+      const existing = await c.label.create({ data: { name: "gen-existing" } });
+      const created = await c.article.create({ data: { title: "Article 3" } });
+
+      await c.article.update({
+        where: { id: created.id },
+        data: {
+          labels: {
+            connectOrCreate: {
+              where: { name: "gen-existing" },
+              create: { name: "gen-existing" },
+            },
+          },
+        },
+      });
+      await c.article.update({
+        where: { id: created.id },
+        data: {
+          labels: {
+            connectOrCreate: {
+              where: { name: "gen-missing" },
+              create: { name: "gen-missing" },
+            },
+          },
+        },
+      });
+
+      const article = await c.article.findUnique({
+        where: { id: created.id },
+        include: { labels: true },
+      });
+      expect(
+        (article?.labels ?? [])
+          .map((label: { name: string }) => label.name)
+          .sort()
+      ).toEqual(["gen-existing", "gen-missing"]);
+      // The found arm adopted the pre-existing row, not a re-created one.
+      const adopted = (article?.labels ?? []).find(
+        (label: { name: string }) => label.name === "gen-existing"
+      );
+      expect(adopted?.id).toBe(existing.id);
+      expect(await c.label.count()).toBe(2);
+    });
+
+    test("upsert through the junction with a generated create-arm PK is an explicit typed refusal", async () => {
+      const c = requireClient(client);
+      const created = await c.article.create({ data: { title: "Article 4" } });
+
+      // The upsert create arm's dedup ledger and duplicate-item UPDATE address
+      // the target by a compile-time literal, so a produced identity stays an
+      // honest UnsupportedOperationError (V8003), never silent wrongness.
+      await expect(
+        c.article.update({
+          where: { id: created.id },
+          data: {
+            labels: {
+              upsert: {
+                where: { name: "gen-up" },
+                create: { name: "gen-up" },
+                update: { name: "gen-up2" },
+              },
+            },
+          },
+        })
+      ).rejects.toMatchObject({
+        name: "UnsupportedOperationError",
+        code: "V8003",
+        message: expect.stringMatching(UPSERT_GENERATED_PK_REFUSAL),
+      });
     });
   });
 }

@@ -2,6 +2,7 @@
 
 import type { AnyModel } from "@schema/model";
 import type { NumericScalarKeys, ScalarKeys } from "@schema/model/helper";
+import { scopeOperands } from "@validation/primitives/operand";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import { type SortOrderSchema, sortOrderSchema } from "../core/orderby";
@@ -256,8 +257,24 @@ export type HavingSchemaEntries<F extends ScalarFilterBundle> = {
   >;
 };
 
+/**
+ * Boolean combinators, mirroring Prisma's `<Model>ScalarWhereWithAggregatesInput`
+ * and viborm's own `WhereSchema`: `AND`/`NOT` take an object or an array, `OR`
+ * takes an array. Thunks defer the self-reference (same recursion device the
+ * where schema uses).
+ */
+export type HavingLogicalEntries<F extends ScalarFilterBundle> = {
+  AND: () => V.Optional<
+    V.Union<readonly [HavingSchema<F>, V.Array<HavingSchema<F>>]>
+  >;
+  OR: () => V.Optional<V.Array<HavingSchema<F>>>;
+  NOT: () => V.Optional<
+    V.Union<readonly [HavingSchema<F>, V.Array<HavingSchema<F>>]>
+  >;
+};
+
 export type HavingSchema<F extends ScalarFilterBundle> = V.Object<
-  HavingSchemaEntries<F>,
+  HavingLogicalEntries<F> & HavingSchemaEntries<F>,
   { optional: true }
 >;
 
@@ -288,16 +305,51 @@ const havingScalarSchema = v.object(
   { optional: true }
 );
 
-export const getHavingSchema = <F extends ScalarFilterBundle>(
+export const getHavingSchema = <
+  M extends AnyModel,
+  F extends ScalarFilterBundle,
+>(
+  model: M,
   scalarSchemas: F
 ): HavingSchema<F> => {
-  const entries: Record<string, unknown> = {};
+  const entries: Record<string, V.Schema> = {};
 
   for (const [name, schemas] of Object.entries(scalarSchemas.scalars)) {
-    entries[name] = v.union([havingScalarSchema, schemas.filter]);
+    // `having` reuses the model's own (shared, interned) scalar filter, which
+    // accepts a field reference, an SQL fragment and the callback that returns
+    // one in comparison positions. Prisma excludes field references from
+    // having/groupBy — a HAVING operand is an aggregate over a group, not a
+    // column of one row — and a fragment is out for the same reason, so re-close
+    // the reused schema here instead of inheriting the operand by accident.
+    entries[name] = v.union([
+      havingScalarSchema,
+      v.noOperandExpression(schemas.filter, "'having'"),
+    ]) as V.Schema;
   }
 
-  return v.object(entries, { optional: true }) as HavingSchema<F>;
+  // AND/OR/NOT recurse into the same schema through thunks — `.extend` returns
+  // a NEW schema, so the thunks must close over the FINAL `havingSchema` const
+  // (identical device to `getWhereSchema`, scalar entries last so a scalar
+  // literally named `AND` still wins, exactly as it does in `where`). The engine
+  // already builds all three combinators (`groupby-having.ts:17-36`); these
+  // entries are what makes them reachable instead of dying on the strict-object
+  // "Unknown key: OR".
+  const havingSchema = v
+    .object(
+      {
+        AND: () => v.optional(v.union([havingSchema, v.array(havingSchema)])),
+        OR: () => v.optional(v.array(havingSchema)),
+        NOT: () => v.optional(v.union([havingSchema, v.array(havingSchema)])),
+      },
+      { optional: true }
+    )
+    .extend(entries) as unknown as HavingSchema<F>;
+
+  // Scoped to the model like a `where` is, so an operand CALLBACK resolves here
+  // too and is then refused by name ("… is not supported in 'having'") instead
+  // of by the generic out-of-scope message. Acceptance is unchanged: what the
+  // callback returns is exactly what the closure above rejects.
+  return scopeOperands(havingSchema, model);
 };
 
 // =============================================================================
@@ -422,7 +474,7 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   const scalarSchema = v.enum(scalarKeys);
 
   const aggSchemas = getAggregateScalarSchemas(model);
-  const havingSchema = getHavingSchema(fieldSchemas);
+  const havingSchema = getHavingSchema(model, fieldSchemas);
   const orderBySchema = getGroupByOrderBySchema(model);
 
   return v.object(
