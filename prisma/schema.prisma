@@ -7,13 +7,11 @@
 generator client {
   provider        = "prisma-client"
   output          = "../generated/prisma"
-  previewFeatures = ["driverAdapters", "relationJoins"]
 }
 
 datasource db {
   provider      = "postgresql"
   relationMode  = "prisma"
-  datasourceUrl = env("DATABASE_URL")
 }
 
 enum Enum {
