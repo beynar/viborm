@@ -836,6 +836,20 @@ DECLARED `firstRowField` output rather than a raw row read.
 added or removed. The no-op fix narrows what reaches an EXISTING guard, and the merge
 refusal's three conditions are untouched.
 
+**What the no-op fix WIDENS, asked and measured.** Fix 1 moves a derivation that can THROW
+earlier: `getUpdatedPrimaryKeyValue` raises `QueryEngineError` for an operand it cannot
+resolve (`unsafeScalarUpdate`), and it used to run only on the `postTransition` branch —
+now every where-pinned primary-key SET reaches it, cascade-safe ones included. The root
+gates it the same way it always did (non-cascade, single-PK, pinned), so the two levels are
+NOT symmetric on this point, and asymmetry is what the whole fix was about. So the widening
+was measured rather than argued: all five operand spellings that can reach
+`unsafeScalarUpdate` past `assertPortablePrimaryKeyUpdateInput` — `id: null`,
+`id: { set: null }`, `id: { nope: 1 }`, `id: sql\`10\``, `id: { set: sql\`10\`}` — were sent
+through the client at depth against a cascade-safe deeper edge, and every one is refused by
+the typed parse boundary (X2) with a `ValidationError` before the engine is entered. No
+payload reaches the moved derivation that did not reach it before, which is why no guard was
+added to shield it: the throw stays what X1c calls a structural invariant, not a route.
+
 ## N6 — Beyond Prisma (decision-gated; each unit needs a maintainer yes)
 
 | Unit | What | Decision |
