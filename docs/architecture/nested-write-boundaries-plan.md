@@ -106,7 +106,15 @@ one (same `onUniqueConflict` flag, same executor refusal). The shared behavior s
 it in BOTH directions rather than skipping it: the MySQL atomic-batch leg DECLARES
 `skipDuplicatesInBatchIsInexpressible` and asserts the typed refusal with nothing written;
 every other leg asserts the skip executing. A dialect that can express it cannot quietly
-start refusing, and one that cannot cannot quietly start succeeding.
+start refusing, and one that cannot cannot quietly start succeeding. **Measured**: the
+Docker MySQL leg runs it green (749/749).
+
+One harness note this wave paid for: the behavior suite drives the OPERATION, not the
+routed client. A batch-only, non-returning driver (MySQL forced into atomic-batch mode)
+refuses every single-row mutation at the client seam — "public result parsing cannot be
+rolled back" — so a client-driven suite would have made the whole MySQL batch leg vacuous
+while looking green. Every other update-family behavior suite already used the operation
+seam for exactly this reason; this one now matches.
 
 ### N1-U4 — delivered
 
@@ -137,6 +145,14 @@ captured located row. Under a concurrent rename-plus-reinsert on the discriminat
 two can name different rows. This is pre-existing for every alternate-unique locate (a
 `connect` under `where: { email }` splits the same way) and is NOT introduced by the Ref —
 but N1 makes the spelling common, so it is named here rather than left implicit.
+
+### N1 — certification
+
+TS 5.9.3 typecheck clean; Biome clean on every touched file. Gates 5/5 files, 69 tests.
+Full estate ONCE, alone: **8321 passed / 0 failed** (1626 Docker-gated skips) — up from the
+~8220 baseline by the wave's own witnesses. Local dialect legs (sqlite3 + libsql + pglite,
+both substrates each): 2398 passed. Docker MySQL 3307: 749 passed. Docker Postgres 5434
+(serial, pg + postgres.js): 856 passed, 14 skipped. Census pinned at **77**.
 
 ## N2 — Inverse-side to-one family (the mainstream Prisma shape)
 

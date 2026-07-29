@@ -1,8 +1,14 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
+import { createOperationExecutionContext } from "@query-engine/execution-context";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
+import type { Model } from "@schema/model";
+import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 
 /**
  * N1 — the located-parent Ref, across the whole driver matrix.
@@ -132,6 +138,35 @@ hydrateSchemaNames(locatedParentRefSchema);
 /** The executor's typed refusal for a savepoint skip inside a single atomic batch. */
 const NO_BATCH_SKIP_LOWERING = /no atomic-batch lowering/;
 
+/**
+ * The operations run through the OPERATION, not the routed client. A batch-only,
+ * non-returning driver (MySQL forced into atomic-batch mode) refuses every single-row
+ * mutation at the client seam — "public result parsing cannot be rolled back" — which
+ * would make the whole batch leg vacuous. The same seam every other update-family
+ * behavior suite uses, for the same reason.
+ */
+function makeRefRunner(driver: AnyDriver) {
+  const schemas = createSchemaRegistry(locatedParentRefSchema);
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(locatedParentRefSchema, schemas)
+  );
+  const executor = new OperationExecutor(engine);
+  return (
+    modelName: string,
+    model: Model<any>,
+    args: Record<string, unknown>
+  ): Promise<unknown> =>
+    executor.execute(
+      new UpdateOperation(engine, model, args),
+      createOperationExecutionContext(
+        modelName,
+        "update",
+        engine.instrumentation
+      )
+    );
+}
+
 function makeRefClient(driver: AnyDriver) {
   return createClient({ schema: locatedParentRefSchema, driver });
 }
@@ -196,30 +231,30 @@ export function runLocatedParentRefBehavior(options: {
       const driver = options.createDriver();
       const stateDriver = options.createStateDriver?.() ?? driver;
       const client = makeRefClient(stateDriver);
-      const opClient = driver === stateDriver ? client : makeRefClient(driver);
+      const update = makeRefRunner(driver);
       await push(client, { force: true });
       const dispose = async () => {
         await client.$disconnect();
         if (driver !== stateDriver) await driver.disconnect();
       };
-      return { client, opClient, dispose };
+      return { client, update, dispose };
     };
 
     test(
       "the non-PK-unique spelling persists what the primary-key spelling persists",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedAccounts(client);
           // The pinned spelling (the referenced column IS the discriminator) and the
           // Ref spelling (it is not) on two disjoint accounts. Same shape in, same
           // shape out: a note whose accountId is its own account's id.
-          await opClient.account.update({
+          await update("account", locatedParentRefSchema.account, {
             where: { id: 1 },
             data: { notes: { create: { id: 11, body: "pinned" } } },
           });
-          await opClient.account.update({
+          await update("account", locatedParentRefSchema.account, {
             where: { email: "target@x" },
             data: { notes: { create: { id: 12, body: "reffed" } } },
           });
@@ -239,10 +274,10 @@ export function runLocatedParentRefBehavior(options: {
       "the created child carries the LOCATED row's key, not the decoy's",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedAccounts(client);
-          await opClient.account.update({
+          await update("account", locatedParentRefSchema.account, {
             where: { email: "target@x" },
             data: { notes: { create: { id: 20, body: "wrong-row witness" } } },
           });
@@ -267,12 +302,12 @@ export function runLocatedParentRefBehavior(options: {
       "a referenced column that is neither the primary key nor the discriminator is threaded from the located row",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedAccounts(client);
           // `ticket.accountCode -> account.code`: the `where` pins `email`, the primary
           // key is `id`, and the foreign key needs `code`. Only the located row has it.
-          await opClient.account.update({
+          await update("account", locatedParentRefSchema.account, {
             where: { email: "target@x" },
             data: { tickets: { create: { id: 30, subject: "d4" } } },
           });
@@ -291,10 +326,10 @@ export function runLocatedParentRefBehavior(options: {
       "nested createMany rides the same located-parent Ref",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedAccounts(client);
-          await opClient.account.update({
+          await update("account", locatedParentRefSchema.account, {
             where: { email: "target@x" },
             data: {
               notes: {
@@ -325,13 +360,13 @@ export function runLocatedParentRefBehavior(options: {
       "a relation-carrying nested create subtree resolves its root foreign key from the located row",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedAccounts(client);
           // X1b: the fresh note is a create SUBTREE (it carries its own `attachments`),
           // delegated to the create root whose `rootFkInject` is the compile-resolved
           // located-parent value.
-          await opClient.account.update({
+          await update("account", locatedParentRefSchema.account, {
             where: { email: "target@x" },
             data: {
               notes: {
@@ -359,10 +394,10 @@ export function runLocatedParentRefBehavior(options: {
       "a scalar SET and a Ref-parented create compose in one update",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedAccounts(client);
-          await opClient.account.update({
+          await update("account", locatedParentRefSchema.account, {
             where: { email: "target@x" },
             data: {
               label: "renamed",
@@ -398,10 +433,10 @@ export function runLocatedParentRefBehavior(options: {
       "compound primary-key reference: both members come from the located row",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedOwners(client);
-          await opClient.owner.update({
+          await update("owner", locatedParentRefSchema.owner, {
             where: { tenantId_slot: { tenantId: "t1", slot: "b" } },
             data: { memos: { create: { id: 10, text: "by compound pk" } } },
           });
@@ -425,14 +460,14 @@ export function runLocatedParentRefBehavior(options: {
       "compound primary-key reference located by a unique naming NEITHER member",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedOwners(client);
           // `handle` is the discriminator; the foreign key needs `tenantId` AND
           // `slot`, and no literal in the payload holds either. The sibling
           // `t1/a` shares the tenant, so a resolution that carried only the
           // tenant (or dropped the slot) would attach the memo to it.
-          await opClient.owner.update({
+          await update("owner", locatedParentRefSchema.owner, {
             where: { handle: "h-t1-b" },
             data: {
               memos: {
@@ -464,13 +499,13 @@ export function runLocatedParentRefBehavior(options: {
       "compound NON-PK referenced unique is threaded per field from the located row",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedVendors(client);
           // `contract.[vendorRegion, vendorCode] -> vendor.[region, code]`: a
           // compound unique that is not the vendor's primary key and not the
           // `where`. The decoy vendor shares `region`.
-          await opClient.vendor.update({
+          await update("vendor", locatedParentRefSchema.vendor, {
             where: { id: 2 },
             data: { contracts: { create: { id: 30, title: "d4 compound" } } },
           });
@@ -494,7 +529,7 @@ export function runLocatedParentRefBehavior(options: {
       "nested createMany skipDuplicates rides the located-parent Ref",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedAccounts(client);
           // The colliding row already belongs to the DECOY, so the skip must drop it
@@ -504,7 +539,7 @@ export function runLocatedParentRefBehavior(options: {
             data: { id: 91, body: "taken", accountId: 1 },
           });
           const skip = () =>
-            opClient.account.update({
+            update("account", locatedParentRefSchema.account, {
               where: { email: "target@x" },
               data: {
                 notes: {
@@ -542,11 +577,11 @@ export function runLocatedParentRefBehavior(options: {
       "a `where` that matches no row aborts before any child insert",
       { timeout: 30_000 },
       async () => {
-        const { client, opClient, dispose } = await setup();
+        const { client, update, dispose } = await setup();
         try {
           await seedAccounts(client);
           await expect(
-            opClient.account.update({
+            update("account", locatedParentRefSchema.account, {
               where: { email: "absent@x" },
               data: { notes: { create: { id: 80, body: "never" } } },
             })
