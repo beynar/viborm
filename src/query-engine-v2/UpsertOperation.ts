@@ -485,23 +485,13 @@ export class UpsertOperation {
 
   /**
    * The create arm's raceable missing premise — present only for a PLAIN unique
-   * `where`.
-   *
-   * `racePin` claims "the locate proved unique key K was free, so a violation on
-   * K means someone else took it between our read and our write — re-plan and
-   * adopt". With an extended `where` the locate proves something weaker: no row
-   * matches `K ∧ filters`. A row on K may exist and be excluded by the filter,
-   * and then the INSERT's violation is a GENUINE CONFLICT, not a race: re-planning
-   * re-reads the same excluded row, takes the create arm again, and violates
-   * again. Pinning it would buy one pointless retry and mis-attribute a real
-   * P2002-equivalent as raceable, so the pin is withheld and the
-   * `UniqueConstraintError` surfaces on the first attempt — Prisma's behaviour for
-   * the same payload.
+   * `where`. The extended-selector withholding (an excluded row's violation is a
+   * genuine conflict, not a race) is `childRacePin`'s own rule, decided in the one
+   * function that mints these pins — see {@link childRacePin}.
    */
   private createArmRacePin(parent: QueryScope): {
     racePin?: ReturnType<typeof childRacePin>;
   } {
-    if (this.whereFilters) return {};
     return { racePin: childRacePin(parent, this.parentWhere) };
   }
 
