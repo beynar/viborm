@@ -29,6 +29,7 @@ import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-creat
 import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
+import { runOwnWriteLinearizationBehavior } from "../query-engine-v2/own-write-linearization-behavior";
 import { runProducedIdentityBehavior } from "../query-engine-v2/produced-identity-depth-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
@@ -937,6 +938,15 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runProducedIdentityBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runOwnWriteLinearizationBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runOwnWriteLinearizationBehavior({
     name: "SQLite3 atomic batch",
     createDriver: createBatchOnlySQLite3Driver,
   });

@@ -302,9 +302,9 @@ contradiction in the payload, not a limit of planning; or (ii) an unbounded *rea
 behind a sibling that writes the same model, which no ordering can fix because the
 filter's result set cannot be bounded at compile. Measured across all 55 unordered
 sibling pairs × {child-held to-many, many-to-many} × {disjoint identities, same
-identity} plus the create root: **92 combinations rejected before, 42 after**, and all
-42 fall in (i) or (ii). All eleven kinds at once on a child-held to-many went from
-rejected to executing.
+identity} plus the create root: **92 combinations rejected before, 41 after** — 33 of
+class (i) and 8 of class (ii), with nothing left over. All eleven kinds at once on a
+child-held to-many went from rejected to executing.
 
 **The exact order** — and the state each adjacent pair therefore produces:
 

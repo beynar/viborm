@@ -10,18 +10,39 @@ import type {
   SeparatedData,
 } from "./relation-data-builder";
 
+/**
+ * **The own-write linearization order (N6-U3, ATOM §4).** The ONE sequence in which
+ * sibling mutation kinds on a single relation compose — used both to EMIT the parts
+ * and to DERIVE their legality, so the soundness theorem is stated over exactly the
+ * order that runs. Read ATOM §4 before touching it; the three stages are:
+ *
+ *  1. **named readers** — kinds that address rows they NAME and read committed state
+ *     to do it (`disconnect`, `delete`, `update`, `upsert`, `connectOrCreate`). Their
+ *     writes are bounded by the identity the payload spells.
+ *  2. **unbounded writers** — kinds whose footprint is a whole-membership declaration
+ *     or a filter (`set`, `updateMany`, `deleteMany`). Every read must precede them.
+ *  3. **pure adders** — kinds that read nothing (`connect`, `create`, `createMany`).
+ *     Their writes land last, where no decision read can be invalidated by them.
+ *
+ * The stage boundary is the invariant: **every read is ordered before every write it
+ * could not bound.** What survives rejection is then only a genuine payload
+ * contradiction — two kinds naming the SAME row — never an artefact of the order.
+ */
 export const RELATION_MUTATION_KEYS = [
-  "create",
-  "createMany",
-  "connect",
-  "connectOrCreate",
+  // 1 — named readers
   "disconnect",
   "delete",
-  "set",
   "update",
-  "updateMany",
   "upsert",
+  "connectOrCreate",
+  // 2 — unbounded writers
+  "set",
+  "updateMany",
   "deleteMany",
+  // 3 — pure adders
+  "connect",
+  "create",
+  "createMany",
 ] as const;
 
 export type RelationMutationKind = (typeof RELATION_MUTATION_KEYS)[number];

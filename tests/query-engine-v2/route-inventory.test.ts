@@ -1644,6 +1644,55 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // stay green — which is also what would happen the day someone folds the probe into the
   // write for one round trip fewer. The behaviours they predict are §8 of
   // `extended-where-unique-behavior.ts`, on every driver leg and both substrates.
+  //
+  // 68 -> 68 (N6-U3 / decision D-N3, the OWN-WRITE LINEARIZATION). No site added and none
+  // removed: the own-write preflight rejects with `NestedWriteError`, not with
+  // `UnsupportedOperationError`, so this census never counted it in either direction. The
+  // entry is here because the unit moved a large REJECTION surface that the count cannot
+  // see, and a reader comparing "68 before, 68 after" deserves to know why the number is
+  // silent rather than to infer that nothing happened.
+  //
+  // MEASURED first, before anything was touched, over all 55 unordered sibling pairs on
+  // one relation × {child-held to-many, many-to-many} × {disjoint identities, the SAME
+  // identity} plus the create root, at CONSTRUCTION so no I/O could confound it:
+  // **92 combinations rejected**. Two findings came out of it.
+  //
+  //   (1) The plan's N6-U3 row named the wrong payload. `{ posts: { create, connect } }`
+  //       — the shape called A14's headline, and the one the capability matrix printed
+  //       as the example — does NOT reject and never did, on either relation type, in
+  //       either identity mode. It executes; both rows land. The matrix row is corrected
+  //       in the same commit rather than left to mislead the next reader.
+  //
+  //   (2) What the 92 actually had in common was an ARBITRARY ORDER, and there were TWO
+  //       of them. `RELATION_MUTATION_KEYS` ordered the parts the engine emits (four call
+  //       sites, through `getRelationMutationKinds`); `planRelationMutationSteps` ordered
+  //       the footprints the legality walk derives, in its own if-chain. They agreed on
+  //       nine kinds and disagreed on the tenth pair — emission ran `upsert` before
+  //       `deleteMany`, derivation the reverse — so a shape's soundness was checked
+  //       against a sequence that never executed. That is the fork ATOM §4 warned about,
+  //       and it was never in the Parts; it was in the order.
+  //
+  // The unit deletes the second order and CHOOSES the surviving one, by the invariant
+  // ATOM §4.1 now states: every decision read is ordered before every write that could
+  // not be bounded, and the kinds that read nothing go last. Measured again on the same
+  // sweep: **92 -> 42**, and all eleven kinds at once on a child-held to-many went from
+  // rejected to executing. Those 42 lines are 41 rejections plus that one now-ACCEPTED
+  // eleven-kind line, and the 41 fall in exactly two classes, both re-justified rather
+  // than inherited: **33** where two kinds name the SAME row with conflicting intents (a
+  // payload contradiction, not a planning limit) and **8** where a many-to-many
+  // `deleteMany` must resolve its filter against a membership a sibling rewrites (ATOM
+  // §4.1 case ii — the class no ordering fixes, and the one a future unit must attack
+  // with technique #2 rather than with a reordering).
+  //
+  // Three candidate orders were measured, not argued: the plan's suggested
+  // deleteMany-first order rejects 60, a readers-ordered variant of it 50, and the one
+  // shipped 42 — and only the shipped one accepts the eleven-kind payload. The witnesses
+  // are `own-write-linearization-behavior.ts` (18 adjacent-pair and state-visible shapes,
+  // both substrates, wired into all four driver files) plus the two structural tests in
+  // `own-write-linearization.test.ts` that pin the order and assert the derivation walks
+  // it — the tripwire that fails the moment a second order reappears. FALSIFIED by
+  // mutation: swapping stage 2 with stage 3 fails 11 of the 38, stage 1 with stage 2
+  // fails 7, and swapping `set` with `update` alone fails 7.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

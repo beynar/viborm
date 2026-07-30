@@ -1175,7 +1175,7 @@ parent-id source that applies the SET operand to the located value at compile, t
 |---|---|---|
 | N6-U1 | ~~**Extended whereUnique in nested target selectors**~~ — **DELIVERED** (maintainer yes). The nested `update`/`upsert`/`delete` targets take `{ <unique>, ...filters }`; Prisma is unique-only there, so this is the superset row of the capability matrix. See the note below. | D-N1 ✅ |
 | N6-U2 | ~~**Relation filters inside a unique where**~~ — **DELIVERED** (maintainer yes). See the note below. | D-N2 ✅ |
-| N6-U3 | **Own-write linearization** (A14: `{ posts: { create, connect } }` same-tree overlap) — Prisma linearizes some of these; ATOM §4 refuses by doctrine because per-Part legality re-derivation "forks the theorem". Default: KEEP the refusal. Only revisit with an explicit doctrine change. **NOT delivered in the N6 wave** — see the wave-gate note below. | D-N3, maintainer yes — **the doctrine amendment is owed with it** |
+| N6-U3 | ~~**Own-write linearization**~~ — **DELIVERED** (maintainer yes; ATOM §4.1 amended first, in its own commit). The premise in this row is wrong twice over and the note below says how. | D-N3 ✅ |
 
 ### N6-U1 delivered — what the measurement changed about the unit
 
@@ -1378,13 +1378,96 @@ witnesses (`self-relation filters` — `updateMany`/`deleteMany`, both `upsert` 
 arms ran on MySQL, each in BOTH substrates (transaction and atomic batch), plus the nested
 extended-selector case in the extended-`whereUnique` block. None skipped.
 
-**N6-U3 is NOT delivered.** The maintainer's yes stands and so does the obligation it
-carries — the doctrine amendment is owed WITH the unit, not after it — but no code, test,
-or census entry in this wave touches own-write linearization. `OwnWriteLedger`'s refusal is
-still the shipped behaviour, recorded as a live obligation in the capability matrix's
-own-write preflight note rather than left to look closed because its siblings landed. The
-census pin is unaffected either way: the preflight rejection is not an
-`UnsupportedOperationError` site.
+**N6-U3 was NOT delivered in the N6 wave.** It is delivered now, in its own run, and the
+record is below.
+
+### N6-U3 delivered — own-write linearization (D-N3)
+
+**Both halves of the row above were false, and the measurement said so before anything
+was touched.**
+
+*The payload was wrong.* `{ posts: { create, connect } }` — the shape this plan called
+A14's headline, and the one the capability matrix printed as the example — does not
+reject. It never did: not on a child-held to-many, not on a many-to-many, not with
+disjoint identities and not with the same one. It executes and both rows land. What DOES
+reject was enumerated exhaustively instead of guessed at: all 55 unordered sibling pairs
+on one relation × {child-held to-many, many-to-many} × {disjoint identities, the SAME
+identity}, plus the create root, evaluated at CONSTRUCTION so no I/O could confound it —
+**92 rejections**.
+
+*The doctrine was not what they rested on.* The 92 had one thing in common, and it was
+not the payload: it was an arbitrary order, and there were **two of them**.
+`RELATION_MUTATION_KEYS` ordered the parts the engine emits (four call sites, through
+`getRelationMutationKinds`); `planRelationMutationSteps` ordered the footprints the
+legality walk derives, in an if-chain of its own. They agreed on nine kinds and disagreed
+on the tenth pair — emission ran `upsert` before `deleteMany`, derivation the reverse — so
+a shape's soundness was being checked against a sequence the engine never executed. **The
+fork ATOM §4 warned about was real and already present, and it was never in the Parts. It
+was in the order.**
+
+**The amendment (ATOM §4.1, committed alone and first).** One fixed, documented order,
+declared once and used by BOTH the emission and the derivation, so the theorem is stated
+over exactly the sequence that runs. The invariant that draws it: *every decision read is
+ordered before every write that could not be bounded, and every kind that reads nothing is
+ordered last.* Three stages fall out —
+
+```
+disconnect → delete → update → upsert → connectOrCreate   (named readers)
+          → set → updateMany → deleteMany                 (unbounded writers)
+          → connect → create → createMany                 (pure adders)
+```
+
+Nothing about the preflight is weakened; the order is chosen so the dependency does not
+arise. Measured on the same sweep: **92 → 41**, and all eleven kinds at once on a
+child-held to-many went from rejected to executing. The 41 survivors are two classes, both
+re-justified: **33** where two kinds name the same row with conflicting intents (a payload
+contradiction) and **8** where a many-to-many `deleteMany` must resolve its filter against
+a membership a sibling rewrites — the one class no ordering can fix, and the one a later
+unit must attack with technique #2 rather than with a reordering.
+
+**The order was derived, not decreed.** Three candidates were measured through the same
+sweep: this plan's suggested deleteMany-first order rejects **60**, a readers-ordered
+variant of it **50**, the shipped one **41 (+1 accepted line)** — and only the shipped one
+accepts the eleven-kind payload.
+
+**Prisma, measured not recalled** (7.9.1, `prisma-client` generator, pg adapter, query log
+captured per shape): Prisma has no order. It executes sibling kinds in the enumeration
+order of the JavaScript object literal — `{ create, connect }` emits INSERT-then-UPDATE and
+`{ connect, create }` the reverse; `{ create, deleteMany }` **deletes the row it just
+created** while `{ deleteMany, create }` keeps it; `{ create, delete }` on one identity
+raises a unique violation where `{ delete, create }` succeeds. That is not a documented
+contract but [prisma/prisma#16606](https://github.com/prisma/prisma/issues/16606), open and
+labelled `bug/2-confirmed`. Ours is fixed and independent of how the caller spelled the
+object, and it is the spelling Prisma users are told to write. (Prisma also does not offer
+`createMany` on an implicit many-to-many at all — a TypeScript error on the generated input
+type — so N3-U1's arm has no Prisma order to match.)
+
+**Witnesses.** `own-write-linearization-behavior.ts` — 18 shapes × both substrates, wired
+into all four driver files, every one an ADJACENT PAIR in the sequence asserted on STATE:
+`delete` then `create` of one identity leaves the fresh row; `set` then `create` leaves
+exactly set ∪ created (before, `create` ran first and `set` orphaned the row the same
+payload had just inserted); a filtered bulk kind never consumes a row the call is adding;
+the eleven-kind payload; the m2m pairs; and the two surviving rejection classes asserted
+directly so the file cannot pass by everything being accepted. Plus two structural tests
+pinning the order and asserting the derivation walks it — the tripwire that fails the
+moment a second order reappears. **Falsified by mutation:** swapping stage 2 with stage 3
+fails 11 of the 38, stage 1 with stage 2 fails 7, `set` with `update` alone fails 7.
+
+**Retargets — 17 estate tests, each with the reason written at the site.** Six shapes now
+EXECUTE and assert their new state; nine still reject, write nothing, and name the guard
+that now owns them (a correlated probe's not-found, the unique constraint, or the to-one
+arity refusal) — the N2-U1 disposition, since adding a preflight check for a fact the
+database already guards would be a second guard on one invariant. Two are ledger unit
+tests, retargeted to assert the order and keep the "unknown identity fails closed" claim
+on a pair that still has a read behind a write. One retarget is the fork made visible: the
+m2m `deleteMany`/`upsert` pair's message used to blame `deleteMany` for the `upsert`'s
+read and now blames `upsert` for the `deleteMany`'s — both cannot be right, and the old
+one was derived over the order that never ran.
+
+**Census: pin unchanged at 68.** The preflight rejects with `NestedWriteError`, never
+`UnsupportedOperationError`, so this census could not count the surface in either
+direction; the `68 -> 68 (N6-U3)` entry in the count-evolution log says so and carries the
+measurement, the three candidate orders, and the falsifications.
 
 ## Ordering and parallelism
 

@@ -16,8 +16,6 @@ type ManyToManyClientConfig = VibORMConfig & {
 
 type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
 
-const DELETE_MANY_MEMBERSHIP_DEPENDENCY =
-  /depends on an earlier 'connect' membership write/;
 const NAME_DISAMBIGUATION = /\.name\(\)/;
 
 export interface ManyToManyBehaviorOptions {
@@ -441,26 +439,31 @@ export function runManyToManyBehavior({
       expect(await tagIdsOf("p1")).toEqual([]);
     });
 
-    test("overlapping connect and deleteMany reject a membership dependency", async () => {
+    // RETARGETED by N6-U3 (own-write linearization, ATOM §4.1), from a rejection to an
+    // accept-and-execute assertion on the SAME payload, on every driver leg. `connect`
+    // reads nothing, so it is a stage-3 pure adder ordered AFTER the junction's
+    // `deleteMany`, whose filter is therefore resolved against committed membership —
+    // t2 is not a member when the removal runs, so tag-2 survives and the sibling
+    // `connect` then attaches it. The rejection this replaced was the legality
+    // derivation walking an order the engine did not execute.
+    test("connect lands after a deleteMany that cannot see it", async () => {
       const c = requireClient(client);
       await c.post.update({
         where: { id: "p1" },
         data: { tags: { connect: { id: "t1" } } },
       });
 
-      await expect(
-        c.post.update({
-          where: { id: "p1" },
-          data: {
-            tags: {
-              connect: { id: "t2" },
-              deleteMany: { name: "tag-2" },
-            },
+      await c.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connect: { id: "t2" },
+            deleteMany: { name: "tag-2" },
           },
-        })
-      ).rejects.toThrow(DELETE_MANY_MEMBERSHIP_DEPENDENCY);
+        },
+      });
 
-      expect(await tagIdsOf("p1")).toEqual(["t1"]);
+      expect(await tagIdsOf("p1")).toEqual(["t1", "t2"]);
       expect(await c.tag.findUnique({ where: { id: "t2" } })).not.toBeNull();
     });
 

@@ -21,6 +21,7 @@ import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-creat
 import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
+import { runOwnWriteLinearizationBehavior } from "../query-engine-v2/own-write-linearization-behavior";
 import { runProducedIdentityBehavior } from "../query-engine-v2/produced-identity-depth-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
@@ -680,6 +681,16 @@ describeIf("pg Driver", () => {
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runProducedIdentityBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runOwnWriteLinearizationBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runOwnWriteLinearizationBehavior({
     name: "pg atomic batch",
     createDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
