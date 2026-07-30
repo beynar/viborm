@@ -1855,7 +1855,7 @@ of them. They stay (c-ii). **The floor is 23 sites away, not 0.**
 | Step | Result |
 |---|---|
 | `pnpm test:types` (TS 5.9.3) | clean |
-| Full estate, ALONE (`--minWorkers=1 --maxWorkers=4`) | **9114 passed / 0 failed**, 259 files (9003 at the U-A baseline; the +111 is this wave's witnesses on the three local engines) |
+| Full estate, ALONE (`--minWorkers=1 --maxWorkers=4`) | **9116 passed / 0 failed**, 259 files (9003 at the U-A baseline; the +113 is this wave's witnesses on the three local engines) |
 | `pnpm test:gates` | **72 / 72**, 5 files (unchanged) |
 | Census pin | **40** (`route-inventory.test.ts`), with the count-evolution entry naming the five sites and the two silent divergences |
 | Biome (repo-pinned, per file) | every changed file exits 0 |
@@ -1864,13 +1864,15 @@ of them. They stay (c-ii). **The floor is 23 sites away, not 0.**
 | SQLite3 + LibSQL | **2161 passed / 0 failed** |
 | PGlite, both substrates | **32 passed** (15 × 2, plus the two public-client witnesses) |
 
-The estate ran once, green, before the witness harness was reworked for the Docker legs;
-everything changed after that point is a test file, and each was re-run on the engine it
-touches (the four driver legs and the PGlite pair above). The reworking is recorded in its
-own commit because what it had to survive is a fact about this test estate worth keeping:
-a per-test driver starves the Docker legs of connections, a cached push is dropped by a
-sibling suite's `force` push (MySQL errno 1146), and a repeated push errors on the SQLite
-family.
+That estate figure is a re-run AFTER the witness harness was reworked for the Docker legs,
+so the caveat this table carried in its first form — *"the estate ran once, green, before
+the rework; everything changed after that point is a test file"* — is retired rather than
+inherited. The re-run is what moved the number from 9114 to 9116: the rework drives the
+subject at the operation seam, and the two tests it added to keep the PUBLIC client path
+witnessed are the whole delta. The reworking is recorded in its own commit because what it
+had to survive is a fact about this test estate worth keeping: a per-test driver starves
+the Docker legs of connections, a cached push is dropped by a sibling suite's `force` push
+(MySQL errno 1146), and a repeated push errors on the SQLite family.
 
 #### The verifier's three notes, closed
 
