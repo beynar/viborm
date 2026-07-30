@@ -1196,8 +1196,17 @@ export class RelationJunctionPart implements Part {
         generatedField: this.targetPkField,
       };
     }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 create-through-junction for relation '${this.config.relationName}' requires the target primary key '${this.targetPkField}' in the create data.`
+    // Unreachable by construction (N7-U-A, the X1c disposition). Re-measured across every
+    // way a junction target's primary key can be spelled: a PK carrying a default (the
+    // `s.string().id()` ulid, and — the case the earlier probe had NOT constructed — a
+    // `s.dateTime().id().now()` whose `autoGenerate` is `now`) is FILLED by the parse
+    // boundary, so `pk` is defined; a PK with no default (`s.int().id()`,
+    // `s.bigInt().id()`) is REQUIRED, so the boundary answers `ValidationError: Missing
+    // required field: id`; an explicit `null` fails the non-nullable PK schema
+    // (`ValidationError: Expected integer`); and `increment` takes the produced-identity
+    // branch above. No payload arrives with an absent or null target PK.
+    throw new QueryEngineError(
+      `query-engine-v2 internal: the create-through-junction arm for relation '${this.config.relationName}' reached identity resolution with no value for the target primary key '${this.targetPkField}'.`
     );
   }
 

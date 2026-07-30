@@ -27,12 +27,7 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
-import {
-  getStepModelName,
-  isRecord,
-  selectExecutionMode,
-  UnsupportedOperationError,
-} from "./shared";
+import { getStepModelName, isRecord, selectExecutionMode } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -86,8 +81,13 @@ export class DeleteOperation {
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
-      throw new UnsupportedOperationError(
-        "query-engine-v2 delete requires a parent with a primary key."
+      // Unreachable by construction (N7-U-A, the X1c disposition): the whole-args
+      // `args.delete` parse below validates `where` against a PK-less model's
+      // discriminator-free whereUnique, which answers first with
+      // `ValidationError: Missing required field: one of …` — measured. §3.A A16 states
+      // every model must have a PK.
+      throw new QueryEngineError(
+        "query-engine-v2 internal: delete reached a model with no primary key; the where-unique parse admits none."
       );
     }
     // Compound primary keys are supported: the locate/guard select every PK

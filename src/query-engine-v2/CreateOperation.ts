@@ -816,8 +816,18 @@ export class CreateOperation {
     // own-write machinery (a sibling reading a just-created child is still rejected
     // by the OwnWritePreflight). A to-one is the arity-1 case of that path; the
     // mixed-directions conformance scenario and the create-family oracle certify the
-    // one-to-one `create`. Any OTHER type here is a schema impossibility (M2M and
-    // parent-held were dispatched above) — kept as a defensive internal guard.
+    // one-to-one `create`.
+    //
+    // NOT a schema impossibility — N7-U-A MEASURED it. A `manyToOne` declared without
+    // `.fields()` (the inverse side spelled with the many-side helper, its FK resolved
+    // from the target's own back-reference) has `holdsFK === false` and
+    // `type === "manyToOne"`, so it lands HERE and is refused, while the SAME relation
+    // on the SAME schema constructs under `update` — `UpdateOperation`'s sibling gate
+    // asks `isToOne || type === "oneToMany"`, which admits it, and routes it down the
+    // very `interpretChildHeld` path this line withholds. The refusal is a create-root
+    // capability gap with a narrower predicate than its own update-root twin, not a
+    // defensive guard; it stays in the census (audit disposition (c-ii)) until a wave
+    // widens the predicate or measures why the child-held path cannot take it.
     if (relationInfo.type !== "oneToMany" && relationInfo.type !== "oneToOne") {
       throw new UnsupportedOperationError(
         `query-engine-v2 create supports only child-held one-to-many / one-to-one relations; relation '${relationName}' is '${relationInfo.type}'.`
@@ -887,10 +897,13 @@ export class CreateOperation {
         );
         return;
       default:
-        // update/delete/disconnect on a to-one under create is V1's rejection
-        // (routed to V1 for the byte-identical typed message).
-        throw new UnsupportedOperationError(
-          `query-engine-v2 create does not support '${kinds[0]}' on the to-one relation '${relationName}'.`
+        // Unreachable by construction (N7-U-A, the X1c disposition): `toOneCreateFactory`
+        // offers EXACTLY `create` / `connect` / `connectOrCreate`, and the three arms above
+        // are total over that set. `update` / `delete` / `disconnect` / `upsert` / `set`
+        // under a create root are answered by the parse boundary first
+        // (`ValidationError: Unknown key: <kind>`) — an engine invariant, not a route.
+        throw new QueryEngineError(
+          `query-engine-v2 internal: kind '${kinds[0]}' reached the parent-held to-one create dispatch on relation '${relationName}'; the parse boundary admits only create/connect/connectOrCreate there.`
         );
     }
   }
@@ -1189,10 +1202,14 @@ export class CreateOperation {
           );
           break;
         default:
-          // create/connect/connectOrCreate/upsert are the create-tree child
-          // surface; update/delete/set/… are V1's rejection (routed to V1).
-          throw new UnsupportedOperationError(
-            `query-engine-v2 create does not support nested '${kind}' on relation '${relationName}'.`
+          // Unreachable by construction (N7-U-A, the X1c disposition): the five arms above
+          // are total over `toManyCreateFactory`'s key set (create / createMany / connect /
+          // connectOrCreate / upsert). `update` / `updateMany` / `delete` / `deleteMany` /
+          // `set` / `disconnect` under a create root are answered by the parse boundary
+          // first (`ValidationError: Unknown key: <kind>`) — an engine invariant, not a
+          // route.
+          throw new QueryEngineError(
+            `query-engine-v2 internal: kind '${kind}' reached the child-held create dispatch on relation '${relationName}'; the parse boundary admits only the five create-tree kinds there.`
           );
       }
     }
@@ -1834,14 +1851,19 @@ function defaultSelect(model: Model<any>): Record<string, unknown> | undefined {
   return Object.fromEntries(fields.map((field: string) => [field, true]));
 }
 
+/** An `unknown -> Record` narrowing, NOT a shape check (N7-U-A). Every caller reads a
+ *  dynamically-keyed slot of an ALREADY-PARSED payload, so the whole-args
+ *  `parseValidated(parentSchemas.args.create)` has already rejected a non-object here
+ *  (`ValidationError: Expected object`). A non-record reaching this narrowing is an
+ *  engine invariant break — the X1c disposition, not a route. */
 function normalizeSingle(
   value: unknown,
   relationName: string
 ): Record<string, unknown> {
   const item = Array.isArray(value) ? value[0] : value;
   if (!isRecord(item)) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 create to-one connect for relation '${relationName}' requires a single unique where.`
+    throw new QueryEngineError(
+      `query-engine-v2 internal: the to-one connect for relation '${relationName}' reached the create tree without the single unique where the parse boundary validated.`
     );
   }
   return item;
@@ -1862,7 +1884,11 @@ function normalizeItems(
   });
 }
 
+/** As {@link normalizeSingle}: an `unknown -> Record` narrowing behind the whole-args
+ *  create parse, converted by N7-U-A. */
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (isRecord(value)) return value;
-  throw new UnsupportedOperationError(`'${label}' must be an object.`);
+  throw new QueryEngineError(
+    `query-engine-v2 internal: '${label}' must be an object after the parse boundary validated the create payload.`
+  );
 }

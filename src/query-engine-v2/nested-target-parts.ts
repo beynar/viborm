@@ -305,8 +305,13 @@ function foldOneNestedRelation(input: {
 
   const isInverseToOne = relationInfo.isToOne;
   if (!(isInverseToOne || relationInfo.type === "oneToMany")) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update supports only child-held one-to-many or inverse-side one-to-one relations one level deeper; relation '${relationName}' is '${relationInfo.type}'.`
+    // Unreachable by construction (N7-U-A, the X1c disposition), exactly as its root twin
+    // `UpdateOperation.interpretChildHeld`: `RelationInfo.type` is a four-value union,
+    // `manyToMany` is dispatched above, the parent-held direction is the
+    // `QueryEngineError` invariant right above this, and `oneToOne` / `manyToOne` both
+    // carry `isToOne`. The predicate is false for every member that can arrive.
+    throw new QueryEngineError(
+      `query-engine-v2 internal: relation '${relationName}' reached the deeper child-Part builder as '${relationInfo.type}', which is neither to-one nor one-to-many.`
     );
   }
 
@@ -570,8 +575,12 @@ function foldOneChildHeldKind(args: {
       );
       return;
     default:
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support nested '${kind}' on relation '${relationName}' one level deeper.`
+      // Unreachable by construction (N7-U-A, the X1c disposition): measured, all ELEVEN
+      // to-many keys have a case above (the two that answer differently — `set` and
+      // `disconnect` without a planned parent id — reach their OWN `QueryEngineError`
+      // inside the built Part, not this switch). An engine invariant, not a route.
+      throw new QueryEngineError(
+        `query-engine-v2 internal: kind '${kind}' reached the deeper nested dispatch on relation '${relationName}'; the parse boundary admits only the eleven to-many kinds, all of which are handled above.`
       );
   }
 }

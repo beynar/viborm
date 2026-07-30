@@ -436,8 +436,14 @@ export class RelationWritePart implements Part {
     if (
       this.config.fkFields.some((fkField) => Object.hasOwn(scalarData, fkField))
     ) {
-      throw new UnsupportedOperationError(
-        `Relation '${this.config.relationName}' owns '${this.config.fkFields.join(", ")}'; omit it from the nested upsert create data.`
+      // Unreachable by construction (N7-U-A, the X1c disposition): the nested create
+      // schema is `v.omit(core.create, fkFields)` (`toManyUpdateFactory.getCreateSchema`),
+      // so spelling the owned FK in an upsert create arm is answered by the parse boundary
+      // first (`ValidationError: Unknown key: <fkField>`). An engine invariant, not a
+      // route — and NOT the same site as the nested UPDATE arm's FK, which IS reachable
+      // and stays a Prisma-parity refusal (`RelationUpsertPart.ts` :847).
+      throw new QueryEngineError(
+        `query-engine-v2 internal: the upsert create arm for relation '${this.config.relationName}' carries the owned foreign key '${this.config.fkFields.join(", ")}', which the nested create schema omits.`
       );
     }
     return scalarData;

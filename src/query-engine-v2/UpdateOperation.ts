@@ -486,8 +486,13 @@ export class UpdateOperation {
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
-      throw new UnsupportedOperationError(
-        "query-engine-v2 update requires a parent with a primary key."
+      // Unreachable by construction (N7-U-A, the X1c disposition): a model with no PK has
+      // no discriminator in its `whereUnique`, so the whole-args parse above answers first
+      // with `ValidationError: Missing required field: one of …` (and `where: {}` with
+      // "Object cannot be empty"). §3.A A16 states every model must have a PK; this line
+      // is that invariant, not a route.
+      throw new QueryEngineError(
+        "query-engine-v2 internal: update reached a model with no primary key; the where-unique parse admits none."
       );
     }
     // Compound primary keys are supported: the locate reads and terminal read
@@ -619,8 +624,14 @@ export class UpdateOperation {
     )) {
       const relationSchemas = parentSchemas.relations[relationName];
       if (!relationSchemas) {
-        throw new UnsupportedOperationError(
-          `No validation schema exists for relation '${relationName}'.`
+        // Unreachable by construction (N7-U-A, the X1c disposition): `separated.relations`
+        // is keyed by `isRelation(model, key)` / `getRelationInfo` and
+        // `parentSchemas.relations` by `getRelationsSchemas`, and BOTH enumerate the same
+        // `model["~"].state.relations`. A key present in one is present in the other; there
+        // is no payload that spells a relation the registry has no schema for. An engine
+        // invariant, not a route — this one has no public spelling at all.
+        throw new QueryEngineError(
+          `query-engine-v2 internal: no validation schema exists for relation '${relationName}', which the model's own relation set declares.`
         );
       }
       // THE ONE transform of this relation payload. A standalone update holds the RAW
@@ -1199,8 +1210,16 @@ export class UpdateOperation {
     // state, exactly as the to-many family already does under update.
     const isInverseToOne = relationInfo.isToOne;
     if (!(isInverseToOne || relationInfo.type === "oneToMany")) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update supports only one-to-many or inverse-side one-to-one child-held relations; relation '${relationName}' is '${relationInfo.type}'.`
+      // Unreachable by construction (N7-U-A, the X1c disposition): `RelationInfo.type` is
+      // the four-value union `oneToOne | oneToMany | manyToOne | manyToMany`. `manyToMany`
+      // was dispatched to the junction above and the parent-held direction to
+      // `interpretParentHeldToOne`; `oneToOne` and `manyToOne` both carry `isToOne`, and
+      // `oneToMany` is named outright. The predicate is therefore false for every member of
+      // the union that can arrive — an engine invariant, not a route, and one with no
+      // public spelling (unlike `CreateOperation`'s narrower `type !== oneToOne` twin,
+      // which a fields-less `manyToOne` DOES reach).
+      throw new QueryEngineError(
+        `query-engine-v2 internal: relation '${relationName}' reached the child-held update dispatch as '${relationInfo.type}', which is neither to-one nor one-to-many.`
       );
     }
     // Compound foreign keys are per-field (ATOM §1): every referenced parent
@@ -1734,9 +1753,14 @@ export class UpdateOperation {
         ]);
         return;
       default:
-        // create / createMany nested under update are V1's surface, not P2c's.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update does not support nested '${kind}' on relation '${relationName}'.`
+        // Unreachable by construction (N7-U-A, the X1c disposition). The claim this
+        // comment used to make — "create / createMany nested under update are V1's
+        // surface" — has been false since T3b-2: both are handled UPSTREAM at
+        // `interpretChildHeldCreate`, and the nine cases above cover the rest of
+        // `toManyUpdateFactory`'s key set. Measured: all ELEVEN to-many keys construct on
+        // this path, so nothing falls through here. An engine invariant, not a route.
+        throw new QueryEngineError(
+          `query-engine-v2 internal: kind '${kind}' reached the child-held update dispatch on relation '${relationName}'; the parse boundary admits only the eleven to-many kinds, all of which are handled above.`
         );
     }
   }
@@ -2243,10 +2267,14 @@ export class UpdateOperation {
         );
         return;
       default:
-        // set / other kinds on the FK-holder-side to-one — V1's surface; route the
-        // whole tree to V1.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update does not support '${kind}' on the parent-held to-one relation '${relationName}'.`
+        // Unreachable by construction (N7-U-A, the X1c disposition): `toOneUpdateFactory`
+        // offers exactly create / connect / connectOrCreate / update / upsert (+ disconnect
+        // and delete when the relation is optional). `connect` and `disconnect` are
+        // dispatched to `interpretToOneLink` above this switch and the rest have arms; a
+        // to-many-only key such as `set` / `createMany` / `updateMany` / `deleteMany` is
+        // answered by the parse boundary first (`ValidationError: Unknown key: <kind>`).
+        throw new QueryEngineError(
+          `query-engine-v2 internal: kind '${kind}' reached the parent-held to-one update dispatch on relation '${relationName}'; the parse boundary admits no such key there.`
         );
     }
   }
@@ -3262,8 +3290,13 @@ export class UpdateOperation {
       };
     }
     if (kind !== "connect") {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support nested '${kind}' on to-one relation '${relationName}'.`
+      // Unreachable by construction (N7-U-A, the X1c disposition): the only two callers
+      // reach `interpretToOneLink` on the `connect` / `disconnect` arms, and `disconnect`
+      // returned above. The remaining to-one keys (create / connectOrCreate / update /
+      // upsert / delete) dispatch elsewhere, and a key outside the factory's set is
+      // answered by the parse boundary first (`ValidationError: Unknown key: <kind>`).
+      throw new QueryEngineError(
+        `query-engine-v2 internal: kind '${kind}' reached the to-one link builder on relation '${relationName}'; only connect and disconnect are routed here.`
       );
     }
     const connect = normalizeSingle(
@@ -3580,20 +3613,26 @@ function isConstructionLiteral(value: unknown): boolean {
   return t === "string" || t === "number" || t === "bigint" || t === "boolean";
 }
 
+/** An `unknown -> Record` narrowing, NOT a shape check (N7-U-A). Every caller reads a
+ *  dynamically-keyed slot of an ALREADY-PARSED payload, and every to-ONE arm of
+ *  `toOneUpdateFactory` is a single object — never a `singleOrArray`, unlike the to-many
+ *  factory. So an array answers at the parse boundary (`ValidationError: Expected object`,
+ *  or `Expected boolean` for `disconnect`) and so does a non-record. Both branches are
+ *  engine invariants, not routes — the X1c disposition. */
 function normalizeSingle(
   value: unknown,
   relation: string,
   kind: string
 ): Record<string, unknown> {
   if (Array.isArray(value) && value.length !== 1) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update to-one ${kind} for relation '${relation}' does not support multiple targets.`
+    throw new QueryEngineError(
+      `query-engine-v2 internal: the to-one ${kind} for relation '${relation}' carried multiple targets after the parse boundary validated it as a single object.`
     );
   }
   const item = Array.isArray(value) ? value[0] : value;
   if (!isRecord(item)) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update to-one ${kind} for relation '${relation}' requires a single unique where.`
+    throw new QueryEngineError(
+      `query-engine-v2 internal: the to-one ${kind} for relation '${relation}' reached its builder without the single unique where the parse boundary validated.`
     );
   }
   return item;
@@ -3607,7 +3646,13 @@ function defaultSelect(model: Model<any>): Record<string, unknown> {
   );
 }
 
+/** As {@link normalizeSingle}: an `unknown -> Record` narrowing behind the whole-args
+ *  update parse, converted by N7-U-A. `update.where` / `update.data` are validated by
+ *  `parseValidated(parentSchemas.args.update)` before this runs, and a nested target's
+ *  `where` / `data` come from the ENCLOSING parse's output. */
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (isRecord(value)) return value;
-  throw new UnsupportedOperationError(`'${label}' must be an object.`);
+  throw new QueryEngineError(
+    `query-engine-v2 internal: '${label}' must be an object after the parse boundary validated the update payload.`
+  );
 }

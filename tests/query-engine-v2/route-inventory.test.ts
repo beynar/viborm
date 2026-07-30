@@ -1693,6 +1693,68 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // it — the tripwire that fails the moment a second order reappears. FALSIFIED by
   // mutation: swapping stage 2 with stage 3 fails 11 of the 38, stage 1 with stage 2
   // fails 7, and swapping `set` with `update` alone fails 7.
+  //
+  // 68 -> 45 (N7-U-A, THE (c-i) CONVERSIONS — the census stops counting sites that refuse
+  // nothing). The final census-floor audit (PLAN "The floor — final census disposition")
+  // classified 25 of the 68 as (c-i): a defensive type guard, an `unknown -> Record`
+  // narrowing, or the `default:` arm of a switch that is TOTAL over the parse boundary's
+  // own key set — sites at which the boundary, the dispatch above them, or an upstream
+  // legality walk already answered, so no payload can arrive. That is precisely the
+  // disposition N2-U1 gave `interpretInverseToOneKind`'s `default` and X1c gave
+  // `foldOneNestedRelation`'s two branches: a branch unreachable BY CONSTRUCTION is a
+  // `QueryEngineError` internal invariant, not a user-facing capability boundary. 23 of
+  // the 25 are converted here; NO user-visible behavior changes, because none of the 23
+  // fires. **No route is removed and no shape newly executes** — the count drops because
+  // the census stops counting non-refusals, which is the only reading under which the
+  // word "floor" means anything.
+  //
+  // RE-VERIFIED, not inherited. Every one of the 25 claims was re-probed live at
+  // construction through `constructRoutedOperation`, and the audit's own probes were
+  // EXTENDED where they had a hole:
+  //   · the eleven to-many kinds were fed with well-formed payloads at BOTH the root
+  //     (`UpdateOperation` :1738) and one level deeper (`nested-target-parts` :573) —
+  //     all eleven construct, so neither `default:` is reachable;
+  //   · `RelationJunctionPart` :1199's remaining gap — "a PK whose `autoGenerate` is
+  //     `now`/`updatedAt` was not constructed" — WAS constructed here
+  //     (`s.dateTime().id().now()`): `.now()` carries a default, the boundary fills it,
+  //     and the create arm resolves an identity, so that spelling does not reach the site
+  //     either;
+  //   · `RelationUpsertPart` :814's arity half was probed with a
+  //     `.fields("a","b").references("c")` edge: the relation-mutation legality walk
+  //     answers FIRST with `NestedWriteError: … has mismatched foreign-key metadata.`,
+  //     before any Part is built.
+  //
+  // TWO claims FAILED re-verification and are therefore NOT converted — which is why the
+  // number is 45 and not the audit's predicted 43.
+  //   · `CreateOperation` :822 called itself "a schema impossibility … kept as a defensive
+  //     internal guard"; it is reachable. A `manyToOne` declared WITHOUT `.fields()` (the
+  //     inverse side spelled with the many-side helper, its FK resolved from the target's
+  //     back-reference) has `holdsFK === false` and `type === "manyToOne"`, lands on that
+  //     line, and is refused — while the SAME relation on the SAME schema constructs under
+  //     `update`, whose sibling gate asks `isToOne || type === "oneToMany"` and routes it
+  //     down the very child-held path the create root withholds.
+  //   · `RelationUpsertPart` :708 was filed "no reachable payload identified". The ROOT
+  //     dispatches direction before this builder — but `buildUpdateArmParts`, the
+  //     GRANDCHILD fold on an upsert's update arm, dispatches on the KIND alone, so a
+  //     PARENT-HELD to-one `connectOrCreate` one level deeper arrives with
+  //     `type === "manyToOne"`. `upsert-family.test.ts`'s "depth-2 to-one grandchild
+  //     refusal" was already standing in front of it; converting it turned that test red,
+  //     which is how the false claim was caught.
+  // Both stay census sites, reclassified (c-ii) in the audit table, with their false
+  // comments corrected in place.
+  //
+  // The witnesses are `census-conversion-witnesses.test.ts` — one suite, one test per
+  // converted site, each FEEDING the shape through the public routing seam and asserting
+  // the class that answers FIRST (a `ValidationError` from the parse boundary for the 19
+  // with a public spelling; the four with no public spelling at all — `UpdateOperation`
+  // :622, :1202, `nested-target-parts` :308, `ReadOperation` :90 — are pinned
+  // STRUCTURALLY instead, by asserting the invariant that makes them unreachable, because
+  // the conversion law asks for a behavioral witness "or the structural invariant when no
+  // public spelling exists"). The same file pins BOTH refuted claims as reachability
+  // tests, so neither can quietly be re-filed as a defensive guard. FALSIFIED: re-adding
+  // `new UnsupportedOperationError(` at `UpdateOperation` :1738, `RelationJunctionPart`
+  // :1199 and `UpsertOperation` :207 fails this count test at 46/47/48 respectively;
+  // restored.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1703,7 +1765,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(68);
+    expect(sites).toBe(45);
   });
 });
 

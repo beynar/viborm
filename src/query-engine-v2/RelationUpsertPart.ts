@@ -1,5 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
-import { NestedWriteError } from "@errors";
+import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import {
@@ -702,11 +702,26 @@ export function buildToManyUpsertParts(
       relationInfo.isToOne &&
       !getFkDirection(parentScope, relationInfo).holdsFK;
     if (!(inverseToOne && family === "connectOrCreate")) {
-      // Outside V2's narrow door but within V1's — an UnsupportedOperationError so
-      // the whole tree routes to V1 (shared.ts routing contract), never a bare
-      // QueryEngineError that hard-fails a shape V1 supports.
+      // N7-U-A MEASURED this and did NOT convert it. The audit filed it (c-i) — "no
+      // reachable payload identified" — and that is false for exactly one caller.
+      //
+      // At the update ROOT and at the create root the direction IS dispatched before this
+      // builder, and the inverse-side to-one's `upsert` goes to
+      // `buildInverseToOneUpsertPart` (T3-r2) while under `create` the parse boundary
+      // answers first (`toOneCreateFactory` has no `upsert` arm). But `buildUpdateArmParts`
+      // — the GRANDCHILD fold on an upsert's update arm, one seam below — dispatches on the
+      // KIND alone and hands any `connectOrCreate` straight to `buildConnectOrCreateParts`,
+      // direction unexamined. A PARENT-HELD to-one grandchild therefore lands here:
+      // `user.update({ posts: { upsert: [{ …, update: { author: { connectOrCreate } } }] } })`
+      // reaches it with `type === "manyToOne"`, and `upsert-family.test.ts`'s "depth-2
+      // to-one grandchild refusal" has been standing in front of it all along.
+      //
+      // So it is a REACHABLE refusal, in the same family as :1079 (a parent-held to-one
+      // grandchild `create` on the same arm): the target's own SET fold is what it needs,
+      // and X1c's whole-target delegation owns that fold. Audit disposition (c-ii) — a
+      // mechanism that exists, unwired — NOT a defensive guard.
       throw new UnsupportedOperationError(
-        `query-engine-v2 supports only one-to-many nested ${family}; received '${relationName}'.`
+        `query-engine-v2 does not support a nested ${family} on the '${relationInfo.type}' relation '${relationName}' here; only a child-held one-to-many (or an inverse-side to-one connectOrCreate) is expressible at this seam.`
       );
     }
   }
@@ -805,14 +820,17 @@ function buildOneUpsertPart(
 ): RelationUpsertPart {
   const fk = getFkDirection(parentScope, relationInfo);
   if (fk.holdsFK || fk.fkFields.length !== fk.pkFields.length) {
-    // The child must hold the foreign key referencing the parent (one column, or
-    // an index-aligned compound key — ATOM §1's per-field precedent). A
-    // parent-held FK is a same-row change, V1's surface: route the tree. The
-    // referenced parent columns are exposed by the caller's locate read (the
-    // `planned` parent id), which is what makes the compile-time literal read
-    // resolve; that contract is UpdateOperation's, enforced there.
-    throw new UnsupportedOperationError(
-      `Relation '${relationName}' must expose a child-held foreign key referencing the parent.`
+    // The child must hold the foreign key referencing the parent (one column, or an
+    // index-aligned compound key — ATOM §1's per-field precedent).
+    //
+    // Unreachable by construction (N7-U-A, the X1c disposition), both halves measured.
+    // `holdsFK`: the parent-held direction is dispatched by every caller before this
+    // private builder is entered. Arity mismatch: a `.fields("a","b").references("c")`
+    // edge is rejected UPSTREAM by the relation-mutation legality walk
+    // (`NestedWriteError: Relation '<name>' has mismatched foreign-key metadata.`), which
+    // runs before any Part is built — so no payload arrives with a mismatched arity here.
+    throw new QueryEngineError(
+      `query-engine-v2 internal: relation '${relationName}' reached the upsert part without an index-aligned child-held foreign key referencing the parent.`
     );
   }
   const fkFields = fk.fkFields;
@@ -1124,6 +1142,11 @@ function buildUpdateArmChildCreateParts(
   return parts;
 }
 
+/** `unknown -> Record` narrowings, NOT shape checks (N7-U-A). The upsert / connectOrCreate
+ *  arms and their `where` / `create` / `update` slots are validated by the enclosing
+ *  whole-args parse (`ValidationError: Expected object`) before any Part is built; a
+ *  non-record reaching either narrowing is an engine invariant break — the X1c
+ *  disposition, not a route. */
 function normalizeUpsertItems(
   value: unknown,
   relation: string
@@ -1131,8 +1154,8 @@ function normalizeUpsertItems(
   const items = Array.isArray(value) ? value : [value];
   return items.map((item) => {
     if (!isRecord(item)) {
-      throw new UnsupportedOperationError(
-        `Relation '${relation}' upsert item must be an object.`
+      throw new QueryEngineError(
+        `query-engine-v2 internal: an upsert item for relation '${relation}' must be an object after the parse boundary validated the payload.`
       );
     }
     return item;
@@ -1141,5 +1164,7 @@ function normalizeUpsertItems(
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (isRecord(value)) return value;
-  throw new UnsupportedOperationError(`'${label}' must be an object.`);
+  throw new QueryEngineError(
+    `query-engine-v2 internal: '${label}' must be an object after the parse boundary validated the payload.`
+  );
 }

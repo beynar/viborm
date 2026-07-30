@@ -204,8 +204,12 @@ export class UpsertOperation {
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
-      throw new UnsupportedOperationError(
-        "query-engine-v2 upsert requires a parent with a primary key."
+      // Unreachable by construction (N7-U-A, the X1c disposition): `requireRecord` above
+      // hands `args.where` to the where-unique parse, and a PK-less model's whereUnique
+      // has no discriminator — so `ValidationError: Missing required field: one of …`
+      // answers first, measured. §3.A A16 states every model must have a PK.
+      throw new QueryEngineError(
+        "query-engine-v2 internal: upsert reached a model with no primary key; the where-unique parse admits none."
       );
     }
     // Compound primary keys are supported: every probe/guard selects each PK

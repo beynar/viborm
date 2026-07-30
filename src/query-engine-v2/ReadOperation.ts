@@ -19,11 +19,7 @@ import {
   ref,
   type StatementStep,
 } from "./OperationFragment";
-import {
-  isRecord,
-  selectExecutionMode,
-  UnsupportedOperationError,
-} from "./shared";
+import { isRecord, selectExecutionMode } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -87,8 +83,14 @@ export class ReadOperation {
       ? requestedOperation.slice(0, -OR_THROW_SUFFIX.length)
       : requestedOperation;
     if (!isReadBase(base)) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 read does not handle '${requestedOperation}'.`
+      // Unreachable by construction (N7-U-A, the X1c disposition): `constructOperation`
+      // builds a `ReadOperation` only when `READ_OPERATIONS.has(operation)`, and stripping
+      // the `OrThrow` suffix from that set yields exactly the seven `ReadBase` members. A
+      // name outside `ROUTED_OPERATIONS` never reaches any operation constructor —
+      // `constructRoutedOperation` returns `undefined` and the client answers "Unknown
+      // operation". No public spelling reaches this line.
+      throw new QueryEngineError(
+        `query-engine-v2 internal: read construction reached '${requestedOperation}', which is not a read base; the routed read set admits only the read families.`
       );
     }
     this.base = base;
