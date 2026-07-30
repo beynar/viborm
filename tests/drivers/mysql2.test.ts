@@ -502,6 +502,7 @@ describeIf("MySQL2 Driver", () => {
       new MySQL2BatchForcedDriver({
         databaseUrl: TEST_CONNECTION_STRING,
       }),
+    createStateDriver: createMySQL2Driver,
   });
 
   runJunctionCreateManyBehavior({
