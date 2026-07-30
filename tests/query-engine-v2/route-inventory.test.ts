@@ -1561,6 +1561,36 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // there — the locate never established "unique key K is free" — and a collision surfaces
   // as the genuine `UniqueConstraintError` W4 pinned, not as a race. The witness asserts
   // that rather than assuming it.
+  //
+  // 68 -> 68 (the N6-U1 × N6-U2 MERGE). Recorded even though nothing was absorbed here,
+  // for the reason round 1's FIX-ROUND entry gives: it changes what REACHES the census's
+  // subject matter. The two units were built in parallel lanes and each is honest about
+  // its own tree; composed, they open a payload that existed in NEITHER — N6-U1 pointed
+  // the nested `update`/`upsert`/`delete` target selectors at
+  // `getWhereUniqueExtendedSchema`, and N6-U2 put RELATION filters into that schema, so a
+  // nested target may now be narrowed by one. Both lanes' notes said the opposite of each
+  // other about this position and both were true where they were written; the merge makes
+  // exactly one of them true.
+  //
+  // MEASURED on the merged tree before any claim was written, on both substrates:
+  // matching filter transparent; excluding filter a typed nested not-found with the target
+  // untouched; cross-table AND self-relation; nested `update`, `delete`, and both upsert
+  // arms. No refusal fired, so no site could be added — and the reason none was NEEDED is
+  // structural rather than lucky: a nested targeted write addresses its row by the primary
+  // key the correlated probe captured, so the filter half is carried only by `buildFind`,
+  // an ALIASED select. It correlates correctly there for the same reason the root's locate
+  // always did, and MySQL's 1093 restriction — a subquery reading the table its own
+  // statement mutates — never applies to it. That is why the merge needed no second
+  // application of N6-U2's `mutationTable` composition at depth.
+  //
+  // The claim is a compile-level one, so it is pinned that way: the two
+  // `N6-U1 × N6-U2` tests in `unique-where-relation-filter-plan.test.ts` assert the filter
+  // appears in a SELECT and in no write, on MySQL and PostgreSQL. FALSIFIED, restored:
+  // give the nested write the selector instead of the captured key
+  // (`RelationWritePart.compileTargeted`) and exactly those two fail while the other 13
+  // stay green — which is also what would happen the day someone folds the probe into the
+  // write for one round trip fewer. The behaviours they predict are §8 of
+  // `extended-where-unique-behavior.ts`, on every driver leg and both substrates.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

@@ -108,6 +108,10 @@ const QUALIFIED_NODE_CORRELATION =
   /["`]uwrf_nodes["`]\.["`](id|parentId)["`] = /;
 const WRAPPED = /EXISTS \(SELECT \* FROM \(SELECT 1 FROM/;
 const MYSQL_NODE_CORRELATION = /`uwrf_nodes`\.`id` = `t\d+`\.`parentId`/;
+/** The same correlation as a probe spells it: alias to alias, because a SELECT has
+ *  an alias to give. This is the DEPTH spelling — see the merge section below. */
+const ALIASED_NODE_CORRELATION = /`t\d+`\.`id` = `t\d+`\.`parentId`/;
+const OPENS_WITH_SELECT = /^SELECT/;
 
 function updateText(
   name: DriverName,
@@ -229,5 +233,82 @@ describe("the write that actually carries the filter on a non-returning driver",
     expect(text).toContain("UPDATE `uwrf_nodes`");
     expect(text).toMatch(WRAPPED);
     expect(text).toMatch(MYSQL_NODE_CORRELATION);
+  });
+});
+
+describe("N6-U1 × N6-U2: a NESTED target selector's relation filter", () => {
+  // The surface only the MERGE of the two units creates: N6-U1 pointed the nested
+  // target selectors at the extended schema, N6-U2 put relation filters into that
+  // schema, so a nested `update`/`delete` target may now be narrowed by one.
+  //
+  // The claim this pins is why that needs no new dialect machinery: a nested
+  // targeted write addresses the row by the primary key its correlated probe
+  // captured — on BOTH substrates — so the filter rides an ALIASED `buildFind`
+  // and never enters the UPDATE/DELETE. MySQL's 1093 restriction is about a
+  // subquery inside a statement mutating that table; a separate SELECT is not
+  // one, which is why the self-relation payload below is legal there UNWRAPPED.
+  //
+  // A behavioral test cannot see this: it passes either way on the dialect that
+  // accepts both spellings. The day the nested write starts carrying its own
+  // `where` — a plausible optimization, one round trip fewer — this goes red,
+  // and the fix is the one N6-U2 already wrote for the root.
+  const nestedSelfFilteredUpdate = (driver: MySQL2Driver | PGliteDriver) => {
+    const schemas = createSchemaRegistry(schema);
+    const engine = new QueryEngine(
+      driver,
+      createModelRegistry(schema, schemas)
+    );
+    const routed = constructRoutedOperation(engine, node, "update", {
+      where: { id: 1 },
+      data: {
+        children: {
+          update: {
+            where: { id: 2, children: { some: { label: "live" } } },
+            data: { label: "renamed" },
+          },
+        },
+      },
+    });
+    if (!routed) throw new Error("nested 'update' did not route");
+    const planning = routed.planning();
+    const known: Record<string, unknown> = {};
+    for (const step of planning.steps) {
+      known[`${step.id}.rows`] = [{ id: 1 }];
+    }
+    const fragment = routed.compile(known);
+    const reads: string[] = planning.steps
+      .filter((step): step is StatementStep => step.kind !== "guard")
+      .map((step) => step.statement.toStatement("$n"));
+    const writes: string[] = [];
+    for (const step of fragment.steps) {
+      if (step.kind === "guard") {
+        reads.push(step.premise.statement.toStatement("$n"));
+      } else if (step.kind === "write") {
+        writes.push(step.statement.toStatement("$n"));
+      } else {
+        reads.push(step.statement.toStatement("$n"));
+      }
+    }
+    return { reads, writes };
+  };
+
+  test("MySQL: the filter rides the probe, and no write carries it", () => {
+    const { reads, writes } = nestedSelfFilteredUpdate(new MySQL2Driver());
+    const probe = reads.find((text) => text.includes("EXISTS"));
+    if (!probe) throw new Error("no statement carried the relation filter");
+    expect(probe).toMatch(OPENS_WITH_SELECT);
+    // Correlated against the probe's own alias — a SELECT has one to give.
+    expect(probe).toMatch(ALIASED_NODE_CORRELATION);
+    // …and therefore not wrapped: a SELECT does not mutate the table it reads.
+    expect(probe).not.toMatch(WRAPPED);
+    expect(writes.length).toBeGreaterThan(0);
+    for (const text of writes) expect(text).not.toContain("EXISTS");
+  });
+
+  test("PostgreSQL: the same split, so the two substrates agree", () => {
+    const { reads, writes } = nestedSelfFilteredUpdate(new PGliteDriver());
+    expect(reads.some((text) => text.includes("EXISTS"))).toBe(true);
+    expect(writes.length).toBeGreaterThan(0);
+    for (const text of writes) expect(text).not.toContain("EXISTS");
   });
 });

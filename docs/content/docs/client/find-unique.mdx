@@ -173,14 +173,19 @@ One place viborm goes **further** than Prisma:
   accepts `{ <unique>, ...filters }` there as well, with the same meaning it has at
   the top level — the filter narrows which row the write addresses, and a filter
   that excludes the row makes the nested write a not-found rather than touching it.
+  **Relation filters included** — a nested selector takes the same `where` the top
+  level does.
 
   ```ts
   await orm.author.update({
     where: { id: authorId },
     data: {
       books: {
-        // renames the book only if it is still a draft
-        update: { where: { isbn, status: "draft" }, data: { title } },
+        // renames the book only if it is still a draft and has no printings
+        update: {
+          where: { isbn, status: "draft", printings: { none: {} } },
+          data: { title },
+        },
       },
     },
   });

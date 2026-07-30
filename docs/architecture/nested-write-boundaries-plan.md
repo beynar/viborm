@@ -1262,9 +1262,33 @@ entry says so, with the measurement and the four falsifications.
 
 Neither lane could see this: N6-U1 pointed the nested `update`/`upsert`/`delete` target
 selectors at `getWhereUniqueExtendedSchema`, and N6-U2 put relation filters INTO that
-schema. Merged, a nested target selector accepts a relation filter — a shape that existed
-in neither lane's tree and that neither lane's witnesses cover. The merge commit's own
-section below records what that surface was measured to do.
+schema. Merged, a nested target selector accepts a relation filter — a payload that
+existed in neither lane's tree, and one each lane's notes described the opposite way
+(N6-U2's read "nested target selectors keep the STRICT schema", true where it was
+written). The merge makes exactly one of them true, and that is a claim to measure, not
+to infer.
+
+**Measured on the merged tree, both substrates, before anything was written down:** a
+matching relation filter is transparent; an excluding one is a typed nested not-found with
+the target untouched; and that holds for a cross-table filter and a self-relation one, for
+nested `update`, nested `delete`, and both arms of a nested `upsert`. Nothing refused, and
+nothing needed to.
+
+**Why no second dose of N6-U2's composition was needed at depth.** A nested targeted write
+addresses its row by the primary key its correlated probe captured — on both substrates —
+so the filter half is carried only by `buildFind`, an ALIASED select. It correlates there
+for the same reason the root locate always did, and MySQL's ERROR 1093 (a subquery reading
+the table its own statement mutates) does not reach a separate SELECT. The root needed
+`mutationTable` because its filter compiles into the UPDATE/DELETE; depth does not, because
+it does not.
+
+That is a statement about SHAPE, which no behavioural test can see — it passes either way
+on the dialect that accepts both — so it is pinned at compile level
+(`unique-where-relation-filter-plan.test.ts`, the `N6-U1 × N6-U2` pair) and falsified:
+hand the nested write the selector instead of the captured key and exactly those two fail.
+That is also the tripwire for the plausible future optimization of folding the probe into
+the write; the fix, that day, is the one N6-U2 already wrote for the root. The behaviours
+live in `extended-where-unique-behavior.ts` §8, on every driver leg.
 
 ## Ordering and parallelism
 

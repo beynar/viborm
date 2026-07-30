@@ -1928,6 +1928,20 @@ widening cannot reintroduce the bug by forgetting a site.
 No vocabulary, no step kind, no census movement — the refusal it removed lived in the
 validation schema, never in this engine.
 
+**N6-U1 × N6-U2, the merge.** N6-U2 (a parallel lane) put RELATION filters into that same
+extended schema, so a nested target selector now takes one. It composes with no engine
+work, and the reason is worth stating because it is a property of WHERE the filter goes,
+not luck. At the root, a unique `where` reaches the UPDATE/DELETE itself — an unaliased
+mutation target — which is why N6-U2 had to qualify it by the target's table name and
+declare a `mutationTable` for MySQL's ERROR 1093. At DEPTH the filter never reaches a
+write: a nested targeted `update`/`delete` addresses its row by the primary key the
+correlated probe captured, on both substrates, so `uniqueSelectorConjuncts`' output is
+consumed only by `buildFind` — an ALIASED select, which correlates for the same reason the
+root's locate always did, and which 1093 does not reach because it mutates nothing. The
+claim is about statement SHAPE, so it is pinned at compile level
+(`unique-where-relation-filter-plan.test.ts`) rather than left to a behavioural test that
+would pass either way; folding a probe into its write is the change that would break it.
+
 ---
 
 ## 9. Invariants (the executable contract)

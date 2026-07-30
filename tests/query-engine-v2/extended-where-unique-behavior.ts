@@ -872,8 +872,15 @@ export function runExtendedWhereUniqueBehavior(options: {
     // named now — `buildUpdate`/`buildDelete` qualify the unique `where` by the
     // target's table, exactly as `buildUpdateMany`/`buildDeleteMany` do — so the
     // same payload EXECUTES, and what follows pins that it executes CORRECTLY.
-    // The strict-nested-selector test below is what still separates the two
-    // schemas, so removing this one does not leave the boundary unwitnessed.
+    //
+    // MERGE CORRECTION. This slot's note used to end "the strict-nested-selector
+    // test below is what still separates the two schemas". That sentence was true
+    // in N6-U2's lane and false the moment N6-U1 merged into it: the test it
+    // pointed at was retargeted by N6-U1, and there is no longer a strict/extended
+    // boundary at a nested TARGET selector at all. The boundary that survives is
+    // the one §8 and the module note name — `connect` / `disconnect` / `set` /
+    // `connectOrCreate.where` and `cursor` — and §8 witnesses what the two units
+    // compose into where the target selectors used to be strict.
 
     test(
       "a relation filter is transparent when it MATCHES",
@@ -1280,6 +1287,203 @@ export function runExtendedWhereUniqueBehavior(options: {
             select: { label: true },
           })
         ).toEqual({ label: "owned" });
+      })
+    );
+
+    // -- 8. N6-U1 × N6-U2: the surface only the MERGE creates ----------------
+    //
+    // Neither lane could witness this. N6-U1 pointed the nested `update` /
+    // `upsert` / `delete` target selectors at `getWhereUniqueExtendedSchema`;
+    // N6-U2 put RELATION filters into that schema. Merged, a nested target
+    // selector accepts a relation filter — a payload that existed in neither
+    // lane's tree, and one that reaches a seam neither lane's witnesses cover.
+    //
+    // MEASURED, not assumed: the filter half of a nested selector never reaches
+    // a write. A nested targeted `update`/`delete` addresses the row by the
+    // primary key its correlated probe captured, on BOTH substrates, so the
+    // relation filter is carried only by `buildFind` — an aliased SELECT, which
+    // correlates correctly and is not subject to MySQL's 1093 restriction on
+    // reading the mutated table. The compile-level tripwire for that claim is in
+    // `unique-where-relation-filter-plan.test.ts`; these are the behaviours it
+    // predicts, and the exclusion arms are what separate "honoured" from
+    // "parsed and dropped".
+
+    test(
+      "a NESTED target selector takes a relation filter — matching, then excluding",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.login.create({
+          data: { id: 240, label: "owned", accountId: 1 },
+        });
+        await client.account.update({
+          where: { id: 1 },
+          data: {
+            logins: {
+              update: {
+                where: { id: 240, account: { is: { status: "active" } } },
+                data: { label: "renamed" },
+              },
+            },
+          },
+        });
+        expect(
+          await client.login.findUnique({
+            where: { id: 240 },
+            select: { label: true },
+          })
+        ).toEqual({ label: "renamed" });
+        // Same discriminator, a relation filter the row does not satisfy: the
+        // nested target's own not-found aborts the tree and nothing is written.
+        const rejection = await client.account
+          .update({
+            where: { id: 1 },
+            data: {
+              logins: {
+                update: {
+                  where: { id: 240, account: { is: { status: "archived" } } },
+                  data: { label: "must-not-land" },
+                },
+              },
+            },
+          })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        expect((rejection as Error).message).toContain(
+          "Cannot update relation 'logins'"
+        );
+        expect(
+          await client.login.findUnique({
+            where: { id: 240 },
+            select: { label: true },
+          })
+        ).toEqual({ label: "renamed" });
+        // The nested DELETE half of the same claim.
+        const declined = await client.account
+          .update({
+            where: { id: 1 },
+            data: {
+              logins: {
+                delete: { id: 240, account: { is: { status: "archived" } } },
+              },
+            },
+          })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        expect((declined as Error).message).toContain(
+          "Cannot delete relation 'logins'"
+        );
+        expect(
+          await client.login.findUnique({
+            where: { id: 240 },
+            select: { label: true },
+          })
+        ).toEqual({ label: "renamed" });
+      })
+    );
+
+    test(
+      "a nested SELF-relation filter answers the same on every dialect",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The 1093-shaped payload at DEPTH: the nested target of `boss`'s
+        // `children` is narrowed by a filter that reads `ext_wu_nodes`, the very
+        // table the nested write mutates. It is legal on MySQL without a derived
+        // table only because the filter rides the probe, never the UPDATE — and
+        // it must give the same answer as everywhere else either way.
+        await client.node.update({
+          where: { id: 1 },
+          data: {
+            children: {
+              update: {
+                where: { id: 2, children: { some: { label: "kid" } } },
+                data: { label: "promoted" },
+              },
+            },
+          },
+        });
+        expect(
+          await client.node.findUnique({
+            where: { id: 2 },
+            select: { label: true },
+          })
+        ).toEqual({ label: "promoted" });
+        // `mid` has a child, so `none` excludes it: not-found, nothing written.
+        const rejection = await client.node
+          .update({
+            where: { id: 1 },
+            data: {
+              children: {
+                update: {
+                  where: { id: 2, children: { none: {} } },
+                  data: { label: "must-not-land" },
+                },
+              },
+            },
+          })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        expect((rejection as Error).message).toContain(
+          "Cannot update relation 'children'"
+        );
+        expect(
+          await client.node.findUnique({
+            where: { id: 2 },
+            select: { label: true },
+          })
+        ).toEqual({ label: "promoted" });
+      })
+    );
+
+    test(
+      "a nested upsert's target selector picks its ARM by the relation filter",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.login.create({
+          data: { id: 250, label: "held", accountId: 1 },
+        });
+        // MATCHES → the UPDATE arm, on the row the selector named.
+        await client.account.update({
+          where: { id: 1 },
+          data: {
+            logins: {
+              upsert: {
+                where: { id: 250, account: { is: { status: "active" } } },
+                create: { id: 251, label: "unused" },
+                update: { label: "updated" },
+              },
+            },
+          },
+        });
+        // EXCLUDES → the CREATE arm, which names its own row and takes the
+        // LOCATED parent's key for the edge. The filter narrowed which row was
+        // addressed; it names none, so nothing about the created row is its.
+        await client.account.update({
+          where: { id: 1 },
+          data: {
+            logins: {
+              upsert: {
+                where: { id: 250, account: { is: { status: "archived" } } },
+                create: { id: 252, label: "created" },
+                update: { label: "must-not-land" },
+              },
+            },
+          },
+        });
+        expect(
+          await client.login.findMany({
+            orderBy: { id: "asc" },
+            select: { id: true, label: true, accountId: true },
+          })
+        ).toEqual([
+          { id: 250, label: "updated", accountId: 1 },
+          { id: 252, label: "created", accountId: 1 },
+        ]);
       })
     );
   });
