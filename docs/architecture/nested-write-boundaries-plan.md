@@ -850,6 +850,74 @@ the typed parse boundary (X2) with a `ValidationError` before the engine is ente
 payload reaches the moved derivation that did not reach it before, which is why no guard was
 added to shield it: the throw stays what X1c calls a structural invariant, not a route.
 
+### N4 × N5 — fix round 2 (one blocking finding: the third seam did not take the move)
+
+The N4-U1 entry above says all three seams "ALREADY locate their target and already spend
+that row's primary key on their own write", and calls it "the same move" at each. For
+`RelationUpsertPart` that was not true. Its update arm wrote
+`buildUpdate(childScope, { where, … })` — the USER'S selector — while N4-U1 handed its
+grandchildren `plannedParentId(probeId, childPrimaryKey)`, the row its PROBE located, and
+its batch found pin re-read the selector alone with neither the captured key nor the parent
+correlation. Two provenances that were the same literal before this wave (the `where` had
+to name the primary key, or the shape refused) and nothing forcing them onto one row. The
+other two seams were already immune: `compileTargeted` writes `{ pk: capturedPk }` and its
+guard correlates `selector ∧ fk ∧ pk` on one row; `compileUpdate` writes
+`{ targetPkField: targetPk }` from the membership read.
+
+**Measured, not predicted**, on the wave's own `depthSeamSchema` with a batch-only PGlite
+driver that commits a concurrent writer in the documented technique-#1 window (after
+planning, before the atomic unit) moving the unique `code: 'P-TARGET'` from project 20 to
+project 10 — a project of a DIFFERENT workspace. `workspace.update({ where: { id: 2 },
+data: { projects: { upsert: { where: { code: 'P-TARGET' }, update: { title, tasks: {
+create } }, create } } } })` did not throw and produced three wrongs at once: the scalar
+update landed on project 10 (never located), project 10 was REPARENTED from workspace 1
+into 2 (a cross-parent theft, since the arm also assigns the FK), and the grandchild landed
+on project 20 — one nested write, two rows. The same harness on the other two seams aborts
+with nothing written. Not pre-existing as a whole: at `f49047b` this exact payload was the
+typed "must locate the child by its primary key" refusal, so the wave converted a
+fail-closed refusal into an accepted payload whose halves land on two rows. The
+scalar-only spelling mis-wrote at the base too, and is fixed by the same change.
+
+Reachable in production: `assertRoutedAtomicResolution` refuses `update` only when the
+driver is batch-only AND non-returning, and `neon-http` / `d1` are batch-only with
+`supportsReturning: true`. Transaction mode was never exposed (the probe is `forUpdate`, so
+the mover cannot commit ahead of it) — which is also why the new split-witness instrument
+is batch-only, and the shape's transaction leg stays the ordinary one the behavior suite
+already runs on both substrates.
+
+**Fixed by porting the immune seam's shape, one home each.** The found arm addresses
+`{ [childPrimaryKey]: capturedPk }`, read through a new `locatedRow` helper that is now the
+single place the located row's columns are read — the correlation decision takes its FK from
+the same record the write takes its identity from, so no arm can be deciding about a
+different row than another is writing. The found pin stays the one the `Probe` DECLARES
+(id, premise class, failure wording, validated at construction) and compile NARROWS its
+statement to that row: `selector ∧ pk = <captured>`, plus `fk = <parent>` in `correlated`
+mode only — `global-adopt` reads no FK, so pinning its current parent would fail every
+ordinary connectOrCreate. `foundGuardStatement` is one builder called twice (declaration,
+then narrowed), which is `RelationWritePart.correlatedProbeStatement`'s own pattern, and it
+emits that seam's statement shape verbatim rather than a bespoke merge. The one arm that
+cannot address a located row keeps the selector and says why: the first-create-wins
+duplicate's row does not exist yet — an earlier sibling's INSERT in this same fragment
+makes it, under this selector.
+
+**Every conjunct has exactly one falsifying witness** (five new arms in
+`depth-seam.test.ts`, each measured by reverting that one conjunct):
+
+| Half of the fix | Witness | Why nothing else catches it |
+|---|---|---|
+| the write's captured-PK address | "an UPSERT's update arm and its grandchildren spend ONE located identity" (transaction, corrupt-locate) | the batch guard aborts before a wrong address can be observed, so provenance is only visible where no guard stands |
+| the pin's `pk = <captured>` | "a to-many upsert whose unique moves WITHIN the same parent refuses" | a replacement in ANOTHER parent is caught by the FK conjunct; only a sibling under the same parent isolates this one |
+| the pin's `fk = <parent>` | "a to-many upsert whose located row is concurrently REPARENTED refuses" | the unique never moves, so the captured-PK pin is satisfied and the arm's own FK assignment would steal the row back |
+
+The two headline arms (the finding's exact payload, with and without grandchildren) and the
+two contrast arms (the same window on `RelationWritePart` and the junction, which already
+refused) come with them: the estate had no split-witness arm for ANY seam, and now the
+three seams' answers to one window are asserted side by side.
+
+**Census unchanged at 74** (re-derived by running `route-inventory.test.ts`), and no
+count-evolution entry: no `UnsupportedOperationError` site was added, removed, or changed in
+reach. A runtime found pin and a write's addressed row are neither routes nor census sites.
+
 ## N6 — Beyond Prisma (decision-gated; each unit needs a maintainer yes)
 
 | Unit | What | Decision |

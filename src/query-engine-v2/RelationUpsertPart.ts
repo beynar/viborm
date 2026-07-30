@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
 import { NestedWriteError } from "@errors";
+import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
 import {
   getFkDirection,
@@ -13,7 +14,11 @@ import {
   createQueryScope,
   getTableName,
 } from "../query-engine/context/query-scope";
-import { buildFindUnique, buildUpdate } from "../query-engine/operations";
+import {
+  buildFind,
+  buildFindUnique,
+  buildUpdate,
+} from "../query-engine/operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope, RelationInfo } from "../query-engine/types";
@@ -32,6 +37,7 @@ import {
   upsertTargetVanished,
 } from "./messages";
 import {
+  type GuardStep,
   type OperationStep,
   type OperationValueReference,
   type Probe,
@@ -197,16 +203,12 @@ export class RelationUpsertPart implements Part {
     // Widened probe (ATOM §3 technique 2): read the child by its own unique key,
     // including every FK column, so compile can decide the three-way. Locked in
     // tx mode.
-    const identitySelect: Record<string, boolean> = {
-      [config.childPrimaryKey]: true,
-    };
-    for (const fkField of config.fkFields) identitySelect[fkField] = true;
     this.find = {
       id: this.probeId,
       kind: "read",
       statement: buildFindUnique(childScope, {
         where,
-        select: identitySelect,
+        select: this.identitySelect(),
         forUpdate: txMode,
       }),
       // N4-U1: when the update arm's grandchildren take this probe's captured primary
@@ -231,27 +233,44 @@ export class RelationUpsertPart implements Part {
     // Found premise: pinned by the exists guard in batch mode (raceable: false),
     // by the lock in tx mode. Missing premise: enforced by the child's unique
     // constraint (the racePin on the create write), never a notExists guard.
-    const foundGuardStatement = buildFindUnique(childScope, {
-      where,
-      select: identitySelect,
-    });
+    //
+    // The found pin is DECLARED here — its id, its premise class and its failure
+    // wording are facts about the shape, validated before any I/O — and its statement
+    // is NARROWED at compile to the row the probe actually located
+    // ({@link foundGuardStatement}). Compile emits this declared pin, never a second
+    // one, so the Pin Rule stays machine-checkable through the narrowing.
     const foundPin = txMode
       ? ("none" as const)
       : this.family === "connectOrCreate"
         ? presenceGuard(
             this.guardId,
-            foundGuardStatement,
+            this.foundGuardStatement(undefined, undefined),
             nestedWriteFailure(
               nestedReplacement("connectOrCreate"),
               relationName
             )
           )
-        : existsGuard(this.guardId, foundGuardStatement, relationName);
+        : existsGuard(
+            this.guardId,
+            this.foundGuardStatement(undefined, undefined),
+            relationName
+          );
     this.probe = {
       read: this.find,
       pin: { whenFound: foundPin, whenMissing: "constraint" },
     };
     validateProbe(this.probe);
+  }
+
+  /** The probe's (and the found pin's, and the update arm's) projection: this child's
+   *  primary key plus every FK column — its identity and its current parent, the two
+   *  things every arm's decision is made from. */
+  private identitySelect(): Record<string, boolean> {
+    const select: Record<string, boolean> = {
+      [this.config.childPrimaryKey]: true,
+    };
+    for (const fkField of this.config.fkFields) select[fkField] = true;
+    return select;
   }
 
   /** The address consumers read this part's probe rows from in `known`. */
@@ -292,7 +311,13 @@ export class RelationUpsertPart implements Part {
       // (a batch hoists guards ahead of writes, so a guard here would precede that
       // create). The connectOrCreate update payload is empty, so the adopt arm is a
       // pure reparent SET, landing the same FK the terminal read expects.
-      return [this.buildUpdateArm(known)];
+      //
+      // This is the ONE arm that cannot address a located row: the probe found
+      // nothing, and the row it adopts does not exist yet — the earlier sibling's
+      // INSERT makes it, inside this same fragment, under the very selector this
+      // arm names. So the selector is not a second provenance here; it is the only
+      // identity in existence, and the row it will name is one this operation wrote.
+      return [this.buildUpdateArm(known, this.config.where)];
     }
     if (arm === "create") {
       // Create arm: this child is fresh. Its update-arm children do not run
@@ -308,17 +333,129 @@ export class RelationUpsertPart implements Part {
       return createSteps;
     }
     // Found: adopt-and-update (global) or update the correlated child. In batch
-    // mode the found premise is pinned first by the exists guard. The update-arm
-    // children then compile one level deeper, correlated to this child's PK.
+    // mode the found premise is pinned first by the exists guard, narrowed to the
+    // located row. The update-arm children then compile one level deeper,
+    // correlated to this child's PK.
+    //
+    // Every write this arm emits addresses THE ROW THE PROBE LOCATED, by its captured
+    // primary key — the wrong-row doctrine, and the same identity
+    // `RelationWritePart.compileTargeted` and `RelationJunctionPart.compileUpdate`
+    // spend at their own seams. Before N4-U1 the selector had to name the primary key,
+    // so "the selector's row" and "the located row" were one literal; once any unique
+    // may name the target they are two provenances, and the update-arm grandchildren
+    // already take the located one (`plannedParentId(probeId, childPrimaryKey)`).
+    // Addressing the selector here would let the halves of one nested write land on
+    // two different rows.
+    const capturedPk = this.capturedPk(rows);
     const steps: OperationStep[] = [];
     if (this.probe.pin.whenFound !== "none") {
-      steps.push(this.probe.pin.whenFound);
+      steps.push(
+        this.pinLocatedRow(this.probe.pin.whenFound, capturedPk, known)
+      );
     }
-    steps.push(this.buildUpdateArm(known));
+    steps.push(
+      this.buildUpdateArm(known, { [this.config.childPrimaryKey]: capturedPk })
+    );
     for (const child of this.updateChildParts) {
       steps.push(...child.compile(scope, known));
     }
     return steps;
+  }
+
+  /**
+   * The primary key of the row the probe located — the identity every found-arm write
+   * addresses, read from the row the probe ACTED ON (`forUpdate` in tx mode) and never
+   * re-derived from the selector. The same {@link locatedRow} the correlation decision
+   * reads its foreign key from, so one arm cannot be deciding about a different row than
+   * the other is writing.
+   *
+   * A row that carries no primary key is not guarded here: it makes the pin and the
+   * write address `pk = <undefined>`, which the unique-`where` builder refuses outright
+   * and which no substrate can silently satisfy — the operation already fails closed on
+   * both, so a check here would be redundant defense (one guard per invariant).
+   */
+  private capturedPk(rows: readonly unknown[]): unknown {
+    return locatedRow(rows)?.[this.config.childPrimaryKey];
+  }
+
+  /**
+   * The declared found pin, narrowed to the located row. Only the premise's STATEMENT
+   * changes — the id, the premise class and the failure wording are the constructor's,
+   * which is what makes this the same pin the {@link Probe} declares rather than a
+   * second guard for the same premise.
+   */
+  private pinLocatedRow(
+    pin: GuardStep,
+    capturedPk: unknown,
+    known: PlanningKnown
+  ): GuardStep {
+    return {
+      ...pin,
+      premise: {
+        ...pin.premise,
+        statement: this.foundGuardStatement(capturedPk, known),
+      },
+    };
+  }
+
+  /**
+   * The found premise's statement, and its one home — the shape
+   * `RelationWritePart.correlatedProbeStatement` already uses for both its planning
+   * probe and its batch guard. Called with no located row at construction (the premise
+   * the probe DECLARES: "a row matching the selector exists"), and with the located row
+   * at compile, which narrows it to that row:
+   *
+   *  · `pk = <captured>` — the selector and the row the decision was made about must
+   *    still COINCIDE. Without it, a concurrent writer that moves the unique to a
+   *    DIFFERENT row between planning and the atomic batch leaves the selector-alone
+   *    premise true of a REPLACEMENT: the guard passes, the update arm writes that
+   *    replacement (reparenting it, since the arm also sets the FK) and the arm's
+   *    grandchildren still land on the located row — one nested write, two rows.
+   *  · `fk = <parent>` in `correlated` mode only — the row must still be OURS, the
+   *    other half of what {@link decide} read. `global-adopt` read no FK at all (it
+   *    adopts the row from wherever it is, so pinning its current parent would fail
+   *    every ordinary connectOrCreate). Without it, a row concurrently reparented away
+   *    is silently stolen back by this arm's own FK assignment.
+   *
+   * The selector is flattened to its unique DISCRIMINATOR entries and the conjuncts join
+   * them in one `AND`, which is `RelationWritePart`'s guard verbatim — the two seams
+   * emit the same statement shape rather than one carrying a bespoke merge. That
+   * flattening loses nothing while a nested target selector is unique-only (W4's
+   * deliberate scoping: an extra filter key does not parse here); if N6-U1 widens these
+   * selectors it owes BOTH seams the filter half, and that is the one place to add it.
+   * No `forUpdate`: this statement exists only on the batch substrate, which is the only
+   * substrate that emits a found pin at all.
+   */
+  private foundGuardStatement(
+    capturedPk: unknown,
+    known: PlanningKnown | undefined
+  ): Sql {
+    const { childScope, where, childPrimaryKey, fkFields, correlation } =
+      this.config;
+    return buildFind(
+      childScope,
+      {
+        where: {
+          AND: [
+            ...getWhereUniqueEntries(childScope, where).map(
+              ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
+            ),
+            ...(capturedPk === undefined
+              ? []
+              : [{ [childPrimaryKey]: { equals: capturedPk } }]),
+            ...(known && correlation === "correlated"
+              ? fkFields.map((fkField, index) => ({
+                  [fkField]: {
+                    equals: this.parentReferenced(known, index),
+                  },
+                }))
+              : []),
+          ],
+        },
+        select: this.identitySelect(),
+      },
+      { limit: 1 }
+    );
   }
 
   /**
@@ -332,11 +469,7 @@ export class RelationUpsertPart implements Part {
   ): "create" | "found" {
     if (rows.length === 0) return "create";
     if (this.config.correlation === "global-adopt") return "found";
-    const row = rows[0];
-    const record =
-      row && typeof row === "object"
-        ? (row as Record<string, unknown>)
-        : undefined;
+    const record = locatedRow(rows);
     // Correlated: found only if EVERY child FK column already equals its
     // referenced parent column (a compound edge correlates per-field). A partial
     // or foreign match is the found-uncorrelated V7001 (V1's verbatim message).
@@ -366,24 +499,26 @@ export class RelationUpsertPart implements Part {
     };
   }
 
-  private buildUpdateArm(known: PlanningKnown): StatementStep {
-    const { childScope, where, txMode, relationName } = this.config;
-    const identitySelect: Record<string, boolean> = {
-      [this.config.childPrimaryKey]: true,
-    };
-    for (const fkField of this.config.fkFields) identitySelect[fkField] = true;
+  /** The found/adopt arm. `address` is the row it writes: the located row's captured
+   *  primary key on the found arm, and — only for the first-create-wins duplicate,
+   *  whose row this operation has not inserted yet — the selector. */
+  private buildUpdateArm(
+    known: PlanningKnown,
+    address: Record<string, unknown>
+  ): StatementStep {
+    const { childScope, txMode, relationName } = this.config;
     const step: StatementStep = {
       id: this.updateId,
       kind: "write",
       statement: buildUpdate(childScope, {
-        where,
+        where: address,
         data: {
           ...this.config.updateData,
           // global-adopt reparents to the new parent; correlated re-sets the
           // same value (idempotent). Both land the FK the terminal read expects.
           ...this.fkAssignData(known),
         },
-        select: identitySelect,
+        select: this.identitySelect(),
       }),
       outputs: {},
     };
@@ -447,6 +582,22 @@ export class RelationUpsertPart implements Part {
       "upsert"
     );
   }
+}
+
+/**
+ * The row this part's probe located, as a readable record — the ONE place the located
+ * row's columns are read from, by both things that need them: the correlation decision
+ * (its foreign key) and the identity the found arm writes (its primary key). A result
+ * with no readable first row yields `undefined`, and every caller's own path then fails
+ * closed on the missing value.
+ */
+function locatedRow(
+  rows: readonly unknown[]
+): Record<string, unknown> | undefined {
+  const row = rows[0];
+  return row && typeof row === "object"
+    ? (row as Record<string, unknown>)
+    : undefined;
 }
 
 function fkEquals(childFk: unknown, parentId: unknown): boolean {
