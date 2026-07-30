@@ -2127,6 +2127,46 @@ look for: a caller that dispatches on the kind instead of the shape.
 
 Both stay in the census as capability gaps.
 
+### 8.2 N7-U-B — the arms that ask for nothing, and what a live oracle sees
+
+U-A stopped counting the sites that refuse nothing. U-B took the sites that DO refuse and
+measured them — not against Prisma's generated input types, which is what every earlier
+wave compared to, but against **a running Prisma 7.9.1** (`prisma-client` generator +
+`@prisma/adapter-pg`, on a scratch Postgres), payload by payload beside the same payload on
+viborm. Census 45 → **40**, and the (c-iii) class — reachable refusals with no recorded
+reason — is empty.
+
+**The finding that matters is not a refusal.** A to-one `disconnect` / `delete` is
+`v.boolean()` at the parse boundary, so `false` is the entire non-`true` surface, and Prisma
+treats it as DO NOTHING. viborm refused it at four sites — and at two paths with NO census
+site it silently did the disconnect anyway: `interpretToOneLink` nulled the FK without ever
+reading the boolean, and the depth arm passed `isInverseToOne && kind === "disconnect" ?
+true : …`. **A census of refusals is structurally blind to a wrong ACCEPT.** That is the
+argument for measuring behavior rather than counting throws, and it cost this engine two
+silent data-loss paths to make.
+
+The fix is a rule about the vocabulary, not a fifth check: **a kind that asks for nothing is
+not a kind.** `getRelationMutationKinds` is the ONE derivation of the kind list — every V2
+dispatch and the own-write legality walk of §4 read it — so dropping a `false` arm there
+means no arm is built, no legality footprint is derived, and no downstream site re-asks.
+`UpdateOperation.interpretRelation` returns early on an empty list, which is also what makes
+an empty relation payload (`{ profile: {} }`) the no-op Prisma makes it, while the
+"two kinds on one to-one arm" refusal — a payload naming two conflicting intents — stands.
+`RelationWritePart.isNoOpUpdate` is the same rule one level down: an `update`/`updateMany`
+arm with no scalar assignment and no deeper write emits NO step, so it neither writes an
+empty SET nor makes the target's existence a precondition — both measured behaviors.
+
+**One vocabulary limit was measured rather than argued, and it is §1's.** The audit expected
+a compound-PK CHILD in a nested targeted mutation to fall to "the per-field generalization
+N1-U2 applied to FKs". It does not, because those are two different objects. N1-U2
+generalized the FK ASSIGNMENT — values written INTO columns — and those structures are
+already per-field. A nested targeted mutation needs the **produced identity a later step
+ADDRESSES**, and that is single-column at the bottom of the vocabulary:
+`StatementOutputSource`'s `firstRowField` carries `field: string`. There is no tuple form to
+wire, which is why that family is inexpressible rather than unwired, and why closing it is a
+§1 amendment (a multi-column produced output, then a tuple `capturedPk`) rather than a
+wiring wave.
+
 ---
 
 ## 9. Invariants (the executable contract)
