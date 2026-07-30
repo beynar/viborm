@@ -1755,6 +1755,36 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // `new UnsupportedOperationError(` at `UpdateOperation` :1738, `RelationJunctionPart`
   // :1199 and `UpsertOperation` :207 fails this count test at 46/47/48 respectively;
   // restored.
+  //
+  // 45 -> 40 (N7-U-B, THE ARMS THAT ASK FOR NOTHING — five sites absorbed, not
+  // reclassified). U-A retired the (c-i) class; U-B's work order was the (c-ii)/(c-iii)
+  // rows, and the first thing it did was MEASURE them against Prisma 7.9.1 live
+  // (`@prisma/adapter-pg`, Postgres). Two families came back as viborm being STRICTER
+  // than the boundary it claims to share, both with no recorded reason:
+  //   · **The boolean no-op arm** (−4: `UpdateOperation` :1923 / :1950 / :2485,
+  //     `nested-target-parts` :486, in the audit's numbering). A to-one `disconnect` /
+  //     `delete` is `v.boolean()` at the parse boundary, so the only value other than
+  //     `true` that can reach the engine is `false` — and Prisma treats `false` as DO
+  //     NOTHING, measured on both directions. viborm refused it at four sites and, at
+  //     three OTHER paths that had no site at all, SILENTLY DID IT ANYWAY: the parent-held
+  //     `disconnect` never looked at the boolean, and the depth arm coerced it to `true`
+  //     outright. One resolution point now answers for all of them —
+  //     `getRelationMutationKinds` drops a kind that asks for nothing — so the four
+  //     refusals and the two silent divergences go together. This is the FIRST count
+  //     change in this log that fixes wrong behavior rather than a refusal.
+  //   · **The empty nested update** (−1: `RelationWritePart` :666). Prisma accepts
+  //     `update: { where, data: {} }` and the `updateMany` spelling, writes nothing, and
+  //     — measured — does not even require the target to exist, while a NON-empty nested
+  //     update on the same missing `where` still raises. viborm's ROOT already accepted
+  //     `data: {}`; only the nested spelling refused. `RelationWritePart.isNoOpUpdate`
+  //     now emits no step for such an arm: no probe, no presence guard, no empty SET.
+  // Witnesses: `boolean-noop-arm-behavior.ts` — 15 shapes × 2 substrates, wired into all
+  // four driver files — asserting STATE (the row and its FK unmoved), with the `true`
+  // controls beside them so a plan that dropped every arm cannot pass. FALSIFIED by
+  // mutation: restoring the unfiltered kind list fails 14 of the 30 (the boolean family,
+  // both substrates); removing the two `isNoOpUpdate` early returns fails the other 14
+  // (the empty-data family plus the two depth cases that ride the same nested arm);
+  // restored, 30/30 green.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1765,7 +1795,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(45);
+    expect(sites).toBe(40);
   });
 });
 

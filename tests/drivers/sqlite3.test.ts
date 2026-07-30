@@ -19,6 +19,7 @@ import {
   setupSQLite3UserPostDatabase,
 } from "../fixtures/drivers/sqlite3";
 import { seedWindowUserPosts } from "../fixtures/user-post-seed";
+import { runBooleanNoOpArmBehavior } from "../query-engine-v2/boolean-noop-arm-behavior";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
@@ -947,6 +948,15 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runOwnWriteLinearizationBehavior({
+    name: "SQLite3 atomic batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
+  runBooleanNoOpArmBehavior({
+    name: "SQLite3 transaction",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runBooleanNoOpArmBehavior({
     name: "SQLite3 atomic batch",
     createDriver: createBatchOnlySQLite3Driver,
   });

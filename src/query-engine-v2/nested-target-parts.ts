@@ -432,7 +432,12 @@ function foldOneChildHeldKind(args: {
           fk.pkFields,
           writeBase.childPrimaryKey,
           kind,
-          isInverseToOne && kind === "disconnect" ? true : parsedRelation[kind],
+          // The payload verbatim. An inverse-side to-one `disconnect` is `v.boolean()`
+          // at the parse boundary and reaches here only as `true` — `false` is Prisma's
+          // no-op and is dropped from the kind list (N7-U-B). Before that, this argument
+          // coerced the inverse-to-one arm to `true` unconditionally, which turned
+          // `disconnect: false` at depth into a SILENT disconnect.
+          parsedRelation[kind],
           parentId,
           txMode
         )
@@ -487,11 +492,9 @@ function foldOneChildHeldKind(args: {
       return;
     case "delete":
       if (isInverseToOne) {
-        if (parsedRelation.delete !== true) {
-          throw new UnsupportedOperationError(
-            `query-engine-v2 update supports only 'delete: true' on the inverse-side to-one relation '${relationName}' one level deeper.`
-          );
-        }
+        // `delete: true` — the arm's only reachable value at this seam too (the parse
+        // boundary types an inverse-side to-one `delete` as `v.boolean()`; `false` is
+        // Prisma's no-op, dropped from the kind list, N7-U-B).
         push(buildToManyDeleteManyParts(writeBase, {}));
         return;
       }

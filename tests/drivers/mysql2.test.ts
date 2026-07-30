@@ -20,6 +20,7 @@ import {
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { runBooleanNoOpArmBehavior } from "../query-engine-v2/boolean-noop-arm-behavior";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
@@ -489,6 +490,18 @@ describeIf("MySQL2 Driver", () => {
         databaseUrl: TEST_CONNECTION_STRING,
       }),
     createStateDriver: createMySQL2Driver,
+  });
+
+  runBooleanNoOpArmBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+  runBooleanNoOpArmBehavior({
+    name: "MySQL2 atomic batch",
+    createDriver: () =>
+      new MySQL2BatchForcedDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
   });
 
   runJunctionCreateManyBehavior({

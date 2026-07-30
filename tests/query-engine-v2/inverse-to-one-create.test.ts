@@ -262,11 +262,26 @@ test("the object form of disconnect/delete is refused at the PARSE boundary, not
   }
 });
 
-test("the engine's boolean-only refusal is reachable exactly for `false`", () => {
+/**
+ * RETARGETED by N7-U-B, deliberately, and the reason is the point of the change.
+ *
+ * N2-U3 wrote this test to pin the refusal in both directions — *"`false` throws,
+ * `true` does not"* — so the message could not outlive its cause. The cause did not
+ * survive: N7-U-B measured Prisma 7.9.1 live and `false` is Prisma's NO-OP arm, not a
+ * shape Prisma refuses. N2-U3's own record says it *"recorded no reason to refuse
+ * `false`"*, and there was none. The refusal is gone; what stays pinned is that `false`
+ * reaches the engine at all (it is not a parse-boundary rejection like the object form
+ * above) and that it now CONSTRUCTS, exactly as `true` does.
+ *
+ * The semantics — that `false` moves no row while `true` does — are witnessed on live
+ * data, on both substrates, in `boolean-noop-arm-behavior.ts`. This test keeps only the
+ * construction-level half, which is what this file is about.
+ */
+test("the boolean arm constructs for `false` and for `true` alike", () => {
   for (const key of ["disconnect", "delete"] as const) {
     expect(() =>
       construct({ where: { id: 1 }, data: { profile: { [key]: false } } })
-    ).toThrow(new RegExp(`supports only '${key}: true'`));
+    ).not.toThrow();
     expect(() =>
       construct({ where: { id: 1 }, data: { profile: { [key]: true } } })
     ).not.toThrow();

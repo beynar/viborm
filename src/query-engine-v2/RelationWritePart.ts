@@ -183,6 +183,12 @@ export class RelationWritePart implements Part {
   // the child Parts were built against a `planned` source pointing at {@link probeId} —
   // the probe then owes them a `firstRowField` output and a not-found postcondition.
   private readonly probeCarriesLocatedPk: boolean;
+  // N7-U-B — a nested `update`/`updateMany` arm that asks for nothing: no scalar
+  // assignment, no deeper relation write, and not an upsert arm (whose CREATE half
+  // still runs when the probe finds no row). Prisma skips such an arm entirely, so
+  // this Part emits NO step — not the probe, not the presence guard, not an empty-SET
+  // UPDATE — and in particular does not require the target to exist.
+  private readonly isNoOpUpdate: boolean = false;
 
   constructor(scope: StepScope, config: RelationWriteConfig) {
     this.config = config;
@@ -203,6 +209,10 @@ export class RelationWritePart implements Part {
       this.reorderAfterChildren = built.reorderAfterChildren;
       this.updateScalarData = built.scalarData;
       this.probeCarriesLocatedPk = built.parentIsLocatedPk;
+      this.isNoOpUpdate =
+        config.upsertCreateData === undefined &&
+        built.childParts.length === 0 &&
+        Object.keys(built.scalarData).length === 0;
       // MERGE (N4 + N5): the PK-arithmetic portability check that used to stand here
       // moved INTO `interpretChildParts` (N5-U1b) — it must run before that method
       // derives a post-transition primary key from the same scalar assignments.
@@ -216,11 +226,14 @@ export class RelationWritePart implements Part {
       this.upsertCreateScalarData();
     }
     // The probe is built LAST: whether it owes the deeper edges the located primary
-    // key is a fact about the child Parts, which are interpreted above.
-    this.probe = this.isTargeted() ? this.buildProbe() : undefined;
+    // key is a fact about the child Parts, which are interpreted above. A no-op arm
+    // gets no probe — it must not make the target's existence a precondition.
+    this.probe =
+      this.isTargeted() && !this.isNoOpUpdate ? this.buildProbe() : undefined;
   }
 
   planning(scope: StepScope): readonly OperationStep[] {
+    if (this.isNoOpUpdate) return [];
     const steps: OperationStep[] = this.probe ? [this.probe] : [];
     // Depth (T3b mechanism 1): the located target's own child Parts plan their
     // probes here, one level deeper — the same unconditional planning superset the
@@ -235,6 +248,7 @@ export class RelationWritePart implements Part {
   }
 
   compile(scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
+    if (this.isNoOpUpdate) return [];
     if (this.config.kind === "updateMany") return [this.buildUpdateMany(known)];
     if (this.config.kind === "deleteMany") return [this.buildDeleteMany(known)];
     return this.compileTargeted(scope, known);
@@ -668,11 +682,14 @@ export class RelationWritePart implements Part {
     // reject recurses into nested update data BEFORE any outer effect, byte-identical.
     assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
     if (Object.keys(relations).length === 0) {
-      if (Object.keys(scalarData).length === 0) {
-        throw new UnsupportedOperationError(
-          `query-engine-v2 ${kind} for relation '${relationName}' requires at least one scalar assignment.`
-        );
-      }
+      // An EMPTY nested update payload (`update: { where, data: {} }`,
+      // `updateMany: { where, data: {} }`) asks for nothing. Measured against Prisma
+      // 7.9.1 (`@prisma/adapter-pg`, Postgres): both spellings return the parent
+      // unchanged, and — unlike a non-empty nested update — a `where` matching NO row
+      // raises nothing either, so the arm is skipped whole rather than located and
+      // found missing. viborm's root already accepts `update({ where, data: {} })`;
+      // this makes the nested spelling agree (N7-U-B). The Part answers by emitting no
+      // steps at all — see `isNoOpUpdate`.
       return {
         childParts: [],
         reorderAfterChildren: false,

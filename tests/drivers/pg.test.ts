@@ -11,6 +11,7 @@ import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runBooleanNoOpArmBehavior } from "../query-engine-v2/boolean-noop-arm-behavior";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
@@ -691,6 +692,16 @@ describeIf("pg Driver", () => {
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runOwnWriteLinearizationBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runBooleanNoOpArmBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runBooleanNoOpArmBehavior({
     name: "pg atomic batch",
     createDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),

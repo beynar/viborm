@@ -47,10 +47,27 @@ export const RELATION_MUTATION_KEYS = [
 
 export type RelationMutationKind = (typeof RELATION_MUTATION_KEYS)[number];
 
+/**
+ * **Prisma's boolean no-op arm (N7-U-B).** A to-one `disconnect` / `delete` is typed
+ * `v.boolean()` at the parse boundary, so the only value other than `true` any payload
+ * can carry is the literal `false` — and `false` means DO NOTHING. Measured live against
+ * Prisma 7.9.1 (`@prisma/adapter-pg`, Postgres): `user.update({ data: { profile:
+ * { disconnect: false } } })` and `{ delete: false }` both return the parent unchanged,
+ * with the child row and its foreign key untouched, on the inverse side AND the
+ * parent-held side alike; the same payloads spelled `true` null the key / delete the row.
+ *
+ * The kind list is where that is spelled ONCE, because it is the single derivation point
+ * for "which kinds does this payload ask for" — the six V2 dispatches and the own-write
+ * legality walk all read it (ATOM §4). A kind that asks for nothing is not in the list,
+ * so no arm is built for it, no legality footprint is derived from it, and no site
+ * downstream has to re-ask whether the boolean was `true`.
+ */
 export function getRelationMutationKinds(
   mutation: RelationMutation
 ): RelationMutationKind[] {
-  return RELATION_MUTATION_KEYS.filter((kind) => mutation[kind] !== undefined);
+  return RELATION_MUTATION_KEYS.filter(
+    (kind) => mutation[kind] !== undefined && mutation[kind] !== false
+  );
 }
 
 export function assertSingleRelationInput(

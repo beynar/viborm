@@ -1145,6 +1145,16 @@ export class UpdateOperation {
     const relationInfo = mutation.relationInfo;
     const kinds = getRelationMutationKinds(mutation);
 
+    if (kinds.length === 0) {
+      // A relation payload that asks for nothing: `{}`, or one whose only arms were
+      // Prisma's boolean no-op (`disconnect: false` / `delete: false`, stripped by
+      // `getRelationMutationKinds`). Prisma 7.9.1, measured: `data: { profile: {} }` and
+      // `data: { posts: {} }` both return the parent unchanged. Nothing to build, and in
+      // particular NOT the "one mutation kind" refusal below, whose subject is a payload
+      // naming two conflicting intents.
+      return;
+    }
+
     if (relationInfo.type === "manyToMany") {
       // Many-to-many is not special (WHY §4.3): junction as ordinary Parts. Each
       // membership kind is a leaf feeding the same step vocabulary; the whole
@@ -1561,8 +1571,26 @@ export class UpdateOperation {
       );
       return { parentId: literalParentId(transitioned), afterRoot: true };
     }
-    const literal = input.rootScalarData[referencedField];
+    // N7-U-B — `{ set: v }` is the SAME assignment as the bare `v`, spelled with the
+    // envelope Prisma's scalar update input allows. `classifyRelationKeyScalarUpdate`
+    // is the engine's one reader of that envelope (the own-write legality walk and
+    // `TargetConstraint` already ask it the same question), so the normalization is
+    // borrowed, not invented: an operand it calls RESOLVED is the value the SET writes.
+    // What stays refused is the shape that HAS no construction-time value — `Sql`, a
+    // `{ increment }` / `{ multiply }` arithmetic op, a batch-value `Ref`, and `null`
+    // (which references no row) — see the throw's own record.
+    const operand = input.rootScalarData[referencedField];
+    const resolved = classifyRelationKeyScalarUpdate(operand);
+    const literal = resolved.resolved ? resolved.value : operand;
     if (!isConstructionLiteral(literal)) {
+      // MEASURED (N7-U-B): what reaches here after the `{ set: v }` unwrapping above is
+      // an operand with NO value at construction. `INSERT … VALUES (<the post-SET
+      // value>)` is trivial SQL; what the engine cannot spell is the value itself. A
+      // `{ increment: 1 }` needs the pre-transition column read and the arithmetic
+      // applied — the SAME missing `planned`-source-carrying-the-SET-operand the two
+      // branches above name; an `Sql` operand re-evaluated for the FK is a SECOND
+      // provenance (`gen_random_uuid()` twice is two values, the N4-U4 measurement);
+      // `null` references no row at all.
       throw new UnsupportedOperationError(
         `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${referencedField}'.`
       );
@@ -1941,13 +1969,9 @@ export class UpdateOperation {
       case "disconnect": {
         // A required child FK cannot be nulled — V1's verbatim typed rejection.
         assertNullable(relationInfo, fk);
-        if (parsedRelation.disconnect !== true) {
-          // A targeted (non-boolean) to-one disconnect is V1's captured path; out
-          // of T2 scope — route the whole tree to V1.
-          throw new UnsupportedOperationError(
-            `query-engine-v2 update supports only 'disconnect: true' on the inverse-side to-one relation '${relationName}'.`
-          );
-        }
+        // The arm's value is `true` by construction: the parse boundary types an
+        // inverse-side to-one `disconnect` as `v.boolean()`, and `false` is Prisma's
+        // no-op, dropped from the kind list (N7-U-B).
         push(
           buildToManyLinkParts(
             input.scope,
@@ -1968,15 +1992,10 @@ export class UpdateOperation {
         return;
       }
       case "delete":
-        if (parsedRelation.delete !== true) {
-          // A targeted (non-boolean) to-one delete is V1's captured path; out of
-          // T2 scope — route the whole tree to V1.
-          throw new UnsupportedOperationError(
-            `query-engine-v2 update supports only 'delete: true' on the inverse-side to-one relation '${relationName}'.`
-          );
-        }
         // `delete: true` is a correlated bulk delete — DELETE child WHERE fk = parent
-        // (V1's `RelationRemovals.delete` input===true, child-held arm).
+        // (V1's `RelationRemovals.delete` input===true, child-held arm). `true` is the
+        // arm's only reachable value: the parse boundary types it `v.boolean()` and
+        // `false` is Prisma's no-op, dropped from the kind list (N7-U-B).
         push(buildToManyDeleteManyParts(writeBase, {}));
         return;
       default:
@@ -2501,19 +2520,15 @@ export class UpdateOperation {
   }
 
   /** A parent-held to-one `delete: true`: NULL the parent FK (a required FK is V1's
-   *  typed reject), then correlated bulk-delete the referenced target. */
+   *  typed reject), then correlated bulk-delete the referenced target. `true` is the
+   *  arm's only reachable value — the parse boundary types it `v.boolean()` and `false`
+   *  is Prisma's no-op, dropped from the kind list (N7-U-B). */
   private interpretParentHeldDelete(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
     fk: FkDirection
   ): ParentHeldTarget {
-    if (input.parsedRelation.delete !== true) {
-      // A targeted (non-boolean) parent-held delete is V1's captured path.
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update supports only 'delete: true' on the parent-held to-one relation '${relationName}'.`
-      );
-    }
     // A required (non-nullable) FK cannot be nulled — V1's verbatim typed rejection.
     assertNullable(relationInfo, fk);
     const childScope = createQueryScope(

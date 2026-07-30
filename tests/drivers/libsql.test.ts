@@ -2,6 +2,7 @@ import { LibSQLDriver } from "@drivers/libsql";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { Client, Transaction } from "@libsql/client";
 import { createInMemoryLibSQLDriver } from "../fixtures/drivers/libsql";
+import { runBooleanNoOpArmBehavior } from "../query-engine-v2/boolean-noop-arm-behavior";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
@@ -297,6 +298,15 @@ describe("LibSQL Driver", () => {
     createDriver: createInMemoryLibSQLDriver,
   });
   runOwnWriteLinearizationBehavior({
+    name: "LibSQL atomic batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
+  });
+
+  runBooleanNoOpArmBehavior({
+    name: "LibSQL transaction",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runBooleanNoOpArmBehavior({
     name: "LibSQL atomic batch",
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });
