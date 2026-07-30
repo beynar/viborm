@@ -2068,6 +2068,65 @@ claim is about statement SHAPE, so it is pinned at compile level
 (`unique-where-relation-filter-plan.test.ts`) rather than left to a behavioural test that
 would pass either way; folding a probe into its write is the change that would break it.
 
+### 8.1 N7-U-A — the census stops counting the sites that refuse nothing
+
+The N-waves' final acceptance row asked for a census "at its floor", every survivor a
+genuine refusal with a measured justification. The floor audit tested that claim site by
+site and found **25 of the 68 refusing nothing**: `unknown -> Record` narrowings behind a
+whole-args parse, defensive type guards over a closed union, and `default:` arms of
+switches TOTAL over the parse boundary's own key set. This unit applies to them the
+disposition this engine had already used twice — N2-U1's `interpretInverseToOneKind`
+`default` and X1c's two `foldOneNestedRelation` branches — and states it as a rule:
+
+> **A branch unreachable BY CONSTRUCTION is a `QueryEngineError` internal invariant, never
+> an `UnsupportedOperationError`.** The user-facing class means "this engine declines a
+> shape you can write". A branch no payload can reach declines nothing, and counting it as
+> a refusal makes the census a count of code rather than of capability.
+
+**Why convert rather than DELETE**, given "one guard per invariant" bans redundant
+defense: these are not guards, they are the type system's own requirements. The
+`unknown -> Record` narrowings sit where a dynamically-keyed slot of a parsed payload
+widens to `unknown` (X2 already recorded that removing them needs precise per-relation
+types threaded through every Part builder — a refactor, not a deletion), and a `default:`
+arm over a `string` kind is what makes the dispatch total for tsc. Deleting either would
+mean casting instead of narrowing, which trades a fail-closed invariant for a silent one.
+What was wrong was never that the branch exists — only the CLASS it threw, which claimed a
+capability boundary where there is none.
+
+23 of the 25 converted; census 68 → 45. **Nothing executes that did not execute before and
+nothing refuses that did not refuse before** — the count moved because the metric got
+honest, not because the engine did. Every conversion carries a witness in
+`census-conversion-witnesses.test.ts`: a payload fed through the PUBLIC client surface,
+asserting the `ValidationError` (or, for the mismatched-arity edge, the upstream
+`NestedWriteError` the own-write analyzer raises) that answers FIRST. Four sites have no
+public spelling at all — `UpdateOperation`'s missing-relation-schema and
+impossible-relation-type guards, its depth twin in `nested-target-parts`, and
+`ReadOperation`'s non-read-base guard — and are pinned by their structural invariant
+instead, which is what the conversion law asks for when no payload exists.
+
+TWO of the 25 failed re-verification, which is why the number is 45 rather than 43, and
+each was caught a different way.
+
+`CreateOperation`'s create-root relation-type guard called itself "a schema impossibility";
+it is reachable. A `manyToOne` declared without `.fields()` has `holdsFK === false` and
+`type === "manyToOne"`, lands on it, and is refused — while the SAME relation on the SAME
+schema constructs under `update`, whose gate asks `isToOne || type === "oneToMany"` and
+routes it down the very child-held path the create root withholds. Two sibling predicates
+for one direction, one narrower than the other, and only the narrow one throws. A
+purpose-built schema in the re-verification probe found it.
+
+`RelationUpsertPart`'s to-many-upsert direction guard was filed "no reachable payload
+identified", on the argument that every caller dispatches direction first. One does not:
+`buildUpdateArmParts`, the grandchild fold on an upsert's UPDATE arm, dispatches on the
+KIND alone, so a parent-held to-one `connectOrCreate` one level deeper arrives with
+`type === "manyToOne"`. The ESTATE found this one — converting it turned
+`upsert-family.test.ts`'s "depth-2 to-one grandchild refusal" red, a test that had been
+standing in front of the site the whole time. **A reachability argument about "every
+caller" is only as strong as the caller list**, and this is the shape of the mistake to
+look for: a caller that dispatches on the kind instead of the shape.
+
+Both stay in the census as capability gaps.
+
 ---
 
 ## 9. Invariants (the executable contract)
