@@ -1175,7 +1175,7 @@ parent-id source that applies the SET operand to the located value at compile, t
 |---|---|---|
 | N6-U1 | ~~**Extended whereUnique in nested target selectors**~~ — **DELIVERED** (maintainer yes). The nested `update`/`upsert`/`delete` targets take `{ <unique>, ...filters }`; Prisma is unique-only there, so this is the superset row of the capability matrix. See the note below. | D-N1 ✅ |
 | N6-U2 | ~~**Relation filters inside a unique where**~~ — **DELIVERED** (maintainer yes). See the note below. | D-N2 ✅ |
-| N6-U3 | **Own-write linearization** (A14: `{ posts: { create, connect } }` same-tree overlap) — Prisma linearizes some of these; ATOM §4 refuses by doctrine because per-Part legality re-derivation "forks the theorem". Default: KEEP the refusal. Only revisit with an explicit doctrine change. | D-N3, maintainer yes — **the doctrine amendment is owed with it** |
+| N6-U3 | **Own-write linearization** (A14: `{ posts: { create, connect } }` same-tree overlap) — Prisma linearizes some of these; ATOM §4 refuses by doctrine because per-Part legality re-derivation "forks the theorem". Default: KEEP the refusal. Only revisit with an explicit doctrine change. **NOT delivered in the N6 wave** — see the wave-gate note below. | D-N3, maintainer yes — **the doctrine amendment is owed with it** |
 
 ### N6-U1 delivered — what the measurement changed about the unit
 
@@ -1356,6 +1356,35 @@ hand the nested write the selector instead of the captured key and exactly those
 That is also the tripwire for the plausible future optimization of folding the probe into
 the write; the fix, that day, is the one N6-U2 already wrote for the root. The behaviours
 live in `extended-where-unique-behavior.ts` §8, on every driver leg.
+
+### N6 wave gate — certified, and what it does NOT cover
+
+Run on the merged branch after both lanes and both follow-up witness rounds, each step in
+its own shell, on the wave's own commit range (`3c8ca0a..e551aee`):
+
+| Gate | Baseline entering N6 | Measured | |
+|---|---|---|---|
+| `pnpm test:types` | clean | clean | ✅ |
+| Full estate (`--maxWorkers=4`, alone) | 8729 passed / 0 failed | **8893 passed / 0 failed** (256 files, 4 skipped) | ✅ |
+| `pnpm test:gates` | 72 | **72 / 72** | ✅ |
+| Census pin | 68 | **68**, log coherent (three N6 entries: U1, U2, and the merge, each `68 -> 68` with its reason) | ✅ |
+| Biome, per file over the wave's diff | — | clean on every checked file (the 6 `.md`/`.mdx` files are not Biome-handled) | ✅ |
+| Docker MySQL (`:3307`) | 868 | **905** | ✅ |
+| Docker pg (`:5434`) | 976 | **1018** (+14 skipped) | ✅ |
+
+The two Docker legs were checked by NAME, not by count: the N6-U2 derived-table wrapper
+witnesses (`self-relation filters` — `updateMany`/`deleteMany`, both `upsert` arms, and
+`update`/`delete` by a self-relation-filtered unique `where`) and all 22 `N6-U1` depth-seam
+arms ran on MySQL, each in BOTH substrates (transaction and atomic batch), plus the nested
+extended-selector case in the extended-`whereUnique` block. None skipped.
+
+**N6-U3 is NOT delivered.** The maintainer's yes stands and so does the obligation it
+carries — the doctrine amendment is owed WITH the unit, not after it — but no code, test,
+or census entry in this wave touches own-write linearization. `OwnWriteLedger`'s refusal is
+still the shipped behaviour, recorded as a live obligation in the capability matrix's
+own-write preflight note rather than left to look closed because its siblings landed. The
+census pin is unaffected either way: the preflight rejection is not an
+`UnsupportedOperationError` site.
 
 ## Ordering and parallelism
 
