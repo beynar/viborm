@@ -14,6 +14,7 @@ import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
 import { depthSeamSchema } from "./depth-seam-behavior";
+import { producedIdentitySchema } from "./produced-identity-depth-behavior";
 
 /**
  * The decline-surface gate (P6). With V1 deleted, the single engine either
@@ -63,6 +64,7 @@ const opf = operationFragmentSchema;
 const nb = nestedWriteBehaviorSchema;
 const m2m = manyToManySchema;
 const seam = depthSeamSchema;
+const pi = producedIdentitySchema;
 
 // Two parent-held to-one relations on one record, both referencing `account` —
 // the sibling-coupling witness the P6-prereq-2 incident lives in. Absorbed in T1
@@ -899,6 +901,61 @@ describe("decline-surface gate: the adopt family under a PK transition executes 
     await expect(c.book.findMany({})).resolves.toEqual([
       { id: 10, title: "free", shelfId: 5 },
     ]);
+    await c.$disconnect();
+  });
+});
+
+describe("decline-surface gate: the adopt family's create arm is a create subtree on the one engine (N4-U2 / N4-U4)", () => {
+  // N4-U2: a nested `connectOrCreate` whose CREATE arm carries an m2m edge, a
+  // before-parent to-one `create`, and a child-held `createMany` — three kinds that were
+  // three separate refusals, all of them now the create root's ordinary surface. Restore
+  // any of them (or take the create arm off the subtree) and this throws instead of
+  // persisting.
+  test("a create arm carrying m2m + parent-held to-one + createMany executes on V2", async () => {
+    const c = await freshClient(pi as Record<string, Model<any>>);
+    await c.org.create({ data: { id: 1, slug: "o1" } });
+    await c.label.create({ data: { id: 1, name: "l1" } });
+    await c.org.update({
+      where: { id: 1 },
+      data: {
+        teams: {
+          connectOrCreate: {
+            where: { code: "T-GATE" },
+            create: {
+              id: 5,
+              code: "T-GATE",
+              title: "gate",
+              labels: { connect: [{ id: 1 }] },
+              lead: { create: { id: 3, name: "gate-lead" } },
+              tasks: { createMany: { data: [{ id: 7, label: "bulk" }] } },
+            },
+          },
+        },
+      },
+    });
+    await expect(c.team.findMany({})).resolves.toEqual([
+      { id: 5, code: "T-GATE", title: "gate", orgId: 1, leadId: 3 },
+    ]);
+    await expect(c.task.findMany({})).resolves.toEqual([
+      { id: 7, label: "bulk", teamId: 5 },
+    ]);
+    await c.$disconnect();
+  });
+
+  // N4-U4: a shared-primary-key child create whose parent key the DATABASE generates.
+  // The record's identity — and the terminal read that returns it — ride the same
+  // backward `Ref` its own foreign key does, so the operation can name the row it wrote.
+  test("a shared-primary-key create under a generated parent key executes on V2", async () => {
+    const c = await freshClient(pi as Record<string, Model<any>>);
+    const created = await c.profile.create({
+      data: {
+        bio: "gate",
+        account: { create: { email: "g@x", handle: "g", name: "g" } },
+      },
+    });
+    const accounts = await c.account.findMany({});
+    expect(accounts).toHaveLength(1);
+    expect(created).toMatchObject({ accountId: accounts[0].id, bio: "gate" });
     await c.$disconnect();
   });
 });

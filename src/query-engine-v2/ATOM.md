@@ -1859,6 +1859,38 @@ at PLANNING correlated to the parent key, so post-transition ordering has it rea
 row carries yet while pre-transition ordering strands the other edge. Neither order serves
 both, and the fix is the same two-source split, carried into the junction Part.
 
+### 8.1 N4-U2 / N4-U4 — the PRODUCED identity, and why it needed no vocabulary either
+
+N1 and N4-U1 threaded a value from THE ROW A LOCATE STEP ACTED ON. N4-U2 and N4-U4 close
+the complementary case — a row that does not exist yet — and the answer is the same shape:
+**the row the step PRODUCED**, read out of that statement's own declared output.
+
+The adopt family's create arm was one hand-rolled INSERT plus a hand-rolled list of deeper
+writes, and every boundary around it was a boundary of that hand-rolling. Measured, the
+reachable surface one level deeper (`create`/`createMany`/`connect`/`connectOrCreate`/
+`upsert`; the parse boundary offers nothing else inside a create payload, §X2) is exactly
+what a `create` ROOT builds. So the arm is a create SUBTREE — X1b's `nestedFresh` reuse,
+reached through an INJECTED builder because `CreateOperation` imports the adopt-family
+builders and a runtime import back would close a cycle. `nestedFresh` gained exactly one
+field: `rootRacePin`, so §2's missing-premise pin rides the subtree's root INSERT, which is
+the statement that used to be the arm's leaf. No step kind, no output kind, no `Ref` shape.
+
+The same for the shared primary key. A record whose primary key IS its foreign key already
+had that column referencing the target's produced identity by a backward `Ref` (§3
+technique 1, since T1). What was missing was that the record's IDENTITY — the value its
+terminal read addresses — is that same column, and therefore that same `Ref`. Making it so
+is one lowering (`referenceSql` on an identity member, which the generated-key branch
+beside it already did) plus an allocation-order move: the producing step's id must exist
+before the identity is built, the same reason N4-U1 moved three probe ids to their builders.
+
+Throw-site census 74 → 68 (six sites; five deleted, one converted to a structural
+invariant), and the three "cannot resolve referenced field" sites narrowed once a fresh
+record's identity stopped being read as its primary key alone. What survives is not a
+missing mechanism but a second PROVENANCE: a non-referenced `connect` resolves its foreign
+key through a lookup subquery, and re-evaluating that subquery for the identity would name
+the row a second time instead of spending the one the probe located — §W4's wrong-row
+doctrine, on the create side.
+
 ---
 
 ## 9. Invariants (the executable contract)

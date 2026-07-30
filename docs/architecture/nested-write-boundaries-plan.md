@@ -575,13 +575,136 @@ The decline-surface gate's named tripwire was this shape, so it is RETARGETED to
 junction upsert arm above (a still-declining, still-measured boundary), and the
 absorbed shape moves to the gate's side-1 list.
 
-### N4-U2 / N4-U4 — NOT delivered in this lane
+### N4-U2 / N4-U4 — deferred by the first lane, DELIVERED here
 
-`N4-U2` (create-arm one-level-deeper kinds) and `N4-U4` (shared-PK edges, the
-`CreateOperation` sweep entry (g) sites) were not reached. Sweep entry (g)'s reading
-still stands and is untouched by this lane: those sites are on a CREATE root, which has
-no locate step, so their absorption needs the producing INSERT's returned identity, not
-a located-parent read. Both remain open with their owners as written.
+The first N4 lane did not reach them. Sweep entry (g)'s reading was right and is what
+this wave built on: these sites are on a CREATE root, which has no locate step, so the
+absorption needs the producing INSERT's returned identity rather than a located-parent
+read. **N1/N4-U1 answered "the row the step ACTED ON"; these two units answer the other
+half of the same doctrine — the row the step PRODUCED, read out of the statement that
+produced it.**
+
+### N4-U2 — DELIVERED. Census 74 → 68 (six sites, one sentence).
+
+**The sentence:** the adopt family's create arm PRODUCES its row, and a produced row's
+relations are the create ROOT's surface. Everything else follows.
+
+**Measured first, live, before anything was touched** (PGlite, the messages recorded per
+shape). The reachable create-arm surface one level deeper is `create` / `createMany` /
+`connect` / `connectOrCreate` / `upsert` — the parse boundary does not OFFER
+`update`/`updateMany`/`delete`/`deleteMany`/`set`/`disconnect` inside a create payload
+(a `ValidationError`, X2), so those never reached any of these sites. That reachable
+surface is *exactly* what `CreateOperation` builds for a fresh root, m2m and
+before-parent to-one arms included. So the arm is now a create SUBTREE — X1b's
+`nestedFresh` reuse, which `nested-target-parts` already used for a relation-carrying
+fresh nested `create` at depth. One home for the fresh create tree, not two.
+
+The seam is INJECTED (`FreshArmBuilder`, a type-only import — the `NestedChildBuilder`
+convention) because `CreateOperation` imports the adopt-family builders; a runtime import
+the other way would close a cycle. `CreateOperation.nestedFresh` gained one field,
+`rootRacePin`, so the arm's raceable missing-premise pin rides the subtree's ROOT record
+INSERT — the statement that used to be the arm's own leaf. The Pin Rule is unchanged.
+
+Five sites DELETED (`createArmParentId`'s database-generated-key refusal — added by
+N4-U1 three commits earlier, on a reason true of the leaf and not of the shape;
+`foldParentHeldConnect`'s three; `assertMatchingCreateIdentity`) and one CONVERTED to a
+`QueryEngineError` (`RelationWritePart`'s "does not support nested relation writes in its
+create arm", now unreachable by construction — the N2-U1/X1c disposition). Two sites
+NARROWED and re-justified rather than absorbed: the update arm's one-level-deeper bound,
+and its m2m / parent-held-to-one `create` refusals. The update arm's target is LOCATED,
+not produced, and closing it needs machinery this module cannot import without a cycle
+(`buildNestedTargetChildParts`) plus X1c's whole-target delegation for a CONDITIONAL arm
+— named, not smuggled in.
+
+**The connectOrCreate already-exists arm still runs none of the create arm's children**,
+and that is asserted rather than assumed: a found arm whose create payload carries both a
+`create` grandchild and a parent-held to-one `create` leaves both tables untouched while
+the reparent lands.
+
+### N4-U4 — DELIVERED. Census 68 → 68; three sites narrowed, one capability added.
+
+**The honest finding first.** Sweep (g) named the shared-primary-key edge as this unit's
+headline, and that shape was never reaching a census site. Measured:
+`profile.create({ data: { bio, user: { create } } })` with `profile.userId` as both
+primary and foreign key and `user.id` database-generated failed with a `NestedWriteError`
+from `planNestedCreateIdentity` — "requires primary key field 'userId' to be known before
+execution" — several frames before `interpretParentHeld`'s `UnsupportedOperationError`.
+Absorbing it moves no count. What it moves is the capability.
+
+**The absorption.** The record's foreign key already referenced the target's produced
+identity by a backward `Ref` (since T1). The shared primary key IS that column, so the
+record's identity — and the terminal read that addresses the created row — is that same
+`Ref`. `resolveSharedPkIdentity` now resolves a produced source as well as a literal one,
+pre-allocating the before-parent INSERT's step id so the `Ref` and the statement agree
+(the N4-U1 allocation-order precedent), and `terminalIdentity` lowers a `Ref` identity
+member exactly as the generated-key branch beside it already did.
+
+**The three narrowed sites** (`referencedValue`, `edgeParentId`,
+`targetReferencedValue`) read a fresh record's identity as its PRIMARY KEY alone, so an
+edge referencing one of its other uniques (`badge.userCode -> user.code`, the D4 shape on
+a create root) found nothing — while the value sat in the same create data the primary key
+came from, one column over. One resolver (`freshReferenced`) now answers all three from
+the widened identity, and each keeps its refusal for what is genuinely absent. What
+"knowable" excludes has a named job: an `Sql` operand would be EVALUATED A SECOND TIME
+for the foreign key, and two evaluations of `gen_random_uuid()` are two values.
+
+**The survivors, measured.** The shared-primary-key site is reachable only when the
+foreign-key column is itself declared `.increment()`, and its two live causes are genuine:
+a `connect` by a NON-referenced unique resolves its FK through a lookup SUBQUERY (whose
+re-evaluation for the identity is a second provenance of the row the arm's probe already
+located), and a `connectOrCreate` decides its arm at compile, so one identity does not
+describe both.
+
+### N4-U2 / N4-U4 — witnesses, and what makes them falsifiable
+
+`produced-identity-depth-behavior.ts` — 9 shapes × both substrates, wired into all four
+driver files, every assertion naming the ROW: the create arm folding m2m + a before-parent
+to-one + a child-held create at once; the connectOrCreate found arm running none of it;
+grandchildren following a database-generated key with a decoy holding the lower one; a
+create arm whose data names a DIFFERENT key than the `where`; the surviving update-arm
+m2m refusal with nothing written; the shared-PK produced and spelled identities agreeing
+on state; the D4 child edge and the D4 after-parent adopt.
+
+`produced-identity-provenance.test.ts` — the instrument the claims actually need, N1's
+corrupt-driver aimed at a PRODUCED value: rewrite what the INSERT RETURNED to another
+LIVE row's key, and the child must follow the corruption. **The discrimination is
+measured, not asserted.** Re-deriving a fresh record's generated key from its own spelled
+unique (a subquery — the plausible alternative implementation, and the exact
+re-consult-the-input failure mode) passes ALL 18 behavior-suite state assertions, because
+every decoy differs from its target in the very column the payload spells; it fails
+EXACTLY the create-arm provenance witness. The same re-derivation on the before-parent
+target's key fails EXACTLY the shared-PK witness, whose two halves — the child's foreign
+key and the terminal read that returns it — must both follow the corrupted value. Taking
+the create arm off the subtree fails 16 of the 78 tests in the four affected files.
+
+Two estate tests were RETARGETED from a decline to an accept-and-execute assertion on the
+SAME payload, each with the reason written at the site:
+`depth-seam-behavior.ts`'s generated-key create-arm refusal (N4-U1's, three commits old)
+and `create-nested-upsert.test.ts`'s create-arm `connect` bound — an assertion that had
+already been walked down this one shape twice.
+
+### N4-U2 / N4-U4 — certification (main repo, one vitest at a time)
+
+| Gate | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean |
+| Biome (repo-pinned, per file over the wave's 18 changed/new `.ts` files) | 0 diagnostics |
+| `tests/query-engine-v2/` | **839 passed / 0 failed**, 50 files (816 at the N4/N5 gate; +18 behavior +3 provenance +2 gate) |
+| `pnpm test:gates` | **72 / 72** (70 at the N4/N5 gate; +2 N4-U2/U4 side-1 witnesses) |
+| Census pin | **68**, re-derived by RUNNING `route-inventory.test.ts`; the log's chain closes … 74 → 74 → **68** (N4-U2) → 68 (N4-U4) |
+| Parse-boundary ratchet | 37 → **36** payload casts, 22 → **21** shape-check messages, both dropped in lockstep with `foldParentHeldConnect`'s removal (the equality tripwire forces it) |
+| Local dialect legs (sqlite3 + libsql + pglite) | **2618 passed / 0 failed** |
+| Docker MySQL 3307 | **858 passed / 0 failed** (840 at the N4/N5 gate; +18) |
+| Docker Postgres 5434 (serial, pg + postgres.js) | **966 passed / 0 failed**, 14 skipped (948; +18) |
+| Full estate, ALONE (`--minWorkers=1 --maxWorkers=4`) | **8696 passed / 0 failed**, 1845 skipped, 254 files + 4 skipped (8637 at the N4/N5 gate; +59 = 18 PGlite + 3 provenance + 2 gate + 18 sqlite3 + 18 libsql) |
+
+The new suite was confirmed **EXECUTED, not collected-and-skipped**, by name on every leg:
+`-t "produced identity at depth"` reports exactly **18 passed** on libsql, on sqlite3 and on
+Docker MySQL (9 shapes × 2 substrates), and the +18 deltas on both Docker legs are those
+same tests. One measurement note for a future gate: the pg leg's connection string is
+`postgresql://postgres:password@127.0.0.1:5434/viborm` — a wrong password does not skip the
+suite, it fails 939 of 980 tests including "creates driver with connection string", which is
+the signature of a credentials problem rather than a regression.
 
 ### N4 — certification
 

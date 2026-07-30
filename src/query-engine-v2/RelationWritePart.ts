@@ -46,6 +46,7 @@ import {
 } from "./messages";
 import {
   buildNestedTargetUpdatePart,
+  type FreshArmBuilder,
   type NestedChildBuilder,
   targetNeedsFullUpdate,
 } from "./nested-target-parts";
@@ -134,10 +135,17 @@ export interface RelationWriteConfig {
    * update payload, `upsertCreateData` the absent-arm insert payload (fk = parent
    * injected). The locator stays the FK correlation alone (no unique `where`); the
    * absent arm has no `racePin` and no found guard (V1's `missingPin: none`), the
-   * found arm carries the upsert-family premise/vanished wording. Scalar-only arms;
-   * a relation-carrying arm routes the whole tree to V1 at construction.
+   * found arm carries the upsert-family premise/vanished wording.
    */
   readonly upsertCreateData?: Record<string, unknown>;
+  /**
+   * N4-U2 — the inverse-side to-one upsert's CREATE arm when its payload carries
+   * relations: the whole arm is a create SUBTREE (the {@link FreshArmBuilder} seam),
+   * owning the arm's INSERT and every relation below it at any depth, exactly as the
+   * to-many adopt family's create arm does. Absent for a scalar-only arm, which stays
+   * {@link buildUpsertCreateArm}'s single INSERT, byte-identically.
+   */
+  readonly upsertCreateSubtree?: Part;
   /**
    * T3b mechanism 1: the recursion seam. When a targeted `update`'s `data` carries
    * nested relation writes, its located target builds its OWN child Parts through
@@ -198,10 +206,11 @@ export class RelationWritePart implements Part {
       // moved INTO `interpretChildParts` (N5-U1b) — it must run before that method
       // derives a post-transition primary key from the same scalar assignments.
     }
-    if (config.upsertCreateData !== undefined) {
+    if (config.upsertCreateData !== undefined && !config.upsertCreateSubtree) {
       // Family F: the absent-arm insert. Allocate its own write id and validate the
-      // create payload at construction (scalar-only, no relations, no owned FK) so a
-      // relation-carrying create arm routes the whole tree to V1 before any I/O.
+      // create payload at construction (no owned FK) before any I/O. A
+      // relation-carrying arm took the subtree branch instead, and the subtree's own
+      // create root owns both its id and its payload legality.
       this.upsertCreateId = scope.allocate(`${config.childName}.create`);
       this.upsertCreateScalarData();
     }
@@ -214,8 +223,13 @@ export class RelationWritePart implements Part {
     const steps: OperationStep[] = this.probe ? [this.probe] : [];
     // Depth (T3b mechanism 1): the located target's own child Parts plan their
     // probes here, one level deeper — the same unconditional planning superset the
-    // root and the upsert-arm recursion already use (ATOM §3 technique 2).
+    // root and the upsert-arm recursion already use (ATOM §3 technique 2). The
+    // upsert CREATE arm's subtree plans here too, unconditionally: which arm compiles
+    // is a compile-time decision, and planning is the widened superset of both.
     for (const child of this.childParts) steps.push(...child.planning(scope));
+    if (this.config.upsertCreateSubtree) {
+      steps.push(...this.config.upsertCreateSubtree.planning(scope));
+    }
     return steps;
   }
 
@@ -239,7 +253,7 @@ export class RelationWritePart implements Part {
     known: PlanningKnown
   ): readonly OperationStep[] {
     if (this.config.upsertCreateData !== undefined) {
-      return this.compileInverseToOneUpsert(known);
+      return this.compileInverseToOneUpsert(scope, known);
     }
     const capturedPk = this.capturedPk(known);
     const capturedWhere = { [this.config.childPrimaryKey]: capturedPk };
@@ -299,10 +313,15 @@ export class RelationWritePart implements Part {
    * root parent does not hold the FK, so no parent-side FK rebind follows.
    */
   private compileInverseToOneUpsert(
+    scope: StepScope,
     known: PlanningKnown
   ): readonly OperationStep[] {
     const rows = this.probeRows(known);
-    if (rows.length === 0) return [this.buildUpsertCreateArm(known)];
+    if (rows.length === 0) {
+      return this.config.upsertCreateSubtree
+        ? this.config.upsertCreateSubtree.compile(scope, known)
+        : [this.buildUpsertCreateArm(known)];
+    }
     const first = rows[0];
     if (!(first && typeof first === "object")) {
       throw new NestedWriteError(
@@ -401,9 +420,13 @@ export class RelationWritePart implements Part {
       createData
     );
     if (Object.keys(relations).length > 0) {
-      // A relation-carrying create arm is V1's surface — route the whole tree to V1.
-      throw new UnsupportedOperationError(
-        `query-engine-v2 upsert for relation '${this.config.relationName}' does not support nested relation writes in its create arm.`
+      // N4-U2 absorbed the relation-carrying arm: `buildInverseToOneUpsertPart` routes
+      // it to the create SUBTREE and this method is never called for it (the
+      // constructor gates on `upsertCreateSubtree`). Reaching here means an arm carries
+      // relations AND no subtree was built — an engine invariant break, not a shape we
+      // decline (the X1c disposition for a branch unreachable by construction).
+      throw new QueryEngineError(
+        `query-engine-v2 internal: the upsert create arm for relation '${this.config.relationName}' carries nested relation writes but no create subtree.`
       );
     }
     if (
@@ -1424,6 +1447,12 @@ interface WritePartBase {
    *  relation writes in its `data` one level deeper. Absent for the leaf families
    *  (delete/deleteMany/updateMany), so those keep declining a relation payload. */
   readonly nestedBuilder?: NestedChildBuilder;
+  /** N4-U2: the fresh-arm seam the inverse-side to-one upsert's relation-carrying
+   *  CREATE arm is built through. REQUIRED, so the absorption cannot be reached without
+   *  it — a caller that forgot the seam would otherwise turn a typed refusal into an
+   *  internal invariant break, and a runtime fallback for that would be a guard with no
+   *  reachable coverage to name. */
+  readonly freshArm: FreshArmBuilder;
 }
 
 /** `update`: one targeted correlated part per `{ where, data }` item. A target whose
@@ -1540,11 +1569,52 @@ export function buildInverseToOneUpsertPart(
       `query-engine-v2 upsert for relation '${base.relationName}' requires 'create' and 'update' objects.`
     );
   }
+  const createData = create as Record<string, unknown>;
+  // N4-U2 — a relation-carrying create arm is the create SUBTREE, the same absorption
+  // the to-many adopt family's create arm takes. The arm's foreign key is injected into
+  // the subtree's root INSERT by the identical expression the scalar arm writes, so the
+  // two spellings land the same row under the same parent.
+  const { relations } = separateData(base.childScope, createData);
+  const subtree =
+    Object.keys(relations).length > 0
+      ? base.freshArm({
+          childScope: base.childScope,
+          data: createData,
+          rootFkInject: (known) => upsertArmFkInject(base, known),
+        })
+      : undefined;
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
     data: update as Record<string, unknown>,
-    upsertCreateData: create as Record<string, unknown>,
+    upsertCreateData: createData,
+    ...(subtree ? { upsertCreateSubtree: subtree } : {}),
   });
+}
+
+/** `fk_i = <parent_i>` for an inverse-side to-one upsert arm — the referenced parent
+ *  column inlined at compile, the one expression both the scalar create leaf and the
+ *  create SUBTREE's root INSERT fold. */
+function upsertArmFkInject(
+  base: WritePartBase,
+  known: PlanningKnown
+): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  for (let index = 0; index < base.fkFields.length; index += 1) {
+    const fkField = base.fkFields[index]!;
+    data[fkField] = referenceSql(
+      base.engine,
+      base.childScope.model,
+      fkField,
+      referencedFieldValue(
+        base.parentId,
+        base.referencedFields[index]!,
+        known,
+        base.relationName,
+        "upsert"
+      )
+    );
+  }
+  return data;
 }
 
 /** `updateMany`: one bulk correlated part per `{ where?, data }` item. */

@@ -1,11 +1,12 @@
 // biome-ignore-all lint/style/useFilenamingConvention: CreateOperation is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import type { Sql } from "@sql";
+import { isSql, type Sql } from "@sql";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../query-engine/builders/correlation-utils";
+import { isMissingGeneratedIncrement } from "../query-engine/builders/generated-scalar";
 import {
   buildConnectSubqueryForField,
   type FkDirection,
@@ -42,10 +43,16 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import { relationTargetNotFound } from "./messages";
-import { buildNestedTargetChildParts } from "./nested-target-parts";
 import {
+  buildFreshArmPart,
+  buildNestedTargetChildParts,
+  type FreshArmBuilder,
+} from "./nested-target-parts";
+import {
+  isOperationValueReference,
   type OperationFragment,
   type OperationStep,
+  type OperationValueReference,
   ref,
   type StatementStep,
   type TargetConstraintPin,
@@ -186,7 +193,35 @@ interface RecordIdentity {
   readonly identity: Record<string, unknown>;
   readonly generatedField: string | undefined;
   readonly model: Model<any>;
+  /**
+   * N4-U4 — the record's own scalar assignments, so a child edge referencing a
+   * NON-primary-key column of this fresh record can read the value the record's INSERT
+   * is about to write. The primary key is the identity; a referenced unique is still
+   * part of what this fresh row IS.
+   */
+  readonly scalarData: Record<string, unknown>;
 }
+
+/**
+ * N4-U4 — what a shared-primary-key parent-held edge contributes to its record's
+ * identity: the resolved primary-key values (a literal, or a `Ref` to the producing
+ * before-parent INSERT) and, for the produced case, the write-step id that INSERT must
+ * use so the `Ref` and the statement agree.
+ */
+interface SharedPkIdentity {
+  readonly identity: Record<string, unknown>;
+  /** relation name → the pre-allocated before-parent INSERT step id. */
+  readonly producedBy: ReadonlyMap<string, string>;
+}
+
+/**
+ * N4-U4 — one referenced value of a FRESH record, and where it comes from: the
+ * record's own INSERT (a backward `Ref`, materialized when that statement runs) or a
+ * value already knowable at construction.
+ */
+type FreshReferenced =
+  | { readonly kind: "ref"; readonly ref: OperationValueReference }
+  | { readonly kind: "literal"; readonly value: unknown };
 
 /**
  * The root `create` (PLAN P6-prerequisite — the create family, generalized far
@@ -229,8 +264,18 @@ interface RecordIdentity {
  *   in parent create; the junction upsert needs a planned parent id a fresh
  *   parent cannot give);
  * - a to-one `connect` by a non-referenced unique (needs a lookup subquery), and
- *   a shared-primary-key parent-held edge (the PK is supplied by the fold);
- * - a compound child edge.
+ *   a shared-primary-key parent-held edge whose fold value is neither a literal nor a
+ *   value this fragment PRODUCES — a non-referenced connect's lookup subquery (whose
+ *   re-evaluation for the identity would be a second provenance of the row the arm's
+ *   probe located) or a `connectOrCreate`'s runtime arm decision. N4-U4 absorbed the
+ *   `create` cause under BOTH provenances: a literal target key, and one the database
+ *   generates, which the record's identity and its terminal read take as a backward
+ *   `Ref` to the before-parent INSERT that produces it;
+ * - a compound child edge;
+ * - a referenced field that is neither this record's primary key nor a knowable value in
+ *   its own create data (N4-U4 widened a fresh record's identity past its primary key:
+ *   an edge referencing one of its other uniques reads the value that unique is about to
+ *   hold — from the same create data, one column over).
  *
  * A nested `createMany skipDuplicates` is composed (T4a CLASS VI): the plan carries the
  * skip in its SQL leaf (`ON CONFLICT DO NOTHING`/`INSERT OR IGNORE`) or, on a
@@ -258,6 +303,14 @@ export class CreateOperation {
   private readonly rootFkInject:
     | ((known: Readonly<Record<string, unknown>>) => Record<string, unknown>)
     | undefined;
+  /** N4-U2 — the enclosing adopt arm's raceable missing-premise pin, carried by this
+   *  subtree's ROOT record INSERT (the statement that was the arm's own create leaf
+   *  before the arm became a subtree). */
+  private readonly rootRacePin: TargetConstraintPin | undefined;
+  /** N4-U2 — the adopt family's fresh-arm seam, bound to this operation's scope and
+   *  engine (an arrow field, so `this` survives being passed as a callback). */
+  private readonly buildFreshArm: FreshArmBuilder = (input) =>
+    buildFreshArmPart(this.scope, this.engine, input);
 
   constructor(
     engine: QueryEngine,
@@ -281,6 +334,7 @@ export class CreateOperation {
     const nestedFresh = options.nestedFresh;
     this.suppressTerminal = nestedFresh !== undefined;
     this.rootFkInject = nestedFresh?.rootFkInject;
+    this.rootRacePin = nestedFresh?.rootRacePin;
 
     let data: Record<string, unknown>;
     if (nestedFresh) {
@@ -433,7 +487,8 @@ export class CreateOperation {
   private buildRecord(
     childScope: QueryScope,
     data: Record<string, unknown>,
-    txMode: boolean
+    txMode: boolean,
+    presetWriteStepId?: string
   ): RecordPlan {
     const model = childScope.model;
     const separated = separateData(childScope, data);
@@ -444,25 +499,27 @@ export class CreateOperation {
     // and thread it into the identity so the terminal read can address the created row.
     // A non-literal edge (non-referenced connect, generated-id create, connectOrCreate)
     // yields no literal here; the shared-PK decline below still routes those to V1.
-    const sharedPkIdentity = this.resolveSharedPkIdentity(
+    const sharedPk = this.resolveSharedPkIdentity(
       childScope,
       separated.relations,
       data
     );
     const { identity, generatedField } = planNestedCreateIdentity(model, {
       ...separated.scalarData,
-      ...sharedPkIdentity,
+      ...sharedPk.identity,
     });
     const scalarData = { ...separated.scalarData };
     if (generatedField) delete scalarData[generatedField];
 
     const recordName = getStepModelName(model, "record");
-    const writeStepId = this.scope.allocate(`${recordName}.create`);
+    const writeStepId =
+      presetWriteStepId ?? this.scope.allocate(`${recordName}.create`);
     const self: RecordIdentity = {
       writeStepId,
       identity,
       generatedField,
       model,
+      scalarData,
     };
 
     const parentHeldArms: ParentHeldArm[] = [];
@@ -487,6 +544,7 @@ export class CreateOperation {
       this.interpretRelation({
         childScope,
         self,
+        sharedPkWriteStepId: sharedPk.producedBy.get(relationName),
         relationName,
         mutation,
         relationInput: requireRecord(
@@ -519,22 +577,38 @@ export class CreateOperation {
   }
 
   /**
-   * Resolve a shared-primary-key parent-held edge's PK from a COMPILE-TIME LITERAL
-   * fold (T3c). A record whose FK is (part of) its own primary key gets that PK from
-   * the edge, not scalar data; when the edge is a direct-referenced `connect` (the
-   * referenced column is in `where`) or a literal-id `create` (the referenced column
-   * is in the nested create data), that value is known at construction and becomes the
-   * record's identity for the terminal read. A non-referenced connect (a subquery), a
-   * generated-id create (a produced `Ref`), or a `connectOrCreate` (a runtime decision)
-   * yields nothing here — the shared-PK decline routes those to V1.
+   * Resolve a shared-primary-key parent-held edge's PK from the edge's fold (T3c, then
+   * N4-U4). A record whose FK is (part of) its own primary key gets that PK from the
+   * edge, not from scalar data, so `planNestedCreateIdentity` would otherwise reject it
+   * as "primary key not known before execution" — and that rejection, not the census
+   * refusal below it, is what actually stopped this family.
+   *
+   * Two provenances, both of them the value the edge's own step ACTS ON:
+   *
+   *  · **a literal** — a direct-referenced `connect` (the referenced column is in
+   *    `where`) or a `create` spelling the referenced column in its data (T3c);
+   *  · **a produced `Ref`** — a `create` whose target key the DATABASE generates
+   *    (N4-U4). The target is a before-parent INSERT, so its identity exists as soon as
+   *    that INSERT runs, and the record's own FK column already references it by a
+   *    backward `Ref` (`beforeParentFkAssign`). The shared PK is that same column, so
+   *    the record's identity — and the terminal read that addresses the created row — is
+   *    that same `Ref`. Nothing is re-derived: one produced value, spent everywhere.
+   *
+   * The `Ref` needs the target's write-step id BEFORE the arms fold (a value the
+   * identity is built from, the N4-U1 allocation-order precedent), so this method
+   * pre-allocates it and {@link interpretParentHeldCreate} consumes it instead of
+   * minting its own. A NON-referenced connect (the FK is a lookup subquery, and
+   * re-evaluating it for the identity would be a second provenance) and a
+   * `connectOrCreate` (a runtime arm decision) still yield nothing here.
    */
   private resolveSharedPkIdentity(
     childScope: QueryScope,
     relations: Record<string, RelationMutation>,
     data: Record<string, unknown>
-  ): Record<string, unknown> {
+  ): SharedPkIdentity {
     const recordPk = getPrimaryKeyFields(childScope.model);
     const identity: Record<string, unknown> = {};
+    const producedBy = new Map<string, string>();
     for (const [relationName, mutation] of Object.entries(relations)) {
       const relationInfo = mutation.relationInfo;
       if (relationInfo.type === "manyToMany") continue;
@@ -548,8 +622,6 @@ export class CreateOperation {
       if (kinds.length !== 1) continue;
       const relationInput = data[relationName];
       if (!isRecord(relationInput)) continue;
-      // The literal source of the referenced columns: a `connect`'s `where`, or a
-      // `create`'s data. `connectOrCreate` is a runtime decision — no literal here.
       const source =
         kinds[0] === "connect"
           ? normalizeSingle(relationInput.connect, relationName)
@@ -560,12 +632,40 @@ export class CreateOperation {
       for (let index = 0; index < fk.fkFields.length; index += 1) {
         const fkField = fk.fkFields[index]!;
         const referenced = fk.pkFields[index]!;
-        if (recordPk.includes(fkField) && Object.hasOwn(source, referenced)) {
-          identity[fkField] = source[referenced];
+        if (!recordPk.includes(fkField)) continue;
+        // The literal the fold SPELLS. `isMissingGeneratedIncrement` is the same
+        // question `planNestedCreateIdentity` asks one line later: a create payload
+        // carries the target's auto-increment key as an ABSENT value, so the key is
+        // present-but-unspelled and only the INSERT will know it.
+        const spelled = source[referenced];
+        if (
+          spelled !== undefined &&
+          !isMissingGeneratedIncrement(
+            relationInfo.targetModel["~"].state.scalars[referenced],
+            spelled
+          )
+        ) {
+          identity[fkField] = spelled;
+          continue;
+        }
+        // N4-U4: the target's key is the one its own INSERT will generate. Pre-allocate
+        // that INSERT's step id so the record's identity can `Ref` it here, before the
+        // arms fold — one id, one producing statement, one value.
+        if (
+          kinds[0] === "create" &&
+          targetGeneratesReferencedKey(relationInfo.targetModel, referenced)
+        ) {
+          const producedStep =
+            producedBy.get(relationName) ??
+            this.scope.allocate(
+              `${getStepModelName(relationInfo.targetModel, "record")}.create`
+            );
+          producedBy.set(relationName, producedStep);
+          identity[fkField] = ref(producedStep, "id");
         }
       }
     }
-    return identity;
+    return { identity, producedBy };
   }
 
   /**
@@ -636,6 +736,9 @@ export class CreateOperation {
   private interpretRelation(input: {
     childScope: QueryScope;
     self: RecordIdentity;
+    /** N4-U4 — the write-step id the shared-primary-key identity `Ref`s, when this
+     *  relation's before-parent `create` is what produces this record's primary key. */
+    sharedPkWriteStepId?: string;
     relationName: string;
     mutation: RelationMutation;
     relationInput: Record<string, unknown>;
@@ -852,10 +955,15 @@ export class CreateOperation {
     fk: FkDirection,
     childScope: QueryScope
   ): void {
+    // N4-U4: when this record's own primary key IS the foreign key this arm resolves,
+    // the identity already `Ref`s a step id — so this INSERT must BE that step, not a
+    // freshly allocated one. The allocation moved to `resolveSharedPkIdentity` because
+    // the identity is built before the arms fold (the N4-U1 precedent).
     const before = this.buildRecord(
       childScope,
       normalizeSingle(input.relationInput.create, input.relationName),
-      input.txMode
+      input.txMode,
+      input.sharedPkWriteStepId
     );
     input.parentHeldArms.push({
       kind: "create",
@@ -983,22 +1091,20 @@ export class CreateOperation {
     return fkAssign;
   }
 
-  /** The value a before-parent target produces for one referenced field — a `Ref`
-   *  to its captured generated id, or its known literal identity. */
+  /** The value a before-parent target produces for one referenced field — a `Ref` to
+   *  its captured generated id, or a value knowable at construction (N4-U4). */
   private targetReferencedValue(
     target: RecordPlan,
     referencedField: string,
     relationName: string
   ): unknown {
-    if (target.generatedField === referencedField) {
-      return ref(target.writeStepId, "id");
+    const resolved = freshReferenced(target, referencedField);
+    if (resolved === undefined) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 create cannot resolve referenced field '${referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
+      );
     }
-    if (Object.hasOwn(target.identity, referencedField)) {
-      return target.identity[referencedField];
-    }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 create cannot resolve referenced field '${referencedField}' for the before-parent target of relation '${relationName}'.`
-    );
+    return resolved.kind === "ref" ? resolved.ref : resolved.value;
   }
 
   /** A child-held-FK to-many relation: create/createMany/connect/adopt (after). */
@@ -1056,7 +1162,8 @@ export class CreateOperation {
               relationInfo,
               normalizeItems(relationInput.connectOrCreate, relationName),
               this.edgeParentId(input.self, fk.pkFields, relationName),
-              txMode
+              txMode,
+              this.buildFreshArm
             )
           );
           break;
@@ -1072,6 +1179,7 @@ export class CreateOperation {
               this.edgeParentId(input.self, fk.pkFields, relationName),
               "global-adopt",
               txMode,
+              this.buildFreshArm,
               "upsert"
             )
           );
@@ -1202,22 +1310,20 @@ export class CreateOperation {
     return assign;
   }
 
-  /** The parent value a child FK references — a Ref to the captured generated id,
-   *  or a known literal identity value. */
+  /** The parent value a child FK references — a `Ref` to the value this record's own
+   *  INSERT produces, or a value already knowable at construction (N4-U4). */
   private referencedValue(
     self: RecordIdentity,
     referencedField: string,
     relationName: string
   ): unknown {
-    if (self.generatedField === referencedField) {
-      return ref(self.writeStepId, "id");
+    const resolved = freshReferenced(self, referencedField);
+    if (resolved === undefined) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 create cannot resolve referenced field '${referencedField}' for relation '${relationName}': it is neither this record's primary key nor a knowable value in its own create data.`
+      );
     }
-    if (Object.hasOwn(self.identity, referencedField)) {
-      return self.identity[referencedField];
-    }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 create cannot resolve referenced field '${referencedField}' for relation '${relationName}'.`
-    );
+    return resolved.kind === "ref" ? resolved.ref : resolved.value;
   }
 
   /** The {@link ParentIdSource} an after-parent adopt/M2M Part consumes (the
@@ -1233,15 +1339,15 @@ export class CreateOperation {
       );
     }
     const referenced = referencedFields[0]!;
-    if (self.generatedField === referenced) {
-      return refParentId(self.writeStepId);
+    const resolved = freshReferenced(self, referenced);
+    if (resolved === undefined) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 create cannot resolve the parent id for relation '${relationName}': referenced field '${referenced}' is neither this record's primary key nor a knowable value in its own create data.`
+      );
     }
-    if (Object.hasOwn(self.identity, referenced)) {
-      return literalParentId(self.identity[referenced]);
-    }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 create cannot resolve the parent id for relation '${relationName}'.`
-    );
+    return resolved.kind === "ref"
+      ? refParentId(resolved.ref)
+      : literalParentId(resolved.value);
   }
 
   // -------------------------------------------------------------------------
@@ -1416,6 +1522,14 @@ export class CreateOperation {
   ): StatementStep {
     const { childScope, generatedField, writeStepId } = plan;
     const txMode = this.mode === "transaction";
+    // N4-U2: the enclosing adopt arm's missing-premise pin rides THIS record's INSERT
+    // when this record is the subtree's root — the one statement whose unique-constraint
+    // violation is the arm's raceable signal. Every deeper record of the subtree is an
+    // unconditional create, so none of them carries it.
+    const racePin =
+      this.rootRacePin && writeStepId === this.root.writeStepId
+        ? { racePin: this.rootRacePin }
+        : {};
     if (!generatedField) {
       return {
         id: writeStepId,
@@ -1426,6 +1540,7 @@ export class CreateOperation {
           insertData
         ),
         outputs: {},
+        ...racePin,
       };
     }
     // Capture the generated auto-increment identity: `firstRowField` on a
@@ -1448,7 +1563,27 @@ export class CreateOperation {
             ? { kind: "firstRowField", field: generatedField }
             : { kind: "insertId" },
       },
+      ...racePin,
     };
+  }
+
+  /**
+   * N4-U4 — the terminal read's unique `where` from the root record's identity. A
+   * shared-primary-key identity carries a `Ref` to the before-parent INSERT that
+   * produces it, so that member is lowered like every other deferred value (the same
+   * `referenceSql` the generated-key branch above uses); a literal identity is passed
+   * through untouched, so every other create compiles the same `where` it always did.
+   */
+  private terminalIdentity(
+    identity: Record<string, unknown>
+  ): Record<string, unknown> {
+    const resolved: Record<string, unknown> = {};
+    for (const [field, value] of Object.entries(identity)) {
+      resolved[field] = isOperationValueReference(value)
+        ? referenceSql(this.engine, this.model, field, value)
+        : value;
+    }
+    return resolved;
   }
 
   private buildTerminal(plan: RecordPlan): StatementStep {
@@ -1463,7 +1598,10 @@ export class CreateOperation {
             ref(plan.writeStepId, "id")
           ),
         }
-      : buildPrimaryKeyWhereUnique(this.model, plan.identity);
+      : buildPrimaryKeyWhereUnique(
+          this.model,
+          this.terminalIdentity(plan.identity)
+        );
     return {
       id: this.terminalId,
       kind: "read",
@@ -1509,6 +1647,71 @@ export class CreateOperation {
       }
     }
   }
+}
+
+/**
+ * N4-U4 — one referenced value of a FRESH record, in the ONE place every asker reads
+ * it: the child-FK assignment, the after-parent adopt/M2M parent id, the before-parent
+ * target's referenced value, and (through the identity) the terminal read.
+ *
+ * Three provenances, all of them the row this record's own INSERT writes:
+ *
+ *  1. the primary key the INSERT GENERATES — a backward `Ref` to that statement;
+ *  2. a primary key already resolved into the identity — a literal, or (shared-PK) the
+ *     `Ref` a before-parent INSERT produces, which `resolveSharedPkIdentity` put there;
+ *  3. a NON-primary-key referenced column the record's own create data SPELLS. A fresh
+ *     record's identity is wider than its primary key: an FK referencing one of its
+ *     uniques (the D4 shape on a create root) needs the value that unique is about to
+ *     hold, and that value is in the same create data the primary key came from — the
+ *     same provenance, one column over. Nothing is re-read and nothing is re-derived.
+ *
+ * A value that is not knowable NOW is not resolved: an `Sql` operand would be evaluated
+ * a SECOND time for the foreign key, and two evaluations of one expression are two
+ * values (`gen_random_uuid()`, `now()`), so the child would reference a row that does
+ * not exist. `null`/absent likewise resolves nothing — an FK equal to NULL references
+ * no row. Both fall through to the caller's typed refusal.
+ */
+function freshReferenced(
+  record: {
+    readonly writeStepId: string;
+    readonly generatedField: string | undefined;
+    readonly identity: Record<string, unknown>;
+    readonly scalarData: Record<string, unknown>;
+  },
+  referencedField: string
+): FreshReferenced | undefined {
+  if (record.generatedField === referencedField) {
+    return { kind: "ref", ref: ref(record.writeStepId, "id") };
+  }
+  if (Object.hasOwn(record.identity, referencedField)) {
+    const value = record.identity[referencedField];
+    return isOperationValueReference(value)
+      ? { kind: "ref", ref: value }
+      : { kind: "literal", value };
+  }
+  const spelled = record.scalarData[referencedField];
+  if (spelled === undefined || spelled === null || isSql(spelled)) {
+    return undefined;
+  }
+  return { kind: "literal", value: spelled };
+}
+
+/**
+ * N4-U4 — whether a before-parent target's referenced column is the key its own INSERT
+ * will GENERATE: the target's single primary key, auto-increment, and not spelled in the
+ * payload. Decided from the schema alone, so the shared-primary-key identity can `Ref`
+ * that INSERT before the arm (and therefore the target's own plan) is built.
+ */
+function targetGeneratesReferencedKey(
+  targetModel: Model<any>,
+  referencedField: string
+): boolean {
+  const pk = getPrimaryKeyFields(targetModel);
+  if (!(pk.length === 1 && pk[0] === referencedField)) return false;
+  return (
+    targetModel["~"].state.scalars[referencedField]?.["~"].state
+      .autoGenerate === "increment"
+  );
 }
 
 /**

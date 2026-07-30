@@ -8,7 +8,6 @@ import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 
 /**
@@ -35,12 +34,19 @@ import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
  *    spelling of the identical shape ran. N1 had already built the planned-parent
  *    bulk leaf; this site was simply not handed it.
  *
+ *  · **N4-U2 — the create arm one level deeper.** A nested `upsert`/`connectOrCreate`
+ *    whose probe finds nothing INSERTs a FRESH row, and a fresh row's relations are the
+ *    create root's surface — so the whole arm is now a create SUBTREE rather than one
+ *    hand-rolled INSERT plus a narrow list of deeper writes. Its identity is produced,
+ *    not located: a spelled primary key, or one the database generates and the
+ *    grandchildren `Ref`.
+ *
  * These are fixed-expectation behaviors run on every driver class and both
  * substrates. Each absorbed shape is paired with a WRONG-ROW probe: a decoy row,
  * seeded FIRST and holding the LOWER primary key, that any "take the first row" or
  * "re-read the where" implementation would land on — and the assertions name the id,
- * not just the count. The two walls that remain are asserted too, in the same file
- * and on the same substrates, so neither can quietly change disposition.
+ * not just the count. The wall that remains is asserted too, in the same file
+ * and on the same substrates, so it cannot quietly change disposition.
  */
 export const depthSeamSchema = (() => {
   // --- N4-U1, child-held to-many (`RelationWritePart` / `RelationUpsertPart`) ---
@@ -79,9 +85,12 @@ export const depthSeamSchema = (() => {
     })
     .map("n4_seam_tasks");
 
-  // A to-many whose key the DATABASE generates, reachable by a non-PK unique: the
-  // one shape N4-U1's upsert CREATE arm cannot serve, because a fresh row's generated
-  // key is not knowable before its INSERT runs.
+  // A to-many whose key the DATABASE generates, reachable by a non-PK unique. N4-U1
+  // could not serve this shape on the upsert CREATE arm (a fresh row's generated key is
+  // not knowable before its INSERT runs, and the arm's grandchildren needed a
+  // construction-time literal); N4-U2 made the arm a create SUBTREE, whose grandchildren
+  // `Ref` the INSERT that produces it — so the pair of arms below now witnesses the
+  // produced and spelled identities agreeing, not a wall.
   const slot = s
     .model({
       id: s.int().id().increment(),
@@ -512,7 +521,7 @@ export function runDepthSeamBehavior(options: {
     );
 
     test(
-      "an upsert create arm carrying grandchildren under a DATABASE-GENERATED key is a typed refusal, before any write",
+      "an upsert create arm carrying grandchildren under a DATABASE-GENERATED key follows the key its own INSERT produced",
       {
         timeout: 30_000,
       },
@@ -520,30 +529,48 @@ export function runDepthSeamBehavior(options: {
         const { client, update, dispose } = await setup();
         try {
           await seedProjects(client);
-          // `slot.id` is generated and the `where` names `code`, so NEITHER source can
-          // supply the fresh row's primary key before its INSERT runs. The grandchild's
-          // foreign key therefore has no value — a construction-time refusal, not a
-          // guess: it throws before the operation is even built, so nothing executes.
-          expect(() =>
-            update("workspace", depthSeamSchema.workspace, {
-              where: { id: 2 },
-              data: {
-                slots: {
-                  upsert: {
-                    where: { code: "S-NOKEY" },
-                    create: {
-                      code: "S-NOKEY",
-                      title: "fresh",
-                      entries: { create: { text: "orphan" } },
-                    },
-                    update: { title: "not-taken" },
+          // RETARGETED BY N4-U2 (authorized test change). N4-U1 refused this shape
+          // because neither the `where` (which names `code`) nor the create data could
+          // spell the fresh row's primary key, and the grandchild foreign key had to be
+          // a value known at construction. That premise held only while the arm was one
+          // hand-rolled INSERT plus a list of deeper writes correlated to a LITERAL. The
+          // arm is now a create SUBTREE, and a create root has always handed its
+          // grandchildren a database-generated key as a backward `Ref` to its own INSERT
+          // — so nothing needs to be known before the statement runs, and the shape
+          // executes. The assertion is the identity: the entry's foreign key is the slot
+          // id the database generated, not a decoy's and not a guess.
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              slots: {
+                upsert: {
+                  where: { code: "S-NOKEY" },
+                  create: {
+                    code: "S-NOKEY",
+                    title: "fresh",
+                    entries: { create: { text: "under-generated-key" } },
                   },
+                  update: { title: "not-taken" },
                 },
               },
-            })
-          ).toThrow(UnsupportedOperationError);
-          await expect(client.slot.findMany({})).resolves.toEqual([]);
-          await expect(client.entry.findMany({})).resolves.toEqual([]);
+            },
+          });
+          const slots = await client.slot.findMany({ orderBy: { id: "asc" } });
+          expect(slots).toHaveLength(1);
+          expect(slots[0]).toMatchObject({
+            code: "S-NOKEY",
+            title: "fresh",
+            workspaceId: 2,
+          });
+          await expect(
+            client.entry.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            {
+              id: expect.anything(),
+              text: "under-generated-key",
+              slotId: slots[0]?.id,
+            },
+          ]);
         } finally {
           await dispose();
         }
@@ -551,7 +578,7 @@ export function runDepthSeamBehavior(options: {
     );
 
     test(
-      "the SAME generated-key upsert runs once the create arm spells the key",
+      "the SAME upsert runs identically when the create arm SPELLS the key",
       {
         timeout: 30_000,
       },
@@ -559,9 +586,10 @@ export function runDepthSeamBehavior(options: {
         const { client, update, dispose } = await setup();
         try {
           await seedProjects(client);
-          // The only difference from the refusal above: the create data names the key.
-          // That is the whole content of the wall — an absent value, not a shape V2
-          // declines to execute.
+          // The only difference from the arm above: the create data names the key. Both
+          // spellings now execute (N4-U2), so the pair pins that the produced-identity
+          // path and the spelled-identity path agree on state rather than that one of
+          // them is a wall.
           await update("workspace", depthSeamSchema.workspace, {
             where: { id: 2 },
             data: {

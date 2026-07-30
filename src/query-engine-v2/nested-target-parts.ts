@@ -21,7 +21,7 @@ import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope } from "../query-engine/types";
 import { CreateOperation } from "./CreateOperation";
 import { referenceSql } from "./fragment-builders";
-import type { OperationStep } from "./OperationFragment";
+import type { OperationStep, TargetConstraintPin } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { referencedFieldValue } from "./parent-reference";
 import { buildJunctionParts } from "./RelationJunctionPart";
@@ -351,6 +351,8 @@ function foldOneNestedRelation(input: {
     parentId,
     txMode,
     nestedBuilder: deeperBuilder,
+    freshArm: (freshInput: Parameters<FreshArmBuilder>[0]) =>
+      buildFreshArmPart(scope, engine, freshInput),
   } as const;
 
   for (const kind of getRelationMutationKinds(mutation)) {
@@ -441,7 +443,8 @@ function foldOneChildHeldKind(args: {
           relationInfo,
           normalizeItems(parsedRelation.connectOrCreate, relationName),
           parentId,
-          txMode
+          txMode,
+          (freshInput) => buildFreshArmPart(scope, engine, freshInput)
         )
       );
       return;
@@ -462,7 +465,8 @@ function foldOneChildHeldKind(args: {
           normalizeItems(parsedRelation.upsert, relationName),
           parentId,
           "correlated",
-          txMode
+          txMode,
+          (freshInput) => buildFreshArmPart(scope, engine, freshInput)
         )
       );
       return;
@@ -715,6 +719,52 @@ class NestedFreshCreatePart implements Part {
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     return this.op.compile(known).steps;
   }
+}
+
+/**
+ * N4-U2 — the seam an ADOPT arm's fresh row is built through, injected as a function
+ * so `RelationUpsertPart` / `RelationWritePart` reach the create root without importing
+ * this module at runtime (the {@link NestedChildBuilder} convention: an erased type
+ * import breaks the cycle).
+ *
+ * A nested `upsert`/`connectOrCreate` whose probe finds nothing INSERTs a fresh row —
+ * which is what a `create` root builds. Before this seam the arm emitted one hand-rolled
+ * INSERT and refused every relation its payload carried beyond a single parent-held
+ * to-one `connect`; now the whole arm is a create SUBTREE, so a deeper m2m, a
+ * before-parent to-one `create`, a `createMany`, a globally-adopting `connect` /
+ * `connectOrCreate` / `upsert`, a database-generated primary key threaded to its own
+ * grandchildren, and any depth below all fall out of the create root unchanged.
+ */
+export type FreshArmBuilder = (input: {
+  readonly childScope: QueryScope;
+  readonly data: Record<string, unknown>;
+  readonly rootFkInject: (known: PlanningKnown) => Record<string, unknown>;
+  readonly racePin?: TargetConstraintPin;
+}) => Part;
+
+/** The {@link FreshArmBuilder} implementation — one home for the adopt arm's fresh
+ *  subtree, shared by every caller that folds an adopt family. */
+export function buildFreshArmPart(
+  scope: StepScope,
+  engine: QueryEngine,
+  input: Parameters<FreshArmBuilder>[0]
+): Part {
+  return new NestedFreshCreatePart(
+    new CreateOperation(
+      engine,
+      input.childScope.model,
+      {},
+      {
+        scope,
+        skipOwnWrite: true,
+        nestedFresh: {
+          data: input.data,
+          rootFkInject: input.rootFkInject,
+          ...(input.racePin ? { rootRacePin: input.racePin } : {}),
+        },
+      }
+    )
+  );
 }
 
 function buildNestedFreshCreateParts(input: {

@@ -64,12 +64,14 @@ import {
   upsertPremiseChanged,
 } from "./messages";
 import {
+  buildFreshArmPart,
   buildLiteralParentCreateManyPart,
   buildLiteralParentCreatePart,
   buildNestedTargetChildParts,
   buildNestedTargetUpdatePart,
   buildPlannedParentCreateManyPart,
   buildPlannedParentCreatePart,
+  type FreshArmBuilder,
   targetNeedsFullUpdate,
 } from "./nested-target-parts";
 import {
@@ -322,6 +324,10 @@ export class UpdateOperation {
   readonly mode: ExecutionMode;
 
   private readonly engine: QueryEngine;
+  /** N4-U2 — the adopt family's fresh-arm seam, bound to this operation's scope and
+   *  engine (an arrow field, so `this` survives being passed as a callback). */
+  private readonly buildFreshArm: FreshArmBuilder = (input) =>
+    buildFreshArmPart(this.scope, this.engine, input);
   private readonly model: Model<any>;
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
@@ -1295,6 +1301,9 @@ export class UpdateOperation {
           parentId,
           txMode
         ),
+      // N4-U2: the inverse-side to-one upsert's relation-carrying create arm is a
+      // create subtree, built through the same seam the to-many adopt family uses.
+      freshArm: this.buildFreshArm,
     } as const;
 
     // Multiple mutation kinds may coexist on one relation (V1's `{ delete,
@@ -1630,7 +1639,8 @@ export class UpdateOperation {
             normalizeItems(parsedRelation.upsert, relationName),
             adoptParentId,
             "correlated",
-            input.txMode
+            input.txMode,
+            this.buildFreshArm
           )
         );
         return;
@@ -1646,7 +1656,8 @@ export class UpdateOperation {
             relationInfo,
             normalizeItems(parsedRelation.connectOrCreate, relationName),
             adoptParentId,
-            input.txMode
+            input.txMode,
+            this.buildFreshArm
           )
         );
         return;
@@ -1857,7 +1868,8 @@ export class UpdateOperation {
             relationInfo,
             normalizeItems(parsedRelation.connectOrCreate, relationName),
             adoptParentId,
-            input.txMode
+            input.txMode,
+            this.buildFreshArm
           )
         );
         return;

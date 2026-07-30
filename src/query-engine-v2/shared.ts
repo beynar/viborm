@@ -3,6 +3,7 @@ import type { Model } from "@schema/model";
 import { isSql } from "@sql";
 import { isBatchValueRef } from "../query-engine/builders/values-builder";
 import type { QueryEngine } from "../query-engine/query-engine";
+import type { TargetConstraintPin } from "./OperationFragment";
 import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 
@@ -94,6 +95,19 @@ export interface SubOperationOptions {
     readonly rootFkInject: (
       known: Readonly<Record<string, unknown>>
     ) => Record<string, unknown>;
+    /**
+     * N4-U2 — the raceable missing-premise pin of an enclosing adopt arm. A nested
+     * `upsert`/`connectOrCreate` whose probe found nothing takes its CREATE arm, and
+     * that arm's missing premise is enforced by the fresh row's own unique constraint
+     * (the Pin Rule, `whenMissing: "constraint"`): a concurrent writer that created
+     * the row between the probe and the write makes this INSERT violate the pinned
+     * unique, which is the raceable signal `race-retry.ts` matches. When the arm's
+     * payload carries relations the whole arm is this create SUBTREE, so the pin has
+     * to ride the subtree's ROOT record INSERT — the one statement that used to be
+     * the arm's own leaf. Absent for every other `nestedFresh` caller (a nested
+     * `create` is unconditional: its violation is a genuine error, never a race).
+     */
+    readonly rootRacePin?: TargetConstraintPin;
   };
   /**
    * X1c — a nested UPDATE target at DEPTH whose data carries the located-target

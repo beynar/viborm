@@ -858,6 +858,12 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     values come from the record's own identity (a literal, or a backward Ref to its own
   //     INSERT). What these need is a wider notion of a fresh record's identity, or the
   //     shared-PK fold N4-U4 owns — not a located-parent read.
+  //     SETTLED by N4-U4, and this entry's reading was right on both halves: the three
+  //     "cannot resolve" sites needed the WIDER identity (a referenced non-primary-key
+  //     unique the record's own create data spells) and are NARROWED to what is genuinely
+  //     absent; the shared-primary-key fold needed the producing INSERT's returned
+  //     identity and now takes it. See the 68 -> 68 entry below — including the finding
+  //     that the shared-PK shape was never reaching a census site in the first place.
   // (h) `RelationJunctionPart`'s "requires the target primary key in the create data"
   //     (3 sites) — the target of an M2M create is FRESH; there is no located row to read.
   //     Owner: N3 (the junction's produced-identity path). SETTLED by N3-U2 for the
@@ -1291,6 +1297,143 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // every payload that actually moves a key; only no-ops stopped arriving. Witnessed by
   // two arms in `nested-update-pk-transition-cascade.test.ts` on both substrates (4 of
   // that file's 16 fail without the verdict).
+  //
+  // ---------------------------------------------------------------------------------
+  // 74 -> 68 (N4-U2, the create-arm one-level-deeper guards — B8). SIX sites, one
+  // absorption, and the absorption is a sentence: **the adopt family's create arm
+  // PRODUCES its row, and a produced row's relations are the create ROOT's surface.**
+  //
+  // The arm used to be one hand-rolled INSERT plus a hand-rolled list of deeper writes,
+  // and every one of these six sites was a boundary of that hand-rolling rather than of
+  // anything the engine could not express. Measured first, live, on PGlite (the exact
+  // messages are in the wave record): the reachable create-arm surface one level deeper
+  // is `create` / `createMany` / `connect` / `connectOrCreate` / `upsert` — the parse
+  // boundary does not OFFER `update`/`updateMany`/`delete`/`deleteMany`/`set`/`disconnect`
+  // inside a create payload (a `ValidationError`, X2), so those never reached any of
+  // them. And that reachable surface is exactly what `CreateOperation` builds for a fresh
+  // root, m2m and before-parent to-one arms included.
+  //
+  // So the arm is now a create SUBTREE through the new `FreshArmBuilder` seam — X1b's
+  // `nestedFresh` reuse, which `nested-target-parts` already used for a relation-carrying
+  // fresh nested `create` at depth. The seam is INJECTED (a type-only import, the
+  // `NestedChildBuilder` convention) because `CreateOperation` imports the adopt-family
+  // builders, so a runtime import the other way would close a cycle.
+  //
+  // DELETED (5), each measured live before it was touched:
+  //   · `RelationUpsertPart.createArmParentId` — "carries nested relation mutations in
+  //     its upsert create arm; the fresh target's primary key must be in the where or
+  //     the create data (a database-generated key is not known before the insert runs)".
+  //     N4-U1 added this site three commits ago and its reason was true of the leaf, not
+  //     of the shape: a create ROOT hands its grandchildren a generated key as a backward
+  //     `Ref` to its own INSERT, so nothing has to be known beforehand.
+  //   · `foldParentHeldConnect` ×3 — "supports only a nested parent-held to-one connect
+  //     one level deeper on a create-arm nested create", "requires a where object one
+  //     level deeper", "must locate the target by its referenced key one level deeper".
+  //     All three were that function's own narrowness; the create root folds a
+  //     before-parent arm of any kind, at any depth, and by any unique (a non-referenced
+  //     one through its lookup subquery).
+  //   · `assertMatchingCreateIdentity` — "requires nested create field 'f' to match its
+  //     unique where value". T3c had already narrowed this to the grandchild-carrying
+  //     case, on the ground that the grandchildren correlate to the fresh row through the
+  //     `where`'s primary-key entry. They no longer correlate through the selector at
+  //     all — the subtree owns its identity — so the reason is gone with the mechanism.
+  //     The scalar arm's divergent-identity behavior (V1's, kept at T3c) is now the
+  //     relation-carrying arm's too, which is the consistency this removes.
+  //
+  // CONVERTED to a `QueryEngineError` (1, the N2-U1 / X1c disposition for a branch
+  // unreachable by construction): `RelationWritePart.upsertCreateScalarData`'s "does not
+  // support nested relation writes in its create arm". The inverse-side to-one upsert's
+  // create arm takes the same subtree, and its builder routes a relation-carrying payload
+  // there before the part is constructed — so reaching this branch would mean an arm
+  // carries relations AND no subtree was built, an engine invariant break.
+  //
+  // NARROWED, not removed (the honest half):
+  //   · `buildArmChildParts`' one-level-deeper message now names the UPDATE arm only.
+  //     The update arm's target is LOCATED, not produced, so its deeper surface is
+  //     bounded by what a part built inside `RelationUpsertPart` can correlate to a
+  //     located row: the adopt family and a fresh child-held `create`. The link/bulk/
+  //     delete families and an m2m edge need `buildNestedTargetChildParts`, which this
+  //     module cannot import without a cycle, and a deeper parent-held to-one needs
+  //     X1c's whole-target delegation — which the upsert's CONDITIONAL update arm does
+  //     not have (the delegation owns the target's UPDATE, and here that UPDATE is one
+  //     arm of a three-way). Named follow-on, not smuggled in.
+  //   · `buildUpdateArmChildCreateParts`' m2m and parent-held-to-one refusals likewise
+  //     now say "on the update arm". A relation-carrying grandchild `create` there is a
+  //     create subtree too (same seam), so only those two located-row shapes survive.
+  //
+  // The connectOrCreate ALREADY-EXISTS arm still does not run the create arm's children,
+  // and that is asserted rather than assumed — `compile`'s found branch splices the
+  // update-arm children only, and the new behavior suite drives a found arm whose create
+  // payload carries a `create` grandchild and asserts the grandchild table is untouched.
+  //
+  // 68 -> 68 (N4-U4, the CreateOperation identity sites — sweep entry (g)). Three sites
+  // NARROWED and one capability added; no site removed, and the honest reason is that the
+  // shape sweep (g) named as this unit's headline never reached a census site at all.
+  //
+  // MEASURED FIRST, live: `profile.create({ data: { bio, user: { create: { … } } } })`
+  // where `profile.userId` is BOTH its primary key and its foreign key, and `user.id` is
+  // database-generated, failed with a `NestedWriteError` from
+  // `planNestedCreateIdentity` — "requires primary key field 'userId' to be known before
+  // execution" — several frames BEFORE `interpretParentHeld`'s shared-primary-key
+  // `UnsupportedOperationError`. That refusal is not in this census (it is not an
+  // `UnsupportedOperationError`), so absorbing it moves no count. What it moves is the
+  // capability, which is the point of the unit.
+  //
+  // THE ABSORPTION. The record's foreign key already referenced the target's produced
+  // identity by a backward `Ref` (`beforeParentFkAssign`, since T1). The shared primary
+  // key IS that column, so the record's identity — and therefore the terminal read that
+  // addresses the created row — is that same `Ref`. `resolveSharedPkIdentity` now
+  // resolves a produced source as well as a literal one, pre-allocating the before-parent
+  // INSERT's step id so the `Ref` and the statement agree (the N4-U1 allocation-order
+  // precedent: a value the identity is built from must exist before the arms fold), and
+  // `terminalIdentity` lowers a `Ref` identity member exactly as the generated-key branch
+  // beside it already did. One produced value, spent by the foreign key and by the
+  // terminal read; nothing is re-derived.
+  //
+  // THE THREE NARROWED SITES — `referencedValue`, `edgeParentId` and
+  // `targetReferencedValue`, sweep (g)'s "cannot resolve referenced field / the parent
+  // id". Their cause was that a fresh record's identity was read as its PRIMARY KEY
+  // alone, so an edge referencing one of its other uniques (the D4 shape on a create
+  // root: `badge.userCode -> user.code`) found nothing to resolve — while the value sat
+  // in the same create data the primary key came from, one column over. One resolver
+  // (`freshReferenced`) now answers all three askers from the widened identity, and each
+  // site keeps its refusal for what is genuinely absent, with the message saying so:
+  // "neither this record's primary key nor a knowable value in its own create data".
+  //
+  // What "knowable" excludes is a guard with a named job, not a defensive one: an `Sql`
+  // operand would be EVALUATED A SECOND TIME for the foreign key, and two evaluations of
+  // `gen_random_uuid()` / `now()` are two values — the child would reference a row that
+  // does not exist. `null`/absent resolves nothing either (an FK equal to NULL references
+  // no row).
+  //
+  // THE SURVIVORS at the shared-primary-key site, measured rather than argued. It is
+  // reachable only when the foreign-key column is itself declared `.increment()` (any
+  // other spelling hits `planNestedCreateIdentity` first), and its two live causes are
+  // both genuine: a `connect` by a NON-referenced unique resolves its foreign key through
+  // a lookup SUBQUERY, and re-evaluating that subquery for the identity is a second
+  // provenance of the same row (the wrong-row doctrine — the arm's probe already located
+  // it); and a `connectOrCreate` decides which arm it took at COMPILE, so one identity
+  // does not describe both. The `create` cause is gone under BOTH provenances.
+  //
+  // WITNESSES AND FALSIFICATIONS for both units (`produced-identity-depth-behavior.ts`,
+  // 9 shapes x 2 substrates on every driver leg, wired into all four driver files;
+  // `produced-identity-provenance.test.ts`, the corrupt-returned-identity instrument):
+  //
+  //   · take the create arm off the subtree (`createSubtree = undefined`) — 16 of the 78
+  //     tests in the four affected files fail.
+  //   · re-derive a fresh record's GENERATED key from its own spelled unique, as a
+  //     subquery, instead of the value its INSERT returned — the plausible alternative
+  //     implementation, and the exact re-consult-the-input failure mode. It passes ALL 18
+  //     of the behavior suite's state assertions (the decoys cannot see it: the spelled
+  //     unique names the same row) and fails EXACTLY the create-arm provenance witness.
+  //   · the same re-derivation on the before-parent target's key, which is where the
+  //     shared-PK identity comes from — again 20 of 21 pass, and the one failure is the
+  //     shared-PK provenance witness, whose two halves (the child's foreign key AND the
+  //     terminal read that returns it) must both follow the corrupted returned value.
+  //
+  // That is what those two witnesses are FOR: they are the only assertions in the estate
+  // that can tell a produced value from a re-derived one, exactly as N4-U1's
+  // corrupt-locate arm is the only one that can tell a located value from a re-read one.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1301,7 +1444,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(74);
+    expect(sites).toBe(68);
   });
 });
 

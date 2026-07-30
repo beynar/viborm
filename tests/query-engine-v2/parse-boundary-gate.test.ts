@@ -84,8 +84,14 @@ const DELETED_KEY_GATES = [
 // 38 -> 37 / 23 -> 22 (W4-U3 fix round): the to-one `update` payload now arrives as
 // the relation schema's canonical envelope, so `buildToOneUpdatePart` no longer
 // re-checks its shape or casts it — the split reads the envelope and fails closed.
-const MAX_PAYLOAD_RECORD_CASTS = 37;
-const MAX_SHAPE_THROW_MESSAGES = 22;
+// 37 -> 36 (N4-U2): `foldParentHeldConnect` is gone. It hand-read a grandchild's nested
+// `connect` payload — the one thing the create root does not need a cast for, because a
+// create SUBTREE folds that connect through the same already-parsed relation mutation
+// every other arm uses. The cast went with the function, not around it.
+const MAX_PAYLOAD_RECORD_CASTS = 36;
+// 22 -> 21 (N4-U2): the same removal. `foldParentHeldConnect`'s "requires a where object
+// one level deeper" was the shape-check message that went with that cast.
+const MAX_SHAPE_THROW_MESSAGES = 21;
 
 const PARSE_VALIDATED_DEF = /export function parseValidated\b/;
 const INFER_OUTPUT_CAST = /as InferOutput\b/;

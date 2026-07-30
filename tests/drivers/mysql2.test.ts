@@ -30,6 +30,7 @@ import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-creat
 import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
+import { runProducedIdentityBehavior } from "../query-engine-v2/produced-identity-depth-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
@@ -461,6 +462,19 @@ describeIf("MySQL2 Driver", () => {
     // `skipDuplicates` is the savepoint-wrapped executor effect on this dialect, and
     // a savepoint has no lowering into a single atomic batch.
     skipDuplicatesInBatchIsInexpressible: true,
+  });
+
+  runProducedIdentityBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+  runProducedIdentityBehavior({
+    name: "MySQL2 atomic batch",
+    createDriver: () =>
+      new MySQL2BatchForcedDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+    createStateDriver: createMySQL2Driver,
   });
 
   runJunctionCreateManyBehavior({
