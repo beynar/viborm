@@ -115,8 +115,18 @@ export function buildUpdate(ctx: QueryScope, args: UpdateArgs): Sql {
   // Build SET clause with processed data
   const setSql = buildSet(ctx, processedData);
 
-  // Build WHERE from unique input (no alias for UPDATE statements)
-  const whereSql = buildWhereUnique(ctx, args.where, "");
+  // Build WHERE qualified by table name — the same spelling `buildUpdateMany`
+  // uses, and for the same two reasons: the unaliased UPDATE target is
+  // addressable only by its name, so a relation filter's EXISTS subquery
+  // correlates against `tbl`.`col` instead of a bare `col` that would bind to
+  // the RELATED table whenever both carry that column; and `mutationTable` lets
+  // that subquery be wrapped in a derived table on dialects that reject reading
+  // the mutated table (MySQL error 1093).
+  const whereSql = buildWhereUnique(
+    { ...ctx, mutationTable: tableName },
+    args.where,
+    tableName
+  );
 
   // Build UPDATE
   const table = adapter.identifiers.escape(tableName);

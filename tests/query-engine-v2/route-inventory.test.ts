@@ -1493,6 +1493,74 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // filter" differ) and, in `depth-seam.test.ts`, the corrupt-locate provenance arm aimed
   // at a FILTERED locate, which is the only instrument that can tell the located value
   // from a re-read of the selector.
+  //
+  // 68 -> 68 (N6-U2, relation filters inside a unique `where` — D-N2). No site added or
+  // removed, and the reason is worth stating rather than inferring: the refusal this unit
+  // lifted was never in this census. It was a PARSE-boundary `v.refused` entry, one per
+  // relation key of `getWhereUniqueExtendedSchema` (`validation/model/core/where.ts`),
+  // reached identically by `findUnique` / `findUniqueOrThrow` / `update` / `delete` /
+  // `upsert` — measured live before touching anything: five families, one message,
+  // "Relation filter 'logins' is not supported inside a unique 'where'."
+  //
+  // WHAT THE REFUSAL WAS ACTUALLY PROTECTING, measured rather than taken from its own
+  // comment. Compiling the payload past validation on all three dialects showed the
+  // filter half reaching `buildUpdate`/`buildDelete`, which passed the empty alias — a
+  // mutation target has no alias to give — so the relation filter's correlated `EXISTS`
+  // came out with a BARE outer column: `EXISTS (SELECT 1 FROM logins t1 WHERE id =
+  // t1.accountId AND …)`. Where the related model carries a column of that name, and `id`
+  // is the usual case, the outer reference binds to the INNER table and the predicate
+  // becomes a question about no outer row at all. Not an error on any dialect — a wrong
+  // answer on all of them. MySQL's ERROR 1093 was the second half of the reason and the
+  // one the plan named; the decorrelation was the first half and the dangerous one.
+  //
+  // THE COMPOSITION. `buildUpdateMany`/`buildDeleteMany` have always answered both halves
+  // at once: qualify the `where` by the target's own table name (the unaliased target IS
+  // addressable that way) and declare it `mutationTable`, which lets the relation-filter
+  // builder hide a subquery that reads the mutated table behind a derived table. The two
+  // unique-`where` builders now do the same, so there is ONE spelling for a mutation's
+  // `where` rather than one per arity. Measured: the wrapper engages precisely where the
+  // relation reads the mutated table — a self-relation to-one or to-many, and a self-M2M's
+  // target side — and stays off for cross-table relations; PostgreSQL and SQLite never
+  // wrap. The validation entry then collapsed into the model's own `where`:
+  // `getScalarWhereSchema`/`ScalarWhereSchema` (the scalar-only recursion that existed only
+  // to host the refusal) are DELETED, and the extended unique `where` is the discriminators
+  // over `getWhereSchema`.
+  //
+  // WHICH STATEMENTS ACTUALLY CARRY IT, since this decides where the witnesses live. In
+  // transaction mode `update`/`delete` address the located row by the primary key their
+  // FOR UPDATE locate captured (V1's `WHERE id` mechanic), so the filter reaches only the
+  // locate — a plain SELECT, correlated correctly since forever. It reaches a MUTATION in
+  // exactly three places: an atomic batch's write (which keeps the original `where` so
+  // guard and write pin one row), the transaction-mode RETURNING fold on `update`
+  // (`directWrite`, which has no locate at all), and `upsert`'s UPDATE arm (which keeps
+  // the original `where` on BOTH substrates). The third is the only one a non-returning
+  // driver reaches, which is why MySQL's leg of this unit is an upsert.
+  //
+  // WITNESSES (`extended-where-unique-behavior.ts` §7, 7 shapes x 2 substrates on every
+  // driver leg incl. docker MySQL and pg; `relation-filter-mutation-behavior.ts`, 5
+  // self-relation shapes on all four driver files; `unique-where-relation-filter-plan.test.ts`,
+  // the compile-level spelling tripwire). FALSIFICATIONS, each restored:
+  //
+  //   · re-add the `v.refused` entries — all 14 relation-filter behavior tests fail.
+  //   · revert `buildUpdate`'s alias to `""` — 15 fail, and the decisive one is behavioral:
+  //     the decoy login whose `id` equals its `accountId` makes the decorrelated `EXISTS`
+  //     answer TRUE for an account that owns nothing, and the RETURNING fold — which skips
+  //     the locate — updates the WRONG ROW. That is the wrong-row doctrine caught in the
+  //     one path where nothing else would have noticed.
+  //   · revert `buildDelete`'s alias — the compile tripwire fails on all three dialects,
+  //     and behaviorally the atomic-batch leg fails: a `none` filter that should hold is
+  //     decorrelated into "does ANY login satisfy id = accountId", the DELETE affects no
+  //     row, and (batch writes carry no affected-rows postcondition) the row silently
+  //     survives.
+  //   · drop `mutationTable` from either builder — the MySQL wrapper assertions fail while
+  //     PostgreSQL and SQLite stay green, which is the whole shape of the 1093 claim.
+  //
+  // NOT ABSORBED, and deliberately not refused either: `upsert`'s CREATE arm needed no new
+  // treatment. A relation filter partitions into `filters` exactly as a scalar one does
+  // (`partitionWhereUnique`), so it withholds the create-arm `racePin` by the rule already
+  // there — the locate never established "unique key K is free" — and a collision surfaces
+  // as the genuine `UniqueConstraintError` W4 pinned, not as a race. The witness asserts
+  // that rather than assuming it.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

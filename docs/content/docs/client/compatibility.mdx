@@ -14,15 +14,15 @@ Everything in the API works the same on every database unless noted under [Datab
 
 | Operation | Status | Notes |
 |-----------|--------|-------|
-| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). The selector may also carry non-unique scalar filters and `AND`/`OR`/`NOT` (Prisma ≥ 4.5) — see [Unique selectors](#unique-selectors). |
+| `findUnique` / `findUniqueOrThrow` | ✅ | Requires a unique selector, returns `T \| null` (or throws). The selector may also carry non-unique scalar and relation filters and `AND`/`OR`/`NOT` (Prisma ≥ 4.5) — see [Unique selectors](#unique-selectors). |
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
 | `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`). Relation nesting isn't supported inside `createMany`. |
-| `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
+| `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
 | `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only. Prisma 6's `limit` is supported, with Prisma's own caveat: it caps how many rows are affected, not which. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
-| `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
+| `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
 | `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported. |
 | `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. `_min`/`_max`/`_sum`/`_avg` over a `s.decimal()` are refused on SQLite — see [Decimals on SQLite](#decimals-on-sqlite). |
 | `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
@@ -33,15 +33,14 @@ Everything in the API works the same on every database unless noted under [Datab
 
 `findUnique`, `findUniqueOrThrow`, `update`, `delete` and `upsert` take Prisma
 ≥ 4.5's extended unique `where`: at least one unique discriminator (a unique
-scalar, or a complete compound constraint) plus any non-unique **scalar** filters
-and `AND` / `OR` / `NOT`. Full semantics, per operation, are in
+scalar, or a complete compound constraint) plus any non-unique filters — scalar
+**and relation** — and `AND` / `OR` / `NOT`. Full semantics, per operation, are in
 [Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup).
 
-Two deliberate divergences:
+One deliberate divergence:
 
 | | VibORM | Prisma |
 |--|--------|--------|
-| Relation filters inside a unique `where` | Refused by name — the same `where` compiles into the `UPDATE`/`DELETE` statement, where a correlated subquery cannot be answered identically on every database (MySQL error 1093). Use `findFirst` / `updateMany` / `deleteMany`. | Accepted |
 | Nested relation-write target selectors (`connect`, `disconnect`, `set`, nested `update`/`upsert`/`delete`) and `cursor` | Unique discriminators only | Extended there too |
 
 ## Relation filters

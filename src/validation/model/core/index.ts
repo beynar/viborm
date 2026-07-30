@@ -52,11 +52,9 @@ export {
 } from "./update";
 // Where exports
 export {
-  getScalarWhereSchema,
   getWhereSchema,
   getWhereUniqueExtendedSchema,
   getWhereUniqueSchema,
-  type ScalarWhereSchema,
   type WhereSchema,
   type WhereUniqueExtendedSchema,
   type WhereUniqueSchema,

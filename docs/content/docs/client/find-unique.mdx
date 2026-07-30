@@ -146,18 +146,27 @@ The same `where` shape is accepted by
 | `update` / `delete` | `NotFoundError`, nothing written |
 | `upsert` | the **create** branch runs — and then hits the unique key that is already taken, so a `UniqueConstraintError` surfaces |
 
-<Callout type="warn">
-One deliberate divergence from Prisma, refused rather than half-answered:
+Relation filters work here too, in the same position and with the same meaning
+as in `findMany`:
 
-- **Relation filters are not accepted** inside a unique `where` (Prisma accepts
-  them). The filter half of a unique `where` also compiles into the `UPDATE` /
-  `DELETE` statement, where the target table carries no alias and MySQL rejects a
-  subquery that reads the table being mutated — so a relation filter could not
-  answer the same on every database from that position. Use
-  [`findFirst`](/docs/client/find-first), `updateMany` or `deleteMany` to filter
-  by a relation.
+```ts
+// "the account with this id, but only if it still has a live login"
+const account = await client.account.findUnique({
+  where: {
+    id: 1,
+    logins: { some: { status: "live" } },
+    manager: { is: { active: true } },
+  },
+});
+```
 
-And one place viborm goes **further** than Prisma:
+They narrow the row exactly as a scalar filter does — including on `update`,
+`delete` and `upsert`, per the table above. Self-relations are covered: on MySQL,
+where an `UPDATE` may not read the table it is mutating, the engine compiles the
+subquery through a derived table so the answer is the same everywhere.
+
+<Callout type="info">
+One place viborm goes **further** than Prisma:
 
 - **Nested `update` / `upsert` / `delete` target selectors take the extended form
   too.** Prisma accepts unique discriminators only in those positions; viborm

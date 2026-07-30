@@ -31,6 +31,13 @@ import { describe, expect, test } from "vitest";
  *  4. a nested create under an extended `where` takes its parent column from the
  *     DISCRIMINATOR or, since N1-U1, from the LOCATED ROW — never from the filter
  *     half, which narrows which row is touched and names none.
+ *
+ * Since N6-U2 the filter half may also be a RELATION filter, and §7 below pins
+ * the four things that follow from it: transparency when it matches, not-found
+ * when it excludes, arm selection for `upsert`, and — the one that is not a
+ * restatement of the scalar case — that the correlated `EXISTS` names the
+ * MUTATED table. Both models here carry an `id`, so a bare-column correlation
+ * would silently bind the outer reference to the RELATED table.
  */
 export const extendedWhereUniqueSchema = (() => {
   const account = s
@@ -79,7 +86,25 @@ export const extendedWhereUniqueSchema = (() => {
       score: s.int(),
     })
     .map("ext_wu_notes");
-  return { account, login, note, ticket };
+  // N6-U2's dialect-risk shape: a SELF relation, so a relation filter's `EXISTS`
+  // reads the very table the statement mutates. MySQL rejects that (ERROR 1093)
+  // unless the subquery is hidden behind a derived table — which is why this
+  // model exists here rather than only in the cross-table suite above, and why
+  // the witnesses on it run on every driver and both substrates.
+  const node = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      parentId: s.int().nullable(),
+      parent: s
+        .manyToOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .optional(),
+      children: s.oneToMany(() => node),
+    })
+    .map("ext_wu_nodes");
+  return { account, login, node, note, ticket };
 })();
 
 hydrateSchemaNames(extendedWhereUniqueSchema);
@@ -111,6 +136,14 @@ export function runExtendedWhereUniqueBehavior(options: {
       await client.note.create({
         data: { label: "seed", status: "active", score: 7 },
       });
+      // boss ← mid ← kid: `mid` has both a parent and a child, `boss` only a
+      // child, `kid` only a parent — so every self-relation filter below has a
+      // row it matches and a row it excludes.
+      await client.node.create({
+        data: { id: 1, label: "boss", parentId: null },
+      });
+      await client.node.create({ data: { id: 2, label: "mid", parentId: 1 } });
+      await client.node.create({ data: { id: 3, label: "kid", parentId: 2 } });
       return {
         client,
         dispose: () => client.$disconnect(),
@@ -830,22 +863,342 @@ export function runExtendedWhereUniqueBehavior(options: {
       })
     );
 
+    // -- 7. N6-U2: RELATION filters in the unique where ---------------------
+    //
+    // RETARGETED (N6-U2). This slot held "a relation filter inside a unique
+    // where is refused BY NAME". The refusal existed because the filter half
+    // compiles into the UPDATE/DELETE as well as the locate, and the unaliased
+    // mutation target left the correlated EXISTS with nothing to name. It is
+    // named now — `buildUpdate`/`buildDelete` qualify the unique `where` by the
+    // target's table, exactly as `buildUpdateMany`/`buildDeleteMany` do — so the
+    // same payload EXECUTES, and what follows pins that it executes CORRECTLY.
+    // The strict-nested-selector test below is what still separates the two
+    // schemas, so removing this one does not leave the boundary unwitnessed.
+
     test(
-      "a relation filter inside a unique where is refused BY NAME",
+      "a relation filter is transparent when it MATCHES",
       { timeout: 30_000 },
       run(async (client) => {
-        const rejection = await client.account
-          .findUnique({
-            where: { id: 1, logins: { some: {} } } as never,
+        await client.login.create({
+          data: { id: 201, label: "live", accountId: 1 },
+        });
+        expect(
+          await client.account.findUnique({
+            where: { id: 1, logins: { some: { label: "live" } } },
+            select: { id: true, score: true },
+          })
+        ).toEqual({ id: 1, score: 10 });
+        expect(
+          await client.account.update({
+            where: { id: 1, logins: { some: { label: "live" } } },
+            data: { score: { increment: 5 } },
+            select: { score: true },
+          })
+        ).toEqual({ score: 15 });
+      })
+    );
+
+    test(
+      "a relation filter that EXCLUDES makes the row not-found, state unchanged",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // Account 1 has no logins at all, so `some` is false for it.
+        expect(
+          await client.account.findUnique({
+            where: { id: 1, logins: { some: {} } },
+            select: { id: true },
+          })
+        ).toBeNull();
+        const missing = await client.account
+          .findUniqueOrThrow({ where: { id: 1, logins: { some: {} } } })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        expect(missing).toBeInstanceOf(NotFoundError);
+        expect((missing as NotFoundError).code).toBe(
+          VibORMErrorCode.RECORD_NOT_FOUND
+        );
+        const updateRejection = await client.account
+          .update({
+            where: { id: 1, logins: { some: {} } },
+            data: { score: { increment: 1 } },
           })
           .then(
             () => undefined,
             (error: unknown) => error
           );
-        expect(rejection).toBeInstanceOf(ValidationError);
-        expect((rejection as Error).message).toContain(
-          "is not supported inside a unique 'where'"
-        );
+        expect(updateRejection).toBeInstanceOf(NotFoundError);
+        const deleteRejection = await client.account
+          .delete({ where: { id: 1, logins: { some: {} } } })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        expect(deleteRejection).toBeInstanceOf(NotFoundError);
+        // Neither statement touched the row it declined to address.
+        expect(
+          await client.account.findUnique({
+            where: { id: 1 },
+            select: { score: true },
+          })
+        ).toEqual({ score: 10 });
+      })
+    );
+
+    test(
+      "a TO-ONE relation filter answers on both sides of the edge",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.login.create({
+          data: { id: 210, label: "attached", accountId: 1 },
+        });
+        await client.login.create({
+          data: { id: 211, label: "orphan", accountId: null },
+        });
+        expect(
+          await client.login.findUnique({
+            where: { id: 210, account: { is: { status: "active" } } },
+            select: { label: true },
+          })
+        ).toEqual({ label: "attached" });
+        expect(
+          await client.login.findUnique({
+            where: { id: 210, account: { is: { status: "archived" } } },
+            select: { label: true },
+          })
+        ).toBeNull();
+        // `is: null` names the unattached row and nothing else.
+        expect(
+          await client.login.update({
+            where: { id: 211, account: { is: null } },
+            data: { label: "still-orphan" },
+            select: { label: true },
+          })
+        ).toEqual({ label: "still-orphan" });
+        expect(
+          await client.login
+            .update({
+              where: { id: 210, account: { is: null } },
+              data: { label: "unreachable" },
+            })
+            .then(
+              () => undefined,
+              (error: unknown) => error
+            )
+        ).toBeInstanceOf(NotFoundError);
+      })
+    );
+
+    test(
+      "the correlation names the MUTATED table, not the related one",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The wrong-row hazard this absorption had to answer. Both models carry
+        // an `id`, so a correlated EXISTS built against a BARE `id` — which is
+        // all an unaliased UPDATE target used to offer — binds the outer column
+        // to `ext_wu_logins` and asks "is there a login whose id equals its own
+        // accountId", a question about no account at all.
+        //
+        // Login 1 is exactly that decoy: `id === accountId`. Account 1 owns it,
+        // so the WRITE must run; the assertion is that it runs because the
+        // account's own id correlated, which a decorrelated spelling would get
+        // right here and wrong below.
+        await client.login.create({
+          data: { id: 1, label: "decoy", accountId: 1 },
+        });
+        expect(
+          await client.account.update({
+            where: { id: 1, logins: { some: { label: "decoy" } } },
+            data: { score: { increment: 7 } },
+            select: { score: true },
+          })
+        ).toEqual({ score: 17 });
+        // Account 2 owns NO login, so the correct answer is not-found. The
+        // decorrelated spelling would answer "yes — login 1 satisfies
+        // `id = accountId`" and update the wrong account's row.
+        expect(
+          await client.account
+            .update({
+              where: { id: 2, logins: { some: { label: "decoy" } } },
+              data: { score: { increment: 100 } },
+            })
+            .then(
+              () => undefined,
+              (error: unknown) => error
+            )
+        ).toBeInstanceOf(NotFoundError);
+        expect(
+          await client.account.findUnique({
+            where: { id: 2 },
+            select: { score: true },
+          })
+        ).toEqual({ score: 20 });
+        // The DELETE half of the same claim, in the negative direction: account
+        // 2 owns nothing, so `none` holds and the row must go. A decorrelated
+        // `NOT EXISTS` asks instead whether ANY login has `id = accountId` —
+        // login 1 does — and answers false, leaving the row behind. Only the
+        // atomic-batch substrate can observe this: a transaction addresses the
+        // located row by its captured primary key, so the filter never reaches
+        // the DELETE there (the compile-level tripwire in
+        // `unique-where-relation-filter-plan.test.ts` covers that spelling).
+        await client.account.delete({ where: { id: 2, logins: { none: {} } } });
+        expect(
+          await client.account.findUnique({
+            where: { id: 2 },
+            select: { id: true },
+          })
+        ).toBeNull();
+      })
+    );
+
+    test(
+      "a relation filter picks the upsert ARM, and pins no identity",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.login.create({
+          data: { id: 220, label: "held", accountId: 1 },
+        });
+        // MATCHES → the UPDATE arm, on the row the `where` named.
+        expect(
+          await client.account.upsert({
+            where: { id: 1, logins: { some: { label: "held" } } },
+            create: { id: 90, email: "new@x", status: "fresh", score: 0 },
+            update: { score: { increment: 3 } },
+            select: { id: true, score: true },
+          })
+        ).toEqual({ id: 1, score: 13 });
+        // EXCLUDES → the CREATE arm, whose data names its own row. The filter
+        // narrowed which row was addressed; it named none, so nothing about the
+        // created row comes from it.
+        expect(
+          await client.account.upsert({
+            where: { id: 2, logins: { some: { label: "held" } } },
+            create: { id: 91, email: "made@x", status: "fresh", score: 4 },
+            update: { score: { increment: 100 } },
+            select: { id: true, email: true, score: true },
+          })
+        ).toEqual({ id: 91, email: "made@x", score: 4 });
+        // Account 2 — the row the discriminator named — is untouched.
+        expect(
+          await client.account.findUnique({
+            where: { id: 2 },
+            select: { score: true },
+          })
+        ).toEqual({ score: 20 });
+        // A create arm whose data collides is a genuine conflict, not a race:
+        // the locate never established "this key is free", so no racePin.
+        const conflict = await client.account
+          .upsert({
+            where: { id: 2, logins: { some: { label: "held" } } },
+            create: { id: 2, email: "clash@x", status: "fresh", score: 0 },
+            update: { score: { increment: 1 } },
+          })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+        expect(conflict).toBeInstanceOf(UniqueConstraintError);
+      })
+    );
+
+    test(
+      "a SELF-relation filter reads the mutated table, on every dialect",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The ERROR 1093 shape. On MySQL the statements below are only legal
+        // because the relation-filter subquery is wrapped in a derived table;
+        // everywhere else the same predicate goes in directly. Both answers must
+        // be the same answer, which is what this asserts.
+        expect(
+          await client.node.update({
+            where: { id: 2, children: { some: { label: "kid" } } },
+            data: { label: "promoted" },
+            select: { label: true },
+          })
+        ).toEqual({ label: "promoted" });
+        // `kid` manages nobody, so the same filter excludes it.
+        expect(
+          await client.node
+            .update({
+              where: { id: 3, children: { some: {} } },
+              data: { label: "unreachable" },
+            })
+            .then(
+              () => undefined,
+              (error: unknown) => error
+            )
+        ).toBeInstanceOf(NotFoundError);
+        // A to-one self-relation filter, through `upsert`'s UPDATE arm — the one
+        // statement in this family that keeps the original `where` on BOTH
+        // substrates, and therefore the only one that puts the filter inside a
+        // MySQL UPDATE.
+        expect(
+          await client.node.upsert({
+            where: { id: 3, parent: { is: { label: "promoted" } } },
+            create: { id: 9, label: "unused", parentId: null },
+            update: { label: "confirmed" },
+            select: { id: true, label: true },
+          })
+        ).toEqual({ id: 3, label: "confirmed" });
+        // …and an excluding one takes the CREATE arm on its own data.
+        expect(
+          await client.node.upsert({
+            where: { id: 1, parent: { is: { label: "promoted" } } },
+            create: { id: 4, label: "created", parentId: 1 },
+            update: { label: "never" },
+            select: { id: true, label: true },
+          })
+        ).toEqual({ id: 4, label: "created" });
+        // Delete by a self-relation-filtered unique where: `kid` is childless.
+        expect(
+          await client.node.delete({
+            where: { id: 3, children: { none: {} } },
+            select: { label: true },
+          })
+        ).toEqual({ label: "confirmed" });
+        expect(
+          await client.node
+            .delete({ where: { id: 1, children: { none: {} } } })
+            .then(
+              () => undefined,
+              (error: unknown) => error
+            )
+        ).toBeInstanceOf(NotFoundError);
+        expect(
+          await client.node.findMany({
+            orderBy: { id: "asc" },
+            select: { id: true, label: true },
+          })
+        ).toEqual([
+          { id: 1, label: "boss" },
+          { id: 2, label: "promoted" },
+          { id: 4, label: "created" },
+        ]);
+      })
+    );
+
+    test(
+      "a nested create under a relation-filtered where takes the LOCATED parent",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.login.create({
+          data: { id: 230, label: "anchor", accountId: 1 },
+        });
+        // The `where` is located by a NON-PK unique AND narrowed by a relation
+        // filter. The child's FK comes from the row the locate acted on; the
+        // filter half contributes no pin (it names no row — see the module note
+        // on `where-unique-builder`).
+        await client.account.update({
+          where: { email: "live@x", logins: { some: { label: "anchor" } } },
+          data: { logins: { create: { id: 231, label: "child" } } },
+        });
+        expect(
+          await client.login.findUnique({
+            where: { id: 231 },
+            select: { accountId: true },
+          })
+        ).toEqual({ accountId: 1 });
       })
     );
 

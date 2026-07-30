@@ -1174,8 +1174,8 @@ parent-id source that applies the SET operand to the located value at compile, t
 | Unit | What | Decision |
 |---|---|---|
 | N6-U1 | ~~**Extended whereUnique in nested target selectors**~~ — **DELIVERED** (maintainer yes). The nested `update`/`upsert`/`delete` targets take `{ <unique>, ...filters }`; Prisma is unique-only there, so this is the superset row of the capability matrix. See the note below. | D-N1 ✅ |
-| N6-U2 | **Relation filters inside a unique where** — refused today because the filter half compiles into UPDATE/DELETE where MySQL rejects reading the mutated table; the 1093 derived-table wrapper already exists for updateMany — compose it. | D-N2 |
-| N6-U3 | **Own-write linearization** (A14: `{ posts: { create, connect } }` same-tree overlap) — Prisma linearizes some of these; ATOM §4 refuses by doctrine because per-Part legality re-derivation "forks the theorem". Default: KEEP the refusal. Only revisit with an explicit doctrine change. | D-N3, default NO |
+| N6-U2 | ~~**Relation filters inside a unique where**~~ — **DELIVERED** (maintainer yes). See the note below. | D-N2 ✅ |
+| N6-U3 | **Own-write linearization** (A14: `{ posts: { create, connect } }` same-tree overlap) — Prisma linearizes some of these; ATOM §4 refuses by doctrine because per-Part legality re-derivation "forks the theorem". Default: KEEP the refusal. Only revisit with an explicit doctrine change. | D-N3, maintainer yes — **the doctrine amendment is owed with it** |
 
 ### N6-U1 delivered — what the measurement changed about the unit
 
@@ -1207,6 +1207,64 @@ throws it away — accepting a predicate and dropping it is strictly worse than 
 it, because it is the wrong row rather than an error. Every absorbed shape is therefore
 witnessed twice, and the falsification is recorded: reverting the one seam fails exactly
 the six exclusion arms and nothing else.
+
+### N6-U2 delivered — relation filters inside a unique `where` (D-N2)
+
+**The refusal, measured before anything was touched.** One site:
+`extendedWhereUniqueRelationRefusal` in `src/validation/model/core/where.ts`, a
+`v.refused` entry per relation key, reached identically by `findUnique`,
+`findUniqueOrThrow`, `update`, `delete` and `upsert` — five families, one message.
+
+**What it was actually protecting.** The plan named MySQL's ERROR 1093. Compiling the
+payload past validation on all three dialects showed a second and more dangerous half
+first: `buildUpdate`/`buildDelete` passed the EMPTY alias to `buildWhereUnique` (a
+mutation target has no alias to give), so the relation filter's correlated `EXISTS` came
+out with a **bare** outer column — `EXISTS (SELECT 1 FROM logins t1 WHERE id =
+t1.accountId …)`. Where the related model carries a column of that name — `id`, in most
+schemas — the outer reference binds to the INNER table and the predicate stops being about
+the outer row at all. No dialect errors on it. Every dialect answers it wrong.
+
+**The composition.** `buildUpdateMany`/`buildDeleteMany` have answered both halves since
+they were written: qualify the `where` by the target's own table name (the unaliased
+target IS addressable that way) and declare it as the `mutationTable`, which lets the
+relation-filter builder hide a subquery reading the mutated table behind a derived table.
+The two unique-`where` builders now do exactly the same — one spelling for a mutation's
+`where`, not one per arity — and the validation entry collapsed into the model's own
+`where`. `getScalarWhereSchema` / `ScalarWhereSchema`, the scalar-only recursion that
+existed only to host the refusal, are deleted.
+
+Measured: the wrapper engages precisely where the relation reads the mutated table (a
+self-relation to-one or to-many, a self-M2M's target side) and stays off for cross-table
+relations; PostgreSQL and SQLite never wrap.
+
+**Where the filter reaches a mutation, which is where the witnesses had to go.** In
+transaction mode `update`/`delete` address the located row by the primary key their
+`FOR UPDATE` locate captured, so the filter reaches only the locate — a plain SELECT,
+correlated correctly since forever. It reaches a WRITE in exactly three places: an atomic
+batch's write (which keeps the original `where` so guard and write pin one row), the
+transaction-mode RETURNING fold on `update` (`directWrite`, which has no locate at all),
+and `upsert`'s UPDATE arm (which keeps the original `where` on BOTH substrates). Only the
+third is reachable on a non-returning driver, which is why MySQL's leg of this unit is an
+upsert.
+
+**Not absorbed, and deliberately not refused either.** `upsert`'s CREATE arm needed no new
+treatment: a relation filter partitions into `filters` exactly as a scalar one does, so it
+withholds the create-arm `racePin` by the rule already there and a collision surfaces as
+the genuine `UniqueConstraintError` W4 pinned. The witness asserts that rather than
+assuming it. Nested target selectors were out of scope for the unit as built — that
+boundary was N6-U1's, and the two units were built in parallel lanes.
+
+**Census:** pin unchanged at **68**. The lifted refusal was a parse-boundary `v.refused`,
+never an `UnsupportedOperationError` site; the count-evolution log's `68 -> 68 (N6-U2)`
+entry says so, with the measurement and the four falsifications.
+
+### N6-U1 × N6-U2 — the surface only the merge creates
+
+Neither lane could see this: N6-U1 pointed the nested `update`/`upsert`/`delete` target
+selectors at `getWhereUniqueExtendedSchema`, and N6-U2 put relation filters INTO that
+schema. Merged, a nested target selector accepts a relation filter — a shape that existed
+in neither lane's tree and that neither lane's witnesses cover. The merge commit's own
+section below records what that surface was measured to do.
 
 ## Ordering and parallelism
 

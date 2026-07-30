@@ -4,7 +4,7 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { UniqueConstraintError } from "@errors";
+import { NotFoundError, UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -64,9 +64,11 @@ export interface RelationFilterMutationBehaviorOptions {
 }
 
 /**
- * Top-level updateMany/deleteMany with relation filters (some/every/none).
- * Guards against decorrelated EXISTS subqueries: an unqualified parent column
- * inside the subquery binds to the related table and affects the wrong rows.
+ * Top-level relation filters inside a mutation's `where` — the bulk
+ * updateMany/deleteMany forms (some/every/none) and, since N6-U2, the UNIQUE
+ * `where` of update/delete/upsert. Guards against decorrelated EXISTS
+ * subqueries: an unqualified parent column inside the subquery binds to the
+ * related table and affects the wrong rows.
  *
  * Seed: Alice (2 published posts), Bob (1 published + 1 draft), Cara (no posts).
  */
@@ -434,6 +436,97 @@ export function runRelationFilterMutationBehavior({
         });
 
         expect(result.count).toBe(1);
+        expect(await employeeNames()).toEqual(["boss", "mid"]);
+      });
+
+      // N6-U2 — the same wrapper, reached from a UNIQUE `where`.
+      //
+      // `update`/`delete` address the located row by the primary key their
+      // FOR UPDATE locate captured, so on a transaction substrate the relation
+      // filter never reaches those statements. `upsert`'s UPDATE arm is the one
+      // that keeps the original `where` on BOTH substrates — so this is the
+      // statement in the unique-where family that asks a MySQL UPDATE to read
+      // the table it is mutating, and the only place the derived-table wrapper
+      // is exercised from a unique selector. On MySQL the shapes below FAIL with
+      // ERROR 1093 if the wrapper is not composed; on PostgreSQL and SQLite they
+      // are the same predicate without it.
+      test("upsert's update arm carries a to-many self-relation filter", async () => {
+        const c = requireClient(client);
+        expect(
+          await c.employee.upsert({
+            where: { id: "e2", reports: { some: { name: "kid" } } },
+            create: { id: "e9", name: "unused", managerId: null },
+            update: { name: "promoted" },
+            select: { id: true, name: true },
+          })
+        ).toEqual({ id: "e2", name: "promoted" });
+        expect(await employeeNames()).toEqual(["boss", "promoted", "kid"]);
+      });
+
+      test("upsert's update arm carries a to-one self-relation filter", async () => {
+        const c = requireClient(client);
+        expect(
+          await c.employee.upsert({
+            where: { id: "e3", manager: { is: { name: "mid" } } },
+            create: { id: "e9", name: "unused", managerId: null },
+            update: { name: "confirmed" },
+            select: { id: true, name: true },
+          })
+        ).toEqual({ id: "e3", name: "confirmed" });
+        expect(await employeeNames()).toEqual(["boss", "mid", "confirmed"]);
+      });
+
+      test("an excluding self-relation filter takes the create arm instead", async () => {
+        const c = requireClient(client);
+        // `boss` manages `mid`, not `kid`, so the filter excludes the row the
+        // discriminator names and the CREATE arm runs on its own data.
+        expect(
+          await c.employee.upsert({
+            where: { id: "e1", reports: { some: { name: "kid" } } },
+            create: { id: "e4", name: "created", managerId: "e1" },
+            update: { name: "never" },
+            select: { id: true, name: true },
+          })
+        ).toEqual({ id: "e4", name: "created" });
+        expect(await employeeNames()).toEqual([
+          "boss",
+          "mid",
+          "kid",
+          "created",
+        ]);
+      });
+
+      test("update by a self-relation-filtered unique where locates or declines", async () => {
+        const c = requireClient(client);
+        expect(
+          await c.employee.update({
+            where: { id: "e2", reports: { some: { name: "kid" } } },
+            data: { name: "promoted" },
+            select: { name: true },
+          })
+        ).toEqual({ name: "promoted" });
+        // `kid` manages nobody: the filter excludes it, and nothing is written.
+        await expect(
+          c.employee.update({
+            where: { id: "e3", reports: { some: {} } },
+            data: { name: "unreachable" },
+          })
+        ).rejects.toBeInstanceOf(NotFoundError);
+        expect(await employeeNames()).toEqual(["boss", "promoted", "kid"]);
+      });
+
+      test("delete by a self-relation-filtered unique where removes one row", async () => {
+        const c = requireClient(client);
+        // `kid` is the only employee with no reports.
+        expect(
+          await c.employee.delete({
+            where: { id: "e3", reports: { none: {} } },
+            select: { name: true },
+          })
+        ).toEqual({ name: "kid" });
+        await expect(
+          c.employee.delete({ where: { id: "e1", reports: { none: {} } } })
+        ).rejects.toBeInstanceOf(NotFoundError);
         expect(await employeeNames()).toEqual(["boss", "mid"]);
       });
     });
