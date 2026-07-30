@@ -1347,6 +1347,18 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // there before the part is constructed — so reaching this branch would mean an arm
   // carries relations AND no subtree was built, an engine invariant break.
   //
+  //   CENSUS DISCIPLINE, learned here (fix round). This is the ONE delta class the
+  //   tripwire below cannot police: turning an `UnsupportedOperationError` into a
+  //   `QueryEngineError` removes the site from the grep whether or not the shape it used
+  //   to refuse now executes. The count moved and, for one round, NOTHING exercised the
+  //   absorbed shape: forcing `buildInverseToOneUpsertPart`'s subtree to `undefined`
+  //   passed 2,698 tests while converting a working user-facing payload into that
+  //   internal throw. So a conversion owes a behavioral witness of the shape, not just a
+  //   reachability argument — `inverse-to-one-create-behavior.ts` now drives
+  //   `account.update > profile.upsert` with a `tags: { create }` arm on every driver leg
+  //   and both substrates, asserting the absent arm runs the deeper writes against the
+  //   row it produced and the found arm runs none of them.
+  //
   // NARROWED, not removed (the honest half):
   //   · `buildArmChildParts`' one-level-deeper message now names the UPDATE arm only.
   //     The update arm's target is LOCATED, not produced, so its deeper surface is

@@ -1124,7 +1124,8 @@ connectOrCreate-create-arm-depth ×1; H to-many-upsert-identity ×1), **not one*
   `missingPin: none` — no `racePin`, no found guard). It composes
   `buildToOneUpdatePart`'s leaf with a create leaf in `RelationWritePart`
   (`buildInverseToOneUpsertPart`); scalar arms only (relation-carrying arms still
-  route to V1). Certified: the `VIBORM_FALLBACK_OFF=1` conformance run (F now runs
+  route to V1 — **superseded by §8.1's N4-U2 entry**, which makes a relation-carrying
+  arm this family's create SUBTREE). Certified: the `VIBORM_FALLBACK_OFF=1` conformance run (F now runs
   natively, byte-identical on both substrates), a two-parent correlation witness in
   the decline-surface gate, typecheck, Biome, the full estate, and the 5-database
   matrix. `FALLBACK_OFF_RESIDUAL_COUNT` is now **42**; the gate asserts it so no

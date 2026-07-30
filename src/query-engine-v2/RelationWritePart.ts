@@ -424,7 +424,10 @@ export class RelationWritePart implements Part {
       // it to the create SUBTREE and this method is never called for it (the
       // constructor gates on `upsertCreateSubtree`). Reaching here means an arm carries
       // relations AND no subtree was built — an engine invariant break, not a shape we
-      // decline (the X1c disposition for a branch unreachable by construction).
+      // decline (the X1c disposition for a branch unreachable by construction). The
+      // absorbed shape's own witness is in `inverse-to-one-create-behavior.ts`: a
+      // conversion like this leaves the census grep either way, so the shape has to be
+      // exercised somewhere or the count moved on nothing.
       throw new QueryEngineError(
         `query-engine-v2 internal: the upsert create arm for relation '${this.config.relationName}' carries nested relation writes but no create subtree.`
       );
@@ -1539,8 +1542,8 @@ export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
  * §7.2, family F): the correlated child (`WHERE fk = parent`) is the locator — no
  * unique `where`, exactly as the to-one `update` arm. Found → update it; absent →
  * create it with `fk = parent`. Composes the certified correlated-update leaf
- * ({@link buildToOneUpdatePart}) with an absent-arm create; scalar-only arms (a
- * relation-carrying arm routes the whole tree to V1 at construction).
+ * ({@link buildToOneUpdatePart}) with an absent-arm create: a scalar-only arm is one
+ * INSERT, and — N4-U2 — a relation-carrying arm is the create SUBTREE below.
  */
 export function buildInverseToOneUpsertPart(
   base: WritePartBase,

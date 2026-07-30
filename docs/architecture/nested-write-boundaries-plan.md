@@ -1062,6 +1062,66 @@ three seams' answers to one window are asserted side by side.
 count-evolution entry: no `UnsupportedOperationError` site was added, removed, or changed in
 reach. A runtime found pin and a write's addressed row are neither routes nor census sites.
 
+### N4-U2 / N4-U4 — fix round (both findings were this wave's own new paths, unasserted)
+
+Neither finding is a defect in the engine. Both are the same omission on the same unit: the
+N4-U2 absorption moved a behavior onto a new statement and the estate never asserted the new
+statement. Each was proved by MUTATION — delete the mechanism, watch the estate stay green —
+and each fix is a witness that now fails under that same mutation.
+
+**1. The pin the absorption MOVED had no coverage.** The adopt arm's missing premise is
+enforced by the fresh row's unique constraint, and `race-retry.ts` converts the violation
+into retry-and-adopt only when it matches the failed step's `racePin`. A scalar arm's pin
+rides `RelationUpsertPart`'s own INSERT (asserted since P1, `create-nested-upsert.test.ts`);
+a relation-carrying arm is a create SUBTREE, so this wave moved the pin to that subtree's
+root record INSERT via `nestedFresh.rootRacePin` — a statement built by a different file.
+Replacing `CreateOperation.buildInsertStep`'s pin with `{}` passed `tests/query-engine-v2`
+839/839 and 2,293 more across `tests/query-engine`, `tests/errors` and
+`tests/instrumentation`. The field was emitted and load-bearing, and nothing looked at it.
+
+The new `produced-identity-race-pin.test.ts` pins the move from both ends. Structurally, on
+BOTH substrates: the pin is on `team.create` — the subtree's root record — and on nothing
+deeper (the grandchild `task.create` and the before-parent `lead.create` are unconditional
+creates, whose violations are genuine errors and must never be re-run), it names the same
+constraint the SCALAR spelling of the same arm names, and the FOUND branch carries no pin at
+all. Behaviorally: a `BeforeBatch` driver commits a concurrent writer holding the same
+`code` under a DIFFERENT primary key (so the violation can only be the pinned `code` unique,
+not the primary key — the pin is attributed per constraint), and the routed operation
+CONVERGES: the retry's probe finds the winner, the update arm adopts it, and the create
+arm's subtree — which describes a row this call did not create — never runs. Under the
+mutation all three fail, and the convergence arm fails with exactly the
+`UniqueConstraintError` the pin exists to prevent.
+
+**2. A counted census site had no witness on either substrate.** The 74 → 68 delta spent one
+of its six sites by CONVERTING `RelationWritePart.upsertCreateScalarData`'s refusal into a
+`QueryEngineError` — the disposition for a branch unreachable by construction. The
+construction that makes it unreachable is `buildInverseToOneUpsertPart`'s subtree, and
+forcing that subtree to `undefined` passed 2,698 tests across `tests/query-engine-v2`,
+`tests/query-engine`, `tests/client` and `tests/relations` while turning a working
+user-facing payload into that internal throw.
+
+`inverse-to-one-create-behavior.ts` now drives the shape on every driver leg and both
+substrates: `account.update({ where: { email }, … profile: { upsert: { create: { …, tags: {
+create } }, update } } })`. The parent is located by a NON-key unique, so the arm's foreign
+key comes from the located row rather than a literal; both arms are asserted from the same
+payload shape, because the pair is the claim (absent → the deeper writes run against the row
+the arm produced; found → the update applies and NONE of the create arm's subtree runs); and
+the decoy account is asserted empty so a wrong-row foreign key is visible.
+
+**The census discipline this changes** (written into the count-evolution entry, not just
+here): an `UnsupportedOperationError` → `QueryEngineError` conversion is the one delta class
+the census tripwire cannot police, because the site leaves the grep whether or not the shape
+it used to refuse now executes. A conversion therefore owes a behavioral witness of the
+absorbed shape, not only a reachability argument.
+
+One stale comment fell out with it: `buildInverseToOneUpsertPart`'s header still said a
+relation-carrying arm "routes the whole tree to V1 at construction" — an engine deleted at
+P6, and the opposite of the code directly beneath it.
+
+**Census unchanged at 68** (re-derived by running `route-inventory.test.ts`), and no new
+count-evolution entry: no site was added, removed, or changed in reach. The existing 74 → 68
+entry gained the discipline note above.
+
 ### N5 — wave gate (independent re-run at `c2714df`, 2026-07-30)
 
 The N4/N5 wave gate was run once on the merged tree AFTER both fix rounds, so it is the

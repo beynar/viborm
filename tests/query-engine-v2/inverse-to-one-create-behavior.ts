@@ -288,6 +288,86 @@ export function runInverseToOneCreateBehavior(options: {
       }
     );
 
+    /**
+     * N4-U2 on the INVERSE-SIDE to-one `upsert` — the family whose create arm used to
+     * refuse any relation its payload carried. The absorption is the same one the
+     * to-many adopt family took: a relation-carrying arm IS a create subtree, owning
+     * the arm's INSERT and everything below it.
+     *
+     * Both arms are asserted from the SAME payload shape, because the pair is the
+     * claim. The absent arm must run the deeper writes against the row it produced;
+     * the found arm must run NONE of them — nested writes in a create payload describe
+     * a row this call did not create — while still applying the update arm.
+     *
+     * The parent is located by `email`, not by its primary key, so the arm's foreign
+     * key comes from the located row (`upsertArmFkInject`'s planned provenance) rather
+     * than from a compile-time literal. The decoy account is asserted empty, so a
+     * wrong-row FK is visible and not merely "some parent".
+     */
+    test(
+      "an inverse-side to-one upsert's CREATE arm carries its own nested writes, and its UPDATE arm runs none of them",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedAccounts(client);
+          // Absent: no profile is correlated to account 2, so the CREATE arm runs — as
+          // a subtree, because its payload carries `tags`.
+          await update({
+            where: { email: "target@x" },
+            data: {
+              profile: {
+                upsert: {
+                  create: {
+                    id: 70,
+                    bio: "fresh",
+                    tags: { create: [{ id: 701, name: "deep" }] },
+                  },
+                  update: { bio: "not-taken" },
+                },
+              },
+            },
+          });
+          await expect(
+            client.profile.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 70, bio: "fresh", accountId: 2 }]);
+          await expect(
+            client.profileTag.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 701, name: "deep", profileId: 70 }]);
+
+          // Found: the correlated profile exists, so the UPDATE arm runs and the create
+          // arm's whole subtree — its own INSERT and its grandchildren — must not.
+          await update({
+            where: { email: "target@x" },
+            data: {
+              profile: {
+                upsert: {
+                  create: {
+                    id: 71,
+                    bio: "must-not-exist",
+                    tags: { create: [{ id: 702, name: "must-not-exist" }] },
+                  },
+                  update: { bio: "taken" },
+                },
+              },
+            },
+          });
+          await expect(
+            client.profile.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 70, bio: "taken", accountId: 2 }]);
+          await expect(
+            client.profileTag.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 701, name: "deep", profileId: 70 }]);
+          // The decoy — seeded first, lower primary key — adopted nothing.
+          await expect(
+            client.profile.findMany({ where: { accountId: 1 } })
+          ).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
     // ---- the occupied slot -------------------------------------------------
     // Prisma's documented behavior when the to-one already holds a related row is an
     // error. Both provenances are asserted, because the failure must come from the
