@@ -706,6 +706,32 @@ same tests. One measurement note for a future gate: the pg leg's connection stri
 suite, it fails 939 of 980 tests including "creates driver with connection string", which is
 the signature of a credentials problem rather than a regression.
 
+### N4-U2 / N4-U4 — wave gate (independent re-run at `b0b2907`, 2026-07-30)
+
+The certification above predates the two review fix rounds. The reviewers' verdict was
+the same finding from opposite ends: six create-arm kinds counted in the 74 → 68 census
+delta, three exercised by nothing, and the update-arm subtree asker (`MUT3A-UPD`)
+exercised by nothing — capability real, coverage missing. `6717aaf` (fix round 1) and
+`b0b2907` closed it with four row-asserting witnesses: the create-arm grandchild as a
+SUBTREE (third write level + parent-held connect by a NON-referenced unique), the
+update-arm sibling against the row the arm LOCATED, the fresh m2m target + child-held
+reparent pair, and the deeper upsert's global probe pinned as a choice on both arms.
+Falsified per family: rebinding the update-arm fold fails exactly the 2 update-arm
+witnesses; restoring the pre-N4-U2 create-arm bound fails all 14 create-arm witnesses
+(7 shapes × 2 substrates). `b0b2907` also carried the shared schema's new `ownerId`
+column into the decline-surface gate's row expectation. Two API-killed fix attempts left
+uncommitted drafts; both were audited and finished rather than discarded, and the second
+draft is most of `b0b2907`'s witness text.
+
+| Gate | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean |
+| Full estate, ALONE (`--minWorkers=1 --maxWorkers=4`) | **8729 passed / 0 failed**, 1865 skipped, 255 files + 4 skipped (8637 at the N4/N5 gate) |
+| `pnpm test:gates` | **72 / 72**; census pin **68** re-derived by running `route-inventory.test.ts` |
+| Biome (repo-pinned, per file over the fix's 2 touched files) | 0 diagnostics |
+| Docker MySQL 3307 | **868 passed / 0 failed** (840 at the N4/N5 gate); 28 produced-identity witnesses executed by name |
+| Docker Postgres 5434 (serial) | **976 passed / 0 failed**, 14 skipped (948); 28 produced-identity witnesses executed by name |
+
 ### N4 — certification
 
 TS 5.9.3 typecheck clean; Biome clean on every touched file (measured against a
