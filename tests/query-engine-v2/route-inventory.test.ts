@@ -1524,8 +1524,28 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     dead there; the extended m2m selectors reach `membershipRead`, which compiles
   //     both halves through `buildWhereUnique`. It takes the one home for uniformity.
   //
+  // SECOND WITNESS CORRECTION (the round that applied the rule below to the seam that
+  // wrote it). A FIFTH route was missing, at the position the four bullets above audited:
+  // `RelationJunctionPart.buildUpsertSlot` compiles TWO probes, and only the membership
+  // read was covered. The other — a `buildFindUnique` GLOBAL probe entered by no other
+  // junction kind — is the one that decides the ARM, so with its filter half dropped an
+  // EXCLUDING selector stopped taking the create arm and raised V7001 instead (the
+  // "exists globally, not a member" branch, seeing the member the filter excluded). The
+  // whole V2 suite stayed green: of the three extended m2m positions, `update` had the
+  // only behavioral arm and `delete` shares its membership read, so `upsert` — the one
+  // kind with a second route — had none. Fail-closed, but an absorbed capability that
+  // silently stops working. Now witnessed by the `N6-U1 junction upsert` pair in
+  // `depth-seam-behavior.ts` (both substrates, every driver leg): the EXCLUDING arm fails
+  // against the dropped filter, and the KEPT-non-member arm fails against an engine that
+  // ignores the global probe altogether, which is what makes the first a measurement.
+  // The create-arm `racePin` at that same slot — `childRacePin` via `childInsert`, whose
+  // withholding rule is centralized but whose CALL SITE was covered only by the to-many
+  // Part's structural pair and the junction ADOPT slot's — is pinned by the junction case
+  // added to `N6-U1 nested create-arm racePin` in `depth-seam.test.ts`.
+  //
   // The generalisable rule: an absorption's witness obligation is per ROUTE through the
-  // engine, not per payload key in the schema.
+  // engine, not per payload key in the schema — and a route is a probe, not a Part: two
+  // probes in one slot are two routes, even when one payload key builds both.
   //
   // 68 -> 68 (N6-U2, relation filters inside a unique `where` — D-N2). No site added or
   // removed, and the reason is worth stating rather than inferring: the refusal this unit

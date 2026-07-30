@@ -211,6 +211,12 @@ const TICKET_TARGET_NOT_FOUND =
  *  that aborts must be asserted against the message it actually raises. */
 const DELETE_TARGET_NOT_FOUND =
   /Cannot delete relation 'projects': target record was not found for this parent\./;
+/** The junction UPSERT's foreign-row refusal — V1's verbatim V7001, raised when the
+ *  target exists GLOBALLY but is not a member of this parent (a correlated upsert may
+ *  not adopt a foreign row). Spelled in full: it is the outcome the create arm must
+ *  NOT produce when the filter half excludes the member the discriminator names. */
+const UPSERT_TARGET_NOT_FOUND_FOR_PARENT =
+  /Cannot upsert relation 'photos': target record was not found for this parent\./;
 /** The surviving N4-U1 wall's wording. */
 const MUST_LOCATE_BY_PK = /must locate the target by its primary key/;
 
@@ -1203,6 +1209,130 @@ export function runDepthSeamBehavior(options: {
           await expect(
             client.photo.findUnique({ where: { id: 10 } })
           ).resolves.toMatchObject({ caption: "c" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    // The junction UPSERT is the one kind that decides its arm on a SECOND route.
+    // `buildUpsertSlot` compiles two probes: the correlated membership read (whose
+    // filter half the pair above witnesses) AND a `buildFindUnique` global probe,
+    // entered by no other junction kind. `compile` reads member / exists-not-member /
+    // absent from both, and it is the GLOBAL one that separates the create arm from
+    // V7001 — so the filter half can be dropped there alone, and every other arm in
+    // this file, on both substrates and every driver leg, still passes. Measured:
+    // reducing that probe's `where` to the discriminator leaves the whole V2 suite
+    // green, and turns the create arm below into a typed refusal.
+    //
+    // Both spellings of the outcome are asserted, because the two mutations that can
+    // break this route fail different halves: dropping the filter turns the EXCLUDING
+    // case into V7001, while dropping the probe altogether (or ignoring its rows)
+    // makes every extended junction upsert create — which the second test catches.
+    test(
+      "N6-U1 junction upsert: an EXCLUDING filter takes the CREATE arm",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedAlbum(client);
+          // EXCLUDING: the slug names photo 20, which IS a member, but the caption
+          // filter does not hold. Neither probe may see it — the membership read
+          // because it is filtered, the global probe because it is filtered too — so
+          // the row is ABSENT for this selector and the create arm runs.
+          await update("album", depthSeamSchema.album, {
+            where: { id: 1 },
+            data: {
+              photos: {
+                upsert: {
+                  where: { slug: "target", caption: "not-the-caption" },
+                  create: { id: 30, slug: "fresh", caption: "f" },
+                  update: { caption: "must-not-land" },
+                },
+              },
+            },
+          });
+          // The fresh row exists AND was joined to THIS parent (the create arm is the
+          // child INSERT plus its junction row, so a half-run arm is visible here).
+          await expect(
+            client.photo.findUnique({
+              where: { id: 30 },
+              include: { albums: true },
+            })
+          ).resolves.toMatchObject({ caption: "f", albums: [{ id: 1 }] });
+          // The excluded member kept its caption: the update arm did not run on the
+          // row the DISCRIMINATOR alone would have named.
+          await expect(
+            client.photo.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ caption: "c" });
+          // MATCHING, on the state the create arm just left: the same discriminator
+          // with a filter that holds finds the member and takes the UPDATE arm. This
+          // is the falsification of the arm above — an extended selector must not
+          // turn every junction upsert into a create.
+          await update("album", depthSeamSchema.album, {
+            where: { id: 1 },
+            data: {
+              photos: {
+                upsert: {
+                  where: { slug: "target", caption: "c" },
+                  create: { id: 31, slug: "fresher", caption: "g" },
+                  update: { caption: "edited" },
+                },
+              },
+            },
+          });
+          await expect(
+            client.photo.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 10, slug: "decoy", caption: "c" },
+            { id: 20, slug: "target", caption: "edited" },
+            { id: 30, slug: "fresh", caption: "f" },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "N6-U1 junction upsert: a filter that KEEPS a NON-member still refuses",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedAlbum(client);
+          // The global probe's other verdict, and the reason the create arm above is
+          // a measurement rather than a tautology: the decoy exists, the caption
+          // filter holds of it, and it is NOT a member of this album. An engine that
+          // never consulted the global probe would create photo 30 here; the correct
+          // one refuses, because a correlated upsert cannot adopt a foreign row.
+          await expect(
+            update("album", depthSeamSchema.album, {
+              where: { id: 1 },
+              data: {
+                photos: {
+                  upsert: {
+                    where: { slug: "decoy", caption: "c" },
+                    create: { id: 30, slug: "fresh", caption: "f" },
+                    update: { caption: "stolen" },
+                  },
+                },
+              },
+            })
+          ).rejects.toThrow(UPSERT_TARGET_NOT_FOUND_FOR_PARENT);
+          // Nothing written: no fresh row, no join, and the foreign row untouched.
+          await expect(
+            client.photo.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 10, slug: "decoy", caption: "c" },
+            { id: 20, slug: "target", caption: "c" },
+          ]);
+          await expect(
+            client.album.findUnique({
+              where: { id: 1 },
+              include: { photos: true },
+            })
+          ).resolves.toMatchObject({ photos: [{ id: 20 }] });
         } finally {
           await dispose();
         }

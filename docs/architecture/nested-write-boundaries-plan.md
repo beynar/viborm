@@ -1244,6 +1244,37 @@ the unit once and the tests covered three routes, and the mismatch is exactly wh
 unwitnessed write lived. The seam table in ATOM §8.1 now carries the per-seam disposition
 so the next widening starts from the routes rather than from the surface.
 
+#### The route that correction itself missed — one slot, two probes
+
+The audit above enumerated the seams that ASSEMBLE conjuncts, which is where a filter
+gets dropped by omission. A route that hands its whole selector to `buildFindUnique` was
+counted as correct by construction — true, and not a witness. One of them decides an ARM
+rather than a row: `RelationJunctionPart.buildUpsertSlot` compiles TWO probes, the
+correlated membership read AND a global `buildFindUnique` probe entered by no other
+junction kind, and `compile` reads member / exists-not-member / absent from both.
+Reducing that second probe's `where` to the discriminator leaves the whole V2 suite green
+while an EXCLUDING selector stops taking the create arm and raises V7001 instead — it
+sees the member its own filter excluded and reports "exists globally, not a member of
+this parent". Fail-closed rather than a wrong-row write, and still an absorbed capability
+that silently stops working, which is the N4-U1/N4-U2 standard.
+
+Why the coverage looked complete: of the three extended m2m positions, only `update` had
+a behavioral arm, and `delete` shares its membership read (`buildTargetSlot` treats both
+as "connected"), so it was covered transitively. `upsert` — the one kind with a SECOND
+route — had none, and the sibling capability at the child-held to-many position
+(`RelationUpsertPart`'s probe) is witnessed four times over, which is what made the gap
+invisible. The `N6-U1 junction upsert` pair in `depth-seam-behavior.ts` pays it on every
+driver leg and both substrates: the EXCLUDING arm fails against the dropped filter, and
+the KEPT-non-member arm (which must still refuse) fails against an engine that ignores
+the global probe. The create-arm `racePin` at that slot is pinned too, by the junction
+case added to `N6-U1 nested create-arm racePin` in `depth-seam.test.ts` — the withholding
+rule lives in `childRacePin`, but the CALL SITE's pass-through was covered only at the
+to-many Part and the junction's `connectOrCreate` adopt slot.
+
+So the rule sharpens: a route is a PROBE, not a Part. Two probes in one slot are two
+routes even when a single payload key builds both, and the one that selects between arms
+needs an arm of its own on each side.
+
 ### N6-U2 delivered — relation filters inside a unique `where` (D-N2)
 
 **The refusal, measured before anything was touched.** One site:

@@ -860,6 +860,37 @@ function nestedUpsertCreateArmWrites(
     .steps.filter((step): step is StatementStep => step.kind === "write");
 }
 
+/** The same arm at the JUNCTION position. `RelationJunctionPart`'s upsert create arm
+ *  is a second call site of `childInsert`, and it is the one no test stood in front of:
+ *  the `connectOrCreate` witness in `m2m-mutation.test.ts` pins the ADOPT slot's insert,
+ *  and the pair below pins a to-many Part — neither compiles this slot. The membership
+ *  and global probes are both driven empty here, which is the create arm. */
+function junctionUpsertCreateArmWrites(
+  where: Record<string, unknown>
+): StatementStep[] {
+  const engine = makeSeamEngine(new PGliteDriver());
+  const operation = new UpdateOperation(engine, depthSeamSchema.album, {
+    where: { id: 1 },
+    data: {
+      photos: {
+        upsert: {
+          where,
+          create: { id: 30, slug: "fresh", caption: "f" },
+          update: { caption: "updated" },
+        },
+      },
+    },
+  });
+  const planning = operation.planning();
+  const known: Record<string, unknown> = {};
+  for (const step of planning.steps) known[`${step.id}.rows`] = [];
+  const [rootLocate] = planning.steps;
+  if (rootLocate) known[`${rootLocate.id}.rows`] = [{ id: 1 }];
+  return operation
+    .compile(known)
+    .steps.filter((step): step is StatementStep => step.kind === "write");
+}
+
 describe("N6-U1 nested create-arm racePin", () => {
   test("a PLAIN nested selector pins the create arm as raceable", () => {
     const pinned = nestedUpsertCreateArmWrites({ code: "P-TARGET" }).filter(
@@ -884,5 +915,23 @@ describe("N6-U1 nested create-arm racePin", () => {
       AND: [{ title: "not-the-title" }],
     });
     expect(writes.every((step) => step.racePin === undefined)).toBe(true);
+  });
+
+  test("the JUNCTION upsert's create arm obeys the same rule at its own site", () => {
+    // The behavior file proves this arm RUNS on an excluding filter; this proves the
+    // insert it emits carries the pin under a plain selector and none under an
+    // extended one. Both halves at once, because at this site they are one fact: the
+    // slot hands its selector to `childInsert`, and `childRacePin` decides. Only the
+    // junction row follows the child INSERT, and it pins nothing.
+    const plain = junctionUpsertCreateArmWrites({ slug: "target" }).filter(
+      (step) => step.racePin
+    );
+    expect(plain).toHaveLength(1);
+    expect(plain[0]?.racePin?.fields).toEqual(["slug"]);
+    const extended = junctionUpsertCreateArmWrites({
+      slug: "target",
+      caption: "not-the-caption",
+    });
+    expect(extended.every((step) => step.racePin === undefined)).toBe(true);
   });
 });

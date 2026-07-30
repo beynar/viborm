@@ -1940,6 +1940,21 @@ are now paid, in the same file as their siblings: the delegated-target pair in
 race in `depth-seam.test.ts` (batch-only, on the split-witness instrument the N4-U1 arms
 already use).
 
+**The correct-by-construction routes owe a witness too.** The table audits the sites that
+ASSEMBLE conjuncts, because omission is how a filter gets dropped there. That is not the
+whole obligation: a route that hands its WHOLE selector to `buildFindUnique` is right by
+construction only for as long as it keeps doing so, and one such route decides an ARM
+rather than a row. `RelationJunctionPart.buildUpsertSlot` compiles TWO probes — the
+correlated membership read, and a GLOBAL `buildFindUnique` probe entered by no other
+junction kind — and `compile` reads member / exists-not-member / absent from both.
+Reducing that global probe's `where` to the discriminator left the entire V2 suite green
+while an EXCLUDING selector stopped taking the create arm and raised V7001 instead,
+having seen the very member its own filter excluded. Fail-closed, and still an absorbed
+capability that silently stops working. The `N6-U1 junction upsert` pair in
+`depth-seam-behavior.ts` now fails against exactly that revert; its second arm — a filter
+that KEEPS a NON-member, which must still refuse — fails against an engine that ignores
+the global probe, which is what makes the first a measurement rather than a tautology.
+
 The one genuinely new decision is a WITHHOLDING. §2's missing-premise pin claims "the
 probe proved unique key K was free". A FILTERED probe proves only "no row matches
 `K ∧ filters`" — a row on K may exist and be excluded — so the create arm's `racePin` is
