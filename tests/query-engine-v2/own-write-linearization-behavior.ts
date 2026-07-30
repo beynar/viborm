@@ -39,6 +39,15 @@ import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
  * single-row mutations at the client seam, which would make a whole Docker leg vacuous
  * while looking green.
  */
+/**
+ * The three own-write refusals these pairs assert, hoisted to module scope: the
+ * `useTopLevelRegex` norm every behaviour suite in this directory follows.
+ */
+const DELETE_TARGET_OWN_WRITE = /depends on an earlier 'delete' target write/;
+const CONNECT_OR_CREATE_TARGET_OWN_WRITE =
+  /depends on an earlier 'connectOrCreate' target write/;
+const SET_MEMBERSHIP_OWN_WRITE = /depends on an earlier 'set' membership write/;
+
 export const linearizationSchema = (() => {
   const author = s
     .model({
@@ -163,7 +172,11 @@ export function runOwnWriteLinearizationBehavior(options: {
       });
       for (const id of [811, 812, 813, 814]) {
         await client.post.create({
-          data: { id, slug: `s${id}`, title: id === 814 ? "bulk-814" : `p${id}` },
+          data: {
+            id,
+            slug: `s${id}`,
+            title: id === 814 ? "bulk-814" : `p${id}`,
+          },
         });
       }
       await client.author.update({
@@ -196,7 +209,7 @@ export function runOwnWriteLinearizationBehavior(options: {
               },
             },
           })
-        ).rejects.toThrow(/depends on an earlier 'delete' target write/);
+        ).rejects.toThrow(DELETE_TARGET_OWN_WRITE);
         expect(await noteState(client)).toEqual([
           "801:member-801:1",
           "802:member-802:1",
@@ -278,7 +291,10 @@ export function runOwnWriteLinearizationBehavior(options: {
                 },
               ],
               connectOrCreate: [
-                { where: { id: 803 }, create: { id: 803, body: "never-created" } },
+                {
+                  where: { id: 803 },
+                  create: { id: 803, body: "never-created" },
+                },
               ],
             },
           },
@@ -317,7 +333,10 @@ export function runOwnWriteLinearizationBehavior(options: {
           data: {
             notes: {
               connectOrCreate: [
-                { where: { id: 905 }, create: { id: 905, body: "adopted-905" } },
+                {
+                  where: { id: 905 },
+                  create: { id: 905, body: "adopted-905" },
+                },
               ],
               set: [{ id: 801 }],
             },
@@ -347,13 +366,16 @@ export function runOwnWriteLinearizationBehavior(options: {
             data: {
               notes: {
                 connectOrCreate: [
-                  { where: { id: 905 }, create: { id: 905, body: "adopted-905" } },
+                  {
+                    where: { id: 905 },
+                    create: { id: 905, body: "adopted-905" },
+                  },
                 ],
                 set: [{ id: 905 }],
               },
             },
           })
-        ).rejects.toThrow(/depends on an earlier 'connectOrCreate' target write/);
+        ).rejects.toThrow(CONNECT_OR_CREATE_TARGET_OWN_WRITE);
         expect(await noteState(client)).toEqual([
           "801:member-801:1",
           "802:member-802:1",
@@ -374,7 +396,10 @@ export function runOwnWriteLinearizationBehavior(options: {
             notes: {
               set: [{ id: 801 }, { id: 804 }],
               updateMany: [
-                { where: { body: { contains: "bulk" } }, data: { body: "swept" } },
+                {
+                  where: { body: { contains: "bulk" } },
+                  data: { body: "swept" },
+                },
               ],
             },
           },
@@ -400,7 +425,10 @@ export function runOwnWriteLinearizationBehavior(options: {
           data: {
             notes: {
               updateMany: [
-                { where: { body: { contains: "member" } }, data: { body: "swept" } },
+                {
+                  where: { body: { contains: "member" } },
+                  data: { body: "swept" },
+                },
               ],
               deleteMany: [{ body: { contains: "bulk" } }],
             },
@@ -472,9 +500,9 @@ export function runOwnWriteLinearizationBehavior(options: {
           "901:fresh-901:1",
         ]);
         // The decoy: no membership leaked onto author 2.
-        expect(
-          await client.note.findMany({ where: { authorId: 2 } })
-        ).toEqual([]);
+        expect(await client.note.findMany({ where: { authorId: 2 } })).toEqual(
+          []
+        );
       } finally {
         await dispose();
       }
@@ -577,9 +605,9 @@ export function runOwnWriteLinearizationBehavior(options: {
           "901:fresh-901:1",
           "902:fresh-902:1",
         ]);
-        expect(
-          await client.note.findMany({ where: { authorId: 2 } })
-        ).toEqual([]);
+        expect(await client.note.findMany({ where: { authorId: 2 } })).toEqual(
+          []
+        );
       } finally {
         await dispose();
       }
@@ -619,11 +647,17 @@ export function runOwnWriteLinearizationBehavior(options: {
                 },
               ],
               connectOrCreate: [
-                { where: { id: 906 }, create: { id: 906, body: "adopt-created" } },
+                {
+                  where: { id: 906 },
+                  create: { id: 906, body: "adopt-created" },
+                },
               ],
               set: [{ id: 803 }],
               updateMany: [
-                { where: { body: { contains: "free" } }, data: { body: "swept" } },
+                {
+                  where: { body: { contains: "free" } },
+                  data: { body: "swept" },
+                },
               ],
               deleteMany: [{ body: { contains: "swept" } }],
               connect: [{ id: 802 }],
@@ -715,7 +749,7 @@ export function runOwnWriteLinearizationBehavior(options: {
               },
             },
           })
-        ).rejects.toThrow(/depends on an earlier 'set' membership write/);
+        ).rejects.toThrow(SET_MEMBERSHIP_OWN_WRITE);
         expect(await postsOf(client, 1)).toEqual([
           "811:p811",
           "812:p812",

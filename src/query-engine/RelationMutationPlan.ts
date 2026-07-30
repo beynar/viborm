@@ -229,7 +229,11 @@ export function planRelationMutationSteps(
         break;
       case "update":
         if (mutation.update) {
-          steps.push({ kind, context, inputs: normalizeUpdateInputs(mutation) });
+          steps.push({
+            kind,
+            context,
+            inputs: normalizeUpdateInputs(mutation),
+          });
         }
         break;
       case "updateMany":
@@ -252,7 +256,11 @@ export function planRelationMutationSteps(
         break;
       case "upsert":
         if (mutation.upsert) {
-          steps.push({ kind, context, inputs: normalizeArray(mutation.upsert) });
+          steps.push({
+            kind,
+            context,
+            inputs: normalizeArray(mutation.upsert),
+          });
         }
         break;
       default: {

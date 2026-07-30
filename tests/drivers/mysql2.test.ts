@@ -29,8 +29,8 @@ import { runInverseToOneCreateBehavior } from "../query-engine-v2/inverse-to-one
 import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-create-many-behavior";
 import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
-import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
 import { runOwnWriteLinearizationBehavior } from "../query-engine-v2/own-write-linearization-behavior";
+import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
 import { runProducedIdentityBehavior } from "../query-engine-v2/produced-identity-depth-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";

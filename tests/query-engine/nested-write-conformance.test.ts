@@ -3887,7 +3887,8 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: "Cannot update relation 'items': target record was not found",
+    expectedError:
+      "Cannot update relation 'items': target record was not found",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [],
@@ -3942,7 +3943,8 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: "Cannot update relation 'items': target record was not found",
+    expectedError:
+      "Cannot update relation 'items': target record was not found",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [{ id: 1, label: "free", ownerId: null }],
@@ -3975,7 +3977,8 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: "Cannot upsert relation 'items': target record was not found",
+    expectedError:
+      "Cannot upsert relation 'items': target record was not found",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [{ id: 1, label: "free", ownerId: null }],
@@ -4323,7 +4326,8 @@ const crossRelationTargetScenarios: Scenario<CrossRelationTargetSchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: "supports one mutation kind on the to-one relation 'primary'",
+    expectedError:
+      "supports one mutation kind on the to-one relation 'primary'",
     expected: {
       accounts: [],
       records: [{ id: 1, primaryId: null, secondaryId: null }],
