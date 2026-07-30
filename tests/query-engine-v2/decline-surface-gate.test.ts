@@ -937,7 +937,7 @@ describe("decline-surface gate: the adopt family's create arm is a create subtre
       { id: 5, code: "T-GATE", title: "gate", orgId: 1, leadId: 3 },
     ]);
     await expect(c.task.findMany({})).resolves.toEqual([
-      { id: 7, label: "bulk", teamId: 5 },
+      { id: 7, label: "bulk", teamId: 5, ownerId: null },
     ]);
     await c.$disconnect();
   });

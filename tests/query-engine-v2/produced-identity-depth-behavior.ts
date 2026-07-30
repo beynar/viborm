@@ -94,8 +94,42 @@ export const producedIdentitySchema = (() => {
         .manyToOne(() => team)
         .fields("teamId")
         .references("id"),
+      // A THIRD write level: the grandchild create's own child-held to-many. The
+      // deleted `foldParentHeldConnect` sites bounded a grandchild create's payload to
+      // a single parent-held to-one connect, so this is the shape they refused.
+      subs: s.oneToMany(() => sub),
+      // A parent-held to-one the grandchild create can adopt BY A UNIQUE THE FOREIGN
+      // KEY DOES NOT REFERENCE: `taskOwnerId -> owner.id`, connected by `email`, so
+      // the foreign key resolves through a lookup SUBQUERY rather than a literal —
+      // the third of those sites ("must locate the target by its referenced key one
+      // level deeper").
+      ownerId: s.int().nullable(),
+      owner: s
+        .manyToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
     })
     .map("n4pi_tasks");
+  const sub = s
+    .model({
+      id: s.int().id(),
+      text: s.string(),
+      taskId: s.int(),
+      task: s
+        .manyToOne(() => task)
+        .fields("taskId")
+        .references("id"),
+    })
+    .map("n4pi_subs");
+  const owner = s
+    .model({
+      id: s.int().id(),
+      // NOT the referenced column — the foreign key references `id`.
+      email: s.string().unique(),
+      tasks: s.oneToMany(() => task),
+    })
+    .map("n4pi_owners");
   const label = s
     .model({
       id: s.int().id(),
@@ -177,6 +211,8 @@ export const producedIdentitySchema = (() => {
     org,
     team,
     task,
+    sub,
+    owner,
     label,
     lead,
     squad,
@@ -325,8 +361,8 @@ export function runProducedIdentityBehavior(options: {
           await expect(
             client.task.findMany({ orderBy: { id: "asc" } })
           ).resolves.toEqual([
-            { id: 100, label: "deep-create", teamId: 20 },
-            { id: 500, label: "adoptable", teamId: 10 },
+            { id: 100, label: "deep-create", teamId: 20, ownerId: null },
+            { id: 500, label: "adoptable", teamId: 10, ownerId: null },
           ]);
           // The junction row exists and names the produced team, not the decoy.
           await expect(
@@ -375,7 +411,9 @@ export function runProducedIdentityBehavior(options: {
           });
           await expect(
             client.task.findMany({ orderBy: { id: "asc" } })
-          ).resolves.toEqual([{ id: 110, label: "bulk", teamId: 30 }]);
+          ).resolves.toEqual([
+            { id: 110, label: "bulk", teamId: 30, ownerId: null },
+          ]);
 
           // Present → FOUND arm: a pure reparent. The create arm's grandchildren must
           // NOT run — nested writes in a create payload describe a row this call did
@@ -400,7 +438,9 @@ export function runProducedIdentityBehavior(options: {
           });
           await expect(
             client.task.findMany({ orderBy: { id: "asc" } })
-          ).resolves.toEqual([{ id: 110, label: "bulk", teamId: 30 }]);
+          ).resolves.toEqual([
+            { id: 110, label: "bulk", teamId: 30, ownerId: null },
+          ]);
           await expect(
             client.lead.findMany({ where: { id: 9 } })
           ).resolves.toEqual([]);
@@ -499,7 +539,12 @@ export function runProducedIdentityBehavior(options: {
           await expect(
             client.task.findMany({ orderBy: { id: "asc" } })
           ).resolves.toEqual([
-            { id: 130, label: "follows-create-data", teamId: 40 },
+            {
+              id: 130,
+              label: "follows-create-data",
+              teamId: 40,
+              ownerId: null,
+            },
           ]);
         } finally {
           await dispose();
@@ -536,6 +581,280 @@ export function runProducedIdentityBehavior(options: {
           await expect(
             client.label.findMany({ where: { id: 2 } })
           ).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "a grandchild create on the create arm is a SUBTREE: a THIRD write level, and a parent-held connect by a NON-REFERENCED unique",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOrgs(client);
+          // A decoy owner FIRST, holding the lower key: an edge that took "the first
+          // row" instead of the one the lookup subquery selects lands here visibly.
+          await client.owner.create({ data: { id: 1, email: "decoy@owner" } });
+          await client.owner.create({ data: { id: 5, email: "target@owner" } });
+          // The three deleted `foldParentHeldConnect` sites bounded the GRANDCHILD
+          // create's own payload: only a single parent-held to-one `connect`, only with
+          // a `where` object, only by the referenced key. All three are one narrowness
+          // — the arm is a create SUBTREE, so a grandchild create is itself a create
+          // root's payload at any depth. Both escapes those sites forbade run here on
+          // ONE call: a third write level below the produced row, and a connect by a
+          // unique the foreign key does NOT reference (so the FK is a lookup subquery,
+          // not a literal).
+          await update("org", producedIdentitySchema.org, {
+            where: { id: 2 },
+            data: {
+              teams: {
+                upsert: {
+                  where: { code: "T-DEEP" },
+                  create: {
+                    id: 60,
+                    code: "T-DEEP",
+                    title: "deep",
+                    tasks: {
+                      create: {
+                        id: 140,
+                        label: "level-two",
+                        subs: { create: { id: 200, text: "level-three" } },
+                        owner: { connect: { email: "target@owner" } },
+                      },
+                    },
+                  },
+                  update: { title: "not-taken" },
+                },
+              },
+            },
+          });
+          // Level two: against the row the ARM produced, carrying the looked-up FK.
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 140, label: "level-two", teamId: 60, ownerId: 5 },
+          ]);
+          // Level three: against the row the GRANDCHILD create produced.
+          await expect(
+            client.sub.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 200, text: "level-three", taskId: 140 }]);
+          // The decoy owner was not adopted by a positional read of the table.
+          await expect(
+            client.owner.findUnique({
+              where: { id: 1 },
+              include: { tasks: true },
+            })
+          ).resolves.toMatchObject({ tasks: [] });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "a grandchild create on the UPDATE arm carries the same subtree, against the row the arm LOCATED",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOrgs(client);
+          await client.owner.create({ data: { id: 1, email: "decoy@owner" } });
+          await client.owner.create({ data: { id: 5, email: "target@owner" } });
+          // `foldParentHeldConnect`'s OTHER asker was the update-arm relation-carrying
+          // grandchild create. The same two escapes must hold when the parent is a row
+          // the arm LOCATED (T-DECOY exists on org 1) instead of one it produced.
+          await update("org", producedIdentitySchema.org, {
+            where: { id: 1 },
+            data: {
+              teams: {
+                upsert: {
+                  where: { code: "T-DECOY" },
+                  create: { id: 55, code: "T-DECOY", title: "not-taken" },
+                  update: {
+                    tasks: {
+                      create: {
+                        id: 150,
+                        label: "update-arm-level-two",
+                        subs: {
+                          create: { id: 210, text: "update-arm-level-three" },
+                        },
+                        owner: { connect: { email: "target@owner" } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+          // The create arm was not taken: the located team 10 got the task.
+          await expect(
+            client.team.findMany({ where: { id: 55 } })
+          ).resolves.toEqual([]);
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 150, label: "update-arm-level-two", teamId: 10, ownerId: 5 },
+          ]);
+          await expect(
+            client.sub.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 210, text: "update-arm-level-three", taskId: 150 },
+          ]);
+          // The decoy owner was not adopted by a positional read of the table.
+          await expect(
+            client.owner.findUnique({
+              where: { id: 1 },
+              include: { tasks: true },
+            })
+          ).resolves.toMatchObject({ tasks: [] });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "the create arm folds a FRESH m2m target and reparents an existing child onto the row it produced",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOrgs(client);
+          await client.task.create({
+            data: { id: 500, label: "adoptable", teamId: 10 },
+          });
+          // Two kinds the census counted as absorbed and nothing exercised. Both are
+          // strictly different paths from the ones the headline shape spells: an m2m
+          // `create` INSERTs a fresh target AND its junction row (the headline's
+          // `connect` writes only the junction), and a child-held to-many `connect`
+          // REPARENTS a row that already belongs to another parent (the headline's
+          // `create` writes a brand-new one).
+          await update("org", producedIdentitySchema.org, {
+            where: { id: 2 },
+            data: {
+              teams: {
+                upsert: {
+                  where: { code: "T-M2M" },
+                  create: {
+                    id: 70,
+                    code: "T-M2M",
+                    title: "m2m",
+                    labels: { create: { id: 2, name: "fresh-label" } },
+                    tasks: { connect: { id: 500 } },
+                  },
+                  update: { title: "not-taken" },
+                },
+              },
+            },
+          });
+          // The fresh target exists AND is linked to the produced team.
+          await expect(
+            client.label.findUnique({
+              where: { id: 2 },
+              include: { teams: true },
+            })
+          ).resolves.toMatchObject({
+            name: "fresh-label",
+            teams: [{ id: 70 }],
+          });
+          // The pre-existing label was NOT linked: the junction row names the target
+          // this arm's own INSERT produced, not whatever the table already held.
+          await expect(
+            client.label.findUnique({
+              where: { id: 1 },
+              include: { teams: true },
+            })
+          ).resolves.toMatchObject({ teams: [] });
+          // The reparent landed on the produced row, off the decoy team.
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 500, label: "adoptable", teamId: 70, ownerId: null },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "a deeper upsert on the create arm probes GLOBALLY: found adopts onto the produced row, absent creates under it",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOrgs(client);
+          await client.task.create({
+            data: { id: 500, label: "adoptable", teamId: 10 },
+          });
+          // The kind the deleted code singled out as a semantic hazard: "V1's runtime
+          // rejects a nested upsert under a create payload as found-uncorrelated, so V2
+          // does not silently diverge by adopting there." The absorption makes it the
+          // create ROOT's nested upsert — one home — and the fresh-parent elision
+          // (ATOM §4) means its probe cannot be correlated to a membership the produced
+          // row has yet to have. So it is GLOBAL, and the divergence is a CHOICE pinned
+          // here rather than an accident: a found row is updated and adopted.
+          await update("org", producedIdentitySchema.org, {
+            where: { id: 2 },
+            data: {
+              teams: {
+                upsert: {
+                  where: { code: "T-UPS-A" },
+                  create: {
+                    id: 80,
+                    code: "T-UPS-A",
+                    title: "found-arm",
+                    tasks: {
+                      upsert: {
+                        where: { id: 500 },
+                        create: { id: 500, label: "not-taken" },
+                        update: { label: "adopted" },
+                      },
+                    },
+                  },
+                  update: { title: "not-taken" },
+                },
+              },
+            },
+          });
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 500, label: "adopted", teamId: 80, ownerId: null },
+          ]);
+          // The other arm of the same deeper upsert, on a second produced row: no such
+          // task, so it INSERTs one against the row this arm produced.
+          await update("org", producedIdentitySchema.org, {
+            where: { id: 2 },
+            data: {
+              teams: {
+                upsert: {
+                  where: { code: "T-UPS-B" },
+                  create: {
+                    id: 90,
+                    code: "T-UPS-B",
+                    title: "create-arm",
+                    tasks: {
+                      upsert: {
+                        where: { id: 510 },
+                        create: { id: 510, label: "deep-upsert-create" },
+                        update: { label: "not-taken" },
+                      },
+                    },
+                  },
+                  update: { title: "not-taken" },
+                },
+              },
+            },
+          });
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 500, label: "adopted", teamId: 80, ownerId: null },
+            { id: 510, label: "deep-upsert-create", teamId: 90, ownerId: null },
+          ]);
         } finally {
           await dispose();
         }
