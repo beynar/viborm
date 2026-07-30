@@ -215,11 +215,11 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `connectOrCreate` | ✅ | ✅ — ↔️ **global** lookup-and-adopt (reparents), not parent-correlated | `UpdateOperation.ts:1434` |
 | `update` | — | ✅ to-one takes bare data **or** Prisma 5's `{where?,data}` (W4-U3; `where` is a NON-unique filter on the connected record, filter-miss → P2025-equivalent, whole tree rolls back). ⚠️ on a target owning a field named `data` the two spellings collide and viborm **refuses** the shape (Prisma picks one silently) — spell the envelope out, `{where:{},data:{…}}`. To-many `{where,data}` ✅ | `update.ts:45-79`, `to-one-update-form.ts` |
 | `updateMany` | — | ✅➕ `where` is **optional** (Prisma requires it) | `update.ts:153-161` |
-| `upsert` | ➕ **to-many only, viborm superset**, global-adopt-and-update, **executable today** | ✅ to-one `{create,update}`, to-many `{where,create,update}` | `create.ts:182-201`; proven in `create-nested-upsert-behavior.ts:123`. `compatibility.mdx:66` saying "the current engine rejects it" is **stale** |
-| `delete` | — | 🟡 boolean (to-one), whereUnique single+array (to-many). **Narrower than Prisma on the to-one**: Prisma 7.9.1 takes `WhereInput \| boolean` (N2-U3 — see §3.B) | ↔️ inverse-side `delete: true` with no related row is a **no-op**; Prisma throws P2025 |
+| `upsert` | ➕ **child-held to-many only, viborm superset**, global-adopt-and-update, **executable today**. ⚠️ the same key on a **many-to-many** relation under `create` is refused (`CreateOperation.ts:1648`) — the schema offers it on both, and the audit found this the one kind that actually reaches that site, with no recorded reason covering it | ✅ to-one `{create,update}`, to-many `{where,create,update}`, m2m ✅ | `create.ts:182-201`; proven in `create-nested-upsert-behavior.ts:123`. `compatibility.mdx:66` saying "the current engine rejects it" is **stale**. The m2m asymmetry is item 3 of the floor audit |
+| `delete` | — | 🟡 boolean (to-one), whereUnique single+array (to-many). **Narrower than Prisma on the to-one**: Prisma 7.9.1 takes `WhereInput \| boolean` (N2-U3 — see §3.B). ⚠️ and narrower still: the literal `delete: false` is an **error**, not the no-op Prisma's boolean arm makes it (measured at `UpdateOperation.ts:1950,2485`, `nested-target-parts.ts:486`) | ↔️ inverse-side `delete: true` with no related row is a **no-op**; Prisma throws P2025 |
 | `deleteMany` | — | ✅ to-many. Not offered on a to-one — **Prisma parity**, measured against Prisma 7.9.1's to-one nested-update input (N2-U2) | `update.ts:172` |
 | `set` | — | ✅ to-many, with orphan guard. To-one: Prisma parity, absent there too | `RelationWritePart.ts:910-947` |
-| `disconnect` | — | 🟡 boolean on optional to-one; whereUnique on to-many. **Narrower than Prisma on the to-one**: Prisma 7.9.1 takes `WhereInput \| boolean`, viborm only the boolean (N2-U3 — see §3.B) | `update.ts:49,251-253` |
+| `disconnect` | — | 🟡 boolean on optional to-one; whereUnique on to-many. **Narrower than Prisma on the to-one**: Prisma 7.9.1 takes `WhereInput \| boolean`, viborm only the boolean (N2-U3 — see §3.B). ⚠️ and `disconnect: false` is an **error**, not a no-op (`UpdateOperation.ts:1923`) | `update.ts:49,251-253` |
 | Required-relation orphaning | ✅ throws, Prisma-equivalent — **plus stricter typing**: on a required to-one the `disconnect`/`delete` keys aren't in the schema at all | `RelationProgramValues.ts:181-188` |
 | Atomic `set`/`increment`/`decrement`/`multiply`/`divide` | ✅ Int, Float, BigInt, Decimal | `set-builder.ts:106-134` |
 | Atomic arithmetic **on a primary key** | ➕ with a portability gate (one op per PK; float/decimal arithmetic and `divide: 0` rejected) | `mutation-identity.ts:190-236` |
@@ -576,21 +576,25 @@ The repo is honest about this in its own docs (`tests/drivers/README.md:38`, `ne
 
 **V1 is gone.** [routing.ts:64](../../src/query-engine-v2/routing.ts:64) — *"with V1 deleted there is no fallback arm to catch it."*
 
-Consequence: **all 76 `UnsupportedOperationError` throw sites are now terminal, user-facing errors.** Before P6 they were *routes* — the tree quietly re-ran on V1 and the user got a working query. `ATOM.md:1469` confirms: *"The former route-to-V1 declines are now terminal `UnsupportedOperationError`s."*
+Consequence: **every `UnsupportedOperationError` throw site is now a terminal, user-facing error.** Before P6 they were *routes* — the tree quietly re-ran on V1 and the user got a working query. `ATOM.md:1469` confirms: *"The former route-to-V1 declines are now terminal `UnsupportedOperationError`s."*
 
-But **73 comments across `src/` still say "routes to V1"**. See §0.2.
+But **58 comments across `src/` still say "routes to V1"** (was 73; the N-waves retired 15 of them by deleting or rewriting the sites). See §0.2.
 
 ### The refusal surface, counted
 
+Re-counted on `nested-write-boundaries` @ `6910728` (grep over `src/query-engine-v2/*.ts`).
+
 | Class | Sites in `src/query-engine-v2/*.ts` | Nature |
 |---|---:|---|
-| `UnsupportedOperationError` | **76** (pinned: `route-inventory.test.ts:622`) → **78 on `prisma-parity-v2`** | shape the engine cannot express |
-| `QueryEngineError` | 82 | ~4 real declines, ~78 fail-closed invariants |
-| `NestedWriteError` | 32 | relation legality / target-not-found |
-| `TransactionError` | 5 | driver-capability refusals |
+| `UnsupportedOperationError` | **68** (pinned: `route-inventory.test.ts:1706`) | shape the engine declines — but see the audit below: 25 of the 68 are unreachable guards |
+| `QueryEngineError` | 85 | fail-closed invariants (X1c/N2-U1/N4-U2 converted three unreachable declines into this class) |
+| `NestedWriteError` | 35 | relation legality / target-not-found / own-write preflight |
+| `TransactionError` | 7 | driver-capability refusals |
 | `ValidationError` | 1 | the single parse boundary |
 
-> **Census on this branch: 76 → 78**, pinned at `route-inventory.test.ts:670`. Two deltas, each with its rationale written above the assertion: `+1` from `b1392ca` (the M2M generated-PK junction create split `requireCreatePk` into two sites while *absorbing* an accept-and-execute shape), and `+1` from `ea1f637`/`51a995a` (upsert's create-arm read-back stopped consulting the `where`; the new site is a create payload carrying no complete identity). The count going up here means refusals got **narrower**, not that surface was lost.
+> **Census on this branch: 78 → 68**, pinned at `route-inventory.test.ts:1706`, with every delta's rationale written above the assertion in the count-evolution log. The composition changed more than the number: absorptions removed whole families (N1-U1's pinning gate, N2-U1's inverse-to-one create, N3-U1's M2M `createMany`, N4-U1's located-target seams, N4-U2's six create-arm guards, N5-U1's adopt ordering) while each one drew a finer boundary in its place.
+>
+> **The floor claim is audited, and it does not hold at 68.** Site-by-site disposition with live reachability measurements is in [nested-write-boundaries-plan.md § "The floor — final census disposition"](./nested-write-boundaries-plan.md): 3 parity · 15 genuinely inexpressible · **50 unjustified**, of which 25 refuse nothing at all (the parse boundary or an exhaustive dispatch answers first). Applying the disposition this branch already gave two such sites — convert to `QueryEngineError` — would take the census to 43 with no user-visible change.
 
 ## 3.A Hard refusals a user could hit
 
@@ -636,7 +640,9 @@ But **73 comments across `src/` still say "routes to V1"**. See §0.2.
 
 These are the *interesting* category. `route-inventory.test.ts:70-73` states plainly: **"NO conformance scenario reaches any of them (that is why the census is zero)."** They were unreachable-by-test *and* silently handled by V1. **V1 is gone. They are now live cliffs with zero test coverage.**
 
-Census evolution: 36 → 49 → 51 → 59 → 62 → 65 → 73 → 74 → 75 → 78 → 81 → 86 → 87 → 90 → 89 → 84 → 83 → 78 → 76 → 74 (N4/N5) → **68** (N4-U2). Every absorption added finer boundaries — until N4-U2, whose six sites were boundaries of a hand-rolled arm rather than of anything the engine could not express, and which therefore added none.
+Census evolution: 36 → 49 → 51 → 59 → 62 → 65 → 73 → 74 → 75 → 78 → 81 → 86 → 87 → 90 → 89 → 84 → 83 → 78 → 76 → 74 (N4/N5) → **68** (N4-U2), and 68 through N4-U4, N6-U1, N6-U2 and N6-U3 — the last four moved capability without moving the count, each for a reason the log states (the shape missed the census, the refusal lived at the parse boundary, or it raised a different error class). Every absorption added finer boundaries — until N4-U2, whose six sites were boundaries of a hand-rolled arm rather than of anything the engine could not express, and which therefore added none.
+
+**Audited 2026-07-30 — the §3.B rows below are a taxonomy of *sites*, not of refusals.** The per-site disposition (with live reachability probes) is in [nested-write-boundaries-plan.md § "The floor — final census disposition"](./nested-write-boundaries-plan.md). Its headline for this section: **B12's "degenerate/unreachable guards" is far larger than the one row suggests — 25 of the 68 sites are unreachable**, and several rows below (B2's compound-key family, B7's connect-by-other-unique, parts of B3/B4) name shapes whose closing mechanism already exists elsewhere in the engine. Line numbers in the `Sites` column predate the N-waves and are indicative, not current.
 
 | # | Boundary | Sites |
 |---|---|---|

@@ -1489,3 +1489,253 @@ Sizes: N1 = L (the keystone), N2 = M, N3 = M, N4 = M, N5 = M, N6 = S–M each. C
 ## What "better than Prisma" means here, concretely
 
 Already ahead and staying: unlimited depth, nested upsert-under-create, optional-`where` nested updateMany, to-one `{where,data}` non-unique filters, upsert `targetWhere`/`setWhere`, operand callbacks at every depth. This plan adds: located-parent dataflow Prisma resolves with multiple round-trips folded into single plans; nested extended-unique selectors (N6-U1) Prisma doesn't offer; and honest typed refusals with named reasons where Prisma silently degrades or errors opaquely.
+
+---
+
+## The floor — final census disposition
+
+**Date:** 2026-07-30 · **Commit audited:** `6910728` · **Census:** 68 sites, pinned at
+[`route-inventory.test.ts:1706`](../../tests/query-engine-v2/route-inventory.test.ts:1706).
+
+This is the FINAL row of the plan's own acceptance ladder: *"census at its floor (each
+survivor = genuinely inexpressible or Prisma-parity refusal, each with a measured
+justification)."* This section is the audit that tests that claim site by site. It is an
+audit, not a wave: **nothing was absorbed here, no engine file was touched.**
+
+### The counting rule, restated
+
+The census counts what its own tripwire counts and nothing else: occurrences of the string
+`new UnsupportedOperationError(` in the `.ts` files **directly inside**
+`src/query-engine-v2/` (no recursion into subdirectories). Re-run here by hand: 68, spread
+over ten files — `UpdateOperation.ts` 25, `CreateOperation.ts` 12, `RelationUpsertPart.ts`
+9, `RelationJunctionPart.ts` 6, `RelationWritePart.ts` 5, `nested-target-parts.ts` 4,
+`UpsertOperation.ts` 4, and one each in `ReadOperation.ts`,
+`ManyAndReturnOperation.ts`, `DeleteOperation.ts`.
+
+### The three dispositions, and the line between them
+
+| Code | Meaning |
+|---|---|
+| **(a) PARITY** | Prisma rejects the shape too. The refusal is a boundary viborm shares. |
+| **(b) INEXPRESSIBLE** | Reachable, with a **measured** reason recorded, and **no existing engine mechanism** (`Ref`, the locate, produced identity, the ordering ladder, the `{where,data}` wrapper, the create/update-root delegations) spells the missing value. |
+| **(c) UNJUSTIFIED** | Everything else — the audit's product. Split three ways below. |
+
+The line between (b) and (c) is deliberately sharp, because it is the line the word
+"floor" turns on: **(b) means no mechanism exists; (c) means a mechanism exists and is not
+wired here, or no reason is recorded at all.** A site whose record names a follow-on unit
+("the two-source split, carried into `RelationJunctionPart`"; "a builder this module
+cannot import without a cycle") is by its own words NOT at the floor — it is a shape a
+later wave absorbs. Those land in (c-ii), not (b). This is stricter than "does the record
+say something", and it is the only reading under which "floor" means anything.
+
+**Reachability was measured, not assumed.** Every site marked `M` in the table below was
+probed live at construction through the public routing seam
+(`constructRoutedOperation`, i.e. the parse boundary + operation construction) on PGlite,
+with purpose-built schemas where the shipped fixtures had no shape for it. `M✗` means the
+probe found **no payload that reaches the site** — the parse boundary answers first with a
+`ValidationError`, or the dispatch above it is total. The probe harness was temporary and
+is not committed; every verdict it produced is reproduced in the citation column.
+
+### The 68 sites
+
+`M` = reachability measured live · `M✗` = measured, no reachable payload found ·
+`†` = parity asserted from Prisma's generated input shape, not re-measured in this branch.
+
+#### `CreateOperation.ts` (12)
+
+| Site | Shape | Disp. | Citation / what is missing |
+|---|---|---|---|
+| `:822` | a relation whose type is neither child-held to-many nor inverse to-one, under a create root | **(c-i)** | the site's own comment calls it *"a schema impossibility … kept as a defensive internal guard"*; m2m and parent-held were dispatched above |
+| `:842` `M` | two kinds on one to-one arm (`{connect, create}`) | **(b)** | a payload contradiction: one FK column, two identities. Same class the N6-U3 log calls *"two kinds name the SAME row with conflicting intents (a payload contradiction, not a planning limit)"* |
+| `:866` `M` | shared-PK parent-held edge whose fold value is not a compile-time literal | **(b)** | count-evolution log, `68 -> 68 (N4-U4)`: a non-referenced `connect` re-evaluates a lookup subquery (a second provenance of the same row); a `connectOrCreate` decides its arm at compile, so one identity cannot describe both |
+| `:892` `M✗` | `update`/`delete`/`disconnect` on a to-one under create | **(c-i)** | probe: `ValidationError: Unknown key: update` — `toOneCreateFactory` offers only `create`/`connect`/`connectOrCreate`. Comment still says *"is V1's rejection (routed to V1…)"*; V1 is deleted |
+| `:1107` | before-parent target's referenced field unresolvable | **(b)** | `68 -> 68 (N4-U4)`: an `Sql` operand would be evaluated a second time for the FK (two `gen_random_uuid()` calls are two values); `null`/absent references no row |
+| `:1194` `M✗` | an unenumerated nested kind on a child-held to-many under create | **(c-i)** | probe: `ValidationError: Unknown key: update` / `Unknown key: set`. `toManyCreateFactory` offers exactly the five kinds the switch handles |
+| `:1326` | this record's own referenced field unresolvable | **(b)** | `68 -> 68 (N4-U4)`, same measurement as `:1107` |
+| `:1341` `M` | a compound-referenced child edge under a create root (`connectOrCreate` / `upsert`) | **(c-ii)** | the adopt/M2M `ParentIdSource` carries ONE value. N1-U2 proved a compound reference is per-field and generalizes at the update root; no measurement says why the fresh-parent adopt cannot take the same per-field source |
+| `:1348` | the adopt/M2M parent id unresolvable | **(b)** | `68 -> 68 (N4-U4)`, same measurement as `:1107` |
+| `:1648` `M` | a nested kind outside the M2M create-tree allowlist | **(c-iii)** | **only `upsert` reaches it** (probe: the other six are `ValidationError`). The recorded reason — *"address a PRE-EXISTING membership a fresh parent cannot have"* — is true of the six that never arrive and **false of the one that does**: viborm's `upsert`-under-create is a documented GLOBAL-LOOKUP ADOPT-AND-UPDATE superset (`create.ts`'s own compatibility note), which the child-held sibling executes on the same payload |
+| `:1843` `M✗` | a non-record to-one `connect` where | **(c-i)** | probe: `ValidationError: Expected object` |
+| `:1867` `M✗` | `requireRecord` — an `unknown → Record` narrowing on a parsed sub-payload | **(c-i)** | X2's record says the surviving narrowings *"throw `QueryEngineError`, never `UnsupportedOperationError`, so they are outside this census."* Four of them do not; this is one |
+
+#### `UpdateOperation.ts` (25)
+
+| Site | Shape | Disp. | Citation / what is missing |
+|---|---|---|---|
+| `:489` `M✗` | a model with no primary key | **(c-i)** | probe: the PK-less model's `whereUnique` has no discriminator, so `ValidationError: Missing required field` answers first. §3.A A16 already states every model must have a PK |
+| `:622` | no validation schema for a relation the model declares | **(c-i)** | an engine invariant: `separated.relations` and `parentSchemas.relations` are built from the same model |
+| `:1180` `M` | two kinds on one to-one arm under update | **(b)** | payload contradiction, as `CreateOperation.ts:842` |
+| `:1202` | a child-held relation of an impossible type | **(c-i)** | defensive: m2m and parent-held dispatched above |
+| `:1231` `M` | a nested targeted mutation on a **compound-PK child** | **(c-ii)** | sweep entry (i) lists it *"so the sweep is complete"* and names no owner. The ROOT supports compound PKs (`UpdateOperation.ts:494` — *"Compound primary keys are supported"*); the per-field generalization ATOM §1 applied to FKs has not been applied to the child's own key arity |
+| `:1256` | a nested kind while the root transitions a compound / non-PK / unpinned referenced column | **(b)** | N5-U2 (d), measured: the no-op verdict `sameScalarValue(before, after)` must move to compile or an occupied slot the engine deliberately accepts becomes a rejection; the unpinned third needs the same operand-applying source (a)/(b) name |
+| `:1502` | a compound-key nested create under a **non-cascading** rewrite | **(b)** | N5-U2 (a), measured: `getUpdatedPrimaryKeyValue(before, operand)` is computable only at compile, and no `ParentIdSource` (`literal`/`planned`/`ref`) transforms |
+| `:1532` | a nested create under an unpinned **non-cascading** PK transition | **(b)** | N5-U2 (b), same missing mechanism, measured |
+| `:1547` | a nested create referencing a **non-literal rewritten** column | **(c-ii)** | sweep entry (c): *"What would close it is `{ set: v }` unwrapping (`classifyRelationKeyScalarUpdate` already calls that shape 'resolved'), a normalization question, not a Ref one"* — a mechanism that exists |
+| `:1738` `M✗` | an unenumerated to-many kind under update | **(c-i)** | probe: all 11 keys of `toManyUpdateFactory` are handled (`create`/`createMany` upstream at `interpretChildHeldCreate`, the other nine in the switch). The comment *"create / createMany nested under update are V1's surface"* has been false since T3b-2 |
+| `:1923` `M` | `disconnect: false` on an inverse-side to-one | **(c-iii)** | N2-U3 measured the OBJECT form as a parse-boundary gap and pinned `false`'s behavior in both directions — but recorded **no reason to refuse `false`** rather than treat it as the no-op Prisma's `boolean` arm makes it |
+| `:1950` `M` | `delete: false` on an inverse-side to-one | **(c-iii)** | as `:1923` |
+| `:2248` `M✗` | an unenumerated kind on a parent-held to-one | **(c-i)** | probe: `ValidationError: Unknown key: set`; `connect`/`disconnect` are dispatched to `interpretToOneLink` above |
+| `:2318` `M` | a **compound or non-PK** parent-held to-one reference | **(c-ii)** | recorded reason is *"needs V1's staged mutation-identity resolution"* — V1 is deleted. X1c's whole-target delegation and N1's per-field located reads both exist; nothing measures why they do not reach here |
+| `:2485` `M` | `delete: false` on a parent-held to-one | **(c-iii)** | as `:1923` |
+| `:2594` `M` | nested relation writes in a parent-held to-one **`upsert`** arm's data | **(c-ii)** | probe: the `update` arm is ABSORBED (X1c delegation, constructs); only `upsert` still refuses. The reason is the conditional three-way arm — the same wiring problem `RelationUpsertPart.ts:1019` names as a follow-on, not an absence of mechanism |
+| `:2773` `M` | a shared-PK parent-held `create`/`connectOrCreate` at an UPDATE root | **(c-ii)** | recorded reason cites V1's `getUpdatedPrimaryKeyWhere`. N4-U4 built the produced-identity fold for exactly this edge at the CREATE root (`resolveSharedPkIdentity`); it is not wired at the update root, and no measurement says it cannot be |
+| `:2788` `M` | a nested-relation **target create** on a parent-held to-one | **(c-ii)** | recorded reason cites *"V1's appendCreate recursion"*. X1b's `nestedFresh` create-subtree reuse exists and N4-U2 used it for exactly this shape one seam over |
+| `:2839` | the before-root target's referenced field unresolvable | **(c-ii)** | the create root's analogue (`CreateOperation.ts:1107`) was **narrowed** by N4-U4's widened fresh identity (`freshReferenced`, which resolves a referenced non-PK unique the create data spells). The update root's before-root target still reads its identity as PK-or-generated only |
+| `:2856` `M` | to-one `connectOrCreate` by a **non-referenced** unique | **(c-ii)** | T3c absorbed exactly this for the create root's `connect`, *"through V1's verbatim `buildConnectSubqueryForField` lookup subquery"*. The mechanism exists; whether it transfers to a SET-folded assignment is unmeasured |
+| `:3265` `M✗` | `interpretToOneLink` reached with a kind other than connect/disconnect | **(c-i)** | probe: `ValidationError: Unknown key: set`; the other five to-one keys dispatch elsewhere |
+| `:3280` `M` | to-one `connect` by a **non-referenced** unique | **(c-ii)** | as `:2856`; the comment still says *"out of P2a scope — route the whole tree to V1"* |
+| `:3589` `M✗` | multiple targets on a to-one connect/disconnect | **(c-i)** | probe: `ValidationError: Expected object` — the to-one `connect` schema is a single object, not `singleOrArray` |
+| `:3595` `M✗` | a non-record to-one connect/disconnect target | **(c-i)** | as `:3589` |
+| `:3612` `M✗` | `requireRecord(args.where / args.data)` | **(c-i)** | probe: `ValidationError: Expected object` from the whole-args parse, which runs first |
+
+#### `RelationUpsertPart.ts` (9)
+
+| Site | Shape | Disp. | Citation / what is missing |
+|---|---|---|---|
+| `:708` | a non-`oneToMany` relation reaching the to-many upsert builder | **(c-i)** | the inverse-to-one `upsert` dispatches to `buildInverseToOneUpsertPart` (T3-r2) and the parent-held direction never enters; no reachable payload identified |
+| `:814` | a parent-held or arity-mismatched FK reaching the upsert part | **(c-i)** | direction is dispatched by the caller; `fields`/`references` are index-aligned by schema rule |
+| `:847` `M` | the relation's owned FK spelled in the nested **update** arm data | **(a)†** | probe: reachable via `update: { userId }` (the create arm is `M✗` — `v.omit(core.create, fkFields)` removes it). Prisma's `<Model>UpdateWithout<Relation>Input` omits the FK too — asserted from the generated input shape, not re-measured here |
+| `:853` `M` | a **compound-PK child** on a nested upsert | **(c-ii)** | as `UpdateOperation.ts:1231` (sweep entry (i)) |
+| `:1019` `M` | a deeper kind outside {upsert, connectOrCreate, create} on the upsert **update** arm | **(c-ii)** | N4-U2's own narrowing text: *"The link/bulk/delete families and an m2m edge need `buildNestedTargetChildParts`, which this module cannot import without a cycle … Named follow-on, not smuggled in."* An import cycle is not an inexpressibility — N4-U2 itself solved one with an injected `FreshArmBuilder` seam |
+| `:1073` | an m2m grandchild `create` on the upsert update arm | **(c-ii)** | same record, same cycle |
+| `:1079` `M` | a parent-held to-one grandchild `create` on the upsert update arm | **(c-ii)** | same record; needs the target's own SET fold, which X1c's delegation owns |
+| `:1134` | a non-record upsert item | **(c-i)** | shape narrowing on a parsed payload |
+| `:1144` | `requireRecord` on `item.where`/`item.create`/`item.update` | **(c-i)** | as `CreateOperation.ts:1867` |
+
+#### `RelationJunctionPart.ts` (6)
+
+| Site | Shape | Disp. | Citation / what is missing |
+|---|---|---|---|
+| `:1185` `M` | junction `createMany` + `skipDuplicates` + a DB-generated target PK | **(b)** | N3-U1, measured live: a skipped INSERT produces no identity; PG's `ON CONFLICT DO NOTHING … RETURNING` yields zero rows while SQLite/MySQL leave `insertId` at a **live unrelated row's** key — reproduced, joining the article to the wrong label with no error |
+| `:1199` `M✗` | `resolveCreatePk`'s absent / explicit-null target PK | **(c-i)** | probe found no payload: `s.string().id()` implies `ulid` + a default (so the key is always present), `s.int().id()` without `.increment()` makes it **required** (`ValidationError: Missing required field: id`), `null` fails a non-nullable PK, and `increment` takes the produced-identity branch above. A PK whose `autoGenerate` is `now`/`updatedAt` was not constructed |
+| `:1264` | upsert-through-junction create arm addressing no row | **(b)** | N3-U2: the arm needs one value for the join row, one ledger key and one `where` for the duplicate item's UPDATE; a create payload spelling neither the PK nor a complete unique names nothing, and a `Ref` may never reach a `where` (the W4 wrong-row doctrine) |
+| `:1647` `M` | an m2m **upsert** arm carrying relations, located by a non-PK unique | **(b)** | N4-U1 site 3, measured: the created-earlier branch's global probe ran BEFORE this operation's own INSERT and located nothing — *"a genuine absence of a value, not a missing wire."* Probe confirms the `update` kind on the same payload constructs |
+| `:1662` `M` | a **relation-carrying** junction create arm with a generated target PK | **(c-ii)** | the recorded reason — *"its deeper child Parts fold against a compile-time `literalParentId`"* — is verbatim the reason N4-U2 **measured and deleted** at `RelationUpsertPart.createArmParentId`: *"a create ROOT hands its grandchildren a generated key as a backward `Ref`, so nothing has to be known beforehand."* The delegated arm here already builds a create subtree and still demands the literal |
+| `:2120` `M` | relation writes inside m2m `updateMany` / `connectOrCreate` adopt data | **(c-ii)** | split cause. The `updateMany` half has a real reason (a filter target has no per-row identity) — but it is pre-empted by CLASS V legality (`NestedWriteError`, measured), so it is not what reaches this site. What reaches it is the **connectOrCreate adopt arm** (measured), and its create arm's children are exactly what N4-U2 absorbed for the child-held sibling |
+
+#### `RelationWritePart.ts` (5)
+
+| Site | Shape | Disp. | Citation / what is missing |
+|---|---|---|---|
+| `:439` `M✗` | the owned FK spelled in the nested upsert **create** arm data | **(c-i)** | probe: `ValidationError: Unknown key: userId` — the nested create schema omits the FK |
+| `:666` `M` | a nested `update`/`updateMany` whose data has **no scalar assignment** | **(c-iii)** | no recorded reason anywhere. Measured inconsistency: the ROOT `update({where, data: {}})` **constructs**; the nested spelling of the same emptiness refuses, at both arities |
+| `:681` `M` | an **inverse-side to-one** `update` carrying relations | **(c-ii)** | the decline is gated on `!this.config.where`, and an inverse-to-one target has no selector. But this Part already runs a correlated probe and N4-U1 taught it to publish the located PK as a `planned` source — the gate simply never asks. The exact shape of N2-U1's finding (*"Only the ROOT dispatch refused it"*), one seam over |
+| `:765` | a PK-transitioning target carrying BOTH an m2m edge and a non-cascade child-held edge | **(c-ii)** | N5-U1b measured the conflict honestly and then names the fix: *"the two-source split N5-U1 built for `set` (`RelationSetConfig.correlationParentId`), carried into `RelationJunctionPart`. Named for a follow-up, not smuggled in here."* A mechanism that exists, unwired |
+| `:787` | the N4 × N5 merge shape: a non-PK locator + a PK-rewriting SET + a non-cascading deeper FK | **(b)** | the merge entry, measured: *"no `ParentIdSource` transforms (`literal`, `planned`, `ref` each carry a value verbatim)"*, and the falsification measured the consequence (the deeper edge written against the VACATED key) |
+
+#### `nested-target-parts.ts` (4)
+
+| Site | Shape | Disp. | Citation / what is missing |
+|---|---|---|---|
+| `:308` | a relation of an impossible type one level deeper | **(c-i)** | defensive; the parent-held and non-PK branches beside it are already `QueryEngineError` internal invariants (X1c) |
+| `:336` `M` | a **compound-PK child** one level deeper | **(c-ii)** | as `UpdateOperation.ts:1231` (sweep entry (i)) |
+| `:486` `M` | `delete: false` on an inverse-side to-one one level deeper | **(c-iii)** | as `UpdateOperation.ts:1950` |
+| `:573` `M✗` | an unenumerated nested kind one level deeper | **(c-i)** | probe: all 11 to-many keys have a case above |
+
+#### `UpsertOperation.ts` (4)
+
+| Site | Shape | Disp. | Citation / what is missing |
+|---|---|---|---|
+| `:207` | a model with no primary key | **(c-i)** | as `UpdateOperation.ts:489` |
+| `:794` | an upsert create arm spelling no complete identity | **(b)** | W4-U1b, measured and **corrected in review**: the three identity sources are a literal PK, a complete unique the create data carries, and a single generated `increment` PK. What remains refused is chiefly a generated COMPOUND PK with no other unique — and that model is already refused upstream by `mutation-identity.ts:44`, measured live |
+| `:964` `M` | an unknown / missing top-level `upsert` argument key | **(a)** | X2's recorded KEEP: upsert has no whole-args parse (a whole-args `parseValidated` would feed the arms a transformed output the sub-op re-parses AND validate the UNTAKEN arm, which `deferArmLegality` forbids). Prisma rejects unknown arguments too |
+| `:971` `M` | a non-object `upsert.where` / `.create` / `.update` | **(a)** | same X2 KEEP; probe: `'upsert.where' must be an object.` — the only `requireRecord` of the four that any payload reaches |
+
+#### One site each
+
+| Site | Shape | Disp. | Citation / what is missing |
+|---|---|---|---|
+| `ManyAndReturnOperation.ts:430` | `createMany` + `select` + `skipDuplicates` on a non-returning driver | **(b)** | the one maintainer-authorized refusal, pinned as `REMAINING_ROUTE` and the sole entry of the route inventory's corpus that must still throw: no portable `ON CONFLICT DO NOTHING` reports **which** rows it inserted. The `{ count }` arm supports `skipDuplicates` everywhere |
+| `DeleteOperation.ts:89` `M✗` | a model with no primary key | **(c-i)** | probe: `ValidationError: Missing required field` |
+| `ReadOperation.ts:90` | a requested operation outside the read base set | **(c-i)** | `ROUTED_OPERATIONS` dispatches only read families here |
+
+### The counts
+
+| Disposition | Sites |
+|---|---:|
+| **(a) PARITY** — Prisma rejects it too | **3** (one asserted, not measured: `RelationUpsertPart.ts:847`) |
+| **(b) INEXPRESSIBLE** — measured, no mechanism exists | **15** |
+| **(c) UNJUSTIFIED** — the audit's product | **50** |
+|   · (c-i) no reachable payload — a defensive / narrowing guard in the user-facing error class | 25 |
+|   · (c-ii) reachable; a mechanism exists elsewhere in this engine and is not wired here | 19 |
+|   · (c-iii) reachable; no recorded reason at all | 6 |
+| **Total** | **68** |
+
+### The verdict, plainly
+
+**68 is not the floor, and the census number is not a count of refusals.**
+
+Three separate findings, in descending order of how much they matter:
+
+1. **25 of 68 sites refuse nothing.** No payload reaches them: the parse boundary answers
+   first with a `ValidationError`, or the dispatch above them is total over the schema's
+   own key set. They are `unknown → Record` narrowings, defensive type guards, and
+   `default:` arms of exhaustive switches. This branch has twice given exactly this shape
+   the right disposition — N2-U1 converted `interpretInverseToOneKind`'s `default` to a
+   `QueryEngineError` (*"the dispatch is now TOTAL over the parse boundary's surface"*),
+   and X1c did the same for `foldOneNestedRelation`'s two branches — and the census
+   dropped by a whole site each time. Applying that established disposition to the 25
+   would take the census to **43** without changing one line of user-visible behavior.
+   Two of them additionally contradict a claim already in the record: X2 wrote that the
+   surviving `requireRecord`/`isRecord` narrowings *"throw `QueryEngineError`, never
+   `UnsupportedOperationError`, so they are outside this census"* — four of them do throw
+   `UnsupportedOperationError`, and three of those four are unreachable.
+
+2. **19 of 68 are shapes this engine already has the mechanism for.** Every one is
+   reachable, and every one's record either names a follow-on unit in its own words
+   (`RelationWritePart.ts:765`, `RelationUpsertPart.ts:1019/1073/1079`) or rests on a
+   reason that the engine has since retired — *"V1's staged mutation-identity
+   resolution"*, *"V1's appendCreate recursion"*, *"routed to V1"* — on a branch where V1
+   no longer exists. The three sharpest:
+   · `RelationJunctionPart.ts:1662` refuses a relation-carrying junction create arm with
+   a generated PK for **verbatim the reason N4-U2 measured and deleted** at the
+   child-held sibling.
+   · `RelationWritePart.ts:681` refuses an inverse-side to-one `update` carrying
+   relations because it has no `where` — inside a Part that N4-U1 taught to publish its
+   probe's located key as a `planned` source. This is N2-U1's finding one seam over:
+   *"Only the ROOT dispatch refused it."*
+   · `UpdateOperation.ts:2856` / `:3280` refuse a connect by a non-referenced unique
+   through a lookup subquery that T3c already wired at the create root.
+   Plus one family of three (`UpdateOperation.ts:1231`, `RelationUpsertPart.ts:853`,
+   `nested-target-parts.ts:336`): a **compound-PK child** in any nested targeted
+   mutation, refused while the compound-PK ROOT is supported. Sweep entry (i) listed it
+   *"so the sweep is complete, not because the Ref was ever a candidate"* — a statement
+   about the Ref, never a measurement about the child's key arity, and no wave has owned
+   it since.
+
+3. **6 of 68 are reachable refusals with no recorded reason at all.**
+   · `RelationWritePart.ts:666` — a nested `update`/`updateMany` with empty `data`. The
+   root accepts `data: {}` and constructs; the nested spelling refuses. Measured here.
+   · `UpdateOperation.ts:1923` / `:1950` / `:2485` and `nested-target-parts.ts:486` —
+   `disconnect: false` and `delete: false`. N2-U3 measured Prisma's OBJECT form and
+   pinned `false`'s behavior in both directions, but recorded no reason to refuse the
+   literal `false` instead of no-opping it, which is what Prisma's `boolean` arm does.
+   · `CreateOperation.ts:1648` — an M2M `upsert` under a create root. Its recorded
+   reason describes six kinds the parse boundary never delivers, and does not describe
+   the one kind that reaches it: `upsert` is viborm's own documented adopt-and-update
+   superset, which the child-held sibling executes on the same payload.
+
+**What this does NOT say.** None of the 50 is a correctness defect, and none is a
+regression — every site fails closed with a typed message, and the (c-i) group cannot fire
+at all. The claim being refuted is narrower and specific: that each of the 68 survivors is
+*"genuinely inexpressible or a Prisma-parity refusal, each with a measured justification."*
+18 of them are. For the other 50, the record does not establish it — 25 because they refuse
+nothing, 19 because the record itself names the mechanism that would close them, and 6
+because there is no record.
+
+**What a justification would require, per class.** (c-i): either a payload that reaches the
+site, or the N2-U1/X1c disposition — convert to `QueryEngineError` and let the census
+drop. (c-ii): a measurement showing the named mechanism does **not** transfer (the shape
+N4-U1 used when it kept the junction upsert arm: *"the global probe ran BEFORE this
+operation's own INSERT and located nothing — a genuine absence of a value, not a missing
+wire"*), or the wave that wires it. (c-iii): a live Prisma comparison for the three
+`false`-literal sites and the M2M `upsert`, and a stated rule for empty nested `data`
+consistent with what the root already does.
+
+**Honest note on the (a) column.** Only three sites are parity refusals, and that is a
+result rather than a gap: X2 moved viborm's Prisma-parity surface to the **parse
+boundary**, where it raises `ValidationError`. A census of engine-side
+`UnsupportedOperationError` sites structurally cannot see it. §3.A A17 of the capability
+matrix lists nine parity refusals inside nested writes; the probe found every one of the
+reachable ones answering with a `ValidationError` before any engine site is entered. The
+census and A17 are both right; they are counting different layers.
