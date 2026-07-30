@@ -1850,6 +1850,28 @@ question above with it. Recording them as measured (b) would have been the easy 
 a "floor", and it would have been false: the mechanism exists in this engine for every one
 of them. They stay (c-ii). **The floor is 23 sites away, not 0.**
 
+#### N7-U-B — certification
+
+| Step | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean |
+| Full estate, ALONE (`--minWorkers=1 --maxWorkers=4`) | **9114 passed / 0 failed**, 259 files (9003 at the U-A baseline; the +111 is this wave's witnesses on the three local engines) |
+| `pnpm test:gates` | **72 / 72**, 5 files (unchanged) |
+| Census pin | **40** (`route-inventory.test.ts`), with the count-evolution entry naming the five sites and the two silent divergences |
+| Biome (repo-pinned, per file) | every changed file exits 0 |
+| Docker MySQL 3307 | **971 passed / 0 failed** (941 baseline + 15 × 2 substrates) |
+| Docker Postgres 5434 (`pg` + `postgres`, serial) | **1084 passed / 0 failed**, 14 skipped (1054 baseline + 30) |
+| SQLite3 + LibSQL | **2161 passed / 0 failed** |
+| PGlite, both substrates | **32 passed** (15 × 2, plus the two public-client witnesses) |
+
+The estate ran once, green, before the witness harness was reworked for the Docker legs;
+everything changed after that point is a test file, and each was re-run on the engine it
+touches (the four driver legs and the PGlite pair above). The reworking is recorded in its
+own commit because what it had to survive is a fact about this test estate worth keeping:
+a per-test driver starves the Docker legs of connections, a cached push is dropped by a
+sibling suite's `force` push (MySQL errno 1146), and a repeated push errors on the SQLite
+family.
+
 #### The verifier's three notes, closed
 
 1. **`UpsertOperation.ts:971`'s (a) citation named no Prisma behavior.** Measured: Prisma
