@@ -601,6 +601,27 @@ legs. The new shared suite is wired into all four driver files (pg, mysql2, sqli
 libsql) so those legs execute it when a main-repo agent runs them; the mysql2 batch leg
 declares `skipDuplicatesInBatchIsInexpressible`.
 
+### N4 — wave gate (independent re-run at `c2714df`, 2026-07-30)
+
+The lane's two deferrals are now discharged, and the gate was re-run after fix round 2
+landed (the merge certification's numbers above predate it). Every step in its own shell.
+
+| Gate | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean |
+| Full estate, alone (`--minWorkers=1 --maxWorkers=4`) | **8637 passed / 0 failed**, 1809 skipped, 252 files + 4 skipped (baseline at `f49047b`: 8452 / 0) |
+| `pnpm test:gates` | **70 / 70** (baseline 66; +3 N4 side-1 witnesses, +1 N5) |
+| Census pin | **74**, re-derived by RUNNING `route-inventory.test.ts`; the log's arrow chain closes 76 → 75 → 74 → 74 → 74 → 73 → 73 → 73 → 74 → 74 |
+| Biome (repo-pinned, per file over `git diff --name-only main..HEAD`) | **0 diagnostics on all 39 files** — no new violations |
+| Docker MySQL (3307) | **840 passed / 0 failed** (baseline 788) |
+| Docker Postgres (5434, serial) | **948 passed / 0 failed**, 14 skipped (baseline 896) |
+
+The lane's deferral is specifically answered: the N4 witnesses **EXECUTED, not skipped**,
+on both Docker legs and on both substrates. MySQL ran 28 `depth-seam boundaries (N4)`
+tests (14 transaction + 14 atomic batch, every one green, including the batch leg's
+`skipDuplicates` arm under its `skipDuplicatesInBatchIsInexpressible` declaration);
+Postgres ran the same 28.
+
 ## N5 — Ordering boundaries (independent of N1 mechanics; can run parallel to N4)
 
 | Unit | What |
@@ -917,6 +938,27 @@ three seams' answers to one window are asserted side by side.
 **Census unchanged at 74** (re-derived by running `route-inventory.test.ts`), and no
 count-evolution entry: no `UnsupportedOperationError` site was added, removed, or changed in
 reach. A runtime found pin and a write's addressed row are neither routes nor census sites.
+
+### N5 — wave gate (independent re-run at `c2714df`, 2026-07-30)
+
+The N4/N5 wave gate was run once on the merged tree AFTER both fix rounds, so it is the
+first certification that covers fix round 1 (the depth no-op verdict) and fix round 2 (the
+upsert update arm's located-row provenance) as well as the two lanes. Numbers are in the
+N4 wave-gate table above — one run certifies both lanes and nothing here restates it.
+
+What the run adds for N5 specifically: its witnesses **EXECUTED, not skipped**, on both
+Docker legs and both substrates. MySQL ran 24 `post-transition adopt (N5-U1)` tests
+(12 transaction + 12 atomic batch), Postgres ran the same 24, all green — which is what
+carries N5's two dialect-risk shapes past assertion: the required-FK `set` under a
+`restrict` transition, and the COMPOUND string primary key with ON UPDATE CASCADE.
+
+The census closes where the merge left it: pin **74**, and the log's last entry is fix
+round 1's `74 -> 74 (FIX ROUND, no site added or removed, recorded because it changes what
+REACHES one of them)`. Fix round 2 correctly added no entry — a found pin's statement and a
+write's addressed row are not census sites. N5's three survivors (sweep (a)/(b)/(d)) and
+the merge refusal remain open as the FOUR claims on one unbuilt mechanism: a `planned`
+parent-id source that applies the SET operand to the located value at compile, through
+`getUpdatedPrimaryKeyValue` in `referencedFieldValue`. That follow-on unit is unstarted.
 
 ## N6 — Beyond Prisma (decision-gated; each unit needs a maintainer yes)
 
