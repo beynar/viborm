@@ -1208,6 +1208,42 @@ it, because it is the wrong row rather than an error. Every absorbed shape is th
 witnessed twice, and the falsification is recorded: reverting the one seam fails exactly
 the six exclusion arms and nothing else.
 
+#### The correction the review round found — one seam per witness, not one unit
+
+"Reverting the one seam fails exactly the six exclusion arms" was true and *insufficient*,
+because it was measured on ONE of the four seams. Reverting each of the other three, one
+at a time, was measured afterwards, and two of those reverts left the whole estate green:
+
+- **`UpdateOperation.nestedTargetWhereFilters`** — the X1c delegation's locate and its
+  batch presence guard. Live wrong-row write with no concurrency and no instrument:
+  `owner.update({ tickets: { update: { where: { id, subject: <excluding> }, data: {
+  subject, owner: { update: … } } } } })` renamed the excluded ticket, renamed its owner
+  and filed a note under it. Reachable only when the target's data carries a PARENT-HELD
+  to-one or a non-PK referenced edge (`targetNeedsFullUpdate`), which is precisely the
+  condition every N6-U1 arm avoided — all of them used scalar data or a child-held
+  to-many, which route through a Part. Now witnessed by a matching/excluding pair in
+  `depth-seam-behavior.ts`, every driver leg, both substrates; the revert fails exactly
+  the exclusion arm on both and nothing else.
+- **`RelationUpsertPart.foundGuardStatement`** — the only seam whose two halves can
+  DIVERGE: its probe compiles the whole selector through `buildFindUnique` while the
+  guard assembles its own conjuncts, so the filter can be dropped from the guard alone
+  and the batch then re-asserts a weaker premise than the probe established. Invisible to
+  every quiescent test; visible on the split-witness instrument the N4-U1 arms already
+  use, moving a FILTERED column (not the unique) between planning and the batch. Now
+  witnessed in `depth-seam.test.ts`; the revert fails exactly that arm.
+- **`RelationJunctionPart.capturedSelectorRead`** — recorded rather than witnessed,
+  because it is UNREACHABLE: its callers are `connect` / `set` / `connectOrCreate`, whose
+  selectors are strict by schema, so its filter branch is dead. The m2m selectors that
+  are extended reach `membershipRead`, which compiles both halves through
+  `buildWhereUnique`. It takes the one home for uniformity, not for a live path.
+
+The generalisable lesson, and the reason it is written here rather than in a commit
+message: an absorption's witness obligation is per ROUTE through the engine, not per
+payload key in the schema. Four sites assemble these conjuncts; the census entry counted
+the unit once and the tests covered three routes, and the mismatch is exactly where the
+unwitnessed write lived. The seam table in ATOM §8.1 now carries the per-seam disposition
+so the next widening starts from the routes rather than from the surface.
+
 ### N6-U2 delivered — relation filters inside a unique `where` (D-N2)
 
 **The refusal, measured before anything was touched.** One site:

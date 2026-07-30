@@ -699,6 +699,64 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
   );
 
   test(
+    "N6-U1: a to-many upsert whose FILTERED column moves before the batch refuses",
+    { timeout: 30_000 },
+    async () => {
+      const db = new PGlite();
+      const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
+      try {
+        await push(stateClient, { force: true });
+        await seedProjects(stateClient);
+        // The half of the found premise only this instrument can see.
+        //
+        // `RelationWritePart` cannot split: its probe and its batch guard are the SAME
+        // statement (`correlatedProbeStatement`), so a filter given to one is given to
+        // both by construction. `RelationUpsertPart` CAN: its probe compiles the whole
+        // selector through `buildFindUnique`, while `foundGuardStatement` assembles the
+        // conjuncts itself — so the filter half can be dropped there ALONE, and the
+        // guard then re-asserts a strictly weaker premise than the one the probe made.
+        //
+        // Nothing already in the estate can tell: the behaviour arms all decide the
+        // found/create question BEFORE the batch, and both spellings of the guard agree
+        // on quiescent state. Only a concurrent writer touching the FILTERED column —
+        // not the unique, which every other arm here moves — separates them. `title` is
+        // exactly that column: after the move, `code = 'P-TARGET'` still names project
+        // 20 and it is still workspace 2's, so the captured-PK and FK conjuncts both
+        // hold, and only `title = 'same'` is false.
+        const update = makeSeamRunner(
+          new MoveUniqueBeforeBatchDriver({ client: db }, [
+            `UPDATE "n4_seam_projects" SET "title" = 'changed' WHERE "id" = 20`,
+          ])
+        );
+        await expect(
+          update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: {
+                upsert: {
+                  where: { code: "P-TARGET", title: "same" },
+                  update: { title: "moved" },
+                  create: { id: 999, code: "P-FRESH", title: "unused" },
+                },
+              },
+            },
+          })
+        ).rejects.toThrow(UPSERT_PREMISE_CHANGED);
+        // The concurrent writer's edit stands and this operation wrote nothing — not the
+        // adopt arm's title, and not the create arm either.
+        await expect(
+          stateClient.project.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 10, code: "P-DECOY", title: "same", workspaceId: 1 },
+          { id: 20, code: "P-TARGET", title: "changed", workspaceId: 2 },
+        ]);
+      } finally {
+        await stateClient.$disconnect();
+      }
+    }
+  );
+
+  test(
     "an m2m update by a non-PK unique refuses (RelationJunctionPart)",
     { timeout: 30_000 },
     async () => {

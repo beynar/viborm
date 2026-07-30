@@ -1494,6 +1494,39 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // at a FILTERED locate, which is the only instrument that can tell the located value
   // from a re-read of the selector.
   //
+  // WITNESS CORRECTION (review round). The list above says "all three Parts", and the
+  // seam count says FOUR — the mismatch is where an unwitnessed wrong-row write lived,
+  // so the disposition is now recorded per seam rather than per unit. Each seam was
+  // reverted alone to the discriminator-only spelling and the estate re-run:
+  //
+  //   · `RelationWritePart.correlatedProbeStatement` — reverting fails the six exclusion
+  //     arms above. Its probe and batch guard are the SAME statement, so the halves
+  //     cannot diverge and quiescent state is enough to see it.
+  //   · `UpdateOperation.nestedTargetWhereFilters` — the X1c delegation's locate and
+  //     presence guard. Reverting it left the ENTIRE V2 suite green while an excluding
+  //     filter renamed its target, renamed the parent-held to-one it carried and filed a
+  //     grandchild under it. Reachable only via `targetNeedsFullUpdate` (the target's
+  //     data carries a parent-held to-one or a non-PK referenced edge), which no arm
+  //     written for N6-U1 entered — they all used scalar data or a child-held to-many, so
+  //     they route through a Part. Now witnessed by the `N6-U1 delegated target` pair in
+  //     `depth-seam-behavior.ts` (both substrates, every driver leg); the revert fails
+  //     exactly the exclusion arm and nothing else.
+  //   · `RelationUpsertPart.foundGuardStatement` — the only seam whose halves CAN
+  //     diverge: the probe compiles the whole selector through `buildFindUnique` while
+  //     this guard assembles its own conjuncts, so dropping the filter here alone makes
+  //     the batch re-assert a weaker premise than the probe established. No quiescent
+  //     test can see it. Now witnessed in `depth-seam.test.ts` on the split-witness
+  //     instrument, moving a FILTERED column (not the unique) between planning and the
+  //     batch; the revert fails exactly that arm.
+  //   · `RelationJunctionPart.capturedSelectorRead` — UNREACHABLE, recorded rather than
+  //     witnessed. Its callers are `connect` / `set` / `connectOrCreate`, whose selectors
+  //     are strict by schema (`validation/relations/update.ts`), so the filter branch is
+  //     dead there; the extended m2m selectors reach `membershipRead`, which compiles
+  //     both halves through `buildWhereUnique`. It takes the one home for uniformity.
+  //
+  // The generalisable rule: an absorption's witness obligation is per ROUTE through the
+  // engine, not per payload key in the schema.
+  //
   // 68 -> 68 (N6-U2, relation filters inside a unique `where` — D-N2). No site added or
   // removed, and the reason is worth stating rather than inferring: the refusal this unit
   // lifted was never in this census. It was a PARSE-boundary `v.refused` entry, one per

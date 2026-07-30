@@ -1916,6 +1916,30 @@ direction. `uniqueSelectorConjuncts` (`shared.ts`) is the one home that recombin
 halves, and both consumers of each list take it, so a locate and its guard can never
 address different rows.
 
+**Per seam, what a witness can actually see.** "Four seams" is the count of assembly
+SITES; it is not four equal claims, and the difference decides where a test can stand.
+The disposition was measured one seam at a time, by reverting that seam alone to the
+discriminator-only spelling and running the estate:
+
+| seam | filter half reachable? | what a revert breaks |
+| --- | --- | --- |
+| `RelationWritePart.correlatedProbeStatement` | yes | the six N6-U1 exclusion arms — its probe and its batch guard are the SAME statement, so the halves cannot diverge and quiescent state is enough to see it |
+| `UpdateOperation.nestedTargetWhereFilters` (the X1c delegation locate + presence guard) | yes | the delegated-target exclusion arm, on both substrates. Nothing else, on any substrate |
+| `RelationUpsertPart.foundGuardStatement` | yes, and SPLITTABLE | nothing quiescent. Its probe compiles the whole selector through `buildFindUnique` while the guard assembles its own conjuncts, so only a concurrent write to a FILTERED column separates them |
+| `RelationJunctionPart.capturedSelectorRead` | **no** | nothing, and nothing can. Its only callers are `connect` / `set` / `connectOrCreate`, whose selectors are strict by schema (`validation/relations/update.ts`), so the filter branch of `uniqueSelectorConjuncts` is dead there. It takes the one home for uniformity, not for a live path — the m2m selectors that ARE extended (`update`/`upsert`/`delete`) reach `membershipRead`, which compiles both halves through `buildWhereUnique` |
+
+The second row is the one the unit shipped without. Every arm written for N6-U1 used a
+target whose data was scalar or a CHILD-held to-many, all of which route through a Part;
+the delegation is entered only when the target's data carries a PARENT-HELD to-one or a
+non-PK referenced edge (`targetNeedsFullUpdate`), because only then does the deeper write
+fold into the target's own SET. The two claims — "the filter half is honoured" and "these
+selectors are widened" — are made per ROUTE, not per payload key, and the route was
+missing from the witness set while the shape appeared in the measurement list. Both gaps
+are now paid, in the same file as their siblings: the delegated-target pair in
+`depth-seam-behavior.ts` (every driver leg, both substrates) and the upsert found-guard
+race in `depth-seam.test.ts` (batch-only, on the split-witness instrument the N4-U1 arms
+already use).
+
 The one genuinely new decision is a WITHHOLDING. §2's missing-premise pin claims "the
 probe proved unique key K was free". A FILTERED probe proves only "no row matches
 `K ∧ filters`" — a row on K may exist and be excluded — so the create arm's `racePin` is

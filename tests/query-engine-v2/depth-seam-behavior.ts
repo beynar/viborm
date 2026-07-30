@@ -201,6 +201,11 @@ hydrateSchemaNames(depthSeamSchema);
 const NO_BATCH_SKIP_LOWERING = /no atomic-batch lowering/;
 /** V1's verbatim `Cannot update … for this parent` abort. */
 const TARGET_NOT_FOUND = /Cannot update/;
+/** The same abort raised by the X1c DELEGATION route — an `UpdateOperation` running in
+ *  `nestedTarget` mode, whose locate misses. Spelled in full and named per relation so
+ *  the arm cannot pass on some other `Cannot update …` the tree might raise first. */
+const TICKET_TARGET_NOT_FOUND =
+  /Cannot update relation 'tickets': target record was not found for this parent\./;
 /** The DELETE family's spelling of the same abort. Named separately because
  *  {@link TARGET_NOT_FOUND} matches only the update wording, and a nested `delete`
  *  that aborts must be asserted against the message it actually raises. */
@@ -263,10 +268,18 @@ export async function seedProjects(client: SeamClient): Promise<void> {
 }
 
 /** The N4-U3 bed: two owners, the decoy first and lower, one ticket pointing at the
- *  second. Any planned read that resolved to the wrong row files the notes on owner 1. */
+ *  second. Any planned read that resolved to the wrong row files the notes on owner 1.
+ *
+ *  The bed carries a DECOY TICKET too — lower key, identical `subject`, owned by the
+ *  decoy owner — because the same models are the only ones in this schema that force
+ *  X1c's full-update delegation (a ticket's `owner` is parent-held, so a target whose
+ *  data carries it hands its WHOLE update to `UpdateOperation`). The N6-U1 witnesses at
+ *  the bottom of this file address ticket 5 from owner 2 and must not be able to pass by
+ *  landing on ticket 4. No `ticket` row assertion elsewhere reads more than id 5. */
 async function seedOwners(client: SeamClient): Promise<void> {
   await client.owner.create({ data: { id: 1, name: "decoy" } });
   await client.owner.create({ data: { id: 2, name: "target" } });
+  await client.ticket.create({ data: { id: 4, subject: "s", ownerId: 1 } });
   await client.ticket.create({ data: { id: 5, subject: "s", ownerId: 2 } });
 }
 
@@ -1190,6 +1203,122 @@ export function runDepthSeamBehavior(options: {
           await expect(
             client.photo.findUnique({ where: { id: 10 } })
           ).resolves.toMatchObject({ caption: "c" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    // The FOURTH seam. The three above each live in a Part; this one does not.
+    //
+    // When a nested target's data carries a PARENT-HELD to-one edge, the target holds
+    // the foreign key its deeper write produces, so the edge folds into the target's OWN
+    // update SET — something no child-Part can express. `targetNeedsFullUpdate`
+    // (`nested-target-parts.ts`) therefore hands the WHOLE target update to
+    // `UpdateOperation` in its X1c `nestedTarget` mode, and that op assembles its own
+    // locate conjuncts (`nestedTargetWhereFilters`) for BOTH its locate and its batch
+    // presence guard. It is a seam for exactly the same reason the other three are, and
+    // it was widened by N6-U1 for exactly the same reason — but every arm above routes
+    // through a Part (scalar data, or a CHILD-held to-many create), so none of them can
+    // enter this branch at all. Measured: reverting this one function to the
+    // discriminator-only assembly left the entire V2 suite green.
+    //
+    // `ticket.owner` is the only parent-held to-one in this schema, so the pair below is
+    // `owner.tickets.update` whose data updates that owner — and the grandchild `notes`
+    // create makes the damage visible on a third table: with the filter half dropped, an
+    // EXCLUDED ticket is renamed, its owner is renamed, and a note is filed under it.
+    test(
+      "N6-U1 delegated target: an EXCLUDING filter aborts the parent-held deeper write",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOwners(client);
+          await expect(
+            update("owner", depthSeamSchema.owner, {
+              where: { id: 2 },
+              data: {
+                tickets: {
+                  update: {
+                    where: { id: 5, subject: "not-the-subject" },
+                    data: {
+                      subject: "must-not-land",
+                      owner: {
+                        update: {
+                          name: "renamed",
+                          notes: { create: { id: 81, body: "deep" } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            })
+          ).rejects.toThrow(TICKET_TARGET_NOT_FOUND);
+          // Three independent state witnesses, one per write the dropped predicate
+          // would have let through: the target's own scalar, the parent-held to-one's
+          // SET-folded update, and the grandchild under it.
+          await expect(
+            client.ticket.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 4, subject: "s", ownerId: 1 },
+            { id: 5, subject: "s", ownerId: 2 },
+          ]);
+          await expect(
+            client.owner.findUnique({ where: { id: 2 } })
+          ).resolves.toMatchObject({ name: "target" });
+          await expect(client.note.findMany({})).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "N6-U1 delegated target: a MATCHING filter carries the parent-held deeper write",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedOwners(client);
+          // The falsification of the arm above: the abort there is the FILTER's doing
+          // and not an inert delegation. `subject: "s"` is true of the target AND of the
+          // decoy ticket, so the filter narrows nothing on its own.
+          await update("owner", depthSeamSchema.owner, {
+            where: { id: 2 },
+            data: {
+              tickets: {
+                update: {
+                  where: { id: 5, subject: "s" },
+                  data: {
+                    subject: "edited",
+                    owner: {
+                      update: {
+                        name: "renamed",
+                        notes: { create: { id: 81, body: "deep" } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+          await expect(
+            client.ticket.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 4, subject: "s", ownerId: 1 },
+            { id: 5, subject: "edited", ownerId: 2 },
+          ]);
+          // The note's foreign key is the LOCATED owner, never the decoy.
+          await expect(
+            client.note.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 81, body: "deep", ownerId: 2 }]);
+          await expect(
+            client.owner.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 1, name: "decoy" },
+            { id: 2, name: "renamed" },
+          ]);
         } finally {
           await dispose();
         }
