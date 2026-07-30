@@ -259,6 +259,93 @@ where that *is* the specified semantic:
 - **to-one upsert** — never: the decision is FK-slot occupancy, not a unique
   conflict; no conflict target exists.
 
+### 4.1 The own-write linearization (N6-U3 — AMENDMENT, 2026-07-30)
+
+The guardian above says "*earlier* same-operation write". It never said **in which
+order** — and for as long as it did not, the engine answered the question twice.
+
+**The fork, measured.** Two fixed orders existed. `RELATION_MUTATION_KEYS`
+(`builders/relation-mutation-parser.ts`) ordered the parts the engine EMITS, at four
+call sites through `getRelationMutationKinds`. `planRelationMutationSteps`
+(`RelationMutationPlan.ts`) ordered the footprints the legality walk DERIVES, in its
+own if-chain. They agreed on nine kinds and disagreed on the tenth pair: emission ran
+`upsert` before `deleteMany`, derivation ran `deleteMany` before `upsert`. So the
+soundness precondition of a shape was checked against a sequence the engine never
+executed — over-refusing where derivation put a write first, and (on a many-to-many,
+whose `deleteMany` reads) under-refusing in the other direction. **That is the forked
+theorem the plan warned about, and it was not in the Parts. It was in the order.**
+
+**The rule.** Sibling mutation kinds on one relation linearize in ONE fixed,
+documented order, declared once as `RELATION_MUTATION_KEYS`, used by BOTH the emission
+and the derivation. The legality walk runs over that ordered sequence exactly once, at
+the boundary, before planning. No Part re-derives legality for its own kind; there is
+one derivation and one order, so there is nothing to fork.
+
+**Why it is sound now — the invariant, named.** Nothing about the preflight is
+weakened: a decision read still may not depend on a write this operation performs
+before it. What changed is that the order is now *chosen* so that the dependency does
+not arise. The three stages, and the invariant that draws their boundaries:
+
+| Stage | Kinds | Footprint |
+| --- | --- | --- |
+| 1 — named readers | `disconnect`, `delete`, `update`, `upsert`, `connectOrCreate` | read committed state; write **bounded** by the identity the payload spells |
+| 2 — unbounded writers | `set`, `updateMany`, `deleteMany` | a whole-membership declaration or a filter — a footprint they cannot bound |
+| 3 — pure adders | `connect`, `create`, `createMany` | no decision read at all |
+
+> **The linearization invariant: every decision read is ordered before every write
+> that could not be bounded, and every kind that reads nothing is ordered last.**
+
+Given the invariant, what a rejection can still mean is exactly two things, and both
+are honest: (i) two kinds name the **same row** with conflicting intents — a
+contradiction in the payload, not a limit of planning; or (ii) an unbounded *reader*
+(a many-to-many `deleteMany`, whose filter must be resolved against membership) sits
+behind a sibling that writes the same model, which no ordering can fix because the
+filter's result set cannot be bounded at compile. Measured across all 55 unordered
+sibling pairs × {child-held to-many, many-to-many} × {disjoint identities, same
+identity} plus the create root: **92 combinations rejected before, 42 after**, and all
+42 fall in (i) or (ii). All eleven kinds at once on a child-held to-many went from
+rejected to executing.
+
+**The exact order** — and the state each adjacent pair therefore produces:
+
+```
+disconnect → delete → update → upsert → connectOrCreate      (1: named readers)
+          → set → updateMany → deleteMany                    (2: unbounded writers)
+          → connect → create → createMany                    (3: pure adders)
+```
+
+* `delete` then `create` of the same identity — the row that remains is the **fresh**
+  one. (Rejected before the amendment, in both spellings.)
+* `set` then `create` — final membership is exactly **set ∪ created**. (Before, `create`
+  ran first and `set` orphaned the row the same payload had just inserted.)
+* `updateMany`/`deleteMany` then `create` — a filtered bulk kind **never** consumes a
+  row this operation is about to add.
+* `disconnect` and `connect` on distinct targets compose in either spelling.
+
+**Divergence from Prisma, measured not assumed** (Prisma 7.9.1, `prisma-client`
+generator, pg adapter, query log captured per shape). Prisma has **no** order: it
+executes sibling kinds in the enumeration order of the JavaScript object literal.
+`{ create, connect }` emits INSERT-then-UPDATE and `{ connect, create }` emits
+UPDATE-then-INSERT; worse, `{ create, deleteMany }` **deletes the row it just
+created** (`DELETE … WHERE id IN (770, 901)`, where 901 is the row the same payload
+inserted) while `{ deleteMany, create }` keeps it. `{ create, delete }` on one identity
+raises a unique violation where `{ delete, create }` succeeds. That is not a documented
+contract — it is [prisma/prisma#16606](https://github.com/prisma/prisma/issues/16606),
+open and labelled `bug/2-confirmed`, whose reporter states the behaviour "match[es] the
+enumeration order of the JS object parameter". viborm's order is fixed, documented, and
+independent of how the caller happened to spell the object; where Prisma's sane
+spelling and ours differ, ours is the one that never destroys a row the same call
+created. (Prisma also does not offer `createMany` on an implicit many-to-many at all —
+a TypeScript error on the generated input type — so that arm has no Prisma order to
+match; see N3-U1.)
+
+**What this amendment does NOT license.** It does not linearize a decision that needs
+a value only an earlier write produces. The guardian's sentence stands verbatim: *a
+shape whose decision cannot be widened to an unconditional planning read is rejected,
+not linearized.* Ordering removes dependencies; it never resolves one. A future unit
+that wants case (ii) must widen the read (technique #2), not re-order — and must do it
+in the one derivation, never per Part.
+
 ---
 
 ## 5. Where "concatenation" happens
