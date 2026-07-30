@@ -64,6 +64,7 @@ import {
   getStepModelName,
   sameScalarValue,
   UnsupportedOperationError,
+  uniqueSelectorConjuncts,
 } from "./shared";
 
 /**
@@ -878,21 +879,21 @@ export class RelationWritePart implements Part {
     return this.config.kind === "update" || this.config.kind === "delete";
   }
 
-  private uniqueEqualityFilters(
-    where: Record<string, unknown>
-  ): Record<string, unknown>[] {
-    return getWhereUniqueEntries(this.config.childScope, where).map(
-      ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
-    );
-  }
-
   /**
-   * The child's unique-selector equality filters, or `[]` when this targeted
-   * mutation has no unique `where` — the **inverse-side to-one** case (TO-ONE.md
-   * §7.2), where the FK correlation is the whole locator (V1's `normalizeUpdateInputs`
-   * yields `{ data }` with no selector for a to-one, and `RelationUpdates` locates
-   * the child by `filter: correlatedWhere(fk, parentValues)` alone). A to-many
-   * targeted `update`/`delete` always supplies its unique `where`.
+   * The child's unique-selector conjuncts, or `[]` when this targeted mutation has
+   * no unique `where` — the **inverse-side to-one** case (TO-ONE.md §7.2), where the
+   * FK correlation is the whole locator (V1's `normalizeUpdateInputs` yields
+   * `{ data }` with no selector for a to-one, and `RelationUpdates` locates the child
+   * by `filter: correlatedWhere(fk, parentValues)` alone). A to-many targeted
+   * `update`/`delete` always supplies its unique `where`.
+   *
+   * N6-U1: the selector may now be EXTENDED, so its filter half rides along —
+   * {@link uniqueSelectorConjuncts} is the one home that appends it. Both consumers
+   * of this list need it and for the same reason: the correlated probe LOCATES the
+   * row the caller named, and the batch guard re-asserts that the located row is
+   * still that row. Feeding the probe the filter but not the guard would let a
+   * concurrent write to the filtered column slip a row past the guard the locate had
+   * excluded.
    */
   /** W4-U3 — the inverse-side to-one `update: { where, data }` filter on the currently
    *  connected record, as a single ordinary `WhereInput` term (not a unique
@@ -906,7 +907,7 @@ export class RelationWritePart implements Part {
 
   private optionalWhereFilters(): Record<string, unknown>[] {
     return this.config.where
-      ? this.uniqueEqualityFilters(this.config.where)
+      ? uniqueSelectorConjuncts(this.config.childScope, this.config.where)
       : [];
   }
 }

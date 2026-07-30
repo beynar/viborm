@@ -772,6 +772,97 @@ describe("query args refuse a typo beside a real key, per guarded clause", () =>
     // @ts-expect-error - "ttitle" is not a field of book
     client.book.findMany({ distinct: ["title", "ttitle"] });
 
+  // N6-U1 — the NESTED target selector, widened from the strict unique schema to
+  // the extended one (`update`/`upsert`/`delete` targets). The DX claim the widening
+  // makes is that these positions now OFFER the model's ordinary filter surface
+  // beside the unique discriminators, so it is probed through the public API,
+  // spelled as a caller spells it. This one is a positive probe: `pages` is not
+  // unique, and before N6-U1 naming it here was a compile error and a runtime
+  // ValidationError.
+  const _nestedSelectorTakesAFilter = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        books: {
+          update: {
+            where: { id: "b", pages: { gt: 3 } },
+            data: { title: "t" },
+          },
+        },
+      },
+    });
+
+  test("a nested target selector offers the model's filter surface (N6-U1)", () => {
+    expectTypeOf(_nestedSelectorTakesAFilter).toBeFunction();
+  });
+
+  // ---------------------------------------------------------------------------
+  // PIN, not a claim: a typo inside a NESTED selector still compiles.
+  //
+  // MEASURED, because the widening had to be told apart from a regression it
+  // resembles. A typo beside a real key IS refused in the same clause at the ROOT
+  // (`client.book.update({ where: { id: "b", ttitle: "x" } })` is
+  // `Type 'string' is not assignable to type 'never'`), because a top-level `where`
+  // is reached by `NoExtraOperationKeys` / the clause guards. A nested relation
+  // payload is below those guards — the same depth-3 ceiling this file already pins
+  // for `select` through a relation and for the objects inside `AND`.
+  //
+  // The counter-measurement that makes this a pre-existing ceiling rather than
+  // something N6-U1 opened: `books: { connect: { id: "b", ttitle: "x" } }` compiles
+  // too, and `connect` KEPT the strict unique schema. Both selectors are equally
+  // unkeyed, so widening the three target positions took nothing away — it added
+  // the filter surface above and left the depth ceiling exactly where it was.
+  //
+  // No `@ts-expect-error` on purpose: these are misspelled calls that COMPILE, so
+  // the day nested payloads become keyable the lines go red and someone deletes the
+  // pin (AGENTS.md, "pin what you cannot key").
+  // ---------------------------------------------------------------------------
+  const _nestedUpdateSelectorTypoCompiles = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        books: {
+          update: { where: { id: "b", ttitle: "x" }, data: { title: "t" } },
+        },
+      },
+    });
+
+  const _nestedDeleteSelectorTypoCompiles = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: { books: { delete: { id: "b", ttitle: "x" } } },
+    });
+
+  const _nestedUpsertSelectorTypoCompiles = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        books: {
+          upsert: {
+            where: { id: "b", ttitle: "x" },
+            create: { id: "b", title: "t", pages: 1 },
+            update: { title: "t" },
+          },
+        },
+      },
+    });
+
+  /** The counter-measurement above, kept executable: `connect` never widened, and
+   *  its typo compiles identically. If this one ever goes red while the three above
+   *  stay green, the ceiling moved for one schema and not the other. */
+  const _nestedConnectSelectorTypoCompiles = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: { books: { connect: { id: "b", ttitle: "x" } } },
+    });
+
+  test("nested selector typos still compile — the depth ceiling, pinned", () => {
+    expectTypeOf(_nestedUpdateSelectorTypoCompiles).toBeFunction();
+    expectTypeOf(_nestedDeleteSelectorTypoCompiles).toBeFunction();
+    expectTypeOf(_nestedUpsertSelectorTypoCompiles).toBeFunction();
+    expectTypeOf(_nestedConnectSelectorTypoCompiles).toBeFunction();
+  });
+
   test("the probes above compile (assertions live in @ts-expect-error)", () => {
     expectTypeOf(_keyed).toBeFunction();
     expectTypeOf(_operationKeyTypo).toBeFunction();

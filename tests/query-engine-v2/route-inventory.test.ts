@@ -1446,6 +1446,53 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // That is what those two witnesses are FOR: they are the only assertions in the estate
   // that can tell a produced value from a re-derived one, exactly as N4-U1's
   // corrupt-locate arm is the only one that can tell a located value from a re-read one.
+  //
+  // 68 -> 68 (N6-U1 / decision D-N1, the EXTENDED nested target selector). No site added,
+  // none removed, and — unlike the N4-U4 entry above, where the headline shape merely
+  // missed the census — this one never had a site to remove.
+  //
+  // MEASURED FIRST, live, before anything was changed: all SEVEN nested positions
+  // (`update`/`upsert`/`delete` targets on a child-held to-many and through a junction,
+  // plus the non-PK-unique selector that delegates to the nested-target update) rejected
+  // `{ <unique>, <extra filter> }` with the SAME `ValidationError` — "Unknown key: label"
+  // — from `getWhereUniqueSchema`. Zero engine-side enforcement: the payload never
+  // reached a Part, so no `UnsupportedOperationError` ever fired and this census never
+  // counted the refusal. It lived entirely in `src/validation/relations/update.ts`.
+  //
+  // THE ABSORPTION is therefore a schema swap (`whereUnique` -> `whereUniqueExtended` in
+  // those three positions) plus the engine work the swap EXPOSED, which is the part worth
+  // recording. Flipping the schema alone made every probe "pass" — and two of them were
+  // silently WRONG: with a filter that EXCLUDED its target, the nested `update` renamed
+  // the row anyway and the nested `delete` removed it. `RelationWritePart` assembled its
+  // locate from `getWhereUniqueEntries` (the discriminator alone), so the filter half was
+  // parsed and dropped. Dropping a predicate is not a refusal, it is the wrong row.
+  //
+  // Four seams addressed "the row the caller named" from the discriminator alone; the two
+  // that route through `buildFindUnique` (`RelationUpsertPart`'s probe,
+  // `RelationJunctionPart`'s membership read) were already correct, which is exactly why
+  // the bug was invisible in three of four measurements. They now share one home,
+  // `uniqueSelectorConjuncts` (`shared.ts`) — locate AND batch guard, so neither can
+  // address a row the other excluded. `RelationUpsertPart`'s own comment had predicted
+  // this ("if N6-U1 widens these selectors it owes BOTH seams the filter half").
+  //
+  // The discriminator keeps its monopoly on everything compile-time: the located PK the
+  // deeper writes spend still comes from `getWhereUniqueEntries`, and `childRacePin` now
+  // WITHHOLDS the create-arm pin under an extended selector — the root's rule
+  // (`UpsertOperation.createArmRacePin`), moved into the one function that mints pins so
+  // no call site can forget it. A filtered probe proves only "no row matches K AND
+  // filters", which is not the "K is free" premise a race pin claims.
+  //
+  // WITNESSES: `depth-seam-behavior.ts` under the N6-U1 heading — every shape twice, once
+  // with a filter that KEEPS the row and once with one that EXCLUDES it, on all three
+  // Parts, both substrates, every driver leg, against N4-U1's decoy bed (the decoy holds
+  // the LOWER key and the SAME filtered value, so a "matching" filter cannot pass by
+  // selecting it). The exclusion arms assert the typed abort AND the untouched state —
+  // they are the assertions that fail against the schema-only version of this change.
+  // Plus the OR-decoy witness (the filter half names another live row's key while the
+  // locate still succeeds — the only shape where "from the located row" and "from the
+  // filter" differ) and, in `depth-seam.test.ts`, the corrupt-locate provenance arm aimed
+  // at a FILTERED locate, which is the only instrument that can tell the located value
+  // from a re-read of the selector.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

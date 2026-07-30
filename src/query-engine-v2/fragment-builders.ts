@@ -5,6 +5,7 @@ import {
   getScalarCastType,
   isBatchValueRef,
 } from "../query-engine/builders/values-builder";
+import { getWhereUniqueFilters } from "../query-engine/builders/where-unique-builder";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { QueryScope } from "../query-engine/types";
 import { uniqueConflictTarget } from "../query-engine/unique-conflict-target";
@@ -65,11 +66,30 @@ function isConcreteFkValue(value: unknown): boolean {
   );
 }
 
-/** The pinned unique target whose violation is the raceable create-branch signal. */
+/**
+ * The pinned unique target whose violation is the raceable create-branch signal —
+ * present only for a PLAIN unique selector.
+ *
+ * N6-U1 widened the nested `upsert` selector, which makes the root's rule
+ * ({@link UpsertOperation.createArmRacePin}) reachable one level down, and the
+ * argument is unchanged by depth: a `racePin` claims "the probe proved unique key K
+ * was free, so a violation on K means someone else took it between our read and our
+ * write — re-plan and adopt". With an EXTENDED selector the probe proves something
+ * weaker: no row matches `K ∧ filters`. A row on K may exist and be excluded by the
+ * filter, and then the INSERT's violation is a GENUINE CONFLICT — re-planning re-reads
+ * the same excluded row, takes the create arm again, and violates again. Pinning it
+ * would buy one pointless retry and mis-attribute a real conflict as raceable.
+ *
+ * The withholding lives HERE, in the one function that mints these pins, rather than
+ * at each call site: a caller whose selector cannot carry filters (`connect` /
+ * `connectOrCreate`, still strict by W4's scoping) is unaffected by construction, and
+ * a future widening cannot reintroduce the bug by forgetting a site.
+ */
 export function childRacePin(
   child: QueryScope,
   where: Record<string, unknown>
-): TargetConstraintPin {
+): TargetConstraintPin | undefined {
+  if (getWhereUniqueFilters(child, where)) return undefined;
   return uniqueConflictTarget(child, where);
 }
 

@@ -201,6 +201,11 @@ hydrateSchemaNames(depthSeamSchema);
 const NO_BATCH_SKIP_LOWERING = /no atomic-batch lowering/;
 /** V1's verbatim `Cannot update … for this parent` abort. */
 const TARGET_NOT_FOUND = /Cannot update/;
+/** The DELETE family's spelling of the same abort. Named separately because
+ *  {@link TARGET_NOT_FOUND} matches only the update wording, and a nested `delete`
+ *  that aborts must be asserted against the message it actually raises. */
+const DELETE_TARGET_NOT_FOUND =
+  /Cannot delete relation 'projects': target record was not found for this parent\./;
 /** The surviving N4-U1 wall's wording. */
 const MUST_LOCATE_BY_PK = /must locate the target by its primary key/;
 
@@ -210,12 +215,15 @@ const MUST_LOCATE_BY_PK = /must locate the target by its primary key/;
  * result parsing cannot be rolled back"), which would make the whole batch leg
  * vacuous. The same seam `located-parent-ref-behavior.ts` uses, for the same reason.
  */
-export function makeSeamRunner(driver: AnyDriver) {
+/** The seam schema's `QueryEngine`, for tests that inspect a COMPILED fragment
+ *  rather than execute one (the N6-U1 `racePin` witnesses). */
+export function makeSeamEngine(driver: AnyDriver): QueryEngine {
   const schemas = createSchemaRegistry(depthSeamSchema);
-  const engine = new QueryEngine(
-    driver,
-    createModelRegistry(depthSeamSchema, schemas)
-  );
+  return new QueryEngine(driver, createModelRegistry(depthSeamSchema, schemas));
+}
+
+export function makeSeamRunner(driver: AnyDriver) {
+  const engine = makeSeamEngine(driver);
   const executor = new OperationExecutor(engine);
   return (
     modelName: string,
@@ -909,6 +917,329 @@ export function runDepthSeamBehavior(options: {
           ).resolves.toEqual([
             { id: 71, body: "existing", ownerId: 1 },
             { id: 72, body: "b", ownerId: 2 },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    // N6-U1 (D-N1) — the EXTENDED nested target selector, past Prisma.
+    //
+    // A nested `update` / `upsert` / `delete` target may now be named by
+    // `{ <unique>, ...ordinary filters }`, the shape W4 gave the ROOT and
+    // deliberately withheld here. Prisma's nested selectors are unique-only in
+    // these three positions, so this is the superset row of the capability matrix.
+    //
+    // The two halves keep the roles `where-unique-builder` assigns them: the
+    // DISCRIMINATOR is the only half anything compile-time reads (the located PK
+    // every deeper write spends, `racePin` attribution), and the FILTER half can
+    // only NARROW which row is addressed. Each shape below is therefore witnessed
+    // TWICE — once with a filter that KEEPS the row the bare unique names, once
+    // with one that EXCLUDES it — because only the pair separates "the filter was
+    // honoured" from "the filter was dropped". That distinction is not academic:
+    // when the selectors were first widened, `RelationWritePart` compiled its
+    // locate from the discriminator alone, and the excluding case renamed and
+    // deleted the very rows it had excluded. A dropped predicate is the WRONG ROW,
+    // not a refusal, so the exclusion arm asserts BOTH the family's typed abort
+    // and the untouched state.
+    //
+    // The decoy bed is the one N4-U1 seeded: the decoy holds the LOWER primary key
+    // and the SAME filtered value as its target, so a filter that "matches" cannot
+    // be passing by accidentally selecting the decoy instead.
+    // -----------------------------------------------------------------------
+
+    test(
+      "N6-U1 to-many update: a MATCHING filter is transparent, deeper create included",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // `title: "same"` is true of the target AND of the decoy, so the filter
+          // narrows nothing on its own — the discriminator still names the row.
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: {
+                update: {
+                  where: { code: "P-TARGET", title: "same" },
+                  data: {
+                    title: "moved",
+                    tasks: { create: { id: 110, label: "deep" } },
+                  },
+                },
+              },
+            },
+          });
+          // Identical to the bare-unique spelling: the deeper FK is the LOCATED id.
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 110, label: "deep", projectId: 20 }]);
+          await expect(
+            client.project.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ title: "moved" });
+          await expect(
+            client.project.findUnique({ where: { id: 10 } })
+          ).resolves.toMatchObject({ title: "same" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "N6-U1 to-many update: an EXCLUDING filter aborts with nothing written",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // The discriminator names project 20; the filter demands a title it does
+          // not carry. The two halves intersect nothing, so the locate misses and
+          // the family's not-found aborts the whole tree.
+          await expect(
+            update("workspace", depthSeamSchema.workspace, {
+              where: { id: 2 },
+              data: {
+                projects: {
+                  update: {
+                    where: { code: "P-TARGET", title: "not-the-title" },
+                    data: {
+                      title: "must-not-land",
+                      tasks: { create: { id: 111, label: "x" } },
+                    },
+                  },
+                },
+              },
+            })
+          ).rejects.toThrow(TARGET_NOT_FOUND);
+          // The row the DISCRIMINATOR alone would have named kept its title, and no
+          // grandchild was filed. This is the assertion the first cut of the
+          // absorption failed: it renamed project 20 to "must-not-land".
+          await expect(
+            client.project.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ title: "same" });
+          await expect(client.task.findMany({})).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "N6-U1 to-many delete: the filter decides whether the row dies",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // EXCLUDING first, on the same seeded state: the row survives.
+          await expect(
+            update("workspace", depthSeamSchema.workspace, {
+              where: { id: 2 },
+              data: {
+                projects: {
+                  delete: { code: "P-TARGET", title: "not-the-title" },
+                },
+              },
+            })
+          ).rejects.toThrow(DELETE_TARGET_NOT_FOUND);
+          await expect(
+            client.project.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ title: "same" });
+          // MATCHING: the same selector with a true filter deletes it, so the
+          // survival above is the filter's doing and not an inert `delete`.
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: { delete: { code: "P-TARGET", title: "same" } },
+            },
+          });
+          await expect(
+            client.project.findUnique({ where: { id: 20 } })
+          ).resolves.toBeNull();
+          // The decoy — same title, lower key, another parent — is still there.
+          await expect(
+            client.project.findUnique({ where: { id: 10 } })
+          ).resolves.toMatchObject({ title: "same" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "N6-U1 to-many upsert: an EXCLUDING filter takes the CREATE arm",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // The discriminator matches a LIVE row that the filter excludes, so the
+          // probe finds nothing and the create arm runs — the nested analogue of
+          // the root behaviour W4 pinned. The created row is a different one, and
+          // the excluded row must be left exactly as it was.
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: {
+                upsert: {
+                  where: { code: "P-TARGET", title: "not-the-title" },
+                  create: { id: 30, code: "P-FRESH", title: "fresh" },
+                  update: { title: "must-not-land" },
+                },
+              },
+            },
+          });
+          await expect(
+            client.project.findUnique({ where: { id: 30 } })
+          ).resolves.toMatchObject({ code: "P-FRESH", title: "fresh" });
+          await expect(
+            client.project.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ title: "same" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "N6-U1 to-many upsert: a MATCHING filter takes the UPDATE arm",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // The falsification of the create-arm witness above: addressing by an
+          // extended selector must not turn every nested upsert into a create.
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: {
+                upsert: {
+                  where: { code: "P-TARGET", title: "same" },
+                  create: { id: 30, code: "P-FRESH", title: "fresh" },
+                  update: { title: "updated" },
+                },
+              },
+            },
+          });
+          await expect(
+            client.project.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ title: "updated" });
+          await expect(
+            client.project.findUnique({ where: { id: 30 } })
+          ).resolves.toBeNull();
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "N6-U1 junction update: the filter reaches the membership read",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedAlbum(client);
+          // EXCLUDING: photo 20 IS a member and the slug names it, but the caption
+          // filter does not hold, so the membership read returns nothing.
+          await expect(
+            update("album", depthSeamSchema.album, {
+              where: { id: 1 },
+              data: {
+                photos: {
+                  update: {
+                    where: { slug: "target", caption: "not-the-caption" },
+                    data: {
+                      caption: "must-not-land",
+                      marks: { create: { id: 210, text: "x" } },
+                    },
+                  },
+                },
+              },
+            })
+          ).rejects.toThrow(TARGET_NOT_FOUND);
+          await expect(
+            client.photo.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ caption: "c" });
+          await expect(client.mark.findMany({})).resolves.toEqual([]);
+          // MATCHING: the deeper create lands on the located member.
+          await update("album", depthSeamSchema.album, {
+            where: { id: 1 },
+            data: {
+              photos: {
+                update: {
+                  where: { slug: "target", caption: "c" },
+                  data: {
+                    caption: "edited",
+                    marks: { create: { id: 211, text: "deep-m2m" } },
+                  },
+                },
+              },
+            },
+          });
+          await expect(
+            client.mark.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: 211, text: "deep-m2m", photoId: 20 }]);
+          // The decoy shares the caption the filter names and is NOT a member — it
+          // must not have been adopted by the filter half.
+          await expect(
+            client.photo.findUnique({ where: { id: 10 } })
+          ).resolves.toMatchObject({ caption: "c" });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "N6-U1: the filter half NEVER names the row — an OR decoy pins nothing",
+      { timeout: 30_000 },
+      async () => {
+        const { client, update, dispose } = await setup();
+        try {
+          await seedProjects(client);
+          // The discriminating shape, ported from W4's root witness. An `OR` whose
+          // branches disagree is the one filter that can hold while naming ANOTHER
+          // live row's key: `code = 'P-TARGET' AND (id = 10 OR id = 20)` locates
+          // project 20 in both orderings, with the decoy's id sitting in the filter
+          // half. An implementation that read a pin out of that half would file the
+          // grandchild under project 10 — a live, insertable foreign key, so the
+          // wrong parent would be SILENT rather than an error. Both branch
+          // orderings run: no positional filter-as-pin survives one of them.
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: {
+                update: {
+                  where: { code: "P-TARGET", OR: [{ id: 10 }, { id: 20 }] },
+                  data: {
+                    tasks: { create: { id: 120, label: "decoy first" } },
+                  },
+                },
+              },
+            },
+          });
+          await update("workspace", depthSeamSchema.workspace, {
+            where: { id: 2 },
+            data: {
+              projects: {
+                update: {
+                  where: { code: "P-TARGET", OR: [{ id: 20 }, { id: 10 }] },
+                  data: { tasks: { create: { id: 121, label: "decoy last" } } },
+                },
+              },
+            },
+          });
+          await expect(
+            client.task.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 120, label: "decoy first", projectId: 20 },
+            { id: 121, label: "decoy last", projectId: 20 },
           ]);
         } finally {
           await dispose();

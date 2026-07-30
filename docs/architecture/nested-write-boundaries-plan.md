@@ -1173,9 +1173,40 @@ parent-id source that applies the SET operand to the located value at compile, t
 
 | Unit | What | Decision |
 |---|---|---|
-| N6-U1 | **Extended whereUnique in nested target selectors** — W4 deliberately kept them strict; with N1/N4 landed, the collision that forced that scoping is gone. Superset: Prisma's nested selectors are unique-only in several positions. | D-N1 |
+| N6-U1 | ~~**Extended whereUnique in nested target selectors**~~ — **DELIVERED** (maintainer yes). The nested `update`/`upsert`/`delete` targets take `{ <unique>, ...filters }`; Prisma is unique-only there, so this is the superset row of the capability matrix. See the note below. | D-N1 ✅ |
 | N6-U2 | **Relation filters inside a unique where** — refused today because the filter half compiles into UPDATE/DELETE where MySQL rejects reading the mutated table; the 1093 derived-table wrapper already exists for updateMany — compose it. | D-N2 |
 | N6-U3 | **Own-write linearization** (A14: `{ posts: { create, connect } }` same-tree overlap) — Prisma linearizes some of these; ATOM §4 refuses by doctrine because per-Part legality re-derivation "forks the theorem". Default: KEEP the refusal. Only revisit with an explicit doctrine change. | D-N3, default NO |
+
+### N6-U1 delivered — what the measurement changed about the unit
+
+The unit was scoped as a validation-schema widening, and the measurement agreed with
+that only for the *refusal*: all seven nested positions rejected `{ <unique>, filter }`
+at one site, `getWhereUniqueSchema`, with zero engine-side enforcement. The census never
+counted it (it was a `ValidationError`, not an `UnsupportedOperationError`), so the pin
+stays at **68** with the entry recorded in the count-evolution log.
+
+What the plan did not anticipate is that **the schema swap alone is silently wrong**.
+Flipping it made all seven positions execute, and two of them wrote the wrong row: with
+a filter that EXCLUDED its target, the nested `update` renamed the row anyway and the
+nested `delete` removed it. `RelationWritePart` built its locate from
+`getWhereUniqueEntries` — the discriminator alone — so the filter half parsed and was
+dropped. The two Parts that route through `buildFindUnique` were already correct, which
+is exactly why three of four probes looked fine.
+
+So the real unit was: give the filter half to every seam that addresses "the row the
+caller named" — four of them, locate AND batch guard — from **one home**
+(`uniqueSelectorConjuncts`, `shared.ts`), while the discriminator keeps its monopoly on
+everything compile-time. `RelationUpsertPart` had predicted this in a comment ("if N6-U1
+widens these selectors it owes BOTH seams the filter half"). The `racePin` withholding
+the root already does under an extended `where` moved into `childRacePin` for the same
+reason: one home, so no call site can forget it.
+
+Doctrine note: the exclusion arms are the load-bearing witnesses. A test that only
+asserts a matching filter passes against an implementation that parses the filter and
+throws it away — accepting a predicate and dropping it is strictly worse than refusing
+it, because it is the wrong row rather than an error. Every absorbed shape is therefore
+witnessed twice, and the falsification is recorded: reverting the one seam fails exactly
+the six exclusion arms and nothing else.
 
 ## Ordering and parallelism
 

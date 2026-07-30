@@ -132,7 +132,11 @@ type ParentHeldArm =
       /** Missing arm: the before-parent target create, and the FK ← its `Ref`. */
       readonly before: RecordPlan;
       readonly missingFkAssign: Record<string, unknown>;
-      readonly racePin: TargetConstraintPin;
+      /** Withheld (`undefined`) when the selector could not establish the missing
+       *  premise — see {@link childRacePin}. A `connectOrCreate` selector is strict,
+       *  so today this is always present here; the type admits the withholding
+       *  because the one function that mints the pin owns that decision. */
+      readonly racePin: TargetConstraintPin | undefined;
     };
 
 /** A before-parent `create` target key, feeding the sibling-`connect` coverage

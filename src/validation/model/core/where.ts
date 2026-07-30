@@ -219,12 +219,27 @@ export const getScalarWhereSchema = <
  * discriminator still required (`requiresOneOf`, which the type level applies as
  * a union of "this key is required" shapes — Prisma's `AtLeast`, for free).
  *
- * SCOPE (deliberate, W4-U1): this schema is the `where` of the TOP-LEVEL
- * `findUnique` / `findUniqueOrThrow` / `update` / `delete` / `upsert` only.
- * Nested relation-write target selectors and `cursor` keep the strict
- * {@link getWhereUniqueSchema}: a nested target is located by PK boundaries the
- * extra filters would collide with, and a cursor's meaning is an exact row
- * address. See `docs/content/docs/client/*`.
+ * SCOPE. This schema is the `where` of the TOP-LEVEL `findUnique` /
+ * `findUniqueOrThrow` / `update` / `delete` / `upsert`, and — since N6-U1
+ * (decision D-N1) — of the NESTED `update` / `upsert` / `delete` TARGET selectors
+ * too. W4-U1 kept those nested positions strict for a stated reason: "a nested
+ * target is located by PK boundaries the extra filters would collide with". N1 and
+ * N4-U1 removed that collision by making a nested locate RETURN its primary key
+ * however the row was named, so the scoping had outlived its cause and the three
+ * target positions now take this schema. Prisma's nested selectors are unique-only
+ * there, which makes this a deliberate SUPERSET (capability matrix, §write).
+ *
+ * Still strict, and for reasons that are their own, not leftovers:
+ *  · `connect` / `disconnect` / `set` / `connectOrCreate.where` — these NAME a row
+ *    to link, they do not locate one to mutate. Prisma parity, and nothing in the
+ *    engine reads a filter half there.
+ *  · `cursor` — its meaning is an exact row address in an ordering, not a predicate.
+ *
+ * The filter half stays inert to everything compile-time wherever this schema is
+ * used: `getWhereUniqueEntries` returns the discriminator alone, so pins, `racePin`
+ * attribution and identity cannot see it by construction. See
+ * `query-engine-v2/shared.ts` `uniqueSelectorConjuncts` for the one place the two
+ * halves are recombined, and `docs/content/docs/client/*`.
  *
  * A unique field keeps its BARE-VALUE schema at the top level (Prisma spells
  * `{ email: "a@b" }`, never `{ email: { equals: … } }`, in the unique position),

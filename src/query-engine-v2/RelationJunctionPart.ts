@@ -64,6 +64,7 @@ import {
   createDataUniqueWhere,
   getStepModelName,
   UnsupportedOperationError,
+  uniqueSelectorConjuncts,
 } from "./shared";
 
 /**
@@ -1286,6 +1287,11 @@ export class RelationJunctionPart implements Part {
    * row the planning probe locked must STILL be the one the user selector names.
    * This is V1's captured-PK+selector correlation lowered to SQL — the guard fails
    * closed when a split-witness moves the selector to a replacement row.
+   *
+   * N6-U1: "the user selector" is the WHOLE extended selector, filter half included
+   * ({@link uniqueSelectorConjuncts}). The membership read that located the row
+   * already compiles both halves (`buildWhereUnique` under `manyToManyStatement`), so
+   * anything less here would re-assert a weaker premise than the one the probe made.
    */
   private capturedSelectorRead(
     where: Record<string, unknown>,
@@ -1296,9 +1302,7 @@ export class RelationJunctionPart implements Part {
       {
         where: {
           AND: [
-            ...getWhereUniqueEntries(this.childScope, where).map(
-              ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
-            ),
+            ...uniqueSelectorConjuncts(this.childScope, where),
             { [this.targetPkField]: { equals: capturedPk } },
           ],
         },

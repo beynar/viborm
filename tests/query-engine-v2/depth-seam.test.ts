@@ -3,9 +3,12 @@ import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { describe, expect, test } from "vitest";
+import type { StatementStep } from "../../src/query-engine-v2/OperationFragment";
+import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import {
   depthSeamSchema,
   makeSeamClient,
+  makeSeamEngine,
   makeSeamRunner,
   runDepthSeamBehavior,
   seedProjects,
@@ -305,6 +308,63 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       ).resolves.toEqual([{ id: 100, label: "deep", projectId: 10 }]);
       // ONE identity, not two: the self-UPDATE addresses the same corrupted key the
       // grandchild spent, so the row the `where` names is untouched.
+      await expect(
+        stateClient.project.findUnique({ where: { id: 10 } })
+      ).resolves.toMatchObject({ title: "moved" });
+      await expect(
+        stateClient.project.findUnique({ where: { id: 20 } })
+      ).resolves.toMatchObject({ title: "same" });
+      await stateClient.$disconnect();
+    }
+  );
+
+  test(
+    "N6-U1: a FILTERED locate's deeper key still comes from the located row",
+    {
+      timeout: 30_000,
+    },
+    async () => {
+      const { db, stateClient } = await setupDb();
+      // The N1/N4-U1 provenance instrument aimed at an EXTENDED nested selector.
+      //
+      // The state assertions in the behavior suite cannot separate the two
+      // provenances here: the filter half is ANDed into the locate, so a branch that
+      // names the located row's own value agrees with the located row by
+      // construction, and one that names another row's makes the locate find NOTHING.
+      // Only corrupting what the probe RETURNED can tell "the value came from the row
+      // this step acted on" from "the value was re-derived by re-reading the selector".
+      //
+      // So: the selector carries a real filter, the probe hands back the DECOY's key
+      // (a value that EXISTS — no constraint can catch it), and the grandchild must
+      // follow the corrupted key. If it landed on 20 the engine would be consulting
+      // the `where` a second time, which is the wrong-row doctrine's exact prohibition
+      // and the bug class W4 fixed at the root.
+      const update = makeSeamRunner(
+        corruptDriver("transaction", db, {
+          table: "n4_seam_projects",
+          column: "id",
+          mode: "wrong",
+          wrongValue: 10,
+        })
+      );
+      await update("workspace", depthSeamSchema.workspace, {
+        where: { id: 2 },
+        data: {
+          projects: {
+            update: {
+              where: { code: "P-TARGET", title: "same" },
+              data: {
+                title: "moved",
+                tasks: { create: { id: 130, label: "filtered-deep" } },
+              },
+            },
+          },
+        },
+      });
+      await expect(
+        stateClient.task.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([{ id: 130, label: "filtered-deep", projectId: 10 }]);
+      // ONE identity, not two: the self-UPDATE spent the same corrupted key.
       await expect(
         stateClient.project.findUnique({ where: { id: 10 } })
       ).resolves.toMatchObject({ title: "moved" });
@@ -690,4 +750,81 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
       }
     }
   );
+});
+
+// ---------------------------------------------------------------------------
+// N6-U1 STRUCTURAL: the nested create-arm `racePin`, and its deliberate absence.
+//
+// The behavior suite proves the create arm RUNS when the filter excludes the
+// located row. This proves that arm is not RETRYABLE, which no state assertion
+// can see — a withheld pin and an attached one persist identical rows.
+//
+// A `racePin` claims "the probe proved unique key K was free, so a violation on K
+// is someone else taking it between our read and our write — re-plan and adopt".
+// A FILTERED probe proves something strictly weaker: no row matches `K AND
+// filters`. A row on K may exist and be EXCLUDED by the filter, and then the
+// INSERT's violation is a genuine conflict that re-planning reproduces forever —
+// one pointless retry, and a real conflict mis-reported as a race. This is the
+// root's rule (`UpsertOperation.createArmRacePin`, pinned in
+// `extended-where-unique.test.ts`) reaching depth, and it lives inside
+// `childRacePin` so that no call site can forget it.
+//
+// The PLAIN-selector test is the falsification: without it these assertions would
+// pass just as well against an implementation that never pins a nested arm at all.
+// ---------------------------------------------------------------------------
+
+/** The write steps of a nested upsert whose child probe found NOTHING — the arm
+ *  under test. The root locate still yields its row (the tree must compile); only
+ *  the CHILD probe's emptiness selects the create arm. */
+function nestedUpsertCreateArmWrites(
+  where: Record<string, unknown>
+): StatementStep[] {
+  const engine = makeSeamEngine(new PGliteDriver());
+  const operation = new UpdateOperation(engine, depthSeamSchema.workspace, {
+    where: { id: 2 },
+    data: {
+      projects: {
+        upsert: {
+          where,
+          create: { id: 30, code: "P-FRESH", title: "fresh" },
+          update: { title: "updated" },
+        },
+      },
+    },
+  });
+  const planning = operation.planning();
+  const known: Record<string, unknown> = {};
+  for (const step of planning.steps) known[`${step.id}.rows`] = [];
+  const [rootLocate] = planning.steps;
+  if (rootLocate) known[`${rootLocate.id}.rows`] = [{ id: 2 }];
+  return operation
+    .compile(known)
+    .steps.filter((step): step is StatementStep => step.kind === "write");
+}
+
+describe("N6-U1 nested create-arm racePin", () => {
+  test("a PLAIN nested selector pins the create arm as raceable", () => {
+    const pinned = nestedUpsertCreateArmWrites({ code: "P-TARGET" }).filter(
+      (step) => step.racePin
+    );
+    expect(pinned).toHaveLength(1);
+    expect(pinned[0]?.racePin?.fields).toEqual(["code"]);
+  });
+
+  test("an EXTENDED nested selector withholds the create-arm racePin", () => {
+    const writes = nestedUpsertCreateArmWrites({
+      code: "P-TARGET",
+      title: "not-the-title",
+    });
+    expect(writes.every((step) => step.racePin === undefined)).toBe(true);
+  });
+
+  test("the withheld pin is about the FILTER, not the discriminator's shape", () => {
+    // Same discriminator, the filter smuggled through a boolean combinator.
+    const writes = nestedUpsertCreateArmWrites({
+      code: "P-TARGET",
+      AND: [{ title: "not-the-title" }],
+    });
+    expect(writes.every((step) => step.racePin === undefined)).toBe(true);
+  });
 });

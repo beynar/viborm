@@ -1892,6 +1892,42 @@ key through a lookup subquery, and re-evaluating that subquery for the identity 
 the row a second time instead of spending the one the probe located — §W4's wrong-row
 doctrine, on the create side.
 
+### 8.1 N6-U1 — the EXTENDED nested selector, and the half that names nothing
+
+W4 gave the ROOT's unique `where` a second half — ordinary scalar filters beside the
+unique discriminator — and split the two in `where-unique-builder` so that
+`getWhereUniqueEntries` returns the discriminator ALONE. Everything compile-time reads
+through it: the Pin Rule's pins, `racePin` attribution, upsert's identity, cursor
+comparison. That split is the reason N6-U1 could widen the NESTED `update`/`upsert`/
+`delete` target selectors without touching a single one of those consumers: a filter is
+a PREDICATE, and a predicate can never name a row, so the sites that need a value were
+correct before the widening and stayed correct through it.
+
+What the widening did owe is the mirror obligation, and it is the part that was missing.
+Four seams do not want a value — they want THE ROW THE CALLER NAMED: `RelationWritePart`'s
+correlated probe and batch guard, `RelationUpsertPart`'s found guard,
+`RelationJunctionPart`'s captured-selector guard, and the nested-target delegation's
+locate. Each had assembled its own conjunct list from `getWhereUniqueEntries`, which was
+COMPLETE while the selectors were unique-only and silently WRONG the moment they were
+not: measured, a nested `update` whose filter excluded its target renamed it anyway, and
+a nested `delete` removed it. Dropping a predicate is not a refusal, it is the wrong row
+— the same failure class as re-deriving a value from the input, arrived at from the other
+direction. `uniqueSelectorConjuncts` (`shared.ts`) is the one home that recombines the
+halves, and both consumers of each list take it, so a locate and its guard can never
+address different rows.
+
+The one genuinely new decision is a WITHHOLDING. §2's missing-premise pin claims "the
+probe proved unique key K was free". A FILTERED probe proves only "no row matches
+`K ∧ filters`" — a row on K may exist and be excluded — so the create arm's `racePin` is
+withheld and its violation surfaces as the genuine conflict it is. That is the root's
+rule (`UpsertOperation.createArmRacePin`) reaching depth, and it lives inside
+`childRacePin` rather than at the call sites: a selector that cannot carry filters
+(`connect`/`connectOrCreate`, still strict) is unaffected by construction, and a future
+widening cannot reintroduce the bug by forgetting a site.
+
+No vocabulary, no step kind, no census movement — the refusal it removed lived in the
+validation schema, never in this engine.
+
 ---
 
 ## 9. Invariants (the executable contract)

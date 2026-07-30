@@ -113,6 +113,7 @@ import {
   sameScalarValue,
   selectExecutionMode,
   UnsupportedOperationError,
+  uniqueSelectorConjuncts,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -182,7 +183,10 @@ type ParentHeldTarget =
       readonly foundFkAssign: Record<string, unknown>;
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
-      readonly racePin: TargetConstraintPin;
+      /** Withheld (`undefined`) when the selector could not establish the missing
+       *  premise — see {@link childRacePin}. A `connectOrCreate` selector is strict,
+       *  so today this is always present here. */
+      readonly racePin: TargetConstraintPin | undefined;
     }
   // FK-holder-side (parent-held) to-one `update` under update (TO-ONE.md §7.2,
   // family A): mutate the REFERENCED target row located through the parent's own
@@ -3442,23 +3446,23 @@ export class UpdateOperation {
     );
   }
 
-  /** A nested target's own unique-selector equality filters (a child-held to-many
-   *  `update`); `[]` for a to-one / parent-held target located by correlation alone.
-   *  W4-U3's non-unique `filter` (the to-one `{ where, data }` wrapper) rides along
-   *  verbatim — it is an ordinary `WhereInput`, not a unique discriminator, so it is
-   *  handed to the find builder whole rather than decomposed into equalities. */
+  /** A nested target's own unique-selector conjuncts (a child-held to-many `update`);
+   *  `[]` for a to-one / parent-held target located by correlation alone. Since N6-U1
+   *  that selector may be EXTENDED, so {@link uniqueSelectorConjuncts} appends its
+   *  filter half — the same one home the three Parts use.
+   *
+   *  W4-U3's separate non-unique `filter` (the to-one `{ where, data }` wrapper) rides
+   *  along verbatim afterwards. The two are distinct inputs that happen to land in the
+   *  same conjunction: a to-one target has a `filter` and NO `where`, a to-many target
+   *  has a `where` (now possibly carrying its own filter half) and no wrapper `filter`.
+   *  Both consumers of this list — the locate and the batch presence guard — take the
+   *  whole conjunction, so neither can address a row the other excluded. */
   private nestedTargetWhereFilters(
     parent: QueryScope
   ): Record<string, unknown>[] {
     const filters: Record<string, unknown>[] = [];
     const where = this.nestedTarget?.where;
-    if (where) {
-      filters.push(
-        ...getWhereUniqueEntries(parent, where).map(({ fieldName, value }) => ({
-          [fieldName]: { equals: value },
-        }))
-      );
-    }
+    if (where) filters.push(...uniqueSelectorConjuncts(parent, where));
     const filter = this.nestedTarget?.filter;
     if (filter && Object.keys(filter).length > 0) filters.push(filter);
     return filters;

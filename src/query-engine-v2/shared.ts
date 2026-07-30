@@ -2,6 +2,7 @@ import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import { isSql } from "@sql";
 import { isBatchValueRef } from "../query-engine/builders/values-builder";
+import { partitionWhereUnique } from "../query-engine/builders/where-unique-builder";
 import type { QueryEngine } from "../query-engine/query-engine";
 import type { TargetConstraintPin } from "./OperationFragment";
 import type { ParentIdSource } from "./RelationUpsertPart";
@@ -241,6 +242,40 @@ export function createDataUniqueWhere(
     if (complete) return { [name]: values };
   }
   return undefined;
+}
+
+/**
+ * A nested target selector, as CONJUNCTS for a locate or a guard: the unique
+ * discriminator flattened to one equality per constrained column, plus — since
+ * N6-U1 — the extended selector's non-unique FILTER half appended whole.
+ *
+ * One home, because four seams address "the row the caller named" and must address
+ * the SAME row: `RelationWritePart`'s correlated probe and batch guard,
+ * `RelationUpsertPart`'s found guard, `RelationJunctionPart`'s captured-selector
+ * guard, and the nested-target delegation's locate + guard ({@link
+ * NestedTargetLocate}). Before N6-U1 each built the list itself from
+ * `getWhereUniqueEntries`; that was complete only while a nested selector was
+ * unique-only, and the day the selectors widened, the two that were NOT updated
+ * silently dropped the filter half — an excluding filter still wrote (measured: a
+ * nested `update` whose filter excluded its target renamed it anyway, and a nested
+ * `delete` removed it). A dropped predicate is not a refusal, it is the WRONG ROW,
+ * so the assembly lives here rather than at each seam.
+ *
+ * The split is the module contract of `where-unique-builder`: the discriminator is
+ * the only half anything compile-time may read (pins, `racePin` attribution,
+ * identity), and the filter half can only ever NARROW which row is addressed. Both
+ * halves belong in a locate; only the first may name a value.
+ */
+export function uniqueSelectorConjuncts(
+  scope: { model: Model<any> },
+  where: Record<string, unknown>
+): Record<string, unknown>[] {
+  const { entries, filters } = partitionWhereUnique(scope, where);
+  const conjuncts: Record<string, unknown>[] = entries.map(
+    ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
+  );
+  if (filters) conjuncts.push(filters);
+  return conjuncts;
 }
 
 export type ExecutionMode = "transaction" | "batch";

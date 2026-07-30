@@ -52,6 +52,7 @@ import {
   getStepModelName,
   isRecord,
   UnsupportedOperationError,
+  uniqueSelectorConjuncts,
 } from "./shared";
 
 /**
@@ -420,14 +421,16 @@ export class RelationUpsertPart implements Part {
    *    every ordinary connectOrCreate). Without it, a row concurrently reparented away
    *    is silently stolen back by this arm's own FK assignment.
    *
-   * The selector is flattened to its unique DISCRIMINATOR entries and the conjuncts join
-   * them in one `AND`, which is `RelationWritePart`'s guard verbatim — the two seams
-   * emit the same statement shape rather than one carrying a bespoke merge. That
-   * flattening loses nothing while a nested target selector is unique-only (W4's
-   * deliberate scoping: an extra filter key does not parse here); if N6-U1 widens these
-   * selectors it owes BOTH seams the filter half, and that is the one place to add it.
-   * No `forUpdate`: this statement exists only on the batch substrate, which is the only
-   * substrate that emits a found pin at all.
+   * The selector's conjuncts join in one `AND`, which is `RelationWritePart`'s guard
+   * verbatim — the two seams emit the same statement shape rather than one carrying a
+   * bespoke merge. N6-U1 widened these selectors and, as the note that stood here
+   * promised, paid BOTH seams the filter half: {@link uniqueSelectorConjuncts} is that
+   * one place. The probe already honoured it (it compiles the whole selector through
+   * `buildFindUnique`); without the same half here the guard would re-assert a WEAKER
+   * premise than the probe established, and a concurrent write to a filtered column
+   * would pass a guard the locate had excluded. No `forUpdate`: this statement exists
+   * only on the batch substrate, which is the only substrate that emits a found pin at
+   * all.
    */
   private foundGuardStatement(
     capturedPk: unknown,
@@ -440,9 +443,7 @@ export class RelationUpsertPart implements Part {
       {
         where: {
           AND: [
-            ...getWhereUniqueEntries(childScope, where).map(
-              ({ fieldName, value }) => ({ [fieldName]: { equals: value } })
-            ),
+            ...uniqueSelectorConjuncts(childScope, where),
             ...(capturedPk === undefined
               ? []
               : [{ [childPrimaryKey]: { equals: capturedPk } }]),

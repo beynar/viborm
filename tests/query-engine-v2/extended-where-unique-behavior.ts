@@ -849,21 +849,67 @@ export function runExtendedWhereUniqueBehavior(options: {
       })
     );
 
+    // DELIBERATE RETARGET (N6-U1 / decision D-N1, maintainer yes). This case used
+    // to pin `a NESTED target selector keeps the STRICT unique schema` — a
+    // ValidationError on `Unknown key: label`. That scoping was W4's, and it was
+    // never about the selector being unspellable: W4 recorded it as "a nested target
+    // is located by PK boundaries the extra filters would collide with", and N1 /
+    // N4-U1 removed the collision by making a nested locate RETURN its primary key
+    // however the row was named. With the cause gone the refusal was arbitrary, so
+    // the selectors widened and this pins the accepting behaviour instead.
+    //
+    // The pair below is what replaces the refusal, and the pair is the point: the
+    // filter half must be HONOURED, not merely tolerated. Accepting it and silently
+    // dropping it is strictly worse than refusing — it writes the row the caller
+    // excluded. The full three-Part, both-substrate, wrong-row-decoy matrix lives in
+    // `depth-seam-behavior.ts` under the N6-U1 heading; these two keep the claim
+    // beside the root behaviour it now matches.
     test(
-      "a NESTED target selector keeps the STRICT unique schema",
+      "a NESTED target selector takes the EXTENDED unique where (N6-U1)",
       { timeout: 30_000 },
       run(async (client) => {
         await client.login.create({
           data: { id: 200, label: "owned", accountId: 1 },
         });
+        await client.account.update({
+          where: { id: 1 },
+          data: {
+            logins: {
+              update: {
+                where: { id: 200, label: "owned" },
+                data: { label: "renamed" },
+              },
+            },
+          },
+        });
+        expect(
+          await client.login.findUnique({
+            where: { id: 200 },
+            select: { label: true },
+          })
+        ).toEqual({ label: "renamed" });
+      })
+    );
+
+    test(
+      "a NESTED target selector's filter half EXCLUDES, and nothing is written",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.login.create({
+          data: { id: 200, label: "owned", accountId: 1 },
+        });
+        // Same discriminator, a filter the row does not satisfy: the locate misses,
+        // so the nested target's own not-found aborts the tree and the row keeps its
+        // label. Without this arm the test above would pass just as well against an
+        // implementation that parsed the filter and threw it away.
         const rejection = await client.account
           .update({
             where: { id: 1 },
             data: {
               logins: {
                 update: {
-                  where: { id: 200, label: "owned" } as never,
-                  data: { label: "renamed" },
+                  where: { id: 200, label: "not-owned" },
+                  data: { label: "must-not-land" },
                 },
               },
             },
@@ -872,8 +918,9 @@ export function runExtendedWhereUniqueBehavior(options: {
             () => undefined,
             (error: unknown) => error
           );
-        expect(rejection).toBeInstanceOf(ValidationError);
-        expect((rejection as Error).message).toContain("Unknown key: label");
+        expect((rejection as Error).message).toContain(
+          "Cannot update relation 'logins'"
+        );
         expect(
           await client.login.findUnique({
             where: { id: 200 },

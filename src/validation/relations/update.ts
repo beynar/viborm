@@ -229,7 +229,9 @@ export type ToManyUpdateSchema<
   >;
   connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
   disconnect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
-  delete: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
+  delete: () => V.SingleOrArray<
+    GetTargetSchemas<S>["core"]["whereUniqueExtended"]
+  >;
   connectOrCreate: V.SingleOrArray<
     V.Object<
       {
@@ -243,7 +245,7 @@ export type ToManyUpdateSchema<
   update: V.SingleOrArray<
     V.Object<
       {
-        where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+        where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
         data: () => GetTargetSchemas<S>["core"]["update"];
       },
       { atLeast: ["where", "data"] }
@@ -261,7 +263,7 @@ export type ToManyUpdateSchema<
   upsert: V.SingleOrArray<
     V.Object<
       {
-        where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+        where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
         create: () => CreateWithOmittedFk<S, Source>;
         update: () => GetTargetSchemas<S>["core"]["update"];
       },
@@ -314,7 +316,7 @@ export const toManyUpdateFactory = <
 
   const updateSchema = v.object(
     {
-      where: () => targetSchemas().core.whereUnique,
+      where: () => targetSchemas().core.whereUniqueExtended,
       data: () => targetSchemas().core.update,
     },
     { atLeast: ["where", "data"] }
@@ -330,7 +332,7 @@ export const toManyUpdateFactory = <
 
   const upsertSchema = v.object(
     {
-      where: () => targetSchemas().core.whereUnique,
+      where: () => targetSchemas().core.whereUniqueExtended,
       create: getCreateSchema,
       update: () => targetSchemas().core.update,
     },
@@ -350,7 +352,7 @@ export const toManyUpdateFactory = <
     // Prisma parity: boolean disconnect is a to-one concept; on to-many it
     // would silently wipe every association, so it is rejected here.
     disconnect: () => v.singleOrArray(targetSchemas().core.whereUnique),
-    delete: () => v.singleOrArray(targetSchemas().core.whereUnique),
+    delete: () => v.singleOrArray(targetSchemas().core.whereUniqueExtended),
     connectOrCreate: v.singleOrArray(connectOrCreateSchema),
     set: () => v.singleOrArray(targetSchemas().core.whereUnique),
     update: v.singleOrArray(updateSchema),
