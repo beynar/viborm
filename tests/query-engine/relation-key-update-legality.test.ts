@@ -113,6 +113,32 @@ const member = s
   })
   .map("relation_key_members");
 
+// The NON-cascading sibling of organization/member: a rewritten non-PK referenced
+// column whose nested create must take the post-SET value from the SET operand
+// itself (UpdateOperation.resolveCreateParent's envelope unwrapping) — the cascade
+// pair above never reaches that derivation (N5-U2: a cascading edge asks for no
+// value at all).
+const registry = s
+  .model({
+    id: s.int().id(),
+    tag: s.int().unique(),
+    entries: s.oneToMany(() => entry),
+  })
+  .map("relation_key_registries");
+
+const entry = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    registryTag: s.int().nullable(),
+    registry: s
+      .manyToOne(() => registry)
+      .fields("registryTag")
+      .references("tag")
+      .optional(),
+  })
+  .map("relation_key_entries");
+
 const setNullParent = s
   .model({
     id: s.int().id(),
@@ -228,6 +254,8 @@ const schema = {
   post,
   organization,
   member,
+  registry,
+  entry,
   setNullParent,
   setNullChild,
   setNullList,
@@ -762,6 +790,71 @@ describe("relation-key update legality", () => {
         expectedState: {
           organizations: [{ id: 1, code: 11 }],
           members: [{ id: 1, name: "Updated", organizationCode: 11 }],
+        },
+      },
+      undefined
+    );
+  });
+
+  test("the `{ set: v }` envelope on a rewritten NON-cascading referenced column feeds a nested CREATE the post-SET value", async () => {
+    // N7-U-B's third absorption (UpdateOperation.resolveCreateParent): the envelope
+    // spelling and the bare literal are ONE assignment. The edge must NOT cascade —
+    // a cascading edge never consults this derivation (N5-U2) — which is why this
+    // witness lives on registry/entry, not organization/member. Falsified:
+    // reverting the envelope unwrapping to the bare
+    // `input.rootScalarData[referencedField]` read fails this test with
+    // "references a non-literal rewritten column 'tag'" while the bare-literal
+    // sibling below still passes.
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.registry.create({ data: { id: 1, tag: 10 } });
+        },
+        act: (client) =>
+          client.registry.update({
+            where: { id: 1 },
+            data: {
+              tag: { set: 11 },
+              entries: { create: { id: 2, name: "Fresh" } },
+            },
+          }),
+        snapshot: async (client) => ({
+          registries: await client.registry.findMany(),
+          entries: await client.entry.findMany(),
+        }),
+        expectedState: {
+          registries: [{ id: 1, tag: 11 }],
+          entries: [{ id: 2, name: "Fresh", registryTag: 11 }],
+        },
+      },
+      undefined
+    );
+  });
+
+  test("the bare literal on a rewritten NON-cascading referenced column feeds a nested CREATE the same value", async () => {
+    // The control beside the envelope witness: the two spellings must stay one
+    // assignment. If the envelope test fails and this one passes, the envelope
+    // unwrapping is what broke.
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.registry.create({ data: { id: 1, tag: 10 } });
+        },
+        act: (client) =>
+          client.registry.update({
+            where: { id: 1 },
+            data: {
+              tag: 12,
+              entries: { create: { id: 3, name: "Bare" } },
+            },
+          }),
+        snapshot: async (client) => ({
+          registries: await client.registry.findMany(),
+          entries: await client.entry.findMany(),
+        }),
+        expectedState: {
+          registries: [{ id: 1, tag: 12 }],
+          entries: [{ id: 3, name: "Bare", registryTag: 12 }],
         },
       },
       undefined

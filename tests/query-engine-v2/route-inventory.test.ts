@@ -1785,6 +1785,20 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // both substrates); removing the two `isNoOpUpdate` early returns fails the other 14
   // (the empty-data family plus the two depth cases that ride the same nested arm);
   // restored, 30/30 green.
+  // N7 REVIEW (two blocking findings on this family, both fixed):
+  //   · The upsert family sat OUTSIDE `isNoOpUpdate` for its CREATE half — but the
+  //     FOUND branch never takes that half, and an empty update arm there leaked
+  //     `QueryEngineError: No fields to update` through the public client (three
+  //     positions: inverse root, parent-held root, inverse at depth). Fixed at both
+  //     compile sites (`compileInverseToOneUpsert`, `compileParentHeldUpsert`):
+  //     found + empty = Prisma's no-op. Witnessed in `boolean-noop-arm-behavior.ts`
+  //     §3 (3 shapes × 2 substrates + controls: missing creates, non-empty updates).
+  //   · The `{ set: v }` envelope absorption (`resolveCreateParent`) had NO witness —
+  //     reverting it passed 1,240 tests. Witnessed now at
+  //     `relation-key-update-legality.test.ts` on the NON-cascading registry/entry
+  //     pair (a cascading edge never consults the derivation, N5-U2). FALSIFIED:
+  //     the bare-operand revert fails exactly the envelope witness while its
+  //     bare-literal control passes.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

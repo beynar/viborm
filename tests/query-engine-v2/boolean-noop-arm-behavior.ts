@@ -491,5 +491,103 @@ export function runBooleanNoOpArmBehavior(options: {
         label: "tag-b",
       });
     });
+
+    // ---------------------------------------------------------------------
+    // 3 — the FOUND + empty upsert update arm (N7 review finding 1).
+    //
+    // The upsert family sat outside `isNoOpUpdate` because its CREATE half is
+    // real work — but on the FOUND branch that half is not taken, and an empty
+    // update arm asks for nothing. Prisma no-ops (measured: `upsert` with the
+    // row present and `update: {}` writes nothing); pre-fix the engine leaked
+    // `QueryEngineError: No fields to update` through the public client.
+    // ---------------------------------------------------------------------
+
+    test("a to-one upsert whose row EXISTS and whose update arm is empty writes nothing (inverse and parent-held)", async () => {
+      const { client, run, ids } = await setup();
+      await run.update({
+        where: { id: ids.holder },
+        data: {
+          tag: {
+            upsert: { create: { id: ids.missing, label: "zz" }, update: {} },
+          },
+          card: {
+            upsert: { create: { id: ids.missing, face: "zz" }, update: {} },
+          },
+        },
+      });
+      // Found rows untouched; the create arms never ran (no row on their id).
+      expect(
+        await client.tag.findUnique({ where: { id: ids.tag } })
+      ).toMatchObject({ label: "tag-a", holderId: ids.holder });
+      expect(
+        await client.card.findUnique({ where: { id: ids.card } })
+      ).toMatchObject({ face: "face-a" });
+      expect(
+        await client.tag.findUnique({ where: { id: ids.missing } })
+      ).toBeNull();
+      expect(
+        await client.card.findUnique({ where: { id: ids.missing } })
+      ).toBeNull();
+    });
+
+    test("the same found+empty upsert arm ONE LEVEL DEEPER writes nothing", async () => {
+      const { client, run, ids } = await setup();
+      await run.update({
+        where: { id: ids.holder },
+        data: {
+          items: {
+            update: {
+              where: { id: ids.item },
+              data: {
+                label: {
+                  upsert: {
+                    create: { id: ids.missing, text: "zz" },
+                    update: {},
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      expect(
+        await client.label.findUnique({ where: { id: ids.label } })
+      ).toMatchObject({ text: "label-a", itemId: ids.item });
+      expect(
+        await client.label.findUnique({ where: { id: ids.missing } })
+      ).toBeNull();
+    });
+
+    test("the found+empty upsert arm's CONTROLS still act: missing creates, non-empty updates", async () => {
+      const { client, run, ids } = await setup();
+      // Control 1: row missing -> the create arm runs.
+      await client.tag.delete({ where: { id: ids.tag } });
+      await run.update({
+        where: { id: ids.holder },
+        data: {
+          tag: {
+            upsert: { create: { id: ids.missing, label: "fresh" }, update: {} },
+          },
+        },
+      });
+      expect(
+        await client.tag.findUnique({ where: { id: ids.missing } })
+      ).toMatchObject({ label: "fresh", holderId: ids.holder });
+      // Control 2: row present + non-empty update arm -> the update runs.
+      await run.update({
+        where: { id: ids.holder },
+        data: {
+          tag: {
+            upsert: {
+              create: { id: ids.missing + 1, label: "zz" },
+              update: { label: "renamed" },
+            },
+          },
+        },
+      });
+      expect(
+        await client.tag.findUnique({ where: { id: ids.missing } })
+      ).toMatchObject({ label: "renamed" });
+    });
   });
 }

@@ -344,6 +344,11 @@ export class RelationWritePart implements Part {
         this.config.relationName
       );
     }
+    // Found + an update arm that asks for nothing: Prisma's no-op (the same rule
+    // `isNoOpUpdate` pins for plain update arms — measured, N7 review). The CREATE
+    // half is what kept this Part out of `isNoOpUpdate`; on the FOUND branch that
+    // half is not taken, so there is nothing to write and no premise to pin.
+    if (!this.hasSelfUpdate()) return [];
     const capturedPk = (first as Record<string, unknown>)[
       this.config.childPrimaryKey
     ];

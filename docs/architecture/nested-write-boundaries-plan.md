@@ -1787,6 +1787,18 @@ driver legs, asserting STATE with the `true` controls beside them. Falsified bot
 (restoring the unfiltered kind list fails 14/30; removing the two `isNoOpUpdate` returns
 fails the other 14).
 
+**N7 review — two blocking findings on the record above, both fixed.** (1) The claim
+covered only two of the three absorptions: the `{ set: v }` envelope had NO witness — its
+revert passed 1,240 tests. It has one now (`relation-key-update-legality.test.ts`, the
+NON-cascading `registry`/`entry` pair — a cascading edge never consults the derivation),
+falsified: the bare-operand revert fails exactly the envelope witness while the
+bare-literal control beside it passes. (2) The upsert family's exclusion from
+`isNoOpUpdate` was justified by the CREATE half alone; on the FOUND branch that half is
+not taken, and an empty update arm leaked `QueryEngineError: No fields to update` through
+the public client in three positions. Both compile sites now take Prisma's measured
+no-op; witnessed in `boolean-noop-arm-behavior.ts` §3 (3 shapes × 2 substrates, with
+missing-creates and non-empty-updates controls).
+
 #### RE-JUSTIFIED — the measurements
 
 **`CreateOperation.ts:1648` — (c-iii) → (a) PARITY, measured.** The audit was right that the

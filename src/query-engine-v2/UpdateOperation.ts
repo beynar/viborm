@@ -3183,6 +3183,11 @@ export class UpdateOperation {
       });
       return;
     }
+    // Found + an update arm that asks for nothing: Prisma's no-op (the same rule
+    // the plain nested update's `isNoOpUpdate` pins — measured, N7 review). The
+    // parent's FK already names the found row, so there is nothing to write and no
+    // premise to pin.
+    if (Object.keys(target.updateData).length === 0) return;
     const capturedPk = this.parentHeldCapturedPk(
       known,
       target.probeId,
