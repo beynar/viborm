@@ -2027,3 +2027,26 @@ boundary**, where it raises `ValidationError`. A census of engine-side
 matrix lists nine parity refusals inside nested writes; the probe found every one of the
 reachable ones answering with a `ValidationError` before any engine site is entered. The
 census and A17 are both right; they are counting different layers.
+
+### N7 — wave gate (independent re-run at the review-fix commit, 2026-07-31)
+
+The N7 review pair BLOCKED twice; the weekly usage limit killed the second fix agent and
+the gate agent mid-run, so the two blocking findings were fixed inline by the orchestrator
+per the reviewers' own reproductions (the found+empty upsert no-op at both compile sites;
+the `{ set: v }` envelope witness on a NON-cascading pair) — see the "N7 review" notes in
+the absorption record above and in the census log. Every gate leg then re-ran at the fix
+commit, one vitest at a time:
+
+| Gate | Result |
+|---|---|
+| `pnpm test:types` (TS 5.9.3) | clean |
+| Full estate, ALONE (`--minWorkers=1 --maxWorkers=4`) | **9136 passed / 0 failed**, 259 files (9003 entering N7) |
+| `pnpm test:gates` | **72 / 72**; census pin **40**, log coherent from 68 |
+| Biome (repo-pinned, per file over the fix's 6 files) | 0 diagnostics |
+| Docker MySQL 3307 | **977 passed / 0 failed** (941 entering N7); the no-op family incl. the three new found+empty shapes EXECUTED by name |
+| Docker Postgres 5434 (serial) | **1090 passed / 0 failed**, 14 skipped (1054 entering N7) |
+
+Final floor state: census **40** — **4 (a) parity · 19 (b) inexpressible · 17 (c-ii)
+reachable-with-a-named-mechanism · 0 (c-iii)**. The 17 (c-ii) rows are the honest
+remainder: each names the mechanism that would absorb it and waits for a wave that builds
+it, per the audit's own rule that a follow-on-owner citation is not a floor disposition.
