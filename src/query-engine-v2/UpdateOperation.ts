@@ -1585,12 +1585,14 @@ export class UpdateOperation {
     if (!isConstructionLiteral(literal)) {
       // MEASURED (N7-U-B): what reaches here after the `{ set: v }` unwrapping above is
       // an operand with NO value at construction. `INSERT … VALUES (<the post-SET
-      // value>)` is trivial SQL; what the engine cannot spell is the value itself. A
-      // `{ increment: 1 }` needs the pre-transition column read and the arithmetic
-      // applied — the SAME missing `planned`-source-carrying-the-SET-operand the two
-      // branches above name; an `Sql` operand re-evaluated for the FK is a SECOND
-      // provenance (`gen_random_uuid()` twice is two values, the N4-U4 measurement);
-      // `null` references no row at all.
+      // value>)` is trivial SQL; what the engine cannot spell is the value itself. An
+      // `Sql` operand re-evaluated for the FK is a SECOND provenance
+      // (`gen_random_uuid()` twice is two values, the N4-U4 measurement); `null`
+      // references no row at all. Arithmetic (`{ increment }` / `{ multiply }`) never
+      // arrives: the CLASS IV relation-key legality guard pre-empts it with its own
+      // message ("Use a literal value or '{ set: ... }'") — measured, N7 verify. The
+      // missing mechanism is the same either way: a `planned` source carrying the SET
+      // operand, which the two branches above also name.
       throw new UnsupportedOperationError(
         `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${referencedField}'.`
       );
