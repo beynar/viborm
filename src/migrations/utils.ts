@@ -151,6 +151,59 @@ const OPERATION_PRIORITY: Record<DiffOperation["type"], number> = {
 };
 
 /**
+ * Slot for the index drops that have to run *after* the batch's index creates.
+ * Between `createIndex` and `addForeignKey`, so a superseded index is gone
+ * before a new constraint is bound to whatever is left.
+ */
+const SUPERSEDED_INDEX_DROP_PRIORITY =
+  (OPERATION_PRIORITY.createIndex + OPERATION_PRIORITY.addForeignKey) / 2;
+
+function indexKey(tableName: string, indexName: string): string {
+  return JSON.stringify([tableName, indexName]);
+}
+
+/**
+ * Picks out the `dropIndex` operations whose replacement has to exist first.
+ *
+ * MySQL binds a foreign key to whichever index covers its columns and refuses
+ * to drop that index while it is the last one covering them (errno 1553). A
+ * schema edit that supersedes such an index — widening it, or covering the same
+ * columns with a unique constraint — plans the drop and its replacement in the
+ * same batch, so the replacement has to be in place before the drop runs.
+ *
+ * Two arrangements keep a drop in its early slot instead:
+ * - The differ's "index changed" pair drops and re-creates the *same* name; the
+ *   name has to be free before it can be taken again.
+ * - A table that also drops a column loses that column's indexes along with it,
+ *   so a drop deferred past the column drop would address an index already
+ *   gone. (A dropped *table* cannot collide: index diffs are only produced for
+ *   tables present in both snapshots.)
+ */
+function supersededIndexDrops(operations: DiffOperation[]): Set<DiffOperation> {
+  const createdIndexNames = new Set<string>();
+  const tablesLosingColumns = new Set<string>();
+  for (const op of operations) {
+    if (op.type === "createIndex") {
+      createdIndexNames.add(indexKey(op.tableName, op.index.name));
+    } else if (op.type === "dropColumn") {
+      tablesLosingColumns.add(op.tableName);
+    }
+  }
+
+  const superseded = new Set<DiffOperation>();
+  for (const op of operations) {
+    if (
+      op.type === "dropIndex" &&
+      !createdIndexNames.has(indexKey(op.tableName, op.indexName)) &&
+      !tablesLosingColumns.has(op.tableName)
+    ) {
+      superseded.add(op);
+    }
+  }
+  return superseded;
+}
+
+/**
  * Sorts operations for proper execution order:
  * 1. Create enums (before tables that use them)
  * 2. Drop foreign keys (before dropping tables/columns)
@@ -159,12 +212,16 @@ const OPERATION_PRIORITY: Record<DiffOperation["type"], number> = {
  * 5. Create tables
  * 6. Add columns, constraints
  * 7. Create indexes
- * 8. Add foreign keys (after tables/columns exist)
+ * 8. Drop the indexes those creates supersede (see `supersededIndexDrops`)
+ * 9. Add foreign keys (after tables/columns exist)
  */
 export function sortOperations(operations: DiffOperation[]): DiffOperation[] {
-  return [...operations].sort(
-    (a, b) => OPERATION_PRIORITY[a.type] - OPERATION_PRIORITY[b.type]
-  );
+  const superseded = supersededIndexDrops(operations);
+  const priorityOf = (op: DiffOperation) =>
+    superseded.has(op)
+      ? SUPERSEDED_INDEX_DROP_PRIORITY
+      : OPERATION_PRIORITY[op.type];
+  return [...operations].sort((a, b) => priorityOf(a) - priorityOf(b));
 }
 
 /**

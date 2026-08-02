@@ -75,7 +75,79 @@ const declaredPost = s
 
 const declaredIndexSchema = { declaredUser, declaredPost };
 
-// --- Schema 3: volume, for the plan probe ------------------------------------
+// --- Schema 3: the two stages of "widen the index over the FK columns" -------
+// Stage 1 is a plain to-many: the FK index is the only index on the column, so
+// MySQL/InnoDB binds the constraint to it. Stage 2 is the edit the docs
+// recommend — a declared index that starts with the same column — which retires
+// the automatic one. The drop and its replacement land in the same batch.
+const wideUser = s
+  .model({
+    id: s.string().id(),
+    posts: s.oneToMany(() => widePost),
+  })
+  .map("fk_idx_wide_users");
+
+const widePost = s
+  .model({
+    id: s.string().id(),
+    slug: s.string(),
+    authorId: s.string(),
+    author: s
+      .manyToOne(() => wideUser)
+      .fields("authorId")
+      .references("id"),
+  })
+  .map("fk_idx_wide_posts");
+
+const wideStage1Schema = { wideUser, widePost };
+
+const widerUser = s
+  .model({
+    id: s.string().id(),
+    posts: s.oneToMany(() => widerPost),
+  })
+  .map("fk_idx_wide_users");
+
+const widerPost = s
+  .model({
+    id: s.string().id(),
+    slug: s.string(),
+    authorId: s.string(),
+    author: s
+      .manyToOne(() => widerUser)
+      .fields("authorId")
+      .references("id"),
+  })
+  .index(["authorId", "slug"])
+  .map("fk_idx_wide_posts");
+
+const wideStage2Schema = { widerUser, widerPost };
+
+// The other way the same columns get covered: a compound unique whose first
+// column is the FK.
+const uniqueUser = s
+  .model({
+    id: s.string().id(),
+    posts: s.oneToMany(() => uniquePost),
+  })
+  .map("fk_idx_wide_users");
+
+const uniquePost = s
+  .model({
+    id: s.string().id(),
+    slug: s.string(),
+    authorId: s.string(),
+    author: s
+      .manyToOne(() => uniqueUser)
+      .fields("authorId")
+      .references("id"),
+  })
+  .unique(["authorId", "slug"])
+  .map("fk_idx_wide_posts");
+
+const wideStage2UniqueSchema = { uniqueUser, uniquePost };
+
+// --- Schema 4: volume, for the plan probe ------------------------------------
 const planUser = s
   .model({
     id: s.string().id(),
@@ -101,6 +173,9 @@ const planSchema = { planUser, planPost };
 type AnySchema =
   | typeof fkIndexSchema
   | typeof declaredIndexSchema
+  | typeof wideStage1Schema
+  | typeof wideStage2Schema
+  | typeof wideStage2UniqueSchema
   | typeof planSchema;
 
 type FkIndexClient = VibORMClient<
@@ -150,6 +225,31 @@ export function runFkIndexBehavior({
       return client as FkIndexClient;
     }
 
+    /** A second schema over the database the current client already pushed. */
+    function restage(schema: AnySchema): FkIndexClient {
+      const driver = (client as FkIndexClient).$driver as AnyDriver;
+      client = createClient({ schema: schema as never, driver }) as never;
+      return client as FkIndexClient;
+    }
+
+    /**
+     * Pushes `next` over the database the current client already pushed, and
+     * reports where the superseded index's drop landed relative to the index
+     * (or unique constraint) that replaces it. Running at all is half the
+     * witness: MySQL refused the batch with errno 1553 when the drop ran first.
+     */
+    async function replacementAndDropPositions(next: AnySchema) {
+      const c = restage(next);
+      const planned = await push(c as never, { force: true });
+
+      return {
+        dropAt: planned.operations.findIndex((op) => op.type === "dropIndex"),
+        replacementAt: planned.operations.findIndex(
+          (op) => op.type === "createIndex" || op.type === "addUniqueConstraint"
+        ),
+      };
+    }
+
     test("push creates an index over the manyToOne FK column", async () => {
       const c = make(fkIndexSchema);
       await push(c as never, { force: true });
@@ -191,6 +291,40 @@ export function runFkIndexBehavior({
         await indexNames(c, dialect, "fk_idx_decl_posts")
       ).filter((name) => name.endsWith("_idx"));
       expect(declared).toEqual(["fk_idx_decl_posts_authorId_idx"]);
+    });
+
+    // REGRESSION: the FK index this file put on the column is the index
+    // MySQL/InnoDB binds the constraint to, and every `dropIndex` used to be
+    // ordered ahead of every `createIndex`. Superseding the FK index therefore
+    // asked InnoDB to drop the last index covering the constraint's columns and
+    // the transactional push aborted with errno 1553. Both edits below are the
+    // documented way to widen the coverage.
+    test("a wider declared index over the FK columns replaces it in one push", async () => {
+      const c = make(wideStage1Schema);
+      await push(c as never, { force: true });
+      expect(await indexNames(c, dialect, "fk_idx_wide_posts")).toContain(
+        "fk_idx_wide_posts_authorId_idx"
+      );
+
+      const { dropAt, replacementAt } =
+        await replacementAndDropPositions(wideStage2Schema);
+
+      expect(dropAt).toBeGreaterThan(-1);
+      expect(replacementAt).toBeGreaterThan(-1);
+      expect(replacementAt).toBeLessThan(dropAt);
+    });
+
+    test("a compound unique over the FK columns replaces it in one push", async () => {
+      const c = make(wideStage1Schema);
+      await push(c as never, { force: true });
+
+      const { dropAt, replacementAt } = await replacementAndDropPositions(
+        wideStage2UniqueSchema
+      );
+
+      expect(dropAt).toBeGreaterThan(-1);
+      expect(replacementAt).toBeGreaterThan(-1);
+      expect(replacementAt).toBeLessThan(dropAt);
     });
   });
 }

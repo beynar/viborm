@@ -69,6 +69,12 @@ In the serializer relation loop, after the `foreignKeys.push`, add an index for 
 4. Declare `.index(["authorId"])` on the same column. Make sure that no duplicate index appears.
 5. Run the migration suites and the CLI push tests.
 
+### Ordering consequence, found after the phase landed
+
+The index this phase emits is the only index on the column, so MySQL/InnoDB binds the FK constraint to it. `sortOperations` in [`src/migrations/utils.ts`](../../src/migrations/utils.ts) ran every `dropIndex` before every `createIndex` and every `addUniqueConstraint`. The edit the docs recommend above — declare a wider index over the same fields — therefore planned `DROP INDEX` while the constraint had nothing else to bind to: MySQL errno 1553, `HY000`, and the whole transactional push aborted. A compound unique whose first column is the FK failed the same way. Reproduced on the Docker MySQL container; PostgreSQL and SQLite were unaffected.
+
+A `dropIndex` whose replacement is created in the same batch now runs between `createIndex` and `addForeignKey`. Two arrangements keep the early slot: the differ's same-name "index changed" pair, because the name has to be free before it can be taken again; and any table that also drops a column, because the column drop takes that column's indexes with it. Witnesses: [`tests/migrations/superseded-index-ordering.test.ts`](../../tests/migrations/superseded-index-ordering.test.ts) for the order and the emitted DDL, and two live pushes in [`tests/drivers/fk-index-behavior.ts`](../../tests/drivers/fk-index-behavior.ts) wired on all five drivers.
+
 ---
 
 ## Phase 2 — Correct two DDL defects
