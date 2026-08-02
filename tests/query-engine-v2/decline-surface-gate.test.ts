@@ -733,9 +733,12 @@ describe("decline-surface gate: the M2M completions execute on the one engine (N
 
   // N3-U2: the junction `upsert` create arm with a DB-GENERATED target key. Was an
   // `UnsupportedOperationError` ("requires the target primary key … in the create data")
-  // because the arm's dedup ledger addressed the target by a literal; the create-data
-  // unique (`label.name`) now names the row, and the join row rides the produced `Ref`.
-  // Reinstating the literal-only requirement makes this throw.
+  // because the arm's dedup ledger addressed the target by a literal; the join row rides
+  // the produced `Ref`. N7-U-C deleted the ledger (its every reachable firing was a
+  // wrong-row update — see the 40 -> 39 census entry), and with it the last reason the arm
+  // needed any compile-time `where`: the arm now asks `resolveCreatePk`, the same resolver
+  // `create` / `connectOrCreate` / `createMany` ask. Reinstating either the literal-only
+  // requirement or the create-data-unique gate makes this throw.
   test("M2M upsert-through-junction with a generated create-arm PK executes on V2", async () => {
     const c = await freshClient(m2m);
     const article = await c.article.create({ data: { title: "a" } });

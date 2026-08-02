@@ -789,19 +789,17 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // key and the duplicate's UPDATE `where` ride the create-data unique, so no `Ref` ever
   // reaches a `where`, and the identity derives from the row the INSERT ACTED ON (its own
   // data) rather than from re-reading the item's `where` (the W4 wrong-row doctrine).
-  // The site survives, with its message naming exactly what is missing: neither the target
-  // primary key nor any complete unique constraint of the target model.
+  // The site survived, with its message naming exactly what is missing: neither the target
+  // primary key nor any complete unique constraint of the target model. (N7-U-C DELETED
+  // it — see the 40 -> 39 entry below.)
   //
-  // HONEST QUALIFICATION, measured while doing this. The ledger justification the old
-  // refusal rested on is currently VACUOUS: the own-write preflight rejects any SECOND
-  // `upsert` item on one many-to-many relation — even two items with disjoint explicit
-  // primary keys — because a junction upsert reads membership and an earlier item writes
-  // it (A14). So `compileUpsert`'s duplicate branch is unreachable from the client and
-  // operation surfaces, and the refusal it justified was stricter than any reachable
-  // behavior required. The ledger is nonetheless keyed correctly here rather than left to
-  // mis-key if the preflight ever relaxes, and the unreachability itself is now pinned by
-  // a witness ("TWO upsert items on one M2M relation are the own-write preflight's, not
-  // the ledger's") that fails the moment the preflight changes.
+  // HONEST QUALIFICATION — RETRACTED by N7-U-C; see the 40 -> 39 entry below. It claimed
+  // the own-write preflight rejects any SECOND `upsert` item on one many-to-many relation
+  // and that `compileUpsert`'s duplicate branch is therefore unreachable. Both halves are
+  // false: the preflight decides by PROVABLE selector disjointness, which it can only
+  // establish for int / bigint / boolean keys, and the fixture the measurement used had
+  // neither. The branch was reachable, and every reachable firing was a wrong-row
+  // violation. The qualification is CLOSED, not open, and the ledger is deleted.
   //
   // Falsified: reinstating the literal-primary-key-only requirement fails 4 of the 24
   // witnesses (both substrates). One estate test was RETARGETED from a decline to an
@@ -1799,6 +1797,71 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     pair (a cascading edge never consults the derivation, N5-U2). FALSIFIED:
   //     the bare-operand revert fails exactly the envelope witness while its
   //     bare-literal control passes.
+  //
+  // 40 -> 39 (N7-U-C, THE JUNCTION-UPSERT DEDUP LEDGER — a retraction, then a deletion).
+  // This entry corrects the "HONEST QUALIFICATION" recorded under N3-U2 above, which
+  // claimed `compileUpsert`'s same-operation dedup ledger was UNREACHABLE because "the
+  // own-write preflight rejects ANY second `upsert` item on one many-to-many relation —
+  // even two items with disjoint explicit primary keys". RE-MEASURED at this head, live,
+  // on PGlite through the operation: that is FALSE, and it was false when written.
+  //
+  // What the preflight actually does. A second item's target/membership read is compared
+  // to the first item's write by `classifyTargetConstraintOverlap`, which only answers
+  // "disjoint" when `provesPortableDisjointness` can prove two field values unequal — and
+  // that function deliberately answers only for `int`, `bigint` and `boolean`. Two
+  // different STRINGS are NOT portably unequal (a case-insensitive or padding-insensitive
+  // collation equates them), so it returns false and the pair fails closed. Every fixture
+  // the N3-U2 measurement had — `post`/`tag` (string PKs) and `article`/`label`
+  // (DB-generated PKs, so the write footprint carries an `unknown` value) — could only
+  // ever produce a rejection. MEASURED with an INTEGER-keyed pair (`n3_sheets`/`n3_cells`,
+  // added for this): `upsert: [{ where: { id: 10 }, … }, { where: { id: 20 }, … }]` is
+  // ACCEPTED, both arms execute, both join rows are written.
+  //
+  // So the branch was live. But note WHAT can reach it. It keys on the CREATE ARM's
+  // identity, not the selector, so it fires when two create arms name one row — while the
+  // preflight has already rejected every pair whose selectors could name one row. The two
+  // conditions are complementary: any pair that reaches the branch has provably DIFFERENT
+  // selectors. MEASURED (`where: { id: 10 }, create: { id: 10, … }` then
+  // `where: { id: 20 }, create: { id: 10, … }`): the branch fired and emitted an UPDATE of
+  // cell 10 carrying item 2's `update` data — a row item 2's `where` never named, with
+  // item 2's create data silently dropped. Every reachable firing of this branch was a
+  // WRONG-ROW violation. There was no correct input for it.
+  //
+  // DELETED, therefore, rather than re-keyed: a correctly-keyed ledger (by selector) would
+  // be provably dead, since the preflight rejects exactly the pairs it would answer for.
+  // With the branch gone the second INSERT reaches the database and the target's own
+  // primary key refuses it, inside the transaction / atomic batch, leaving nothing behind
+  // — which is also what Prisma does with the same payload (it has no ledger; it inserts
+  // and takes the constraint violation).
+  //
+  // The -1 is the knock-on, and it is a genuine ABSORPTION, not a reclassification.
+  // `resolveUpsertCreateIdentity` existed to serve the ledger: the join row only ever
+  // needed the produced-identity `Ref` that `resolveCreatePk` already builds, while the
+  // ledger key and the duplicate's UPDATE `where` needed a compile-time literal, which is
+  // why N3-U2 kept `&& unique` and the refusal "cannot address the row its create arm
+  // inserts: … neither the target primary key … nor any complete unique constraint". With
+  // no ledger there is nothing that invariant covers, and keeping the check would be a
+  // guard whose unique coverage cannot be named (AGENTS.md). The whole function is gone;
+  // the upsert arm calls `resolveCreatePk` like every other junction create arm — ONE
+  // identity resolver for the file — and a create arm carrying no unique now executes.
+  //
+  // Witnesses (`junction-create-many-behavior.ts`, both substrates, every driver leg):
+  //   · "a second upsert item on one M2M relation turns on PROVABLE selector disjointness"
+  //     — the string-keyed pair still rejects AND the integer-keyed pair executes, on one
+  //     call, so a change to either half fails. REPLACES "TWO upsert items on one M2M
+  //     relation are the own-write preflight's, not the ledger's", whose stated claim was
+  //     the false one; its rejection half is preserved verbatim inside the replacement.
+  //   · "two upsert create arms naming ONE row fail on the target's unique constraint" —
+  //     the exact wrong-row payload, asserting the typed failure AND that nothing was
+  //     written.
+  //   · "an upsert create arm with no unique in its data rides the produced identity" —
+  //     RETARGETED from a decline to an accept-and-execute assertion on the SAME payload
+  //     (the -1 site's), with a decoy `mark` seeded first so the join row must carry the
+  //     id THIS insert produced.
+  // FALSIFIED: restoring the `created` Set and its duplicate branch turns the wrong-row
+  // witness from a unique violation into a silent success (it fails on the throw); putting
+  // `&& unique` back with its refusal fails the retargeted witness; both restored, 26/26
+  // green on both substrates.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1809,7 +1872,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(40);
+    expect(sites).toBe(39);
   });
 });
 

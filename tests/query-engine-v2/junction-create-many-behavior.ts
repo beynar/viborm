@@ -30,9 +30,24 @@ import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
  * same-operation dedup ledger and its duplicate-item UPDATE both addressed the target by
  * that literal. W4's closure gave the plain `upsert` a second identity source — a create
  * payload spelling a COMPLETE unique constraint names the row it is about to insert — and
- * the junction arm now takes the same one. The join row still rides the produced `Ref`;
- * the ledger and the duplicate's UPDATE ride the create-data unique, so no `Ref` ever
- * reaches a `where`.
+ * the junction arm took the same one.
+ *
+ * **N7-U-C — the ledger that justified all of it is GONE, and its "unreachable" was
+ * wrong.** N3-U2 left an HONEST QUALIFICATION: the preflight rejects any second `upsert`
+ * item, so the dedup ledger's duplicate branch is unreachable and the refusal it
+ * justified was stricter than anything reachable. Re-measured at this head, that is
+ * FALSE. The preflight decides by PROVABLE selector disjointness, and
+ * `provesPortableDisjointness` proves it for int / bigint / boolean — the earlier
+ * measurement had only string and generated keys to hand. Two integer-keyed items are
+ * accepted, and the branch IS reachable: not through two items naming one target (the
+ * preflight rejects exactly those) but through two items whose SELECTORS are provably
+ * different and whose CREATE ARMS name one row. The branch then applied item 2's update
+ * to the row item 1 created — a row item 2's `where` never named. Every reachable firing
+ * was a wrong-row violation, so the branch is deleted; the second INSERT now meets the
+ * target's own primary key, atomically, as it does in Prisma. With the branch went the
+ * only consumer of the create-arm's compile-time `where`, and with THAT went the refusal
+ * of a create arm carrying no unique — the join row never needed one (it rides the
+ * produced `Ref`). All three are witnessed below.
  *
  * The pinned semantics of `skipDuplicates` here (deliberate — Prisma has no M2M
  * `createMany` to copy): the skip drops the CHILD ROW's insert; the JOIN ROW is a
@@ -96,7 +111,26 @@ export const junctionCreateManySchema = (() => {
       boards: s.manyToMany(() => board),
     })
     .map("n3_marks");
-  return { post, tag, article, label, board, mark };
+  // EXPLICIT INTEGER keys on both sides — N7-U-C. The own-write preflight decides a
+  // second `upsert` item by PROVABLE disjointness of the two selectors, and
+  // `provesPortableDisjointness` only proves it for int / bigint / boolean: two
+  // different STRINGS are not portably unequal (collation), so `post`/`tag` above
+  // cannot express an accepted pair and `article`/`label` cannot either. This pair can.
+  const sheet = s
+    .model({
+      id: s.int().id(),
+      cells: s.manyToMany(() => cell),
+    })
+    .map("n3_sheets");
+  const cell = s
+    .model({
+      id: s.int().id(),
+      code: s.int().unique(),
+      text: s.string(),
+      sheets: s.manyToMany(() => sheet),
+    })
+    .map("n3_cells");
+  return { post, tag, article, label, board, mark, sheet, cell };
 })();
 
 function makeClient(driver: AnyDriver) {
@@ -176,6 +210,30 @@ async function labelsOf(
   return rows.map((row) => row.slug);
 }
 
+/** The cell ids joined to a sheet, sorted (N7-U-C's integer-keyed junction). */
+async function cellsOf(
+  client: JunctionClient,
+  sheetId: number
+): Promise<number[]> {
+  const rows = await client.cell.findMany({
+    where: { sheets: { some: { id: sheetId } } },
+    orderBy: { id: "asc" },
+  });
+  return rows.map((row) => row.id);
+}
+
+/** The mark ids joined to a board, sorted. */
+async function marksOf(
+  client: JunctionClient,
+  boardId: string
+): Promise<number[]> {
+  const rows = await client.mark.findMany({
+    where: { boards: { some: { id: boardId } } },
+    orderBy: { id: "asc" },
+  });
+  return rows.map((row) => row.id);
+}
+
 const NO_BATCH_SKIP_LOWERING = /no atomic-batch lowering/;
 /** N3-U1's new refusal: a skipped INSERT produces no identity for its join row. */
 const SKIP_WITH_GENERATED_KEY =
@@ -183,9 +241,9 @@ const SKIP_WITH_GENERATED_KEY =
 /** The own-write preflight's rejection of a second `upsert` item on one M2M relation. */
 const SECOND_UPSERT_ITEM =
   /depends on an earlier 'upsert' target write in the same nested write/;
-/** N3-U2's surviving refusal: a create arm with no compile-time identity at all. */
-const NO_CREATE_ARM_IDENTITY =
-  /cannot address the row its create arm inserts.*nor any complete unique constraint/s;
+/** The target's own unique constraint, the only thing that can catch two create arms
+ *  naming one row (N7-U-C — the deleted ledger used to swallow this shape). */
+const UNIQUE_VIOLATION = /Unique constraint/;
 
 export function runJunctionCreateManyBehavior(options: {
   readonly name: string;
@@ -557,26 +615,21 @@ export function runJunctionCreateManyBehavior(options: {
       }
     );
 
+    // ---------------------------------------------------------------- N7-U-C
+
     test(
-      "TWO upsert items on one M2M relation are the own-write preflight's, not the ledger's",
+      "a second upsert item on one M2M relation turns on PROVABLE selector disjointness",
       { timeout: 30_000 },
       async () => {
         const { client, run, dispose } = await setup();
         try {
           const article = await client.article.create({ data: { title: "a" } });
-          // MEASURED during N3-U2, and pinned here so the measurement cannot rot: the
-          // own-write preflight rejects ANY second `upsert` item on one many-to-many
-          // relation — even two with DISJOINT explicit primary keys — because a junction
-          // upsert reads membership and an earlier item writes it (ATOM §4's own-write
-          // doctrine, A14). So `compileUpsert`'s same-operation dedup ledger, whose
-          // duplicate branch was the stated reason the old refusal demanded a literal
-          // primary key, is not reachable from this surface at all. The refusal N3-U2
-          // narrowed was therefore stricter than any reachable behavior required.
-          //
-          // The ledger is still keyed correctly (the create-data unique — see the file
-          // header): the point of THIS test is that if the preflight ever relaxes, it
-          // fails, and the ledger's keying gets re-examined instead of silently deciding
-          // a case nobody measured.
+          // The STRING-keyed half. Two items whose selectors name different slugs are
+          // still rejected — not because "two items" is illegal, but because
+          // `provesPortableDisjointness` refuses to declare two STRINGS unequal (a
+          // case-insensitive or padding-insensitive collation can equate them), so the
+          // preflight cannot prove item 2's selector misses the row item 1 writes and
+          // fails closed (ATOM §4, A14).
           await expect(
             run.update("article", junctionCreateManySchema.article, {
               where: { id: article.id },
@@ -599,6 +652,38 @@ export function runJunctionCreateManyBehavior(options: {
             })
           ).rejects.toThrow(SECOND_UPSERT_ITEM);
           await expect(client.label.findMany()).resolves.toEqual([]);
+
+          // The INTEGER-keyed half — the measurement that FALSIFIED N3-U2's "the
+          // preflight rejects ANY second upsert item" and made this lane's premise
+          // wrong. Two integer primary keys ARE portably unequal, so the same two-item
+          // shape is ACCEPTED and both arms execute.
+          await client.sheet.create({ data: { id: 1 } });
+          await run.update("sheet", junctionCreateManySchema.sheet, {
+            where: { id: 1 },
+            data: {
+              cells: {
+                upsert: [
+                  {
+                    where: { id: 10 },
+                    create: { id: 10, code: 100, text: "n1" },
+                    update: { text: "u1" },
+                  },
+                  {
+                    where: { id: 20 },
+                    create: { id: 20, code: 200, text: "n2" },
+                    update: { text: "u2" },
+                  },
+                ],
+              },
+            },
+          });
+          await expect(
+            client.cell.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: 10, code: 100, text: "n1" },
+            { id: 20, code: 200, text: "n2" },
+          ]);
+          expect(await cellsOf(client, 1)).toEqual([10, 20]);
         } finally {
           await dispose();
         }
@@ -606,29 +691,91 @@ export function runJunctionCreateManyBehavior(options: {
     );
 
     test(
-      "an upsert create arm with NO compile-time identity is a typed refusal",
+      "two upsert create arms naming ONE row fail on the target's unique constraint",
       { timeout: 30_000 },
       async () => {
         const { client, run, dispose } = await setup();
         try {
-          await client.board.create({ data: { id: "b1" } });
+          await client.sheet.create({ data: { id: 1 } });
+          // The exact payload that used to reach `compileUpsert`'s same-operation dedup
+          // ledger, and the reason the ledger is gone (N7-U-C). Item 2 SELECTS cell 20 —
+          // provably a different row from the cell 10 item 1 writes, which is why the
+          // preflight admits the pair — but its create arm names cell 10. The ledger saw
+          // the colliding create identity and silently turned item 2 into an UPDATE of
+          // cell 10, a row item 2's `where` never named: the wrong-row doctrine's exact
+          // failure, and the ONLY shape that could ever reach that branch. With the
+          // branch deleted the second INSERT runs and the target's own primary key
+          // refuses it, atomically, leaving nothing behind — Prisma's behavior too.
           await expect(
-            run.update("board", junctionCreateManySchema.board, {
-              where: { id: "b1" },
+            run.update("sheet", junctionCreateManySchema.sheet, {
+              where: { id: 1 },
               data: {
-                marks: {
+                cells: {
                   upsert: [
                     {
-                      where: { id: 1 },
-                      create: { text: "x" },
-                      update: { text: "y" },
+                      where: { id: 10 },
+                      create: { id: 10, code: 100, text: "n1" },
+                      update: { text: "u1" },
+                    },
+                    {
+                      where: { id: 20 },
+                      create: { id: 10, code: 999, text: "n2" },
+                      update: { text: "WRONG-ROW" },
                     },
                   ],
                 },
               },
             })
-          ).rejects.toThrow(NO_CREATE_ARM_IDENTITY);
-          await expect(client.mark.findMany()).resolves.toEqual([]);
+          ).rejects.toThrow(UNIQUE_VIOLATION);
+          await expect(client.cell.findMany()).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "an upsert create arm with no unique in its data rides the produced identity",
+      { timeout: 30_000 },
+      async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          // RETARGETED from a decline to an accept-and-execute assertion on the SAME
+          // payload (N7-U-C). `mark` has a generated key and NO other unique, so the
+          // create data spells no compile-time identity at all — which used to be a
+          // typed refusal, because the deleted dedup ledger needed a compile-time
+          // `where` for the just-created row. The JOIN row never needed one: it rides
+          // the backward `Ref` into this INSERT's own capture. With the ledger gone the
+          // refusal has no invariant left to cover, and the shape executes.
+          //
+          // A decoy mark is seeded FIRST so "some mark" or a stale insertId lands on it:
+          // the join row has to carry the id THIS insert produced.
+          await client.board.create({ data: { id: "decoy-owner" } });
+          await run.update("board", junctionCreateManySchema.board, {
+            where: { id: "decoy-owner" },
+            data: { marks: { create: [{ text: "decoy" }] } },
+          });
+          await client.board.create({ data: { id: "b1" } });
+          await run.update("board", junctionCreateManySchema.board, {
+            where: { id: "b1" },
+            data: {
+              marks: {
+                upsert: [
+                  {
+                    // Absent globally, so the create arm runs (the decoy's own id must
+                    // not be the one the join row carries).
+                    where: { id: 999 },
+                    create: { text: "x" },
+                    update: { text: "y" },
+                  },
+                ],
+              },
+            },
+          });
+          const marks = await client.mark.findMany({ orderBy: { id: "asc" } });
+          expect(marks.map((mark) => mark.text)).toEqual(["decoy", "x"]);
+          expect(await marksOf(client, "b1")).toEqual([marks[1]?.id]);
+          expect(await marksOf(client, "decoy-owner")).toEqual([marks[0]?.id]);
         } finally {
           await dispose();
         }

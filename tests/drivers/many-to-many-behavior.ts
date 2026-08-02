@@ -722,11 +722,13 @@ export function runManyToManyBehavior({
     // target primary key in the create data`: the create arm's dedup ledger and its
     // duplicate-item UPDATE addressed the target by a compile-time literal, so a
     // DB-generated identity was refused. W4's create-data-unique identity source
-    // closes it — `create: { name: 'gen-up' }` spells a complete unique of `label`,
-    // which names the row this INSERT writes — and the join row rides the produced
-    // identity `Ref` the create / connectOrCreate arms already use. The surviving
-    // refusal (a create payload with NO identity source at all) is witnessed by
-    // `junction-create-many-behavior.ts`, on every driver leg and both substrates.
+    // closed it — and N7-U-C then deleted the ledger outright (every reachable firing
+    // of its duplicate branch applied an item's update to a row that item's `where`
+    // never named), taking the last consumer of the arm's compile-time `where` with it.
+    // The join row rides the produced identity `Ref` the create / connectOrCreate arms
+    // already use, which is all it ever needed; there is no surviving identity refusal
+    // on this arm. See `junction-create-many-behavior.ts`, on every driver leg and both
+    // substrates.
     test("upsert through the junction creates a target whose PK the database generates", async () => {
       const c = requireClient(client);
       const created = await c.article.create({ data: { title: "Article 4" } });

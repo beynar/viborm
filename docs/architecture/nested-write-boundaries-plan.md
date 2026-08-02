@@ -418,16 +418,64 @@ identity derives from the row the INSERT ACTED ON (its own data), never from re-
 item's `where` — the W4 wrong-row doctrine. The site survives, narrowed, with its message
 naming exactly what is missing. Census **77 -> 77**.
 
-**Honest qualification, measured while doing this.** The ledger justification the old
-refusal rested on is currently **vacuous**: the own-write preflight rejects any SECOND
-`upsert` item on one many-to-many relation — even two items with disjoint explicit primary
-keys — because a junction upsert reads membership and an earlier item writes it (A14). So
-`compileUpsert`'s duplicate branch is unreachable from the client and operation surfaces,
-and the refusal it justified was stricter than any reachable behavior required. The ledger
-is keyed correctly here anyway rather than left to mis-key if the preflight ever relaxes,
-and the unreachability is now pinned by its own witness ("TWO upsert items on one M2M
-relation are the own-write preflight's, not the ledger's") that fails the moment the
-preflight changes.
+**Honest qualification — RETRACTED by N7-U-C, see below.** It read: the ledger
+justification the old refusal rests on is *vacuous*, because the own-write preflight
+rejects any SECOND `upsert` item on one many-to-many relation — even two items with
+disjoint explicit primary keys — so `compileUpsert`'s duplicate branch is unreachable and
+the refusal it justified was stricter than any reachable behavior required. Both halves
+were wrong, and the witness that pinned them ("TWO upsert items on one M2M relation are the
+own-write preflight's, not the ledger's") pinned a false claim. The re-measurement and the
+correction are the next section.
+
+### N7-U-C — the junction-upsert dedup ledger — delivered
+
+**The premise failed re-verification.** The lane's work order was to confirm the N3-U2
+qualification and then either delete the unreachable branch or relax the preflight to make
+it live. Re-measured at this head, live on PGlite through `UpdateOperation`, the
+qualification is **false**.
+
+The preflight does not reject a second `upsert` item because it is second. It rejects it
+when it cannot PROVE the second item's selector misses the row the first item writes, and
+`provesPortableDisjointness` (`src/query-engine/TargetConstraint.ts`) proves inequality for
+`int`, `bigint` and `boolean` only — two different *strings* are not portably unequal,
+because a case-insensitive or padding-insensitive collation equates them. Every fixture the
+N3-U2 measurement had was string-keyed or DB-generated, so it could only ever observe a
+rejection. Measured on an integer-keyed junction (`n3_sheets`/`n3_cells`, added for this):
+`upsert: [{ where: { id: 10 }, … }, { where: { id: 20 }, … }]` is **accepted** and both
+arms execute.
+
+**And what reached the branch was always wrong.** The ledger keys on the CREATE ARM's
+identity, while the preflight filters on the SELECTOR — complementary conditions, so any
+pair that reaches the branch has provably DIFFERENT selectors. Measured: item 1
+`where: { id: 10 }, create: { id: 10, … }`, item 2 `where: { id: 20 }, create: { id: 10, … }`
+made the branch emit an UPDATE of cell 10 carrying item 2's `update` data — a row item 2's
+`where` never named, with item 2's create data silently dropped. That is the **wrong-row
+doctrine's** exact failure, and it was the branch's *only* reachable input.
+
+So: **deleted**, not re-keyed (a selector-keyed ledger would be provably dead, the preflight
+having rejected every pair it could answer for) and not made live by relaxing the preflight
+(there is no correct behavior for it to implement). The second INSERT now reaches the
+database and the target's own primary key refuses it, inside the transaction / atomic batch,
+leaving nothing written — which is also what Prisma does with the payload, having no ledger
+at all.
+
+**Knock-on, a real absorption: census 40 -> 39.** `resolveUpsertCreateIdentity` existed to
+serve the ledger. The join row only ever needed the produced-identity `Ref` that
+`resolveCreatePk` already builds; the ledger key and the duplicate's UPDATE `where` needed
+the compile-time literal, which is why N3-U2 kept the `&& unique` gate and the refusal
+"cannot address the row its create arm inserts: … neither the target primary key … nor any
+complete unique constraint". With no ledger that check covers no invariant, and keeping it
+would be a guard whose unique coverage cannot be named (AGENTS.md). The function is gone;
+the upsert arm calls `resolveCreatePk` like every other junction create arm — one identity
+resolver for the file — and a create arm carrying no unique now executes.
+
+Witnesses in `tests/query-engine-v2/junction-create-many-behavior.ts` (26 per substrate,
+every driver leg): the disjointness boundary asserted in both directions on one call (string
+pair rejects, integer pair executes); the wrong-row payload asserted as a unique violation
+with nothing written; and the retargeted accept-and-execute on the formerly-refused payload,
+with a decoy seeded first so the join row must carry the id THIS insert produced. Falsified:
+restoring the `created` Set and its branch turns the wrong-row witness into a silent success;
+putting `&& unique` back with its refusal fails the retargeted witness; both restored, green.
 
 One estate test was **retargeted**, from a decline to an accept-and-execute assertion on
 the SAME payload: `many-to-many-behavior.ts`'s "upsert through the junction with a

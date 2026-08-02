@@ -61,7 +61,6 @@ import {
 } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 import {
-  createDataUniqueWhere,
   getStepModelName,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
@@ -258,12 +257,6 @@ interface UpsertSlot {
   /** Set when the create arm's PK is DB-generated: its INSERT captures the identity
    *  the join row references (see {@link CreateSlot.generatedField}). */
   readonly generatedField?: string;
-  /** The compile-time `where` that names the row this create arm inserts — the PK
-   *  literal, or W4's create-data unique. A duplicate item's UPDATE addresses the
-   *  target by it, so no `Ref` ever reaches a `where` (N3-U2). */
-  readonly addressWhere: Record<string, unknown>;
-  /** The same-operation dedup ledger's identity key for this create arm. */
-  readonly ledgerKey: string;
   readonly update: Record<string, unknown>;
   readonly membershipProbeId: string;
   readonly globalProbeId: string;
@@ -275,9 +268,8 @@ interface UpsertSlot {
   readonly globalProbe: StatementStep;
   /** upsert arms (mechanism 2 / mechanism 1 reuse): the create-arm and update-arm
    *  nested child Parts, folded one level deeper against the target's literal PK
-   *  (`create` PK / `where` PK — validated equal). Emitted branch-specifically:
-   *  create-arm on the absent decision, update-arm on the member / created-earlier
-   *  decision. Empty for a scalar-only arm. */
+   *  (`create` PK / `where` PK). Emitted branch-specifically: create-arm on the absent
+   *  decision, update-arm on the member decision. Empty for a scalar-only arm. */
   readonly createChildParts: readonly Part[];
   readonly updateChildParts: readonly Part[];
   /** X1c — when present, the fresh create-arm target's whole create delegates to
@@ -717,9 +709,16 @@ export class RelationJunctionPart implements Part {
     const emitChildren = (parts: readonly Part[]) => {
       for (const child of parts) steps.push(...child.compile(scope, known));
     };
-    // Targets an earlier array item already created+joined in THIS operation: it
-    // is now a member, so a duplicate item updates it (V1's sequential merge).
-    const created = new Set<string>();
+    // NO same-operation dedup ledger here, unlike `compileConnectOrCreate`. The two
+    // kinds differ in what a second array item MEANS. `connectOrCreate` says "this
+    // target, adopted or made", so a second item naming the same target is satisfied
+    // by the first item's row and adopts it. `upsert` says "the row MY `where` names",
+    // and the own-write preflight (ATOM §4) rejects any item whose selector could name
+    // a row an earlier item wrote — so every item that reaches here selects a row no
+    // earlier item created. A ledger keyed on the create arms would therefore only
+    // ever fire on items whose SELECTORS are provably disjoint, and would apply this
+    // item's update to a row it never named: the wrong-row doctrine's exact failure.
+    // See the N3-U2 -> N7-U-C record in `tests/query-engine-v2/route-inventory.test.ts`.
     for (const slot of this.upserts) {
       const memberRows = known[planningKey(slot.membershipProbeId, "rows")];
       if (Array.isArray(memberRows) && memberRows.length > 0) {
@@ -741,19 +740,6 @@ export class RelationJunctionPart implements Part {
         emitChildren(slot.updateChildParts);
         continue;
       }
-      if (created.has(slot.ledgerKey)) {
-        // Created+joined by an earlier same-target item — now a member (no guard;
-        // our own earlier insert guarantees its presence). Update it, addressed by
-        // the earlier arm's compile-time identity (N3-U2: the PK literal, or the
-        // create-data unique when the PK is DB-generated — never a `Ref`).
-        if (Object.keys(slot.update).length > 0) {
-          steps.push(
-            this.childUpdate(slot.updateId, slot.addressWhere, slot.update)
-          );
-        }
-        emitChildren(slot.updateChildParts);
-        continue;
-      }
       const globalRows = known[planningKey(slot.globalProbeId, "rows")];
       if (Array.isArray(globalRows) && globalRows.length > 0) {
         // Exists globally but is not a member of this parent — the correlated
@@ -763,7 +749,6 @@ export class RelationJunctionPart implements Part {
           this.config.relationName
         );
       }
-      created.add(slot.ledgerKey);
       if (slot.createDelegated) {
         // X1c: the fresh create-arm target delegates its whole create to
         // `CreateOperation` (a parent-held to-one folds into its OWN INSERT); the
@@ -968,7 +953,12 @@ export class RelationJunctionPart implements Part {
     const membershipProbeId = scope.allocate(`${childName}.member`);
     const globalProbeId = scope.allocate(`${childName}.find`);
     const childId = scope.allocate(`${childName}.create`);
-    const identity = this.resolveUpsertCreateIdentity(item.create, childId);
+    // N7-U-C: ONE identity resolver for every junction create arm. The upsert arm
+    // used to have its own, because its dedup ledger needed a compile-time `where`
+    // for the just-created row on top of the join value; with the ledger deleted the
+    // arm needs exactly what `create` / `connectOrCreate` / `createMany` need — the
+    // join row's value — so it asks the same question in the same place.
+    const identity = this.resolveCreatePk(item.create, childId);
     return {
       where: item.where,
       create: item.create,
@@ -976,8 +966,6 @@ export class RelationJunctionPart implements Part {
       ...(identity.generatedField
         ? { generatedField: identity.generatedField }
         : {}),
-      addressWhere: identity.addressWhere,
-      ledgerKey: identity.ledgerKey,
       update: item.update,
       membershipProbeId,
       globalProbeId,
@@ -1207,71 +1195,6 @@ export class RelationJunctionPart implements Part {
     // branch above. No payload arrives with an absent or null target PK.
     throw new QueryEngineError(
       `query-engine-v2 internal: the create-through-junction arm for relation '${this.config.relationName}' reached identity resolution with no value for the target primary key '${this.targetPkField}'.`
-    );
-  }
-
-  /**
-   * The upsert create arm's IDENTITY — N3-U2.
-   *
-   * The arm needs three things at compile: a value for the join row, a key for the
-   * same-operation dedup ledger, and a `where` the duplicate item's UPDATE addresses
-   * the just-created row by. Before N3-U2 all three came from ONE source, a literal
-   * primary key in the create data, so a DB-generated target PK was refused outright.
-   *
-   * W4's closure gave the plain `upsert` a second source: a create payload spelling a
-   * COMPLETE unique constraint NAMES the row it is about to insert
-   * ({@link createDataUniqueWhere}). The junction arm takes the same source — and
-   * splits the three needs across the two:
-   *
-   * - join value: the literal PK, or (generated `increment` PK) the backward `Ref`
-   *   into this slot's own INSERT capture, exactly as {@link resolveCreatePk} builds
-   *   it for `create` / `connectOrCreate`;
-   * - ledger key + duplicate-item UPDATE `where`: the literal PK, or the create-data
-   *   unique. Both are compile-time literals, so the duplicate's UPDATE never carries
-   *   a `Ref` into a `where`, and the identity derives from the row the INSERT ACTED
-   *   ON (its own data) — never from re-reading the item's `where`.
-   *
-   * A create payload with NEITHER source keeps the refusal, with the message naming
-   * exactly which of the two is missing.
-   */
-  private resolveUpsertCreateIdentity(
-    create: Record<string, unknown>,
-    childId: string
-  ): {
-    pk: unknown;
-    generatedField?: string;
-    addressWhere: Record<string, unknown>;
-    ledgerKey: string;
-  } {
-    const pk = create[this.targetPkField];
-    if (pk !== undefined && pk !== null) {
-      return {
-        pk,
-        addressWhere: { [this.targetPkField]: pk },
-        ledgerKey: `pk:${pkKey(pk)}`,
-      };
-    }
-    const scalar = this.childScope.model["~"].state.scalars[this.targetPkField];
-    const unique = createDataUniqueWhere(this.childScope.model, create);
-    if (
-      pk === undefined &&
-      scalar?.["~"].state.autoGenerate === "increment" &&
-      unique
-    ) {
-      return {
-        pk: referenceSql(
-          this.config.engine,
-          this.childScope.model,
-          this.targetPkField,
-          ref(childId, "id")
-        ),
-        generatedField: this.targetPkField,
-        addressWhere: unique,
-        ledgerKey: `unique:${stableKey(unique)}`,
-      };
-    }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 upsert-through-junction for relation '${this.config.relationName}' cannot address the row its create arm inserts: the create data carries neither the target primary key '${this.targetPkField}' nor any complete unique constraint of '${this.config.childName}', and '${this.targetPkField}' is not a single database-generated increment identity.`
     );
   }
 

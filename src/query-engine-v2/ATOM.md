@@ -1791,10 +1791,13 @@ A FRESH parent whose own PK is generated rides the same mechanism: the junction 
 correlation accepts the `ref`-kind `ParentIdSource` (previously only
 `planned`/`literal`), so both join-row columns may be produced values. Covers `create`
 (create root + update root + depth) and `connectOrCreate` (missing arm; the dedup
-ledger keys a generated target by its unique selector). Two honest boundaries remain,
+ledger keys a generated target by its unique selector). Two honest boundaries remained,
 each an explicit typed refusal: **upsert-through-junction** with a generated create-arm
 PK (its compile-time dedup ledger and duplicate-item UPDATE address the target by a
-literal), and a **relation-carrying** junction create target with a generated PK (its
+literal — SINCE ABSORBED by N7-U-C, which deleted the upsert ledger outright after
+measuring that its every reachable firing applied an item's update to a row that item's
+`where` never named; the arm now asks `resolveCreatePk` like every other junction create
+arm, census 40 -> 39), and a **relation-carrying** junction create target with a generated PK (its
 deeper child Parts need a `literalParentId`). Throw-site census 76 → 77 (the shared
 `requireCreatePk` narrowed into `resolveCreatePk` + the upsert-only refusal). The
 shared-batch (`$transaction([...])`) merge on batch-only drivers keeps its insertId-
