@@ -78,10 +78,19 @@ function normalizeIndexType(type: IndexDef["type"]): string {
   return type ?? "btree";
 }
 
+function normalizeIndexUnique(unique: IndexDef["unique"]): boolean {
+  // `type`'s twin (above): the serializer leaves a plain `.index()`'s `unique`
+  // undefined while every introspection reads a boolean back from the catalog,
+  // so the same index must not read as a change. Left raw, every push re-plans
+  // drop+create forever — and on MySQL the drop is a hard 1553 abort when the
+  // declared index is the one InnoDB bound the FK to.
+  return unique ?? false;
+}
+
 function indexesEqual(a: IndexDef, b: IndexDef): boolean {
   return (
     a.name === b.name &&
-    a.unique === b.unique &&
+    normalizeIndexUnique(a.unique) === normalizeIndexUnique(b.unique) &&
     arraysEqual(a.columns, b.columns) &&
     normalizeIndexType(a.type) === normalizeIndexType(b.type) &&
     a.where === b.where

@@ -296,6 +296,19 @@ export function runFkIndexBehavior({
         await indexNames(c, dialect, "fk_idx_decl_posts")
       ).filter((name) => name.endsWith("_idx"));
       expect(declared).toEqual(["fk_idx_decl_posts_authorId_idx"]);
+
+      // REGRESSION (P1 review): the serializer leaves a plain `.index()`'s
+      // `unique` undefined while introspection reads `false` back, so a raw
+      // comparison re-planned drop+create on EVERY push — and on MySQL the drop
+      // is a hard 1553 abort, because this declared index is the one InnoDB
+      // bound the FK to (the automatic FK index defers to it). The second push
+      // must be a no-op, not merely survivable.
+      const second = await push(c as never, { force: true });
+      expect(
+        second.operations.filter(
+          (op) => op.type === "createIndex" || op.type === "dropIndex"
+        )
+      ).toEqual([]);
     });
 
     // REGRESSION: the FK index this file put on the column is the index
