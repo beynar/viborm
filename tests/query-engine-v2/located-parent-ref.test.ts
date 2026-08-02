@@ -423,16 +423,33 @@ describe("located-parent Ref compiles the same plan as the pinned spelling", () 
  * re-consult the caller's `where` — the root-presence guard and the root UPDATE —
  * while every child edge addressed the CAPTURED row. A discriminator the `where`
  * does not fix to the primary key is reassignable, so those two could name a
- * different row than the children did. Both now conjoin / address the captured PK.
+ * different row than the children did.
  *
- * This is the byte-compare that keeps the change SCOPED. The `where: { id }` arm is
- * the one that was never at risk (a pinned PK cannot move to another row) and its
- * five statements are asserted verbatim: they are byte-identical to the pre-change
- * plan, so the overwhelmingly common spelling pays nothing — no extra conjunct, no
- * re-addressed UPDATE, no `LIMIT`-shaped guard. The `where: { email }` arm asserts
- * the two statements that DID move, and only those two.
+ * The two statements did NOT end up with the same rule, and the difference is what
+ * this file pins:
+ * - the root UPDATE always addresses the captured PK, whatever the `where` named.
+ * - the guard conjoins the captured PK only when the `where` does NOT name it; a
+ *   selector that pins the PK already answers the guard's question, and a second
+ *   copy would be a duplicate conjunct (AGENTS.md: one guard per invariant).
+ *
+ * So the `where: { id }` arm is a genuine byte-compare — its five statements are
+ * asserted verbatim and are identical to the pre-change plan — but for the UPDATE
+ * that is a CONSEQUENCE, not an exemption: `buildPrimaryKeyWhereUnique` reproduces a
+ * PK-only selector exactly (flat for a single PK, nested under the constraint name for
+ * a compound one), so "address the capture" and "keep the `where`" emit the same
+ * string. The `where: { email }` arm asserts the two statements that DO move, and only
+ * those two. The compound-PK spelling of the same shape is certified behaviorally, on
+ * both substrates and every driver leg, in `located-parent-ref-behavior.ts`
+ * ("compound primary-key reference: both members come from the located row").
+ *
+ * Note what this file therefore CANNOT witness: an `if` at the write site that left a
+ * PK-only `where` alone would keep every assertion here green. One existed and was
+ * deleted for exactly that reason — a branch nothing can tell apart from its own
+ * fall-through. What the address rule IS falsified by lives in
+ * `staleness-injection.test.ts` ("batch root address"), where re-consulting the
+ * selector mid-batch changes the row that gets written.
  */
-describe("the batch root address is scoped to the unpinned spelling", () => {
+describe("the batch root address, statement by statement", () => {
   class RecordingBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
     readonly statements: string[] = [];
     recording = false;
@@ -484,8 +501,10 @@ describe("the batch root address is scoped to the unpinned spelling", () => {
       // same column with the same literal, and a duplicated conjunct is a second
       // guard on one invariant.
       `SELECT 1 / CASE WHEN EXISTS (${PK_LOCATE}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
-      // The root UPDATE: still addressed by the `where`, because here the `where` IS
-      // the captured PK.
+      // The root UPDATE addresses the captured PK, as it always does. The statement is
+      // unchanged because here the captured PK and the `where` are the same conjunct
+      // with the same literal — which is also why the write site carries no branch for
+      // this shape: there would be nothing to tell the two arms apart.
       `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
       NOTE_INSERT,
       TERMINAL,

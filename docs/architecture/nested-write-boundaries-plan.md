@@ -179,33 +179,45 @@ but N1 makes the spelling common, so it is named here rather than left implicit.
 > that window into a silent zero-row root (batch mode lowers no `affectedRows`
 > postcondition) — one guard for the premise, one address for the row.
 >
-> The two changes are gated on DIFFERENT predicates, and the first record of this wave said
-> otherwise — it claimed both were gated on the selector not naming the PK, "the entire
-> hazard surface". **CORRECTED** (review round, measured live): that holds for the GUARD,
-> whose question is whether the selector can confirm some OTHER row — a pinned PK closes it,
-> and the conjunct would be a redundant copy of one the selector already carries. It does NOT
-> hold for the UPDATE, which needs EVERY conjunct the selector contributes to be a PK column,
-> not merely every PK column to be present. Two spellings smuggle a reassignable one in
-> alongside a pinned PK, and a check for either alone misses the other — both MEASURED live:
-> the **extended filter half** (`where: { id: 1, count: 0 }`, Prisma >= 4.5) with `count`
-> moved off 0 in the guard→UPDATE window resolved with the root unincremented and the child
-> INSERTed, no error; and a **compound unique containing the PK** (`@@unique([id, count])`,
-> which has no filter half at all) emitted `UPDATE … WHERE (id = $2 AND count = $3)`. Both
-> are the silent zero-row root the paragraph above forbids, reached through the PK-named
-> door. Narrower than wrong-row (the pinned PK still forbids touching a different row), same
-> class of split. The write site now gates on `selectorIsImmutableAddress`; the guard keeps
-> `selectorNamesPrimaryKey`, because neither spelling can walk it onto a row the pinned PK
-> excludes, so conjoining the captured PK there would only duplicate a conjunct the selector
-> already carries.
+> Only the GUARD is gated. The first record of this wave gated both on the selector not
+> naming the PK and called that "the entire hazard surface"; the second kept a narrower
+> gate at the write site. Both are **CORRECTED**, each by its own measured round.
 >
-> Pinned `where: { id }` batches — the shape either gate ever changed — are byte-identical
-> to the pre-change ones, asserted statement for statement in
-> `tests/query-engine-v2/located-parent-ref.test.ts`. Witnesses in
+> **Round 1.** The PK-naming gate holds for the GUARD, whose question is whether the selector
+> can confirm some OTHER row — a pinned PK closes it, and the conjunct would be a redundant
+> copy of one the selector already carries. It does NOT hold for the UPDATE: two spellings
+> smuggle a reassignable conjunct in alongside a pinned PK, and a check for either alone
+> misses the other — both MEASURED live. The **extended filter half** (`where: { id: 1,
+> count: 0 }`, Prisma >= 4.5) with `count` moved off 0 in the guard→UPDATE window resolved
+> with the root unincremented and the child INSERTed, no error; a **compound unique
+> containing the PK** (`@@unique([id, count])`, which has no filter half at all) emitted
+> `UPDATE … WHERE (id = $2 AND count = $3)`. Both are the silent zero-row root the paragraph
+> above forbids, reached through the PK-named door. Narrower than wrong-row (the pinned PK
+> still forbids touching a different row), same class of split.
+>
+> **Round 2.** Round 1's remedy left an escape hatch — leave the `where` alone when every
+> conjunct it contributes is a PK column — justified by the byte-identical `where: { id }`
+> pin. That pin cannot discriminate: for exactly the selectors the hatch admitted,
+> `buildPrimaryKeyWhereUnique` rebuilds the caller's own spelling with the values the locate
+> matched, so both arms emit the same statement. MEASURED — deleting the hatch outright left
+> `tests/query-engine-v2` at 55 files / 1024 tests, 0 failed, the pin green either way. A
+> check whose unique coverage cannot be named is what AGENTS.md bans, so it is **deleted**:
+> the root UPDATE addresses the captured PK unconditionally, matching transaction mode and
+> X1c nested targets. The guard keeps `selectorNamesPrimaryKey`, and that split survives the
+> same test — force the guard to always conjoin the captured PK and the `where: { id }` pin
+> turns RED.
+>
+> Pinned `where: { id }` batches are byte-identical to the pre-change ones, asserted
+> statement for statement in `tests/query-engine-v2/located-parent-ref.test.ts` — the gate's
+> own witness for the guard, a consequence of the rebuilt spelling for the UPDATE, as that
+> file's header now records. Witnesses in
 > `tests/query-engine-v2/staleness-injection.test.ts` ("batch root address"): the guard half
-> falsified by a before-batch rename+reinsert, the write half by the same reassignment wedged
+> falsified by a before-batch rename+reinsert, the address by the same reassignment wedged
 > INSIDE the batch between the guard and the UPDATE, and its extended-selector and
 > compound-unique arms each by a mid-batch move of the non-PK column, plus no-interference
-> and filter-excludes-the-row controls.
+> and filter-excludes-the-row controls. The compound-PK-spelled selector the hatch used to
+> divert is certified behaviorally on both substrates and every driver leg by
+> `tests/query-engine-v2/located-parent-ref-behavior.ts`.
 > `DeleteOperation`'s batch guard/read/delete still address the original `where` — a narrower
 > hazard (no child edges to split against, but the captured row it RETURNS and the row it
 > DELETES are two evaluations of the selector) left to its own lane.

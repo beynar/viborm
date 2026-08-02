@@ -1210,13 +1210,13 @@ describe("query-engine-v2 staleness injection (batch root address)", () => {
     await client.$disconnect();
   });
 
-  // The SECOND spelling of the same hazard, and the one a filter-half check alone
-  // misses. A compound unique that CONTAINS the primary key is wholly a
+  // The SECOND spelling of the same hazard, and the one that stays hidden if you look
+  // only for a filter half. A compound unique that CONTAINS the primary key is wholly a
   // discriminator — there is no filter half at all — and `getWhereUniqueEntries`
-  // flattens it, so every PK column is named. The extra member rides into the root
-  // UPDATE's WHERE exactly as an extended filter would, and it is just as
-  // reassignable. Hence the write gate asks whether every conjunct is a PK column,
-  // not merely whether every PK column is present.
+  // flattens it, so every PK column is named. The extra member would ride into the root
+  // UPDATE's WHERE exactly as an extended filter would, and it is just as reassignable.
+  // Both spellings are why the address rule has no arms: the root UPDATE addresses the
+  // captured PK whatever the selector named, so neither spelling has a door to enter by.
   test("write half: a compound unique's non-PK member does not ride into the root UPDATE", async () => {
     const db = new PGlite();
     const client = createClient({
@@ -1248,7 +1248,10 @@ describe("query-engine-v2 staleness injection (batch root address)", () => {
     await client.$disconnect();
   });
 
-  test("control: a compound unique naming ONLY the PK is still left alone", async () => {
+  // The compound arm's no-interference control. Its `where` names `id` AND `count`, so
+  // it is the same selector as the arm above with the mid-batch move removed: the
+  // premise holds, the guard passes, and the unit runs exactly once.
+  test("control: a compound-unique selector with no interference runs once", async () => {
     const db = new PGlite();
     const client = createClient({
       schema: compoundRootSchema,
