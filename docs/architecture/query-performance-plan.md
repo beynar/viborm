@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1 and 3 delivered (see their delivery records). Phases 2 and 4-10 not started.
+**Status:** Phases 1, 2, 3 and 5 delivered (see their delivery records). Phases 4 and 6-10 not started. Phase 2 raised one new maintainer decision, 7.4.
 
 ## Source of this plan
 
@@ -475,7 +475,7 @@ The compiled writes ride one atomic batch. The planning reads do not: each plann
 
 ---
 
-## Phase 7 — Three maintainer decisions
+## Phase 7 — Four maintainer decisions
 
 These items need a written disposition. They are choices, not defects.
 
@@ -487,14 +487,14 @@ ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level sca
 
 The per-row emission exists for an exact input ordinal ([`create.ts:116-119`](../../src/query-engine/operations/create.ts); [`ManyAndReturnOperation.ts:451-467`](../../src/query-engine-v2/ManyAndReturnOperation.ts)). One multi-row statement replaces N statements. PostgreSQL does not contractually guarantee the RETURNING row order. The choice: accept the implementation guarantee (Prisma does), or match the returned rows by key.
 
-### Decision 7.4 — The PostgreSQL partial-index predicate (raised by Phase 2)
-
-Phase 2 fixed the partial index on SQLite, where the catalog stores the statement verbatim. PostgreSQL does not: `pg_get_expr(indpred, indrelid)` deparses the predicate, so a declared `active = true` reads back as `(active = true)` and never compares equal to what the serializer holds ([`postgres/introspect.ts:302`](../../src/migrations/drivers/postgres/introspect.ts) into `indexesEqual`, [`differ.ts`](../../src/migrations/differ.ts)). Measured on PGlite (PostgreSQL 17). **Consequence: every push drops and re-creates every partial index on PostgreSQL.** No client-side text normalization closes this while staying fail-closed — flattening whitespace and parentheses makes `a AND (b OR c)` equal `(a AND b) OR c`, so a real predicate change would stop being seen. The choice: canonicalize the declared predicate through the database before comparing (the differ has no connection today, so this changes the differ's shape), compare `indpred` structurally, or accept the churn and document it. The disposition must state which.
-
 ### Decision 7.3 — The `startsWith` spelling
 
 The current spellings can never use an index: `LEFT(col, LENGTH($1)) = $1` on PostgreSQL ([`postgres-adapter.ts:109-110`](../../src/adapters/databases/postgres/postgres-adapter.ts)), `LEFT(BINARY col, OCTET_LENGTH(?))` on MySQL (`mysql-adapter.ts:160-161`), `substr(col,1,length(?)) COLLATE BINARY` on SQLite (`sqlite-adapter.ts:171-172`). Measured price: 54× on PostgreSQL and approximately 300× on SQLite against an indexed `LIKE 'x%'` control. The spellings also blind the PostgreSQL row estimator, which changes plan shapes. A `LIKE` spelling with escaped `%`, `_`, and escape characters is portable and index-friendly, and keeps the literal-wildcard semantics that [`prisma-parity-behavior.ts:227`](../../tests/drivers/prisma-parity-behavior.ts) pins. The choice: keep the current spelling, or move to the escaped LIKE spelling (recommendation: move; the semantics are identical and the price is now known).
 
+
+### Decision 7.4 — The PostgreSQL partial-index predicate (raised by Phase 2)
+
+Phase 2 fixed the partial index on SQLite, where the catalog stores the statement verbatim. PostgreSQL does not: `pg_get_expr(indpred, indrelid)` deparses the predicate, so a declared `active = true` reads back as `(active = true)` and never compares equal to what the serializer holds ([`postgres/introspect.ts:302`](../../src/migrations/drivers/postgres/introspect.ts) into `indexesEqual`, [`differ.ts`](../../src/migrations/differ.ts)). Measured on PGlite (PostgreSQL 17). **Consequence: every push drops and re-creates every partial index on PostgreSQL.** No client-side text normalization closes this while staying fail-closed — flattening whitespace and parentheses makes `a AND (b OR c)` equal `(a AND b) OR c`, so a real predicate change would stop being seen. The choice: canonicalize the declared predicate through the database before comparing (the differ has no connection today, so this changes the differ's shape), compare `indpred` structurally, or accept the churn and document it. The disposition must state which.
 ---
 
 ## Phase 8 — PostgreSQL CTE folds (large)
