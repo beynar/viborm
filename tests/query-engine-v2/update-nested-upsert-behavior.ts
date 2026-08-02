@@ -51,7 +51,9 @@ export interface UpdateSliceRunner {
   ): Promise<T>;
 }
 
-export function createUpdateSliceExecutor(driver: AnyDriver): UpdateSliceRunner {
+export function createUpdateSliceExecutor(
+  driver: AnyDriver
+): UpdateSliceRunner {
   const schemas = createSchemaRegistry(updateSliceSchema);
   const engine = new QueryEngine(
     driver,
@@ -89,7 +91,11 @@ export function correlatedUpsertArgs(options: {
       posts: {
         upsert: {
           where: { id: options.childId },
-          create: { id: options.childId, title: options.title, slug: options.slug },
+          create: {
+            id: options.childId,
+            title: options.title,
+            slug: options.slug,
+          },
           update: { title: options.title },
         },
       },

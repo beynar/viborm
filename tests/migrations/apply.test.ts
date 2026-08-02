@@ -56,145 +56,163 @@ function runApplyDownRoundTrip(
   createDriver: () => AnyDriver
 ): void {
   describe(`apply/down round-trip (${driverName})`, () => {
-    it("generates up+down, applies, rolls back, and re-applies", { timeout: 30_000 }, async () => {
-      const storage = new MemoryStorageDriver();
-      const driver = createDriver();
-      const clientV1 = createClient({ schema: schemaV1, driver });
+    it(
+      "generates up+down, applies, rolls back, and re-applies",
+      { timeout: 30_000 },
+      async () => {
+        const storage = new MemoryStorageDriver();
+        const driver = createDriver();
+        const clientV1 = createClient({ schema: schemaV1, driver });
 
-      // Migration 0: create users table
-      const gen1 = await generate(clientV1, {
-        storageDriver: storage,
-        name: "init",
-      });
-      expect(gen1.entry).not.toBeNull();
-      expect(gen1.downSql.join("\n")).toContain("DROP TABLE");
+        // Migration 0: create users table
+        const gen1 = await generate(clientV1, {
+          storageDriver: storage,
+          name: "init",
+        });
+        expect(gen1.entry).not.toBeNull();
+        expect(gen1.downSql.join("\n")).toContain("DROP TABLE");
 
-      const downFile1 = await storage.readDownMigration(gen1.entry!);
-      expect(downFile1).toContain("DROP TABLE");
+        const downFile1 = await storage.readDownMigration(gen1.entry!);
+        expect(downFile1).toContain("DROP TABLE");
 
-      const applied1 = await apply(clientV1, { storageDriver: storage });
-      expect(applied1.applied).toHaveLength(1);
+        const applied1 = await apply(clientV1, { storageDriver: storage });
+        expect(applied1.applied).toHaveLength(1);
 
-      await clientV1.user.create({ data: { id: "u1", email: "a@b.c" } });
+        await clientV1.user.create({ data: { id: "u1", email: "a@b.c" } });
 
-      // Migration 1: add nullable name column
-      const clientV2 = createClient({ schema: schemaV2, driver });
-      const gen2 = await generate(clientV2, {
-        storageDriver: storage,
-        name: "add-name",
-      });
-      expect(gen2.entry).not.toBeNull();
+        // Migration 1: add nullable name column
+        const clientV2 = createClient({ schema: schemaV2, driver });
+        const gen2 = await generate(clientV2, {
+          storageDriver: storage,
+          name: "add-name",
+        });
+        expect(gen2.entry).not.toBeNull();
 
-      const applied2 = await apply(clientV2, { storageDriver: storage });
-      expect(applied2.applied).toHaveLength(1);
+        const applied2 = await apply(clientV2, { storageDriver: storage });
+        expect(applied2.applied).toHaveLength(1);
 
-      await clientV2.user.update({
-        where: { id: "u1" },
-        data: { name: "Ann" },
-      });
+        await clientV2.user.update({
+          where: { id: "u1" },
+          data: { name: "Ann" },
+        });
 
-      // Dry run previews without executing
-      const dryRun = await down(clientV2, {
-        storageDriver: storage,
-        steps: 1,
-        dryRun: true,
-      });
-      expect(dryRun.rolledBack.map((e) => e.name)).toEqual(["add-name"]);
-      const stillThere = await driver._executeRaw(
-        'SELECT "name" FROM "user" WHERE "id" = \'u1\''
-      );
-      expect(stillThere.rows).toHaveLength(1);
+        // Dry run previews without executing
+        const dryRun = await down(clientV2, {
+          storageDriver: storage,
+          steps: 1,
+          dryRun: true,
+        });
+        expect(dryRun.rolledBack.map((e) => e.name)).toEqual(["add-name"]);
+        const stillThere = await driver._executeRaw(
+          'SELECT "name" FROM "user" WHERE "id" = \'u1\''
+        );
+        expect(stillThere.rows).toHaveLength(1);
 
-      // Roll back migration 1: name column dropped
-      const down1 = await down(clientV2, { storageDriver: storage, steps: 1 });
-      expect(down1.rolledBack.map((e) => e.name)).toEqual(["add-name"]);
+        // Roll back migration 1: name column dropped
+        const down1 = await down(clientV2, {
+          storageDriver: storage,
+          steps: 1,
+        });
+        expect(down1.rolledBack.map((e) => e.name)).toEqual(["add-name"]);
 
-      await expect(
-        driver._executeRaw('SELECT "name" FROM "user" WHERE "id" = \'u1\'')
-      ).rejects.toThrow();
+        await expect(
+          driver._executeRaw('SELECT "name" FROM "user" WHERE "id" = \'u1\'')
+        ).rejects.toThrow();
 
-      // Row data survives the column rollback
-      const row = await driver._executeRaw(
-        'SELECT "email" FROM "user" WHERE "id" = \'u1\''
-      );
-      expect(row.rows).toHaveLength(1);
+        // Row data survives the column rollback
+        const row = await driver._executeRaw(
+          'SELECT "email" FROM "user" WHERE "id" = \'u1\''
+        );
+        expect(row.rows).toHaveLength(1);
 
-      // Roll back migration 0: table dropped
-      const down0 = await down(clientV1, { storageDriver: storage, steps: 1 });
-      expect(down0.rolledBack.map((e) => e.name)).toEqual(["init"]);
+        // Roll back migration 0: table dropped
+        const down0 = await down(clientV1, {
+          storageDriver: storage,
+          steps: 1,
+        });
+        expect(down0.rolledBack.map((e) => e.name)).toEqual(["init"]);
 
-      await expect(
-        driver._executeRaw('SELECT "id" FROM "user"')
-      ).rejects.toThrow();
+        await expect(
+          driver._executeRaw('SELECT "id" FROM "user"')
+        ).rejects.toThrow();
 
-      // Everything is pending again
-      const statuses = await status(clientV1, { storageDriver: storage });
-      expect(statuses).toHaveLength(2);
-      expect(statuses.every((st) => !st.applied)).toBe(true);
+        // Everything is pending again
+        const statuses = await status(clientV1, { storageDriver: storage });
+        expect(statuses).toHaveLength(2);
+        expect(statuses.every((st) => !st.applied)).toBe(true);
 
-      // Re-apply both migrations: schema round-trips
-      const reapplied = await apply(clientV2, { storageDriver: storage });
-      expect(reapplied.applied).toHaveLength(2);
+        // Re-apply both migrations: schema round-trips
+        const reapplied = await apply(clientV2, { storageDriver: storage });
+        expect(reapplied.applied).toHaveLength(2);
 
-      await clientV2.user.create({
-        data: { id: "u2", email: "b@c.d", name: "Bob" },
-      });
-      const users = await clientV2.user.findMany({});
-      expect(users).toHaveLength(1);
+        await clientV2.user.create({
+          data: { id: "u2", email: "b@c.d", name: "Bob" },
+        });
+        const users = await clientV2.user.findMany({});
+        expect(users).toHaveLength(1);
 
-      // No further schema changes detected after round-trip
-      const gen3 = await generate(clientV2, {
-        storageDriver: storage,
-        name: "noop",
-      });
-      expect(gen3.entry).toBeNull();
-      expect(gen3.operations).toHaveLength(0);
-    });
+        // No further schema changes detected after round-trip
+        const gen3 = await generate(clientV2, {
+          storageDriver: storage,
+          name: "noop",
+        });
+        expect(gen3.entry).toBeNull();
+        expect(gen3.operations).toHaveLength(0);
+      }
+    );
 
-    it("rolls back to a specific migration with `to`", { timeout: 30_000 }, async () => {
-      const storage = new MemoryStorageDriver();
-      const driver = createDriver();
-      const clientV1 = createClient({ schema: schemaV1, driver });
-      const clientV2 = createClient({ schema: schemaV2, driver });
+    it(
+      "rolls back to a specific migration with `to`",
+      { timeout: 30_000 },
+      async () => {
+        const storage = new MemoryStorageDriver();
+        const driver = createDriver();
+        const clientV1 = createClient({ schema: schemaV1, driver });
+        const clientV2 = createClient({ schema: schemaV2, driver });
 
-      await generate(clientV1, { storageDriver: storage, name: "init" });
-      await generate(clientV2, { storageDriver: storage, name: "add-name" });
-      await apply(clientV2, { storageDriver: storage });
+        await generate(clientV1, { storageDriver: storage, name: "init" });
+        await generate(clientV2, { storageDriver: storage, name: "add-name" });
+        await apply(clientV2, { storageDriver: storage });
 
-      const result = await down(clientV2, {
-        storageDriver: storage,
-        to: "init",
-      });
-      expect(result.rolledBack.map((e) => e.name)).toEqual(["add-name"]);
+        const result = await down(clientV2, {
+          storageDriver: storage,
+          to: "init",
+        });
+        expect(result.rolledBack.map((e) => e.name)).toEqual(["add-name"]);
 
-      const statuses = await status(clientV2, { storageDriver: storage });
-      expect(statuses.find((st) => st.entry.name === "init")?.applied).toBe(
-        true
-      );
-      expect(statuses.find((st) => st.entry.name === "add-name")?.applied).toBe(
-        false
-      );
-    });
+        const statuses = await status(clientV2, { storageDriver: storage });
+        expect(statuses.find((st) => st.entry.name === "init")?.applied).toBe(
+          true
+        );
+        expect(
+          statuses.find((st) => st.entry.name === "add-name")?.applied
+        ).toBe(false);
+      }
+    );
 
-    it("marks lossy operations with warnings in the down file", { timeout: 30_000 }, async () => {
-      const storage = new MemoryStorageDriver();
-      const driver = createDriver();
-      const clientV2 = createClient({ schema: schemaV2, driver });
-      const clientV1 = createClient({ schema: schemaV1, driver });
+    it(
+      "marks lossy operations with warnings in the down file",
+      { timeout: 30_000 },
+      async () => {
+        const storage = new MemoryStorageDriver();
+        const driver = createDriver();
+        const clientV2 = createClient({ schema: schemaV2, driver });
+        const clientV1 = createClient({ schema: schemaV1, driver });
 
-      await generate(clientV2, { storageDriver: storage, name: "init" });
+        await generate(clientV2, { storageDriver: storage, name: "init" });
 
-      // Dropping the name column is lossy: down restores structure, not data
-      const gen = await generate(clientV1, {
-        storageDriver: storage,
-        name: "drop-name",
-      });
-      expect(gen.entry).not.toBeNull();
-      expect(gen.downWarnings.some((w) => w.includes("lossy"))).toBe(true);
+        // Dropping the name column is lossy: down restores structure, not data
+        const gen = await generate(clientV1, {
+          storageDriver: storage,
+          name: "drop-name",
+        });
+        expect(gen.entry).not.toBeNull();
+        expect(gen.downWarnings.some((w) => w.includes("lossy"))).toBe(true);
 
-      const downFile = await storage.readDownMigration(gen.entry!);
-      expect(downFile).toContain("-- WARNING:");
-    });
+        const downFile = await storage.readDownMigration(gen.entry!);
+        expect(downFile).toContain("-- WARNING:");
+      }
+    );
   });
 }
 

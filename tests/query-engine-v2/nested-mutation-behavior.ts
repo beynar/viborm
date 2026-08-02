@@ -69,7 +69,7 @@ export function runNestedMutationBehavior(options: {
       "delete + deleteMany stay parent-correlated",
       { timeout: 30_000 },
       async () => {
-        const { driver, client, dispose, update } = await setup();
+        const { client, dispose, update } = await setup();
         try {
           await client.user.create({
             data: {
@@ -102,7 +102,6 @@ export function runNestedMutationBehavior(options: {
           expect(
             await client.post.findMany({ orderBy: { id: "asc" } })
           ).toMatchObject([{ id: "po3", title: "Remove many", userId: "u2" }]);
-          void driver;
         } finally {
           await dispose();
         }

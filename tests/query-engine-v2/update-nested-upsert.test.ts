@@ -125,8 +125,7 @@ async function runArm(kind: ArmKind, scenario: Scenario) {
 const dualRunScenarios: Scenario[] = [
   {
     name: "absent child → create arm + increment",
-    seed: (client) =>
-      client.user.create({ data: { email: "a@x", count: 10 } }),
+    seed: (client) => client.user.create({ data: { email: "a@x", count: 10 } }),
     args: correlatedUpsertArgs({
       email: "a@x",
       childId: 1,
@@ -256,7 +255,11 @@ describe("query-engine-v2 update slice composition gates", () => {
     // independent — proven here on both the transaction and batch engines.
     expect(
       () =>
-        new UpdateOperation(planningEngine(), updateSliceSchema.user, samePair())
+        new UpdateOperation(
+          planningEngine(),
+          updateSliceSchema.user,
+          samePair()
+        )
     ).toThrow("depends on an earlier 'upsert'");
     expect(
       () =>
