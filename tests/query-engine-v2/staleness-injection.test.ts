@@ -631,10 +631,11 @@ describe("query-engine-v2 staleness injection (M2M adopt premises)", () => {
 // machinery and must both hold:
 //
 //  - the FILTER half. Planning locates `K ∧ filters`; the hook makes the filter
-//    stop matching. Batch mode addresses the row by the original `where`, so the
-//    root-presence guard carries the filter INTO the atomic unit — a stale
-//    filter must abort the batch typed, not fall through to an UPDATE that
-//    matches zero rows and silently reports success.
+//    stop matching. The root-presence guard carries the WHOLE selector — filter
+//    included — into the atomic unit, so a stale filter must abort the batch
+//    typed, not fall through to an UPDATE that matches zero rows and silently
+//    reports success. (The UPDATE itself addresses the captured PK, which is
+//    exactly why the guard, not the write's WHERE, has to hold the filter.)
 //  - the DISCRIMINATOR half. The existing protection (a concurrent delete) must
 //    fire exactly as it does for a plain `where` — extending the selector must
 //    not have loosened it.
@@ -817,6 +818,239 @@ describe("query-engine-v2 staleness injection (located-parent Ref)", () => {
     ).rejects.toBeInstanceOf(NotFoundError);
 
     await expect(client.post.findMany()).resolves.toEqual([]);
+    await client.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N1 residue — the BATCH root address. Every child edge of a located-parent
+// update addresses the CAPTURED row (the Ref the locate produced). Batch mode
+// used to leave the root's own two statements addressing the caller's SELECTOR
+// instead: the presence guard re-ran `findUnique(where)` and the root UPDATE
+// carried the same `where`. A discriminator is REASSIGNABLE — rename the located
+// row and re-insert the freed value on another row and the selector names a
+// DIFFERENT row than the one the children attach to. The guard passed on the
+// replacement, the UPDATE mutated the replacement, the children rode the capture:
+// two rows, one operation (the terminal read, which already addressed the
+// captured PK, then reported the row that was NOT mutated).
+//
+// Both halves are pinned, and each is falsified at its own injection point,
+// because they answer different questions at different instants:
+//
+//  - the GUARD is the batch's abort mechanism. It asserts `selector ∧ captured
+//    PK` — the split-witness the nested targeted-mutation guards already use —
+//    so a reassigned discriminator finds no row and the unit aborts typed.
+//    Falsified BEFORE the batch (`BeforeBatchPGliteDriver`): reinstate the
+//    selector-only guard and the abort never happens.
+//  - the WRITE's WHERE is the row ADDRESS. It names the captured PK, the row the
+//    locate acted on (the wrong-row doctrine), which is what the children and the
+//    terminal read already name. Falsified INSIDE the batch
+//    (`MidBatchPGliteDriver`): a batch is atomic, not serializable, so the row
+//    can be reassigned in the guard→UPDATE window; reinstate the selector-only
+//    address and the UPDATE walks off onto the replacement row while the guard,
+//    the children and the terminal all stay on the captured one.
+// ---------------------------------------------------------------------------
+
+/** Run raw SQL on the batch's own transaction handle. */
+type RawRunner = (sql: string) => Promise<unknown>;
+
+/**
+ * A batch-only PGlite driver that runs a hook INSIDE the atomic unit, immediately
+ * before the first statement matching `runBefore`. PGlite is single-connection, so
+ * the hook cannot be a second committed session; it runs on the batch's own
+ * transaction handle. That is not a weaker witness for the row ADDRESS: what the
+ * root UPDATE sees is the same either way — under READ COMMITTED an unlocked guard
+ * SELECT does not stop another session committing a reassignment before the UPDATE
+ * statement runs. This driver reproduces exactly that state deterministically.
+ */
+class MidBatchPGliteDriver extends PGliteDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+  private hook: ((run: RawRunner) => Promise<void>) | undefined;
+  private readonly runBefore: (sql: string) => boolean;
+
+  constructor(
+    hook: (run: RawRunner) => Promise<void>,
+    runBefore: (sql: string) => boolean,
+    options: ConstructorParameters<typeof PGliteDriver>[0]
+  ) {
+    super(options);
+    this.hook = hook;
+    this.runBefore = runBefore;
+  }
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (transaction) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        if (this.hook && this.runBefore(query.sql)) {
+          const hook = this.hook;
+          this.hook = undefined;
+          await hook((raw) => this.executeRaw(transaction, raw, []));
+        }
+        results.push(
+          await this.executeRaw<T>(transaction, query.sql, query.params)
+        );
+      }
+      return results;
+    });
+  }
+}
+
+const startsWithUpdate = (sql: string) =>
+  sql.trimStart().toUpperCase().startsWith("UPDATE");
+
+/** Run a V2 update in forced-batch mode with a hook wedged inside the batch. */
+function runUpdateMidBatch(
+  db: PGlite,
+  hook: (run: RawRunner) => Promise<void>,
+  runBefore: (sql: string) => boolean,
+  modelName: string,
+  model: Model<any>,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const driver = new MidBatchPGliteDriver(hook, runBefore, { client: db });
+  const schemas = createSchemaRegistry(updateFamilySchema);
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(updateFamilySchema, schemas)
+  );
+  const executor = new OperationExecutor(engine);
+  const operation = new UpdateOperation(engine, model, args);
+  const context = createOperationExecutionContext(
+    modelName,
+    "update",
+    engine.instrumentation
+  );
+  return executor.execute(operation, context);
+}
+
+describe("query-engine-v2 staleness injection (batch root address)", () => {
+  test("guard half: a reassigned discriminator aborts the batch, writing neither row", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "split@x", count: 0 } });
+
+    // Planning locates user 1 by its email and captures its id for the child FK.
+    // The hook then RENAMES user 1 and re-plants `split@x` on a brand-new user 2:
+    // the selector still matches a row, so a selector-only presence guard sees
+    // nothing wrong — but it is no longer the row the children were built for.
+    const injector = makeClient(db);
+    await expect(
+      runUpdate(
+        db,
+        async () => {
+          await injector.user.update({
+            where: { email: "split@x" },
+            data: { email: "moved@x" },
+          });
+          await injector.user.create({
+            data: { email: "split@x", count: 100 },
+          });
+        },
+        "user",
+        updateFamilySchema.user,
+        {
+          where: { email: "split@x" },
+          data: {
+            count: { increment: 1 },
+            posts: { create: { id: 70, title: "split", slug: "s70" } },
+          },
+          select: { email: true, count: true },
+        }
+      )
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    // Neither row moved: not the located one (count still 0), not the row that
+    // took its discriminator (count still 100), and no child was planted.
+    await expect(
+      client.user.findMany({ orderBy: { id: "asc" } })
+    ).resolves.toEqual([
+      { id: 1, email: "moved@x", count: 0 },
+      { id: 2, email: "split@x", count: 100 },
+    ]);
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await client.$disconnect();
+  });
+
+  test("write half: the root UPDATE addresses the captured row, not the one that took the discriminator", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "mid@x", count: 0 } });
+
+    // The reassignment lands AFTER the presence guard has passed and BEFORE the
+    // root UPDATE runs. The guard cannot answer for this window; only the UPDATE's
+    // own address can. It must stay on the captured id — the row the child INSERT
+    // and the terminal read both name — never follow the selector onto user 2.
+    const result = await runUpdateMidBatch(
+      db,
+      async (run) => {
+        await run(
+          `UPDATE "update_family_users" SET "email" = 'gone@x' WHERE "id" = 1`
+        );
+        await run(
+          `INSERT INTO "update_family_users" ("email", "count") VALUES ('mid@x', 100)`
+        );
+      },
+      startsWithUpdate,
+      "user",
+      updateFamilySchema.user,
+      {
+        where: { email: "mid@x" },
+        data: {
+          count: { increment: 1 },
+          posts: { create: { id: 71, title: "mid", slug: "s71" } },
+        },
+        select: { email: true, count: true },
+      }
+    );
+
+    // The operation reports the row it mutated, and that row is the located one.
+    expect(result).toEqual({ email: "gone@x", count: 1 });
+    await expect(
+      client.user.findMany({ orderBy: { id: "asc" } })
+    ).resolves.toEqual([
+      { id: 1, email: "gone@x", count: 1 },
+      { id: 2, email: "mid@x", count: 100 },
+    ]);
+    // The child rode the same row the UPDATE did — the split the address closes.
+    await expect(client.post.findMany()).resolves.toEqual([
+      { id: 71, title: "mid", slug: "s71", userId: 1 },
+    ]);
+    await client.$disconnect();
+  });
+
+  test("control: with no interference the located-parent batch is unchanged", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "calm@x", count: 0 } });
+
+    const result = await runUpdate(
+      db,
+      // The staleness hook is the harness's, not the scenario's: nothing moves.
+      () => Promise.resolve(),
+      "user",
+      updateFamilySchema.user,
+      {
+        where: { email: "calm@x" },
+        data: {
+          count: { increment: 1 },
+          posts: { create: { id: 72, title: "calm", slug: "s72" } },
+        },
+        select: { email: true, count: true },
+      }
+    );
+
+    expect(result).toEqual({ email: "calm@x", count: 1 });
+    await expect(client.post.findMany()).resolves.toEqual([
+      { id: 72, title: "calm", slug: "s72", userId: 1 },
+    ]);
     await client.$disconnect();
   });
 });

@@ -2130,6 +2130,48 @@ look for: a caller that dispatches on the kind instead of the shape.
 
 Both stay in the census as capability gaps.
 
+### 8.1 N1 residue — the batch ROOT address (amends P2a update (b))
+
+P2a lowered the root `update`'s `notFound` postcondition to an `exists` guard "on the
+located row's unique key". That phrasing hid an assumption: the unique key the caller
+WROTE and the row the locate FOUND are the same address. They are, iff the `where`'s
+DISCRIMINATOR names the primary key. Otherwise the discriminator is **reassignable** —
+another row can take that value between the unlocked planning read and the atomic unit —
+and the root's two batch statements, the guard (`findUnique(where)`) and the UPDATE
+(`WHERE where`), could name a DIFFERENT row than every child edge, which addresses the
+captured located row. One operation, two rows; the terminal read, which already addressed
+the captured PK, then reported the row that was not mutated.
+
+Both statements now address the capture, and the split is between them, not duplicated
+across them:
+
+- the **guard** conjoins the captured PK to the whole selector (filter half included) —
+  the split-witness `RelationWritePart` / `RelationUpsertPart` / the X1c nested-target
+  guard already use. It is the batch's ABORT mechanism: a reassigned discriminator leaves
+  no `selector ∧ captured PK` row, so the unit aborts typed instead of mutating the
+  replacement.
+- the **root UPDATE** addresses the captured PK alone — the row the locate acted on (§the
+  wrong-row doctrine), the row the children and the terminal already name. It is the row
+  ADDRESS, not a second guard: an atomic batch is indivisible but **not serializable**, so
+  a reassignment committed in the guard→UPDATE window is past the guard and only the
+  address answers for it. Conversely the selector must NOT be re-copied into that WHERE:
+  batch mode lowers no `affectedRows` postcondition, so the only thing a second copy could
+  produce in that window is a SILENT zero-row root — a partial write with no error, which
+  is strictly worse than the guard's typed abort. One guard for the premise, one address
+  for the row (AGENTS.md: one guard per invariant).
+
+Both are gated on the selector not naming the PK, because that is the entire hazard
+surface: a pinned PK cannot move to another row, so re-addressing would be a redundant
+conjunct on an invariant the locate already settled. `where: { id }` batches are therefore
+byte-identical to the pre-change ones, pinned statement-for-statement in
+`located-parent-ref.test.ts`. Each half is falsified at its own injection point in
+`staleness-injection.test.ts` ("batch root address"): before-batch for the guard,
+mid-batch (inside the unit, between the guard and the UPDATE) for the address.
+
+`DeleteOperation` still addresses the original `where` in batch mode. Narrower — it has no
+child edges to split against — but its captured read and its DELETE are two evaluations of
+one selector, so it is a lane, not a non-issue.
+
 ### 8.2 N7-U-B — the arms that ask for nothing, and what a live oracle sees
 
 U-A stopped counting the sites that refuse nothing. U-B took the sites that DO refuse and

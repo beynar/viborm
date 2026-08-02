@@ -166,6 +166,31 @@ two can name different rows. This is pre-existing for every alternate-unique loc
 `connect` under `where: { email }` splits the same way) and is NOT introduced by the Ref —
 but N1 makes the spelling common, so it is named here rather than left implicit.
 
+> **FIXED (post-N6 review lane, `UpdateOperation.ts`).** The two statements now do what
+> every child edge already did. The batch **presence guard** conjoins the captured primary
+> key to the selector — the same split-witness the nested targeted-mutation guards use — so
+> a reassigned discriminator finds no row and the unit aborts with the family's typed
+> `NotFoundError` instead of confirming the replacement. The **root UPDATE** addresses the
+> captured PK, the row the locate acted on (the wrong-row doctrine), which is the row the
+> children and the terminal read already address; a batch is atomic but not serializable,
+> so a reassignment committed in the guard→UPDATE window is past the guard and only the
+> address answers for it. The selector deliberately does NOT ride along in the UPDATE's
+> `WHERE`: the guard already asserts it inside the unit, and a second copy could only turn
+> that window into a silent zero-row root (batch mode lowers no `affectedRows`
+> postcondition) — one guard for the premise, one address for the row.
+>
+> Both changes are gated on the selector NOT naming the primary key. When `where` pins the
+> PK the selector and the capture are the same address by construction and no reassignment
+> is possible, so the plan is untouched — pinned `where: { id }` batches are byte-identical
+> to the pre-change ones, asserted statement for statement in
+> `tests/query-engine-v2/located-parent-ref.test.ts`. Witnesses in
+> `tests/query-engine-v2/staleness-injection.test.ts` ("batch root address"): the guard half
+> falsified by a before-batch rename+reinsert, the write half by the same reassignment wedged
+> INSIDE the batch between the guard and the UPDATE, plus a no-interference control.
+> `DeleteOperation`'s batch guard/read/delete still address the original `where` — a narrower
+> hazard (no child edges to split against, but the captured row it RETURNS and the row it
+> DELETES are two evaluations of the selector) left to its own lane.
+
 ### N1 — certification
 
 TS 5.9.3 typecheck clean; Biome clean on every touched file. Gates 5/5 files, 69 tests.

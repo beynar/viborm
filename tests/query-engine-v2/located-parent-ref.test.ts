@@ -417,6 +417,112 @@ describe("located-parent Ref compiles the same plan as the pinned spelling", () 
 });
 
 /**
+ * The BATCH root address, spelled out statement by statement.
+ *
+ * On an atomic batch the located-parent update carries two statements that used to
+ * re-consult the caller's `where` — the root-presence guard and the root UPDATE —
+ * while every child edge addressed the CAPTURED row. A discriminator the `where`
+ * does not fix to the primary key is reassignable, so those two could name a
+ * different row than the children did. Both now conjoin / address the captured PK.
+ *
+ * This is the byte-compare that keeps the change SCOPED. The `where: { id }` arm is
+ * the one that was never at risk (a pinned PK cannot move to another row) and its
+ * five statements are asserted verbatim: they are byte-identical to the pre-change
+ * plan, so the overwhelmingly common spelling pays nothing — no extra conjunct, no
+ * re-addressed UPDATE, no `LIMIT`-shaped guard. The `where: { email }` arm asserts
+ * the two statements that DID move, and only those two.
+ */
+describe("the batch root address is scoped to the unpinned spelling", () => {
+  class RecordingBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
+    readonly statements: string[] = [];
+    recording = false;
+
+    protected override execute<T>(
+      client: PGlite | Transaction,
+      sql: string,
+      params: unknown[],
+      context?: QueryExecutionContext
+    ): Promise<QueryResult<T>> {
+      if (this.recording) this.statements.push(sql);
+      return super.execute<T>(client, sql, params, context);
+    }
+
+    protected override executeRaw<T>(
+      client: PGlite | Transaction,
+      sql: string,
+      params: unknown[] | undefined,
+      context?: QueryExecutionContext
+    ): Promise<QueryResult<T>> {
+      if (this.recording) this.statements.push(sql);
+      return super.executeRaw<T>(client, sql, params, context);
+    }
+  }
+
+  const ACCOUNTS = '"n1_ref_accounts"';
+  const PK_LOCATE = `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`;
+  const TERMINAL = `SELECT "t0"."id" AS "id", "t0"."email" AS "email", "t0"."code" AS "code", "t0"."label" AS "label" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`;
+  const NOTE_INSERT = `INSERT INTO "n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER))`;
+
+  test("where:{id} issues the pre-change batch, statement for statement", async () => {
+    const db = new PGlite();
+    const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
+    const client = makeClient(driver);
+    await push(client, { force: true });
+    await seed(client);
+
+    driver.recording = true;
+    await client.account.update({
+      where: { id: 2 },
+      data: { label: "pinned", notes: { create: { id: 300, body: "b" } } },
+    });
+    driver.recording = false;
+
+    expect(driver.statements).toEqual([
+      // The locate, unchanged.
+      PK_LOCATE,
+      // The presence guard: still `findUnique(where)`. The captured PK would be the
+      // same column with the same literal, and a duplicated conjunct is a second
+      // guard on one invariant.
+      `SELECT 1 / CASE WHEN EXISTS (${PK_LOCATE}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+      // The root UPDATE: still addressed by the `where`, because here the `where` IS
+      // the captured PK.
+      `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
+      NOTE_INSERT,
+      TERMINAL,
+    ]);
+    await client.$disconnect();
+  });
+
+  test("where:{email} moves exactly the guard and the root UPDATE onto the captured PK", async () => {
+    const db = new PGlite();
+    const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
+    const client = makeClient(driver);
+    await push(client, { force: true });
+    await seed(client);
+
+    driver.recording = true;
+    await client.account.update({
+      where: { email: "target@x" },
+      data: { label: "reffed", notes: { create: { id: 400, body: "b" } } },
+    });
+    driver.recording = false;
+
+    expect(driver.statements).toEqual([
+      // The locate still asks the question the caller asked.
+      `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."email" = $1 LIMIT 1`,
+      // The guard is now the split-witness: the selector AND the row it located.
+      `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC NULLS LAST LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+      // The root UPDATE addresses the captured PK — the same row the note INSERT
+      // below and the terminal read already address.
+      `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
+      NOTE_INSERT,
+      TERMINAL,
+    ]);
+    await client.$disconnect();
+  });
+});
+
+/**
  * Staleness injection for the new Ref path (the harness convention of
  * `staleness-injection.test.ts`, one step deeper: that file corrupts committed STATE
  * between planning and the batch; this one corrupts the VALUE that crosses the

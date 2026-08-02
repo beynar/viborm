@@ -3408,10 +3408,12 @@ export class UpdateOperation {
       id: this.updateId,
       kind: "write",
       statement: buildUpdate(parent, {
-        // Address the row by the PK captured at the (FOR UPDATE) locate — V1's
-        // `WHERE id` mechanic (locate by an alternate unique, mutate by the
-        // immutable captured PK). Transaction mode only; batch mode keeps the
-        // original `where` so the write and its presence guard pin one row.
+        // Address the row by the PK captured at the locate — V1's `WHERE id`
+        // mechanic (locate by an alternate unique, mutate by the immutable
+        // captured PK). Under a transaction the locate holds `FOR UPDATE`; under
+        // an atomic batch the root-presence guard conjoins the same captured PK.
+        // See {@link UpdateOperation.writeWhere} for when the original `where` is
+        // already that address and is therefore left alone.
         where: this.writeWhere(locatedRow),
         // The construction-time SET (scalar ∪ connect/disconnect folds) unioned
         // with the compile-time parent-held create/connectOrCreate FK folds
@@ -3433,15 +3435,60 @@ export class UpdateOperation {
     };
   }
 
-  /** The row's post-locate address: the captured PK in transaction mode (V1's
-   *  `WHERE id`), the original `where` in batch mode (guard/write pin one row). A
-   *  nested target has no standalone unique `where` (a to-one / parent-held target
-   *  locates by correlation) and its batch presence guard already pins the correlated
-   *  captured PK, so it addresses by the captured PK on BOTH substrates (X1c). */
+  /** Does the caller's unique `where` already NAME the primary key? Only its
+   *  DISCRIMINATOR counts (`getWhereUniqueEntries`, the module contract of
+   *  `where-unique-builder`): the extended filter half is a predicate, never an
+   *  identity. When it does, the selector and the located row are the same address by
+   *  construction — the locate matched that literal PK, and a unique PK cannot move to
+   *  another row — so re-addressing changes nothing and the plan stays byte-identical.
+   *  When it does NOT (`where: { email }`), the discriminator is REASSIGNABLE: another
+   *  row can take that value, and selector and capture stop naming the same row. That
+   *  is the whole surface of the batch root-address problem, and the reason this
+   *  predicate — not the substrate alone — gates both sites below. */
+  private selectorNamesPrimaryKey(): boolean {
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    const named = new Set(
+      getWhereUniqueEntries(parent, this.parentWhere).map(
+        (entry) => entry.fieldName
+      )
+    );
+    return this.parentPrimaryKeys.every((pk) => named.has(pk));
+  }
+
+  /** The captured primary key as filter conjuncts — the row the LOCATE acted on. */
+  private capturedPkFilter(
+    locatedRow: Record<string, unknown>
+  ): Record<string, unknown> {
+    return Object.fromEntries(
+      this.parentPrimaryKeys.map((pk) => [pk, { equals: locatedRow[pk] }])
+    );
+  }
+
+  /** The row's post-locate ADDRESS — not a check. Transaction mode has always used
+   *  V1's `WHERE id` mechanic (locate by an alternate unique, mutate by the immutable
+   *  captured PK); a nested target uses it on both substrates (X1c); and a batch whose
+   *  selector does not name the PK now uses it too, because re-consulting a
+   *  REASSIGNABLE discriminator is how a write walks off the row its own children were
+   *  built against (the wrong-row doctrine: identity comes from the row a step acted
+   *  on, never from re-evaluating the input). This is not the presence guard's job in
+   *  different clothes: the guard decides whether the unit runs at all, and it decides
+   *  it at ITS instant — an atomic batch is indivisible, not serializable, so a
+   *  reassignment committed in the guard→UPDATE window is past the guard and only the
+   *  address can answer for it. Conversely the selector does not belong HERE: the guard
+   *  already asserts it inside the unit, and a second copy in the UPDATE's WHERE could
+   *  only ever turn that window into a SILENT zero-row root (batch mode lowers no
+   *  `affectedRows` postcondition) — a partial write with no error, which is strictly
+   *  worse than the guard's typed abort. One guard for the premise, one address for the
+   *  row. When the selector DOES name the PK the two are the same address, so the plan
+   *  is left exactly as it was. */
   private writeWhere(
     locatedRow: Record<string, unknown>
   ): Record<string, unknown> {
-    if (this.mode !== "transaction" && !this.nestedTarget) {
+    if (
+      this.mode !== "transaction" &&
+      !this.nestedTarget &&
+      this.selectorNamesPrimaryKey()
+    ) {
       return this.parentWhere;
     }
     return buildPrimaryKeyWhereUnique(
@@ -3456,16 +3503,30 @@ export class UpdateOperation {
    *  guard is the located-target split-witness (X1c): the original correlation AND the
    *  captured PK must still name the same row, so a concurrent cross-parent move of the
    *  selector leaves no such row and the batch aborts typed, never mutating the
-   *  replacement a selector-alone guard would have found. */
+   *  replacement a selector-alone guard would have found.
+   *
+   *  A ROOT whose unique `where` does not name the primary key needs the same witness
+   *  for the same reason, and it is the same premise, not a second one: "the row the
+   *  locate acted on is still the row the caller named". A discriminator the `where`
+   *  does not fix to the PK is REASSIGNABLE — rename the located row, re-plant the
+   *  freed value on another row, and a `findUnique(where)` guard happily confirms the
+   *  REPLACEMENT while every child edge in the unit addresses the capture. Conjoining
+   *  the captured PK is what makes the guard answer for the located row instead of for
+   *  the selector, so the reassignment aborts the batch typed rather than splitting one
+   *  operation across two rows. When the `where` DOES name the PK the conjunct is
+   *  implied by the locate that produced the row, so it is not added — a redundant
+   *  conjunct is a second guard on one invariant (AGENTS.md), and this keeps the
+   *  overwhelmingly common `where: { id }` plan byte-identical. */
   private buildRootPresenceGuard(
-    known?: Readonly<Record<string, unknown>>,
-    locatedRow?: Record<string, unknown>
+    // Both REQUIRED. They were optional, and each captured-PK branch below then
+    // carried a truthiness test that could only ever fall back to the selector-only
+    // guard the split-witness exists to replace — a silent downgrade behind a
+    // narrowing check. The sole caller (compile, batch mode) has both in hand.
+    known: Readonly<Record<string, unknown>>,
+    locatedRow: Record<string, unknown>
   ): OperationStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
-    if (this.nestedTarget && known && locatedRow) {
-      const capturedPk = Object.fromEntries(
-        this.parentPrimaryKeys.map((pk) => [pk, { equals: locatedRow[pk] }])
-      );
+    if (this.nestedTarget) {
       return presenceGuard(
         this.rootGuardId,
         buildFind(
@@ -3475,7 +3536,7 @@ export class UpdateOperation {
               AND: [
                 ...this.nestedTargetWhereFilters(parent),
                 ...this.nestedTargetCorrelationFilters(known, false),
-                capturedPk,
+                this.capturedPkFilter(locatedRow),
               ],
             },
             select: this.pkSelect(),
@@ -3489,15 +3550,35 @@ export class UpdateOperation {
         )
       );
     }
+    const rootNotFound = notFoundFailure(
+      `query-engine-v2 update located no '${getStepModelName(this.model, "record")}' row for its unique where.`
+    );
+    if (!this.selectorNamesPrimaryKey()) {
+      return presenceGuard(
+        this.rootGuardId,
+        buildFind(
+          parent,
+          {
+            where: {
+              AND: [
+                ...uniqueSelectorConjuncts(parent, this.parentWhere),
+                this.capturedPkFilter(locatedRow),
+              ],
+            },
+            select: this.pkSelect(),
+          },
+          { limit: 1 }
+        ),
+        rootNotFound
+      );
+    }
     return presenceGuard(
       this.rootGuardId,
       buildFindUnique(parent, {
         where: this.parentWhere,
         select: this.pkSelect(),
       }),
-      notFoundFailure(
-        `query-engine-v2 update located no '${getStepModelName(this.model, "record")}' row for its unique where.`
-      )
+      rootNotFound
     );
   }
 
