@@ -38,6 +38,11 @@ type ExecutionMode = "transaction" | "batch";
  * postcondition is a locate-read postcondition enforced at planning on both
  * substrates; batch mode additionally pins the row's presence inside the atomic
  * unit so a concurrent delete aborts the batch typed (ATOM §8.1 note (b)).
+ *
+ * The mainstream shape folds (query-performance-plan Phase 3): a scalar-projected
+ * delete on a RETURNING driver in transaction mode is ONE
+ * `DELETE … WHERE <unique where> RETURNING <select>` — see {@link foldStep}. The
+ * three-statement shape above is what the other cases keep.
  */
 export class DeleteOperation {
   readonly mode: ExecutionMode;
@@ -54,6 +59,7 @@ export class DeleteOperation {
   private readonly readId: string;
   private readonly deleteId: string;
   private readonly rootGuardId: string;
+  private readonly foldStep: StatementStep | undefined;
 
   constructor(
     engine: QueryEngine,
@@ -144,14 +150,90 @@ export class DeleteOperation {
         )
       ),
     };
+
+    // The statement-atomic fast path (query-performance-plan Phase 3), mirroring
+    // `UpdateOperation`'s `canFold` gate and `CreateOperation.foldStep`: the
+    // mainstream delete is ONE `DELETE … WHERE <unique where> RETURNING <select>`.
+    // Empty planning + one step → the executor runs it directly, with no
+    // transaction envelope at all: five round trips (BEGIN, locate, snapshot,
+    // DELETE, COMMIT) become one.
+    //
+    // The DELETE already carried a RETURNING clause and threw the rows away — the
+    // snapshot SELECT re-read what the write was handing back. The fold is that
+    // clause put to use; for a scalar projection the snapshot `buildFindUnique`
+    // and `buildDelete`'s RETURNING name the same columns, so the parsed result is
+    // byte-identical.
+    //
+    // Gated to:
+    //  - `transaction` mode. Batch mode keeps the presence guard + read + delete
+    //    that pin one row inside the atomic unit (ATOM §8.1 note (b)); the folded
+    //    step's postcondition has no atomic-batch lowering, exactly as the update
+    //    fold records.
+    //  - a RETURNING driver. MySQL cannot hand the row back from a DELETE, and
+    //    after the delete there is nothing left to read, so it keeps the
+    //    read-then-delete path (the same reason `deleteMany` + `select` keeps it,
+    //    pinned by non-returning-delete-plan.test.ts).
+    //  - a SCALAR-ONLY projection. A relation `include`/`select` must read the
+    //    related rows BEFORE the row is gone — a cascade takes them with it — and
+    //    a lateral join has no RETURNING spelling anyway.
+    //
+    // The race protection the multi-statement path buys with its captured PK
+    // (locate FOR UPDATE by an alternate unique, then `WHERE id`, so a concurrent
+    // rewrite of that alternate unique cannot redirect the write to another row)
+    // is preserved BY CONSTRUCTION here: there is no window between the locate and
+    // the write to race, because there is no separate locate. One statement
+    // matches, locks and removes one row atomically. This is the identical
+    // argument the update fold makes for `UPDATE … WHERE selector RETURNING`.
+    const selectIsScalarOnly = !Object.keys(this.parsedSelect ?? {}).some(
+      (field) => model["~"].relationSet.has(field)
+    );
+    const canFold =
+      txMode &&
+      engine.adapter.capabilities.supportsReturning &&
+      selectIsScalarOnly &&
+      !this.parsedInclude;
+    this.foldStep = canFold
+      ? {
+          id: this.deleteId,
+          kind: "write",
+          statement: buildDelete(parent, {
+            where: this.parentWhere,
+            ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
+          }),
+          outputs: { result: { kind: "rows" } },
+          // The same `affectedRows(1, notFound)` the multi-statement DELETE
+          // carries, enforced in JS after the single round-trip. `failureError`
+          // builds the public error from the execution context, so a missing row
+          // raises the byte-identical `NotFoundError` the locate's `exactlyOneRow`
+          // raised at planning — same class, same message, same V6001 code.
+          expects: affectedRows(
+            1,
+            notFoundFailure(
+              `query-engine-v2 delete located no '${parentName}' row for its unique where.`
+            )
+          ),
+        }
+      : undefined;
   }
 
   planning(): OperationFragment {
+    // The RETURNING fold is a single self-contained statement — it consumes no
+    // planning value, and empty planning is what makes it statement-atomic.
+    if (this.foldStep) return { steps: [], outputs: {} };
     const steps = [this.locate];
     return { steps, outputs: planningOutputs(steps) };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
+    // The fold compiles to its one write step regardless of `known`: the
+    // `DELETE … WHERE unique RETURNING select` locates, removes and returns the
+    // row in one statement, its notFound postcondition enforced after it runs.
+    if (this.foldStep) {
+      return {
+        steps: [this.foldStep],
+        outputs: { result: ref(this.deleteId, "result") },
+      };
+    }
     // Defensive: the locate postcondition already aborts a missing root at
     // planning; this keeps compile fail-closed if it is ever called directly.
     const rows = known[planningKey(this.locate.id, "rows")];

@@ -741,16 +741,39 @@ describe("Basic CRUD Operations", () => {
   });
 
   describe("delete", () => {
-    test("multi-step delete rejects the single-statement build API", () => {
-      // A root delete locates the row by its unique `where` (a notFound-enforcing
-      // planning read) before deleting it, so it is a multi-statement operation —
-      // the single-statement `build()` API rejects it, exactly as it does an
-      // upsert. The delete's persisted effect is covered by the delete-behavior and
-      // nested-write-conformance suites.
+    // PIN UPDATED DELIBERATELY — query-performance-plan Phase 3 (the delete fold).
+    //
+    // This pin previously asserted that `build()` REJECTS a root delete, because a
+    // root delete located the row by its unique `where` (a notFound-enforcing
+    // planning read), re-read its shape, and only then deleted it: three statements,
+    // five round trips. Phase 3 folds the mainstream shape — a scalar-projected
+    // delete on a RETURNING driver — into ONE `DELETE … RETURNING`, so the
+    // single-statement `build()` API now answers it. The old assertion pinned the
+    // round-trip count this phase exists to remove; the two tests below pin what
+    // replaced it, on both sides of the fold gate.
+    test("a scalar delete on a RETURNING driver is ONE statement", () => {
+      const { statement, values } = getSql(Author, "delete", {
+        where: { id: "author-1" },
+      });
+
+      expect(statement).toContain("DELETE");
+      expect(statement).toContain("RETURNING");
+      expect(values).toContain("author-1");
+    });
+
+    test("a non-returning driver keeps the multi-step path", () => {
+      // MySQL cannot hand the deleted row back, and after the DELETE there is
+      // nothing left to read — so the row is read BEFORE it is removed and the
+      // operation stays multi-statement, which `build()` still rejects. The same
+      // capability boundary `non-returning-delete-plan.test.ts` pins for
+      // `deleteMany` + `select`.
+      const mysqlEngine = new QueryEngine(
+        new MockDriver(new MySQLAdapter(), "mysql"),
+        registry
+      );
+
       expect(() =>
-        getSql(Author, "delete", {
-          where: { id: "author-1" },
-        })
+        mysqlEngine.build(Author, "delete", { where: { id: "author-1" } })
       ).toThrow(
         "Operation 'delete' does not compile to one SQL statement. Execute the operation instead."
       );

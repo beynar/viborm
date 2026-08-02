@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phase 1 delivered (see the Phase 1 delivery record). Phases 2-10 not started.
+**Status:** Phases 1 and 3 delivered (see their delivery records). Phases 2 and 4-10 not started.
 
 ## Source of this plan
 
@@ -281,6 +281,54 @@ Emit `DELETE FROM t WHERE <unique where> RETURNING <scalar select>` as one state
 3. Make sure that a delete with `include` keeps the read-then-delete order and correct results.
 4. Make sure that MySQL keeps its documented multi-statement path.
 5. Update the delete SQL pin in `tests/query-engine/sql-generation.test.ts` (the pin was set at line ~656) deliberately.
+
+### Phase 3 delivery record
+
+**Delivered:** 2026-08-02. Branch `nested-write-boundaries`.
+
+#### What shipped
+
+One gate and one step in [`src/query-engine-v2/DeleteOperation.ts`](../../src/query-engine-v2/DeleteOperation.ts), mirroring `UpdateOperation`'s `canFold` and `CreateOperation.foldStep`. A delete folds when all four hold: transaction mode, a RETURNING driver, a scalar-only projection, and no `include`. The folded operation has EMPTY planning and one write step, so `OperationExecutor.statementAtomicPlan` runs it directly on the base driver — no transaction envelope — with `affectedRows(1, notFound)` enforced in JS afterwards.
+
+The DELETE already carried a RETURNING clause whose rows were discarded; the snapshot SELECT re-read exactly what the write was handing back. The fold is that clause put to use.
+
+#### Measured effect — PGlite, same payload, statements recorded at the driver seam
+
+| Payload | Before | After |
+| --- | --- | --- |
+| `delete({ where: { id } })` | 3 payload statements (locate `FOR UPDATE`, snapshot `FOR UPDATE`, DELETE) inside BEGIN/COMMIT — 5 round trips | **1** statement, no envelope — 1 round trip |
+| `delete({ where: { email }, select })` | 3 (locate by `email`, snapshot by captured PK, DELETE by captured PK) | **1** (`DELETE … WHERE email … RETURNING label`) |
+| `delete({ where, include })` | 3, read-then-delete | 3, unchanged |
+| batch substrate | 4 (locate, presence guard, read, DELETE) | 4, unchanged |
+
+#### What the fold does NOT change
+
+- **The race protection.** The multi-statement path located `FOR UPDATE` by the (possibly alternate) unique and then wrote `WHERE id`, because an alternate unique could be rewritten between the two statements. The fold has no such window — one statement matches, locks and removes one row — so the protection is preserved by construction. This is the identical argument the update fold already makes for `UPDATE … WHERE selector RETURNING`.
+- **The error.** `failureError` builds the public error from the execution context, not from the step that failed, so moving the assertion from a locate read's `exactlyOneRow` to a write's `affectedRows` cannot change what the caller sees. Witnessed equal across all three paths.
+- **The extended-whereUnique filter half.** The filter rides into the folded DELETE's WHERE. It is only wrapped in a derived table on dialects that reject reading the mutated table (MySQL 1093) — and MySQL never folds — so PostgreSQL and SQLite are unaffected. The whole `extended-where-unique` suite is green on both substrates, self-relation filters included.
+- **The batch substrate**, **MySQL**, and the frozen `OperationFragment.ts` vocabulary.
+
+#### Witnesses
+
+[`tests/query-engine-v2/delete-fold.test.ts`](../../tests/query-engine-v2/delete-fold.test.ts) — nine, on a recording PGlite driver plus three plan-shape assertions that need no database. Every conjunct of the gate was falsified individually: removing the gate fails the two count witnesses and the plan shape; removing the `include` exclusion fails the include witness; removing the transaction-mode conjunct fails the batch witness; removing the RETURNING conjunct fails the non-returning plan witness.
+
+The delete pin in `tests/query-engine/sql-generation.test.ts` was updated deliberately, with the rationale in place: the old test asserted that `build()` REJECTS a root delete, which pinned the very round-trip count this phase removes. It is replaced by two tests — one folded statement on a RETURNING adapter, and the surviving refusal on MySQL.
+
+#### Gate
+
+| Leg | Result |
+| --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean |
+| `tests/query-engine-v2/` | 1026 passed, 0 failed (56 files) |
+| `tests/query-engine/` | 1183 passed, 0 failed (48 files) |
+| `tests/drivers/sqlite3.test.ts` | 1117 passed, 0 failed |
+| `tests/drivers/libsql.test.ts` + `pglite.test.ts` | 1788 passed, 0 failed |
+| `pnpm test:gates` | 72 passed |
+| repo-pinned `npx biome check` per changed file | clean |
+
+#### Found, not fixed — a pre-existing defect this phase's witnesses surfaced
+
+`delete({ where, select: { …, someRelation: {…} } })` — a relation nested in `select` rather than in `include` — fails on PostgreSQL with `0A000`. The shape-capturing read gates its lock on `forUpdate: txMode && !this.parsedInclude`, and that proxy misses a relation reached through `select`, so `FOR UPDATE` is emitted over a lateral join. Reproduced on the PR tip with this phase reverted; SQLite is unaffected (it omits `FOR UPDATE` entirely). Nothing in the estate covers the shape. It is left alone here on purpose: removing that lock is a locking change on a path this phase deliberately keeps, and it wants its own review and its own witnesses. Filed separately.
 
 ---
 
