@@ -221,6 +221,100 @@ describe.each(dialectCases)("$name cursor SQL", (dialectCase) => {
     );
   });
 
+  // --- Unit 5.2: the sargable cursor spelling -------------------------------
+  // `alternate` and `id` are both NOT NULL, so the cursor comparison can be a
+  // row value against a row-valued subquery, which a planner can turn into an
+  // index range seek. `age` is nullable and keeps the general predicate.
+
+  test("NOT NULL sort columns compare as a row value against a row subquery", () => {
+    const { statement, values } = buildUserQuery(dialectCase, {
+      cursor: { id: "cursor-id" },
+      orderBy: { alternate: "asc" },
+      take: 2,
+    });
+    const alternate = quoted(dialectCase, "alternate");
+    const id = quoted(dialectCase, "id");
+    const t0 = quoted(dialectCase, "t0");
+
+    expect(statement).toContain(`(${t0}.${alternate}, ${t0}.${id}) >= (SELECT`);
+    // The derived-row EXISTS wrapper is what blocked the seek; it is gone.
+    expect(statement).not.toContain("EXISTS");
+    expect(statement).not.toContain("__viborm_cursor_");
+    // Still one derived row, located by its own unique key, in one statement,
+    // and the cursor value is still bound once.
+    expect(countTableReferences(statement, "cursor_sql_users")).toBe(2);
+    expect(values.filter((value) => value === "cursor-id")).toHaveLength(1);
+  });
+
+  test("a backward window over an ascending order compares the other way", () => {
+    // A negative take reverses every key, so an all-ascending order becomes an
+    // all-descending one — still uniform, so still a row value, now `<=`.
+    const { statement } = buildUserQuery(dialectCase, {
+      cursor: { id: "cursor-id" },
+      orderBy: { alternate: "asc" },
+      take: -2,
+    });
+
+    expect(statement).toContain(") <= (SELECT");
+    expect(statement).not.toContain("EXISTS");
+  });
+
+  test("a descending order keeps the null-guarded predicate", () => {
+    const { statement } = buildUserQuery(dialectCase, {
+      cursor: { id: "cursor-id" },
+      orderBy: { alternate: "desc" },
+      take: 2,
+    });
+
+    // `normalizeCursorOrder` always appends the identity tie-breaker
+    // ascending, so a descending sort produces `alternate DESC, id ASC` — a
+    // mixed order, which no row value spells. The spelling is chosen from the
+    // normalized order, not from the requested one.
+    expect(statement).toContain("ORDER BY");
+    expect(statement).toContain("EXISTS");
+    expect(statement).not.toContain(") <= (SELECT");
+  });
+
+  test("a single NOT NULL sort column needs no row constructor", () => {
+    const { statement } = buildUserQuery(dialectCase, {
+      cursor: { id: "cursor-id" },
+      orderBy: { id: "asc" },
+      take: 2,
+    });
+    const column = `${quoted(dialectCase, "t0")}.${quoted(dialectCase, "id")}`;
+
+    expect(statement).toContain(`${column} >= (SELECT`);
+    expect(statement).not.toContain("EXISTS");
+  });
+
+  test("a nullable sort column keeps the null-guarded predicate", () => {
+    const { statement } = buildUserQuery(dialectCase, {
+      cursor: { id: "cursor-id" },
+      orderBy: { age: "asc" },
+      take: 2,
+    });
+
+    // No row value can order around SQL NULL, so this keeps the general form.
+    expect(statement).toContain("EXISTS");
+    expect(statement).toContain("__viborm_cursor_0");
+    expect(statement).toContain("IS NULL");
+    expect(statement).not.toContain(") >= (SELECT");
+  });
+
+  test("mixed sort directions keep the null-guarded predicate", () => {
+    const { statement } = buildUserQuery(dialectCase, {
+      cursor: { id: "cursor-id" },
+      orderBy: [{ alternate: "asc" }, { id: "desc" }],
+      take: 2,
+    });
+
+    // `(a, b) > (x, y)` means `a > x OR (a = x AND b > y)`; it cannot spell
+    // an ascending key followed by a descending one.
+    expect(statement).toContain("EXISTS");
+    expect(statement).not.toContain(") >= (SELECT");
+    expect(statement).not.toContain(") <= (SELECT");
+  });
+
   test("relation cursor ordering fails explicitly", () => {
     const engine = createEngine(dialectCase);
 

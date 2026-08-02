@@ -33,6 +33,11 @@ export function buildCursorCondition(
     );
   }
 
+  const rowValue = buildRowValueCursorCondition(ctx, cursorEntries, order);
+  if (rowValue) {
+    return rowValue;
+  }
+
   const { adapter } = ctx;
   const sourceAlias = ctx.nextAlias();
   const cursorAlias = ctx.nextAlias();
@@ -77,6 +82,102 @@ export function buildCursorCondition(
   });
 
   return adapter.operators.exists(comparisonSelect);
+}
+
+/**
+ * The sargable cursor spelling, when the schema permits it.
+ *
+ * The general predicate below is an OR of null-guarded AND chains, and no
+ * database serves that with an index: each dialect walks the whole index and
+ * filters, so page N costs a walk over everything before it. A row-value
+ * comparison against a row-valued subquery says the same thing in a form the
+ * planner can turn into a range seek.
+ *
+ * Measured at 100,000 rows with a composite index over the sort columns,
+ * paging from row 99,000: PostgreSQL 18.608 ms -> 0.467 ms (`Nested Loop Semi
+ * Join` with a join filter over a full `Index Scan` becomes `Index Cond:
+ * (ROW(k, id) >= ROW((InitPlan 1).col1, (InitPlan 1).col2))`); SQLite 14.695 ms
+ * -> 0.004 ms (`SCAN t USING INDEX` becomes `SEARCH t USING INDEX (k>?)`).
+ *
+ * The plan text proposed keeping the EXISTS wrapper and only replacing the
+ * OR-of-ANDs inside it. Measured, that is worth 1.12x and changes no plan
+ * shape: the wrapper is the blocker, because a co-routine's column cannot be
+ * an index seek bound. Replacing the wrapper is what buys the seek, and it
+ * costs no extra round trip — the cursor row is still located inside the same
+ * statement.
+ *
+ * Two schema facts gate it, and both are necessary:
+ *
+ * - Every sort column must be NOT NULL. A row-value comparison has no way to
+ *   express "nulls sort last"; SQL's own null semantics would make the whole
+ *   comparison NULL rather than order around it.
+ * - Every sort column must share one direction. `(a, b) > (x, y)` means
+ *   `a > x OR (a = x AND b > y)`; a mixed `a ASC, b DESC` order needs
+ *   `a > x OR (a = x AND b < y)`, which no row value spells.
+ *
+ * Anything else keeps the general predicate, which stays correct everywhere.
+ */
+function buildRowValueCursorCondition(
+  ctx: QueryScope,
+  cursorEntries: WhereUniqueEntry[],
+  order: NormalizedCursorOrder[]
+): Sql | undefined {
+  const { direction } = order[0]!;
+  const sargable = order.every(
+    (key) => !key.nullable && key.direction === direction
+  );
+  if (!sargable) {
+    return undefined;
+  }
+
+  const { adapter } = ctx;
+  const sourceAlias = ctx.nextAlias();
+  const cursorSelect = adapter.assemble.select({
+    columns: sql.join(
+      order.map((key) =>
+        adapter.identifiers.column(
+          sourceAlias,
+          getColumnName(ctx.model, key.field)
+        )
+      ),
+      ", "
+    ),
+    from: adapter.identifiers.table(getTableName(ctx.model), sourceAlias),
+    where: adapter.operators.and(
+      ...cursorEntries.map(({ fieldName, value }) =>
+        adapter.operators.eq(
+          adapter.identifiers.column(
+            sourceAlias,
+            getColumnName(ctx.model, fieldName)
+          ),
+          scalarValueLiteral(ctx, fieldName, value)
+        )
+      )
+    ),
+    limit: adapter.literals.value(1),
+  });
+
+  // The comparison is inclusive because the general predicate is: its last OR
+  // term is the all-equal one, so the cursor row itself is in the window.
+  // A cursor that matches no row makes the subquery NULL, the comparison NULL,
+  // and the window empty — the same Prisma semantics the EXISTS wrapper gave.
+  const compare =
+    direction === "desc" ? adapter.operators.lte : adapter.operators.gte;
+  return compare(
+    rowValue(order.map((key) => key.expression)),
+    adapter.subqueries.scalar(cursorSelect)
+  );
+}
+
+/**
+ * A SQL row constructor. One column needs no parentheses to mean itself, and
+ * a bare column keeps the comparison a plain scalar one — same shape as the
+ * bulk-limit key vector.
+ */
+function rowValue(expressions: Sql[]): Sql {
+  return expressions.length === 1
+    ? expressions[0]!
+    : sql`(${sql.join(expressions, ", ")})`;
 }
 
 function assertCursorValues(cursorEntries: WhereUniqueEntry[]): void {

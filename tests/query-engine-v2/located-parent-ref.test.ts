@@ -530,7 +530,10 @@ describe("the batch root address, statement by statement", () => {
       // The locate still asks the question the caller asked.
       `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."email" = $1 LIMIT 1`,
       // The guard is now the split-witness: the selector AND the row it located.
-      `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC NULLS LAST LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+      // The tie-breaker carries no null placement (query-performance plan
+      // Unit 5.1): `id` is NOT NULL, so `NULLS LAST` named nothing and cost
+      // the index. The guard's meaning is unchanged.
+      `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
       // The root UPDATE addresses the captured PK — the same row the note INSERT
       // below and the terminal read already address.
       `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,

@@ -1,14 +1,18 @@
 /**
  * Ordering and cursor query-plan witnesses (query-performance plan, Phase 5).
  *
- * These suites do not assert timings. They EXPLAIN the statement the client
- * actually emitted and assert the *plan shape*, which is what the phase
+ * Most of these suites do not assert timings. They EXPLAIN the statement the
+ * client actually emitted and assert the *plan shape*, which is what the phase
  * changes: a windowed read over an indexed NOT NULL column must walk the index
- * instead of sorting into a temporary B-tree.
+ * instead of sorting into a temporary B-tree, and a cursor over NOT NULL sort
+ * columns must seek into the index instead of walking it under a filter.
  *
  * Why the plan and not the clock: a sort of 20 rows is fast whatever the plan,
  * so a timing assertion would only be honest at a volume that makes the suite
  * slow. The plan shape is the same evidence at 4,000 rows as at 100,000.
+ *
+ * The exception is the parity suite, which asserts row-for-row equality rather
+ * than any plan: the two cursor spellings must page identically.
  */
 
 import {
@@ -21,17 +25,27 @@ import { push } from "@migrations";
 import { s } from "@schema";
 import { afterEach, describe, expect, test } from "vitest";
 
-// `bucket` is NOT NULL and `optional` is nullable, over the same row set and
-// with the same composite index shape, so the two columns differ in exactly
-// one property: whether a null placement is observable.
+// Three sort columns over one row set, so a comparison between them isolates
+// exactly one variable:
+//
+//   bucket  NOT NULL, duplicated  — takes the bare direction and the row-value
+//                                   cursor; the duplicates force the identity
+//                                   tie-breaker to decide page boundaries
+//   mirror  nullable, never null  — identical values to `bucket`, but declared
+//                                   nullable, so it keeps the null-guarded
+//                                   predicate. This is the parity oracle: same
+//                                   data, same order, the other spelling
+//   optional nullable, with nulls — the placement is genuinely observable here
 const orderRow = s
   .model({
     id: s.string().id(),
     bucket: s.int(),
+    mirror: s.int().nullable(),
     optional: s.int().nullable(),
     label: s.string(),
   })
   .index(["bucket", "id"])
+  .index(["mirror", "id"])
   .index(["optional", "id"])
   .map("order_plan_rows");
 
@@ -42,6 +56,8 @@ type OrderPlanClient = VibORMClient<
 >;
 
 const ROW_COUNT = 4000;
+/** Rows per distinct `bucket` value, so the tie-breaker decides boundaries. */
+const GROUP_SIZE = 7;
 
 /** The MySQL emulation spelling or the native one — either states a placement. */
 const NULL_PLACEMENT_REGEX = /IS NULL|NULLS FIRST/;
@@ -84,12 +100,18 @@ export function runOrderingPlanBehavior({
       const c = client as OrderPlanClient as unknown as Record<string, any>;
       await push(client as never, { force: true });
       await c.orderRow.createMany({
-        data: Array.from({ length: ROW_COUNT }, (_, i) => ({
-          id: `r${String(i).padStart(5, "0")}`,
-          bucket: i,
-          optional: i % 9 === 0 ? null : i,
-          label: `label-${i}`,
-        })),
+        data: Array.from({ length: ROW_COUNT }, (_, i) => {
+          const bucket = Math.floor(i / GROUP_SIZE);
+          return {
+            id: `r${String(i).padStart(5, "0")}`,
+            bucket,
+            // Same values as `bucket`, and never null: the two columns differ
+            // only in what the schema says about them.
+            mirror: bucket,
+            optional: i % 9 === 0 ? null : i,
+            label: `label-${i}`,
+          };
+        }),
       });
       // Plan on real statistics, not on the empty-table defaults.
       await (client as OrderPlanClient).$executeRawUnsafe("ANALYZE");
@@ -132,6 +154,8 @@ export function runOrderingPlanBehavior({
       }
     });
 
+    // --- Unit 5.1 ----------------------------------------------------------
+
     test("a windowed order on a NOT NULL column walks the index", async () => {
       const { c, seqScanSetting } = await connect();
       if (dialect === "postgresql") {
@@ -145,7 +169,7 @@ export function runOrderingPlanBehavior({
       });
       expect(page).toHaveLength(20);
       expect(page[0].bucket).toBe(0);
-      expect(page[19].bucket).toBe(19);
+      expect(page[0].id).toBe("r00000");
 
       // One statement, and the placement key is gone from it: `bucket` and the
       // `id` tie-breaker are both NOT NULL, so neither carries one.
@@ -188,6 +212,184 @@ export function runOrderingPlanBehavior({
       expect(nullsLast.map((row: any) => row.optional)).toEqual([
         1, 2, 3, 4, 5,
       ]);
+    }, 120_000);
+
+    // --- Unit 5.2 ----------------------------------------------------------
+
+    test("a cursor over NOT NULL sort columns seeks into the index", async () => {
+      const { c, seqScanSetting } = await connect();
+      if (dialect === "postgresql") {
+        expect(seqScanSetting).toBe("on");
+      }
+
+      // Page from deep in the order, where a walk-and-filter would have to
+      // cross everything before it and a seek does not.
+      const deep = `r0${String(ROW_COUNT - 200).padStart(4, "0")}`;
+      statements.length = 0;
+      const page = await c.orderRow.findMany({
+        cursor: { id: deep },
+        orderBy: { bucket: "asc" },
+        take: 20,
+      });
+      expect(page).toHaveLength(20);
+      expect(page[0].id).toBe(deep);
+
+      expect(statements).toHaveLength(1);
+      const emitted = statements[0]!.sql;
+      expect(emitted).toContain(") >= (SELECT");
+      expect(emitted).not.toContain("EXISTS");
+
+      const plan = await explainOnlyStatement();
+      expect(plan).toContain("order_plan_rows_bucket_id_idx");
+      if (dialect === "postgresql") {
+        // The seek shows up as a bound on the index, not as a join filter.
+        expect(plan).toContain("Index Cond");
+        expect(plan).not.toContain("Seq Scan");
+      } else {
+        // SEARCH is a seek; SCAN is a walk.
+        expect(plan).toContain("SEARCH");
+        expect(plan).not.toContain("SCAN order_plan_rows");
+      }
+    }, 120_000);
+
+    test("both cursor spellings page identically over duplicate sort keys", async () => {
+      const { c } = await connect();
+
+      // `bucket` and `mirror` hold the same values on every row. `bucket` is
+      // NOT NULL so it takes the row-value comparison; `mirror` is declared
+      // nullable so it keeps the null-guarded predicate that shipped before
+      // this unit. Same data, same order, two spellings — so any disagreement
+      // is the new spelling's fault.
+      const pageThrough = async (field: "bucket" | "mirror") => {
+        const pages: Array<Array<{ id: string; value: number }>> = [];
+        let cursor: string | undefined;
+        // Seven rows share each sort value, so a page of five never aligns
+        // with a group boundary and the tie-breaker decides every page edge.
+        for (let i = 0; i < 6; i++) {
+          const page = await c.orderRow.findMany({
+            orderBy: { [field]: "asc" },
+            take: 5,
+            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          });
+          if (page.length === 0) {
+            break;
+          }
+          pages.push(
+            page.map((row: any) => ({ id: row.id, value: row[field] }))
+          );
+          cursor = page.at(-1).id;
+        }
+        return pages;
+      };
+
+      statements.length = 0;
+      const notNullPages = await pageThrough("bucket");
+      const rowValueSpellings = statements.filter((entry) =>
+        entry.sql.includes(") >= (SELECT")
+      ).length;
+
+      statements.length = 0;
+      const nullablePages = await pageThrough("mirror");
+      const guardedSpellings = statements.filter((entry) =>
+        entry.sql.includes("__viborm_cursor_0")
+      ).length;
+
+      // The two runs really did take the two different paths.
+      expect(rowValueSpellings).toBeGreaterThan(0);
+      expect(guardedSpellings).toBe(rowValueSpellings);
+
+      expect(notNullPages).toHaveLength(6);
+      expect(notNullPages.flat()).toHaveLength(30);
+      expect(notNullPages).toEqual(nullablePages);
+      // ...and the pages are a contiguous run of the total order, not a set
+      // that merely happens to match between two identical bugs.
+      expect(notNullPages.flat().map((row) => row.id)).toEqual(
+        Array.from({ length: 30 }, (_, i) => `r${String(i).padStart(5, "0")}`)
+      );
+    }, 120_000);
+
+    test("a descending cursor pages in the order an independent sort gives", async () => {
+      const { c } = await connect();
+
+      // `normalizeCursorOrder` appends the identity tie-breaker ascending, so
+      // this is `bucket DESC, id ASC` — a mixed order, which no row value can
+      // spell. The oracle is an independent JS sort of the same seed data, so
+      // a gate that let the row-value spelling through here would be caught by
+      // wrong rows rather than by a plan shape.
+      const expected = Array.from({ length: ROW_COUNT }, (_, i) => ({
+        id: `r${String(i).padStart(5, "0")}`,
+        bucket: Math.floor(i / GROUP_SIZE),
+      }))
+        .sort((a, b) => b.bucket - a.bucket || a.id.localeCompare(b.id))
+        .slice(0, 30)
+        .map((row) => row.id);
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let i = 0; i < 6; i++) {
+        const page = await c.orderRow.findMany({
+          orderBy: { bucket: "desc" },
+          take: 5,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+        seen.push(...page.map((row: any) => row.id));
+        cursor = page.at(-1).id;
+      }
+
+      expect(seen).toEqual(expected);
+    }, 120_000);
+
+    test("a cursor over a column holding nulls pages through them", async () => {
+      const { c } = await connect();
+
+      // `optional` really does hold nulls, and this places them first, so
+      // every cursor in this run points at a row whose sort value IS null.
+      // A row-value comparison would compare against a NULL row, yield NULL,
+      // and return nothing — so the nullability half of the gate is
+      // answerable in rows, not only in the spelling.
+      const expected = Array.from({ length: ROW_COUNT }, (_, i) => ({
+        id: `r${String(i).padStart(5, "0")}`,
+        optional: i % 9 === 0 ? null : i,
+      }))
+        .sort(
+          (a, b) =>
+            Number(a.optional !== null) - Number(b.optional !== null) ||
+            (a.optional ?? 0) - (b.optional ?? 0) ||
+            a.id.localeCompare(b.id)
+        )
+        .slice(0, 30)
+        .map((row) => row.id);
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let i = 0; i < 6; i++) {
+        const page = await c.orderRow.findMany({
+          orderBy: { optional: { sort: "asc", nulls: "first" } },
+          take: 5,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+        seen.push(...page.map((row: any) => row.id));
+        cursor = page.at(-1).id;
+      }
+
+      expect(seen).toEqual(expected);
+      // One in nine rows is null, so 30 rows do not reach the non-null
+      // region: every row here, and so every cursor row, has a null sort
+      // value. That is exactly what a row value cannot compare.
+      expect(seen[0]).toBe("r00000");
+      expect(seen[1]).toBe("r00009");
+      expect(seen).toHaveLength(30);
+    }, 120_000);
+
+    test("a cursor that matches no row leaves an empty window", async () => {
+      const { c } = await connect();
+
+      const page = await c.orderRow.findMany({
+        cursor: { id: "no-such-row" },
+        orderBy: { bucket: "asc" },
+        take: 5,
+      });
+      expect(page).toEqual([]);
     }, 120_000);
   });
 }

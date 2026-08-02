@@ -408,6 +408,46 @@ PostgreSQL's *default* placements already matched its btree order, so the common
 
 **Test.** The plan must show an index range scan for the NOT NULL case with a matching composite index. Page contents must be byte-identical to the current behavior in both spellings (parity test over a seeded data set with duplicates in the sort key).
 
+#### Unit 5.2 delivery record
+
+**Delivered:** 2026-08-02, branch `nested-write-boundaries`.
+
+**The diagnosis in the plan text above is wrong, and the measurement says so.** The unit proposed keeping the EXISTS wrapper at `cursor-condition.ts:23-80` and replacing only the OR-of-ANDs at `:93-163`. Measured at 100,000 rows with a composite index, paging from row 99,000, that change is worth 1.12× on SQLite (14.695 ms → 13.105 ms) and 1.28× on PostgreSQL (18.608 ms → 14.573 ms), and it changes **no plan shape at all** — both spellings still report `SCAN t USING INDEX` on SQLite and a `Nested Loop Semi Join` with a join filter over a full `Index Scan` on PostgreSQL. The stated acceptance test could not have passed.
+
+The blocker is the wrapper, not the predicate. The cursor row arrives as a correlated subquery in the `FROM` of an `EXISTS`, and a co-routine's column cannot be an index seek bound on any of the three engines. Comparing against a **row-valued scalar subquery** instead removes the wrapper and the planner takes the seek:
+
+| | Before | After | Plan after |
+| --- | --- | --- | --- |
+| PostgreSQL | 18.608 ms | 0.467 ms (40×) | `Index Cond: (ROW(k, id) >= ROW((InitPlan 1).col1, (InitPlan 1).col2))` |
+| SQLite | 14.695 ms | 0.004 ms (3,670×) | `SEARCH t USING INDEX t_k_id (k>?)` |
+
+This costs no extra round trip: the cursor row is still located inside the same statement, by its own unique key.
+
+**Two gates, both necessary, both falsified.**
+
+- *Every sort column NOT NULL.* A row value cannot order around SQL NULL — the comparison would be NULL rather than place the nulls.
+- *Every sort column the same direction.* `(a, b) > (x, y)` means `a > x OR (a = x AND b > y)`; a mixed order needs `b <` on the second key, which no row value spells.
+
+The second gate binds more often than it looks. `normalizeCursorOrder` appends the identity tie-breaker **ascending** whatever the requested direction, so `orderBy: { col: "desc" }` normalizes to `col DESC, id ASC` — mixed, and it keeps the general predicate. The row-value spelling therefore covers ascending pages, and descending pages reached through a negative `take` (which reverses every key, so an all-ascending order becomes all-descending and stays uniform). Widening it further would mean changing the tie-breaker's direction, which changes the total order and the page contents — a semantics change, not a spelling one, and out of scope here.
+
+**Portability, measured rather than assumed.** All three dialects were probed directly for the four shapes the gate can emit — `>=` and `<=` against a row subquery, the single-column degenerate form, and a cursor row that does not exist. PostgreSQL 17 (PGlite) and SQLite 3.51.2 (better-sqlite3) pass all four; MySQL 8.4.10 (the Docker container on 3307, probed read-only outside the test estate) passes all four and plans `type: index, key: k_id, Using where; Using index`. In particular the empty-window semantics survive on every dialect: a cursor matching no row makes the subquery NULL, the comparison NULL, and the window empty — which is what the EXISTS wrapper did and what Prisma specifies.
+
+**Witnesses** — [`tests/drivers/ordering-plan-behavior.ts`](../../tests/drivers/ordering-plan-behavior.ts), wired on SQLite3 and PGlite:
+
+- *seeks into the index* — EXPLAINs the emitted statement and asserts `Index Cond` / `SEARCH`, and that no `Seq Scan` / `SCAN order_plan_rows` remains.
+- *both cursor spellings page identically over duplicate sort keys* — the parity oracle. `bucket` (NOT NULL) and `mirror` (nullable, but holding the same values on every row and never null) carry identical data, so the two columns differ only in what the schema says. Paging both, five rows at a time through seven-row groups so no page edge aligns with a group boundary, must give the same 30 rows in the same order; the test also asserts that the two runs really did take the two different code paths, and that the result is the contiguous head of the total order rather than two matching mistakes.
+- *a descending cursor pages in the order an independent sort gives* — a JS sort of the same seed data as the oracle, so the direction gate is answerable in rows.
+- *a cursor over a column holding nulls pages through them* — every cursor row in this run has a null sort value, so the nullability gate is answerable in rows too.
+- *a cursor that matches no row leaves an empty window*.
+
+**Falsification.** Each of the three code paths was broken in turn and the witnesses caught all three: forcing the general spelling everywhere fails the seek witness and the parity path-divergence check on both dialects; removing the direction half of the gate returns wrong rows from the descending oracle on both dialects; removing the nullability half returns wrong rows from the null-paging oracle and breaks the parity check.
+
+**Pinned SQL.** `tests/query-engine/cursor-pagination-sql.test.ts` gains five deliberate pins across all three dialects for the new spelling and its three fallbacks. Two further pins moved for **Unit 5.1**, not this unit, and are recorded here because they were found late — running only the two SQL files rather than the whole `tests/query-engine` directory left them red at 5.1's commit: `tests/query-engine/operation-equivalence-oracles.test.ts` (frozen read SQL on all three dialects, `views`/`id` both NOT NULL) and `tests/query-engine-v2/located-parent-ref.test.ts` (a guard's `id` tie-breaker). Both are the same NOT NULL placement removal, and both now carry a comment saying so.
+
+**Gate.** `tsc` clean; repo-pinned `npx biome check` clean on every changed file; `pnpm test:gates` 72/72, census unchanged. Suites run in this worktree, 0 failures throughout: `tests/query-engine` 1201, `tests/query-engine-v2` + `tests/adapters` 1061, `tests/drivers` 3349 (2102 skipped), `tests/client` and the schema/model/relations/scalars/errors/cache/instrumentation set 2569, `tests/migrations` + `tests/cli` + `tests/validation` 1492. The Docker MySQL and PostgreSQL legs belong to the gate agent and were not run here; the MySQL row-value syntax and plan were probed directly instead, as recorded above.
+
+No error message, attribution, or race protection was touched, and `OperationFragment.ts` is untouched.
+
 ---
 
 ## Phase 6 — Reduce the round trips on batch-only drivers (D1, Neon HTTP)
