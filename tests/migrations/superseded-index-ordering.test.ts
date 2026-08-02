@@ -16,18 +16,24 @@
  *
  * FIX: a `dropIndex` whose replacement is created in the same batch is moved to
  * a slot between `createIndex` and `addForeignKey`. Two arrangements keep their
- * early slot — the differ's same-name "index changed" pair (the name has to be
- * free before it is taken again) and any table that also drops a column (the
- * column drop takes its indexes with it).
+ * early slot — a create of the same *name* (the name has to be free before it is
+ * taken again) and any table that also drops a column (the column drop takes its
+ * indexes with it).
  *
  * This file is the driver-agnostic witness (operation order + emitted DDL). The
- * live MySQL/InnoDB push is in `tests/drivers/fk-index-behavior.ts`.
+ * live MySQL/InnoDB push is in `tests/drivers/fk-index-behavior.ts`; the two
+ * live pushes below cover the dialects that scope an index name to the schema.
  */
 
+import { createClient } from "@client/client";
+import { push } from "@migrations";
+import { s } from "@schema";
 import { describe, expect, it } from "vitest";
 import { mysqlMigrationDriver } from "../../src/migrations/drivers/mysql";
 import type { DiffOperation } from "../../src/migrations/types";
 import { sortOperations } from "../../src/migrations/utils";
+import { createInMemoryPGliteDriver } from "../fixtures/drivers/pglite";
+import { createInMemorySQLite3Driver } from "../fixtures/drivers/sqlite3";
 
 function dropIndex(tableName: string, indexName: string): DiffOperation {
   return { type: "dropIndex", tableName, indexName };
@@ -132,18 +138,24 @@ describe("sortOperations — a superseded index drop follows its replacement", (
       "addForeignKey:posts_authorId_fkey",
     ]);
   });
+});
 
-  it("does not treat a create on another table as the replacement", () => {
+describe("sortOperations — the arrangements that keep the early slot", () => {
+  // REGRESSION: this exclusion used to be keyed on (table, name), so a batch
+  // that freed a name on one table and took it on another was not recognised
+  // as a same-name pair and the drop was deferred past the create. PostgreSQL
+  // and SQLite scope an index name to the schema, not to its table: the create
+  // then hit an occupied name — Postgres 42P07 — and the push aborted. The live
+  // pushes at the bottom of this file are the witness.
+  it("drops first when another table takes the same name", () => {
     expect(
       order([
         dropIndex("posts", "shared_name"),
         createIndex("comments", "shared_name", ["authorId"]),
       ])
-    ).toEqual(["createIndex:shared_name", "dropIndex:shared_name"]);
+    ).toEqual(["dropIndex:shared_name", "createIndex:shared_name"]);
   });
-});
 
-describe("sortOperations — the arrangements that keep the early slot", () => {
   it("drops first when the same name is re-created (the differ's changed-index pair)", () => {
     expect(
       order([
@@ -219,4 +231,51 @@ describe("emitted DDL — MySQL creates the wider index before dropping the old 
       "DROP INDEX `posts_authorId_idx` ON `posts`",
     ]);
   });
+});
+
+// The schema-scoped half, pushed for real. Moving a named index from one model
+// to another is the whole edit: the name has to be released before it is taken.
+const movedFrom = s
+  .model({ id: s.string().id(), x: s.string() })
+  .index(["x"], { name: "moved_shared_idx" })
+  .map("moved_a");
+const movedUntouched = s
+  .model({ id: s.string().id(), y: s.string() })
+  .map("moved_b");
+const beforeMove = { movedFrom, movedUntouched };
+
+const movedSource = s
+  .model({ id: s.string().id(), x: s.string() })
+  .map("moved_a");
+const movedTo = s
+  .model({ id: s.string().id(), y: s.string() })
+  .index(["y"], { name: "moved_shared_idx" })
+  .map("moved_b");
+const afterMove = { movedSource, movedTo };
+
+describe("live push — an index name that moves to another table", () => {
+  for (const [driverName, createDriver] of [
+    ["pglite", createInMemoryPGliteDriver],
+    ["sqlite3", createInMemorySQLite3Driver],
+  ] as const) {
+    it(`is freed before it is taken on ${driverName}`, async () => {
+      const driver = createDriver();
+      const before = createClient({ schema: beforeMove as never, driver });
+      await push(before as never, { force: true });
+
+      const after = createClient({ schema: afterMove as never, driver });
+      const planned = await push(after as never, { force: true });
+
+      expect(
+        planned.operations.map((op) =>
+          op.type === "dropIndex"
+            ? `dropIndex:${op.tableName}`
+            : op.type === "createIndex"
+              ? `createIndex:${op.tableName}`
+              : op.type
+        )
+      ).toEqual(["dropIndex:moved_a", "createIndex:moved_b"]);
+      await after.$disconnect();
+    });
+  }
 });

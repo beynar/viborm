@@ -158,10 +158,6 @@ const OPERATION_PRIORITY: Record<DiffOperation["type"], number> = {
 const SUPERSEDED_INDEX_DROP_PRIORITY =
   (OPERATION_PRIORITY.createIndex + OPERATION_PRIORITY.addForeignKey) / 2;
 
-function indexKey(tableName: string, indexName: string): string {
-  return JSON.stringify([tableName, indexName]);
-}
-
 /**
  * Picks out the `dropIndex` operations whose replacement has to exist first.
  *
@@ -172,8 +168,12 @@ function indexKey(tableName: string, indexName: string): string {
  * same batch, so the replacement has to be in place before the drop runs.
  *
  * Two arrangements keep a drop in its early slot instead:
- * - The differ's "index changed" pair drops and re-creates the *same* name; the
- *   name has to be free before it can be taken again.
+ * - The batch creates an index of the *same name*, which the drop has to free
+ *   first. The name is matched on its own, not per table: PostgreSQL and SQLite
+ *   scope an index name to the schema/database, so a batch that frees a name on
+ *   one table and takes it on another collides too (Postgres 42P07). Matching
+ *   on the name alone can only keep a drop early, never defer one, so it cannot
+ *   reopen the 1553 case — there the created index has a different name.
  * - A table that also drops a column loses that column's indexes along with it,
  *   so a drop deferred past the column drop would address an index already
  *   gone. (A dropped *table* cannot collide: index diffs are only produced for
@@ -184,7 +184,7 @@ function supersededIndexDrops(operations: DiffOperation[]): Set<DiffOperation> {
   const tablesLosingColumns = new Set<string>();
   for (const op of operations) {
     if (op.type === "createIndex") {
-      createdIndexNames.add(indexKey(op.tableName, op.index.name));
+      createdIndexNames.add(op.index.name);
     } else if (op.type === "dropColumn") {
       tablesLosingColumns.add(op.tableName);
     }
@@ -194,7 +194,7 @@ function supersededIndexDrops(operations: DiffOperation[]): Set<DiffOperation> {
   for (const op of operations) {
     if (
       op.type === "dropIndex" &&
-      !createdIndexNames.has(indexKey(op.tableName, op.indexName)) &&
+      !createdIndexNames.has(op.indexName) &&
       !tablesLosingColumns.has(op.tableName)
     ) {
       superseded.add(op);
