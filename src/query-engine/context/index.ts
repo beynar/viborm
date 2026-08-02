@@ -13,6 +13,7 @@ export {
   getRelationNames,
   getScalarFieldNames,
   getTableName,
+  isNullableScalarField,
   isRelation,
   isScalarField,
 } from "./query-scope";

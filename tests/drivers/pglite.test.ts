@@ -38,6 +38,7 @@ import { runNestedWriteJsonEnvelopeBehavior } from "./nested-write-json-envelope
 import { runOmitBehavior } from "./omit-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
+import { runOrderingPlanBehavior } from "./ordering-plan-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
@@ -84,6 +85,10 @@ describe("PGlite Driver", () => {
     createDriver: createInMemoryPGliteDriver,
   });
   runFkIndexPlanBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runOrderingPlanBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

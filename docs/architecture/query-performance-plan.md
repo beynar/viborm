@@ -370,6 +370,34 @@ Group the targets by unique key. For each group, send one probe (`SELECT pk, key
 
 **Test.** EXPLAIN QUERY PLAN must show an index walk for `orderBy` + `take` on an indexed NOT NULL column on SQLite. The null-ordering behavior suites for nullable columns must stay green on all dialects.
 
+#### Unit 5.1 delivery record
+
+**Delivered:** 2026-08-02, branch `nested-write-boundaries`.
+
+**The rule that shipped, and why it is one rule.** A NOT NULL column has no null placement to state: `NULLS FIRST`, `NULLS LAST` and the bare direction all name the same order, because no row can sort into either position. `buildNormalizedOrderBy` now emits the bare direction for such a column and keeps the placement only where it is observable. The plan text above reads as an *and* — NOT NULL **and** the requested placement matches the dialect's native one — but that conjunction cannot hold: the engine's default placement for `asc` is `last` (the PostgreSQL default), SQLite and MySQL sort nulls first on `asc`, so `orderBy: { col: "asc" }` on a NOT NULL column never matches native on those two dialects and the measured case would have been skipped. Nullability alone decides it.
+
+This matters more widely than "a user asked for a placement". `normalizeCursorOrder` appends the identity tie-breakers to every windowed read, and those are NOT NULL by construction, so before this change the placement was forced onto the primary key of every `take`, `cursor`, `findFirst` and ordered include in the engine.
+
+**A second, separable defect in the same unit.** For a *nullable* column the placement is real, but on SQLite it was emulated as a leading `(col IS NULL)` sort key — and no index can supply an order whose first key is an expression. SQLite has parsed `NULLS FIRST/LAST` natively since 3.30 (2019), below this adapter's documented 3.35+ floor (`docs/content/docs/internals/adapters.mdx:87`); the shipped drivers measured 3.51.2 (better-sqlite3) and 3.45.1 (libsql). `SQLiteAdapter.orderBy` now emits the native syntax. MySQL keeps the emulation — it has no native spelling at any version.
+
+**Measured — 100,000 rows, an index over the sort columns, `ORDER BY … LIMIT 20`.**
+
+| Case | Before | After | Plan before → after |
+| --- | --- | --- | --- |
+| SQLite, NOT NULL column | 3.077 ms | 0.005 ms (615×) | `SCAN t` + `USE TEMP B-TREE FOR ORDER BY` → `SCAN t USING INDEX t_k_id` |
+| SQLite, nullable column | 3.356 ms | 0.005 ms (670×) | same → `SCAN t USING INDEX t_n_id` |
+| PostgreSQL, NOT NULL column, explicit non-default placement | 12.097 ms | 0.194 ms (62×) | `Seq Scan` + `Sort` → `Index Only Scan` |
+
+PostgreSQL's *default* placements already matched its btree order, so the common PostgreSQL path was never the slow one; the win there is confined to an explicitly requested non-default placement. Emitting `NULLS LAST` on a NOT NULL column is not free even on SQLite: it plans `USE TEMP B-TREE FOR LAST TERM OF ORDER BY`, which is why the bare direction — not the native syntax — is what a NOT NULL column gets.
+
+**Witnesses.** [`tests/drivers/ordering-plan-behavior.ts`](../../tests/drivers/ordering-plan-behavior.ts), wired on SQLite3 and PGlite. It EXPLAINs the statement the client actually emitted, with that statement's own parameters, and asserts both halves: the emitted SQL carries no placement for the NOT NULL column, and the plan walks the declared index with no sort. On PostgreSQL it first sets `enable_seqscan = on` and asserts the setting took, so the index in the plan means the index won on cost. A second test holds the nullable column to its placement and to correct null-first / null-last row order.
+
+**Falsification.** Removing the NOT NULL branch from `buildNormalizedOrderBy` fails the witness twice over, and each half was checked alone: the SQL assertion reports `ORDER BY "t0"."bucket" ASC NULLS LAST, "t0"."id" ASC NULLS LAST`, and with the SQL assertions disabled the EXPLAIN assertion still fails on `USE TEMP B-TREE`. The plan assertion had to be widened from `USE TEMP B-TREE FOR ORDER BY` to `USE TEMP B-TREE` to catch it — SQLite reports the narrower `FOR LAST TERM OF ORDER BY` for this shape, and the first spelling passed vacuously.
+
+**Pinned SQL.** `tests/query-engine/cursor-pagination-sql.test.ts` changed deliberately: `expectedOrder` moves SQLite from the emulated to the native branch, and a new `expectedNotNullOrder` states the bare-direction expectation for NOT NULL columns. Five assertions moved; nothing else in the file did.
+
+**Gate.** `tsc` clean; repo-pinned `npx biome check` clean on every changed file; sqlite3 1119, libsql 1073, PGlite + SQL pins 925 — 0 failures. No error message, attribution, or race protection was touched, and `OperationFragment.ts` is untouched.
+
 ### Unit 5.2 — Use a tuple comparison for the cursor
 
 **Problem.** The cursor predicate is an OR of null-guarded AND chains. No database serves it with one index range scan. Measured: 44 ms for each page at 100,000 rows on SQLite, with or without an index.

@@ -225,8 +225,8 @@ Ordering helpers.
 ```ts
 adapter.orderBy.asc(col)        // → col ASC
 adapter.orderBy.desc(col)       // → col DESC
-adapter.orderBy.nullsFirst(col, direction) // → col NULLS FIRST (PG); (col IS NULL) DESC, col dir (MySQL/SQLite emulation)
-adapter.orderBy.nullsLast(col, direction)  // → col NULLS LAST (PG); (col IS NULL) ASC, col dir (MySQL/SQLite emulation)
+adapter.orderBy.nullsFirst(col, direction) // → col NULLS FIRST (PG/SQLite); (col IS NULL) DESC, col dir (MySQL emulation)
+adapter.orderBy.nullsLast(col, direction)  // → col NULLS LAST (PG/SQLite); (col IS NULL) ASC, col dir (MySQL emulation)
 ```
 
 ### `clauses`
@@ -448,8 +448,10 @@ Full feature support. No limitations.
 **RETURNING requires SQLite 3.35+**
 - Supported in modern SQLite versions
 
-**NULLS FIRST/LAST emulated**
-- Same as MySQL - uses `(col IS NULL)` sort-key ordering, not native syntax
+**NULLS FIRST/LAST is native**
+- SQLite parses `NULLS FIRST/LAST` since 3.30, below this adapter's 3.35+ floor
+- The `(col IS NULL)` emulation was an extra leading sort key, and no index can
+  supply an order whose first key is an expression — MySQL still needs it
 
 **RIGHT JOIN not supported**
 - `adapter.joins.right()` falls back to LEFT JOIN

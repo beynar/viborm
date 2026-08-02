@@ -173,9 +173,14 @@ describe.each(dialectCases)("$name cursor SQL", (dialectCase) => {
     expect(orderClause).toContain(
       expectedOrder(dialectCase, "age", "desc", "last")
     );
+    // `id` is NOT NULL, so the flipped placement is unobservable and the key is
+    // emitted bare — the tie-breaker no longer blocks the index.
     expect(orderClause).toContain(
-      expectedOrder(dialectCase, "id", "desc", "first")
+      expectedNotNullOrder(dialectCase, "id", "desc")
     );
+    const idColumn = `${quoted(dialectCase, "t0")}.${quoted(dialectCase, "id")}`;
+    expect(orderClause).not.toContain(`(${idColumn} IS NULL)`);
+    expect(orderClause).not.toContain(`${idColumn} DESC NULLS`);
     if (dialectCase.dialect === "mysql") {
       expect(query.statement).toContain("LIMIT 2");
       expect(query.statement).toContain("OFFSET 1");
@@ -269,6 +274,13 @@ function quoted(dialectCase: DialectCase, identifier: string): string {
   return `${dialectCase.quote}${identifier}${dialectCase.quote}`;
 }
 
+/**
+ * The ORDER BY key a *nullable* column produces.
+ *
+ * PostgreSQL and SQLite both parse `NULLS FIRST/LAST` natively (SQLite since
+ * 3.30, below the adapter's documented 3.35+ floor). MySQL has no native
+ * syntax at any version and keeps the `(col IS NULL)` emulation.
+ */
 function expectedOrder(
   dialectCase: DialectCase,
   field: string,
@@ -277,12 +289,26 @@ function expectedOrder(
 ): string {
   const column = `${quoted(dialectCase, "t0")}.${quoted(dialectCase, field)}`;
   const keyword = direction.toUpperCase();
-  if (dialectCase.dialect === "postgresql") {
-    return `${column} ${keyword} NULLS ${nulls.toUpperCase()}`;
+  if (dialectCase.dialect === "mysql") {
+    const nullDirection = nulls === "first" ? "DESC" : "ASC";
+    return `(${column} IS NULL) ${nullDirection}, ${column} ${keyword}`;
   }
 
-  const nullDirection = nulls === "first" ? "DESC" : "ASC";
-  return `(${column} IS NULL) ${nullDirection}, ${column} ${keyword}`;
+  return `${column} ${keyword} NULLS ${nulls.toUpperCase()}`;
+}
+
+/**
+ * The ORDER BY key a NOT NULL column produces: the bare direction, on every
+ * dialect. There is no null placement to state, and stating one costs the
+ * index — see `buildNormalizedOrderBy`.
+ */
+function expectedNotNullOrder(
+  dialectCase: DialectCase,
+  field: string,
+  direction: "asc" | "desc"
+): string {
+  const column = `${quoted(dialectCase, "t0")}.${quoted(dialectCase, field)}`;
+  return `${column} ${direction.toUpperCase()}`;
 }
 
 function getOrderClause(statement: string): string {
