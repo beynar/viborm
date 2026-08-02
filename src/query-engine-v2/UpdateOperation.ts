@@ -18,7 +18,10 @@ import {
 } from "../query-engine/builders/relation-data-builder";
 import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
 import { buildInsert } from "../query-engine/builders/values-builder";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
+import {
+  getWhereUniqueEntries,
+  partitionWhereUnique,
+} from "../query-engine/builders/where-unique-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
@@ -3438,13 +3441,17 @@ export class UpdateOperation {
   /** Does the caller's unique `where` already NAME the primary key? Only its
    *  DISCRIMINATOR counts (`getWhereUniqueEntries`, the module contract of
    *  `where-unique-builder`): the extended filter half is a predicate, never an
-   *  identity. When it does, the selector and the located row are the same address by
-   *  construction — the locate matched that literal PK, and a unique PK cannot move to
-   *  another row — so re-addressing changes nothing and the plan stays byte-identical.
-   *  When it does NOT (`where: { email }`), the discriminator is REASSIGNABLE: another
-   *  row can take that value, and selector and capture stop naming the same row. That
-   *  is the whole surface of the batch root-address problem, and the reason this
-   *  predicate — not the substrate alone — gates both sites below. */
+   *  identity. When it does, the selector can only ever match the located row — the
+   *  locate matched that literal PK, and a unique PK cannot move to another row — so a
+   *  guard on the selector is already a guard on the capture, and conjoining the
+   *  captured PK would be a second check on one invariant (AGENTS.md). When it does NOT
+   *  (`where: { email }`), the discriminator is REASSIGNABLE: another row can take that
+   *  value, so the selector alone can confirm a REPLACEMENT while the capture names the
+   *  row the children were built against.
+   *
+   *  This answers the GUARD's question — "can this selector confirm some OTHER row?" —
+   *  and nothing more. The UPDATE's question is stricter; see
+   *  {@link UpdateOperation.selectorIsImmutableAddress}. */
   private selectorNamesPrimaryKey(): boolean {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const named = new Set(
@@ -3453,6 +3460,41 @@ export class UpdateOperation {
       )
     );
     return this.parentPrimaryKeys.every((pk) => named.has(pk));
+  }
+
+  /** Is the caller's unique `where` an IMMUTABLE ADDRESS, conjunct for CONJUNCT? Naming
+   *  the PK is not enough — EVERY conjunct the selector contributes must be a PK column,
+   *  because anything else is an ordinary reassignable value, and the pinned PK does not
+   *  settle it: it stops the WHERE from matching a DIFFERENT row, but not from matching
+   *  NO row. A non-PK conjunct left in the root UPDATE's WHERE is therefore exactly the
+   *  silent zero-row root {@link UpdateOperation.writeWhere} forbids — narrower than
+   *  wrong-row, the same class of split.
+   *
+   *  Two spellings reach it, and a check on either alone misses the other:
+   *  - the extended filter half (`where: { id, count: 0 }`, Prisma >= 4.5) — not a
+   *    discriminator, so `getWhereUniqueEntries` never sees it;
+   *  - a COMPOUND unique that contains the PK plus another column
+   *    (`where: { id_count: { id, count } }`) — wholly a discriminator, so there is no
+   *    filter half at all, and `getWhereUniqueEntries` flattens it to entries that do
+   *    cover every PK column.
+   *  Hence the size comparison rather than a second `has` loop: named ⊇ PK from
+   *  {@link UpdateOperation.selectorNamesPrimaryKey}, and equal cardinality then forces
+   *  named ⊆ PK, which is the "no other conjunct" half both spellings violate.
+   *
+   *  Only the write site may use this. The guard must NOT: neither spelling can move the
+   *  guard off the located row, so re-asserting the captured PK there would duplicate a
+   *  conjunct the selector already carries. */
+  private selectorIsImmutableAddress(): boolean {
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    const { entries, filters } = partitionWhereUnique(parent, this.parentWhere);
+    if (filters !== undefined) {
+      return false;
+    }
+    const named = new Set(entries.map((entry) => entry.fieldName));
+    return (
+      named.size === new Set(this.parentPrimaryKeys).size &&
+      this.selectorNamesPrimaryKey()
+    );
   }
 
   /** The captured primary key as filter conjuncts — the row the LOCATE acted on. */
@@ -3479,15 +3521,17 @@ export class UpdateOperation {
    *  only ever turn that window into a SILENT zero-row root (batch mode lowers no
    *  `affectedRows` postcondition) — a partial write with no error, which is strictly
    *  worse than the guard's typed abort. One guard for the premise, one address for the
-   *  row. When the selector DOES name the PK the two are the same address, so the plan
-   *  is left exactly as it was. */
+   *  row. Only when the selector is an immutable address CONJUNCT FOR CONJUNCT is it left
+   *  alone — naming the PK is not enough, because a `where` can pin the PK and still carry
+   *  a reassignable column beside it (two spellings; see
+   *  {@link UpdateOperation.selectorIsImmutableAddress}). */
   private writeWhere(
     locatedRow: Record<string, unknown>
   ): Record<string, unknown> {
     if (
       this.mode !== "transaction" &&
       !this.nestedTarget &&
-      this.selectorNamesPrimaryKey()
+      this.selectorIsImmutableAddress()
     ) {
       return this.parentWhere;
     }
@@ -3516,7 +3560,12 @@ export class UpdateOperation {
    *  operation across two rows. When the `where` DOES name the PK the conjunct is
    *  implied by the locate that produced the row, so it is not added — a redundant
    *  conjunct is a second guard on one invariant (AGENTS.md), and this keeps the
-   *  overwhelmingly common `where: { id }` plan byte-identical. */
+   *  overwhelmingly common `where: { id }` plan byte-identical. A reassignable column
+   *  riding beside the pinned PK — an extended filter half, or a compound unique's other
+   *  member — does not change that reckoning HERE: it can narrow the guard to no row,
+   *  which is the abort this guard is FOR, but it cannot walk the guard onto a row the
+   *  pinned PK excludes. The write site gates on a stricter predicate for its own,
+   *  different reason — {@link UpdateOperation.selectorIsImmutableAddress}. */
   private buildRootPresenceGuard(
     // Both REQUIRED. They were optional, and each captured-PK branch below then
     // carried a truthiness test that could only ever fall back to the selector-only

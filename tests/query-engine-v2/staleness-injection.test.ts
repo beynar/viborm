@@ -6,6 +6,7 @@ import { NestedWriteError, NotFoundError } from "@errors";
 import { push } from "@migrations";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -903,6 +904,63 @@ class MidBatchPGliteDriver extends PGliteDriver {
 const startsWithUpdate = (sql: string) =>
   sql.trimStart().toUpperCase().startsWith("UPDATE");
 
+/**
+ * A root whose primary key also sits inside a COMPOUND unique. Selecting by that
+ * compound names every PK column while smuggling a reassignable one alongside it,
+ * with NO filter half — the second spelling of the root-address hazard, and the one
+ * an extended-`where` check alone cannot see.
+ */
+const compoundRootSchema = (() => {
+  const user = s
+    .model({
+      id: s.int().id(),
+      email: s.string().unique(),
+      count: s.int(),
+      posts: s.oneToMany(() => post),
+    })
+    .unique(["id", "count"])
+    .map("cmp_root_users");
+  const post = s
+    .model({
+      id: s.int().id(),
+      title: s.string(),
+      userId: s.int().nullable(),
+      author: s
+        .manyToOne(() => user)
+        .fields("userId")
+        .references("id")
+        .optional(),
+    })
+    .map("cmp_root_posts");
+  return { user, post };
+})();
+
+hydrateSchemaNames(compoundRootSchema);
+
+/** {@link runUpdateMidBatch} against {@link compoundRootSchema}. */
+function runCompoundUpdateMidBatch(
+  db: PGlite,
+  hook: (run: RawRunner) => Promise<void>,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const driver = new MidBatchPGliteDriver(hook, startsWithUpdate, {
+    client: db,
+  });
+  const schemas = createSchemaRegistry(compoundRootSchema);
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(compoundRootSchema, schemas)
+  );
+  const executor = new OperationExecutor(engine);
+  const operation = new UpdateOperation(engine, compoundRootSchema.user, args);
+  const context = createOperationExecutionContext(
+    "user",
+    "update",
+    engine.instrumentation
+  );
+  return executor.execute(operation, context);
+}
+
 /** Run a V2 update in forced-batch mode with a hook wedged inside the batch. */
 function runUpdateMidBatch(
   db: PGlite,
@@ -1051,6 +1109,169 @@ describe("query-engine-v2 staleness injection (batch root address)", () => {
     await expect(client.post.findMany()).resolves.toEqual([
       { id: 72, title: "calm", slug: "s72", userId: 1 },
     ]);
+    await client.$disconnect();
+  });
+
+  // A `where` whose DISCRIMINATOR names the PK is still not, on its own, an
+  // immutable address: an extended `where` (Prisma >= 4.5) carries a FILTER half
+  // too, and a filter is an ordinary reassignable column. The PK pins WHICH row
+  // the UPDATE can touch, so this is never the wrong row — but re-consulting the
+  // filter at the UPDATE's instant can make it touch NO row, and batch mode
+  // lowers no `affectedRows` postcondition. That is the silent zero-row root the
+  // address rule exists to forbid, reached through the PK-named door.
+  test("write half: an extended selector's filter does not ride into the root UPDATE", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "ext@x", count: 0 } });
+
+    // The guard has already asserted `id = 1 AND count = 0` inside the unit. The
+    // hook then moves `count` off 0 in the guard→UPDATE window. The UPDATE must
+    // still address the row the locate acted on.
+    const result = await runUpdateMidBatch(
+      db,
+      async (run) => {
+        await run(
+          `UPDATE "update_family_users" SET "count" = 5 WHERE "id" = 1`
+        );
+      },
+      startsWithUpdate,
+      "user",
+      updateFamilySchema.user,
+      {
+        where: { id: 1, count: 0 },
+        data: {
+          count: { increment: 1 },
+          posts: { create: { id: 73, title: "ext", slug: "s73" } },
+        },
+        select: { email: true, count: true },
+      }
+    );
+
+    // One row, incremented off the value the interference left. A selector-copy
+    // in the UPDATE's WHERE returns `count: 5` here — the root silently skipped
+    // while the child still landed.
+    expect(result).toEqual({ email: "ext@x", count: 6 });
+    await expect(client.post.findMany()).resolves.toEqual([
+      { id: 73, title: "ext", slug: "s73", userId: 1 },
+    ]);
+    await client.$disconnect();
+  });
+
+  test("control: an extended selector whose filter excludes the row fails closed", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "excl@x", count: 9 } });
+
+    await expect(
+      runUpdate(db, () => Promise.resolve(), "user", updateFamilySchema.user, {
+        where: { id: 1, count: 0 },
+        data: {
+          count: { increment: 1 },
+          posts: { create: { id: 74, title: "excl", slug: "s74" } },
+        },
+        select: { email: true, count: true },
+      })
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    await expect(client.user.findMany()).resolves.toEqual([
+      { id: 1, email: "excl@x", count: 9 },
+    ]);
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await client.$disconnect();
+  });
+
+  test("control: an extended selector with no interference runs once", async () => {
+    const db = new PGlite();
+    const client = makeClient(db);
+    await push(client, { force: true });
+    await client.user.create({ data: { email: "ok@x", count: 0 } });
+
+    const result = await runUpdate(
+      db,
+      () => Promise.resolve(),
+      "user",
+      updateFamilySchema.user,
+      {
+        where: { id: 1, count: 0 },
+        data: {
+          count: { increment: 1 },
+          posts: { create: { id: 75, title: "ok", slug: "s75" } },
+        },
+        select: { email: true, count: true },
+      }
+    );
+
+    expect(result).toEqual({ email: "ok@x", count: 1 });
+    await expect(client.post.findMany()).resolves.toEqual([
+      { id: 75, title: "ok", slug: "s75", userId: 1 },
+    ]);
+    await client.$disconnect();
+  });
+
+  // The SECOND spelling of the same hazard, and the one a filter-half check alone
+  // misses. A compound unique that CONTAINS the primary key is wholly a
+  // discriminator — there is no filter half at all — and `getWhereUniqueEntries`
+  // flattens it, so every PK column is named. The extra member rides into the root
+  // UPDATE's WHERE exactly as an extended filter would, and it is just as
+  // reassignable. Hence the write gate asks whether every conjunct is a PK column,
+  // not merely whether every PK column is present.
+  test("write half: a compound unique's non-PK member does not ride into the root UPDATE", async () => {
+    const db = new PGlite();
+    const client = createClient({
+      schema: compoundRootSchema,
+      driver: new PGliteDriver({ client: db }),
+    });
+    await push(client, { force: true });
+    await client.user.create({ data: { id: 1, email: "cmp@x", count: 0 } });
+
+    const result = await runCompoundUpdateMidBatch(
+      db,
+      async (run) => {
+        await run(`UPDATE "cmp_root_users" SET "count" = 5 WHERE "id" = 1`);
+      },
+      {
+        where: { id_count: { id: 1, count: 0 } },
+        data: {
+          count: { increment: 1 },
+          posts: { create: { id: 76, title: "cmp" } },
+        },
+        select: { email: true, count: true },
+      }
+    );
+
+    expect(result).toEqual({ email: "cmp@x", count: 6 });
+    await expect(client.post.findMany()).resolves.toEqual([
+      { id: 76, title: "cmp", userId: 1 },
+    ]);
+    await client.$disconnect();
+  });
+
+  test("control: a compound unique naming ONLY the PK is still left alone", async () => {
+    const db = new PGlite();
+    const client = createClient({
+      schema: compoundRootSchema,
+      driver: new PGliteDriver({ client: db }),
+    });
+    await push(client, { force: true });
+    await client.user.create({ data: { id: 1, email: "pk@x", count: 0 } });
+
+    // No interference: the compound selector's premise holds and the unit runs once.
+    const result = await runCompoundUpdateMidBatch(
+      db,
+      () => Promise.resolve(),
+      {
+        where: { id_count: { id: 1, count: 0 } },
+        data: {
+          count: { increment: 1 },
+          posts: { create: { id: 77, title: "pk" } },
+        },
+        select: { email: true, count: true },
+      }
+    );
+
+    expect(result).toEqual({ email: "pk@x", count: 1 });
     await client.$disconnect();
   });
 });

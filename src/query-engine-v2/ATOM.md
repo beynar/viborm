@@ -2160,13 +2160,38 @@ across them:
   is strictly worse than the guard's typed abort. One guard for the premise, one address
   for the row (AGENTS.md: one guard per invariant).
 
-Both are gated on the selector not naming the PK, because that is the entire hazard
-surface: a pinned PK cannot move to another row, so re-addressing would be a redundant
-conjunct on an invariant the locate already settled. `where: { id }` batches are therefore
-byte-identical to the pre-change ones, pinned statement-for-statement in
-`located-parent-ref.test.ts`. Each half is falsified at its own injection point in
-`staleness-injection.test.ts` ("batch root address"): before-batch for the guard,
-mid-batch (inside the unit, between the guard and the UPDATE) for the address.
+The two halves are gated on DIFFERENT predicates, because they answer different questions
+and a pinned PK settles only one of them.
+
+- The **guard** is gated on the selector's DISCRIMINATOR not naming the PK. Its question is
+  "can this selector confirm some OTHER row?", and a pinned PK closes that outright: the
+  conjunct would be a redundant copy of one the selector already carries (AGENTS.md).
+- The **UPDATE** is gated on the selector being an immutable address CONJUNCT FOR CONJUNCT:
+  EVERY conjunct it contributes must be a PK column, not merely every PK column present. A
+  pinned PK does not settle this one. Anything else in that WHERE is an ordinary
+  reassignable value, and while the PK stops the statement matching a DIFFERENT row, it does
+  not stop it matching NO row — the same silent zero-row root the bullet above forbids,
+  reached through the PK-named door. Strictly narrower than wrong-row, the same class of
+  split. TWO spellings reach it, and a check on either alone misses the other:
+  - the **extended filter half** (`where: { id, count: 0 }`, Prisma >= 4.5) — not a
+    discriminator, so `getWhereUniqueEntries` never sees it;
+  - a **compound unique containing the PK** (`where: { id_count: { id, count } }`) — wholly
+    a discriminator, so there is no filter half at all, and the flattened entries do cover
+    every PK column.
+
+  Both were measured live, not reasoned about. Extended: `where: { id: 1, count: 0 }` with
+  `count` moved off 0 in the guard→UPDATE window resolved with the root unincremented and
+  the child INSERTed, no error. Compound: the same payload spelled through `@@unique([id,
+  count])` emitted `UPDATE … WHERE (id = $2 AND count = $3)` until the gate asked for
+  conjunct-level, not coverage-level, immutability.
+
+`where: { id }` batches — the overwhelmingly common shape, and the only one either gate
+changed before this correction — are byte-identical to the pre-change ones, pinned
+statement-for-statement in `located-parent-ref.test.ts`. Each half is falsified at its own
+injection point in `staleness-injection.test.ts` ("batch root address"): before-batch for
+the guard, mid-batch (inside the unit, between the guard and the UPDATE) for the address,
+and each of the address's three arms — reassignable discriminator, extended filter half,
+compound-unique member — separately, each with its own control.
 
 `DeleteOperation` still addresses the original `where` in batch mode. Narrower — it has no
 child edges to split against — but its captured read and its DELETE are two evaluations of
