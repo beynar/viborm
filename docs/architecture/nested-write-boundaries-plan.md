@@ -159,12 +159,18 @@ under an update located by a non-PK unique EXECUTES, with the wrong-row decoy as
 empty), side 2's named tripwire (`createMany` under a parent-held planned target) still
 declines untouched.
 
-**Measured, not fixed — recorded for a later wave.** In BATCH mode the root-presence guard
-and the root UPDATE both address the ORIGINAL `where`, while child edges address the
-captured located row. Under a concurrent rename-plus-reinsert on the discriminator those
-two can name different rows. This is pre-existing for every alternate-unique locate (a
-`connect` under `where: { email }` splits the same way) and is NOT introduced by the Ref —
-but N1 makes the spelling common, so it is named here rather than left implicit.
+**Measured here, FIXED by the post-N6 review lane — see the block below.** What N1-U1
+measured: in BATCH mode the root-presence guard and the root UPDATE both addressed the
+ORIGINAL `where`, while child edges addressed the captured located row. Under a concurrent
+rename-plus-reinsert on the discriminator those two could name different rows. This was
+pre-existing for every alternate-unique locate (a `connect` under `where: { email }` split
+the same way) and was NOT introduced by the Ref — but N1 made the spelling common, so it
+was named here rather than left implicit. It is no longer deferred: the guard now conjoins
+the captured primary key and the root UPDATE addresses the captured PK unconditionally
+(`UpdateOperation.ts`), witnessed in `tests/query-engine-v2/staleness-injection.test.ts`
+("batch root address") and pinned statement-for-statement in
+`tests/query-engine-v2/located-parent-ref.test.ts`. The record of that lane, including the
+two corrections it made to its own first accounts, follows.
 
 > **FIXED (post-N6 review lane, `UpdateOperation.ts`).** The two statements now do what
 > every child edge already did. The batch **presence guard** conjoins the captured primary
@@ -1749,7 +1755,7 @@ is not committed; every verdict it produced is reproduced in the citation column
 |---|---|---|---|
 | `:1185` `M` | junction `createMany` + `skipDuplicates` + a DB-generated target PK | **(b)** | N3-U1, measured live: a skipped INSERT produces no identity; PG's `ON CONFLICT DO NOTHING … RETURNING` yields zero rows while SQLite/MySQL leave `insertId` at a **live unrelated row's** key — reproduced, joining the article to the wrong label with no error |
 | `:1199` `M✗` | `resolveCreatePk`'s absent / explicit-null target PK | **(c-i) → CONVERTED** | probe found no payload: `s.string().id()` implies `ulid` + a default (so the key is always present), `s.int().id()` without `.increment()` makes it **required** (`ValidationError: Missing required field: id`), `null` fails a non-nullable PK, and `increment` takes the produced-identity branch above. A PK whose `autoGenerate` is `now`/`updatedAt` was not constructed |
-| `:1264` | upsert-through-junction create arm addressing no row | **(b)** | N3-U2: the arm needs one value for the join row, one ledger key and one `where` for the duplicate item's UPDATE; a create payload spelling neither the PK nor a complete unique names nothing, and a `Ref` may never reach a `where` (the W4 wrong-row doctrine) |
+| `:1264` | upsert-through-junction create arm addressing no row | **ABSORBED (N7-U-C)** | the recorded reason — *"the arm needs one value for the join row, one ledger key and one `where` for the duplicate item's UPDATE"* — had two of its three needs supplied by the dedup ledger. N7-U-C measured every reachable firing of that ledger to be a **wrong-row** violation and DELETED it; with no ledger the arm needs only the join-row value, which `resolveCreatePk`'s produced-identity `Ref` already carries. `resolveUpsertCreateIdentity` and the `&& unique` gate are gone (a guard whose unique coverage cannot be named, AGENTS.md) — see the *N7-U-C* section and the census `40 -> 39` entry |
 | `:1647` `M` | an m2m **upsert** arm carrying relations, located by a non-PK unique | **(b)** | N4-U1 site 3, measured: the created-earlier branch's global probe ran BEFORE this operation's own INSERT and located nothing — *"a genuine absence of a value, not a missing wire."* Probe confirms the `update` kind on the same payload constructs |
 | `:1662` `M` | a **relation-carrying** junction create arm with a generated target PK | **(c-ii)** | the recorded reason — *"its deeper child Parts fold against a compile-time `literalParentId`"* — is verbatim the reason N4-U2 **measured and deleted** at `RelationUpsertPart.createArmParentId`: *"a create ROOT hands its grandchildren a generated key as a backward `Ref`, so nothing has to be known beforehand."* The delegated arm here already builds a create subtree and still demands the literal |
 | `:2120` `M` | relation writes inside m2m `updateMany` / `connectOrCreate` adopt data | **(c-ii)** | split cause. The `updateMany` half has a real reason (a filter target has no per-row identity) — but it is pre-empted by CLASS V legality (`NestedWriteError`, measured), so it is not what reaches this site. What reaches it is the **connectOrCreate adopt arm** (measured), and its create arm's children are exactly what N4-U2 absorbed for the child-held sibling |
