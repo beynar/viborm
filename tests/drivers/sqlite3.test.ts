@@ -48,6 +48,10 @@ import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
+import {
+  runFkIndexBehavior,
+  runFkIndexPlanBehavior,
+} from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
@@ -710,6 +714,15 @@ describe("SQLite3 Driver", () => {
       expect(result._max.age).toBe(35);
       expect(result._sum.age).toBe(90);
     });
+  });
+
+  runFkIndexBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runFkIndexPlanBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
   });
 
   runForwardFkOrderingBehavior({

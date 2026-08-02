@@ -198,6 +198,7 @@ export function serializeModels(
     }
 
     // Process indexes from model state
+    const declaredIndexColumns: string[][] = [];
     for (const indexDef of modelState.indexes) {
       const indexName =
         indexDef.options.name ||
@@ -209,6 +210,12 @@ export function serializeModels(
         type: indexDef.options.type,
         where: indexDef.options.where,
       });
+      // The pushed `columns` are the raw TS field names. The foreign-key index
+      // below decides coverage against real column names, so resolve them here
+      // for that decision alone.
+      declaredIndexColumns.push(
+        indexDef.fields.map((field) => model["~"].getFieldName(field).sql)
+      );
     }
 
     // Process relations to generate foreign keys
@@ -265,6 +272,37 @@ export function serializeModels(
             ),
             onUpdate: mapReferentialAction(relationState.onUpdate, "noAction"),
           });
+
+          // The inverse of a manyToOne is to-many: every include, relation
+          // filter and nested-write locate reads this table through the FK
+          // columns. MySQL/InnoDB indexes an FK constraint by itself;
+          // PostgreSQL and SQLite do not, so serialize the index on every
+          // dialect — one snapshot shape for the differ, and on MySQL the
+          // explicit index takes the place of the implicit one. A oneToOne FK
+          // needs nothing here: the unique constraint below is its index.
+          if (relationState.type === "manyToOne") {
+            // The primary key, every unique constraint and every declared index
+            // is backed by an index on all three dialects, and an index serves
+            // any prefix of its columns — so a FK index over such a prefix
+            // would only duplicate one the database already has.
+            const coveringColumns = [
+              pkColumns,
+              ...uniqueConstraints.map((unique) => unique.columns),
+              ...declaredIndexColumns,
+            ];
+            const alreadyIndexed = coveringColumns.some((columns) =>
+              fkColumns.every(
+                (column, position) => columns[position] === column
+              )
+            );
+            if (!alreadyIndexed) {
+              indexes.push({
+                name: `${tableName}_${fkColumns.join("_")}_idx`,
+                columns: fkColumns,
+                unique: false,
+              });
+            }
+          }
 
           // 1:1 FK must be unique at the DB level, or it degrades to N:1
           if (relationState.type === "oneToOne") {

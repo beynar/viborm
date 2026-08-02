@@ -40,6 +40,7 @@ import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
+import { runFkIndexBehavior } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -489,6 +490,11 @@ describeIf("pg Driver", () => {
 
       await client.$disconnect();
     });
+  });
+
+  runFkIndexBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 
   runForwardFkOrderingBehavior({

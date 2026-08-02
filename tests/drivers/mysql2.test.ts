@@ -48,6 +48,7 @@ import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
+import { runFkIndexBehavior } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
@@ -266,6 +267,11 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runClientRawBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runFkIndexBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });

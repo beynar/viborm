@@ -18,6 +18,10 @@ import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
+import {
+  runFkIndexBehavior,
+  runFkIndexPlanBehavior,
+} from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
@@ -65,6 +69,15 @@ function createBatchOnlyPGliteDriver(): PGliteDriver {
 }
 
 describe("PGlite Driver", () => {
+  runFkIndexBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runFkIndexPlanBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+
   runForwardFkOrderingBehavior({
     driverName: "PGlite (tx)",
     createDriver: createInMemoryPGliteDriver,

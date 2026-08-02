@@ -282,6 +282,68 @@ describe("diff", () => {
         indexName: "idx_users_email",
       });
     });
+
+    // The introspected snapshot reads "btree" back from the Postgres/MySQL
+    // catalog while the serialized one leaves an undeclared type undefined.
+    // They describe the same index, so a push must not drop and recreate it.
+    it("treats an undeclared index type as btree", () => {
+      const current = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: false,
+              type: "btree",
+            },
+          ],
+        }),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            { name: "idx_users_email", columns: ["email"], unique: false },
+          ],
+        }),
+      ]);
+
+      expect(diff(current, desired).operations).toEqual([]);
+      expect(diff(desired, current).operations).toEqual([]);
+    });
+
+    it("still detects a real index type change", () => {
+      const current = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: false,
+              type: "btree",
+            },
+          ],
+        }),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: false,
+              type: "gin",
+            },
+          ],
+        }),
+      ]);
+
+      const result = diff(current, desired);
+
+      expect(result.operations.map((op) => op.type)).toEqual([
+        "dropIndex",
+        "createIndex",
+      ]);
+    });
   });
 
   describe("foreign key operations", () => {

@@ -69,12 +69,21 @@ function normalizeDefault(defaultVal: string | undefined): string | undefined {
   return defaultVal;
 }
 
+function normalizeIndexType(type: IndexDef["type"]): string {
+  // An index with no declared type is a B-tree on every dialect. The two
+  // snapshot producers spell that differently — introspection reads "btree"
+  // back from the Postgres/MySQL catalog, SQLite reports no type at all, and
+  // the serializer leaves an undeclared type undefined — so the same index
+  // must not read as a change.
+  return type ?? "btree";
+}
+
 function indexesEqual(a: IndexDef, b: IndexDef): boolean {
   return (
     a.name === b.name &&
     a.unique === b.unique &&
     arraysEqual(a.columns, b.columns) &&
-    a.type === b.type &&
+    normalizeIndexType(a.type) === normalizeIndexType(b.type) &&
     a.where === b.where
   );
 }

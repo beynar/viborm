@@ -63,6 +63,11 @@ Adds an index on one or more fields. Fields are always passed as an array:
 })
 ```
 
+The foreign-key fields of a `manyToOne` relation are indexed for you: `push`
+and `migrate` add an index over them on every database. Declare your own index
+over the same fields — first in the list, so the index still serves them — when
+you want more columns in it; the automatic index is then not added.
+
 ### `.id(fields, options?)`
 
 Defines a compound primary key (when multiple fields form the PK):
