@@ -51,6 +51,7 @@ import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import {
   runFkIndexBehavior,
   runFkIndexPlanBehavior,
+  runFkIndexUpgradeBehavior,
 } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
@@ -717,6 +718,10 @@ describe("SQLite3 Driver", () => {
   });
 
   runFkIndexBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runFkIndexUpgradeBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

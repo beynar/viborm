@@ -12,6 +12,11 @@
  *   catalog: `pg_indexes`, `sqlite_master`, `information_schema.STATISTICS`),
  *   that a second push is not a change, and that a `.index()` the schema
  *   already declares is not duplicated. Wired on every driver.
+ * - `runFkIndexUpgradeBehavior` proves a database that predates the index gains
+ *   it — the upgrade path, where SQLite's table recreation used to destroy the
+ *   index in the same push that created it. Wired on PGlite, SQLite3 and
+ *   LibSQL: on MySQL the state cannot exist, because InnoDB keeps an index on
+ *   the FK column whether or not viborm asks for one.
  * - `runFkIndexPlanBehavior` proves the index is what the planner uses for an
  *   include at volume. Wired on PGlite and SQLite3, the two dialects that had
  *   no FK index at all before.
@@ -325,6 +330,77 @@ export function runFkIndexBehavior({
       expect(dropAt).toBeGreaterThan(-1);
       expect(replacementAt).toBeGreaterThan(-1);
       expect(replacementAt).toBeLessThan(dropAt);
+    });
+  });
+}
+
+export interface FkIndexUpgradeBehaviorOptions {
+  driverName: string;
+  createDriver: () => AnyDriver;
+}
+
+/**
+ * The upgrade path: a database created before this phase, pushed again.
+ *
+ * REGRESSION: SQLite cannot `ALTER TABLE ADD FOREIGN KEY`, so it rebuilds the
+ * table for every FK change — and it rebuilt it from the snapshot introspected
+ * before the batch ever ran, whose index list is the pre-batch one. `createIndex` is
+ * priority 15 and `addForeignKey` 16, so the push created the FK index and then
+ * dropped the table out from under it. Nothing made this rare: SQLite's
+ * introspection has no constraint names to read, so the differ plans an FK drop
+ * and add on every push for every `manyToOne`. The index never landed on an
+ * existing database and the push never went quiet.
+ */
+export function runFkIndexUpgradeBehavior({
+  driverName,
+  createDriver,
+}: FkIndexUpgradeBehaviorOptions) {
+  describe(`${driverName} foreign-key index upgrade`, () => {
+    let client: FkIndexClient | undefined;
+
+    afterEach(async () => {
+      if (client) {
+        await client.$disconnect();
+        client = undefined;
+      }
+    });
+
+    test("a database without the index gains it, and keeps it", async () => {
+      const driver = createDriver();
+      const { dialect } = driver;
+      client = createClient({
+        schema: fkIndexSchema as never,
+        driver,
+      }) as never;
+      const c = client as FkIndexClient;
+      await push(c as never, { force: true });
+
+      // Reduce the database to the pre-phase state: same tables, same
+      // constraint, no FK index.
+      await c.$executeRawUnsafe('DROP INDEX "fk_idx_posts_author_id_idx"');
+      expect(await indexNames(c, dialect, "fk_idx_posts")).not.toContain(
+        "fk_idx_posts_author_id_idx"
+      );
+
+      const upgrade = await push(c as never, { force: true });
+      expect(
+        upgrade.operations.filter((op) => op.type === "createIndex")
+      ).toHaveLength(1);
+      expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
+        "fk_idx_posts_author_id_idx"
+      );
+
+      // Converged: the next push is not an index change, and the index is still
+      // there afterwards — the FK churn SQLite plans forever must not eat it.
+      const settled = await push(c as never, { force: true });
+      expect(
+        settled.operations.filter(
+          (op) => op.type === "createIndex" || op.type === "dropIndex"
+        )
+      ).toEqual([]);
+      expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
+        "fk_idx_posts_author_id_idx"
+      );
     });
   });
 }

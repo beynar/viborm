@@ -313,13 +313,43 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   }
 
   /**
-   * Gets the current table definition from the schema context.
+   * The table definition a recreation has to rebuild — the introspected one,
+   * carrying the indexes the table holds *at this point in the batch*.
+   *
+   * `currentSchema` is read once, before the first statement runs, so its index
+   * list is the pre-batch one. A recreation drops the table, which drops its
+   * indexes, and then re-creates whatever this definition names: with the
+   * pre-batch list it destroys every index the same batch created earlier and
+   * resurrects every index the same batch dropped. `createIndex` runs at
+   * priority 15 and `addForeignKey` at 16, and SQLite recreates the table for
+   * every foreign-key change — so on a database that predates the FK index each
+   * `manyToOne` push created the index and then threw it away, forever.
+   *
+   * `createIndex` and `dropIndex` are the only operations that move an index in
+   * or out of `TableDef.indexes`, so replaying the preceding ones gives the set
+   * the database actually has when the recreation runs.
    */
   protected getCurrentTable(
     tableName: string,
     context?: DDLContext
   ): TableDef | undefined {
-    return context?.currentSchema?.tables.find((t) => t.name === tableName);
+    const table = context?.currentSchema?.tables.find(
+      (t) => t.name === tableName
+    );
+    if (!table) {
+      return undefined;
+    }
+
+    let indexes = table.indexes;
+    for (const op of context?.precedingOperations ?? []) {
+      if (op.type === "createIndex" && op.tableName === tableName) {
+        indexes = [...indexes, op.index];
+      } else if (op.type === "dropIndex" && op.tableName === tableName) {
+        indexes = indexes.filter((index) => index.name !== op.indexName);
+      }
+    }
+
+    return { ...table, indexes };
   }
 
   // ===========================================================================

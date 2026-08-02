@@ -30,7 +30,10 @@ import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
-import { runFkIndexBehavior } from "./fk-index-behavior";
+import {
+  runFkIndexBehavior,
+  runFkIndexUpgradeBehavior,
+} from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
@@ -76,6 +79,10 @@ class BatchOnlyLibSQLDriver extends LibSQLDriver {
 
 describe("LibSQL Driver", () => {
   runFkIndexBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runFkIndexUpgradeBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

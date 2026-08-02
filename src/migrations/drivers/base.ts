@@ -26,6 +26,17 @@ export interface DDLContext {
    * Required for SQLite table recreation operations.
    */
   currentSchema?: SchemaSnapshot;
+
+  /**
+   * The operations of this batch that run *before* the one being generated.
+   *
+   * `currentSchema` is introspected once, before the batch starts, so on its
+   * own it describes the database as it was — not as the statements already
+   * emitted have left it. A SQLite table recreation has to name the indexes the
+   * table holds at the moment it runs, because `DROP TABLE` takes them with it;
+   * see `SQLite3MigrationDriver.getCurrentTable`.
+   */
+  precedingOperations?: DiffOperation[];
 }
 
 // Extract individual operation types from the DiffOperation union

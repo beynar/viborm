@@ -21,6 +21,7 @@ import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import {
   runFkIndexBehavior,
   runFkIndexPlanBehavior,
+  runFkIndexUpgradeBehavior,
 } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
@@ -70,6 +71,10 @@ function createBatchOnlyPGliteDriver(): PGliteDriver {
 
 describe("PGlite Driver", () => {
   runFkIndexBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runFkIndexUpgradeBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

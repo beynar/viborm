@@ -9,10 +9,15 @@ export function generateDDLStatements(
   migrationDriver: MigrationDriver,
   currentSchema: SchemaSnapshot
 ): string[] {
-  const ddlContext: DDLContext = { currentSchema };
   const statements: string[] = [];
 
-  for (const operation of operations) {
+  for (const [position, operation] of operations.entries()) {
+    // `currentSchema` describes the database before the batch; the operations
+    // already emitted have moved it on. SQLite's table recreation needs both.
+    const ddlContext: DDLContext = {
+      currentSchema,
+      precedingOperations: operations.slice(0, position),
+    };
     const ddl = migrationDriver.generateDDL(operation, ddlContext);
     statements.push(
       ...ddl.split(";\n").filter((statement) => statement.trim())
