@@ -256,6 +256,26 @@ Docker MySQL (3307) and PostgreSQL (5434) are left to the gate agent; the MySQL 
 
 No error message, error attribution, or race protection was removed. The step vocabulary in `OperationFragment.ts` is untouched, and no pinned SQL in `tests/query-engine/sql-generation.test.ts` changed — this phase is a serializer, DDL-emitter and introspection change and does not reach the query emitters.
 
+#### Correction from review — a partial index is not coverage
+
+Making the predicate real made two of the serializer's claims false. `serializer.ts` pushed **every** declared index into `declaredIndexColumns`, and two decisions read that list as total coverage: Phase 1's foreign-key index was skipped when a declared index covered the columns, and a 1:1 relation accepted a declared UNIQUE index as its uniqueness. A partial index holds only the rows its predicate keeps, so it answers neither question — but until the emitters wrote the `WHERE`, the index the database built really was total and both claims held by accident.
+
+Measured live on SQLite3 before the fix. A `manyToOne` on `authorId` plus `.index(["authorId"], { where: … })` left one index on the column, and it was partial: every include, relation filter and nested-write locate reading an excluded child was back to the sequential scan Phase 1 exists to remove. A `oneToOne` on `userId` plus `.index(["userId"], { unique: true, where: … })` serialized `uniqueConstraints: []`, and two profiles naming one user were both accepted — the exact degradation to N:1 that the branch's own comment forbids.
+
+One predicate, `isTotalIndex`, now answers both readers: an index carrying a `where` neither joins `declaredIndexColumns` nor satisfies the 1:1 scan. Fail-open in both places, and silent in both.
+
+The automatic index needed a name of its own as a consequence. A partial index over exactly the foreign-key columns auto-names itself `${table}_${fields}_idx` — the name Phase 1's index generates — and a database keeps one index per name, so the two would collide and the push would abort. The automatic index now falls back on the constraint's name, `${table}_${columns}_fkey_idx`, and only when the preferred one is taken. Nothing that has the index today is renamed: the fallback can only be reached by a schema that has no foreign-key index at all, which is precisely the schema this correction repairs. This keeps the naming decision recorded two sections above — a rename plans a drop and a create for no gain.
+
+PostgreSQL was silently wrong the same way before this wave (its emitter already carried `where` at `c45e2b5`), and MySQL cannot hold the declaration at all. Decision 7.4 is now the only open partial-index debt.
+
+Witnesses: `runPartialIndexCoverageBehavior` in [`tests/drivers/index-ddl-behavior.ts`](../../tests/drivers/index-ddl-behavior.ts) — the whole-column index exists and is not partial, a second push does not touch it, and two rows the predicate excludes cannot share the 1:1 key — wired on PGlite, SQLite3 and LibSQL, every dialect that builds a predicate. Four serializer unit tests carry the same claims plus the accepted case (a *total* declared UNIQUE index still is the 1:1 uniqueness) and the no-collision case (a mapped field spells the two names apart, so the preferred name stands).
+
+| Reverted | What failed |
+| --- | --- |
+| the `isTotalIndex` gate on `declaredIndexColumns` | 2 serializer unit tests + 2 live SQLite3 tests |
+| the `isTotalIndex` conjunct in the 1:1 unique scan | 1 serializer unit test + 1 live SQLite3 test |
+| the fallback index name | 2 serializer unit tests + 3 live tests (the push itself aborts on the duplicate name) |
+
 ---
 
 ## Phase 3 — Fold the delete operation into one statement

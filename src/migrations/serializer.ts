@@ -39,6 +39,17 @@ import type {
 // REFERENTIAL ACTION MAPPING
 // =============================================================================
 
+/**
+ * A partial index holds only the rows its predicate keeps. It cannot answer a
+ * lookup for an excluded row, and its UNIQUE cannot constrain one — so it is
+ * neither coverage for the foreign-key index nor uniqueness for a 1:1 relation.
+ * Truthiness, because that is what the emitters use to decide whether to write
+ * the WHERE at all (`postgres/index.ts`, `sqlite/index.ts`).
+ */
+function isTotalIndex(index: { where?: string | undefined }): boolean {
+  return !index.where;
+}
+
 function mapReferentialAction(
   action: "cascade" | "setNull" | "restrict" | "noAction" | undefined,
   fallback: ReferentialAction
@@ -211,14 +222,17 @@ export function serializeModels(
       const columns = indexDef.fields.map(
         (field) => model["~"].getFieldName(field).sql
       );
-      indexes.push({
+      const declared: IndexDef = {
         name: indexName,
         columns,
         unique: indexDef.options.unique,
         type: indexDef.options.type,
         where: indexDef.options.where,
-      });
-      declaredIndexColumns.push(columns);
+      };
+      indexes.push(declared);
+      if (isTotalIndex(declared)) {
+        declaredIndexColumns.push(columns);
+      }
     }
 
     // Process relations to generate foreign keys
@@ -299,8 +313,21 @@ export function serializeModels(
               )
             );
             if (!alreadyIndexed) {
+              // An index the schema declares over exactly these columns but
+              // does not cover them — a partial index — auto-names itself the
+              // way this one does, and a database keeps one index per name. So
+              // the automatic index falls back on the name of the constraint it
+              // serves. Only a schema that has no foreign-key index today can
+              // take the fallback, so no database that already holds the index
+              // is renamed into a drop and a create.
+              const preferredName = `${tableName}_${fkColumns.join("_")}_idx`;
+              const nameTaken = indexes.some(
+                (index) => index.name === preferredName
+              );
               indexes.push({
-                name: `${tableName}_${fkColumns.join("_")}_idx`,
+                name: nameTaken
+                  ? `${tableName}_${fkColumns.join("_")}_fkey_idx`
+                  : preferredName,
                 columns: fkColumns,
                 unique: false,
               });
@@ -316,7 +343,10 @@ export function serializeModels(
                 (u) => [...u.columns].sort().join(",") === fkKey
               ) ||
               indexes.some(
-                (i) => i.unique && [...i.columns].sort().join(",") === fkKey
+                (i) =>
+                  i.unique &&
+                  isTotalIndex(i) &&
+                  [...i.columns].sort().join(",") === fkKey
               );
             if (!alreadyUnique) {
               uniqueConstraints.push({

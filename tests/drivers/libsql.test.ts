@@ -39,6 +39,7 @@ import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import {
   runMappedIndexBehavior,
   runPartialIndexBehavior,
+  runPartialIndexCoverageBehavior,
 } from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
@@ -91,6 +92,10 @@ describe("LibSQL Driver", () => {
     createDriver: createInMemoryLibSQLDriver,
   });
   runPartialIndexBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runPartialIndexCoverageBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

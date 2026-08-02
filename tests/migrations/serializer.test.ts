@@ -857,6 +857,79 @@ describe("foreign-key index for to-many relations", () => {
     ).toEqual(["postTag_tagId_idx"]);
   });
 
+  // REGRESSION (Phase 2 review): every declared index counted as coverage,
+  // including one carrying a predicate. A partial index holds only the rows its
+  // predicate keeps, so it cannot answer a lookup for an excluded row — and
+  // declaring one silently removed the foreign-key index altogether, on the
+  // exact column this plan calls its highest value. Harmless until Phase 2
+  // taught SQLite to emit the WHERE; a live defect from that commit on.
+  it("does not let a partial declared index cover the FK columns", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string(),
+        published: s.boolean(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .index(["authorId"], { where: "published = true" });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    // Two indexes over one column, and only one of them is the whole column.
+    // The automatic index cannot take the name the declared one holds, so it
+    // takes the name of the constraint it serves.
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      {
+        name: "post_authorId_idx",
+        columns: ["authorId"],
+        unique: undefined,
+        type: undefined,
+        where: "published = true",
+      },
+      {
+        name: "post_authorId_fkey_idx",
+        columns: ["authorId"],
+        unique: false,
+      },
+    ]);
+  });
+
+  // The fallback name is keyed on the name being taken, not on the predicate:
+  // a mapped field spells the declared index after the field and the automatic
+  // index after the column, so nothing collides and the preferred name stands.
+  it("keeps the preferred name when the partial index does not hold it", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string().map("author_id"),
+        published: s.boolean(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .index(["authorId"], { where: "published = true" });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    expect(
+      snapshot.tables.find((t) => t.name === "post")!.indexes.map((i) => i.name)
+    ).toEqual(["post_authorId_idx", "post_author_id_idx"]);
+  });
+
   it("adds no FK index for a oneToOne relation", () => {
     const User = s.model({
       id: s.string().id(),
@@ -880,6 +953,61 @@ describe("foreign-key index for to-many relations", () => {
     expect(profileTable!.uniqueConstraints).toEqual([
       { name: "profile_userId_key", columns: ["userId"] },
     ]);
+  });
+
+  // The accepted case, pinned so the branch below cannot be read as dead: a
+  // declared UNIQUE index over the whole column IS the 1:1 uniqueness.
+  it("accepts a total declared UNIQUE index as the 1:1 uniqueness", () => {
+    const User = s.model({
+      id: s.string().id(),
+      profile: s.oneToOne(() => Profile),
+    });
+
+    const Profile = s
+      .model({
+        id: s.string().id(),
+        userId: s.string(),
+        user: s
+          .oneToOne(() => User)
+          .fields("userId")
+          .references("id"),
+      })
+      .index(["userId"], { unique: true });
+
+    const snapshot = serialize({ user: User, profile: Profile });
+
+    expect(
+      snapshot.tables.find((t) => t.name === "profile")!.uniqueConstraints
+    ).toEqual([]);
+  });
+
+  // REGRESSION (Phase 2 review): the same predicate blindness degraded a 1:1
+  // relation to N:1. A partial UNIQUE index constrains only the rows its
+  // predicate keeps, so two rows excluded by it can hold the same FK — two
+  // profiles owning one user, which is what the branch exists to forbid.
+  it("does not accept a partial UNIQUE index as the 1:1 uniqueness", () => {
+    const User = s.model({
+      id: s.string().id(),
+      profile: s.oneToOne(() => Profile),
+    });
+
+    const Profile = s
+      .model({
+        id: s.string().id(),
+        userId: s.string(),
+        active: s.boolean(),
+        user: s
+          .oneToOne(() => User)
+          .fields("userId")
+          .references("id"),
+      })
+      .index(["userId"], { unique: true, where: "active = true" });
+
+    const snapshot = serialize({ user: User, profile: Profile });
+
+    expect(
+      snapshot.tables.find((t) => t.name === "profile")!.uniqueConstraints
+    ).toEqual([{ name: "profile_userId_key", columns: ["userId"] }]);
   });
 });
 

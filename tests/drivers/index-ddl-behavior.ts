@@ -15,6 +15,16 @@
  * where the emitter was blind. `runPartialIndexRefusalBehavior` proves MySQL —
  * which has no partial index at all — refuses the declaration out loud instead
  * of quietly building the wrong index.
+ *
+ * Unit 2.3, the coverage of a partial index (found reviewing 2.2). The
+ * serializer counted every declared index as total coverage. Once 2.2 made the
+ * predicate real, declaring a partial index over a foreign-key column removed
+ * that column's index entirely, and declaring a partial UNIQUE one over a 1:1
+ * foreign key left the relation with no uniqueness at all — two children could
+ * own one parent. `runPartialIndexCoverageBehavior` proves the whole-column
+ * index and the uniqueness both survive the declaration; it is wired on the
+ * dialects that build a predicate (PostgreSQL and the SQLite family), which is
+ * every dialect that can hold the declaration at all.
  */
 
 import {
@@ -23,6 +33,7 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
+import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -99,6 +110,56 @@ const refusedPost = s
 
 const refusedIndexSchema = { refusedPost };
 
+// --- Schema 4: a partial index over the foreign-key column -------------------
+// The predicate is written over an integer so one schema serves PostgreSQL and
+// SQLite unchanged. The declared index takes the name the automatic foreign-key
+// index would generate, so this schema also witnesses the name the automatic
+// index falls back on.
+const coverUser = s
+  .model({
+    id: s.string().id(),
+    posts: s.oneToMany(() => coverPost),
+  })
+  .map("idx_cov_users");
+
+const coverPost = s
+  .model({
+    id: s.string().id(),
+    views: s.int(),
+    authorId: s.string(),
+    author: s
+      .manyToOne(() => coverUser)
+      .fields("authorId")
+      .references("id"),
+  })
+  .index(["authorId"], { where: "views > 0" })
+  .map("idx_cov_posts");
+
+const coverIndexSchema = { coverUser, coverPost };
+
+// --- Schema 5: a partial UNIQUE index over a 1:1 foreign-key column ----------
+const coverOwner = s
+  .model({
+    id: s.string().id(),
+    profile: s.oneToOne(() => coverProfile),
+  })
+  .map("idx_cov_owners");
+
+const coverProfile = s
+  .model({
+    id: s.string().id(),
+    views: s.int(),
+    ownerId: s.string(),
+    owner: s
+      .oneToOne(() => coverOwner)
+      .fields("ownerId")
+      .references("id"),
+  })
+  .index(["ownerId"], { unique: true, where: "views > 0" })
+  .map("idx_cov_profiles");
+
+const coverUniqueSchema = { coverOwner, coverProfile };
+
 /** The refusal names the index and quotes the predicate it cannot express. */
 const REFUSAL_MESSAGE =
   /Index "idx_refused_posts_published_title" declares a partial index predicate \(where: "published = 1"\)\. MySQL does not support partial indexes\./;
@@ -106,7 +167,9 @@ const REFUSAL_MESSAGE =
 type AnySchema =
   | typeof mappedIndexSchema
   | typeof partialIndexSchema
-  | typeof refusedIndexSchema;
+  | typeof refusedIndexSchema
+  | typeof coverIndexSchema
+  | typeof coverUniqueSchema;
 
 type IndexDdlClient = VibORMClient<
   VibORMConfig & { schema: AnySchema; driver: AnyDriver }
@@ -148,6 +211,33 @@ async function indexColumns(
     indexName
   );
   return rows.map((row) => row.name);
+}
+
+/** Whether the database built `indexName` with a predicate of its own. */
+async function isPartial(
+  client: IndexDdlClient,
+  dialect: string,
+  tableName: string,
+  indexName: string
+): Promise<boolean> {
+  if (dialect === "postgresql") {
+    const rows = await client.$queryRawUnsafe<{ partial: boolean }>(
+      `SELECT (x.indpred IS NOT NULL) AS partial
+         FROM pg_class i
+         JOIN pg_index x ON x.indexrelid = i.oid
+        WHERE i.relname = $1`,
+      indexName
+    );
+    return rows[0]?.partial === true;
+  }
+
+  // SQLite's own verdict, independent of the stored text. `Number` because the
+  // LibSQL driver runs with `intMode: "bigint"`.
+  const rows = await client.$queryRawUnsafe<{
+    name: string;
+    partial: number | bigint;
+  }>(`PRAGMA index_list("${tableName}")`);
+  return Number(rows.find((row) => row.name === indexName)?.partial) === 1;
 }
 
 export interface IndexDdlBehaviorOptions {
@@ -320,6 +410,114 @@ export function runPartialIndexRefusalBehavior({
       await expect(push(client as never, { force: true })).rejects.toThrow(
         REFUSAL_MESSAGE
       );
+    });
+  });
+}
+
+export function runPartialIndexCoverageBehavior({
+  driverName,
+  createDriver,
+}: IndexDdlBehaviorOptions) {
+  describe(`${driverName} partial index coverage`, () => {
+    let client: IndexDdlClient | undefined;
+    let dialect = "";
+
+    afterEach(async () => {
+      if (client) {
+        await client.$disconnect();
+        client = undefined;
+      }
+    });
+
+    function make(schema: AnySchema): IndexDdlClient {
+      const driver = createDriver();
+      dialect = driver.dialect;
+      client = createClient({ schema: schema as never, driver }) as never;
+      return client as IndexDdlClient;
+    }
+
+    // REGRESSION (Phase 2 review): the declared partial index counted as total
+    // coverage, so the foreign-key index was skipped and this column — the one
+    // every include, relation filter and nested-write locate reads — had no
+    // index for the rows the predicate excludes.
+    test("the foreign-key column keeps a whole-column index", async () => {
+      const c = make(coverIndexSchema);
+      await push(c as never, { force: true });
+
+      // The declared index is still exactly what the schema asked for.
+      expect(
+        await indexColumns(c, dialect, "idx_cov_posts_authorId_idx")
+      ).toEqual(["authorId"]);
+      expect(
+        await isPartial(
+          c,
+          dialect,
+          "idx_cov_posts",
+          "idx_cov_posts_authorId_idx"
+        )
+      ).toBe(true);
+
+      // And the foreign key has its own index over every row. It cannot take
+      // the name the declared index holds, so it takes the constraint's.
+      expect(
+        await indexColumns(c, dialect, "idx_cov_posts_authorId_fkey_idx")
+      ).toEqual(["authorId"]);
+      expect(
+        await isPartial(
+          c,
+          dialect,
+          "idx_cov_posts",
+          "idx_cov_posts_authorId_fkey_idx"
+        )
+      ).toBe(false);
+    });
+
+    // Only the foreign-key index is asserted quiet: the declared partial index
+    // churns on PostgreSQL, which deparses the predicate it reads back — the
+    // separate, still-open Decision 7.4.
+    test("a second push does not touch the foreign-key index", async () => {
+      const c = make(coverIndexSchema);
+      await push(c as never, { force: true });
+
+      const second = await push(c as never, { force: true });
+
+      expect(
+        second.operations.filter(
+          (op) =>
+            (op.type === "createIndex" &&
+              op.index.name === "idx_cov_posts_authorId_fkey_idx") ||
+            (op.type === "dropIndex" &&
+              op.indexName === "idx_cov_posts_authorId_fkey_idx")
+        )
+      ).toEqual([]);
+      expect(
+        await indexColumns(c, dialect, "idx_cov_posts_authorId_fkey_idx")
+      ).toEqual(["authorId"]);
+    });
+
+    // REGRESSION (Phase 2 review): the same blindness accepted a partial UNIQUE
+    // index as the 1:1 uniqueness, so no unique constraint was emitted at all.
+    // Both rows below sit outside the predicate, so only a constraint over the
+    // whole column can refuse the second one — and without it the relation the
+    // schema calls 1:1 holds two children on one parent.
+    test("two rows the predicate excludes cannot share the 1:1 key", async () => {
+      const c = make(coverUniqueSchema);
+      await push(c as never, { force: true });
+
+      const owner = c as never as {
+        coverOwner: { create: (a: unknown) => Promise<unknown> };
+        coverProfile: { create: (a: unknown) => Promise<unknown> };
+      };
+      await owner.coverOwner.create({ data: { id: "o1" } });
+      await owner.coverProfile.create({
+        data: { id: "p1", views: 0, ownerId: "o1" },
+      });
+
+      await expect(
+        owner.coverProfile.create({
+          data: { id: "p2", views: 0, ownerId: "o1" },
+        })
+      ).rejects.toThrow(UniqueConstraintError);
     });
   });
 }

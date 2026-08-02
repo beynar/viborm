@@ -58,6 +58,7 @@ import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import {
   runMappedIndexBehavior,
   runPartialIndexBehavior,
+  runPartialIndexCoverageBehavior,
 } from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
@@ -731,6 +732,10 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   runPartialIndexBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runPartialIndexCoverageBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
