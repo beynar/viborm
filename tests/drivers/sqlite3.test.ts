@@ -55,6 +55,10 @@ import {
 } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
+import {
+  runMappedIndexBehavior,
+  runPartialIndexBehavior,
+} from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -718,6 +722,14 @@ describe("SQLite3 Driver", () => {
   });
 
   runFkIndexBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runMappedIndexBehavior({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runPartialIndexBehavior({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

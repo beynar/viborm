@@ -51,6 +51,10 @@ import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runFkIndexBehavior } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
+import {
+  runMappedIndexBehavior,
+  runPartialIndexRefusalBehavior,
+} from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -272,6 +276,15 @@ describeIf("MySQL2 Driver", () => {
   });
 
   runFkIndexBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runMappedIndexBehavior({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+  runPartialIndexRefusalBehavior({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });

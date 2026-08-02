@@ -42,6 +42,7 @@ import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runFkIndexBehavior } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import { runMappedIndexBehavior } from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
@@ -493,6 +494,10 @@ describeIf("pg Driver", () => {
   });
 
   runFkIndexBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runMappedIndexBehavior({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });

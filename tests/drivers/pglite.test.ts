@@ -25,6 +25,7 @@ import {
 } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
+import { runMappedIndexBehavior } from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -71,6 +72,10 @@ function createBatchOnlyPGliteDriver(): PGliteDriver {
 
 describe("PGlite Driver", () => {
   runFkIndexBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runMappedIndexBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

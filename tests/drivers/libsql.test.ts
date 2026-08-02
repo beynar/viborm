@@ -36,6 +36,10 @@ import {
 } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
+import {
+  runMappedIndexBehavior,
+  runPartialIndexBehavior,
+} from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -79,6 +83,14 @@ class BatchOnlyLibSQLDriver extends LibSQLDriver {
 
 describe("LibSQL Driver", () => {
   runFkIndexBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runMappedIndexBehavior({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  runPartialIndexBehavior({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });

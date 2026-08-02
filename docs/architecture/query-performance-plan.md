@@ -180,6 +180,82 @@ No error message, error attribution, or race protection was removed. The step vo
 
 **Test.** Declare a partial index on SQLite. Push two times. Make sure that the second push reports no change. Make sure that the index in the database has the WHERE clause. On MySQL, make sure the declaration gets a clear error.
 
+### Phase 2 delivery record
+
+**Delivered:** 2026-08-02. Branch `nested-write-boundaries`, on top of the Phase 1 record.
+
+#### What shipped
+
+| Change | What it does |
+| --- | --- |
+| `serializer.ts` index collection | Resolves each declared index field through `getFieldName(field).sql` before the push, so `.index()` on a `.map()`ed field names the column and not the TypeScript field. One resolution now serves both readers — the CREATE INDEX and the Phase 1 foreign-key index's coverage decision, which already resolved the names separately. |
+| `sqlite/index.ts` `generateCreateIndex` | Emits ` WHERE <predicate>` for a partial index. |
+| `sqlite/introspect.ts` | Reads the predicate back out of `sqlite_master.sql`, so the differ can see the declared and the stored index agree. |
+| `mysql/index.ts` `generateCreateIndex` | Refuses a partial index by name, quoting the predicate, instead of building a silently different index. MySQL has no partial index. |
+| `differ.ts` `normalizeIndexWhere` | `type`'s and `unique`'s third twin: the one place the two snapshots' predicate spellings are reconciled. |
+| `sqlite/introspect.ts` `int()` | Normalizes the pragmas' integer columns. See the LibSQL finding below. |
+
+#### Measured: what each catalog does with a predicate
+
+The plan's ordering note asked whether `indexesEqual` has to normalize a re-spelled predicate. Both catalogs were measured directly.
+
+**SQLite (better-sqlite3 3.51) stores the statement verbatim.** `CREATE INDEX i1 ON t ("title") WHERE  published = 1 ` comes back from `sqlite_master.sql` byte-identical — inner spacing, padding and all; only the statement terminator is dropped. So the round trip needs no spelling normalization, and the read-back is exact. The only gap is padding: the emitter writes ` WHERE ${where}`, and reading past `WHERE\s+` consumes the separating run, so a predicate declared with leading whitespace returns without it. That is what `normalizeIndexWhere` covers, and nothing else.
+
+**PostgreSQL re-spells the predicate, and this is still open.** `pg_get_expr(indpred, indrelid)` deparses: a declared `active = true` reads back as `(active = true)`, and `a = 1 AND b = 2` would read back as `((a = 1) AND (b = 2))`. Since `postgres/introspect.ts:302` already reads `filter_condition` into `where`, **a partial index on PostgreSQL is dropped and re-created on every push, today, and this phase does not fix it.** It is a different defect from the one this unit was scoped to: SQLite's was a silent drop, PostgreSQL's is a deparse mismatch, and no client-side text normalization closes it without failing open. Stripping all whitespace and parentheses would make `a AND (b OR c)` and `(a AND b) OR c` compare equal — a real predicate change that the differ would then miss — which this codebase's fail-closed doctrine forbids. The honest fixes are to canonicalize the declared predicate through the database (a round trip the differ has no access to today) or to compare `indpred` structurally. **Disposition: record, do not paper over.** Phase 7 is where a choice of this shape belongs.
+
+#### Found while testing: LibSQL read every pragma integer wrong
+
+The first test in this repo to push a **two-column** index on LibSQL crashed the introspection outright:
+
+```
+TypeError: Cannot convert a BigInt value to a number
+  at LibSQLMigrationDriver.introspect (sqlite/introspect.ts, a.seqno - b.seqno)
+```
+
+The LibSQL driver runs with `intMode: "bigint"` (`src/drivers/libsql/index.ts:133`), so every pragma integer reaches the shared SQLite introspection as BigInt, while `sqlite/types.ts` declared them `number`. Raw, each read was wrong in its own way: `a.seqno - b.seqno` returns a BigInt that `Array#sort` refuses (the crash — invisible until now because every index the tests pushed had one column, and a one-element sort never calls its comparator); `idx.unique === 1` is false for `1n`, so a UNIQUE index introspected as non-unique; and `col.notnull === 0` is false for `0n`, so every NOT NULL column introspected as nullable. This is pre-existing and unrelated to the two units, but a new test cannot be shipped on top of a crash. One normalization at the read boundary — `int()` — fixes all three, because all three have one cause. The full LibSQL suite is green after it (1078 passed), so nothing depended on the old readings.
+
+#### Not changed, deliberately
+
+The **default index name** still spells the TypeScript field names (`${table}_${fields.join("_")}_idx`). The defect was that CREATE INDEX named a non-existent *column*; a name is arbitrary, and renaming it would plan a drop and a create on every existing database that has a mapped indexed field, for no gain. An explicit `.name()` is unaffected either way.
+
+#### Witnesses
+
+- [`tests/drivers/index-ddl-behavior.ts`](../../tests/drivers/index-ddl-behavior.ts) — three live suites:
+  - `runMappedIndexBehavior` pushes a compound index over two mapped columns (one of them the FK column) and reads the column list back from each database's own catalog. Wired on PGlite, pg, SQLite3, LibSQL and MySQL2.
+  - `runPartialIndexBehavior` proves the predicate reaches the database (`sqlite_master.sql` and `PRAGMA index_list`'s `partial`) and that a second push plans no index change — over a table holding a foreign key, so SQLite rebuilds it and re-emits the index from the introspected list. Wired on SQLite3 and LibSQL.
+  - `runPartialIndexRefusalBehavior` proves MySQL refuses the declaration, naming the index and quoting the predicate. Wired on MySQL2.
+- [`tests/migrations/serializer.test.ts`](../../tests/migrations/serializer.test.ts) — `declared index columns resolve through .map()`: single-field, compound in order, unmapped unchanged, and unique.
+- [`tests/migrations/ddl-drivers.test.ts`](../../tests/migrations/ddl-drivers.test.ts) — the SQLite `CREATE INDEX … WHERE` and `CREATE UNIQUE INDEX … WHERE` spellings, and the MySQL refusal message.
+- [`tests/migrations/differ.test.ts`](../../tests/migrations/differ.test.ts) — the padding is ignored; a changed predicate and a predicate that disappears are both still real changes.
+
+#### Falsification
+
+Each fix was reverted on its own and the witness that failed was recorded.
+
+| Reverted | What failed |
+| --- | --- |
+| the serializer resolution (`columns: indexDef.fields`) | 4 serializer unit tests + 3 live SQLite3 tests |
+| the SQLite ` WHERE` emission | 2 SQLite DDL unit tests + 2 live SQLite3 tests |
+| the introspection read-back only | the live convergence test only — the emission test still passed, so each half has its own witness |
+| `normalizeIndexWhere` | the differ padding test only |
+| the MySQL refusal | the MySQL DDL unit test only |
+
+#### Gate
+
+| Leg | Result |
+| --- | --- |
+| `npx tsc --noEmit` (5.9.3) | clean |
+| `tests/migrations` | 343 passed |
+| `tests/drivers/sqlite3` + `tests/drivers/pglite` | 1840 passed |
+| `tests/drivers/libsql` | 1078 passed |
+| `tests/cli` | 144 passed |
+| `pnpm test:gates` | 72 passed |
+| repo-pinned `npx biome check` per changed file | no new diagnostics; the 7 remaining are byte-identical to their `c45e2b5` versions |
+
+Docker MySQL (3307) and PostgreSQL (5434) are left to the gate agent; the MySQL refusal and the mapped-index witnesses are wired on both.
+
+No error message, error attribution, or race protection was removed. The step vocabulary in `OperationFragment.ts` is untouched, and no pinned SQL in `tests/query-engine/sql-generation.test.ts` changed — this phase is a serializer, DDL-emitter and introspection change and does not reach the query emitters.
+
 ---
 
 ## Phase 3 — Fold the delete operation into one statement
@@ -294,6 +370,10 @@ ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level sca
 ### Decision 7.2 — Multi-row `INSERT … RETURNING` for `createMany` with select
 
 The per-row emission exists for an exact input ordinal ([`create.ts:116-119`](../../src/query-engine/operations/create.ts); [`ManyAndReturnOperation.ts:451-467`](../../src/query-engine-v2/ManyAndReturnOperation.ts)). One multi-row statement replaces N statements. PostgreSQL does not contractually guarantee the RETURNING row order. The choice: accept the implementation guarantee (Prisma does), or match the returned rows by key.
+
+### Decision 7.4 — The PostgreSQL partial-index predicate (raised by Phase 2)
+
+Phase 2 fixed the partial index on SQLite, where the catalog stores the statement verbatim. PostgreSQL does not: `pg_get_expr(indpred, indrelid)` deparses the predicate, so a declared `active = true` reads back as `(active = true)` and never compares equal to what the serializer holds ([`postgres/introspect.ts:302`](../../src/migrations/drivers/postgres/introspect.ts) into `indexesEqual`, [`differ.ts`](../../src/migrations/differ.ts)). Measured on PGlite (PostgreSQL 17). **Consequence: every push drops and re-creates every partial index on PostgreSQL.** No client-side text normalization closes this while staying fail-closed — flattening whitespace and parentheses makes `a AND (b OR c)` equal `(a AND b) OR c`, so a real predicate change would stop being seen. The choice: canonicalize the declared predicate through the database before comparing (the differ has no connection today, so this changes the differ's shape), compare `indpred` structurally, or accept the churn and document it. The disposition must state which.
 
 ### Decision 7.3 — The `startsWith` spelling
 
