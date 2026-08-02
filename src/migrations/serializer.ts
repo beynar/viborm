@@ -203,19 +203,22 @@ export function serializeModels(
       const indexName =
         indexDef.options.name ||
         `${tableName}_${indexDef.fields.join("_")}_idx`;
+      // `.map()` renames the column, so the DDL has to name the column and not
+      // the TypeScript field — the same resolution the compound uniques and the
+      // FK columns already do. One resolution serves both readers: the CREATE
+      // INDEX below, and the foreign-key index's coverage decision, which has
+      // to compare the same names or it emits a duplicate index.
+      const columns = indexDef.fields.map(
+        (field) => model["~"].getFieldName(field).sql
+      );
       indexes.push({
         name: indexName,
-        columns: indexDef.fields,
+        columns,
         unique: indexDef.options.unique,
         type: indexDef.options.type,
         where: indexDef.options.where,
       });
-      // The pushed `columns` are the raw TS field names. The foreign-key index
-      // below decides coverage against real column names, so resolve them here
-      // for that decision alone.
-      declaredIndexColumns.push(
-        indexDef.fields.map((field) => model["~"].getFieldName(field).sql)
-      );
+      declaredIndexColumns.push(columns);
     }
 
     // Process relations to generate foreign keys

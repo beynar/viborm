@@ -504,6 +504,92 @@ describe("one-to-one FK unique constraint", () => {
 });
 
 // =============================================================================
+// DECLARED INDEX COLUMN RESOLUTION (Phase 2, Unit 2.1)
+// =============================================================================
+
+/**
+ * `.index()` names TypeScript fields; the DDL has to name columns. A `.map()`ed
+ * field made the two differ, and the index collection pushed the field name
+ * straight through — so CREATE INDEX named a column that does not exist and the
+ * push failed.
+ */
+describe("declared index columns resolve through .map()", () => {
+  function serialize(schema: Record<string, any>) {
+    hydrateSchemaNames(schema);
+    return serializeModels(schema, {
+      migrationDriver: postgresMigrationDriver,
+    });
+  }
+
+  it("writes the mapped column name into a single-field index", () => {
+    const Post = s
+      .model({
+        id: s.string().id(),
+        publishedAt: s.dateTime().map("published_at"),
+      })
+      .index(["publishedAt"]);
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      expect.objectContaining({ columns: ["published_at"] }),
+    ]);
+  });
+
+  it("writes the mapped column names into a compound index, in order", () => {
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string().map("author_id"),
+        publishedAt: s.dateTime().map("published_at"),
+      })
+      .index(["authorId", "publishedAt"]);
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      expect.objectContaining({ columns: ["author_id", "published_at"] }),
+    ]);
+  });
+
+  it("leaves an unmapped field's column name alone", () => {
+    const Post = s
+      .model({
+        id: s.string().id(),
+        publishedAt: s.dateTime(),
+      })
+      .index(["publishedAt"]);
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      expect.objectContaining({ columns: ["publishedAt"] }),
+    ]);
+  });
+
+  it("carries the mapped column name into a unique declared index too", () => {
+    const Post = s
+      .model({
+        id: s.string().id(),
+        slug: s.string().map("url_slug"),
+      })
+      .index(["slug"], { unique: true, name: "post_slug_uq" });
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      {
+        name: "post_slug_uq",
+        columns: ["url_slug"],
+        unique: true,
+        type: undefined,
+        where: undefined,
+      },
+    ]);
+  });
+});
+
+// =============================================================================
 // FOREIGN-KEY INDEX TESTS
 // =============================================================================
 
@@ -647,14 +733,14 @@ describe("foreign-key index for to-many relations", () => {
 
     const snapshot = serialize({ user: User, post: Post });
 
-    // One index over the column, not two. The declared entry still carries the
-    // raw TS field name in `columns` — that defect belongs to the index
-    // collection and is corrected in its own phase; the FK index must not be
-    // fooled by it into emitting a second index over the same column.
+    // One index over the column, not two: the FK index must not be fooled into
+    // emitting a second index over the same column. The declared entry now
+    // carries the mapped column name too (the index collection resolves it),
+    // so both readers compare the one name the database knows.
     expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
       {
         name: "post_authorId_idx",
-        columns: ["authorId"],
+        columns: ["author_id"],
         unique: undefined,
         type: undefined,
         where: undefined,
