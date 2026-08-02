@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Plan only. No work has started.
+**Status:** Phase 1 delivered (see the Phase 1 delivery record). Phases 2-10 not started.
 
 ## Source of this plan
 
@@ -84,6 +84,77 @@ The same-name exclusion above was first keyed on the pair `(table, index name)`,
 SQLite has no `ALTER TABLE ADD FOREIGN KEY`, so every FK change rebuilds the table, and the rebuild read its index list from the snapshot introspected *before* the batch. Since `createIndex` is priority 15 and `addForeignKey` is 16, the rebuild threw away the index the same push had just created. This was not rare: SQLite introspection has no constraint names to read (`PRAGMA foreign_key_list` reports none), so the differ plans an FK drop and add on every push for every `manyToOne`. On any database created before this phase the FK index was created and destroyed in the same transaction, on every push, forever — this phase's deliverable never landed there and `push` never converged. `SQLite3MigrationDriver.getCurrentTable` now replays the batch's preceding `createIndex` / `dropIndex` operations onto the introspected list, so a rebuild carries the indexes the table holds at the moment it runs. Witnesses: [`tests/migrations/sqlite-recreation-indexes.test.ts`](../../tests/migrations/sqlite-recreation-indexes.test.ts) for the emitted DDL, and `runFkIndexUpgradeBehavior` in [`tests/drivers/fk-index-behavior.ts`](../../tests/drivers/fk-index-behavior.ts) wired on PGlite, SQLite3 and LibSQL.
 
 Still open, and pre-existing: the same rebuild reads its *columns*, unique constraints and foreign keys from that stale snapshot too, and SQLite's nameless FK introspection makes the differ plan an FK drop plus add on every push — which appends a duplicate constraint to the table each time. Measured on a schema that emits no FK index at all (the FK columns prefix the primary key), so it is not this phase's doing: three pushes leave `arc_posts` carrying `arc_posts_fk_0`, `arc_posts_fk_1` and `arc_posts_author_id_fkey`, all identical.
+
+### Phase 1 delivery record
+
+**Delivered:** 2026-08-02. Branch `nested-write-boundaries`, four commits from `d9f5c24` (the serializer change) through `e03307c` (the SQLite rebuild fix).
+
+#### What shipped
+
+| Commit | What it does |
+| --- | --- |
+| `d9f5c24` | The serializer emits one index over the FK columns of each `manyToOne` holder, on all three dialects. Column names resolve through `getFieldName(field).sql`; the index is skipped when a user-declared index or a unique constraint already prefixes the same column set; a compound FK gets one composite index in FK order. |
+| `260371d` | `sortOperations` runs a `dropIndex` whose replacement is created in the same batch after `createIndex`, so MySQL/InnoDB never loses the index its FK constraint is bound to (errno 1553). |
+| `f80c2c0` | The same-name exclusion is keyed on the index name alone, not on `(table, name)`, because PostgreSQL and SQLite scope index names to the schema (42P07). |
+| `e03307c` | `SQLite3MigrationDriver.getCurrentTable` replays the batch's preceding `createIndex`/`dropIndex` onto the introspected list, so an FK-driven table rebuild carries the index the same push created. Without this the deliverable never landed on any pre-existing SQLite database, and `push` never converged. |
+
+#### Measured effect — before and after, same statement, same data
+
+The measurement pushes the schema, seeds 1,000 parents and 100,000 children (100 children per parent), runs `ANALYZE`, then EXPLAINs and times the one statement the client emits for `findMany({ take: 1000, include: { posts: true } })`. It then drops only the FK index, re-`ANALYZE`s, and repeats. Nothing else differs between the two readings.
+
+**PostgreSQL 17 (Docker, port 5434), `pg` driver.**
+
+```
+WITH the index (103.4 ms)                    WITHOUT the index (2683.0 ms)
+Limit  (cost=272.41..272204.66 rows=1000)    Limit  (cost=1886.78..1886575.54 rows=1000)
+  -> Nested Loop Left Join                     -> Nested Loop Left Join
+    -> Index Scan using m_plan_users_pkey        -> Index Scan using m_plan_users_pkey
+    -> Aggregate                                 -> Aggregate
+      -> Bitmap Heap Scan on m_plan_posts t1       -> Seq Scan on m_plan_posts t1
+         Recheck Cond: (t0.id = author_id)            Filter: (t0.id = author_id)
+        -> Bitmap Index Scan on
+           m_plan_posts_author_id_idx
+           Index Cond: (author_id = t0.id)
+```
+
+26× on the wall clock; the planner's own estimate moves from 1,886,575 to 272,205.
+
+**SQLite (`better-sqlite3`, in-memory).**
+
+```
+WITH the index (88.7 ms)                     WITHOUT the index (2592.1 ms)
+SCAN t0                                      SCAN t0
+CORRELATED SCALAR SUBQUERY 2                 CORRELATED SCALAR SUBQUERY 2
+SEARCH t1 USING INDEX                        SCAN t1
+  m_plan_posts_author_id_idx (author_id=?)
+USE TEMP B-TREE FOR ORDER BY                 USE TEMP B-TREE FOR ORDER BY
+```
+
+29× on the wall clock. The child table moves from a full scan to an index search.
+
+These numbers are smaller than the audit table above (294× and 361×) because the audit read 1,000 parents out of a 100,000-row parent table; here the parent side is 1,000 rows, so the sequential scan that the index removes is repeated 1,000 times instead of over a larger table. The shape of the win is the same and the direction of the plan change is identical: sequential scan becomes an index lookup.
+
+#### Witnesses
+
+- [`tests/drivers/fk-index-behavior.ts`](../../tests/drivers/fk-index-behavior.ts) — three suites, wired on the live drivers:
+  - `runFkIndexBehavior` reads each database's own catalog (`pg_indexes`, `information_schema.STATISTICS`, `sqlite_master`) and proves the index arrives, that a second push is not a change, that a declared `.index()` on the same column is not duplicated, and that a wider index or a compound unique over the FK columns replaces it in one push. Wired on all five drivers.
+  - `runFkIndexUpgradeBehavior` proves a database created before this phase gains the index. Wired on PGlite, SQLite3 and LibSQL.
+  - `runFkIndexPlanBehavior` proves the planner uses it: it EXPLAINs the statement the client actually emitted and asserts the index name appears and that neither `Seq Scan on fk_plan_posts` nor `SCAN t1` does. On PostgreSQL it first sets `enable_seqscan = on` and asserts the setting took, so the assertion means the index won on cost. Wired on PGlite and SQLite3.
+- [`tests/migrations/superseded-index-ordering.test.ts`](../../tests/migrations/superseded-index-ordering.test.ts) — the operation order and the emitted DDL for the drop-after-create rule, including `drops first when another table takes the same name`.
+- [`tests/migrations/sqlite-recreation-indexes.test.ts`](../../tests/migrations/sqlite-recreation-indexes.test.ts) — the DDL a SQLite table rebuild emits when the same batch created an index.
+
+#### Gate
+
+| Leg | Result |
+| --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean |
+| full estate, `--minWorkers=1 --maxWorkers=4` | 9197 passed, 0 failed, 2102 skipped (261 files); baseline was 9152 |
+| `pnpm test:gates` | 72 passed; the census log is unchanged |
+| repo-pinned `npx biome check` per changed file | no new diagnostics; the two `useTopLevelRegex` infos in `src/migrations/utils.ts:87` and `tests/migrations/serializer.test.ts:337,359` are byte-identical to their `47b0847` versions |
+| Docker MySQL (3307) | 984 passed, 0 failed; baseline 979. The five `MySQL2 foreign-key index` witnesses executed |
+| Docker PostgreSQL (5434) | 1097 passed, 0 failed, 14 skipped; baseline 1092. The five `pg foreign-key index` witnesses executed |
+
+No error message, error attribution, or race protection was removed. The step vocabulary in `OperationFragment.ts` is untouched, and no pinned SQL in `tests/query-engine/sql-generation.test.ts` changed — this phase is a serializer and migration-ordering change and does not reach the query emitters.
 
 ---
 
