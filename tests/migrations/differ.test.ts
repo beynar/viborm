@@ -344,6 +344,102 @@ describe("diff", () => {
         "createIndex",
       ]);
     });
+
+    // `type`'s and `unique`'s twin, for the partial index. The emitter writes
+    // ` WHERE ${where}`, so a declared predicate carrying padding reaches the
+    // catalog with that padding attached to the clause boundary — and SQLite
+    // stores the statement verbatim. Reading it back past `WHERE\s+` returns
+    // the predicate without its leading run, so the two snapshots describe the
+    // same index in two spellings. Left raw, every push re-plans drop+create.
+    it("ignores the padding around a partial index predicate", () => {
+      const current = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: false,
+              where: "active = 1",
+            },
+          ],
+        }),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: false,
+              where: "  active = 1 ",
+            },
+          ],
+        }),
+      ]);
+
+      expect(diff(current, desired).operations).toEqual([]);
+      expect(diff(desired, current).operations).toEqual([]);
+    });
+
+    it("still detects a real partial index predicate change", () => {
+      const current = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: false,
+              where: "active = 1",
+            },
+          ],
+        }),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: false,
+              where: "active = 0",
+            },
+          ],
+        }),
+      ]);
+
+      expect(diff(current, desired).operations.map((op) => op.type)).toEqual([
+        "dropIndex",
+        "createIndex",
+      ]);
+    });
+
+    // A predicate that appears and one that goes away are both real changes.
+    it("still detects a partial index becoming total", () => {
+      const current = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: false,
+              where: "active = 1",
+            },
+          ],
+        }),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            { name: "idx_users_email", columns: ["email"], unique: false },
+          ],
+        }),
+      ]);
+
+      expect(diff(current, desired).operations.map((op) => op.type)).toEqual([
+        "dropIndex",
+        "createIndex",
+      ]);
+    });
   });
 
   describe("foreign key operations", () => {

@@ -87,13 +87,25 @@ function normalizeIndexUnique(unique: IndexDef["unique"]): boolean {
   return unique ?? false;
 }
 
+function normalizeIndexWhere(where: IndexDef["where"]): string | undefined {
+  // `type`'s and `unique`'s third twin, and the one place the partial index's
+  // two spellings are reconciled. The serializer passes the declared predicate
+  // through untouched; the emitter writes ` WHERE ${where}`, and SQLite stores
+  // that statement verbatim, padding and all. Reading it back consumes the
+  // whitespace run that separates `WHERE` from the predicate, so a declaration
+  // written with padding comes back without its leading part — the same index
+  // in two spellings. Left raw, every push re-plans drop+create forever.
+  const trimmed = where?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function indexesEqual(a: IndexDef, b: IndexDef): boolean {
   return (
     a.name === b.name &&
     normalizeIndexUnique(a.unique) === normalizeIndexUnique(b.unique) &&
     arraysEqual(a.columns, b.columns) &&
     normalizeIndexType(a.type) === normalizeIndexType(b.type) &&
-    a.where === b.where
+    normalizeIndexWhere(a.where) === normalizeIndexWhere(b.where)
   );
 }
 

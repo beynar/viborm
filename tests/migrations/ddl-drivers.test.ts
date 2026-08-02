@@ -355,6 +355,48 @@ describe("SQLite3 DDL Generation", () => {
         'CREATE INDEX "idx_users_name_email" ON "users" ("name", "email")'
       );
     });
+
+    // Phase 2 Unit 2.2: SQLite has had partial indexes since 3.8.0, but the
+    // driver dropped the predicate silently. The index it built then indexed
+    // rows the schema excluded, and — because introspection now reads the
+    // predicate back — the differ would re-create it on every push forever.
+    it("should generate CREATE INDEX with WHERE clause (partial index)", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "users",
+        index: {
+          name: "idx_active_users",
+          columns: ["email"],
+          unique: false,
+          where: "active = 1",
+        },
+      };
+
+      const ddl = generateDDL(op);
+
+      expect(ddl).toBe(
+        'CREATE INDEX "idx_active_users" ON "users" ("email") WHERE active = 1'
+      );
+    });
+
+    it("should generate CREATE UNIQUE INDEX with WHERE clause", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "users",
+        index: {
+          name: "idx_one_active_email",
+          columns: ["email"],
+          unique: true,
+          where: "active = 1",
+        },
+      };
+
+      const ddl = generateDDL(op);
+
+      expect(ddl).toBe(
+        'CREATE UNIQUE INDEX "idx_one_active_email" ON "users" ("email") WHERE active = 1'
+      );
+    });
   });
 
   describe("dropIndex", () => {
@@ -1151,6 +1193,26 @@ describe("MySQL DDL Generation", () => {
 
       expect(() => generateDDL(op)).toThrow(
         "Cannot combine UNIQUE with SPATIAL"
+      );
+    });
+
+    // Phase 2 Unit 2.2: MySQL has no partial index. Emitting the index without
+    // its predicate would index rows the schema excluded, so the declaration is
+    // refused rather than silently reduced.
+    it("should throw error for a partial index (no MySQL equivalent)", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "users",
+        index: {
+          name: "idx_active_users",
+          columns: ["email"],
+          unique: false,
+          where: "active = 1",
+        },
+      };
+
+      expect(() => generateDDL(op)).toThrow(
+        'Index "idx_active_users" declares a partial index predicate (where: "active = 1"). MySQL does not support partial indexes.'
       );
     });
   });

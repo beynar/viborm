@@ -439,8 +439,13 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
     const unique = index.unique ? "UNIQUE " : "";
     const cols = index.columns.map((c) => this.escapeIdentifier(c)).join(", ");
+    // SQLite has supported partial indexes since 3.8.0. Dropping the predicate
+    // silently would build a different index from the declared one, and the
+    // differ would re-create it on every push forever, because introspection
+    // reads the predicate back.
+    const where = index.where ? ` WHERE ${index.where}` : "";
     // SQLite doesn't support USING clause - it only has btree indexes
-    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})`;
+    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})${where}`;
   }
 
   generateDropIndex(op: DropIndexOperation): string {
