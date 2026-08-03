@@ -407,6 +407,34 @@ export function getTargetIdentityFields(model: Model<any>): string[] {
   return [...fieldNames];
 }
 
+/**
+ * Every field a FOREIGN KEY in this schema's DDL may point at.
+ *
+ * ADDRESSABILITY and REFERENCEABILITY are different questions, so they are
+ * different functions. {@link getTargetIdentityFields} answers the first — the
+ * column sets a `whereUnique` can NAME (`state.uniques`, `state.compoundId`,
+ * `state.compoundUniques`) — and that is the right answer everywhere a selector
+ * is being normalized. This one answers the second, and it is strictly wider:
+ * a unique INDEX (`.index([...], { unique: true })`, which the migration driver
+ * emits as `CREATE UNIQUE INDEX`) is a unique column set the database enforces
+ * and therefore one a foreign key may reference, even though no selector can
+ * address it. A relation spelling `.references("code")` against such a column
+ * produces a real `… REFERENCES … ON UPDATE CASCADE` constraint.
+ *
+ * It over-approximates in one direction only, which is what its one caller
+ * ({@link setCanFireReferentialAction}) needs: a partial unique index cannot be
+ * an FK target in PostgreSQL, and this counts it anyway. That declines a legal
+ * fold, which costs a statement — never an answer.
+ */
+export function getForeignKeyTargetFields(model: Model<any>): string[] {
+  const fieldNames = new Set(getTargetIdentityFields(model));
+  for (const index of model["~"].state.indexes) {
+    if (index.options.unique !== true) continue;
+    for (const fieldName of index.fields) fieldNames.add(fieldName);
+  }
+  return [...fieldNames];
+}
+
 export function classifyRelationKeyScalarUpdate(
   value: unknown
 ): { resolved: true; value: unknown } | { resolved: false } {

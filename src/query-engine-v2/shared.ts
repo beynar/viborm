@@ -9,7 +9,7 @@ import {
   getTableName,
 } from "../query-engine/context/query-scope";
 import type { QueryEngine } from "../query-engine/query-engine";
-import { getTargetIdentityFields } from "../query-engine/TargetConstraint";
+import { getForeignKeyTargetFields } from "../query-engine/TargetConstraint";
 import type { QueryScope } from "../query-engine/types";
 import type { TargetConstraintPin } from "./OperationFragment";
 import type { ParentIdSource } from "./RelationUpsertPart";
@@ -304,19 +304,27 @@ function payloadReachesTable(
  * `UPDATE`, sees them after it. That is a wrong answer, not a slower one.
  *
  * A foreign key may only point at a UNIQUE column set, so a `SET` that rewrites
- * no unique-participating field can fire no action at all. That is the test:
- * `getTargetIdentityFields` is the one home for "every field in a primary key or
- * a unique constraint" (single and compound alike). It over-approximates in one
- * direction only — a unique column that NOTHING references declines a fold that
- * would have been legal — which costs a statement, never an answer. Deciding it
- * exactly would mean scanning every model in the schema for an inbound
- * reference, and the mainstream `update` rewrites ordinary scalars.
+ * no unique-participating field can fire no action at all. That is the test, and
+ * `getForeignKeyTargetFields` is the one home for which column sets those are.
+ * It asks a WIDER question than `getTargetIdentityFields`, deliberately: a
+ * `whereUnique` can only address a declared unique CONSTRAINT, but PostgreSQL
+ * (and MySQL) accept a unique INDEX as an FK target too, and viborm's migration
+ * driver emits `.index([...], { unique: true })` as exactly that. Asking the
+ * narrower question here was a hole — `update({ data: { code } })` on a model
+ * whose `code` is a unique index cascaded into the child table mid-statement and
+ * the folded arm answered with the pre-cascade children, i.e. an EMPTY list.
+ *
+ * It over-approximates in one direction only — a unique column that NOTHING
+ * references declines a fold that would have been legal — which costs a
+ * statement, never an answer. Deciding it exactly would mean scanning every
+ * model in the schema for an inbound reference, and the mainstream `update`
+ * rewrites ordinary scalars.
  */
 export function setCanFireReferentialAction(
   model: Model<any>,
   set: Readonly<Record<string, unknown>>
 ): boolean {
-  return getTargetIdentityFields(model).some((field) =>
+  return getForeignKeyTargetFields(model).some((field) =>
     Object.hasOwn(set, field)
   );
 }

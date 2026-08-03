@@ -1381,6 +1381,33 @@ Re-gated on the corrected tree: `tsc` clean, full estate **9521 passed, 0
 failed** (the +6 over the wave gate's 9515 is these six cases and nothing else),
 `test:gates` 72/72 with the census pin still 39, V2 suite 1156, Biome clean.
 
+**Second correction from review — guard 2 was asking the narrower of two
+questions.** It asked `getTargetIdentityFields`, which enumerates `state.uniques`
+∪ `state.compoundId` ∪ `state.compoundUniques` — the column sets a `whereUnique`
+can ADDRESS. But the guard's own premise is about what a foreign key may
+REFERENCE, and those are not the same set: PostgreSQL accepts a unique INDEX as
+an FK target, and `.index([...], { unique: true })` is emitted by the migration
+driver as exactly that (`postgres/index.ts:295-299`). Measured on PGlite with a
+`host` whose `code` is a unique index and a `pet` whose `.references("code")`
+carries `onUpdate("cascade")` — the constraint is real, `pg_constraint` reports
+`confupdtype = 'c'` — `host.update({ where: { id: 1 }, data: { code: "NEW" },
+include: { pets: true } })` folded and answered `pets: []`, where the unfolded
+arm carried both cascaded children. The hole was in the QUESTION, not in the
+guard: the over-approximation it advertises ("a foreign key may only point at a
+UNIQUE column set") was enumerating unique constraints and calling them unique
+column sets.
+
+The correction is a second, deliberately WIDER function next to the first —
+`getForeignKeyTargetFields` (`TargetConstraint.ts`), which is
+`getTargetIdentityFields` ∪ every field of every unique index — and guard 2 is
+its one caller. Widening `getTargetIdentityFields` itself would have been wrong:
+addressability is what every other caller of it is asking about, and a unique
+index is not addressable. Two witnesses were added, the declining one asserting
+the ANSWER first (restoring the narrow question fails it on the cascaded
+children, not on the route) and an anti-vacuity one on the same model, which
+also carries a PLAIN `.index(["label"])` — so counting non-unique indexes too
+fails it, which is the coverage the `unique` filter has and nothing else does.
+
 **8.2 — the nested-create tree.** `WITH "__viborm_mutation" AS (INSERT …
 RETURNING <every column>), "__viborm_write_0" AS (INSERT …), … SELECT <scalars>
 FROM "__viborm_mutation"`. A root with two children went from **4 statements to

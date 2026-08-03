@@ -113,10 +113,44 @@ const kid = s
   .map("p82_kid");
 const seqSchema = { seq, kid };
 
+/** Phase 8.1 guard 2's UNIQUE-INDEX control. `.index([...], { unique: true })`
+ *  is a unique column set the database enforces but no `whereUnique` can
+ *  address — and PostgreSQL accepts it as a foreign-key target, which the
+ *  migration driver's `CREATE UNIQUE INDEX` makes real here. A guard that
+ *  enumerated unique CONSTRAINTS alone folded this cascade and answered with
+ *  the pre-cascade (empty) child list. */
+const host = s
+  .model({
+    id: s.int().id(),
+    code: s.string(),
+    label: s.string(),
+    pets: s.oneToMany(() => pet),
+  })
+  .map("p81_hosts")
+  .index(["code"], { unique: true })
+  // A PLAIN index, so the widening is pinned to unique ones: an ordinary
+  // read-performance index is not a column set anything can reference, and a
+  // guard that counted it would decline every fold on every indexed model.
+  .index(["label"]);
+const pet = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    hostCode: s.string(),
+    host: s
+      .manyToOne(() => host)
+      .fields("hostCode")
+      .references("code")
+      .onUpdate("cascade"),
+  })
+  .map("p81_pets");
+const hostSchema = { host, pet };
+
 beforeAll(() => {
   hydrateSchemaNames(schema);
   hydrateSchemaNames(seqSchema);
   hydrateSchemaNames(soloSchema);
+  hydrateSchemaNames(hostSchema);
 });
 
 /**
@@ -603,6 +637,65 @@ describe("Phase 8.1 — the two legality guards", () => {
       ],
     });
     expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+  });
+
+  test("a rewrite of a UNIQUE INDEX column declines too, and carries its cascaded children", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = createClient({ schema: hostSchema, driver });
+    await push(client, { force: true });
+    await client.host.create({ data: { id: 1, code: "OLD", label: "h" } });
+    await client.pet.create({ data: { id: 10, name: "p1", hostCode: "OLD" } });
+    await client.pet.create({ data: { id: 11, name: "p2", hostCode: "OLD" } });
+
+    driver.recording = true;
+    const updated = await client.host.update({
+      where: { id: 1 },
+      data: { code: "NEW" },
+      include: { pets: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // Answer FIRST. `code` is in no unique CONSTRAINT — only in a unique INDEX —
+    // so a guard that asked `getTargetIdentityFields` folded this and reported
+    // the cascaded children as an empty list.
+    expect(updated).toEqual({
+      id: 1,
+      code: "NEW",
+      label: "h",
+      pets: [
+        { id: 10, name: "p1", hostCode: "NEW" },
+        { id: 11, name: "p2", hostCode: "NEW" },
+      ],
+    });
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+  });
+
+  test("on that same model, an ordinary column still folds", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = createClient({ schema: hostSchema, driver });
+    await push(client, { force: true });
+    await client.host.create({ data: { id: 2, code: "K2", label: "h2" } });
+    await client.pet.create({ data: { id: 20, name: "q1", hostCode: "K2" } });
+
+    driver.recording = true;
+    const updated = await client.host.update({
+      where: { id: 2 },
+      data: { label: "renamed" },
+      include: { pets: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // ANTI-VACUITY: widening guard 2 to unique indexes did not turn it into
+    // "never fold a model that has one". `label` participates in nothing.
+    expect(foldedInOneStatement(statements)).toBe(true);
+    expect(updated).toEqual({
+      id: 2,
+      code: "K2",
+      label: "renamed",
+      pets: [{ id: 20, name: "q1", hostCode: "K2" }],
+    });
   });
 
   test("a unique rewrite with a scalar-only projection is untouched by guard 2", async () => {
