@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3 and 5 delivered (see their delivery records). Phases 4 and 6-10 not started. Phase 2 raised one new maintainer decision, 7.4.
+**Status:** Phases 1, 2, 3 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phases 4 and 6-10 not started. Phase 2 raised one new maintainer decision, 7.4.
 
 ## Source of this plan
 
@@ -485,6 +485,68 @@ The second gate binds more often than it looks. `normalizeCursorOrder` appends t
 **Gate.** `tsc` clean; repo-pinned `npx biome check` clean on every changed file; `pnpm test:gates` 72/72, census unchanged. Suites run in this worktree, 0 failures throughout: `tests/query-engine` 1201, `tests/query-engine-v2` + `tests/adapters` 1061, `tests/drivers` 3349 (2102 skipped), `tests/client` and the schema/model/relations/scalars/errors/cache/instrumentation set 2569, `tests/migrations` + `tests/cli` + `tests/validation` 1492. The Docker MySQL and PostgreSQL legs belong to the gate agent and were not run here; the MySQL row-value syntax and plan were probed directly instead, as recorded above.
 
 No error message, attribution, or race protection was touched, and `OperationFragment.ts` is untouched.
+
+---
+
+## Wave gate — Phases 2, 3 and 5 together
+
+**Run:** 2026-08-03, main checkout, branch `nested-write-boundaries`, tip `61fc227` (eleven commits from `484cc6c`, the serializer index-name resolution, through `61fc227`, the corrected cursor-seek witness). Baseline for every number below is `c45e2b5`, the Phase 1 tip.
+
+### The legs
+
+| Leg | Result | Baseline |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9279 passed, 0 failed**, 2109 skipped (262 files, 4 skipped) | 9197 / 0 |
+| `pnpm test:gates` | **72 passed** (5 files) | 72 |
+| repo-pinned `npx biome check` (2.3.11) per changed file | **no new diagnostics** — see below | — |
+| Docker MySQL 8, port 3307 | **988 passed, 0 failed** | 984 |
+| Docker PostgreSQL, port 5434 | **1100 passed, 0 failed**, 14 skipped | 1097 |
+
+**Biome.** Seven diagnostics survive across the 33 changed files, and all seven are the `c45e2b5` versions of the same lines: two in `src/migrations/drivers/sqlite/introspect.ts` (`noUselessSwitchCase`, `noUselessTernary` — at `44`/`97` before, `130`/`197` now), three `useTopLevelRegex` in `tests/migrations/ddl-drivers.test.ts` (`94`, `928`, `949` before; `94`, `970`, `991` now) and two in `tests/migrations/serializer.test.ts` (`337`, `359`, unmoved). The `c45e2b5` blobs were extracted and re-checked side by side to establish this; the kind and the count match exactly, only line numbers moved.
+
+**Witnesses executed by name on the Docker legs.** Phase 2: `MySQL2 declared index on a mapped field` — *push creates the index over the mapped column names*, *re-pushing the schema is not an index change*, *the declared index leaves the FK index nothing to add*; and `MySQL2 partial index refusal > push refuses the declaration by name`. Phase 3's MySQL path: the live non-returning delete (`MySQL2 upsert atomicity behavior > delete with include returns the relation payload`, wired on mysql2 at `mysql2.test.ts:360`), with the plan-level MySQL declines — *a NON-RETURNING driver keeps the locate, the read, and the delete* in `delete-fold.test.ts` and the surviving MySQL refusal pin in `sql-generation.test.ts:776` — carried by the estate leg.
+
+### Measured at the gate, not copied
+
+The delivery records above were written by the implementers. These readings were taken independently at the gate, on the tip, through the driver seam and the instrumentation seam.
+
+**Phase 3 — the delete costs one statement and no envelope.** Statements recorded at the PGlite `execute`/`executeRaw` seam, which sees both substrates:
+
+```
+delete({ where: { id } })                  → 1 statement, no BEGIN/COMMIT
+  DELETE FROM "g_accounts" WHERE "g_accounts"."id" = $1
+    RETURNING "id" AS "id", "email" AS "email", "label" AS "label"
+
+delete({ where: { email }, select: { label } }) → 1 statement, no BEGIN/COMMIT
+  DELETE FROM "g_accounts" WHERE "g_accounts"."email" = $1
+    RETURNING "label" AS "label"
+```
+
+Five round trips (BEGIN, locate, snapshot, DELETE, COMMIT) became one. The alternate-unique form folds too: the selector rides into the DELETE rather than being resolved to a PK first.
+
+**Phase 5 — both spellings reach the index.** SQLite (better-sqlite3, 4,000 rows, `ANALYZE`d, one composite index `(bucket, id)`), EXPLAIN QUERY PLAN over the statement the client emitted, with that statement's own parameters:
+
+```
+5.1  ORDER BY "t0"."bucket" ASC, "t0"."id" ASC LIMIT ?
+     SCAN t0 USING INDEX g_rows_bucket_id_idx
+
+5.2  WHERE ("t0"."bucket", "t0"."id") >= (SELECT "t1"."bucket", "t1"."id"
+            FROM "g_rows" AS "t1" WHERE "t1"."id" = ? LIMIT ?)
+     SEARCH t0 USING INDEX g_rows_bucket_id_idx (bucket>?)
+     SCALAR SUBQUERY 1
+       SEARCH t1 USING INDEX sqlite_autoindex_g_rows_1 (id=?)
+```
+
+`bucket` is NOT NULL, so 5.1 emits the bare direction — no `NULLS FIRST/LAST` anywhere in the ORDER BY — and the read walks the index with no `USE TEMP B-TREE`. 5.2 is the row-value comparison against a scalar subquery, and the outer relation `t0` **seeks** (`bucket>?`) rather than scanning under a filter; the cursor row is still located inside the same statement, by its own unique key.
+
+Phase 2 is a DDL change and has no statement count or plan to read; its evidence is the catalog read-back, taken live on all five drivers by `runMappedIndexBehavior`, `runPartialIndexBehavior`, `runPartialIndexRefusalBehavior` and `runPartialIndexCoverageBehavior`, every one of which executed in the legs above.
+
+### Standing rules
+
+No error message, no error attribution and no race protection was removed anywhere in the wave. The step vocabulary in `OperationFragment.ts` is byte-identical to `c45e2b5`. Three pinned-SQL files changed, each deliberately and each with its rationale in place: `sql-generation.test.ts` (Phase 3 — the old pin asserted the very refusal the fold removes), `cursor-pagination-sql.test.ts` (Units 5.1 and 5.2), and two further pins moved by 5.1 in `operation-equivalence-oracles.test.ts` and `located-parent-ref.test.ts`.
+
+**Open and recorded, not fixed here:** Decision 7.4 (the PostgreSQL partial-index predicate churn, raised by Phase 2), and the `0A000` on `delete({ select: { relation } })` on PostgreSQL that Phase 3's witnesses surfaced — both pre-existing, both filed above.
 
 ---
 
