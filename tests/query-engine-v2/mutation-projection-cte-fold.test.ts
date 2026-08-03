@@ -297,6 +297,15 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
   });
 });
 
+/** The same reach as the two cases above, one combinator down. Hoisted out of
+ *  the `as const` table below so the `AND` array stays mutable, which is what
+ *  the typed `where` surface accepts. */
+const filterUnderAnd = {
+  include: {
+    notes: { where: { AND: [{ account: { label: { equals: "oracle" } } }] } },
+  },
+};
+
 describe("Phase 8.1 — the fold answers what the read answers", () => {
   /**
    * THE ORACLE. Each case runs the mutation folded and asserts its projection
@@ -344,6 +353,74 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
       name: "a select mixing scalars and a relation",
       folds: true,
       args: { select: { label: true, notes: { select: { id: true } } } },
+    },
+    // ── The relation payload's FILTER reaches the mutated table ──────────────
+    //
+    // A relation payload's `where` compiles to a correlated subquery that READS
+    // a table, and `note.account` reads the one this statement is updating. The
+    // guard first shipped walking each payload's `select`/`include` and nothing
+    // else, so these folded and answered on the PRE-update `label`. Both
+    // directions are here on purpose: the first case is empty when it should be
+    // full, the second full when it should be empty, and a walk that missed the
+    // `where` cannot get both right by luck.
+    {
+      name: "an include filtered through a relation on the mutated table (NEW value)",
+      folds: false,
+      args: {
+        include: {
+          notes: { where: { account: { label: { equals: "oracle" } } } },
+        },
+      },
+    },
+    {
+      name: "an include filtered through a relation on the mutated table (OLD value)",
+      folds: false,
+      args: {
+        include: { notes: { where: { account: { label: { equals: "L3" } } } } },
+      },
+    },
+    {
+      // The walk is over the whole payload, not over a list of keys that may
+      // carry a filter: an array element is walked like any other value.
+      name: "the same filter under an AND",
+      folds: false,
+      args: filterUnderAnd,
+    },
+    {
+      // `_count`'s per-relation `where` reaches by the identical mechanism, and
+      // it answered 0 against a truth of 3.
+      name: "_count whose per-relation where reaches the mutated table",
+      folds: false,
+      args: {
+        select: {
+          id: true,
+          _count: {
+            select: {
+              notes: { where: { account: { label: { equals: "oracle" } } } },
+            },
+          },
+        },
+      },
+    },
+    {
+      // `orderBy` reads a table exactly as `where` does.
+      name: "an include ordered through a relation on the mutated table",
+      folds: false,
+      args: { include: { notes: { orderBy: { account: { label: "asc" } } } } },
+    },
+    {
+      // ANTI-VACUITY for the five above. The correction is "walk the payload for
+      // a reach", NOT "decline any payload carrying a filter" — a `where`, an
+      // `orderBy` and a `cursor` over the CHILD's own columns read only the
+      // untouched child table, and they still fold into ONE statement. The
+      // `where`+`orderBy` case earlier in this list is the other half of this.
+      name: "a to-many include with a cursor on the child's own key",
+      folds: true,
+      args: {
+        include: {
+          notes: { cursor: { id: 31 }, orderBy: { id: "asc" }, take: 5 },
+        },
+      },
     },
   ] as const;
 

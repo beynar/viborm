@@ -6,7 +6,6 @@ import { partitionWhereUnique } from "../query-engine/builders/where-unique-buil
 import {
   createChildScope,
   getRelationInfo,
-  getRelationNames,
   getTableName,
 } from "../query-engine/context/query-scope";
 import type { QueryEngine } from "../query-engine/query-engine";
@@ -206,71 +205,93 @@ export function selectProjectsRelation(
  * the fold declines. Walks the whole projection, at every depth, because a
  * self-relation two levels down reads the same table a top-level one does.
  *
- * `_count` is walked as the relation projection it is: it correlates on the same
- * columns and reads the same tables, it just aggregates them.
+ * ### The walk is over the WHOLE payload, not over `select`/`include` alone
+ *
+ * This first shipped walking each relation payload's `select` and `include` and
+ * nothing else, which is a hole, because a relation payload's `where` compiles
+ * to a correlated subquery that reads a table — and when that table is the
+ * mutated one, the folded answer is filtered on the PRE-statement value.
+ * MEASURED on PGlite against the same update run with the fold forced off
+ * (`acct` 1-N `memo`; every `acct` starts at tier `T`; memos 10 and 11 belong to
+ * acct 3):
+ *
+ *   update({ where: { id: 3 }, data: { tier: "gold" },
+ *            include: { memos: { where: { acct: { tier: "gold" } } } } })
+ *     folded -> memos: []           unfolded -> memos: [10, 11]
+ *   …the same update with the filter on the OLD value (`tier: "T"`)
+ *     folded -> memos: [10, 11]     unfolded -> memos: []
+ *
+ * Symmetric in both directions: the folded arm filtered on the pre-update tier.
+ * `_count: { select: { memos: { where: … } } }` answered 0 against 2 the same
+ * way, and `orderBy` / `cursor` reach a table by the identical mechanism.
+ *
+ * So the walk asks the question the invariant actually asks — *can any read this
+ * payload compiles to land on the mutated table* — of EVERY key, at every depth,
+ * and it needs no list of which payload keys carry a read. A key that names a
+ * relation of the current model moves the scope to that relation's target; every
+ * other key (`where`, `orderBy`, `cursor`, `_count`, `AND`/`OR`/`NOT`,
+ * `some`/`every`/`none`, `is`/`isNot`, an operator envelope, an array element)
+ * keeps the scope and is walked through, so a relation named anywhere under it
+ * is found wherever it sits.
+ *
+ * It over-approximates in one direction only, which costs a statement and never
+ * an answer: a literal inside a JSON-column filter whose own key happens to
+ * spell a relation name (`where: { meta: { equals: { memos: 1 } } }`) is read as
+ * a relation traversal and declines a fold that would have been legal.
+ *
+ * `_count` gets NO case of its own, and that is measured rather than assumed.
+ * The shorthand `_count: true` never arrives here — `CountSchema`
+ * (`validation/model/core/select.ts`) coerces it to `{ select: { <every to-many
+ * relation>: true } }` at the parse boundary, so what this walks is the object
+ * form, whose relation names sit under `select`, one scope-preserving hop down.
+ * And a `_count` that is NOT that object form reads nothing to guard: the
+ * projection builder emits a count only when `_count.select` is a record
+ * (`select-builder.ts` — `buildCountPairs` is reached through that test alone),
+ * and it is the SAME builder on the folded and the unfolded path, so both answer
+ * without the key. A guard for `_count: true` here therefore declines folds that
+ * are legal and covers nothing — removing it leaves the `_count` shorthand
+ * witness below green, which is what says the coverage was not its own.
  */
 export function projectionReadsMutatedModel(
   scope: QueryScope,
   select: Readonly<Record<string, unknown>> | undefined,
   include: Readonly<Record<string, unknown>> | undefined
 ): boolean {
-  return projectionReachesTable(
-    scope,
-    select,
-    include,
-    getTableName(scope.model)
+  const table = getTableName(scope.model);
+  return (
+    payloadReachesTable(scope, select, table) ||
+    payloadReachesTable(scope, include, table)
   );
 }
 
-function projectionReachesTable(
-  scope: QueryScope,
-  select: Readonly<Record<string, unknown>> | undefined,
-  include: Readonly<Record<string, unknown>> | undefined,
-  table: string
-): boolean {
-  for (const [key, value] of [
-    ...Object.entries(select ?? {}),
-    ...Object.entries(include ?? {}),
-  ]) {
-    if (value === false || value === undefined) continue;
-    if (key === "_count") {
-      if (countReachesTable(scope, value, table)) return true;
-      continue;
-    }
-    const relation = getRelationInfo(scope, key);
-    if (!relation) continue;
-    if (getTableName(relation.targetModel) === table) return true;
-    if (!isRecord(value)) continue;
-    const child = createChildScope(
-      scope,
-      relation.targetModel,
-      scope.rootAlias
-    );
-    const childSelect = isRecord(value.select) ? value.select : undefined;
-    const childInclude = isRecord(value.include) ? value.include : undefined;
-    if (projectionReachesTable(child, childSelect, childInclude, table)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** `_count: true` counts every relation; `_count: { select: { … } }` counts the
- *  named ones. A count has no nested projection, so this does not recurse. */
-function countReachesTable(
+function payloadReachesTable(
   scope: QueryScope,
   value: unknown,
   table: string
 ): boolean {
-  const named =
-    isRecord(value) && isRecord(value.select) ? value.select : undefined;
-  const names = named ? Object.keys(named) : getRelationNames(scope.model);
-  return names.some((name) => {
-    const relation = getRelationInfo(scope, name);
-    return (
-      relation !== undefined && getTableName(relation.targetModel) === table
-    );
-  });
+  if (Array.isArray(value)) {
+    return value.some((entry) => payloadReachesTable(scope, entry, table));
+  }
+  if (!isRecord(value)) return false;
+  for (const [key, entry] of Object.entries(value)) {
+    // A key that projects nothing and filters nothing reads nothing. `null` is
+    // NOT in this set: `where: { manager: null }` is a to-one absence filter,
+    // which reads the related table to establish the absence.
+    if (entry === false || entry === undefined) continue;
+    const relation = getRelationInfo(scope, key);
+    if (relation) {
+      if (getTableName(relation.targetModel) === table) return true;
+      const child = createChildScope(
+        scope,
+        relation.targetModel,
+        scope.rootAlias
+      );
+      if (payloadReachesTable(child, entry, table)) return true;
+      continue;
+    }
+    if (payloadReachesTable(scope, entry, table)) return true;
+  }
+  return false;
 }
 
 /**

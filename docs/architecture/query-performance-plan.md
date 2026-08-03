@@ -1342,6 +1342,45 @@ there are two ways a statement changes a table the projection reads
   list. It over-approximates in one direction only (a unique column nothing
   references declines a legal fold), which costs a statement and never an answer.
 
+**Correction from review — guard 1 was walking the wrong half of the payload.**
+As first shipped it recursed into each relation payload's `select` and `include`
+and nothing else. But a relation payload's `where` compiles to a correlated
+subquery that READS a table, and a filter that points back through the inverse
+relation reads the mutated one — so the folded answer was filtered on the
+PRE-statement value while the unfolded one filtered on the post-statement value.
+Measured on PGlite against the identical update with `supportsCteWithMutations`
+forced false, an `acct` 1-N `memo` schema, all accounts starting at tier `T`:
+
+| projection on `update({ where: { id: 3 }, data: { tier: "gold" } })` | folded | unfolded |
+| --- | --- | --- |
+| `include: { memos: { where: { acct: { tier: "gold" } } } }` | `[]` | `[10, 11]` |
+| the same filter on the OLD value, `tier: "T"` | `[10, 11]` | `[]` |
+| `_count: { select: { memos: { where: { acct: { tier: "gold" } } } } }` | `0` | `2` |
+
+Symmetric in both directions, which is what rules out coincidence: the folded arm
+was reading the pre-update `tier`. `orderBy` and `cursor` reach a table by the
+same mechanism. The estate was green over this because no case in the 8.1 oracle
+filtered a projection through a relation back to the mutated model — the oracle
+was sound, its case list was short.
+
+The correction is to complete the walk rather than to blanket-decline filtered
+projections: `payloadReachesTable` now walks EVERY key at every depth, moving the
+scope when a key names a relation and keeping it otherwise, so `where`,
+`orderBy`, `cursor`, `AND`/`OR`/`NOT`, `some`/`every`/`none` and array elements
+are all covered without enumerating them. A `where` over the CHILD's own columns
+still folds — witnessed, because "decline any payload carrying a filter" would
+have cost that common shape a statement. `_count` lost its special case in the
+same edit and the shorthand witness stayed green, which is what proved the case
+was redundant: the parse boundary coerces `_count: true` to the object form, and
+the projection builder emits a count only when `_count.select` is a record — the
+same builder on both paths, so an un-coerced `_count` reads nothing to guard.
+Six cases were added to the 8.1 oracle (five declining, one anti-vacuity);
+restoring the old `select`/`include`-only walk fails exactly the five, each on
+the ANSWER rather than on the route, and forcing the guard closed fails eleven.
+Re-gated on the corrected tree: `tsc` clean, full estate **9521 passed, 0
+failed** (the +6 over the wave gate's 9515 is these six cases and nothing else),
+`test:gates` 72/72 with the census pin still 39, V2 suite 1156, Biome clean.
+
 **8.2 — the nested-create tree.** `WITH "__viborm_mutation" AS (INSERT …
 RETURNING <every column>), "__viborm_write_0" AS (INSERT …), … SELECT <scalars>
 FROM "__viborm_mutation"`. A root with two children went from **4 statements to
