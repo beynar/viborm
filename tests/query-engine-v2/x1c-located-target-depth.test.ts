@@ -5,6 +5,7 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
+import { batchIsAtomicUnit } from "./staleness-window";
 import { createV2RoutedClient } from "./v2-client-proxy";
 
 /**
@@ -67,8 +68,13 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const hook = this.hook;
-    this.hook = undefined;
-    if (hook) await hook();
+    // Fire before the operation's compiled ATOMIC UNIT, not the first batch of
+    // any kind: planning reads ride a batch too once grouped by level (PLAN
+    // Phase 6.1).
+    if (hook && batchIsAtomicUnit(queries)) {
+      this.hook = undefined;
+      await hook();
+    }
     return super.executeBatch<T>(client, queries);
   }
 }

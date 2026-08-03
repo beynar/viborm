@@ -13,6 +13,7 @@ import {
   runDepthSeamBehavior,
   seedProjects,
 } from "./depth-seam-behavior";
+import { batchIsAtomicUnit } from "./staleness-window";
 
 /**
  * N4 — the depth seams, on the always-available substrate pair.
@@ -182,7 +183,10 @@ class MoveUniqueBeforeBatchDriver extends PGliteDriver {
     client: PGlite | Transaction,
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
-    if (!this.fired) {
+    // Fire before the operation's compiled ATOMIC UNIT, not the first batch of
+    // any kind: planning reads ride a batch too once grouped by level (PLAN
+    // Phase 6.1), and the move has to land AFTER the seam located its target.
+    if (!this.fired && batchIsAtomicUnit(queries)) {
       this.fired = true;
       for (const statement of this.mutations) {
         await this.executeRaw(client, statement, []);

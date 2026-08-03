@@ -12,6 +12,7 @@ import type {
   StatementStep,
 } from "../../src/query-engine-v2/OperationFragment";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { batchIsAtomicUnit } from "./staleness-window";
 import {
   runToOneUpdateWhereBehavior,
   toOneUpdateWhereSchema,
@@ -201,8 +202,13 @@ class BeforeBatchPGliteDriver extends BatchOnlyPGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const hook = this.beforeBatch;
-    this.beforeBatch = undefined;
-    if (hook) await hook();
+    // Fire before the operation's compiled ATOMIC UNIT, not the first batch of
+    // any kind: planning reads ride a batch too once grouped by level (PLAN
+    // Phase 6.1).
+    if (hook && batchIsAtomicUnit(queries)) {
+      this.beforeBatch = undefined;
+      await hook();
+    }
     return super.executeBatch<T>(client, queries);
   }
 }

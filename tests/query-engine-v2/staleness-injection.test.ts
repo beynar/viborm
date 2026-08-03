@@ -15,6 +15,7 @@ import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
+import { batchIsAtomicUnit } from "./staleness-window";
 import { updateFamilySchema } from "./update-family-behavior";
 
 // ---------------------------------------------------------------------------
@@ -29,7 +30,10 @@ import { updateFamilySchema } from "./update-family-behavior";
 
 /**
  * A batch-only PGlite driver that runs `beforeBatch` between planning and the
- * atomic batch — the deterministic staleness window.
+ * atomic WRITE batch — the deterministic staleness window. The window is named
+ * by {@link batchIsAtomicUnit}, not by "the first batch": planning reads travel
+ * by batch too once they are grouped by dependency level (PLAN Phase 6.1), and
+ * firing on one of those would land the mutation BEFORE planning.
  */
 class BeforeBatchPGliteDriver extends PGliteDriver {
   override readonly supportsTransactions = false;
@@ -49,8 +53,10 @@ class BeforeBatchPGliteDriver extends PGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const hook = this.beforeBatch;
-    this.beforeBatch = undefined;
-    if (hook) await hook();
+    if (hook && batchIsAtomicUnit(queries)) {
+      this.beforeBatch = undefined;
+      await hook();
+    }
     return this.transaction(client, async (transaction) => {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {

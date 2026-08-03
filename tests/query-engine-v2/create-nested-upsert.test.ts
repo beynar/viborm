@@ -29,6 +29,7 @@ import {
   operationFragmentSchema,
   runCreateNestedUpsertBehavior,
 } from "./create-nested-upsert-behavior";
+import { batchIsAtomicUnit } from "./staleness-window";
 
 class BatchOnlyPGliteDriver extends PGliteDriver {
   override readonly supportsTransactions = false;
@@ -68,8 +69,13 @@ class BeforeBatchPGliteDriver extends BatchOnlyPGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const beforeBatch = this.beforeBatch;
-    this.beforeBatch = undefined;
-    if (beforeBatch) await beforeBatch();
+    // Fire before the operation's compiled ATOMIC UNIT, not the first batch of
+    // any kind: planning reads ride a batch too once grouped by level (PLAN
+    // Phase 6.1).
+    if (beforeBatch && batchIsAtomicUnit(queries)) {
+      this.beforeBatch = undefined;
+      await beforeBatch();
+    }
     return super.executeBatch<T>(client, queries);
   }
 }

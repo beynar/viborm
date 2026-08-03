@@ -18,6 +18,7 @@ import {
 } from "../../src/query-engine-v2/routing";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import { producedIdentitySchema } from "./produced-identity-depth-behavior";
+import { batchIsAtomicUnit } from "./staleness-window";
 
 /**
  * N4-U2 — the MISSING-PREMISE PIN, on the statement the absorption moved it to.
@@ -82,10 +83,15 @@ class BeforeBatchPGliteDriver extends BatchOnlyPGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const hook = this.beforeBatch;
-    // Fire once: the retry must run against a clean database, which is exactly what
-    // makes the second attempt find the row and adopt it.
-    this.beforeBatch = undefined;
-    if (hook) await hook();
+    // Fire once, before the operation's compiled ATOMIC UNIT — not the first
+    // batch of any kind, since planning reads ride a batch too once grouped by
+    // level (PLAN Phase 6.1). Once: the retry must run against a clean
+    // database, which is exactly what makes the second attempt find the row and
+    // adopt it.
+    if (hook && batchIsAtomicUnit(queries)) {
+      this.beforeBatch = undefined;
+      await hook();
+    }
     return super.executeBatch<T>(client, queries);
   }
 }
