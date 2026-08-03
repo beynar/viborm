@@ -90,8 +90,32 @@ const palette = s
   .map("p81_palettes");
 const soloSchema = { tag, palette };
 
+/** Phase 8.2's declining control: a model whose primary key the DATABASE
+ *  generates. Its children's foreign key is a value that only exists once the
+ *  parent INSERT has run, and a `WITH` arm cannot read what a sibling wrote. */
+const seq = s
+  .model({
+    id: s.int().id().increment(),
+    label: s.string(),
+    kids: s.oneToMany(() => kid),
+  })
+  .map("p82_seq");
+const kid = s
+  .model({
+    id: s.int().id().increment(),
+    body: s.string(),
+    seqId: s.int(),
+    parent: s
+      .manyToOne(() => seq)
+      .fields("seqId")
+      .references("id"),
+  })
+  .map("p82_kid");
+const seqSchema = { seq, kid };
+
 beforeAll(() => {
   hydrateSchemaNames(schema);
+  hydrateSchemaNames(seqSchema);
   hydrateSchemaNames(soloSchema);
 });
 
@@ -633,5 +657,222 @@ describe("Phase 8.1 — what the fold must not change", () => {
     // relations: `color` is in no unique constraint, so no action can fire and
     // the m2m `_count` folds.
     expect(foldedInOneStatement(statements)).toBe(true);
+  });
+});
+
+/**
+ * PHASE 8.2 — the guard-free nested-create tree, folded into one statement.
+ *
+ * MEASURED at c9c06e5, PGlite, before the fold: a root plus two nested children
+ * sent FOUR statements — three INSERTs and the terminal read. After: one.
+ *
+ * The fresh-parent elision ladder (ATOM §4) is what makes it legal: a child of a
+ * row this operation is creating cannot pre-exist, so no correlated probe under
+ * it can match, and the tree asks the database nothing before it writes. That is
+ * why the fold's gate is spelled "no guards, and no statement reads another
+ * statement's output" rather than as a shape whitelist.
+ */
+describe("Phase 8.2 — the nested-create tree", () => {
+  test("a root and its two children are ONE statement", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const created = await client.account.create({
+      data: {
+        id: 300,
+        email: "a300@x",
+        label: "L300",
+        notes: {
+          create: [
+            { id: 3000, body: "b0" },
+            { id: 3001, body: "b1" },
+          ],
+        },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // THE measurement: four statements became one.
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('WITH "__viborm_mutation" AS (INSERT');
+    expect(statements[0]).toContain('"__viborm_write_0" AS (INSERT');
+    expect(statements[0]).toContain('"__viborm_write_1" AS (INSERT');
+
+    expect(created).toEqual({
+      id: 300,
+      email: "a300@x",
+      label: "L300",
+      managerId: null,
+    });
+    // …and every row of the tree is there, with the edges the tree declared.
+    expect(
+      await client.note.findMany({
+        where: { accountId: 300 },
+        orderBy: { id: "asc" },
+      })
+    ).toEqual([
+      { id: 3000, body: "b0", accountId: 300 },
+      { id: 3001, body: "b1", accountId: 300 },
+    ]);
+  });
+
+  test("a nested createMany rides the same fold", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.account.create({
+      data: {
+        id: 301,
+        email: "a301@x",
+        label: "L301",
+        notes: {
+          createMany: {
+            data: [
+              { id: 3010, body: "c0" },
+              { id: 3011, body: "c1" },
+            ],
+          },
+        },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements).toHaveLength(1);
+    expect(
+      await client.note.findMany({ where: { accountId: 301 } })
+    ).toHaveLength(2);
+  });
+
+  test("a constraint violated in a child arm rolls the whole tree back", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    await expect(
+      client.account.create({
+        data: {
+          id: 302,
+          email: "a302@x",
+          label: "L302",
+          notes: {
+            create: [
+              { id: 3020, body: "d0" },
+              // Same primary key as its sibling: the second arm violates the
+              // child table's own constraint.
+              { id: 3020, body: "d1" },
+            ],
+          },
+        },
+      })
+    ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+    // Statement-atomic: nothing of the tree survives, not the parent and not the
+    // child arm that would have succeeded on its own.
+    expect(await client.account.findUnique({ where: { id: 302 } })).toBeNull();
+    expect(await client.note.findUnique({ where: { id: 3020 } })).toBeNull();
+  });
+
+  test("an include declines the tree fold and reads the children it just wrote", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const created = await client.account.create({
+      data: {
+        id: 303,
+        email: "a303@x",
+        label: "L303",
+        notes: { create: [{ id: 3030, body: "e0" }] },
+      },
+      include: { notes: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // THE answer the fold would have got wrong: the sibling arms' effects are
+    // invisible to the outer SELECT of the same command, so a folded include
+    // would report the empty pre-statement truth.
+    expect(created).toEqual({
+      id: 303,
+      email: "a303@x",
+      label: "L303",
+      managerId: null,
+      notes: [{ id: 3030, body: "e0", accountId: 303 }],
+    });
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+  });
+
+  test("a database-generated parent key declines: the child's FK is a value no arm can read", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = createClient({ schema: seqSchema, driver });
+    await push(client, { force: true });
+
+    driver.recording = true;
+    const created = await client.seq.create({
+      data: { label: "G", kids: { create: [{ body: "k0" }] } },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+    expect(created).toEqual({ id: 1, label: "G" });
+    // The child took the key the parent's INSERT generated — which is exactly
+    // the value one statement could not have carried between its arms.
+    expect(await client.kid.findMany()).toEqual([
+      { id: 1, body: "k0", seqId: 1 },
+    ]);
+  });
+
+  test("a tree that PROBED declines: it has already spent the round trip", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+    await client.note.create({
+      data: { id: 3050, body: "orphan", accountId: 1 },
+    });
+
+    driver.recording = true;
+    await client.account.create({
+      data: {
+        id: 305,
+        email: "a305@x",
+        label: "L305",
+        notes: { connect: [{ id: 3050 }] },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // A child-held `connect` under a fresh root has no correlated probe to run
+    // (elision), but it does have to verify the target EXISTS — a planning read
+    // whose rows the client reads to decide. Merging the write after that buys a
+    // statement and loses nothing, but it also does not restore the property the
+    // fold is for, so the gate keeps the honest line at "asked nothing".
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+    expect(
+      await client.note.findUnique({
+        where: { id: 3050 },
+        select: { accountId: true },
+      })
+    ).toEqual({ accountId: 305 });
+  });
+
+  test("a lone scalar create keeps its own single-statement fold", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.account.create({
+      data: { id: 304, email: "a304@x", label: "L304" },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // Phase 8.2 needs at least one sibling arm to be worth a CTE; a childless
+    // create still rides the plain `INSERT … RETURNING <select>` it always did.
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.startsWith("INSERT")).toBe(true);
   });
 });

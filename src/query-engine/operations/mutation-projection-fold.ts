@@ -43,6 +43,12 @@ import type { QueryScope } from "../types";
  */
 const MUTATION_CTE = "__viborm_mutation";
 
+/** Phase 8.2 — the further writes of a folded tree, each its own CTE. Nothing in
+ *  the outer query reads them; PostgreSQL runs a data-modifying `WITH` arm
+ *  exactly once and to completion whether or not the primary query touches its
+ *  output, which is what carries the child INSERTs. */
+const SIBLING_CTE_PREFIX = "__viborm_write_";
+
 /**
  * The mutation's `RETURNING` list for the fold: every scalar column, under its
  * COLUMN name.
@@ -69,6 +75,10 @@ function returningEveryColumn(ctx: QueryScope): Sql {
  *   outer query, so the projection correlates against the mutated ROW
  *   (post-mutation values, straight out of `RETURNING`).
  * @param args.mutation - the mutating statement WITHOUT a `RETURNING` clause.
+ * @param args.siblings - Phase 8.2: further self-contained writes of the same
+ *   operation, carried as unread CTE arms. They must reference no value from
+ *   another arm — a `WITH` gives every arm the same snapshot, so an arm cannot
+ *   read what a sibling wrote. Their caller answers for that.
  * @param args.select / args.include - the same projection the terminal read
  *   would have carried.
  */
@@ -76,6 +86,7 @@ export function buildMutationProjectionFold(
   ctx: QueryScope,
   args: {
     mutation: Sql;
+    siblings?: readonly Sql[];
     select?: Record<string, unknown>;
     include?: Record<string, unknown>;
   }
@@ -88,6 +99,10 @@ export function buildMutationProjectionFold(
         returningEveryColumn(ctx)
       )}`,
     },
+    ...(args.siblings ?? []).map((query, index) => ({
+      name: `${SIBLING_CTE_PREFIX}${index}`,
+      query,
+    })),
   ]);
   const projection = buildSelectWithAliases(
     ctx,

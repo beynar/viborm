@@ -484,15 +484,114 @@ export class CreateOperation {
     // X1b — the located parent's FK is folded into the root record's INSERT
     // (resolved here at compile: a literal constant, or a planned locate-row value).
     const rootInject = this.rootFkInject ? this.rootFkInject(known) : {};
-    this.emitRecord(this.root, rootInject, known, guards, writes);
+    const rootInsertData = this.emitRecord(
+      this.root,
+      rootInject,
+      known,
+      guards,
+      writes
+    );
     if (this.suppressTerminal) {
       // A nested fresh subtree contributes only its writes/guards; the enclosing
       // operation owns the terminal read and the result.
       return { steps: [...guards, ...writes], outputs: {} };
     }
+    const treeFold = this.buildTreeFold(guards, writes, rootInsertData);
+    if (treeFold) {
+      return {
+        steps: [treeFold],
+        outputs: { result: ref(this.root.writeStepId, "result") },
+      };
+    }
     return {
       steps: [...guards, ...writes, this.buildTerminal(this.root)],
       outputs: { result: ref(this.terminalId, "result") },
+    };
+  }
+
+  /**
+   * PLAN Phase 8.2 — a guard-free nested-create tree, folded into one statement:
+   *
+   * ```sql
+   * WITH "__viborm_mutation" AS (INSERT INTO parent … RETURNING <every column>),
+   *      "__viborm_write_0"  AS (INSERT INTO child  …),
+   *      "__viborm_write_1"  AS (INSERT INTO child  …)
+   * SELECT <scalars> FROM "__viborm_mutation" AS "t0"
+   * ```
+   *
+   * MEASURED on PGlite before the fold: a root plus two nested children sent four
+   * statements (three INSERTs and the terminal read); after, one.
+   *
+   * What makes it legal is the fresh-parent elision ladder (ATOM §4): a child of
+   * a row this operation is creating cannot pre-exist, so no correlated probe
+   * under it can match and the whole tree needs the database to answer NOTHING
+   * before it writes. That is why `guards` and the planning fragment are empty
+   * here — and it is also the reason a nested `create` is the only tree shape
+   * that folds. The adopt family (`connect` / `connectOrCreate` / `upsert`, M2M)
+   * asks a probe first and reads its rows CLIENT-side to pick a branch, so it has
+   * statements the fold cannot merge.
+   *
+   * The conjuncts, each answering one thing:
+   *
+   *  · **The tree asked the database nothing.** Empty planning is the ladder made
+   *    machine-checkable, and it is also what keeps the folded operation
+   *    STATEMENT-ATOMIC: one round trip, no envelope. A tree that did probe (a
+   *    child-held `connect` under the fresh root, whose targets must be verified
+   *    to exist) has already spent a round trip and read rows client-side to
+   *    decide, so merging its write buys a statement and not the property.
+   *  · **No premise is left unasserted.** A guard is a step the merge has no
+   *    place for; the fold declines rather than dropping one silently.
+   *  · **Nothing flows between the statements.** A `WITH` gives every arm the
+   *    same snapshot, so an arm cannot read what a sibling wrote — a child INSERT
+   *    that needed the parent's DATABASE-generated key (an `OperationValueReference`
+   *    in its SQL) has no in-statement spelling here and declines. A tree whose
+   *    keys are literals — supplied, or materialized by a `ulid`/`cuid`/`uuid`
+   *    default at the parse boundary — carries no such value. Checked as the
+   *    executor checks it (`statement.values.some(isOperationValueReference)`),
+   *    which is also why a folded step still satisfies the statement-atomic path.
+   *  · **No step carries an effect the merge would drop.** A `skip` effect needs
+   *    a savepoint scope one statement has not got, and a per-step `expects` is a
+   *    JS check on a result that stops existing once the steps are one.
+   *  · **A scalar-only root projection.** The sibling arms' effects are invisible
+   *    to the outer SELECT for exactly the snapshot reason above, so an `include`
+   *    of a relation this tree just populated would answer the empty pre-statement
+   *    truth. Phase 8.1's create fold takes the relation projection instead, and
+   *    its gate holds precisely because that tree writes only the one row.
+   */
+  private buildTreeFold(
+    guards: readonly OperationStep[],
+    writes: readonly OperationStep[],
+    rootInsertData: Record<string, unknown>
+  ): StatementStep | undefined {
+    const [rootWrite, ...siblings] = writes;
+    const foldable =
+      this.mode === "transaction" &&
+      this.engine.adapter.capabilities.supportsCteWithMutations &&
+      this.engine.adapter.capabilities.supportsReturning &&
+      this.projectionIsScalarOnly() &&
+      this.planningSteps.length === 0 &&
+      guards.length === 0 &&
+      siblings.length > 0 &&
+      rootWrite?.id === this.root.writeStepId &&
+      writes.every(
+        (step) =>
+          step.kind === "write" &&
+          isSql(step.statement) &&
+          !step.statement.values.some(isOperationValueReference) &&
+          !(step.expects || step.onUniqueConflict)
+      );
+    if (!foldable) return undefined;
+    const parent = createQueryScope(this.engine.adapter, this.model);
+    return {
+      id: this.root.writeStepId,
+      kind: "write",
+      statement: buildMutationProjectionFold(parent, {
+        mutation: buildInsertStatement(parent, rootInsertData),
+        siblings: siblings.map((step) => (step as StatementStep).statement),
+        ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
+      }),
+      outputs: { result: { kind: "rows" } },
+      expects: exactlyOneRow(terminalFailure()),
     };
   }
 
@@ -1414,13 +1513,16 @@ export class CreateOperation {
 
   // -------------------------------------------------------------------------
 
+  /** Emits this record's writes and returns the INSERT data it used — Phase 8.2's
+   *  fold rebuilds the ROOT statement with an all-columns `RETURNING`, and this
+   *  is the one place that knows what the parent-held arms folded into it. */
   private emitRecord(
     plan: RecordPlan,
     inject: Record<string, unknown>,
     known: Readonly<Record<string, unknown>>,
     guards: OperationStep[],
     writes: OperationStep[]
-  ): void {
+  ): Record<string, unknown> {
     const insertData: Record<string, unknown> = {
       ...plan.scalarData,
       ...inject,
@@ -1449,6 +1551,7 @@ export class CreateOperation {
         (step.kind === "guard" ? guards : writes).push(step);
       }
     }
+    return insertData;
   }
 
   /** Resolve one parent-held to-one arm into the record's `insertData`, emitting
