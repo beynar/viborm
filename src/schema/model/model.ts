@@ -63,7 +63,28 @@ export interface ModelInternal<T extends ModelState> {
   relationSet: Set<string>;
 }
 
-export type IndexType = "btree" | "hash" | "gin" | "gist";
+/**
+ * The index kinds a schema may declare. The union is the whole of what any
+ * dialect accepts, not what all of them accept — `validateIndexType` in
+ * `migrations/drivers/base.ts` refuses each one on the dialects whose
+ * `supportsIndexTypes` does not list it, by name, at push time.
+ *
+ * `fulltext` and `spatial` are here because MySQL's whole round trip already
+ * exists and only this union could not spell it: the emitter writes the
+ * `FULLTEXT`/`SPATIAL` prefix and refuses to combine either with `UNIQUE`
+ * (`mysql/index.ts`), the introspection reads them back and normalizes MySQL's
+ * `RTREE` to `spatial` (`mysql/introspect.ts`), the migration snapshot's
+ * `IndexDef` already carries both (`migrations/types.ts`), and the capability
+ * list already declares them. See Phase 10 item 6 in
+ * `docs/architecture/query-performance-plan.md`.
+ */
+export type IndexType =
+  | "btree"
+  | "hash"
+  | "gin"
+  | "gist"
+  | "fulltext"
+  | "spatial";
 
 export interface IndexOptions {
   name?: string;
