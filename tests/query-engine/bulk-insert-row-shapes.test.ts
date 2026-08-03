@@ -300,22 +300,43 @@ describe("bulk insert row shapes", () => {
     expect(await client.batchRow.count()).toBe(0);
   });
 
-  test("a returning driver without atomic execution rejects multi-row returns before mutation", async () => {
+  // RETARGETED by Phase 7.2 (query-performance-plan, Decision 7.2). This test
+  // used to assert that ANY multi-row return refuses on a substrate-less driver,
+  // because the plan was one INSERT per input row and N statements cannot be made
+  // atomic without a transaction or a batch. The returning arm now folds a
+  // contiguous same-shape run into ONE multi-row `INSERT … RETURNING`, and one
+  // statement is atomic by itself — so the same-shape payload no longer needs a
+  // substrate and must NOT be refused. The refusal is unchanged and still
+  // asserted here for the shape that still spends more than one statement.
+  test("a returning driver without atomic execution folds a same-shape multi-row return and still refuses a split one", async () => {
     const driver = new NoAtomicPGliteDriver();
     const client = createClient({ schema, driver });
     clients.push(client);
     await push(client, { force: true });
     driver.disableAtomicExecution();
 
+    // One shape, one statement, no substrate required.
+    const rows = await client.batchRow.createMany({
+      data: [
+        { code: "first", label: "first" },
+        { code: "second", label: "second" },
+      ],
+      select: { id: true, code: true },
+    });
+    expect(rows.map((row) => row.code)).toEqual(["first", "second"]);
+    expect(await client.batchRow.count()).toBe(2);
+
+    // Two shapes (one row supplies the increment id, one omits it) are two
+    // statements, and two statements still need an atomic substrate.
     await expect(
       client.batchRow.createMany({
         data: [
-          { code: "first", label: "first" },
-          { code: "second", label: "second" },
+          { code: "third", label: "third" },
+          { id: 90, code: "fourth", label: "fourth" },
         ],
         select: { id: true },
       })
     ).rejects.toThrow("neither transactions nor atomic batch execution");
-    expect(await client.batchRow.count()).toBe(0);
+    expect(await client.batchRow.count()).toBe(2);
   });
 });

@@ -38,6 +38,7 @@ import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow
 import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
+import { runCreateManyReturnFoldBehavior } from "./create-many-return-fold-behavior";
 import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runFkIndexBehavior } from "./fk-index-behavior";
@@ -788,6 +789,13 @@ describeIf("pg Driver", () => {
   });
   runCreateManyBehavior({
     name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  // Phase 7.2: the multi-row `INSERT … RETURNING` fold, on the real PostgreSQL
+  // whose implementation order the fold trusts (PGlite is the same engine in
+  // WASM; this is the leg that runs it over the wire).
+  runCreateManyReturnFoldBehavior({
+    driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runCreateManyBehavior({

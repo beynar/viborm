@@ -65,8 +65,12 @@ type AndReturnKind =
  * **ordered source list whose rows concatenate** (ATOM §1) live:
  *
  * - **returning drivers** (`supportsReturning`): `createManyAndReturn` is one
- *   `INSERT … RETURNING` per input row, whose rows concatenate in input order
- *   (the ordered source list); `updateManyAndReturn` is one `UPDATE … RETURNING`.
+ *   multi-row `INSERT … VALUES (…),(…) RETURNING …` per contiguous same-shape
+ *   run of input rows — usually ONE statement for the whole call (Phase 7.2,
+ *   query-performance-plan Decision 7.2). The runs' rows concatenate in input
+ *   order (the ordered source list), and each run's rows are trusted to come
+ *   back in its own `VALUES` order; `updateManyAndReturn` is one
+ *   `UPDATE … RETURNING`.
  * - **non-returning drivers in a transaction** (MySQL): the mutation-identity
  *   pre/post-read technique — `createManyAndReturn` interleaves each `INSERT`
  *   with a refetch located by the created row's identity (`getCreatedRowWhere`,
@@ -443,19 +447,17 @@ export class ManyAndReturnOperation {
       true
     );
     const steps: OperationStep[] = [];
-    const resultRefs: Array<OperationValueReference | undefined> = new Array(
-      data.length
-    );
+    const output: OperationValueReference[] = [];
+    const covered: number[] = [];
     const name = this.modelName();
 
     for (const statement of plan.statements) {
-      const inputIndex = statement.inputIndexes[0];
-      if (inputIndex === undefined || statement.inputIndexes.length !== 1) {
-        throw new QueryEngineError(
-          "query-engine-v2 createMany with 'select' expected one input per statement."
-        );
-      }
       if (supportsReturning) {
+        // Phase 7.2: the statement is the whole contiguous same-shape RUN, so
+        // one `INSERT … VALUES (…),(…) RETURNING …` answers for all of its
+        // input rows at once. Its rows enter the ordered source list in the
+        // run's input order; the ordinal check below is what makes that order
+        // the operation's answer rather than an assumption.
         const id = this.scope.allocate(`${name}.createManyReturn`);
         steps.push({
           id,
@@ -463,8 +465,15 @@ export class ManyAndReturnOperation {
           statement: statement.sql,
           outputs: { result: { kind: "rows" } },
         });
-        resultRefs[inputIndex] = ref(id, "result");
+        output.push(ref(id, "result"));
+        covered.push(...statement.inputIndexes);
         continue;
+      }
+      const inputIndex = statement.inputIndexes[0];
+      if (inputIndex === undefined || statement.inputIndexes.length !== 1) {
+        throw new QueryEngineError(
+          "query-engine-v2 createMany with 'select' expected one input per statement."
+        );
       }
       // Non-returning: INSERT then refetch by the created identity, interleaved
       // so the DB session `lastInsertId()` in the refetch reflects this INSERT.
@@ -487,17 +496,22 @@ export class ManyAndReturnOperation {
           outputs: { result: { kind: "rows" } },
         }
       );
-      resultRefs[inputIndex] = ref(readId, "result");
+      output.push(ref(readId, "result"));
+      covered.push(inputIndex);
     }
 
-    const output: OperationValueReference[] = [];
-    for (const reference of resultRefs) {
-      if (reference === undefined) {
-        throw new QueryEngineError(
-          "query-engine-v2 createMany with 'select' left an input row without a result."
-        );
-      }
-      output.push(reference);
+    // THE ORDINAL CONTRACT. The sources concatenate, so the answer is right
+    // only if the statements cover every input row exactly once, in input
+    // order. Checked here rather than assumed of `buildCreateManyPlan`: a
+    // regrouping that dropped, duplicated or reordered a row would otherwise
+    // return a plausible row list addressed to the wrong inputs.
+    if (
+      covered.length !== data.length ||
+      covered.some((inputIndex, position) => inputIndex !== position)
+    ) {
+      throw new QueryEngineError(
+        "query-engine-v2 createMany with 'select' left an input row without a result in its input ordinal."
+      );
     }
     return { steps, output };
   }
