@@ -1512,6 +1512,23 @@ closing the 8.2 gate fails both count witnesses; and dropping 8.2's
 no-cross-statement-value conjunct makes the fragment validator reject the step
 for referencing itself.
 
+**Re-gated on the twice-corrected tree.** `tsc` clean, Biome clean, `test:gates`
+**72/72** with the census pin still 39, V2 suite **1160** (the +4 over 1156 is
+these four witnesses and nothing else), `tests/query-engine` + client **2845
+passed, 0 failed**, Docker PostgreSQL **1140 passed, 0 failed**, 14 skipped
+(serial) and Docker MySQL **1016 passed, 0 failed** — both identical to the wave
+gate, MySQL necessarily so, since no fold gate it could reach ever opens there.
+The full estate ran **9525** non-skipped
+(9521 + these four) and reports **81 failed, all of them in `tests/cli`**: the
+config loader cannot import a `.ts` file, `Failed to load … Make sure you're
+running with a TypeScript loader`. That is not this change. Reverting only the
+three source files of these two commits and re-running `tests/cli` reproduces the
+same **81 failed | 506 passed**, and the cause is visible in the working tree —
+an in-flight, uncommitted dependency change (`pnpm-lock.yaml`, +2286/−1525, plus
+`docs/package.json` and `docs/tsconfig.json`) that appeared mid-run and belongs
+to the docs site, not to the engine. Left alone deliberately: a lane fixing a
+fold gate does not touch someone else's install.
+
 **Falsified (the two review corrections).** Guard 2: asking
 `getTargetIdentityFields` again fails the unique-index witness on the ANSWER (the
 cascaded children come back as `[]`); counting non-unique indexes as FK targets
