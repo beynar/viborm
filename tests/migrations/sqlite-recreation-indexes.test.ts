@@ -1,6 +1,5 @@
 /**
- * What a SQLite table recreation does to the batch's own indexes and foreign
- * keys.
+ * What a SQLite table recreation does to the batch's own work.
  *
  * REGRESSION: SQLite has no `ALTER TABLE ... ADD FOREIGN KEY`, so every foreign
  * key change rebuilds the table — create a `__new_` table, copy, `DROP TABLE`,
@@ -30,15 +29,28 @@
  * constraints, so the growth is invisible until a delete meets three
  * referential actions instead of one.)
  *
- * FIX: `SQLite3MigrationDriver.getCurrentTable` replays the batch's preceding
- * `createIndex` / `dropIndex` / `addForeignKey` / `dropForeignKey` operations —
- * the only four that move an index or a foreign key in or out of `TableDef` —
- * onto the introspected lists, so a recreation rebuilds what the table holds at
- * the moment it runs.
+ * The SAME pre-batch read reached the COLUMNS, the UNIQUE CONSTRAINTS and the
+ * PRIMARY KEY, and none of those needed a foreign key to go wrong. `addColumn`
+ * runs at priority 10 and `alterColumn` at 12, and on SQLite `alterColumn` is
+ * itself a recreation: measured live on better-sqlite3, pushing a model that
+ * widened one column and added another emitted the `ALTER TABLE ... ADD COLUMN`
+ * and then rebuilt the table WITHOUT it. The push reported success, the column
+ * was gone, and the next push added and lost it again. Two `alterColumn`s in one
+ * batch reverted each other the same way, and a `dropColumn` before a recreation
+ * asked the source table for a column it no longer had, which aborted the push.
+ *
+ * FIX: `SQLite3MigrationDriver.getCurrentTable` replays every preceding
+ * operation of the batch that names this table onto the introspected
+ * definition — that is all the operations that move a column, an index, a
+ * foreign key, a unique constraint or the primary key in or out of `TableDef` —
+ * so a recreation rebuilds what the table holds at the moment it runs.
  *
  * This file is the driver-agnostic witness, plus one live push that counts the
  * keys the database ends up with. The live index upgrade is
- * `runFkIndexUpgradeBehavior` in `tests/drivers/fk-index-behavior.ts`.
+ * `runFkIndexUpgradeBehavior` in `tests/drivers/fk-index-behavior.ts`; the
+ * separate defect that made SQLite plan this churn on EVERY push — a
+ * constraint name introspection cannot read back — is
+ * `constraint-identity.test.ts`.
  */
 
 import { createClient } from "@client/client";
@@ -234,6 +246,142 @@ describe("SQLite table recreation — the batch's own foreign keys", () => {
       .at(-1);
     expect(rebuild).toContain("ON DELETE CASCADE");
     expect(rebuild).not.toContain("ON DELETE RESTRICT");
+  });
+});
+
+/** The column names of the last `CREATE TABLE` in a batch, in order. */
+function columnsOfLastRebuild(statements: string[]): string[] {
+  const last = statements
+    .filter((statement) => statement.startsWith("CREATE TABLE"))
+    .at(-1);
+  return [...(last ?? "").matchAll(REBUILT_COLUMN)].map(
+    (match) => match[1] as string
+  );
+}
+
+/** A leading `"name" TYPE` line of a CREATE TABLE body. */
+const REBUILT_COLUMN = /^\s{2}"([^"]+)" (?:TEXT|INTEGER|REAL|BLOB)/gm;
+
+describe("SQLite table recreation — the batch's own columns", () => {
+  const alterAuthorId: DiffOperation = {
+    type: "alterColumn",
+    tableName: "posts",
+    columnName: "author_id",
+    from: { name: "author_id", type: "TEXT", nullable: false },
+    to: { name: "author_id", type: "INTEGER", nullable: false },
+  };
+
+  // REGRESSION: `addColumn` runs at priority 10 and `alterColumn` at 12, and on
+  // SQLite `alterColumn` IS a recreation. Read from the pre-batch column list
+  // the rebuild dropped the table and re-created it WITHOUT the column the
+  // `ALTER TABLE ... ADD COLUMN` two statements earlier had just added.
+  // Measured live on better-sqlite3: pushing a model that widened one column
+  // and added another reported success and left the new column gone — and the
+  // next push added and lost it again, forever.
+  it("carries a column the same batch added before it", () => {
+    const statements = sqliteStatements(
+      [
+        {
+          type: "addColumn",
+          tableName: "posts",
+          column: { name: "subtitle", type: "TEXT", nullable: true },
+        },
+        alterAuthorId,
+      ],
+      postsSnapshot([])
+    );
+
+    expect(columnsOfLastRebuild(statements)).toEqual([
+      "id",
+      "author_id",
+      "slug",
+      "subtitle",
+    ]);
+    // And the copy reads the column from the table that now has it.
+    expect(
+      statements.some((s) =>
+        s.includes('SELECT "id", "author_id", "slug", "subtitle"')
+      )
+    ).toBe(true);
+  });
+
+  it("does not resurrect a column the same batch dropped before it", () => {
+    // Left stale, the rebuild both re-created `slug` and asked the source table
+    // for it — and the source no longer had it, so the push aborted.
+    const statements = sqliteStatements(
+      [
+        { type: "dropColumn", tableName: "posts", columnName: "slug" },
+        alterAuthorId,
+      ],
+      postsSnapshot([])
+    );
+
+    expect(columnsOfLastRebuild(statements)).toEqual(["id", "author_id"]);
+  });
+
+  it("does not revert an alterColumn the same batch already applied", () => {
+    // Two recreations in one batch: the second read the pre-batch columns, so
+    // it rebuilt the table around the type the FIRST one had just replaced.
+    const statements = sqliteStatements(
+      [
+        alterAuthorId,
+        {
+          type: "alterColumn",
+          tableName: "posts",
+          columnName: "slug",
+          from: { name: "slug", type: "TEXT", nullable: false },
+          to: { name: "slug", type: "TEXT", nullable: true },
+        },
+      ],
+      postsSnapshot([])
+    );
+
+    const rebuild = statements
+      .filter((s) => s.startsWith("CREATE TABLE"))
+      .at(-1);
+    expect(rebuild).toContain('"author_id" INTEGER');
+    expect(rebuild).not.toContain('"author_id" TEXT');
+  });
+});
+
+describe("SQLite table recreation — the batch's own unique constraints and key", () => {
+  it("carries a unique constraint the same batch added before it", () => {
+    // `addUniqueConstraint` runs at 14, before `addForeignKey` at 16, and
+    // `DROP TABLE` takes the unique index with it. Same shape as the index
+    // hazard at the top of this file.
+    const statements = sqliteStatements(
+      [
+        {
+          type: "addUniqueConstraint",
+          tableName: "posts",
+          constraint: { name: "posts_slug_key", columns: ["slug"] },
+        },
+        addSerializedFk,
+      ],
+      postsSnapshot([])
+    );
+
+    expect(
+      statements.filter((s) => s.startsWith("CREATE TABLE")).at(-1)
+    ).toContain('CONSTRAINT "posts_slug_key" UNIQUE ("slug")');
+  });
+
+  it("rebuilds around the primary key the same batch installed", () => {
+    const statements = sqliteStatements(
+      [
+        {
+          type: "addPrimaryKey",
+          tableName: "posts",
+          primaryKey: { columns: ["id", "slug"] },
+        },
+        addSerializedFk,
+      ],
+      postsSnapshot([])
+    );
+
+    expect(
+      statements.filter((s) => s.startsWith("CREATE TABLE")).at(-1)
+    ).toContain('PRIMARY KEY ("id", "slug")');
   });
 });
 

@@ -7,7 +7,7 @@
 
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
-import type { ColumnDef, TableDef } from "../../types";
+import type { ColumnDef, DiffOperation, TableDef } from "../../types";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -34,6 +34,77 @@ import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { introspect } from "./introspect";
 
+/** Every operation that names the table it acts on. */
+type TableScopedOperation = Extract<DiffOperation, { tableName: string }>;
+
+/**
+ * One preceding operation of the batch, applied to the table definition a later
+ * recreation will rebuild. `SQLite3MigrationDriver.getCurrentTable` explains
+ * why the introspected definition alone is not enough, and what each list costs
+ * when it is left behind.
+ */
+function applyToTable(table: TableDef, op: TableScopedOperation): TableDef {
+  switch (op.type) {
+    case "addColumn":
+      return { ...table, columns: [...table.columns, op.column] };
+    case "dropColumn":
+      return {
+        ...table,
+        columns: table.columns.filter(
+          (column) => column.name !== op.columnName
+        ),
+      };
+    case "renameColumn":
+      return {
+        ...table,
+        columns: table.columns.map((column) =>
+          column.name === op.from ? { ...column, name: op.to } : column
+        ),
+      };
+    case "alterColumn":
+      return {
+        ...table,
+        columns: table.columns.map((column) =>
+          column.name === op.columnName ? op.to : column
+        ),
+      };
+    case "createIndex":
+      return { ...table, indexes: [...table.indexes, op.index] };
+    case "dropIndex":
+      return {
+        ...table,
+        indexes: table.indexes.filter((index) => index.name !== op.indexName),
+      };
+    case "addForeignKey":
+      return { ...table, foreignKeys: [...table.foreignKeys, op.fk] };
+    case "dropForeignKey":
+      return {
+        ...table,
+        foreignKeys: table.foreignKeys.filter((fk) => fk.name !== op.fkName),
+      };
+    case "addUniqueConstraint":
+      return {
+        ...table,
+        uniqueConstraints: [...table.uniqueConstraints, op.constraint],
+      };
+    case "dropUniqueConstraint":
+      return {
+        ...table,
+        uniqueConstraints: table.uniqueConstraints.filter(
+          (constraint) => constraint.name !== op.constraintName
+        ),
+      };
+    case "addPrimaryKey":
+      return { ...table, primaryKey: op.primaryKey };
+    case "dropPrimaryKey":
+      return { ...table, primaryKey: undefined };
+    default:
+      // `dropTable` is the only other operation that names a table, and nothing
+      // rebuilds a table the same batch dropped.
+      return table;
+  }
+}
+
 /**
  * SQLite3 Migration Driver
  *
@@ -57,6 +128,10 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     // No `ALTER TABLE ADD FOREIGN KEY`: FKs stay inline in CREATE TABLE and
     // rely on SQLite's lazy reference resolution (forward refs are fine).
     supportsAddForeignKeyViaAlter: false,
+    // `PRAGMA foreign_key_list` has no name column, and an inline
+    // `CONSTRAINT x UNIQUE (...)` is only ever reported as
+    // `sqlite_autoindex_<table>_<n>`. Neither name survives a round trip.
+    introspectionReadsConstraintNames: false,
   };
 
   // ===========================================================================
@@ -314,33 +389,43 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
   /**
    * The table definition a recreation has to rebuild — the introspected one,
-   * carrying the indexes *and the foreign keys* the table holds at this point
-   * in the batch.
+   * moved on by every preceding operation of the same batch.
    *
-   * `currentSchema` is read once, before the first statement runs, so its lists
-   * are the pre-batch ones. A recreation drops the table, which drops both, and
-   * then re-creates whatever this definition names: with the pre-batch lists it
-   * destroys everything the same batch created earlier and resurrects
-   * everything the same batch dropped.
+   * `currentSchema` is read once, before the first statement runs, so on its own
+   * it describes the table as it was. A recreation drops the table and rebuilds
+   * whatever this definition names, so read raw it destroys everything the same
+   * batch created earlier and resurrects everything the same batch dropped. Each
+   * list is a measured hazard, not a hypothetical:
    *
-   * Indexes: `createIndex` runs at priority 15 and `addForeignKey` at 16, and
-   * SQLite recreates the table for every foreign-key change — so on a database
-   * that predates the FK index each `manyToOne` push created the index and then
-   * threw it away, forever.
+   * - INDEXES. `createIndex` runs at priority 15 and `addForeignKey` at 16, and
+   *   SQLite recreates the table for every foreign-key change — so on a database
+   *   that predates the FK index each `manyToOne` push created the index and
+   *   then threw it away, forever.
    *
-   * Foreign keys: `dropForeignKey` runs at priority 2 and `addForeignKey` at
-   * 16, and the differ plans exactly that pair for every changed foreign key.
-   * With the pre-batch list the add rebuilt the table around the constraint the
-   * drop had just removed *plus* its replacement. That is not a corner either:
-   * `PRAGMA foreign_key_list` carries no constraint name, so introspection
-   * synthesises `<table>_fk_<n>` and the differ plans drop-and-add on every
-   * push for every `manyToOne`. Measured on better-sqlite3, `zz_posts` held 1,
-   * then 2, then 3 identical foreign keys after three idempotent pushes — the
-   * duplicates accumulate without bound, and each one is separately enforced.
+   * - FOREIGN KEYS. `dropForeignKey` runs at 2 and `addForeignKey` at 16, and
+   *   the differ plans that pair for every changed key. With the pre-batch list
+   *   the add rebuilt the table around the constraint the drop had just removed
+   *   AND its replacement: measured on better-sqlite3, `zz_posts` held 1, then
+   *   2, then 3 identical foreign keys after three idempotent pushes.
    *
-   * These four operations are the only ones that move an index or a foreign key
-   * in or out of `TableDef`, so replaying the preceding ones gives the sets the
-   * database actually has when the recreation runs.
+   * - COLUMNS. `addColumn` runs at 10 and `alterColumn` at 12, and `alterColumn`
+   *   is a recreation on SQLite. Measured: pushing a model that both widens one
+   *   column's type and adds another emitted the `ALTER TABLE ... ADD COLUMN`,
+   *   then rebuilt the table from the pre-batch column list — and the new column
+   *   was gone. The push reported success, and the next one added and lost it
+   *   again. Two `alterColumn`s in one batch reverted each other the same way.
+   *
+   * - UNIQUE CONSTRAINTS. `addUniqueConstraint` runs at 14, before the same two
+   *   recreations, and `DROP TABLE` takes the unique index with it; the rebuild
+   *   would not name it. Same shape as the index hazard above.
+   *
+   * - PRIMARY KEY. `dropPrimaryKey` runs at 5 and `addPrimaryKey` at 13, both
+   *   ahead of `addForeignKey`, so a later recreation would rebuild around the
+   *   key that was just replaced.
+   *
+   * These are all the operations that move any of those five out of `TableDef`,
+   * so replaying the preceding ones gives what the database actually holds when
+   * the recreation runs.
    */
   protected getCurrentTable(
     tableName: string,
@@ -353,21 +438,14 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       return undefined;
     }
 
-    let indexes = table.indexes;
-    let foreignKeys = table.foreignKeys;
+    let replayed = table;
     for (const op of context?.precedingOperations ?? []) {
-      if (op.type === "createIndex" && op.tableName === tableName) {
-        indexes = [...indexes, op.index];
-      } else if (op.type === "dropIndex" && op.tableName === tableName) {
-        indexes = indexes.filter((index) => index.name !== op.indexName);
-      } else if (op.type === "addForeignKey" && op.tableName === tableName) {
-        foreignKeys = [...foreignKeys, op.fk];
-      } else if (op.type === "dropForeignKey" && op.tableName === tableName) {
-        foreignKeys = foreignKeys.filter((fk) => fk.name !== op.fkName);
+      if ("tableName" in op && op.tableName === tableName) {
+        replayed = applyToTable(replayed, op);
       }
     }
 
-    return { ...table, indexes, foreignKeys };
+    return replayed;
   }
 
   // ===========================================================================

@@ -62,6 +62,8 @@ export class MySQLMigrationDriver extends MigrationDriver {
     supportsIndexTypes: ["btree", "fulltext", "spatial"], // InnoDB does not support user-defined HASH indexes
     supportsNativeArrays: false, // Use JSON instead
     supportsAddForeignKeyViaAlter: true, // ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY
+    // `information_schema` reports the declared `CONSTRAINT_NAME`.
+    introspectionReadsConstraintNames: true,
   };
 
   // ===========================================================================

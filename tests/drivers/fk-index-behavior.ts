@@ -279,11 +279,34 @@ export function runFkIndexBehavior({
           (op) => op.type === "createIndex" || op.type === "dropIndex"
         )
       ).toEqual([]);
-      // SQLite recreates the table for its FK churn, so prove the index is
-      // still in the database rather than only that the differ was quiet.
       expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
         "fk_idx_posts_author_id_idx"
       );
+    });
+
+    // REGRESSION: `PRAGMA foreign_key_list` carries no constraint name, so
+    // SQLite's introspection synthesises `<table>_fk_<n>` — which never matches
+    // the `<table>_<column>_fkey` the serializer declares. Matched by name, the
+    // declared key was therefore missing and the read one extra on EVERY push,
+    // and the differ planned drop-and-add forever. SQLite has no
+    // `ALTER TABLE ADD FOREIGN KEY`, so each of those rebuilt the whole table,
+    // copy included: two full rebuilds per push of a schema nobody had edited.
+    // (Before the recreation replay landed they also accumulated — 1, then 2,
+    // then 3 identical constraints. That half is `sqlite-recreation-indexes`;
+    // this one is the churn that survived it.)
+    //
+    // Every dialect gets this test, not just SQLite: the assertion is simply
+    // that an unchanged schema plans nothing, which is what a name-carrying
+    // catalog gives for free and what shape identity gives SQLite.
+    test("re-pushing the schema is not a foreign-key change", async () => {
+      const c = make(fkIndexSchema);
+      await push(c as never, { force: true });
+
+      const second = await push(c as never, { force: true });
+      const third = await push(c as never, { force: true });
+
+      expect(second.operations).toEqual([]);
+      expect(third.operations).toEqual([]);
     });
 
     test("a declared .index() on the FK column is not duplicated", async () => {

@@ -13,6 +13,7 @@ import type {
   EnumDef,
   ForeignKeyDef,
   IndexDef,
+  ReferentialAction,
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
@@ -48,6 +49,16 @@ export interface DiffOptions {
    * differ then compares the two texts raw, which is the fail-closed reading.
    */
   canonicalizeIndexPredicate?: IndexPredicateCanonicalizer;
+
+  /**
+   * Recognizes a foreign key and a unique constraint by its SHAPE instead of by
+   * its name — see `foreignKeyShape` below for why, and for what breaks without
+   * it. Set by `planPush` from the migration driver's
+   * `introspectionReadsConstraintNames` capability; left off by `generate`,
+   * which diffs two snapshots the serializer wrote and where every name is
+   * therefore the declared one.
+   */
+  matchConstraintsByShape?: boolean;
 }
 
 /** Canonical spellings, keyed by table and by the predicate as declared. */
@@ -242,27 +253,112 @@ function indexesEqual(
   );
 }
 
-function foreignKeysEqual(a: ForeignKeyDef, b: ForeignKeyDef): boolean {
-  return (
-    a.name === b.name &&
-    arraysEqual(a.columns, b.columns) &&
-    a.referencedTable === b.referencedTable &&
-    arraysEqual(a.referencedColumns, b.referencedColumns) &&
-    a.onDelete === b.onDelete &&
-    a.onUpdate === b.onUpdate
-  );
-}
-
-function uniqueConstraintsEqual(
-  a: UniqueConstraintDef,
-  b: UniqueConstraintDef
-): boolean {
-  return a.name === b.name && arraysEqual(a.columns, b.columns);
-}
-
 function arraysEqual<T>(a: T[], b: T[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((val, idx) => val === b[idx]);
+}
+
+// =============================================================================
+// CONSTRAINT IDENTITY
+// =============================================================================
+
+function normalizeReferentialAction(
+  action: ReferentialAction | undefined
+): ReferentialAction {
+  // `normalizeIndexUnique`'s twin on the foreign-key side. Every introspection
+  // reads a concrete action back from the catalog — "NO ACTION" when the DDL
+  // declared none — while a snapshot may leave it undefined, and both spell the
+  // same constraint: SQLite and MySQL omit the clause for `noAction`,
+  // PostgreSQL writes `ON DELETE NO ACTION`, which is what omitting it means.
+  // Left raw, the same key reads as a change and is dropped and re-added on
+  // every push.
+  return action ?? "noAction";
+}
+
+/**
+ * What a foreign key IS, with the name left out: the columns it binds, what
+ * they point at, and what happens on delete and on update. NUL joins the
+ * columns and SOH the parts — no SQL identifier and no action name holds
+ * either, so two shapes read alike only when every part does.
+ *
+ * The name is left out because on some dialects it is not readable. On
+ * PostgreSQL and MySQL the catalog carries the name the DDL gave the
+ * constraint, so a name IS an identity there and the differ matches on it.
+ * SQLite carries no name for either constraint this file matches:
+ * `PRAGMA foreign_key_list` has no name column at all, so introspection
+ * synthesises `<table>_fk_<n>`, and an inline `CONSTRAINT x UNIQUE (...)` is
+ * reported only under SQLite's own `sqlite_autoindex_<table>_<n>`. Matched by
+ * name, the declared constraint is therefore missing and the read one extra on
+ * every push of an unchanged schema, forever — and the two repairs the differ
+ * plans are both wrong:
+ *
+ *   - the foreign key is dropped and re-added, and SQLite has no
+ *     `ALTER TABLE ADD FOREIGN KEY`, so each of those rebuilds the whole table
+ *     — copy included — twice per push, for a schema nobody edited;
+ *   - the unique constraint's drop is `DROP INDEX "sqlite_autoindex_..."`,
+ *     which SQLite refuses ("index associated with UNIQUE or PRIMARY KEY
+ *     constraint cannot be dropped"), so the SECOND push of any SQLite schema
+ *     carrying a compound unique fails outright.
+ *
+ * So where the name cannot be read, the shape is the identity: two constraints
+ * of one shape are one constraint, whatever the reader called them.
+ */
+function foreignKeyShape(fk: ForeignKeyDef): string {
+  return [
+    fk.columns.join("\u0000"),
+    fk.referencedTable,
+    fk.referencedColumns.join("\u0000"),
+    normalizeReferentialAction(fk.onDelete),
+    normalizeReferentialAction(fk.onUpdate),
+  ].join("\u0001");
+}
+
+/** `foreignKeyShape`'s twin: a unique constraint is its column list. */
+function uniqueConstraintShape(constraint: UniqueConstraintDef): string {
+  return constraint.columns.join("\u0000");
+}
+
+/**
+ * Pairs each `current` constraint with the `desired` one it is, under whichever
+ * identity the dialect supports, and reports what `desired` had left over.
+ *
+ * Multisets, not maps, on purpose. A database written before
+ * `SQLite3MigrationDriver.getCurrentTable` learned to replay the batch can hold
+ * several byte-identical foreign keys on one table — they accumulated, one per
+ * push, without bound. Keying by identity alone would collapse those into one
+ * entry and leave the extras attached forever; pairing k of n leaves n-k
+ * unmatched, and unmatched is what gets dropped.
+ */
+function matchByIdentity<T>(
+  current: readonly T[],
+  desired: readonly T[],
+  identityOf: (item: T) => string
+): { matches: Array<T | undefined>; unmatchedDesired: T[] } {
+  const availableByIdentity = new Map<string, number[]>();
+  for (const [position, item] of desired.entries()) {
+    const identity = identityOf(item);
+    const positions = availableByIdentity.get(identity);
+    if (positions) {
+      positions.push(position);
+    } else {
+      availableByIdentity.set(identity, [position]);
+    }
+  }
+
+  const consumed = new Set<number>();
+  const matches = current.map((item) => {
+    const position = availableByIdentity.get(identityOf(item))?.shift();
+    if (position === undefined) return undefined;
+    consumed.add(position);
+    return desired[position];
+  });
+
+  return {
+    matches,
+    unmatchedDesired: desired.filter(
+      (_, position) => !consumed.has(position)
+    ) as T[],
+  };
 }
 
 function enumsEqual(a: EnumDef, b: EnumDef): boolean {
@@ -282,7 +378,8 @@ function diffTable(
   tableName: string,
   current: TableDef,
   desired: TableDef,
-  canonical: CanonicalPredicates
+  canonical: CanonicalPredicates,
+  matchConstraintsByShape: boolean
 ): TableDiffResult {
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
@@ -391,48 +488,54 @@ function diffTable(
     }
   }
 
-  // Diff foreign keys
-  const currentFks = new Map(current.foreignKeys.map((fk) => [fk.name, fk]));
-  const desiredFks = new Map(desired.foreignKeys.map((fk) => [fk.name, fk]));
+  // Diff foreign keys, under whichever identity this dialect's introspection
+  // supports (see `foreignKeyShape`).
+  const fkMatch = matchByIdentity(
+    current.foreignKeys,
+    desired.foreignKeys,
+    matchConstraintsByShape ? foreignKeyShape : (fk) => fk.name
+  );
 
-  for (const [name, fk] of currentFks) {
-    const desiredFk = desiredFks.get(name);
+  for (const [position, fk] of current.foreignKeys.entries()) {
+    const desiredFk = fkMatch.matches[position];
     if (!desiredFk) {
-      operations.push({ type: "dropForeignKey", tableName, fkName: name });
-    } else if (!foreignKeysEqual(fk, desiredFk)) {
-      // FK changed - drop and recreate
-      operations.push({ type: "dropForeignKey", tableName, fkName: name });
+      operations.push({ type: "dropForeignKey", tableName, fkName: fk.name });
+    } else if (foreignKeyShape(fk) !== foreignKeyShape(desiredFk)) {
+      // The pair is the same constraint under a name; its definition changed,
+      // so drop and recreate. Under shape identity a pair IS one shape, so this
+      // is the name-identity dialects' branch — it is where a changed
+      // referential action or referenced column is caught on Postgres and
+      // MySQL, and where SQLite's own drop-and-add falls out of the definition
+      // having actually changed rather than out of an unreadable name.
+      operations.push({ type: "dropForeignKey", tableName, fkName: fk.name });
       operations.push({ type: "addForeignKey", tableName, fk: desiredFk });
     }
   }
 
-  for (const [name, fk] of desiredFks) {
-    if (!currentFks.has(name)) {
-      operations.push({ type: "addForeignKey", tableName, fk });
-    }
+  for (const fk of fkMatch.unmatchedDesired) {
+    operations.push({ type: "addForeignKey", tableName, fk });
   }
 
-  // Diff unique constraints
-  const currentUniques = new Map(
-    current.uniqueConstraints.map((u) => [u.name, u])
-  );
-  const desiredUniques = new Map(
-    desired.uniqueConstraints.map((u) => [u.name, u])
+  // Diff unique constraints — same identity question, same answer.
+  const uniqueMatch = matchByIdentity(
+    current.uniqueConstraints,
+    desired.uniqueConstraints,
+    matchConstraintsByShape ? uniqueConstraintShape : (uq) => uq.name
   );
 
-  for (const [name, uq] of currentUniques) {
-    const desiredUq = desiredUniques.get(name);
+  for (const [position, uq] of current.uniqueConstraints.entries()) {
+    const desiredUq = uniqueMatch.matches[position];
     if (!desiredUq) {
       operations.push({
         type: "dropUniqueConstraint",
         tableName,
-        constraintName: name,
+        constraintName: uq.name,
       });
-    } else if (!uniqueConstraintsEqual(uq, desiredUq)) {
+    } else if (uniqueConstraintShape(uq) !== uniqueConstraintShape(desiredUq)) {
       operations.push({
         type: "dropUniqueConstraint",
         tableName,
-        constraintName: name,
+        constraintName: uq.name,
       });
       operations.push({
         type: "addUniqueConstraint",
@@ -442,14 +545,12 @@ function diffTable(
     }
   }
 
-  for (const [name, uq] of desiredUniques) {
-    if (!currentUniques.has(name)) {
-      operations.push({
-        type: "addUniqueConstraint",
-        tableName,
-        constraint: uq,
-      });
-    }
+  for (const constraint of uniqueMatch.unmatchedDesired) {
+    operations.push({
+      type: "addUniqueConstraint",
+      tableName,
+      constraint,
+    });
   }
 
   // Diff primary key
@@ -589,7 +690,8 @@ export async function diff(
         name,
         currentTable,
         desiredTable,
-        canonicalPredicates
+        canonicalPredicates,
+        options.matchConstraintsByShape ?? false
       );
       operations.push(...tableDiff.operations);
       ambiguousChanges.push(...tableDiff.ambiguousChanges);

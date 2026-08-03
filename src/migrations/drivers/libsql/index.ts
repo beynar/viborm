@@ -33,6 +33,9 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
     // existing column def — not a standalone add. Keep FKs inline in CREATE
     // TABLE and rely on lazy reference resolution (forward refs are fine).
     supportsAddForeignKeyViaAlter: false,
+    // Inherits SQLite's introspection verbatim, so the same two names are
+    // unreadable here.
+    introspectionReadsConstraintNames: false,
   };
 
   // ===========================================================================

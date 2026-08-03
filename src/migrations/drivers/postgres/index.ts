@@ -45,6 +45,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
     supportsIndexTypes: ["btree", "hash", "gin", "gist"],
     supportsNativeArrays: true,
     supportsAddForeignKeyViaAlter: true,
+    // `pg_constraint.conname` is the name the DDL gave the constraint.
+    introspectionReadsConstraintNames: true,
   };
 
   // ===========================================================================

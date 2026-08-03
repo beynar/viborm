@@ -58,6 +58,23 @@ export interface MigrationCapabilities {
    * resolving references lazily (SQLite/LibSQL).
    */
   supportsAddForeignKeyViaAlter: boolean;
+
+  /**
+   * Whether `introspect()` reads back the name the DDL gave each foreign key
+   * and each unique constraint.
+   *
+   * - PostgreSQL: true (`pg_constraint.conname`)
+   * - MySQL: true (`information_schema` `CONSTRAINT_NAME`)
+   * - SQLite / LibSQL: false. `PRAGMA foreign_key_list` has no name column at
+   *   all, so introspection synthesises `<table>_fk_<n>`; and an inline
+   *   `CONSTRAINT x UNIQUE (...)` is reported by `PRAGMA index_list` only under
+   *   SQLite's own `sqlite_autoindex_<table>_<n>`.
+   *
+   * When false, `planPush` tells the differ to recognize both constraints by
+   * their shape instead — see `foreignKeyShape` in `differ.ts` for the two
+   * failures that matching an unreadable name produces.
+   */
+  introspectionReadsConstraintNames: boolean;
 }
 
 export type { Dialect };
