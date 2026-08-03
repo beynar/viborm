@@ -585,11 +585,11 @@ export class UpsertOperation {
     if (entries.length === 0) return false;
     return entries.every(({ fieldName, value }) => {
       const created = this.createData[fieldName];
-      return (
-        isFoldableKeyValue(value) &&
-        isFoldableKeyValue(created) &&
-        Object.is(created, value)
-      );
+      // Checking `value` alone suffices: when it is a foldable primitive and
+      // `Object.is(created, value)` holds, `created` IS that primitive — a
+      // second `isFoldableKeyValue(created)` can never be the deciding conjunct
+      // (P7 review: removing it changes no test; the one-guard ban applies).
+      return isFoldableKeyValue(value) && Object.is(created, value);
     });
   }
 
