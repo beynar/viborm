@@ -2305,6 +2305,38 @@ wire, which is why that family is inexpressible rather than unwired, and why clo
 §1 amendment (a multi-column produced output, then a tuple `capturedPk`) rather than a
 wiring wave.
 
+### 8.1 P8 — the CTE folds add no vocabulary, and the ladder is what they read
+
+query-performance-plan Phase 8 folds two multi-statement shapes into one PostgreSQL
+command each, and neither touches §1. A fold produces one `write` step where there were
+several; every `Ref`, `Probe`, pin and postcondition it might have carried is what
+DISQUALIFIES it. That is the whole disposition, and it is worth writing down because it
+looks like it should have needed a vocabulary term and did not.
+
+**8.1, the terminal read.** `WITH … AS (UPDATE/INSERT … RETURNING <every column>) SELECT
+<the terminal read's own projection> FROM …`. One `write` step, `outputs: { result: rows }`,
+the same `affectedRows(1, notFound)` / `exactlyOneRow` the unfolded step carried. The
+projection is built by the READ path's builder over a real aliased `FROM`, so the include
+is the include — this is the structural answer to the `RETURNING`-list correlation defect
+(a bare outer column captured by the inner table), not a second correlation mechanism.
+
+**8.2, the fresh tree.** The elision rule this document states in §4 — a correlated probe
+under a parent this operation creates is statically empty — is what makes a whole nested
+`create` tree ask the database nothing before it writes. §8.2 turns that from a licence
+into a CHECK: the tree folds iff its planning fragment is empty, it emits no guard, and no
+statement of it reads another statement's output. The third conjunct is the §9 invariant 3
+seen from the other side — a `WITH` gives every arm the same snapshot, so an arm cannot be
+the channel for a value another arm produced, and a tree that needed one (a
+database-generated parent key) keeps its `Ref` and its statements. Falsified by deleting
+it: the fragment validator then rejects the folded step for referencing itself, which is
+invariant 2 catching what invariant 3 was supposed to prevent.
+
+**What both folds do NOT relax.** The Pin Rule has nothing to bind in either: 8.1's
+statement runs no planning read, and 8.2's tree has none by construction, so there is no
+premise a concurrent writer could invalidate between a read and a write. That is the same
+argument §4's ON CONFLICT door records for the top-level upsert, reached from a different
+direction.
+
 ---
 
 ## 9. Invariants (the executable contract)

@@ -55,6 +55,19 @@ async function setupDb(): Promise<PGlite> {
   return db;
 }
 
+/**
+ * The multi-statement sample these tests select a substrate for.
+ *
+ * RETARGETED DELIBERATELY (query-performance-plan Phase 8.2). A bare nested
+ * create tree with literal keys is no longer multi-statement on PostgreSQL: it
+ * folds into one `WITH`-chained command and runs statement-atomically, with no
+ * transaction and no batch — which is what the fold is FOR, and what its own
+ * witnesses pin. The `include` is what keeps this payload multi-statement, for a
+ * reason these tests are indifferent to: the sibling arms' effects are invisible
+ * to the outer SELECT of one command, so a relation projection keeps the
+ * separate terminal read. The subject here is unchanged — a create tree that
+ * needs several statements needs an atomic substrate.
+ */
 function nestedCreate(driver: PGliteDriver, suffix: string) {
   const client = createClient({ schema: nestedWriteBehaviorSchema, driver });
   return {
@@ -67,6 +80,7 @@ function nestedCreate(driver: PGliteDriver, suffix: string) {
           create: { id: `post-${suffix}`, title: "Nested" },
         },
       },
+      include: { posts: true },
     }),
   };
 }
@@ -78,12 +92,16 @@ function unsupportedOperation(
   const client = createClient({ schema: nestedWriteBehaviorSchema, driver });
   switch (operation) {
     case "create":
+      // Carries the same `include` as {@link nestedCreate}, and for the same
+      // Phase 8.2 reason: without it the tree is one statement and needs no
+      // atomic substrate to refuse.
       return client.user.create({
         data: {
           id: "u-create",
           name: "Owner",
           posts: { create: { id: "p-create", title: "Nested" } },
         },
+        include: { posts: true },
       });
     case "update":
       return client.user.update({

@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 is delivered: it first shipped its measurement and pinned it as a baseline, then both of its units hit a blocker that was a decision rather than a defect, and both decisions were taken on 2026-08-03 — 6.1's level-grouped planning reads (fan-out 6 → 3) and 6.2's batch-mode `[presence guard, write … RETURNING]` fold (2 → 1) shipped together and are certified by the P6 completion gate at the end of the Phase 6 section. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. Phase 9 is parked on its own measurement: the correction it proposed was measured to buy exactly nothing, the win it was after turned out to sit behind a deployment decision rather than a transport change, and the numbers plus the shut door are recorded in the Phase 9 disposition. Phases 8 and 10 not started.
+**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 is delivered: it first shipped its measurement and pinned it as a baseline, then both of its units hit a blocker that was a decision rather than a defect, and both decisions were taken on 2026-08-03 — 6.1's level-grouped planning reads (fan-out 6 → 3) and 6.2's batch-mode `[presence guard, write … RETURNING]` fold (2 → 1) shipped together and are certified by the P6 completion gate at the end of the Phase 6 section. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. **Phase 8 is delivered** — both CTE folds, plus item 10.1 (the SQLite capability flag), whose value Phase 8 is the first reader of; see the Phase 8 delivery record. Phase 9 is parked on its own measurement: the correction it proposed was measured to buy exactly nothing, the win it was after turned out to sit behind a deployment decision rather than a transport change, and the numbers plus the shut door are recorded in the Phase 9 disposition. Phases 8 and 9 landed in one wave and are certified together by the Phase 8/9 wave gate at the end of the Phase 9 section. Phase 10 not started, less item 10.1.
 
 ## Source of this plan
 
@@ -1297,6 +1297,110 @@ The fold is an emitter change. It produces one write step. It does not grow the 
 
 Byte-identical results against the unfolded path (dual-run comparison). Failure attribution through constraint names. Statement-atomic postconditions. The census and the gates stay unchanged.
 
+### Delivered — 2026-08-03, branch `nested-write-boundaries`. Baseline `c9c06e5`.
+
+Both folds shipped, plus item 10.1, whose flag this phase is the first reader of.
+Two commits: the terminal-read fold and the flag correction, then the tree fold.
+Everything lives in one new builder,
+[`mutation-projection-fold.ts`](../../src/query-engine/operations/mutation-projection-fold.ts),
+and two gates in the operations that call it. The frozen vocabulary did not grow:
+each fold is one `write` step where there used to be several.
+
+**8.1 — the terminal read.** `WITH "__viborm_mutation" AS (UPDATE … RETURNING
+<every column>) SELECT <projection over the CTE> FROM "__viborm_mutation" AS
+"t0"`. Measured on PGlite:
+
+| shape | before | after |
+| --- | ---: | ---: |
+| `update` + `include`, transaction | 3 | **1** |
+| `update` + `include`, atomic batch | 4 | **2** |
+| `update` + `_count`, transaction | 3 | **1** |
+| `create` + `include`, transaction | 2 | **1** |
+
+The batch keeps its in-unit presence guard (Phase 6.2); the locate and the
+terminal read are what go away. The plan wrote `SELECT u.*, <correlated relation
+subqueries>`; what shipped projects through `buildSelectWithAliases` over an
+aliased `FROM`, which is the terminal read's own builder — so on PostgreSQL the
+include comes back as a LATERAL join rather than a subquery, exactly as the read
+path spells it. That is the point: it is the same projection, not a second
+implementation of it, and it is why the `_count` correlation defect that
+`delete-fold.test.ts` documents (a bare column reference captured by the inner
+table, because `RETURNING` has no alias) cannot recur here.
+
+The plan's legality note — "the relation subqueries read tables the statement
+does not change" — is enforced, not assumed, and it took **two** guards because
+there are two ways a statement changes a table the projection reads
+(`query-engine-v2/shared.ts`):
+
+- `projectionReadsMutatedModel` — the projection reaching the mutated model
+  itself. PostgreSQL gives every sub-statement of one command the same snapshot,
+  so a self-relation would answer with the mutated row's PRE-statement shape.
+  Removing this guard makes a self-managed row report its old label.
+- `setCanFireReferentialAction` — a `SET` that rewrites a column a foreign key
+  may point at, which cascades into a child table mid-statement. Removing this
+  guard makes a primary-key rewrite report its cascaded children as an empty
+  list. It over-approximates in one direction only (a unique column nothing
+  references declines a legal fold), which costs a statement and never an answer.
+
+**8.2 — the nested-create tree.** `WITH "__viborm_mutation" AS (INSERT …
+RETURNING <every column>), "__viborm_write_0" AS (INSERT …), … SELECT <scalars>
+FROM "__viborm_mutation"`. A root with two children went from **4 statements to
+1**; a nested `createMany` from 3 to 1.
+
+The plan wrote the child arm as `INSERT INTO child … SELECT p.id … FROM p`. That
+spelling is for a parent key the DATABASE generates, and it is exactly the case
+this fold DECLINES — a `WITH` arm reads the same snapshot as its siblings, so a
+value produced by one arm is not readable by another, and PostgreSQL's own
+`SELECT … FROM p` form would be reading the CTE's output rather than the table's,
+a different mechanism than the rest of the engine's `Ref` threading. What shipped
+folds the tree whose keys are all literals — supplied by the caller, or
+materialized by a `ulid`/`cuid`/`uuid` default at the parse boundary — and states
+the rule structurally: **no statement of the tree may read another statement's
+output**, checked as the executor checks it
+(`statement.values.some(isOperationValueReference)`). A generated parent key
+fails that check and keeps the multi-statement path. Widening to the produced-key
+case is a real door and it is left open, not closed.
+
+The plan's other two constraints hold as written, and are witnessed declining: a
+scalar-only root projection (an `include` of the relation the tree just populated
+would report the empty pre-statement truth), and no adopt-family member. The
+second is spelled as **empty planning** rather than as a kind list, because that
+is what the fresh-parent elision ladder ([`ATOM.md` §4](../../src/query-engine-v2/ATOM.md))
+actually says — a tree that asks the database nothing before it writes — and it
+is also what keeps the folded operation statement-atomic: one round trip, no
+envelope. A child-held `connect` under a fresh root has no correlated probe
+(elision) but does have to verify its target exists, so it has already spent the
+round trip and declines.
+
+**10.1 landed here.** `supportsCteWithMutations` read `true` for SQLite and is
+false in fact. Measured on SQLite 3.51.2: each of `WITH x AS (UPDATE …/INSERT
+…/DELETE … RETURNING …) SELECT * FROM x` is `near "…": syntax error`. The flag is
+now `false` and is no longer dead — both folds read it, which is why it was
+corrected here rather than in Phase 10.
+
+**Pins changed deliberately.** Three, all in `tests/query-engine/`:
+`sql-generation.test.ts`'s two "create with nested create/createMany rejects the
+single-statement build API" assertions are now folded-statement assertions —
+`build()` has a statement to hand back, and saying so is the phase. The three
+shapes around them still reject, each for its own reason, which is what keeps
+them from reading as "creates are one statement now".
+`select-mode-capability-matrix.test.ts`'s `nestedCreate` sample gained an
+`include`: those tests choose a substrate for a multi-statement operation, and
+the bare tree is no longer one.
+
+**Gate.** V2 suite 1150/1150; `test:gates` 72/72; `tests/query-engine` 1247;
+client 443; local drivers (PGlite, better-sqlite3, libSQL) 3018; the remaining
+driver contracts 430; the non-driver estate 3088; CLI 587; Docker MySQL 1016/0;
+Docker pg 1135/0 (serial). TypeScript clean, Biome clean.
+
+**Falsified.** Closing the 8.1 update gate fails 8 witnesses; closing the 8.1
+create gate fails 2; stripping the correlation alias in the fold builder (the
+`RETURNING`-list defect, reproduced) fails 7 including the oracle; removing
+either 8.1 legality guard produces a WRONG ANSWER, not merely a wrong route;
+closing the 8.2 gate fails both count witnesses; and dropping 8.2's
+no-cross-statement-value conjunct makes the fragment validator reject the step
+for referencing itself.
+
 ---
 
 ## Phase 9 — Transport: PostgreSQL pipelining (orthogonal)
@@ -1346,7 +1450,7 @@ Count the wire round trips for a multi-statement transaction before and after. R
 
 ## Phase 10 — Small corrections and documentation
 
-1. **The false capability flag.** Set `supportsCteWithMutations` to false for SQLite ([`sqlite-adapter.ts:502`](../../src/adapters/databases/sqlite/sqlite-adapter.ts)), or remove the flag if no phase uses it. Nothing reads it today, so nothing catches the false value.
+1. ~~**The false capability flag.**~~ **DONE in Phase 8** (see its delivery record). Set to `false` for SQLite after measuring it on 3.51.2, and kept rather than removed: Phase 8's two folds read it, so it is no longer the dead flag this item described.
 2. **The MySQL BINARY wrap.** `equals`, `in`, and `notIn` on string and enum columns wrap the column: `BINARY col = ?` ([`where-builder.ts:415-427`](../../src/query-engine/builders/where-builder.ts) with [`mysql-adapter.ts:189`](../../src/adapters/databases/mysql/mysql-adapter.ts)). The wrap prevents index use. Tables that viborm creates use the collation `utf8mb4_0900_bin` ([`mysql/index.ts:298`](../../src/migrations/drivers/mysql/index.ts)), which makes the wrap redundant there. The unique-locate path already bypasses the wrap ([`where-unique-builder.ts:224-236`](../../src/query-engine/builders/where-unique-builder.ts)). Remove the wrap for viborm-created tables, or document the cost and the manual collation requirement.
 3. **Documentation: composite indexes for ordered includes.** The lateral include shape needs `(foreignKey, orderColumn)` for an ordered, limited include. Add this to [`docs/content/docs/schema/model.mdx`](../../docs/content/docs/schema/model.mdx) near the `.index()` section (lines 46-64), and add an FK-index note to [`many-to-one.mdx`](../../docs/content/docs/schema/relations/many-to-one.mdx) (until Phase 1 ships).
 4. **Documentation: PGlite runs with `enable_seqscan=off` by default** (PostgreSQL 17 WASM). Users who benchmark on PGlite must know this. Add a note to the PGlite driver docs page.

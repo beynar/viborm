@@ -407,7 +407,7 @@ There is **no driver-level capability interface**. `src/drivers/types.ts` define
 | `supportsLateralJoins` | true | true (8.0.14+) | **false** | yes |
 | `supportsMutationTargetInSubquery` | true | **false** (ERR 1093) | true | yes |
 | `supportsVector` | false → true only via `{ pgvector: true }` | false | false | yes |
-| `supportsCteWithMutations` | true | false | true | **no — dead flag** |
+| `supportsCteWithMutations` | true | false | **false** (was `true`, and wrong) | yes — the Phase 8 folds |
 | `supportsFullOuterJoin` | true | false | false | **no — dead flag** |
 | `supportsUpsertWhere` | true | false | true | **no — dead flag** |
 
