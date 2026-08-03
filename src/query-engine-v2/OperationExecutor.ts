@@ -31,6 +31,7 @@ import {
   type GuardStep,
   isOperationValueReference,
   type OperationFragment,
+  type OperationStep,
   type OperationValueReference,
   type StatementOutputSource,
   type StatementStep,
@@ -395,15 +396,97 @@ export class OperationExecutor {
   ): Promise<AtomicPlan> {
     const planning = operation.planning();
     validateFragment(planning);
-    const planningOutputs = await this.executeLinear(
+    const planningOutputs = await this.executePlanningLevels(
       planning,
       driver,
-      new Map(),
       context
     );
     const fragment = operation.compile(planningOutputs);
     validateFragment(fragment);
     return this.compileToEntries(fragment);
+  }
+
+  /**
+   * PLAN Phase 6.1 — the planning half of "reduce the round trips on batch-only
+   * drivers". The compiled writes already ride ONE atomic batch; the planning
+   * reads used to ride one `_execute` each, so a tree's planning cost grew with
+   * its fan-out — six round trips for four sibling targets.
+   *
+   * Only a technique-#1 REFERENCE orders one planning read against another (a
+   * correlated probe whose parameter is the locate's output, `RelationLinkPart`).
+   * Reads that reference nothing of each other's are independent by construction,
+   * so they can share one round trip. Grouping by dependency LEVEL makes planning
+   * cost one round trip per level rather than one per read, and the total stops
+   * growing with the fan-out: four siblings drop from six trips to three.
+   *
+   * A level of ONE read stays on the per-statement path — there is nothing to
+   * group, and routing it through the batch seam would change the call shape of
+   * the overwhelmingly common single-locate plan for no saving.
+   *
+   * Only the ATOMIC-BATCH path plans this way. {@link runLinearOn} — transaction
+   * mode, and the caller-supplied driver already inside its own scope — keeps the
+   * sequential path: its probes take a row lock on an OPEN transaction handle,
+   * and it is not the substrate whose round trips this phase exists to lower.
+   *
+   * Grouping reads is a strengthening, not a weakening: several reads in one
+   * atomic batch see ONE snapshot where several `_execute` calls saw several.
+   */
+  private async executePlanningLevels(
+    fragment: OperationFragment,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<Readonly<Record<string, unknown>>> {
+    const reads: StatementStep[] = [];
+    for (const step of fragment.steps) {
+      // Grouping is for planning READS. Anything else hands the WHOLE fragment
+      // back to the linear executor rather than teaching this pass a second
+      // spelling of its handling: a guard has no lowering outside the atomic
+      // unit and raises the refusal below, and a write's savepoint skip effect
+      // and racePin classification live on the per-statement path.
+      if (step.kind !== "read") {
+        return this.executeLinear(fragment, driver, new Map(), context);
+      }
+      reads.push(step);
+    }
+    const values: RuntimeValues = new Map();
+    for (const level of planningLevels(reads)) {
+      const [only] = level;
+      if (only && level.length === 1) {
+        await this.runLinearStep(only, driver, values, context);
+        continue;
+      }
+      await this.runPlanningLevel(level, driver, values, context);
+    }
+    return resolveFragmentOutputs(fragment, values);
+  }
+
+  /**
+   * One dependency level of independent planning reads through ONE driver batch.
+   * Each read's postcondition is enforced afterwards, in step order, so the
+   * first failing read raises the same typed failure it raises sequentially —
+   * the only difference is that its independent siblings also ran, and a read
+   * has nothing to undo.
+   */
+  private async runPlanningLevel(
+    level: readonly StatementStep[],
+    driver: AnyDriver,
+    values: RuntimeValues,
+    context: QueryExecutionContext
+  ): Promise<void> {
+    const queries = level.map((step) =>
+      driver._prepare(materializeLinearSql(step.statement, values))
+    );
+    const results = await driver._executeBatch(queries, undefined, context);
+    assertNormalizedBatchResults(results, level.length, {
+      provider: driver.driverName,
+      operation: "query-engine-v2",
+    });
+    for (const [index, step] of level.entries()) {
+      const result = results[index];
+      if (!result) continue;
+      enforcePostcondition(step, result, context);
+      values.set(step.id, extractOutputs(step, result));
+    }
   }
 
   private async executeLinear(
@@ -413,31 +496,41 @@ export class OperationExecutor {
     context: QueryExecutionContext
   ): Promise<Readonly<Record<string, unknown>>> {
     for (const step of fragment.steps) {
-      if (step.kind === "guard") {
-        throw new QueryEngineError(
-          `Guard step '${step.id}' requires atomic batch execution.`
-        );
-      }
-      const statement = materializeLinearSql(step.statement, values);
-      // A write carrying the census `onUniqueConflict: "skip"` effect (ATOM §8)
-      // runs behind a savepoint: a unique violation is absorbed as a zero-row
-      // result rather than aborting the surrounding atomic scope (V1's
-      // `executeSkippableWrite`). This is a generic executor effect — no
-      // operation-kind knowledge — so any step declaring it is served identically.
-      const result = await this.executeStatement(
-        step,
-        statement,
-        driver,
-        context
-      );
-      assertNormalizedQueryResult(result, {
-        provider: driver.driverName,
-        operation: step.id,
-      });
-      enforcePostcondition(step, result, context);
-      values.set(step.id, extractOutputs(step, result));
+      await this.runLinearStep(step, driver, values, context);
     }
     return resolveFragmentOutputs(fragment, values);
+  }
+
+  /** One step on its own round trip, its output threaded into `values`. */
+  private async runLinearStep(
+    step: OperationStep,
+    driver: AnyDriver,
+    values: RuntimeValues,
+    context: QueryExecutionContext
+  ): Promise<void> {
+    if (step.kind === "guard") {
+      throw new QueryEngineError(
+        `Guard step '${step.id}' requires atomic batch execution.`
+      );
+    }
+    const statement = materializeLinearSql(step.statement, values);
+    // A write carrying the census `onUniqueConflict: "skip"` effect (ATOM §8)
+    // runs behind a savepoint: a unique violation is absorbed as a zero-row
+    // result rather than aborting the surrounding atomic scope (V1's
+    // `executeSkippableWrite`). This is a generic executor effect — no
+    // operation-kind knowledge — so any step declaring it is served identically.
+    const result = await this.executeStatement(
+      step,
+      statement,
+      driver,
+      context
+    );
+    assertNormalizedQueryResult(result, {
+      provider: driver.driverName,
+      operation: step.id,
+    });
+    enforcePostcondition(step, result, context);
+    values.set(step.id, extractOutputs(step, result));
   }
 
   /**
@@ -599,6 +692,53 @@ function assembleOutputs(
     mergeBatchOutputs(step, result, values);
   }
   return resolveFragmentOutputs(fragment, values);
+}
+
+/**
+ * Split planning reads into dependency LEVELS: level 0 is every read that
+ * references nothing this fragment produces, level N every read whose deepest
+ * referenced producer sits at level N-1. Reads inside one level are independent
+ * of each other by construction — a technique-#1 reference is the ONLY thing
+ * that orders one planning read against another — so they may share one round
+ * trip, and the levels themselves run in order because a later level's
+ * parameters are literally the earlier level's outputs.
+ *
+ * Levels fill contiguously: a step reaches level N only by referencing a
+ * producer at level N-1, so bucket N-1 exists before bucket N is created.
+ */
+function planningLevels(
+  reads: readonly StatementStep[]
+): readonly (readonly StatementStep[])[] {
+  const levelOf = new Map<string, number>();
+  const levels: StatementStep[][] = [];
+  for (const step of reads) {
+    const level = planningLevel(step, levelOf, levels.length);
+    const bucket = levels[level];
+    if (bucket) bucket.push(step);
+    else levels.push([step]);
+    levelOf.set(step.id, level);
+  }
+  return levels;
+}
+
+function planningLevel(
+  step: StatementStep,
+  levelOf: ReadonlyMap<string, number>,
+  unorderableLevel: number
+): number {
+  let level = 0;
+  for (const value of step.statement.values) {
+    if (!isOperationValueReference(value)) continue;
+    const producer = levelOf.get(value.step);
+    // A reference this pass cannot place — a producer the fragment does not
+    // carry — is not something grouping may guess at. Keep the step strictly
+    // after everything placed so far, which is a level of its own: it then runs
+    // alone and materialization raises the same unresolved-reference error it
+    // raises today, from the same place.
+    if (producer === undefined) return unorderableLevel;
+    level = Math.max(level, producer + 1);
+  }
+  return level;
 }
 
 function stepUsesInsertIdScratch(step: StatementStep | undefined): boolean {

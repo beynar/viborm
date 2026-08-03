@@ -5,6 +5,7 @@ import { push } from "@migrations";
 import { describe, expect, test } from "vitest";
 import type { StatementStep } from "../../src/query-engine-v2/OperationFragment";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   depthSeamSchema,
   makeSeamClient,
@@ -13,7 +14,6 @@ import {
   runDepthSeamBehavior,
   seedProjects,
 } from "./depth-seam-behavior";
-import { batchIsAtomicUnit } from "./staleness-window";
 
 /**
  * N4 — the depth seams, on the always-available substrate pair.

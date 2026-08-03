@@ -22,6 +22,7 @@ import {
   ref,
   type TargetConstraintPin,
 } from "../../src/query-engine-v2/OperationFragment";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   createNestedUpsertArgs,
   createOperationExecutor,
@@ -29,7 +30,6 @@ import {
   operationFragmentSchema,
   runCreateNestedUpsertBehavior,
 } from "./create-nested-upsert-behavior";
-import { batchIsAtomicUnit } from "./staleness-window";
 
 class BatchOnlyPGliteDriver extends PGliteDriver {
   override readonly supportsTransactions = false;

@@ -17,8 +17,8 @@ import {
   executeRoutedOperation,
 } from "../../src/query-engine-v2/routing";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { producedIdentitySchema } from "./produced-identity-depth-behavior";
-import { batchIsAtomicUnit } from "./staleness-window";
 
 /**
  * N4-U2 — the MISSING-PREMISE PIN, on the statement the absorption moved it to.

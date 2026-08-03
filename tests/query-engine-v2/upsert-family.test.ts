@@ -18,7 +18,7 @@ import { executeRoutedOperation } from "../../src/query-engine-v2/routing";
 import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
-import { batchIsAtomicUnit } from "./staleness-window";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   runUpsertFamilyBehavior,
   upsertFamilySchema,

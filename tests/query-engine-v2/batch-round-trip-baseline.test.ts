@@ -155,11 +155,19 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
     expect(driver.roundTrips[1]?.kind).toBe("batch");
   });
 
-  test("planning reads are SEQUENTIAL: one round trip per read", async () => {
-    // Phase 6.1's target. The two sibling probes below reference nothing but
-    // their own unique keys, so nothing orders them against each other — only a
-    // technique-#1 reference orders planning steps — yet each costs its own
-    // round trip.
+  // BASELINE UPDATED DELIBERATELY — PLAN Phase 6.1, the level-grouped planning
+  // reads. This shape cost FOUR round trips when this file was written: a root
+  // locate and two sibling probes, one `_execute` each, then the write batch.
+  // It now costs THREE, which is 6.1's deliverable, so the number moves with it
+  // rather than the assertion being relaxed. The SHAPE is pinned alongside the
+  // count, because "three" would also be true of a plan that lost a probe: the
+  // locate still travels alone (a level of one stays on the per-statement path)
+  // and the two probes now share one batch.
+  test("independent sibling probes share ONE planning round trip", async () => {
+    // The two sibling probes below reference nothing but their own unique keys
+    // and the located parent, so nothing orders them against EACH OTHER — only
+    // a technique-#1 reference orders planning steps, and both of theirs point
+    // at the same locate. Same level, one round trip.
     const { driver, client } = await seeded([20, 21]);
 
     await client.user.update({
@@ -175,18 +183,25 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
       },
     });
 
-    expect(driver.roundTrips).toHaveLength(4);
-    // Three separate planning reads, none of them batched together.
+    expect(driver.roundTrips).toHaveLength(3);
     const planning = planningTrips(driver);
-    expect(planning).toHaveLength(3);
-    for (const trip of planning) {
-      expect(trip.kind).toBe("execute");
-    }
+    expect(planning).toHaveLength(2);
+    // Level 0 — the root locate, alone, on the per-statement path.
+    expect(planning[0]?.kind).toBe("execute");
+    expect(planning[0]?.statements).toHaveLength(1);
+    // Level 1 — both correlated probes in ONE batch.
+    expect(planning[1]?.kind).toBe("batch");
+    expect(planning[1]?.statements).toHaveLength(2);
     // ...and one atomic batch carrying every write.
     expect(driver.roundTrips.at(-1)?.kind).toBe("batch");
   });
 
-  test("the planning cost grows with the fan-out, one read at a time", async () => {
+  // BASELINE UPDATED DELIBERATELY — PLAN Phase 6.1. This shape cost SIX round
+  // trips (a locate, four sibling probes one at a time, the write batch). It
+  // now costs THREE, and the point of the test is that three is the number for
+  // ANY fan-out: the planning cost is one round trip per dependency LEVEL, and
+  // adding siblings adds statements to a level, never levels.
+  test("the planning cost no longer grows with the fan-out", async () => {
     const { driver, client } = await seeded([30, 31, 32, 33]);
 
     await client.user.update({
@@ -201,10 +216,42 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
       },
     });
 
-    // One root locate + four sibling probes + one write batch. Grouping the
-    // probes by dependency level would make this three whatever the fan-out.
-    expect(driver.roundTrips).toHaveLength(6);
-    expect(planningTrips(driver)).toHaveLength(5);
+    expect(driver.roundTrips).toHaveLength(3);
+    const planning = planningTrips(driver);
+    expect(planning).toHaveLength(2);
+    expect(planning[0]?.statements).toHaveLength(1);
+    // Four probes, one batch — this is the entry that would grow again if the
+    // grouping were lost.
+    expect(planning[1]?.statements).toHaveLength(4);
+  });
+
+  // BASELINE UPDATED DELIBERATELY — PLAN Phase 6.1. Two reads at the SAME level
+  // rather than one per level: the nested upsert's probe selects its target by
+  // the caller's literal id and references nothing the locate produced, so it
+  // is level 0 beside the root locate. Three round trips became two.
+  test("planning reads that reference nothing of each other's share a level", async () => {
+    const { driver, client } = await seeded([40]);
+
+    await client.user.update({
+      where: { email: "root@x" },
+      data: {
+        posts: {
+          upsert: [
+            {
+              where: { id: 40 },
+              create: { id: 40, title: "c", slug: "sc" },
+              update: { title: "u" },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(driver.roundTrips).toHaveLength(2);
+    const planning = planningTrips(driver);
+    expect(planning).toHaveLength(1);
+    expect(planning[0]?.kind).toBe("batch");
+    expect(planning[0]?.statements).toHaveLength(2);
   });
 
   test("$transaction([...]) merges the write batch but not the planning read", async () => {

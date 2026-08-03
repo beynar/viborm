@@ -5,7 +5,7 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
-import { batchIsAtomicUnit } from "./staleness-window";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { createV2RoutedClient } from "./v2-client-proxy";
 
 /**

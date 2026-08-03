@@ -1,6 +1,6 @@
 import type { BatchQuery } from "@drivers";
 import { describe, expect, test } from "vitest";
-import { batchIsAtomicUnit } from "./staleness-window";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 
 // ---------------------------------------------------------------------------
 // The staleness-injection window, pinned directly. Ten test files drive a

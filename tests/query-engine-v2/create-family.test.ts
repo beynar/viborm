@@ -6,11 +6,11 @@ import { push } from "@migrations";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
 import { describe, expect, test } from "vitest";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { compoundKeyBehaviorSchema } from "../fixtures/compound-key-behavior-schema";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
-import { batchIsAtomicUnit } from "./staleness-window";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
 
 // A batch-only PGlite driver: forces the V2 atomic-batch substrate so every

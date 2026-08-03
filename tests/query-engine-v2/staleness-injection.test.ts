@@ -13,9 +13,9 @@ import { describe, expect, test } from "vitest";
 import { DeleteOperation } from "../../src/query-engine-v2/DeleteOperation";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
-import { batchIsAtomicUnit } from "./staleness-window";
 import { updateFamilySchema } from "./update-family-behavior";
 
 // ---------------------------------------------------------------------------

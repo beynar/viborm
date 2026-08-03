@@ -12,7 +12,7 @@ import type {
   StatementStep,
 } from "../../src/query-engine-v2/OperationFragment";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
-import { batchIsAtomicUnit } from "./staleness-window";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   runToOneUpdateWhereBehavior,
   toOneUpdateWhereSchema,

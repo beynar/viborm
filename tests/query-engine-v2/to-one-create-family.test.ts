@@ -14,9 +14,9 @@ import {
   constructRoutedOperation,
   executeRoutedOperation,
 } from "../../src/query-engine-v2/routing";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
-import { batchIsAtomicUnit } from "./staleness-window";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
 
 // The T1 to-one-under-create oracle (TO-ONE.md). Every parent-held to-one arm and

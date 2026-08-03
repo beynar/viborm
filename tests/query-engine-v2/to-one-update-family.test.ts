@@ -14,9 +14,9 @@ import {
   constructRoutedOperation,
   executeRoutedOperation,
 } from "../../src/query-engine-v2/routing";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
-import { batchIsAtomicUnit } from "./staleness-window";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
 
 // The T2 to-one-under-UPDATE oracle (TO-ONE.md §7). Every parent-held (FK-holder-
