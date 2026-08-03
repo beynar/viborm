@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 delivered its measurement and pinned it as a baseline; both of its units hit a blocker that is a decision rather than a defect, and neither shipped. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. Phases 8, 9 and 10 not started.
+**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 delivered its measurement and pinned it as a baseline; both of its units hit a blocker that is a decision rather than a defect, and neither shipped. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. Phases 8, 9 and 10 not started.
 
 ## Source of this plan
 
@@ -1012,6 +1012,124 @@ viborm can never emit that third index: [`generateCreateIndex`](../../src/migrat
 ### Decision 7.4 — The PostgreSQL partial-index predicate (raised by Phase 2)
 
 Phase 2 fixed the partial index on SQLite, where the catalog stores the statement verbatim. PostgreSQL does not: `pg_get_expr(indpred, indrelid)` deparses the predicate, so a declared `active = true` reads back as `(active = true)` and never compares equal to what the serializer holds ([`postgres/introspect.ts:302`](../../src/migrations/drivers/postgres/introspect.ts) into `indexesEqual`, [`differ.ts`](../../src/migrations/differ.ts)). Measured on PGlite (PostgreSQL 17). **Consequence: every push drops and re-creates every partial index on PostgreSQL.** No client-side text normalization closes this while staying fail-closed — flattening whitespace and parentheses makes `a AND (b OR c)` equal `(a AND b) OR c`, so a real predicate change would stop being seen. The choice: canonicalize the declared predicate through the database before comparing (the differ has no connection today, so this changes the differ's shape), compare `indpred` structurally, or accept the churn and document it. The disposition must state which.
+
+---
+
+## Wave gate — Phase 7 (Decisions 7.1, 7.2 and 7.3)
+
+**Run:** 2026-08-03, main checkout, branch `nested-write-boundaries`, tip `d523808` — nine
+commits from `7240208` (the per-dialect prefix predicate) through `d523808` (the collation
+correction). Baseline for every number below is `d28c339`, the Phases 4/6 wave-gate tip.
+
+### The legs
+
+| Leg | Result | Baseline |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9480 passed, 0 failed**, 2163 skipped (268 files, 4 skipped) | 9338 / 0 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin 39, unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11) per changed file | **clean — zero diagnostics** on all 14 TypeScript files in the diff | — |
+| Docker MySQL 8, port 3307 | **1016 passed, 0 failed** | 993 |
+| Docker PostgreSQL, port 5434 | **1135 passed, 0 failed**, 14 skipped | 1110 |
+
+The PostgreSQL leg is three files now, not two: 7.3 wired
+`tests/query-engine/starts-with-prefix-plan.test.ts` into `pnpm test:pg`, because its
+`en_US.utf8` claims can only be made on the container. That is the one `package.json` edit
+in the wave.
+
+**The named witnesses, executed by name at the gate.**
+
+- 7.1's *MySQL-unchanged* witnesses — `MySQL2 transaction upsert family` and
+  `MySQL2 atomic batch upsert family`, four each: *the create arm writes the row and answers
+  it*, *the update arm mutates the existing row and answers it*, *running it twice converges*,
+  *an UNRELATED unique collision is a constraint error on every dialect*. Eight passed, on the
+  dialect the door is CLOSED to, through the untouched probe path.
+- 7.3's *BINARY-preserving* witnesses — `MySQL2 Driver > prefix predicate on a collation
+  viborm did not choose`: *the accelerator alone would answer case-insensitively* and *the
+  shipped conjunction keeps the case-sensitivity contract*. Both passed on the `ai_ci` column.
+- 7.2's fold on the non-returning dialect — `MySQL2 createMany select fold`, three tests
+  including the unchanged interleaved refetch path.
+- 7.3's plan file, all 14 tests, including the `default-locale substrate` describe that only
+  runs when the container is present.
+
+### Measured at the gate, not copied
+
+Taken independently at the tip through the PGlite `execute`/`executeRaw` seam (which sees
+both substrates) and, for 7.3, straight through `pg` against the Docker container — on a
+schema written for this reading rather than on the witness files' own.
+
+**7.1 — statements for a top-level scalar upsert.** Every "after" number in the disposition
+reproduced exactly:
+
+```text
+upsert → create arm    transaction     1 statement    (ON CONFLICT … DO UPDATE … RETURNING)
+upsert → update arm    transaction     1 statement
+upsert → create arm    atomic batch    1 statement
+upsert → update arm    atomic batch    1 statement
+```
+
+**7.1 — the ACCEPTED divergence, re-measured.** One update-arm upsert against the same
+identity sequence, the path selected by the gate's own `supportsTargetedUpsert` lever:
+
+| path | `p7g_gauges_id_seq.last_value` delta |
+| --- | --- |
+| folded (`INSERT … ON CONFLICT DO UPDATE`) | **+1** |
+| probe-first (the shipped pre-7.1 sequence) | **+0** |
+
+That is DIVERGENCE 1 exactly as the disposition states it: the folded statement evaluates the
+INSERT's defaults before it detects the conflict, so an update that changes nothing about the
+identity column still burns one sequence value. Both dialects document their sequences as
+non-gap-free.
+
+**7.2 — statements for `createMany` with `select`.**
+
+```text
+4 same-shape rows        1 statement    rows answered in INPUT order (m1,m2,m3,m4)
+2 + 2 shapes (id given
+  on the last two)       2 statements   one per contiguous same-shape run
+```
+
+One reading worth recording, because it is not obvious from the disposition: a NULLABLE column
+that some rows omit does **not** split the run — the payload normalizes to one shape and folds
+into a single statement. What splits a run is a genuinely different column set, which here
+means naming the generated primary key on some rows and not others.
+
+**7.3 — the estimator table, re-measured on the mandated leg.** 20,000 rows, plain btree, on
+`viborm-pg-test-2`; the collation was read from the server (`en_US.utf8`) rather than assumed:
+
+| prefix | true rows | shipped `LIKE … ESCAPE` estimate | replaced `LEFT(...)` estimate |
+| --- | --- | --- | --- |
+| `name123%` | 111 | 202 | 100 |
+| `name12%` | 1111 | 1010 | 100 |
+| `name1%` | 11111 | **11111** | 100 |
+| `name%` | 20000 | 19998 | 100 |
+
+Both spellings seq-scan on this cluster, as 7.3's own correction says. The shipped spelling
+costs `0.00..378.00` against the replaced spelling's `0.00..428.00`, so it never plans worse,
+and its estimate tracks the data at every width while `LEFT(...)` stays flat at the planner's
+0.5 % guess. Every number in the disposition's table reproduced to the digit.
+
+### Standing rules
+
+`src/query-engine-v2/OperationFragment.ts` is byte-identical to `d28c339` — the frozen step
+vocabulary did not grow; the file is not in the wave's diff at all. `tests/query-engine/sql-
+generation.test.ts` is not in the diff either, so no pin in it moved; the pins 7.3 updated
+deliberately live in its own `starts-with-prefix-sql.test.ts`, and the one baseline 7.1 moved
+is named in its disposition. No error message and no error attribution was removed: the two
+`throw new QueryEngineError` hunks the `src` diff deletes are both RELOCATIONS inside
+`ManyAndReturnOperation` — the per-statement input check moved below the returning arm, and
+the ordinal check's message survives as *"…left an input row without a result in its input
+ordinal."* No race protection was removed: `racePin`/`presenceGuard` occurrences in
+`UpsertOperation.ts` number the same at the tip as at the baseline (17), and 7.1's absent
+`racePin` on the folded step is discharged by the database, which its disposition measures
+against a live competitor on its own connection.
+
+**Open and recorded, not fixed here:** Decision 7.4 (the only Phase 7 decision still awaiting
+the maintainer), 7.1's atomic-arithmetic residual (`{ count: { increment: 1 } }` keeps the
+probe path, because `DO UPDATE SET` cannot spell the emitter's `col = col op x`), and 7.3's
+`text_pattern_ops` companion index, which would make the PostgreSQL range unconditional and
+is a Phase-1 emitter decision with the same churn shape as 7.4.
+
 ---
 
 ## Phase 8 — PostgreSQL CTE folds (large)
