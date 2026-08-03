@@ -264,7 +264,10 @@ where that *is* the specified semantic:
 The door is **TAKEN** for the top-level scalar-arm upsert. `UpsertOperation.-
 buildOnConflictFold` emits one `INSERT … ON CONFLICT (target) DO UPDATE …
 RETURNING` — empty planning, one step, no envelope — and everything outside its
-six conjuncts keeps the probe-first sequence byte-identically. The full record,
+seven conjuncts keeps the probe-first sequence byte-identically. "An expressible
+conflict target" is one of those seven and is narrower than it sounds: a
+`whereUnique` may name SEVERAL independent uniques at once, and only a selector
+naming exactly ONE constraint has a target an index can match. The full record,
 with the numbers, is the plan doc's Decision 7.1 section; what belongs *here* is
 what the three divergences this section named turned out to be when measured.
 

@@ -67,7 +67,22 @@ const note = s
   })
   .map("p71_notes");
 
-const schema = { account, note };
+/**
+ * A model whose only alternate constraint is COMPOUND — the control for conjunct
+ * 5. One constraint spelled with two columns is a real index, so it folds; the
+ * conjunct counts the discriminator's own KEYS, not the columns they expand to.
+ */
+const ledger = s
+  .model({
+    id: s.int().id().increment(),
+    org: s.string(),
+    slot: s.int(),
+    label: s.string(),
+  })
+  .unique(["org", "slot"])
+  .map("p71_ledgers");
+
+const schema = { account, note, ledger };
 
 beforeAll(() => {
   hydrateSchemaNames(schema);
@@ -129,6 +144,9 @@ async function boot(driver: RecordingPGliteDriver) {
   });
   await client.account.create({
     data: { id: 2, email: "a2@x", handle: "h2", label: "L2", score: 20 },
+  });
+  await client.ledger.create({
+    data: { id: 1, org: "o1", slot: 1, label: "LG1" },
   });
   return client;
 }
@@ -820,7 +838,105 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     );
   });
 
-  test("conjunct 5: `create` that does not satisfy `where` keeps the probe path", async () => {
+  test("conjunct 5: TWO independent uniques in one selector keep the probe path — UPDATE arm", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+    driver.recording = true;
+    // Both keys are DISCRIMINATORS, so conjunct 4 sees no filter half; the create
+    // data spells both with the `where`'s own values, so conjunct 6 is satisfied
+    // — the natural spelling. What the fold would emit is
+    // `ON CONFLICT ("id", "email")`: a column pair with no unique index behind
+    // it, which PostgreSQL rejects with `42P10` and SQLite rejects likewise. The
+    // probe path names the row in a WHERE, where a conjunction of uniques is
+    // ordinary, and has always answered this shape — as `findUnique` and
+    // `update` do for the same selector.
+    const updated = await client.account.upsert({
+      where: { id: 1, email: "a1@x" },
+      create: { id: 1, email: "a1@x", handle: "h1", label: "N", score: 0 },
+      update: { label: "TWO-UNIQUES-UPDATE" },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements.join("\n")).not.toContain("ON CONFLICT");
+    expect(updated).toMatchObject({ id: 1, label: "TWO-UNIQUES-UPDATE" });
+    // And the row really moved — the answer is not a RETURNING that never landed.
+    expect(await client.account.findUnique({ where: { id: 1 } })).toMatchObject(
+      {
+        label: "TWO-UNIQUES-UPDATE",
+      }
+    );
+  });
+
+  test("conjunct 5: TWO independent uniques keep the probe path on the CREATE arm too", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+    driver.recording = true;
+    const created = await client.account.upsert({
+      where: { id: 90, email: "n90@x" },
+      create: { id: 90, email: "n90@x", handle: "h90", label: "N90", score: 0 },
+      update: { label: "NOPE" },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements.join("\n")).not.toContain("ON CONFLICT");
+    expect(created).toMatchObject({ id: 90, email: "n90@x", label: "N90" });
+  });
+
+  test("conjunct 5: SQLite answers the same selector on the probe path", async () => {
+    // The arbiter capability is true on SQLite too, so the same fold would have
+    // been built there — and SQLite rejects an ON CONFLICT target with no
+    // matching index just as PostgreSQL does. One live witness on the second
+    // substrate, so the conjunct is not pinned to one dialect's error code.
+    const driver = new SQLite3Driver({ dataDir: ":memory:" });
+    const client = createClient({ schema, driver });
+    await push(client, { force: true });
+    await client.account.create({
+      data: { id: 1, email: "a1@x", handle: "h1", label: "L1", score: 10 },
+    });
+
+    const updated = await client.account.upsert({
+      where: { id: 1, email: "a1@x" },
+      create: { id: 1, email: "a1@x", handle: "h1", label: "N", score: 0 },
+      update: { label: "SQLITE-TWO-UNIQUES" },
+    });
+    expect(updated).toMatchObject({ id: 1, label: "SQLITE-TWO-UNIQUES" });
+    await client.$disconnect();
+  });
+
+  test("conjunct 5: a COMPOUND unique is ONE constraint and still folds — the control", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const updated = await client.ledger.upsert({
+      where: { org_slot: { org: "o1", slot: 1 } },
+      create: { org: "o1", slot: 1, label: "NEW" },
+      update: { label: "BY-COMPOUND" },
+    });
+    const updateArm = drain(driver);
+    const created = await client.ledger.upsert({
+      where: { org_slot: { org: "o2", slot: 7 } },
+      create: { org: "o2", slot: 7, label: "MADE" },
+      update: { label: "NOPE" },
+    });
+    const createArm = drain(driver);
+    driver.recording = false;
+
+    // The control that keeps the conjunct honest: a compound is ONE key in the
+    // discriminator and TWO entries after flattening, and `ON CONFLICT
+    // ("org", "slot")` is a real index. Counting the flattened ENTRIES instead of
+    // the discriminator's own keys would decline this and give the compound
+    // upsert back its four round trips.
+    expect(updateArm).toHaveLength(1);
+    expect(updateArm[0]).toContain('ON CONFLICT ("org", "slot")');
+    expect(updated).toMatchObject({ id: 1, label: "BY-COMPOUND" });
+    expect(createArm).toHaveLength(1);
+    expect(created).toMatchObject({ org: "o2", slot: 7, label: "MADE" });
+  });
+
+  test("conjunct 6: `create` that does not satisfy `where` keeps the probe path", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);
     driver.recording = true;
@@ -839,7 +955,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(result).toMatchObject({ id: 41, label: "N41" });
   });
 
-  test("conjunct 5: the SAME key spelled with the SAME value does fold — the control", async () => {
+  test("conjunct 6: the SAME key spelled with the SAME value does fold — the control", async () => {
     const { statements, answer } = await traffic({
       where: { handle: "h1" },
       create: { email: "a1@x", handle: "h1", label: "N", score: 0 },
@@ -853,7 +969,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(answer).toMatchObject({ id: 1, label: "BY-HANDLE" });
   });
 
-  test("conjunct 6: atomic arithmetic in the update payload keeps the probe path", async () => {
+  test("conjunct 7: atomic arithmetic in the update payload keeps the probe path", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);
     driver.recording = true;
@@ -915,7 +1031,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(result).toEqual({ id: 1, _count: { notes: 2 } });
   });
 
-  test("conjunct 5 also covers a relation-bearing create arm — and the child is written", async () => {
+  test("conjunct 6 also covers a relation-bearing create arm — and the child is written", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);
     driver.recording = true;

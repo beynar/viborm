@@ -874,14 +874,17 @@ ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level sca
 | `upsert` → create arm, atomic batch | 3 | **1** |
 | `upsert` → update arm, atomic batch | 3 (locate, presence guard, `UPDATE … RETURNING`) | **1** |
 
-The gate is in `UpsertOperation.buildOnConflictFold`. It has **six** conjuncts, and every one of them has coverage no other has — each was removed on its own and the witness that failed is recorded below.
+The gate is in `UpsertOperation.buildOnConflictFold`. It has **seven** conjuncts, and every one of them has coverage no other has — each was removed on its own and the witness that failed is recorded below.
 
 1. `canFoldUpdateArm` — the update arm's existing fold gate, reused rather than restated, so `supportsReturning` is read in ONE place in the class. It carries a RETURNING driver, a scalar update arm, and a scalar-only projection with no `include`.
 2. `supportsTargetedUpsert` — a NEW adapter capability naming the arbiter property.
 3. no `targetWhere` / `setWhere`.
 4. a plain unique `where` (no extended-selector filter half).
-5. the create data spells every conflict-target column with the `where`'s own value.
-6. a `set`-only update payload.
+5. the `where`'s discriminator names exactly ONE constraint.
+6. the create data spells every conflict-target column with the `where`'s own value.
+7. a `set`-only update payload.
+
+**Conjunct 5 was MISSING at first delivery, and it was a regression** — recorded rather than quietly patched, because it is the shape of mistake this door invites. A `whereUnique` may name several independent single-field uniques at once (`where: { id: 1, email: 'a1@x' }`, legal since Prisma 4.5 and answered by `findUnique` and `update`), and `partitionWhereUnique` flattens the discriminator to one entry per constrained COLUMN with no bound of one. `buildConflictTarget` joins every entry, so that selector emitted `ON CONFLICT ("id", "email")` — a column pair with no unique index behind it. Measured on PGlite: `V2001` / `providerCode 42P10`, "there is no unique or exclusion constraint matching the ON CONFLICT specification", on BOTH arms, with SQLite3 rejecting the same shape; flipping `supportsTargetedUpsert` off made all of it succeed, so the probe path had always answered it. Neither conjunct 4 nor conjunct 6 covers it: two uniques are both DISCRIMINATORS, so there is no filter half to see, and the create data spelling both is the natural spelling. The fix counts the discriminator's own KEYS, not the flattened entries, so a compound (one key, several columns) still folds; the control test asserts `ON CONFLICT ("org", "slot")` on a compound-unique model and fails on the entries-counting spelling.
 
 **Why the arbiter is a capability and not an inference.** `ON DUPLICATE KEY UPDATE` carries no target and fires on ANY unique collision, so it would silently ADOPT a row the caller never named — a wrong answer, not a missing optimization. It reads `false` on exactly the same adapters as `supportsReturning` today; that is a coincidence of the three adapters shipped, not an implication (MariaDB has `RETURNING` on `INSERT` and still arbitrates on any key), and the capability's doc comment says so, so it is not "simplified" away later.
 
@@ -905,28 +908,31 @@ The gate is in `UpsertOperation.buildOnConflictFold`. It has **six** conjuncts, 
 
 - **`targetWhere`/`setWhere`** — their contract is V1's silent no-op: no write, and the terminal read still answers with the UNCHANGED row. `DO UPDATE … WHERE <no match>` returns ZERO rows (measured on PG 17), so a folded upsert would answer nothing where the contract says it answers the row.
 - **an extended selector** — the filter half decides WHICH row the operation means and `ON CONFLICT` has nowhere to put it; the conflict would arbitrate on the unique half alone and adopt the very row the filter EXCLUDED. This is the same rule `childRacePin` already applies when it withholds the create arm's pin for an extended selector.
+- **a selector naming two independent uniques** — `ON CONFLICT` takes ONE arbiter index and the target is spelled from every column the discriminator constrains, so `{ id, email }` emits a column pair no index covers (`42P10`, measured, both arms). There is no folding it by electing one of the two either: the other unique is a second condition on the row the caller named, and arbitrating on `id` alone would adopt a row whose `email` the selector excluded — the extended-selector failure again, in a different spelling.
 - **`create` that does not satisfy `where`** — Prisma does not require it to, and `ON CONFLICT` arbitrates on the VALUES row rather than on the caller's `where` (measured: `where: { id: 10 }` with `create: { id: 20 }` conflicts on 20, inserting a second row where probe-first would have updated row 10).
 - **atomic arithmetic / `push` / `unshift` in the update payload** — `buildSet` spells these `col = <col> op x` with ONE column expression on both sides, and inside `DO UPDATE SET` PostgreSQL rejects every spelling it can produce: bare on both sides is `42702` ("column reference is ambiguous" — the proposed row and the existing row both offer the name), and qualifying the assignment target is `42703`. Only "bare target, qualified source" parses, and no emitter in this codebase writes that. **Recorded residual:** the common counter idiom `update: { count: { increment: 1 } }` therefore keeps the probe path. Closing it needs a SET emitter that qualifies only the source — a new adapter-surface spelling, deliberately out of this decision's scope.
 - **a relation projection or `include`** — carried by conjunct 1; `_count` off a RETURNING subquery binds by name, the defect Phase 3 already corrected once.
 
-**A conjunct that was written and then REMOVED.** A seventh conjunct, `!createHasRelations`, was in the first spelling. Falsification found **nothing in the estate that could tell it apart from conjunct 5**: `createData` is `{}` for a relation-bearing payload, so every conflict-target column reads `undefined` and the fold already declines. That is a check whose unique coverage cannot be named, which this codebase forbids, so it went — and the coupling it relied on is written down at conjunct 5 instead, together with the instruction to restore it in the same edit if `createData` ever holds the scalar half of a relation-bearing payload.
+**A conjunct that was written and then REMOVED.** An eighth conjunct, `!createHasRelations`, was in the first spelling. Falsification found **nothing in the estate that could tell it apart from conjunct 6**: `createData` is `{}` for a relation-bearing payload, so every conflict-target column reads `undefined` and the fold already declines. That is a check whose unique coverage cannot be named, which this codebase forbids, so it went — and the coupling it relied on is written down at conjunct 6 instead, together with the instruction to restore it in the same edit if `createData` ever holds the scalar half of a relation-bearing payload.
 
-**Falsification — ten mutations, each applied alone.**
+**Falsification — twelve mutations, each applied alone.**
 
 | Mutation | What failed |
 | --- | --- |
-| the gate forced CLOSED (`permitted = false`) | 9 — every traffic witness, both divergence measurements, the oracle's lever meta-test, the fold control |
+| the gate forced CLOSED (`permitted = false`) | 10 — every traffic witness, both divergence measurements, the oracle's lever meta-test, and both fold controls |
 | conjunct 1 removed (`canFoldUpdateArm`) | the `include` witness and the `_count` witness |
 | conjunct 2 removed **and** a target-ignoring arbiter substituted (the MySQL semantic, live) | 5 — including the unrelated-collision witness, which stops raising and adopts a row the caller never named |
 | MySQL declared `supportsTargetedUpsert: true` (the brief's literal falsification) | the arbiter witness |
 | conjunct 3 removed | both conditional witnesses |
 | conjunct 4 removed | the extended-selector witness |
-| conjunct 5 removed | the create-does-not-satisfy-where witness **and** the relation-bearing create-arm witness |
-| conjunct 5 WEAKENED to "the key is present", dropping the value comparison | the create-does-not-satisfy-where witness |
-| conjunct 6 removed | the atomic-arithmetic witness |
+| conjunct 5 removed | all three two-independent-uniques witnesses (both PGlite arms and the SQLite one) — `42P10` returns |
+| conjunct 5 spelled on the FLATTENED entries (`entries.length === 1`) instead of the discriminator's keys | the compound-unique control — the fold silently stops applying to every compound `where` |
+| conjunct 6 removed | the create-does-not-satisfy-where witness **and** the relation-bearing create-arm witness |
+| conjunct 6 WEAKENED to "the key is present", dropping the value comparison | the create-does-not-satisfy-where witness |
+| conjunct 7 removed | the atomic-arithmetic witness |
 | `!createHasRelations` removed | **nothing** — which is why it is no longer there |
 
-**Witnesses.** [`tests/query-engine-v2/upsert-on-conflict-fold.test.ts`](../../tests/query-engine-v2/upsert-on-conflict-fold.test.ts) — 31 tests in four groups: the traffic (counts on both arms and both substrates, the alternate-unique conflict target, and the plan shape without a database), the dual-run oracle (ten payloads plus the lever meta-test), the accepted and rejected divergences, and one case per excluded shape. Four more in [`upsert-family-behavior.ts`](../../tests/query-engine-v2/upsert-family-behavior.ts), which is wired on **every** driver leg, so the folded shape's answer is certified on SQLite3, LibSQL, PGlite, Docker PostgreSQL **and Docker MySQL** — the dialect the door is closed to, where the same payloads must answer identically through the unchanged probe path.
+**Witnesses.** [`tests/query-engine-v2/upsert-on-conflict-fold.test.ts`](../../tests/query-engine-v2/upsert-on-conflict-fold.test.ts) — 35 tests in four groups: the traffic (counts on both arms and both substrates, the alternate-unique conflict target, and the plan shape without a database), the dual-run oracle (ten payloads plus the lever meta-test), the accepted and rejected divergences, and one case per excluded shape. Four more in [`upsert-family-behavior.ts`](../../tests/query-engine-v2/upsert-family-behavior.ts), which is wired on **every** driver leg, so the folded shape's answer is certified on SQLite3, LibSQL, PGlite, Docker PostgreSQL **and Docker MySQL** — the dialect the door is closed to, where the same payloads must answer identically through the unchanged probe path.
 
 **One pinned baseline moved, deliberately.** `batch-round-trip-baseline.test.ts`'s *"a scalar upsert update-arm costs two"* was Phase 6's measurement of this exact shape. It now costs ONE, which is this decision's deliverable, so the number moves with it and the round-trip KIND is pinned alongside (one round trip would also be true of an operation that planned nothing and wrote nothing). A second test was added holding the OLD number for an upsert the door excludes, so Phase 6's baseline is still measured on a shape that still has it. No pinned SQL in `tests/query-engine/sql-generation.test.ts` changed — it holds no root-upsert pin.
 

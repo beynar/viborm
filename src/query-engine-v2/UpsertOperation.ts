@@ -9,7 +9,7 @@ import { separateData } from "../query-engine/builders/relation-data-builder";
 import { buildInsert } from "../query-engine/builders/values-builder";
 import {
   getWhereUniqueEntries,
-  getWhereUniqueFilters,
+  partitionWhereUnique,
 } from "../query-engine/builders/where-unique-builder";
 import {
   createQueryScope,
@@ -144,6 +144,13 @@ export class UpsertOperation {
    * {@link UpsertOperation.createArmRacePin}.
    */
   private readonly whereFilters: Record<string, unknown> | undefined;
+  /**
+   * Whether the `where`'s DISCRIMINATOR names exactly one unique constraint —
+   * its own keys counted, so a compound (one key, several columns) counts once
+   * and two independent single-field uniques count twice. Only the ON CONFLICT
+   * fold reads it; see {@link UpsertOperation.buildOnConflictFold} conjunct 5.
+   */
+  private readonly whereNamesOneConstraint: boolean;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly createData: Record<string, unknown>;
   private readonly updateData: Record<string, unknown>;
@@ -252,7 +259,12 @@ export class UpsertOperation {
       "upsert",
       "where"
     );
-    this.whereFilters = getWhereUniqueFilters(parent, this.parentWhere);
+    // ONE split answers both questions the fold asks of the selector: whether it
+    // carries a filter half, and how many constraints its discriminator names.
+    const whereParts = partitionWhereUnique(parent, this.parentWhere);
+    this.whereFilters = whereParts.filters;
+    this.whereNamesOneConstraint =
+      Object.keys(whereParts.discriminator).length === 1;
     // The scalar arms parse their own scalar data here; the delegated arms leave
     // it empty (the sub-op validates and builds the FULL payload itself).
     this.createData = createHasRelations
@@ -484,12 +496,21 @@ export class UpsertOperation {
    *    the filter EXCLUDED. This is the same rule {@link childRacePin} already
    *    applies when it withholds the create arm's race pin for an extended
    *    selector — an excluded row's violation is a genuine conflict, not a race.
-   * 5. **the create data spells the conflict target, with the `where`'s values** —
+   * 5. **the `where` names exactly ONE constraint** — see
+   *    {@link UpsertOperation.whereNamesOneConstraint}. `ON CONFLICT` takes ONE
+   *    arbiter index, and the target is spelled from every column the
+   *    discriminator constrains. Two INDEPENDENT single-field uniques in one
+   *    selector (`{ id, email }`) are both DISCRIMINATORS, so conjunct 4 sees no
+   *    filter half and conjunct 6 is satisfied the moment the create data spells
+   *    both — the natural spelling. The emitted `ON CONFLICT ("id", "email")` is
+   *    a column pair with no unique index behind it: PostgreSQL `42P10`,
+   *    measured, on BOTH arms, for a selector `findUnique` and `update` answer.
+   * 6. **the create data spells the conflict target, with the `where`'s values** —
    *    see {@link UpsertOperation.createDataSpellsConflictTarget}. Prisma does not
    *    require `create` to satisfy `where`, and `ON CONFLICT` arbitrates on the
    *    VALUES row, not on the caller's `where` (measured). Without this the fold
    *    would ask a different question from the one the caller asked.
-   * 6. **a `set`-only update payload** — see {@link isPlainSetUpdate}. Atomic
+   * 7. **a `set`-only update payload** — see {@link isPlainSetUpdate}. Atomic
    *    arithmetic and `push`/`unshift` reference the column on BOTH sides of the
    *    assignment, and inside `DO UPDATE SET` PostgreSQL rejects every spelling
    *    `buildSet` can produce: bare on both sides is `42702` "column reference is
@@ -511,6 +532,7 @@ export class UpsertOperation {
       this.engine.adapter.capabilities.supportsTargetedUpsert &&
       this.conditionals.length === 0 &&
       this.whereFilters === undefined &&
+      this.whereNamesOneConstraint &&
       this.createDataSpellsConflictTarget(parent) &&
       isPlainSetUpdate(this.updateData);
     if (!permitted) return undefined;
