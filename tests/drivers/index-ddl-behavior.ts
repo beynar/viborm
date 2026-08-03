@@ -196,9 +196,25 @@ const churnChangedPost = s
   .index(["title"], { name: CHURN_INDEX, where: "published = false" })
   .map("idx_7p4_posts");
 
+// The fourth declaration exists to break the round trip rather than to be
+// pushed: `published = true AND` is a predicate PostgreSQL will not parse, so
+// the scratch view for it fails, the canonicalizing transaction aborts, and
+// `buildIndexPredicateCanonicalizer` reaches its catch. That is the only way
+// into the catch from outside — every other predicate the schema can hold is
+// one the database can parse.
+const churnUnparseablePost = s
+  .model({
+    id: s.string().id(),
+    title: s.string(),
+    published: s.boolean(),
+  })
+  .index(["title"], { name: CHURN_INDEX, where: "published = true AND" })
+  .map("idx_7p4_posts");
+
 const churnDeclaredSchema = { churnPost: churnDeclaredPost };
 const churnRespelledSchema = { churnPost: churnRespelledPost };
 const churnChangedSchema = { churnPost: churnChangedPost };
+const churnUnparseableSchema = { churnPost: churnUnparseablePost };
 
 /** The refusal names the index and quotes the predicate it cannot express. */
 const REFUSAL_MESSAGE =
@@ -210,7 +226,8 @@ type AnySchema =
   | typeof refusedIndexSchema
   | typeof coverIndexSchema
   | typeof coverUniqueSchema
-  | typeof churnDeclaredSchema;
+  | typeof churnDeclaredSchema
+  | typeof churnUnparseableSchema;
 
 type IndexDdlClient = VibORMClient<
   VibORMConfig & { schema: AnySchema; driver: AnyDriver }
@@ -544,6 +561,33 @@ export function runPartialIndexPredicateChurnBehavior({
         "createIndex",
       ]);
       expect(await storedPredicate(changed)).toBe("(published = false)");
+    });
+
+    // The failure half of Decision 7.4, and the only test that runs
+    // `buildIndexPredicateCanonicalizer`'s catch. The three above all take the
+    // success path: the round trip answers, and the differ reads the answers.
+    // Here the round trip THROWS, and the catch decides what the differ is
+    // told. Answering a spelling — any spelling, including one constant for
+    // every predicate — would make the two texts read alike and silently
+    // cancel a real index change. Answering nothing leaves the raw texts, and
+    // the drop/create stands. Both halves of the catch's promise are here: the
+    // push does not fail, and nothing was claimed equal.
+    test("a canonicalization that fails answers nothing, and the change stands", async () => {
+      await push(make(churnDeclaredSchema) as never, { force: true });
+
+      const unparseable = make(churnUnparseableSchema);
+      const second = await push(unparseable as never, {
+        dryRun: true,
+        force: true,
+      });
+
+      expect(indexOps(second.operations).map((op) => op.type)).toEqual([
+        "dropIndex",
+        "createIndex",
+      ]);
+      // dryRun: the CREATE INDEX this plans is the one PostgreSQL refuses, so
+      // it is never executed and the index the first push built is untouched.
+      expect(await storedPredicate(unparseable)).toBe("(published = true)");
     });
   });
 }

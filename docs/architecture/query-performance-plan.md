@@ -1204,6 +1204,7 @@ The last row is the one that settles it: the deparse resolves the literal's *typ
 - *re-pushing the same declaration is not an index change* — and it states the gap rather than assuming it, asserting that the catalog gives back `(published = true)` for a declared `published = true`.
 - *the same predicate in another spelling is not an index change* — `(published = TRUE)` against a database holding `published = true`. This is the half no normalization could reach.
 - *a real predicate change is still an index change* — `published = false` plans dropIndex+createIndex and the catalog ends at `(published = false)`.
+- *a canonicalization that fails answers nothing, and the change stands* — the failure half. The three above all take the success path, so what the `catch` in `buildIndexPredicateCanonicalizer` returns was never read by a test. This one declares `published = true AND`, which PostgreSQL will not parse: the scratch view fails, the transaction aborts, and the catch decides what the differ is told. Pushed with `dryRun` (the CREATE INDEX it plans is the one PostgreSQL refuses), it asserts both halves of that catch's promise — the push does not fail, and the drop+create still stands.
 
 Seven unit tests in [`tests/migrations/differ.test.ts`](../../tests/migrations/differ.test.ts) carry the hook's contract without a database: equal canonical spellings, unequal ones, an unanswered predicate, a half-answered pair, and the two cases the differ must settle *without* asking (texts that already read alike; one side with no predicate at all) — plus the case the canonical spelling must not swallow (an index whose columns changed).
 
@@ -1213,8 +1214,17 @@ Seven unit tests in [`tests/migrations/differ.test.ts`](../../tests/migrations/d
 | --- | --- |
 | the canonicalizer itself (`planPush` passes none) | the two *quiet* witnesses; the change-detection witness still passed |
 | the canonicalization made a constant | the *change-detection* witness only; the two quiet witnesses still passed |
+| the `catch` in `buildIndexPredicateCanonicalizer` returns a constant instead of `undefined` — i.e. the round trip's own failure is reported to the differ **as agreement** | the *failure* witness only, on both PGlite and the Docker `pg` leg: `expected [] to deeply equal [ 'dropIndex', 'createIndex' ]` |
 
-Each half fails alone, which is what says the two claims have separate coverage.
+Each half fails alone, which is what says the three claims have separate coverage.
+
+The third row is a correction, not a record of the original work. Review found that mutation
+passed the whole estate — 362/362 `tests/migrations`, 755/755 `tests/drivers/pglite.test.ts`,
+the Docker `pg` churn leg 3/3 — because the first two rows both exercise the *success* path
+and the differ's own fail-closed guard (`leftCanonical !== undefined &&`) is witnessed only
+by the unit tests that hand it an already-`undefined` spelling. Nothing ran the code that
+produces that `undefined` on the failure path. The fourth witness above is what closes it,
+and the row is the mutation it kills.
 
 ---
 
@@ -1920,6 +1930,34 @@ tip rather than taken on trust: the `120_000` timeout is still on
 asserts, and the *markdown blank line before a `---` rule* rejection still holds — scanning
 the whole plan document for a `---` rule preceded by a non-blank line finds none, including
 in everything this wave added. **Nothing was posted to GitHub.**
+
+### Review correction — the unwitnessed fail-closed catch (Decision 7.4)
+
+**Run:** 2026-08-04, main checkout, branch `nested-write-boundaries`, on top of `abeb1f1`.
+Review mutated the `catch` in `buildIndexPredicateCanonicalizer` to report its own failure
+to the differ **as agreement** (`predicates.map(() => "MUTANT_EQUAL")`) and the whole estate
+passed. The mutation is a silent fail-open: a canonicalization that throws would cancel a
+real index change. The correction is the fourth churn witness recorded in the 7.4 section
+above; the mutation now fails it on PGlite and on the Docker `pg` leg
+(`expected [] to deeply equal [ 'dropIndex', 'createIndex' ]`), and nothing else moves.
+
+| Leg | Result | Baseline (`abeb1f1`) |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9459 passed, 81 failed**, 2181 skipped (276 files) | 9458 / 81 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11) | clean on `tests/drivers/index-ddl-behavior.ts`, the one TypeScript file in the diff | — |
+| Docker MySQL 8.4, port 3307 | **1025 passed, 0 failed** | 1025, re-measured at `abeb1f1` with the file reverted |
+| Docker PostgreSQL, port 5434 (`pnpm test:pg`, 4 files) | **1144 passed, 0 failed**, 14 skipped | 1143 |
+
+The 81 are the same `tests/cli` four files as the wave gate above — the maintainer's
+uncommitted `pnpm-lock.yaml`, unchanged in count and membership. Everything outside
+`tests/cli` is at zero. The `+1` on the estate and the `+1` on the PostgreSQL leg are the
+one new test; MySQL does not wire the churn suite and moves by zero, measured both ways at
+the same tip rather than assumed.
+
+**No source file changed.** The correction is a witness, not a behavior change: the catch it
+covers already answered `undefined`, and now something fails when it stops.
 
 ### Open and recorded, not fixed here
 
