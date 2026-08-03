@@ -1787,7 +1787,7 @@ So the wrap really does cost the index, and it costs it on the tables viborm cre
 | `name = 'NAME12345' AND BINARY name = 'NAME12345'` | 0 |
 | `name = 'name12345' AND BINARY name = 'name12345'` | 1 |
 
-**Disposition: ship the conjunction, do not remove the wrap.** Removal would need "viborm requires a binary collation on MySQL" as a documented precondition, and the adapter's own header promises the opposite — that portable string filters override the database collation explicitly. 7.3 made exactly this call for `startsWithPrefix` three months of decisions ago; this is the same shape for the same reason, and the same measurement supports it.
+**Disposition: ship the conjunction, do not remove the wrap.** Removal would need "viborm requires a binary collation on MySQL" as a documented precondition, and the adapter's own header promises the opposite — that portable string filters override the database collation explicitly. Decision 7.3 made exactly this call for `startsWithPrefix` one wave earlier, on the same measurement shape and against the same collation; this is that decision applied to the two predicates it did not cover.
 
 **Scoped to `equals` and `in`, deliberately, and the exclusions are measured too.**
 
@@ -1800,7 +1800,7 @@ And for the negated forms the accelerator would be **wrong**: on the `ai_ci` tab
 
 **What shipped.** Two adapter operators, `exactTextEq` and `exactTextIn` ([`database-adapter.ts`](../../src/adapters/database-adapter.ts)), which receive the UNWRAPPED column and apply each dialect's own case-sensitive treatment. PostgreSQL and SQLite spell exactly what they spelled before — `caseSensitiveText` is the identity on one and a COLLATION rather than a function on the other, so both were already index-usable and both emissions are byte-identical. MySQL adds the conjunct. The where-builder routes `equals` through `exactEquals` (bound operand + text scalar) and `in` through `exactTextIn`; every other path is untouched.
 
-**One pinned SQL change, deliberate.** `tests/query-engine/field-reference-sql.test.ts`, *a literal operand leaves the column uncast and bound*: MySQL now reads `(t0.status = $1 AND BINARY t0.status = $2)` and binds the operand twice. The pin moved from a shared `exactText(column) = $1` to a per-dialect `exactLiteralEquals`, which is what makes the divergence visible rather than averaged away. PostgreSQL's and SQLite's rows are byte-identical to before. **The doubled parameter is the cost of the conjunction and is recorded as such**: an `IN` list of N values binds 2N placeholders on MySQL.
+**One pinned SQL change, deliberate.** `tests/query-engine/field-reference-sql.test.ts`, *a literal operand leaves the column uncast and bound*: MySQL now reads `(t0.status = $1 AND BINARY t0.status = $2)` and binds the operand twice. The pin moved from a shared `exactText(column) = $1` to a per-dialect `exactLiteralEquals`, which is what makes the divergence visible rather than averaged away. PostgreSQL's and SQLite's rows are byte-identical to before. **The doubled parameter is the cost of the conjunction and is recorded as such**: an `IN` list of N values binds 2N placeholders on MySQL, so a list large enough to approach MySQL's 65,535-placeholder ceiling now reaches it at half the length it used to. Nothing in the codebase caps an `IN` list today — measured by looking, not assumed — so this changes no guard; it moves a limit that was already the server's, and it is written down here rather than discovered later.
 
 **Witnesses**, on the Docker MySQL leg, in [`tests/drivers/mysql2.test.ts`](../../tests/drivers/mysql2.test.ts):
 
@@ -1850,6 +1850,85 @@ Neither is one line, and both are recorded here and in the [capability matrix](c
 | **schema `IndexType`** | **`"btree" \| "hash" \| "gin" \| "gist"` — cannot spell either** |
 
 So the direction was not a judgement call: deleting the driver validation would delete a working emitter, a working introspection and a declared capability to preserve a union that is simply short. `IndexType` gains `"fulltext" | "spatial"`, and `validateIndexType` stays exactly as it is — it is what refuses `fulltext` on PostgreSQL and SQLite, by name, listing what that dialect supports. The capability matrix's own row said as much: *`@@fulltext` — ❌ at schema level, though the migration layer supports it*. That row is now updated.
+
+
+---
+
+## Wave gate — Phase 10 (and Decision 7.4)
+
+**Run:** 2026-08-03, main checkout, branch `nested-write-boundaries`, tip `d65cba2` — six
+commits from `a607c0a` (the predicate canonicalization) through `d65cba2` (the index-type
+witnesses). Baseline for every number below is `72a12be`, the Phase 8/9 wave tip.
+
+### The legs
+
+| Leg | Result | Baseline |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9458 passed, 81 failed**, 2180 skipped (276 files) | 9446 / 81 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11) per changed file | **no new diagnostics** on all 18 TypeScript files in the diff | — |
+| Docker MySQL 8.4, port 3307 | **1022 passed, 0 failed** | 1016 |
+| Docker PostgreSQL, port 5434 | **1143 passed, 0 failed**, 14 skipped | 1140 |
+
+**The 81 failures are `tests/cli`, and they are not this wave's.** They reproduce at the
+baseline tip, they are caused by the maintainer's uncommitted `pnpm-lock.yaml` (the vite 8
+move) breaking the CLI's TypeScript config loader, and the count did not move. Run alone,
+`npx vitest run tests/cli` accounts for **exactly 81 of 81** across 4 files — so everything
+outside `tests/cli` is at **zero failures**, which is the number this wave is measured on.
+
+**The +12 on the estate are this wave's own tests**, and they add up exactly: 3 live
+PGlite partial-index churn witnesses, 7 differ canonicalization units, 1 serializer
+`fulltext` declaration, 1 SQLite `fulltext` refusal. The Docker deltas are the same
+witnesses on their own legs — +6 MySQL (four contract, two plan; the third plan test
+replaced an earlier hard-coded one), +3 PostgreSQL (the churn suite on `pg`, where the
+POOL makes the canonicalization's connection pinning a real claim).
+
+### Standing rules held
+
+`src/query-engine-v2/OperationFragment.ts` is **not in the diff at all** — the frozen step
+vocabulary did not grow, and this wave does not reach the nested-write engine.
+
+**No error message, error attribution or race protection was removed.** The `src` diff
+deletes fourteen lines in total and every one is accounted for: nine are the signature and
+call-site changes of `diff`/`diffTable`/`indexesEqual` going async and taking the table
+name; four are the `equals`/`in` emission moving to `exactTextEq`/`exactTextIn`; one is the
+`IndexType` union line that grew. No `throw`, no message literal, no `racePin`, no
+`presenceGuard` appears on a removed line — verified by grepping the whole `src` diff for
+removals matching those terms and finding none.
+
+**One pinned SQL change, named in its own disposition** — the MySQL row of
+*a literal operand leaves the column uncast and bound* in
+`tests/query-engine/field-reference-sql.test.ts`, which now reads
+`(t0.status = $1 AND BINARY t0.status = $2)`. PostgreSQL's and SQLite's rows are
+byte-identical, and `tests/query-engine/sql-generation.test.ts` is not in the diff.
+
+**Biome.** The one diagnostic on any changed file is the pre-existing unused `dir` in
+`src/migrations/generate/index.ts`, present at `72a12be` and unrelated to this wave; the
+two migration test files carry the same five `useTopLevelRegex` infos before and after.
+Every other changed file reports zero.
+
+### PR-20 review comments — the final sweep
+
+`gh api repos/beynar/viborm/pulls/20/comments --paginate` returns **26** review comments.
+All 26 were already dispositioned: 23 by id in
+[`pr20-comment-triage.md`](pr20-comment-triage.md), and 3 by description in the P6
+completion record above (`3700929980`, `3700929984`, `3700929987` — the ids the triage
+record does not carry). **Zero new comments.** The three were re-checked against this
+tip rather than taken on trust: the `120_000` timeout is still on
+`ordering-plan-behavior.ts`, `delete-fold`'s `rejection` helper still narrows rather than
+asserts, and the *markdown blank line before a `---` rule* rejection still holds — scanning
+the whole plan document for a `---` rule preceded by a non-blank line finds none, including
+in everything this wave added. **Nothing was posted to GitHub.**
+
+### Open and recorded, not fixed here
+
+10.5's two schema-API gaps — expression indexes and ANN vector indexes — are RECORDED with
+the reason each is not a one-line change, in the section above and in the capability matrix.
+7.3's `text_pattern_ops` companion index remains the Phase-1 emitter decision it was; note
+that Decision 7.4 has now built the canonicalization seam that decision was said to need, so
+the objection to it is narrower than when it was written. The `0A000` on
+`delete({ select: { relation } })` on PostgreSQL, filed in the Phase 3 record, is untouched.
 
 ---
 
