@@ -537,6 +537,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
     supportsVector: false,
     supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
+    supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,
     // UPDATE/DELETE ... LIMIT needs SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which is
     // off in the builds this project targets (better-sqlite3, libSQL, D1).

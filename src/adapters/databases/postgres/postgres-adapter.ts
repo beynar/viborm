@@ -406,6 +406,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsLateralJoins: true,
     supportsVector: false,
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
+    supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,
     supportsMutationRowLimit: false, // PostgreSQL has no UPDATE/DELETE ... LIMIT
     supportsExactDecimal: true, // `numeric`: exact, unconstrained precision

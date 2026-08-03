@@ -12,6 +12,25 @@ export interface DatabaseAdapterCapabilities {
   supportsVector: boolean;
   /** Whether database supports target/set WHERE clauses in upsert. */
   supportsUpsertWhere: boolean;
+  /**
+   * Whether the dialect's upsert grammar ARBITRATES ON THE NAMED TARGET.
+   *
+   * PostgreSQL and SQLite spell `INSERT … ON CONFLICT (cols) DO UPDATE`: only a
+   * collision on `cols` takes the update branch, and a collision on any OTHER
+   * unique index is raised as the constraint error it is. MySQL spells
+   * `ON DUPLICATE KEY UPDATE`, which carries no target at all and fires on ANY
+   * unique collision (`mysql-adapter.ts` `onConflict` ignores its `_target`
+   * parameter and says so) — so an unrelated collision would silently ADOPT and
+   * update a row the caller never named.
+   *
+   * That difference is a wrong answer, not a missing optimization, which is why
+   * it is a capability and not an inference. It reads `false` on exactly the same
+   * adapters as {@link DatabaseAdapterCapabilities.supportsReturning} today, and
+   * that is a COINCIDENCE of the three adapters shipped, not an implication:
+   * MariaDB has `RETURNING` on `INSERT` and still arbitrates on any key. Do not
+   * collapse the two.
+   */
+  supportsTargetedUpsert: boolean;
   /** Whether a mutation may reference its target table in a subquery. */
   supportsMutationTargetInSubquery: boolean;
   /**

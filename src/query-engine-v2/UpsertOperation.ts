@@ -25,6 +25,7 @@ import {
   buildFind,
   buildFindUnique,
   buildUpdate,
+  buildUpsert,
 } from "../query-engine/operations";
 import { getUpdatedPrimaryKeyWhere } from "../query-engine/operations/mutation-identity";
 import type { QueryEngine } from "../query-engine/query-engine";
@@ -103,9 +104,10 @@ interface Conditional {
 }
 
 /**
- * The root (top-level) `upsert` (PLAN P2b/T3c), **probe-first per ATOM §2/§4** — the
- * `ON CONFLICT` narrow door is deliberately NOT taken (see the P2b report's
- * disposition): a locate read decides create-vs-update at planning, and every
+ * The root (top-level) `upsert` (PLAN P2b/T3c), **probe-first per ATOM §2/§4** —
+ * except through the one narrow door ATOM §4 draws for it, which PLAN Decision 7.1
+ * takes: see {@link UpsertOperation.buildOnConflictFold}. Outside that door a
+ * locate read decides create-vs-update at planning, and every
  * premise is pinned to the vocabulary the update/delete family already uses. It
  * locates the row by any unique `where`; absent → the create arm (constraint +
  * `racePin`, never a guard); present → the update arm, unless a `targetWhere` /
@@ -168,6 +170,12 @@ export class UpsertOperation {
   // T3c — the update arm carries nested relation writes: delegate to an
   // UpdateOperation sub-op (mechanism 1). `undefined` for a scalar update arm.
   private readonly updateArmOp?: UpdateOperation;
+  // PHASE 7 / Decision 7.1 — the ON CONFLICT door. When the whole upsert reduces
+  // to ONE `INSERT … ON CONFLICT (target) DO UPDATE … RETURNING`, this holds that
+  // statement and the operation has EMPTY planning: no locate, no arms, no
+  // terminal read. `undefined` keeps the probe-first sequence byte-identical.
+  // See {@link UpsertOperation.buildOnConflictFold} for every conjunct.
+  private readonly onConflictFold: StatementStep | undefined;
   // The FULL update record (scalar ∪ relations), retained so the found branch can
   // run V1's own-write barrier at compile (deferred per-arm — the whenTrue branch).
   private readonly rawUpdate: Record<string, unknown>;
@@ -379,9 +387,18 @@ export class UpsertOperation {
           }
         )
       : undefined;
+
+    // Decided LAST: the fold reads the parsed arms, the projection, the
+    // conditionals and the extended-where half, all of which are settled above.
+    this.onConflictFold = this.buildOnConflictFold(parent, createHasRelations);
   }
 
   planning(): OperationFragment {
+    // The folded upsert asks the database nothing before it writes: `ON CONFLICT`
+    // IS the create-vs-update decision. Empty planning is also what routes the
+    // operation through `OperationExecutor.statementAtomicPlan` — one round trip,
+    // no transaction envelope.
+    if (this.onConflictFold) return { steps: [], outputs: {} };
     const steps: OperationStep[] = [this.locate];
     for (const conditional of this.conditionals) steps.push(conditional.probe);
     // The delegated arms plan their whole superset one level in (ATOM §3 technique
@@ -393,6 +410,12 @@ export class UpsertOperation {
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
+    if (this.onConflictFold) {
+      return {
+        steps: [this.onConflictFold],
+        outputs: { result: ref(this.onConflictFold.id, "result") },
+      };
+    }
     const locateRows = known[planningKey(this.locate.id, "rows")];
     if (!Array.isArray(locateRows)) {
       throw new QueryEngineError(
@@ -424,6 +447,123 @@ export class UpsertOperation {
   }
 
   // -------------------------------------------------------------------------
+
+  /**
+   * PHASE 7 / Decision 7.1 — the ON CONFLICT door, taken.
+   *
+   * `INSERT … ON CONFLICT (target) DO UPDATE SET … RETURNING <select>` is ONE
+   * statement that means exactly what a top-level scalar upsert means: "write
+   * this row; if the constraint the caller named already holds it, update it
+   * instead." ATOM §4 permits it for precisely this shape and no other, and calls
+   * it a NARROW DOOR drawn by semantics rather than syntax. Every conjunct below
+   * is the door's frame; a shape that misses any of them keeps the probe-first
+   * sequence byte-identically.
+   *
+   * The conjuncts, each with the coverage no other one has:
+   *
+   * 1. **{@link UpsertOperation.canFoldUpdateArm}** — already the update arm's own
+   *    fold gate, and it carries three of this fold's preconditions with it: a
+   *    RETURNING driver (the one statement has to hand the row back, since there
+   *    is no terminal read left to run), a SCALAR update arm, and a scalar-only
+   *    projection with no `include` (a relation projection needs lateral joins an
+   *    `INSERT … RETURNING` cannot carry, and `_count` read off a RETURNING
+   *    subquery binds by name — the P3 `_count` defect). Reusing it is deliberate:
+   *    it keeps `supportsReturning` read in ONE place in this class.
+   * 2. **a scalar create arm** — a relation-bearing create delegates to a whole
+   *    {@link CreateOperation} tree; there is no single statement to fold to.
+   * 3. **{@link DatabaseAdapterCapabilities.supportsTargetedUpsert}** — MySQL's
+   *    `ON DUPLICATE KEY UPDATE` fires on ANY unique collision, so an unrelated
+   *    collision would silently adopt a row the caller never named. Measured, and
+   *    falsified by a witness that swaps in that emitter.
+   * 4. **no `targetWhere` / `setWhere` conditional** — their contract is V1's
+   *    SILENT NO-OP: no write, and the terminal read still answers with the
+   *    unchanged row. `DO UPDATE … WHERE <no match>` returns ZERO rows (measured
+   *    on PG 17), so the folded statement would answer nothing where the contract
+   *    says it answers the row.
+   * 5. **a plain unique `where`** — an extended selector's FILTER half decides
+   *    WHICH row the operation means, and `ON CONFLICT` has nowhere to put it: the
+   *    conflict would arbitrate on the unique half alone and adopt the very row
+   *    the filter EXCLUDED. This is the same rule {@link childRacePin} already
+   *    applies when it withholds the create arm's race pin for an extended
+   *    selector — an excluded row's violation is a genuine conflict, not a race.
+   * 6. **the create data spells the conflict target, with the `where`'s values** —
+   *    see {@link UpsertOperation.createDataSpellsConflictTarget}. Prisma does not
+   *    require `create` to satisfy `where`, and `ON CONFLICT` arbitrates on the
+   *    VALUES row, not on the caller's `where` (measured). Without this the fold
+   *    would ask a different question from the one the caller asked.
+   * 7. **a `set`-only update payload** — see {@link isPlainSetUpdate}. Atomic
+   *    arithmetic and `push`/`unshift` reference the column on BOTH sides of the
+   *    assignment, and inside `DO UPDATE SET` PostgreSQL rejects every spelling
+   *    `buildSet` can produce: bare on both sides is `42702` "column reference is
+   *    ambiguous", and qualifying the target is `42703`. Only "bare target,
+   *    qualified source" parses, and no existing emitter spells that.
+   *
+   * **The divergence this fold ACCEPTS**, stated against the oracle and pinned by
+   * tests rather than by this comment: on the UPDATE path the statement still
+   * evaluates the INSERT's column defaults before it detects the conflict, so a
+   * database-generated identity the create data omits BURNS one sequence value
+   * that probe-first never consumed (measured: PostgreSQL `last_value` 100 → 101,
+   * SQLite `sqlite_sequence` 2 → 3). Sequence values are explicitly not
+   * gap-free on either dialect, and ATOM §4 names this burn as the divergence a
+   * written disposition covers. See the plan doc's Decision 7.1 record.
+   */
+  private buildOnConflictFold(
+    parent: QueryScope,
+    createHasRelations: boolean
+  ): StatementStep | undefined {
+    const permitted =
+      this.canFoldUpdateArm &&
+      !createHasRelations &&
+      this.engine.adapter.capabilities.supportsTargetedUpsert &&
+      this.conditionals.length === 0 &&
+      this.whereFilters === undefined &&
+      this.createDataSpellsConflictTarget(parent) &&
+      isPlainSetUpdate(this.updateData);
+    if (!permitted) return undefined;
+    return {
+      id: this.scope.allocate(
+        `${getStepModelName(this.model, "parent")}.upsert`
+      ),
+      kind: "write",
+      statement: buildUpsert(parent, {
+        where: this.parentWhere,
+        create: this.createData,
+        update: this.updateData,
+        select: this.parsedSelect,
+      }),
+      outputs: { result: { kind: "rows" } },
+    };
+  }
+
+  /**
+   * Conjunct 6: every column of the conflict target appears in the CREATE DATA
+   * holding the same value the `where` names.
+   *
+   * `ON CONFLICT (cols)` arbitrates on the row the `VALUES` clause proposes, not
+   * on the caller's `where` — measured directly: `where: { id: 10 }` with
+   * `create: { id: 20, … }` conflicts on 20, so it inserts a second row while
+   * probe-first would have updated row 10. Prisma does not require `create` to
+   * satisfy `where`, so the two genuinely can differ and the fold has to check
+   * rather than assume.
+   *
+   * Only PRIMITIVE key values are foldable. This is a PRECONDITION of the
+   * comparison, not a guard against observed input: the check is `Object.is` on
+   * two independently parsed values, and identity is not equality for a `Date`, a
+   * `Decimal` or a byte array. The same reasoning `groupLinkTargets` clause 3
+   * already states for the link fold.
+   */
+  private createDataSpellsConflictTarget(parent: QueryScope): boolean {
+    const entries = getWhereUniqueEntries(parent, this.parentWhere);
+    if (entries.length === 0) return false;
+    return entries.every(({ fieldName, value }) => {
+      const created = this.createData[fieldName];
+      return (
+        isFoldableKeyValue(value) &&
+        isFoldableKeyValue(created) &&
+        Object.is(created, value)
+      );
+    });
+  }
 
   /** Absent → CREATE (constraint + `racePin`, never a guard) then terminal read. */
   private compileCreateArm(
@@ -933,6 +1073,48 @@ export class UpsertOperation {
   private locateMissMessage(): string {
     return `query-engine-v2 upsert located no '${getStepModelName(this.model, "record")}' row for its unique where before the atomic batch.`;
   }
+}
+
+/**
+ * A conflict-target value the fold can compare by identity — see
+ * {@link UpsertOperation.createDataSpellsConflictTarget}.
+ */
+function isFoldableKeyValue(value: unknown): boolean {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    typeof value === "boolean"
+  );
+}
+
+/**
+ * Conjunct 7 of the ON CONFLICT fold: every assignment in the update payload is a
+ * plain `set` (or a bare `null`), so the SET clause never reads the column it
+ * writes.
+ *
+ * `buildSet` spells atomic arithmetic and `push`/`unshift` as `col = <col> op x`,
+ * using ONE column expression on both sides. Inside `ON CONFLICT … DO UPDATE`
+ * PostgreSQL accepts neither spelling that expression can take: unqualified is
+ * `42702` (ambiguous — the proposed row and the existing row both offer the name),
+ * and qualifying it makes the assignment target `42703`. Only "bare target,
+ * qualified source" parses there, and no emitter in this codebase writes that. So
+ * the fold states what it can spell instead of guessing; the payload keeps the
+ * probe-first path, which is correct on every dialect.
+ *
+ * An EMPTY payload is also excluded: `buildSet` throws `No fields to update` on
+ * one, and the probe path reaches that throw through its own arm.
+ */
+function isPlainSetUpdate(data: Record<string, unknown>): boolean {
+  const assignments = Object.values(data).filter(
+    (value) => value !== undefined
+  );
+  if (assignments.length === 0) return false;
+  return assignments.every(
+    (value) =>
+      value === null ||
+      (isRecord(value) && "set" in value && value.set !== undefined)
+  );
 }
 
 /** The step id a delegated arm's `result` output points at (its terminal read, or

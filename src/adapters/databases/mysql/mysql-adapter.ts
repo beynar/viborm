@@ -520,6 +520,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsLateralJoins: true, // MySQL 8.0.14+
     supportsVector: false,
     supportsUpsertWhere: false, // ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
+    // ON DUPLICATE KEY UPDATE carries no conflict target and fires on ANY unique
+    // collision — see the `onConflict` note above. A targeted upsert cannot be
+    // spelled here, so the ON CONFLICT fold never opens on MySQL.
+    supportsTargetedUpsert: false,
     // ERROR 1093: UPDATE/DELETE can't select from the mutated table in a
     // subquery. The engine wraps relation-filter subqueries in a derived
     // table when this is false (requires MySQL 8.0.14+ for outer references
