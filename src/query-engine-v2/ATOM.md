@@ -2331,6 +2331,21 @@ database-generated parent key) keeps its `Ref` and its statements. Falsified by 
 it: the fragment validator then rejects the folded step for referencing itself, which is
 invariant 2 catching what invariant 3 was supposed to prevent.
 
+**8.2's FOURTH conjunct, added by review: what an arm reads is not all a merge decides.**
+The three above are about the DATA crossing between statements. Merging also drops the
+ORDER the executor ran them in — and PostgreSQL does not specify the order of a
+data-modifying `WITH` arm whose output nothing reads (PG 16 runs them last-to-first). Note
+that this is invisible to §9: the fragment is valid, the operation is statement-atomic, and
+the answer is right, because the tree fold demands a scalar-only root projection. The
+divergence is in persisted state — sibling `create` arms over a `serial` child key were
+handed their sequence values backwards. The conjunct is that at most ONE arm may take a
+value the database assigns, and the reason it can be stated so narrowly is a fact outside
+this document: `assertApplicationGeneratedValues` materializes every `autoGenerate` but
+`increment` application-side, so an absent auto-increment column is the whole of what this
+engine leaves to the database. Arms are classified by walking the record tree; an arm a
+`Part` produced is not classified, and an unclassified arm declines — which is why an M2M
+`create` under a fresh root no longer folds.
+
 **What both folds do NOT relax.** The Pin Rule has nothing to bind in either: 8.1's
 statement runs no planning read, and 8.2's tree has none by construction, so there is no
 premise a concurrent writer could invalidate between a read and a write. That is the same

@@ -1438,6 +1438,51 @@ envelope. A child-held `connect` under a fresh root has no correlated probe
 (elision) but does have to verify its target exists, so it has already spent the
 round trip and declines.
 
+**Correction from review — the fold was silently reordering the sibling arms.**
+The conjuncts above are all about what an arm READS. None of them was about the
+order the arms RUN in, and PostgreSQL does not specify that order for a
+data-modifying `WITH` arm whose output nothing reads: on PG 16.14 / PGlite it
+runs them LAST-TO-FIRST. Measured, `box.create({ data: { id: 1, items: { create:
+[t0, t1, t2, t3] } } })` over a `serial` child key, three consecutive runs each
+arm:
+
+| arm | ids 1..4 |
+| --- | --- |
+| unfolded (`supportsCteWithMutations` false) | `t0, t1, t2, t3` |
+| folded, as shipped | **`t3, t2, t1, t0`** |
+
+The emitter was not at fault — the arms are emitted in declaration order — and
+neither was the answer: the tree fold requires a scalar-only root projection, so
+the operation's own result cannot show it. The divergence was entirely in
+PERSISTED state, which is why no existing witness caught it. The existing
+no-cross-statement-value conjunct does not cover this: a database-generated
+CHILD key PRODUCES a value and consumes none, so only a generated PARENT key was
+declining.
+
+The correction is a fifth conjunct, `armsAreOrderInsensitive`, and it rests on a
+fact the codebase already enforces: `assertApplicationGeneratedValues`
+(`values-builder.ts`) materializes every `autoGenerate` other than `increment`
+application-side before a statement is built, so **an absent auto-increment
+column is the only value this engine ever leaves for the database to decide**.
+The conjunct is therefore "at most ONE arm takes a database-assigned value" —
+rows inside one statement take theirs in that statement's own `VALUES` order,
+which is defined; it is only across arms that the order is the planner's to
+choose. `create: [{…}, {…}]` on a serial-keyed child now declines and keeps the
+multi-statement path; the same children through `createMany` are one arm and
+still fold, which is witnessed as the anti-vacuity case (forcing the threshold to
+zero fails it).
+
+Classification is fail-closed and that has a MEASURED cost worth stating: the
+arms are classified by walking the record tree the operation planned, so a write
+that came from a `Part` rather than from a record or a `createMany` group is
+unclassified, and an unclassified arm declines. One shape reaches that branch —
+an M2M `create` under a fresh root with literal target keys, whose junction Part
+plans nothing — and it goes from **1 statement back to 6**, its pre-Phase-8
+count. That fold was never claimed, measured or witnessed by this phase; it
+folded because the gate happened to admit it. Reopening it means giving a `Part`
+a way to declare what its writes take from the database, which is a change to the
+two-method `Part` interface for one caller — a real door, left open, not closed.
+
 **10.1 landed here.** `supportsCteWithMutations` read `true` for SQLite and is
 false in fact. Measured on SQLite 3.51.2: each of `WITH x AS (UPDATE …/INSERT
 …/DELETE … RETURNING …) SELECT * FROM x` is `near "…": syntax error`. The flag is
@@ -1466,6 +1511,15 @@ either 8.1 legality guard produces a WRONG ANSWER, not merely a wrong route;
 closing the 8.2 gate fails both count witnesses; and dropping 8.2's
 no-cross-statement-value conjunct makes the fragment validator reject the step
 for referencing itself.
+
+**Falsified (the two review corrections).** Guard 2: asking
+`getTargetIdentityFields` again fails the unique-index witness on the ANSWER (the
+cascaded children come back as `[]`); counting non-unique indexes as FK targets
+fails its anti-vacuity partner, which is the coverage the `unique` filter has and
+nothing else does. 8.2's ordering conjunct: dropping it fails the
+declaration-order witness on the ANSWER (`t2, t1, t0` for `t0, t1, t2`); forcing
+its threshold from "at most one" to "none" fails the `createMany` anti-vacuity
+witness.
 
 ---
 

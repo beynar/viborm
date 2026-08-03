@@ -177,6 +177,14 @@ interface ChildCreate {
  */
 interface CreateManyGroup {
   readonly steps: readonly StatementStep[];
+  /**
+   * Per step, whether its INSERT leaves a value for the DATABASE to assign —
+   * Phase 8.2's ordering conjunct reads it (see {@link CreateOperation.buildTreeFold}).
+   * Grouped INSERTs split by row SHAPE, so one group's statements can differ:
+   * the rows that spell the auto-increment column and the rows that omit it are
+   * never in the same statement.
+   */
+  readonly databaseAssigned: readonly boolean[];
 }
 
 /**
@@ -552,6 +560,11 @@ export class CreateOperation {
    *  · **No step carries an effect the merge would drop.** A `skip` effect needs
    *    a savepoint scope one statement has not got, and a per-step `expects` is a
    *    JS check on a result that stops existing once the steps are one.
+   *  · **The arms do not care what order they run in** ({@link armsAreOrderInsensitive}).
+   *    The multi-statement path runs them in declaration order; PostgreSQL runs
+   *    unread data-modifying `WITH` arms in an order it does not specify, and on
+   *    PG 16 it runs them LAST-TO-FIRST. Nothing the emitter can spell pins that,
+   *    so the fold must only merge arms whose outcome the order cannot change.
    *  · **A scalar-only root projection.** The sibling arms' effects are invisible
    *    to the outer SELECT for exactly the snapshot reason above, so an `include`
    *    of a relation this tree just populated would answer the empty pre-statement
@@ -564,6 +577,9 @@ export class CreateOperation {
     rootInsertData: Record<string, unknown>
   ): StatementStep | undefined {
     const [rootWrite, ...siblings] = writes;
+    // The arms this tree can classify (see `armsAreOrderInsensitive`), by step id.
+    const assignments = new Map<string, boolean>();
+    collectArmAssignments(this.root, assignments);
     const foldable =
       this.mode === "transaction" &&
       this.engine.adapter.capabilities.supportsCteWithMutations &&
@@ -573,6 +589,7 @@ export class CreateOperation {
       guards.length === 0 &&
       siblings.length > 0 &&
       rootWrite?.id === this.root.writeStepId &&
+      armsAreOrderInsensitive(writes, assignments) &&
       writes.every(
         (step) =>
           step.kind === "write" &&
@@ -1441,6 +1458,11 @@ export class CreateOperation {
         outputs: {},
         ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
       })),
+      databaseAssigned: plan.statements.map((statement) =>
+        statement.inputIndexes.some((index) =>
+          insertTakesDatabaseAssignedValue(childScope.model, rows[index]!)
+        )
+      ),
     });
   }
 
@@ -1861,6 +1883,91 @@ function freshReferenced(
     return undefined;
   }
   return { kind: "literal", value: spelled };
+}
+
+/**
+ * PHASE 8.2, THE ORDERING CONJUNCT — may these arms be merged into one `WITH`?
+ *
+ * PostgreSQL runs a data-modifying `WITH` arm whose output nothing reads in an order
+ * it does not specify; on PG 16 / PGlite it runs them LAST-TO-FIRST, so the sequence
+ * hands its first value to the last-declared child. The multi-statement path runs
+ * them in declaration order. The fold is therefore a divergence in PERSISTED state —
+ * invisible in the operation's own answer, which is why nothing else here catches it —
+ * unless the arms carry nothing an ordering can decide.
+ *
+ * The only thing this engine ever leaves for the database to decide is a SEQUENCE:
+ * `assertApplicationGeneratedValues` (values-builder) makes every other `autoGenerate`
+ * a materialized application value before a statement is built, and an ordinary
+ * default is already a value in the row. So an absent auto-increment column is the
+ * whole of it, and two conjuncts answer the question, both fail-closed:
+ *
+ *  · **Every arm is one this tree classified.** `assignments` comes from walking the
+ *    record tree the operation planned ({@link collectArmAssignments}); a write no
+ *    record and no `createMany` group produced is not in it, and an unclassified arm
+ *    declines rather than being assumed harmless.
+ *  · **At most ONE classified arm takes a database-assigned value.** Rows WITHIN one
+ *    statement take theirs in that statement's own `VALUES` order, which is defined;
+ *    it is only ACROSS arms that the order is the planner's to choose. One arm calling
+ *    `nextval` is deterministic however the arms are ordered — two are not.
+ *
+ * It costs a statement, never an answer: `create: [{…}, {…}]` on a serial-keyed child
+ * declines here and keeps the multi-statement path, while the same children through
+ * `createMany` — one arm, one defined row order — still fold.
+ */
+function armsAreOrderInsensitive(
+  writes: readonly OperationStep[],
+  assignments: ReadonlyMap<string, boolean>
+): boolean {
+  let databaseAssigned = 0;
+  for (const step of writes) {
+    const takesAssignedValue = assignments.get(step.id);
+    if (takesAssignedValue === undefined) return false;
+    if (takesAssignedValue) databaseAssigned += 1;
+  }
+  return databaseAssigned <= 1;
+}
+
+/** Every write step {@link armsAreOrderInsensitive} can classify, and whether its
+ *  INSERT leaves a value for the database to assign. Walks the record tree exactly
+ *  as `emitRecord` emits it, so the two agree on which steps exist. */
+function collectArmAssignments(
+  plan: RecordPlan,
+  into: Map<string, boolean>
+): void {
+  for (const arm of plan.parentHeldArms) {
+    // The other parent-held kinds either write nothing (`connect-covered`) or plan a
+    // probe, and a tree that probed has already declined on empty planning.
+    if (arm.kind === "create") collectArmAssignments(arm.before, into);
+  }
+  into.set(
+    plan.writeStepId,
+    insertTakesDatabaseAssignedValue(plan.model, {
+      ...plan.scalarData,
+      ...plan.identity,
+    })
+  );
+  for (const child of plan.childCreates) {
+    collectArmAssignments(child.record, into);
+  }
+  for (const group of plan.createManyGroups) {
+    for (const [index, step] of group.steps.entries()) {
+      into.set(step.id, group.databaseAssigned[index]!);
+    }
+  }
+}
+
+/** Whether this INSERT leaves a value for the DATABASE to assign — an auto-increment
+ *  column the row does not spell, which is the only kind there is (see the sequence
+ *  paragraph on {@link armsAreOrderInsensitive}). */
+function insertTakesDatabaseAssignedValue(
+  model: Model<any>,
+  row: Readonly<Record<string, unknown>>
+): boolean {
+  for (const fieldName of model["~"].scalarFieldNames) {
+    const scalar = model["~"].state.scalars[fieldName];
+    if (isMissingGeneratedIncrement(scalar, row[fieldName])) return true;
+  }
+  return false;
 }
 
 /**

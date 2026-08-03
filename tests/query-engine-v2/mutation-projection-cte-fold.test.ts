@@ -113,6 +113,30 @@ const kid = s
   .map("p82_kid");
 const seqSchema = { seq, kid };
 
+/** Phase 8.2's ORDERING control: a literal parent key over children whose keys
+ *  the DATABASE assigns. Nothing flows between the arms — every FK is the
+ *  literal `hostId` — so the fold's other conjuncts all pass, and the sequence
+ *  is the only thing left that can tell the arms apart. */
+const crate = s
+  .model({
+    id: s.int().id(),
+    label: s.string(),
+    items: s.oneToMany(() => item),
+  })
+  .map("p82_crate");
+const item = s
+  .model({
+    id: s.int().id().increment(),
+    body: s.string(),
+    crateId: s.int(),
+    holder: s
+      .manyToOne(() => crate)
+      .fields("crateId")
+      .references("id"),
+  })
+  .map("p82_item");
+const crateSchema = { crate, item };
+
 /** Phase 8.1 guard 2's UNIQUE-INDEX control. `.index([...], { unique: true })`
  *  is a unique column set the database enforces but no `whereUnique` can
  *  address — and PostgreSQL accepts it as a foreign-key target, which the
@@ -150,6 +174,7 @@ beforeAll(() => {
   hydrateSchemaNames(schema);
   hydrateSchemaNames(seqSchema);
   hydrateSchemaNames(soloSchema);
+  hydrateSchemaNames(crateSchema);
   hydrateSchemaNames(hostSchema);
 });
 
@@ -993,6 +1018,74 @@ describe("Phase 8.2 — the nested-create tree", () => {
     // the value one statement could not have carried between its arms.
     expect(await client.kid.findMany()).toEqual([
       { id: 1, body: "k0", seqId: 1 },
+    ]);
+  });
+
+  test("database-generated CHILD keys decline, and keep declaration order", async () => {
+    // PostgreSQL does not specify the order it runs unread data-modifying `WITH`
+    // arms in, and on PG 16 / PGlite it runs them LAST-TO-FIRST — so a folded
+    // tree handed sequence value 1 to the last-declared child. Nothing in the
+    // arms is a value another arm reads, so every other conjunct passes: this
+    // one is the whole of what keeps the order the caller wrote.
+    const driver = new RecordingPGliteDriver();
+    const client = createClient({ schema: crateSchema, driver });
+    await push(client, { force: true });
+
+    driver.recording = true;
+    await client.crate.create({
+      data: {
+        id: 1,
+        label: "C",
+        items: {
+          create: [{ body: "i0" }, { body: "i1" }, { body: "i2" }],
+        },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // Answer FIRST: the ids follow the order the payload declared. Under the
+    // fold they came back reversed — invisible in the operation's own result
+    // (the tree fold requires a scalar-only projection), and wrong on disk.
+    expect(await client.item.findMany({ orderBy: { id: "asc" } })).toEqual([
+      { id: 1, body: "i0", crateId: 1 },
+      { id: 2, body: "i1", crateId: 1 },
+      { id: 3, body: "i2", crateId: 1 },
+    ]);
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+  });
+
+  test("ONE arm taking a generated key still folds: its row order is the statement's own", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = createClient({ schema: crateSchema, driver });
+    await push(client, { force: true });
+
+    driver.recording = true;
+    await client.crate.create({
+      data: {
+        id: 2,
+        label: "D",
+        items: {
+          createMany: { data: [{ body: "j0" }, { body: "j1" }] },
+        },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // ANTI-VACUITY: the conjunct is "at most one arm", not "no generated keys".
+    // A multi-row INSERT assigns its sequence values in its own VALUES order,
+    // which the planner does not get to choose — so this one folds, and the
+    // rows still come back in the order they were written.
+    expect(foldedInOneStatement(statements)).toBe(true);
+    expect(
+      await client.item.findMany({
+        where: { crateId: 2 },
+        orderBy: { id: "asc" },
+      })
+    ).toEqual([
+      { id: 1, body: "j0", crateId: 2 },
+      { id: 2, body: "j1", crateId: 2 },
     ]);
   });
 
