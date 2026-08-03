@@ -104,7 +104,7 @@ The measurement pushes the schema, seeds 1,000 parents and 100,000 children (100
 
 **PostgreSQL 17 (Docker, port 5434), `pg` driver.**
 
-```
+```text
 WITH the index (103.4 ms)                    WITHOUT the index (2683.0 ms)
 Limit  (cost=272.41..272204.66 rows=1000)    Limit  (cost=1886.78..1886575.54 rows=1000)
   -> Nested Loop Left Join                     -> Nested Loop Left Join
@@ -121,7 +121,7 @@ Limit  (cost=272.41..272204.66 rows=1000)    Limit  (cost=1886.78..1886575.54 ro
 
 **SQLite (`better-sqlite3`, in-memory).**
 
-```
+```text
 WITH the index (88.7 ms)                     WITHOUT the index (2592.1 ms)
 SCAN t0                                      SCAN t0
 CORRELATED SCALAR SUBQUERY 2                 CORRELATED SCALAR SUBQUERY 2
@@ -207,7 +207,7 @@ The plan's ordering note asked whether `indexesEqual` has to normalize a re-spel
 
 The first test in this repo to push a **two-column** index on LibSQL crashed the introspection outright:
 
-```
+```text
 TypeError: Cannot convert a BigInt value to a number
   at LibSQLMigrationDriver.introspect (sqlite/introspect.ts, a.seqno - b.seqno)
 ```
@@ -273,6 +273,40 @@ Witnesses: `runPartialIndexCoverageBehavior` in [`tests/drivers/index-ddl-behavi
 | Reverted | What failed |
 | --- | --- |
 | the `isTotalIndex` gate on `declaredIndexColumns` | 2 serializer unit tests + 2 live SQLite3 tests |
+
+#### Second correction from review (PR #20) — the fallback name, and the foreign keys the rebuild carried
+
+Two defects in the machinery the two sections above built, both found by reviewing this
+PR, both reproduced live before they were touched.
+
+**(1) The fallback name covered half its invariant.** The correction above gives the
+automatic index a second name when the preferred one is taken — but both names are
+ordinary strings a schema may declare, and `.index([...], { name: "<table>_<cols>_fkey_idx" })`
+is legal. With both spent, the index was pushed anyway and the snapshot carried two
+entries under one name; the differ emitted two `CREATE INDEX` for it and the second failed
+the whole push (`index post_authorId_fkey_idx already exists`, better-sqlite3). The index
+is a read optimization, not a correctness requirement, so it now yields: when the schema
+holds both candidate names, no foreign-key index is emitted. Witness:
+*"emits no FK index when the schema holds both candidate names"* in
+[`tests/migrations/serializer.test.ts`](../../tests/migrations/serializer.test.ts).
+
+**(2) A SQLite table rebuild resurrected the foreign key the same batch had dropped.**
+`getCurrentTable` replayed the batch's preceding `createIndex`/`dropIndex` so a recreation
+would not destroy the indexes the batch had just made — and did not replay the two
+operations that move a FOREIGN KEY. The differ plans `dropForeignKey` (priority 2) then
+`addForeignKey` (priority 16) for every changed key, which on SQLite is the pair every
+`manyToOne` push plans, forever, because `PRAGMA foreign_key_list` carries no constraint
+name and introspection has to synthesise one. The add rebuilt the table from the pre-batch
+list — which still held the key the drop had removed — and appended the replacement.
+Measured on better-sqlite3: an unchanged schema pushed three times left `zz_posts` holding
+**1, then 2, then 3** identical foreign keys, growing without bound, each separately
+enforced. `getCurrentTable` now replays all four operations. Witnesses, and the live count,
+in [`tests/migrations/sqlite-recreation-indexes.test.ts`](../../tests/migrations/sqlite-recreation-indexes.test.ts).
+
+| Reverted | What failed |
+| --- | --- |
+| the both-names-taken skip in `serializer.ts` | the new serializer unit test (the FK index reappears under the declared name) |
+| the `addForeignKey`/`dropForeignKey` replay in `getCurrentTable` | 3 tests — both rebuild witnesses, and the live push count reads `[1, 2, 3]` |
 | the `isTotalIndex` conjunct in the 1:1 unique scan | 1 serializer unit test + 1 live SQLite3 test |
 | the fallback index name | 2 serializer unit tests + 3 live tests (the push itself aborts on the duplicate name) |
 
@@ -513,7 +547,7 @@ The delivery records above were written by the implementers. These readings were
 
 **Phase 3 — the delete costs one statement and no envelope.** Statements recorded at the PGlite `execute`/`executeRaw` seam, which sees both substrates:
 
-```
+```text
 delete({ where: { id } })                  → 1 statement, no BEGIN/COMMIT
   DELETE FROM "g_accounts" WHERE "g_accounts"."id" = $1
     RETURNING "id" AS "id", "email" AS "email", "label" AS "label"
@@ -527,7 +561,7 @@ Five round trips (BEGIN, locate, snapshot, DELETE, COMMIT) became one. The alter
 
 **Phase 5 — both spellings reach the index.** SQLite (better-sqlite3, 4,000 rows, `ANALYZE`d, one composite index `(bucket, id)`), EXPLAIN QUERY PLAN over the statement the client emitted, with that statement's own parameters:
 
-```
+```text
 5.1  ORDER BY "t0"."bucket" ASC, "t0"."id" ASC LIMIT ?
      SCAN t0 USING INDEX g_rows_bucket_id_idx
 
@@ -658,7 +692,7 @@ Count the wire round trips for a multi-statement transaction before and after. R
 
 ## Order of the phases
 
-```
+```text
 Phase 1 (FK index)  →  the highest value; run first
 Phase 2 (DDL defects)  ∥  Phase 3 (delete fold)  ∥  Phase 5 (ordering/cursor)   — independent
 Phase 4 (IN-list folds)  — after Phase 3 (shared reviewer context)

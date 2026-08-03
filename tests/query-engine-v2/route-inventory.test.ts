@@ -789,9 +789,9 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // key and the duplicate's UPDATE `where` ride the create-data unique, so no `Ref` ever
   // reaches a `where`, and the identity derives from the row the INSERT ACTED ON (its own
   // data) rather than from re-reading the item's `where` (the W4 wrong-row doctrine).
-  // The site survived, with its message naming exactly what is missing: neither the target
-  // primary key nor any complete unique constraint of the target model. (N7-U-C DELETED
-  // it — see the 40 -> 39 entry below.)
+  // The site survived THAT wave, with its message naming exactly what was missing: neither
+  // the target primary key nor any complete unique constraint of the target model. It does
+  // not survive today — N7-U-C DELETED it; see the 40 -> 39 entry below.
   //
   // HONEST QUALIFICATION — RETRACTED by N7-U-C; see the 40 -> 39 entry below. It claimed
   // the own-write preflight rejects any SECOND `upsert` item on one many-to-many relation

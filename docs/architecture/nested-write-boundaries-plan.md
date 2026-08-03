@@ -285,7 +285,7 @@ Prisma's inverse-to-one nested-write surface was MEASURED, not recalled: `prisma
 on a schema carrying `User.profile: Profile?` beside `User.posts: Post[]`, Prisma **7.9.1**,
 `prisma-client` generator. Two generated inputs decide all three units:
 
-```
+```text
 ProfileUpdateOneWithoutUserNestedInput = {          // the INVERSE TO-ONE
   create?, connectOrCreate?, upsert?, connect?, update?,
   disconnect?: ProfileWhereInput | boolean,
@@ -1521,7 +1521,7 @@ over exactly the sequence that runs. The invariant that draws it: *every decisio
 ordered before every write that could not be bounded, and every kind that reads nothing is
 ordered last.* Three stages fall out —
 
-```
+```text
 disconnect → delete → update → upsert → connectOrCreate   (named readers)
           → set → updateMany → deleteMany                 (unbounded writers)
           → connect → create → createMany                 (pure adders)
@@ -1581,7 +1581,7 @@ measurement, the three candidate orders, and the falsifications.
 
 ## Ordering and parallelism
 
-```
+```text
 N1 (keystone, ALONE — Pin Rule/staleness blast radius, dual-substrate oracle)
         │
    N2 ∥ N3            (disjoint: UpdateOperation inverse arm vs junction Parts)
@@ -1635,8 +1635,12 @@ Already ahead and staying: unlimited depth, nested upsert-under-create, optional
 
 This is the FINAL row of the plan's own acceptance ladder: *"census at its floor (each
 survivor = genuinely inexpressible or Prisma-parity refusal, each with a measured
-justification)."* This section is the audit that tests that claim site by site. It is an
-audit, not a wave: **nothing was absorbed here, no engine file was touched.**
+justification)."* This section is the audit that tests that claim site by site. **As
+originally written (2026-07-30, `6910728`) it was an audit and not a wave: nothing was
+absorbed and no engine file was touched.** Its two work orders were executed afterwards
+and DID change the engine — N7-U-A converted 23 sites to `QueryEngineError` invariants and
+N7-U-B absorbed five more, taking the census 68 → 45 → 40; both are recorded in the
+blockquotes above, and the rows below carry their revised dispositions.
 
 ### The counting rule, restated
 

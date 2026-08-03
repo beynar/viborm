@@ -37,11 +37,14 @@ scalar, or a complete compound constraint) plus any non-unique filters — scala
 **and relation** — and `AND` / `OR` / `NOT`. Full semantics, per operation, are in
 [Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup).
 
-One deliberate divergence:
+Nested `update` / `upsert` / `delete` targets take the extended `where` too — a
+superset of Prisma, which is unique-only in those three positions.
+
+One deliberate divergence, and it covers only the LINK selectors:
 
 | | VibORM | Prisma |
 |--|--------|--------|
-| Nested relation-write target selectors (`connect`, `disconnect`, `set`, nested `update`/`upsert`/`delete`) and `cursor` | Unique discriminators only | Extended there too |
+| Relation-link target selectors (`connect`, `disconnect`, `set`, `connectOrCreate.where`) and `cursor` | Unique discriminators only | Extended there too |
 
 ## Relation filters
 

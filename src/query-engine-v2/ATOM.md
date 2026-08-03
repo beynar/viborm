@@ -308,7 +308,7 @@ child-held to-many went from rejected to executing.
 
 **The exact order** — and the state each adjacent pair therefore produces:
 
-```
+```text
 disconnect → delete → update → upsert → connectOrCreate      (1: named readers)
           → set → updateMany → deleteMany                    (2: unbounded writers)
           → connect → create → createMany                    (3: pure adders)
