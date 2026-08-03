@@ -76,7 +76,39 @@ const client = createClient({
 
 PGlite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
 
+## Do not benchmark query plans on PGlite
+
+**PGlite starts with `enable_seqscan = off`.** It is set on the server's command
+line, not by viborm, and it is not the default a real PostgreSQL server runs
+with:
+
+```ts
+await client.$queryRawUnsafe(
+  "SELECT setting, source FROM pg_settings WHERE name = 'enable_seqscan'"
+);
+// [{ setting: "off", source: "command line" }]   ← PGlite 17.4 (WASM), as shipped
+```
+
+With it off the planner charges a sequential scan an enormous cost, so it takes
+an index whenever one *can* answer the query — whether or not the index is the
+cheaper plan. That makes PGlite the wrong place to ask "does my index get used",
+because the answer is almost always yes.
+
+If you are measuring a plan rather than a result, either turn it back on for the
+session and check that the setting took:
+
+```ts
+await client.$executeRawUnsafe("SET enable_seqscan = on");
+const [{ enable_seqscan }] = await client.$queryRawUnsafe("SHOW enable_seqscan");
+// assert it is "on" before trusting the EXPLAIN below
+```
+
+or run the measurement against a real PostgreSQL server. Correctness results are
+unaffected — a plan choice changes the cost, never the rows.
+
 ## Limitations
 
 - WASM-based: may have performance overhead for heavy workloads
 - Some PostgreSQL extensions not available
+- `enable_seqscan` is `off` at startup — see the section above before reading any
+  `EXPLAIN` taken here as a statement about production
