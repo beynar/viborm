@@ -70,7 +70,10 @@ export async function generate(
   const currentSnapshot = serializeModels(models, { migrationDriver });
 
   // 3. Calculate diff between snapshots
-  const diffResult = diff(previousSnapshot, currentSnapshot);
+  // No canonicalization hook: `generate` compares two stored snapshots, both
+  // written by the serializer, so there is no deparsed catalog spelling to
+  // reconcile and no live connection to reconcile it through.
+  const diffResult = await diff(previousSnapshot, currentSnapshot);
 
   // 4. Resolve ambiguous changes
   let finalOperations = await resolveAmbiguousChanges(

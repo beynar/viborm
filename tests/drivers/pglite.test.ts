@@ -29,6 +29,7 @@ import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
 import {
   runMappedIndexBehavior,
   runPartialIndexCoverageBehavior,
+  runPartialIndexPredicateChurnBehavior,
 } from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
@@ -85,6 +86,10 @@ describe("PGlite Driver", () => {
     createDriver: createInMemoryPGliteDriver,
   });
   runPartialIndexCoverageBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runPartialIndexPredicateChurnBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

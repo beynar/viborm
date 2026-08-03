@@ -160,6 +160,46 @@ const coverProfile = s
 
 const coverUniqueSchema = { coverOwner, coverProfile };
 
+// --- Schema 6: the PostgreSQL predicate deparse (Decision 7.4) ---------------
+// One table, three declarations. PostgreSQL does not store the statement it was
+// given: it parses the predicate and `pg_get_expr` deparses it back, so
+// `published = true` returns as `(published = true)` and the differ saw a change
+// on every push. The three declarations separate the two questions that answer
+// has to keep apart — is the SAME predicate quiet (in two spellings), and is a
+// DIFFERENT predicate still seen.
+const CHURN_INDEX = "idx_7p4_posts_published_title";
+
+const churnDeclaredPost = s
+  .model({
+    id: s.string().id(),
+    title: s.string(),
+    published: s.boolean(),
+  })
+  .index(["title"], { name: CHURN_INDEX, where: "published = true" })
+  .map("idx_7p4_posts");
+
+const churnRespelledPost = s
+  .model({
+    id: s.string().id(),
+    title: s.string(),
+    published: s.boolean(),
+  })
+  .index(["title"], { name: CHURN_INDEX, where: "(published = TRUE)" })
+  .map("idx_7p4_posts");
+
+const churnChangedPost = s
+  .model({
+    id: s.string().id(),
+    title: s.string(),
+    published: s.boolean(),
+  })
+  .index(["title"], { name: CHURN_INDEX, where: "published = false" })
+  .map("idx_7p4_posts");
+
+const churnDeclaredSchema = { churnPost: churnDeclaredPost };
+const churnRespelledSchema = { churnPost: churnRespelledPost };
+const churnChangedSchema = { churnPost: churnChangedPost };
+
 /** The refusal names the index and quotes the predicate it cannot express. */
 const REFUSAL_MESSAGE =
   /Index "idx_refused_posts_published_title" declares a partial index predicate \(where: "published = 1"\)\. MySQL does not support partial indexes\./;
@@ -169,7 +209,8 @@ type AnySchema =
   | typeof partialIndexSchema
   | typeof refusedIndexSchema
   | typeof coverIndexSchema
-  | typeof coverUniqueSchema;
+  | typeof coverUniqueSchema
+  | typeof churnDeclaredSchema;
 
 type IndexDdlClient = VibORMClient<
   VibORMConfig & { schema: AnySchema; driver: AnyDriver }
@@ -414,6 +455,99 @@ export function runPartialIndexRefusalBehavior({
   });
 }
 
+export function runPartialIndexPredicateChurnBehavior({
+  driverName,
+  createDriver,
+}: IndexDdlBehaviorOptions) {
+  describe(`${driverName} partial index predicate churn`, () => {
+    // One driver per test, several clients on it: two of these tests push a
+    // SECOND declaration of the same table and have to reach the database the
+    // first one wrote. A fresh driver would be a fresh (empty) database.
+    let driver: AnyDriver | undefined;
+    let connected: IndexDdlClient | undefined;
+
+    afterEach(async () => {
+      if (connected) {
+        await connected.$disconnect();
+        connected = undefined;
+      }
+      driver = undefined;
+    });
+
+    function make(schema: AnySchema): IndexDdlClient {
+      driver ??= createDriver();
+      connected = createClient({
+        schema: schema as never,
+        driver,
+      }) as never;
+      return connected as IndexDdlClient;
+    }
+
+    /** What PostgreSQL says the index's predicate is, in its own spelling. */
+    async function storedPredicate(c: IndexDdlClient): Promise<string | null> {
+      const rows = await c.$queryRawUnsafe<{ predicate: string | null }>(
+        `SELECT pg_get_expr(x.indpred, x.indrelid) AS predicate
+           FROM pg_class i
+           JOIN pg_index x ON x.indexrelid = i.oid
+          WHERE i.relname = $1`,
+        CHURN_INDEX
+      );
+      return rows[0]?.predicate ?? null;
+    }
+
+    function indexOps(operations: readonly { type: string }[]) {
+      return operations.filter(
+        (op) => op.type === "createIndex" || op.type === "dropIndex"
+      );
+    }
+
+    // REGRESSION (Decision 7.4): the declaration and the catalog never agreed,
+    // so this second push planned a drop and a create — and so did the third,
+    // and every one after it, forever.
+    test("re-pushing the same declaration is not an index change", async () => {
+      const c = make(churnDeclaredSchema);
+      await push(c as never, { force: true });
+
+      // The gap this closes, stated rather than assumed: what the catalog
+      // gives back is NOT what the schema declared.
+      expect(await storedPredicate(c)).toBe("(published = true)");
+
+      const second = await push(c as never, { force: true });
+
+      expect(indexOps(second.operations)).toEqual([]);
+      expect(await storedPredicate(c)).toBe("(published = true)");
+    });
+
+    // The stronger half. Re-pushing the same text could in principle be settled
+    // by any normalization; two DIFFERENT texts for one predicate can only be
+    // settled by the database, which is what the canonicalization asks.
+    test("the same predicate in another spelling is not an index change", async () => {
+      await push(make(churnDeclaredSchema) as never, { force: true });
+
+      const respelled = make(churnRespelledSchema);
+      const second = await push(respelled as never, { force: true });
+
+      expect(indexOps(second.operations)).toEqual([]);
+      expect(await storedPredicate(respelled)).toBe("(published = true)");
+    });
+
+    // And the guard the canonicalization must not swallow: a predicate that
+    // really changed is still a drop and a create.
+    test("a real predicate change is still an index change", async () => {
+      await push(make(churnDeclaredSchema) as never, { force: true });
+
+      const changed = make(churnChangedSchema);
+      const second = await push(changed as never, { force: true });
+
+      expect(indexOps(second.operations).map((op) => op.type)).toEqual([
+        "dropIndex",
+        "createIndex",
+      ]);
+      expect(await storedPredicate(changed)).toBe("(published = false)");
+    });
+  });
+}
+
 export function runPartialIndexCoverageBehavior({
   driverName,
   createDriver,
@@ -472,9 +606,10 @@ export function runPartialIndexCoverageBehavior({
       ).toBe(false);
     });
 
-    // Only the foreign-key index is asserted quiet: the declared partial index
-    // churns on PostgreSQL, which deparses the predicate it reads back — the
-    // separate, still-open Decision 7.4.
+    // Scoped to the foreign-key index on purpose. That the DECLARED partial
+    // index is quiet too is a different claim with a different cause — the
+    // PostgreSQL predicate deparse, Decision 7.4 — and it has its own witness
+    // in `runPartialIndexPredicateChurnBehavior`.
     test("a second push does not touch the foreign-key index", async () => {
       const c = make(coverIndexSchema);
       await push(c as never, { force: true });

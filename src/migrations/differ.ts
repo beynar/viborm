@@ -20,6 +20,98 @@ import type {
 import { sortOperations } from "./utils";
 
 // =============================================================================
+// PARTIAL-INDEX PREDICATE CANONICALIZATION (Decision 7.4)
+// =============================================================================
+
+/**
+ * Asks the database for its own spelling of each declared index predicate.
+ *
+ * The differ has no connection of its own; the push path owns one and hands
+ * this in (`planPush`). One call carries every predicate of one table, so the
+ * round trip is paid once per table that has a partial index whose two
+ * spellings differ — usually never, at most once per push.
+ *
+ * The result is positional. `undefined` at a position means the database did
+ * not answer for that predicate, and the differ then treats it as
+ * uncomparable — never as equal.
+ */
+export type IndexPredicateCanonicalizer = (
+  tableName: string,
+  predicates: readonly string[]
+) => Promise<ReadonlyArray<string | undefined>>;
+
+export interface DiffOptions {
+  /**
+   * Canonicalizes partial-index predicates through the live database. Omitted
+   * by callers with no connection (`generate`, which diffs two snapshots) and
+   * by dialects whose catalog stores the declared statement verbatim; the
+   * differ then compares the two texts raw, which is the fail-closed reading.
+   */
+  canonicalizeIndexPredicate?: IndexPredicateCanonicalizer;
+}
+
+/** Canonical spellings, keyed by table and by the predicate as declared. */
+type CanonicalPredicates = ReadonlyMap<string, string>;
+
+const EMPTY_CANONICAL_PREDICATES: CanonicalPredicates = new Map();
+
+/** NUL joins the halves: no table name and no SQL text can contain one. */
+function predicateKey(tableName: string, predicate: string): string {
+  return `${tableName}\u0000${predicate}`;
+}
+
+/**
+ * Asks the database for its spelling of every predicate that a partial index
+ * present in both snapshots spells two ways.
+ *
+ * Scoped on purpose. A predicate only one side carries, or that both sides
+ * spell identically, is settled without a round trip — so a schema with no
+ * partial index, or one that already converged, costs nothing.
+ */
+async function canonicalizeChangedPredicates(
+  currentTables: ReadonlyMap<string, TableDef>,
+  desiredTables: ReadonlyMap<string, TableDef>,
+  canonicalize: IndexPredicateCanonicalizer | undefined
+): Promise<CanonicalPredicates> {
+  if (!canonicalize) return EMPTY_CANONICAL_PREDICATES;
+
+  const canonical = new Map<string, string>();
+
+  for (const [tableName, desiredTable] of desiredTables) {
+    const currentTable = currentTables.get(tableName);
+    if (!currentTable) continue;
+
+    const currentIndexes = new Map(
+      currentTable.indexes.map((i) => [i.name, i])
+    );
+    const pending = new Set<string>();
+
+    for (const desiredIndex of desiredTable.indexes) {
+      const currentIndex = currentIndexes.get(desiredIndex.name);
+      if (!currentIndex) continue;
+      const left = normalizeIndexWhere(currentIndex.where);
+      const right = normalizeIndexWhere(desiredIndex.where);
+      if (left === undefined || right === undefined || left === right) continue;
+      pending.add(left);
+      pending.add(right);
+    }
+
+    if (pending.size === 0) continue;
+
+    const predicates = [...pending];
+    const spellings = await canonicalize(tableName, predicates);
+    for (const [position, predicate] of predicates.entries()) {
+      const spelling = spellings[position];
+      if (spelling !== undefined) {
+        canonical.set(predicateKey(tableName, predicate), spelling);
+      }
+    }
+  }
+
+  return canonical;
+}
+
+// =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
 
@@ -99,13 +191,54 @@ function normalizeIndexWhere(where: IndexDef["where"]): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function indexesEqual(a: IndexDef, b: IndexDef): boolean {
+/**
+ * The one place the two snapshots' predicates are compared, and the reader of
+ * the canonical spellings the database supplied (Decision 7.4).
+ *
+ * `normalizeIndexWhere` above reconciles the *padding* of one text; it cannot
+ * reconcile two texts. PostgreSQL's catalog does not store the declared
+ * statement — `pg_get_expr(indpred, indrelid)` deparses it, so a declared
+ * `published = true` reads back as `(published = true)`, and every push drops
+ * and re-creates every partial index. No client-side normalization closes that
+ * while staying fail-closed: flatten whitespace and parentheses and
+ * `a AND (b OR c)` starts comparing equal to `(a AND b) OR c`, so a real change
+ * would stop being seen. So the database is asked, and `canonical` holds what
+ * it answered. Two predicates are the same predicate only when BOTH were
+ * canonicalized and the two canonical spellings are identical.
+ */
+function indexWhereEqual(
+  tableName: string,
+  a: IndexDef,
+  b: IndexDef,
+  canonical: CanonicalPredicates
+): boolean {
+  const left = normalizeIndexWhere(a.where);
+  const right = normalizeIndexWhere(b.where);
+  if (left === right) return true;
+  // A predicate that appears or disappears is a real change on every dialect,
+  // and no round trip can make a partial index equal to a total one.
+  if (left === undefined || right === undefined) return false;
+
+  const leftCanonical = canonical.get(predicateKey(tableName, left));
+  const rightCanonical = canonical.get(predicateKey(tableName, right));
+  // Fail closed. Without both spellings — no canonicalizer, a dialect that has
+  // none, a connection that refused, a predicate the database could not parse —
+  // two texts that do not read alike stay a change.
+  return leftCanonical !== undefined && leftCanonical === rightCanonical;
+}
+
+function indexesEqual(
+  tableName: string,
+  a: IndexDef,
+  b: IndexDef,
+  canonical: CanonicalPredicates
+): boolean {
   return (
     a.name === b.name &&
     normalizeIndexUnique(a.unique) === normalizeIndexUnique(b.unique) &&
     arraysEqual(a.columns, b.columns) &&
     normalizeIndexType(a.type) === normalizeIndexType(b.type) &&
-    normalizeIndexWhere(a.where) === normalizeIndexWhere(b.where)
+    indexWhereEqual(tableName, a, b, canonical)
   );
 }
 
@@ -148,7 +281,8 @@ interface TableDiffResult {
 function diffTable(
   tableName: string,
   current: TableDef,
-  desired: TableDef
+  desired: TableDef,
+  canonical: CanonicalPredicates
 ): TableDiffResult {
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
@@ -244,7 +378,7 @@ function diffTable(
     const desiredIdx = desiredIndexes.get(name);
     if (!desiredIdx) {
       operations.push({ type: "dropIndex", tableName, indexName: name });
-    } else if (!indexesEqual(idx, desiredIdx)) {
+    } else if (!indexesEqual(tableName, idx, desiredIdx, canonical)) {
       // Index changed - drop and recreate
       operations.push({ type: "dropIndex", tableName, indexName: name });
       operations.push({ type: "createIndex", tableName, index: desiredIdx });
@@ -362,16 +496,23 @@ function diffTable(
  * Compares two schema snapshots and returns the operations needed to
  * transform the current schema into the desired schema.
  */
-export function diff(
+export async function diff(
   current: SchemaSnapshot,
-  desired: SchemaSnapshot
-): DiffResult {
+  desired: SchemaSnapshot,
+  options: DiffOptions = {}
+): Promise<DiffResult> {
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
 
   // Build table maps
   const currentTables = new Map(current.tables.map((t) => [t.name, t]));
   const desiredTables = new Map(desired.tables.map((t) => [t.name, t]));
+
+  const canonicalPredicates = await canonicalizeChangedPredicates(
+    currentTables,
+    desiredTables,
+    options.canonicalizeIndexPredicate
+  );
 
   // Find dropped and added tables
   const droppedTables: string[] = [];
@@ -444,7 +585,12 @@ export function diff(
   for (const [name, desiredTable] of desiredTables) {
     const currentTable = currentTables.get(name);
     if (currentTable) {
-      const tableDiff = diffTable(name, currentTable, desiredTable);
+      const tableDiff = diffTable(
+        name,
+        currentTable,
+        desiredTable,
+        canonicalPredicates
+      );
       operations.push(...tableDiff.operations);
       ambiguousChanges.push(...tableDiff.ambiguousChanges);
     }

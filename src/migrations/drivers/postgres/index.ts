@@ -32,6 +32,7 @@ import {
 } from "../base";
 import { getPostgresType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
+import { canonicalizeIndexPredicates } from "./canonicalize-index-predicate";
 import { introspect } from "./introspect";
 
 export class PostgresMigrationDriver extends MigrationDriver {
@@ -51,6 +52,11 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   introspect = introspect;
+
+  // PostgreSQL deparses an index predicate rather than storing the statement,
+  // so the declared spelling and the introspected one never match on their own
+  // (Decision 7.4). The other dialects have no such gap and leave this unset.
+  canonicalizeIndexPredicates = canonicalizeIndexPredicates;
 
   // ===========================================================================
   // TYPE MAPPING

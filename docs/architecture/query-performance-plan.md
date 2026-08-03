@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 is delivered: it first shipped its measurement and pinned it as a baseline, then both of its units hit a blocker that was a decision rather than a defect, and both decisions were taken on 2026-08-03 — 6.1's level-grouped planning reads (fan-out 6 → 3) and 6.2's batch-mode `[presence guard, write … RETURNING]` fold (2 → 1) shipped together and are certified by the P6 completion gate at the end of the Phase 6 section. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. **Phase 8 is delivered** — both CTE folds, plus item 10.1 (the SQLite capability flag), whose value Phase 8 is the first reader of; see the Phase 8 delivery record. Phase 9 is parked on its own measurement: the correction it proposed was measured to buy exactly nothing, the win it was after turned out to sit behind a deployment decision rather than a transport change, and the numbers plus the shut door are recorded in the Phase 9 disposition. Phases 8 and 9 landed in one wave and are certified together by the Phase 8/9 wave gate at the end of the Phase 9 section, whose final subsection is the gate run on the tip after the wave's four review corrections. Phase 10 not started, less item 10.1.
+**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 is delivered: it first shipped its measurement and pinned it as a baseline, then both of its units hit a blocker that was a decision rather than a defect, and both decisions were taken on 2026-08-03 — 6.1's level-grouped planning reads (fan-out 6 → 3) and 6.2's batch-mode `[presence guard, write … RETURNING]` fold (2 → 1) shipped together and are certified by the P6 completion gate at the end of the Phase 6 section. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4. **7.4 is delivered too** — the maintainer's 2026-08-03 disposition (canonicalize the declared partial-index predicate THROUGH the database before comparing) shipped in Phase 10's wave, closing the debt Phase 2 raised. **Phase 8 is delivered** — both CTE folds, plus item 10.1 (the SQLite capability flag), whose value Phase 8 is the first reader of; see the Phase 8 delivery record. Phase 9 is parked on its own measurement: the correction it proposed was measured to buy exactly nothing, the win it was after turned out to sit behind a deployment decision rather than a transport change, and the numbers plus the shut door are recorded in the Phase 9 disposition. Phases 8 and 9 landed in one wave and are certified together by the Phase 8/9 wave gate at the end of the Phase 9 section, whose final subsection is the gate run on the tip after the wave's four review corrections. Phase 10 not started, less item 10.1.
 
 ## Source of this plan
 
@@ -1154,6 +1154,68 @@ viborm can never emit that third index: [`generateCreateIndex`](../../src/migrat
 
 Phase 2 fixed the partial index on SQLite, where the catalog stores the statement verbatim. PostgreSQL does not: `pg_get_expr(indpred, indrelid)` deparses the predicate, so a declared `active = true` reads back as `(active = true)` and never compares equal to what the serializer holds ([`postgres/introspect.ts:302`](../../src/migrations/drivers/postgres/introspect.ts) into `indexesEqual`, [`differ.ts`](../../src/migrations/differ.ts)). Measured on PGlite (PostgreSQL 17). **Consequence: every push drops and re-creates every partial index on PostgreSQL.** No client-side text normalization closes this while staying fail-closed — flattening whitespace and parentheses makes `a AND (b OR c)` equal `(a AND b) OR c`, so a real predicate change would stop being seen. The choice: canonicalize the declared predicate through the database before comparing (the differ has no connection today, so this changes the differ's shape), compare `indpred` structurally, or accept the churn and document it. The disposition must state which.
 
+#### Disposition — canonicalize through the database (maintainer, 2026-08-03). DELIVERED.
+
+**The decision.** The differ canonicalizes the declared predicate through the database before comparing. PostgreSQL's own deparse is the authority: two texts are one predicate when the database spells them the same way, and nothing else counts.
+
+**The measurement that framed it**, re-taken at `72a12be` on PGlite (PostgreSQL 17) before any code moved:
+
+```text
+declared   published = true
+read back  (published = true)
+second push  [ { dropIndex m74_idx }, { createIndex m74_idx } ]     ← the churn, live
+```
+
+And the deparse is not a fixed transformation that a client could imitate:
+
+| declared | `pg_get_expr(indpred, indrelid)` |
+| --- | --- |
+| `published = true` | `(published = true)` |
+| `published = TRUE` | `(published = true)` |
+| `published = true AND views > 10` | `((published = true) AND (views > 10))` |
+| `(published AND views > 10) OR views > 100` | `((published AND (views > 10)) OR (views > 100))` |
+| `title <> ''` | `(title <> ''::text)` |
+
+The last row is the one that settles it: the deparse resolves the literal's *type*, which no text normalization has the information to do.
+
+**What shipped.**
+
+| Change | What it does |
+| --- | --- |
+| [`differ.ts`](../../src/migrations/differ.ts) `IndexPredicateCanonicalizer` + `DiffOptions` | `diff` takes an optional async hook and is now async. Two call sites: `planPush` passes one, `generate` does not — it diffs two serializer-written snapshots, where no deparsed spelling exists and no connection does either. |
+| `differ.ts` `canonicalizeChangedPredicates` | The pre-pass. Per table, collects the predicates of index names present on BOTH sides whose `normalizeIndexWhere` readings differ, and asks once. A schema with no partial index, or one already converged, spends no round trip. |
+| `differ.ts` `indexWhereEqual` | The comparison. Equal texts are equal; a predicate that appears or disappears is a change without asking; otherwise equal **only** when both canonical spellings came back and are identical. |
+| [`drivers/base.ts`](../../src/migrations/drivers/base.ts) `canonicalizeIndexPredicates?` | The optional driver hook. Its `executeRaw` is contracted to run on ONE pinned connection. |
+| [`postgres/canonicalize-index-predicate.ts`](../../src/migrations/drivers/postgres/canonicalize-index-predicate.ts) | The only implementation. |
+| [`push/planner.ts`](../../src/migrations/push/planner.ts) `buildIndexPredicateCanonicalizer` | Wires the push path's live connection in, inside one `withTransaction`. |
+
+**The vehicle, and why it is not a CHECK constraint or an index.** A predicate is parsed and deparsed by putting it through a session-local view — `CREATE OR REPLACE TEMP VIEW v AS SELECT 1 AS c FROM <table> WHERE <p>`, read back with `pg_get_viewdef`. It is the cheapest parse-and-store PostgreSQL offers: no table scan, no data read, ACCESS SHARE on the table only, invisible outside the session. A `CHECK … NOT VALID` constraint would parse the same expression but takes SHARE ROW EXCLUSIVE on a live table and mutates the real catalog; a real partial index would build the index this exists to avoid rebuilding. `EXPLAIN` was rejected outright: its output is the *planner's* expression, so it moves with the statistics, and a canonical form that drifts is a churn generator of its own.
+
+**Both sides go through the same transform**, so the answer never depends on `pg_get_viewdef` and `pg_get_expr` agreeing on parenthesization — only on each being a function of the parsed tree. That is also why the declared text is compared against the introspected text rather than against `pg_get_expr` directly.
+
+**Why one transaction.** Two reasons, both load-bearing. `pg` reaches PostgreSQL through a **Pool**, so consecutive `_executeRaw` calls land on different connections and a session-local view created by one is invisible to the next. And a view that references a table blocks dropping that table — so on any failure the scratch has to go, which a rollback does and a `catch` would not. The driver method therefore throws rather than reporting per-predicate failure; the planner catches.
+
+**Fail closed, three ways.** No canonicalizer (`generate`, SQLite, MySQL, and any driver without callback transactions — Neon HTTP) → raw text comparison, which plans drop+create, the pre-7.4 reading. A predicate the database will not parse → the transaction aborts, the planner answers nothing, same reading. One side spelled and the other not → not equal. **Nothing about this can make a push fail, and nothing about it can claim two predicates are the same.**
+
+**The dialects that skip it, and why that is not a gap.** SQLite (and LibSQL) store the CREATE INDEX statement verbatim — Phase 2 measured that byte-for-byte — so there is nothing to reconcile. MySQL refuses a partial index by name (Phase 2 again). PostgreSQL is the only dialect that both accepts the declaration and re-spells it.
+
+**Witnesses.** `runPartialIndexPredicateChurnBehavior` in [`tests/drivers/index-ddl-behavior.ts`](../../tests/drivers/index-ddl-behavior.ts), wired on PGlite and on the Docker `pg` leg — where the pool makes the connection pinning a real claim rather than an argument:
+
+- *re-pushing the same declaration is not an index change* — and it states the gap rather than assuming it, asserting that the catalog gives back `(published = true)` for a declared `published = true`.
+- *the same predicate in another spelling is not an index change* — `(published = TRUE)` against a database holding `published = true`. This is the half no normalization could reach.
+- *a real predicate change is still an index change* — `published = false` plans dropIndex+createIndex and the catalog ends at `(published = false)`.
+
+Seven unit tests in [`tests/migrations/differ.test.ts`](../../tests/migrations/differ.test.ts) carry the hook's contract without a database: equal canonical spellings, unequal ones, an unanswered predicate, a half-answered pair, and the two cases the differ must settle *without* asking (texts that already read alike; one side with no predicate at all) — plus the case the canonical spelling must not swallow (an index whose columns changed).
+
+**Falsification.**
+
+| Reverted | What failed |
+| --- | --- |
+| the canonicalizer itself (`planPush` passes none) | the two *quiet* witnesses; the change-detection witness still passed |
+| the canonicalization made a constant | the *change-detection* witness only; the two quiet witnesses still passed |
+
+Each half fails alone, which is what says the two claims have separate coverage.
+
 ---
 
 ## Wave gate — Phase 7 (Decisions 7.1, 7.2 and 7.3)
@@ -1265,8 +1327,8 @@ ordinal."* No race protection was removed: `racePin`/`presenceGuard` occurrences
 `racePin` on the folded step is discharged by the database, which its disposition measures
 against a live competitor on its own connection.
 
-**Open and recorded, not fixed here:** Decision 7.4 (the only Phase 7 decision still awaiting
-the maintainer), 7.1's atomic-arithmetic residual (`{ count: { increment: 1 } }` keeps the
+**Open and recorded, not fixed here:** Decision 7.4 (awaiting the maintainer at the time of
+this gate; dispositioned and delivered in the Phase 10 wave), 7.1's atomic-arithmetic residual (`{ count: { increment: 1 } }` keeps the
 probe path, because `DO UPDATE SET` cannot spell the emitter's `col = col op x`), and 7.3's
 `text_pattern_ops` companion index, which would make the PostgreSQL range unconditional and
 is a Phase-1 emitter decision with the same churn shape as 7.4.

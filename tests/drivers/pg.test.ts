@@ -43,7 +43,10 @@ import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
 import { runFkIndexBehavior } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
-import { runMappedIndexBehavior } from "./index-ddl-behavior";
+import {
+  runMappedIndexBehavior,
+  runPartialIndexPredicateChurnBehavior,
+} from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
@@ -499,6 +502,14 @@ describeIf("pg Driver", () => {
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runMappedIndexBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  // Decision 7.4 on the real server rather than the WASM one: the deparse this
+  // reconciles is PostgreSQL's, and `pg` reaches it through a POOL, where the
+  // canonicalization's session-local scratch would scatter across connections
+  // if it were not pinned to one.
+  runPartialIndexPredicateChurnBehavior({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
