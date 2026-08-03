@@ -65,6 +65,10 @@ export class DeleteOperation {
   private readonly deleteId: string;
   private readonly rootGuardId: string;
   private readonly foldStep: StatementStep | undefined;
+  /** PLAN Phase 6.2 — the fold's presence premise on a batch-only driver, where
+   *  no JS postcondition can run. `undefined` in transaction mode (the fold's
+   *  own `expects` carries it) and wherever `foldStep` is undefined. */
+  private readonly foldGuard: OperationStep | undefined;
 
   constructor(
     engine: QueryEngine,
@@ -170,10 +174,6 @@ export class DeleteOperation {
     // byte-identical.
     //
     // Gated to:
-    //  - `transaction` mode. Batch mode keeps the presence guard + read + delete
-    //    that pin one row inside the atomic unit (ATOM §8.1 note (b)); the folded
-    //    step's postcondition has no atomic-batch lowering, exactly as the update
-    //    fold records.
     //  - a RETURNING driver. MySQL cannot hand the row back from a DELETE, and
     //    after the delete there is nothing left to read, so it keeps the
     //    read-then-delete path (the same reason `deleteMany` + `select` keeps it,
@@ -197,10 +197,12 @@ export class DeleteOperation {
       this.parsedSelect
     );
     const canFold =
-      txMode &&
       engine.adapter.capabilities.supportsReturning &&
       selectIsScalarOnly &&
       !this.parsedInclude;
+    const foldNotFound = notFoundFailure(
+      `query-engine-v2 delete located no '${parentName}' row for its unique where.`
+    );
     this.foldStep = canFold
       ? {
           id: this.deleteId,
@@ -215,14 +217,21 @@ export class DeleteOperation {
           // builds the public error from the execution context, so a missing row
           // raises the byte-identical `NotFoundError` the locate's `exactlyOneRow`
           // raised at planning — same class, same message, same V6001 code.
-          expects: affectedRows(
-            1,
-            notFoundFailure(
-              `query-engine-v2 delete located no '${parentName}' row for its unique where.`
-            )
-          ),
+          // Batch mode has no JS postcondition available; `foldGuard` carries the
+          // identical premise inside the atomic unit instead.
+          ...(txMode ? { expects: affectedRows(1, foldNotFound) } : {}),
         }
       : undefined;
+    // PLAN Phase 6.2, the delete projection of the update fold: on a batch-only
+    // driver the plan is `[presence guard, DELETE … RETURNING]` — one round trip,
+    // no postcondition, so the `$transaction([...])` array seam (which merges
+    // operations into ONE batch and therefore cannot honour a JS check that runs
+    // after the commit) keeps working. This is the SAME guard the unfolded batch
+    // path already puts in front of its read+delete pair, on the same selector
+    // and with the same failure, so nothing about the batch's presence premise or
+    // its attribution changes — only the read and the locate go away.
+    this.foldGuard =
+      canFold && !txMode ? this.buildRootPresenceGuard() : undefined;
   }
 
   planning(): OperationFragment {
@@ -234,12 +243,16 @@ export class DeleteOperation {
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
-    // The fold compiles to its one write step regardless of `known`: the
-    // `DELETE … WHERE unique RETURNING select` locates, removes and returns the
-    // row in one statement, its notFound postcondition enforced after it runs.
+    // The fold compiles regardless of `known`: the `DELETE … WHERE unique
+    // RETURNING select` locates, removes and returns the row in one statement.
+    // Transaction mode runs it alone with its notFound postcondition enforced
+    // after; batch mode puts the same premise in front of it as a guard, so the
+    // pair is one atomic batch and one round trip.
     if (this.foldStep) {
       return {
-        steps: [this.foldStep],
+        steps: this.foldGuard
+          ? [this.foldGuard, this.foldStep]
+          : [this.foldStep],
         outputs: { result: ref(this.deleteId, "result") },
       };
     }

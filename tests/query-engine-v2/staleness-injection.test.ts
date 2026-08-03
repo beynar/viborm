@@ -130,8 +130,14 @@ describe("query-engine-v2 staleness injection (per premise class)", () => {
     await push(client, { force: true });
     await client.user.create({ data: { email: "s@x", count: 1 } });
 
-    // Planning locates the row; the hook deletes it before the batch runs. The
-    // batch-mode root-presence assertion (ATOM §8.1 note (b)) must abort.
+    // The hook deletes the row before the batch runs; the batch-mode
+    // root-presence assertion (ATOM §8.1 note (b)) must abort.
+    //
+    // Since PLAN Phase 6.2 this payload is the FOLDED plan on a batch-only
+    // driver — `[presence guard, UPDATE … RETURNING]`, no planning read left —
+    // so this is also the witness that the fold did not drop the premise. The
+    // fold has no JS postcondition to fall back on, so the guard is the only
+    // thing between this concurrent delete and a silent zero-row success.
     const injector = makeClient(db);
     await expect(
       runUpdate(
@@ -160,6 +166,8 @@ describe("query-engine-v2 staleness injection (per premise class)", () => {
     await push(client, { force: true });
     await client.user.create({ data: { email: "d@x", count: 1 } });
 
+    // The delete projection of the same PLAN Phase 6.2 fold:
+    // `[presence guard, DELETE … RETURNING]`, and the guard is what answers.
     const injector = makeClient(db);
     await expect(
       runDelete(

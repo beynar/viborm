@@ -8,6 +8,11 @@ import type { Sql } from "@sql";
 import { describe, expect, test } from "vitest";
 import { updateFamilySchema } from "./update-family-behavior";
 
+/** The folded write's shape: it must project through its own RETURNING clause,
+ *  because a folded plan has no terminal read left to answer from. */
+const FOLDED_UPDATE = /^UPDATE .* RETURNING /;
+const FOLDED_DELETE = /^DELETE FROM .* RETURNING /;
+
 // ---------------------------------------------------------------------------
 // PLAN Phase 6 — the measured starting line for "reduce the round trips on
 // batch-only drivers (D1, Neon HTTP)".
@@ -99,7 +104,14 @@ function planningTrips(driver: CountingBatchOnlyDriver) {
 }
 
 describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
-  test("a scalar update costs two: one planning locate, then the write batch", async () => {
+  // BASELINE UPDATED DELIBERATELY — PLAN Phase 6.2, the batch-mode fold. This
+  // cost TWO round trips (a planning locate, then the write batch) because the
+  // fold gate required transaction mode. It now costs ONE, which is 6.2's
+  // deliverable, so the number moves with it. The STATEMENTS are pinned beside
+  // the count: "one round trip" would also be true of an operation that dropped
+  // the presence assertion, and the whole point of this shape is that the
+  // premise the transaction fold enforces in JS is asserted IN the batch.
+  test("a scalar update costs ONE: [presence guard, UPDATE … RETURNING]", async () => {
     const { driver, client } = await seeded();
 
     await client.user.update({
@@ -107,18 +119,26 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
       data: { count: 2 },
     });
 
-    // Phase 6.2's target is ONE: the fold gates require transaction mode, so a
-    // batch-only driver plans-then-executes where a single
-    // `UPDATE … RETURNING` would do.
-    expect(driver.roundTrips).toHaveLength(2);
-    expect(driver.roundTrips[0]?.kind).toBe("execute");
-    expect(driver.roundTrips[1]?.kind).toBe("batch");
+    expect(driver.roundTrips).toHaveLength(1);
+    const [unit] = driver.roundTrips;
+    expect(unit?.kind).toBe("batch");
+    expect(unit?.statements).toHaveLength(2);
+    expect(unit?.statements[0]).toContain("__viborm_assert__");
+    expect(unit?.statements[1]).toMatch(FOLDED_UPDATE);
   });
 
-  test("a scalar delete costs two", async () => {
+  // BASELINE UPDATED DELIBERATELY — PLAN Phase 6.2, the delete projection of
+  // the same fold. Two round trips became one, and the unit is the same pair.
+  test("a scalar delete costs ONE: [presence guard, DELETE … RETURNING]", async () => {
     const { driver, client } = await seeded();
     await client.user.delete({ where: { email: "root@x" } });
-    expect(driver.roundTrips).toHaveLength(2);
+
+    expect(driver.roundTrips).toHaveLength(1);
+    const [unit] = driver.roundTrips;
+    expect(unit?.kind).toBe("batch");
+    expect(unit?.statements).toHaveLength(2);
+    expect(unit?.statements[0]).toContain("__viborm_assert__");
+    expect(unit?.statements[1]).toMatch(FOLDED_DELETE);
   });
 
   // BASELINE UPDATED DELIBERATELY — PLAN Decision 7.1, the ON CONFLICT door.
@@ -140,10 +160,17 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
     expect(driver.roundTrips[0]?.kind).toBe("execute");
   });
 
-  test("an upsert the door excludes still costs two", async () => {
-    // The same shape with atomic arithmetic in the update payload: conjunct 6
-    // declines it (PostgreSQL calls the bare column reference ambiguous inside
-    // `DO UPDATE SET`), so the Phase 6 baseline above still describes it.
+  // WHY PHASE 6.2 DOES NOT EXTEND HERE — measured, not asserted. The upsert's
+  // update arm ALREADY compiles to the shape 6.2 builds for update and delete:
+  // `[presence guard, UPDATE … RETURNING]`, no postcondition (`enforceAffected`
+  // is a transaction-mode-only conjunct). There is nothing to fold.
+  //
+  // Its remaining round trip is not the fold's to remove: the planning locate is
+  // what DECIDES create-versus-update, and an upsert with no locate has no arm.
+  // Decision 7.1's `INSERT … ON CONFLICT DO UPDATE` door is the mechanism that
+  // removes it, and this payload is the one the door excludes (conjunct 6 —
+  // PostgreSQL calls the bare column reference ambiguous inside `DO UPDATE SET`).
+  test("an upsert the door excludes still costs two — its locate picks the arm", async () => {
     const { driver, client } = await seeded();
     await client.user.upsert({
       where: { email: "root@x" },
@@ -152,7 +179,26 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
     });
     expect(driver.roundTrips).toHaveLength(2);
     expect(driver.roundTrips[0]?.kind).toBe("execute");
-    expect(driver.roundTrips[1]?.kind).toBe("batch");
+    // The atomic unit is already the folded pair — the arm's terminal refetch is
+    // gone and the presence premise rides inside the batch.
+    const unit = driver.roundTrips[1];
+    expect(unit?.kind).toBe("batch");
+    expect(unit?.statements).toHaveLength(2);
+    expect(unit?.statements[0]).toContain("__viborm_assert__");
+    expect(unit?.statements[1]).toMatch(FOLDED_UPDATE);
+  });
+
+  // WHY PHASE 6.2 DOES NOT EXTEND TO `create` EITHER. A scalar create has no
+  // planning read at all — there is no premise about an existing row to check —
+  // so on this substrate it already costs ONE round trip. Its transaction-mode
+  // fold saves a STATEMENT (the terminal refetch), not a round trip, and this
+  // phase is about round trips. Pinned so the claim stays measured: if a create
+  // ever grows a planning read, this is where it shows up.
+  test("a scalar create already costs one round trip", async () => {
+    const { driver, client } = await seeded();
+    await client.user.create({ data: { email: "fresh@x", count: 4 } });
+    expect(driver.roundTrips).toHaveLength(1);
+    expect(driver.roundTrips[0]?.kind).toBe("batch");
   });
 
   // BASELINE UPDATED DELIBERATELY — PLAN Phase 6.1, the level-grouped planning
@@ -254,11 +300,19 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
     expect(planning[0]?.statements).toHaveLength(2);
   });
 
-  test("$transaction([...]) merges the write batch but not the planning read", async () => {
-    // The seam Phase 6.2 has to keep working. A folded single-statement
-    // operation carries a JS postcondition, and `compileToEntries` refuses one
-    // — a postcondition cannot abort a merged batch that has already committed,
-    // so a fold here would turn this working payload into a typed refusal.
+  // BASELINE UPDATED DELIBERATELY — PLAN Phase 6.2. This is the seam that
+  // falsified the plan's own correction: fold to a step carrying a JS
+  // postcondition and `compileToEntries` refuses it here, because this path
+  // merges several operations into ONE driver batch and a check that runs after
+  // the batch returns cannot un-commit the siblings. A working payload would
+  // have become a typed refusal, so the count stayed at two.
+  //
+  // The shipped fold carries no postcondition — its premise is a guard INSIDE
+  // the unit — so nothing is deferred past the merge, the seam keeps working,
+  // and its planning read is gone: two round trips became one. The RESULT is
+  // asserted first and unchanged; that is the half of this test that says the
+  // seam still works rather than merely still being cheap.
+  test("$transaction([...]) folds the update into the merged batch", async () => {
     const { driver, client } = await seeded();
 
     const out = await client.$transaction([
@@ -266,6 +320,7 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
     ]);
 
     expect(out).toEqual([{ id: 1, email: "root@x", count: 3 }]);
-    expect(driver.roundTrips).toHaveLength(2);
+    expect(driver.roundTrips).toHaveLength(1);
+    expect(driver.roundTrips[0]?.kind).toBe("batch");
   });
 });

@@ -216,7 +216,17 @@ describe("the delete fold — statement traffic", () => {
     expect(await client.note.findUnique({ where: { id: 30 } })).toBeNull();
   });
 
-  test("batch mode keeps its in-unit presence guard and its read", async () => {
+  // PIN UPDATED DELIBERATELY — PLAN Phase 6.2. This shape emitted FOUR
+  // statements (planning locate, in-unit presence guard, shape-capturing read,
+  // DELETE) because the fold gate required transaction mode: a folded step
+  // carried an `affectedRows` postcondition, and the atomic batch has no
+  // lowering for one.
+  //
+  // The batch fold drops the postcondition instead of lowering it. The premise
+  // is the guard the unit ALREADY carried (ATOM §8.1 note (b)) — same selector,
+  // same failure, same attribution — so the locate and the read are what go
+  // away, not the presence pin: two statements, one round trip.
+  test("batch mode folds behind its in-unit presence guard", async () => {
     const driver = new BatchOnlyRecordingDriver();
     const client = await boot(driver);
 
@@ -225,14 +235,10 @@ describe("the delete fold — statement traffic", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // The folded step's `affectedRows` postcondition has no atomic-batch
-    // lowering, and the batch substrate pins the row's presence INSIDE the
-    // atomic unit (ATOM §8.1 note (b)) so a concurrent delete aborts it typed.
-    // Both are reasons the gate requires transaction mode: planning locate,
-    // in-unit presence guard, read, DELETE.
-    expect(statements).toHaveLength(4);
-    expect(statements[1]).toContain("__viborm_assert__");
-    expect(statements[3]).toContain("DELETE FROM");
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toContain("__viborm_assert__");
+    expect(statements[1]).toContain("DELETE FROM");
+    expect(statements[1]).toContain("RETURNING");
 
     expect(deleted).toEqual({ id: 4, email: "a4@x", label: "L4" });
     expect(await client.account.findUnique({ where: { id: 4 } })).toBeNull();

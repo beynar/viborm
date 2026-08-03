@@ -75,6 +75,7 @@ import {
   targetNeedsFullUpdate,
 } from "./nested-target-parts";
 import {
+  type GuardStep,
   type OperationFragment,
   type OperationStep,
   ref,
@@ -380,17 +381,21 @@ export class UpdateOperation {
   // The returning-driver fast path (finding 4 / PERF.md P5): a simple update
   // (scalar `data`, no nested relation mutation, a scalar-only projection) on a
   // driver with `RETURNING` folds locate+mutate+terminal into ONE `UPDATE …
-  // WHERE selector RETURNING select` — V1's `compileDirect`. Statement-atomic
-  // (empty planning, exactly one step), so the executor runs it with no
-  // transaction/batch envelope (isStatementAtomic → runLinearOn), enforcing the
-  // affectedRows/notFound postcondition in JS after the single round-trip. The
-  // fold is gated to `transaction` mode: a folded step carries a postcondition,
-  // and the atomic-batch lowering (compileToEntries) does not yet enforce one, so
-  // batch-only drivers keep the plan-then-execute path (whose batch guard checks
-  // presence instead). `undefined` on non-returning drivers, batch mode, a
-  // relation projection, or when nested relations make the mutation genuinely
-  // multi-statement.
+  // WHERE selector RETURNING select` — V1's `compileDirect`. In TRANSACTION mode
+  // it is statement-atomic (empty planning, exactly one step), so the executor
+  // runs it with no envelope at all and enforces the affectedRows/notFound
+  // postcondition in JS after the single round-trip. In BATCH mode it carries no
+  // postcondition and rides one atomic batch behind {@link
+  // UpdateOperation.directGuard} — PLAN Phase 6.2, same one round trip.
+  // `undefined` on non-returning drivers, a relation projection, or when nested
+  // relations make the mutation genuinely multi-statement.
   private readonly directWrite?: StatementStep;
+  // PLAN Phase 6.2 — the batch-mode half of the fold: the presence premise the
+  // transaction fold enforces in JS, asserted INSIDE the atomic batch instead.
+  // `undefined` in transaction mode (the postcondition carries it there) and
+  // wherever `directWrite` is undefined. See its construction for why a JS
+  // postcondition is not available on this substrate.
+  private readonly directGuard?: GuardStep;
   private readonly updateId: string;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly parentWhere: Record<string, unknown>;
@@ -723,16 +728,14 @@ export class UpdateOperation {
     // (lateral joins vs RETURNING subqueries) keeps the proven terminal-read
     // path. `_count` is a relation projection too — it is not a `relationSet`
     // member, and a fold that judged it scalar answered a WRONG count from the
-    // name-captured correlation (`selectProjectsRelation`). Gated to
-    // `transaction` mode: the folded step's postcondition has no atomic-batch
-    // lowering yet (compileToEntries), so batch-only drivers keep
-    // plan-then-execute (their batch guard checks presence).
+    // name-captured correlation (`selectProjectsRelation`). NOT gated to
+    // `transaction` mode — see {@link UpdateOperation.directGuard} for how the
+    // presence assertion is carried on each substrate.
     const selectIsScalarOnly = !selectProjectsRelation(
       model,
       this.parsedSelect
     );
     const canFold =
-      txMode &&
       // X1c: a nested target emits no terminal read and must LOCATE + CORRELATE (its
       // membership in the enclosing parent is verified by the locate) — never the
       // single-statement RETURNING fold, which skips both the locate and the terminal.
@@ -747,6 +750,9 @@ export class UpdateOperation {
       selectIsScalarOnly &&
       !this.parsedInclude &&
       Object.keys(parentSet).length > 0;
+    const notFound = notFoundFailure(
+      `query-engine-v2 update located no '${parentName}' row for its unique where.`
+    );
     this.directWrite = canFold
       ? {
           id: updateId,
@@ -757,14 +763,45 @@ export class UpdateOperation {
             select: this.parsedSelect,
           }),
           outputs: { result: { kind: "rows" } },
-          expects: affectedRows(
-            1,
-            notFoundFailure(
-              `query-engine-v2 update located no '${parentName}' row for its unique where.`
-            )
-          ),
+          // Transaction mode enforces presence in JS after the single
+          // round-trip. Batch mode cannot — see `directGuard`.
+          ...(txMode ? { expects: affectedRows(1, notFound) } : {}),
         }
       : undefined;
+    // PLAN Phase 6.2 — the fold's presence assertion on a batch-only driver.
+    //
+    // The plan's own correction ("move the affected-count check to the JS
+    // postcondition") was BUILT and FALSIFIED: a folded step carrying a
+    // postcondition reaches `compileToEntries` through the `$transaction([...])`
+    // array seam, which fails closed on exactly that — and correctly, because
+    // that seam merges several operations into ONE driver batch and a JS check
+    // running after the batch returns cannot un-commit the siblings. A working
+    // payload would have become a typed refusal. This is the recorded
+    // ALTERNATIVE: the same premise asserted IN the batch, so the plan is
+    // `[presence guard, UPDATE … RETURNING]` — one round trip, no postcondition,
+    // and the array seam keeps working because nothing about it is deferred.
+    //
+    // The guard names the CALLER'S selector, not a captured primary key, and
+    // that is not the split-witness downgrade `buildRootPresenceGuard` refuses:
+    // there is no capture to be split from. The unfolded path locates by one
+    // predicate and writes by another (the captured PK), so the guard has to
+    // answer for the located row; here the guard and the UPDATE carry the SAME
+    // predicate inside one atomic unit, so there is no window between them and
+    // no second row for a reassignment to walk onto.
+    //
+    // The failure is the same `notFound` the transaction fold's postcondition
+    // carries, so `attributeGuardFailure` builds the byte-identical NotFoundError.
+    this.directGuard =
+      canFold && !txMode
+        ? presenceGuard(
+            this.rootGuardId,
+            buildFindUnique(parent, {
+              where: this.parentWhere,
+              select: this.pkSelect(),
+            }),
+            notFound
+          )
+        : undefined;
     // A parent-held `create`/`connectOrCreate` folds its FK into the root UPDATE at
     // compile (the value is a `Ref`, or a found/missing decision), so the parent
     // UPDATE is needed even when the construction-time `parentSet` is empty. The
@@ -906,13 +943,17 @@ export class UpdateOperation {
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
-    // The RETURNING fold compiles to its one write step regardless of `known`
-    // (it consumes no planning value): the `UPDATE … WHERE selector RETURNING
-    // select` locates, mutates, and returns the row in one statement, with the
-    // affectedRows/notFound postcondition enforced by the executor after it runs.
+    // The RETURNING fold compiles regardless of `known` (it consumes no planning
+    // value): the `UPDATE … WHERE selector RETURNING select` locates, mutates,
+    // and returns the row in one statement. Transaction mode runs that statement
+    // alone, its affectedRows/notFound postcondition enforced by the executor
+    // after it. Batch mode puts the same premise in front of it as a guard
+    // (`directGuard`), so the pair is one atomic batch and one round trip.
     if (this.directWrite) {
       return {
-        steps: [this.directWrite],
+        steps: this.directGuard
+          ? [this.directGuard, this.directWrite]
+          : [this.directWrite],
         outputs: { result: ref(this.updateId, "result") },
       };
     }
