@@ -75,6 +75,7 @@ import {
   isRecord,
   type SubOperationOptions,
   selectExecutionMode,
+  selectProjectsRelation,
   UnsupportedOperationError,
 } from "./shared";
 
@@ -1636,12 +1637,14 @@ export class CreateOperation {
     };
   }
 
+  /** Scalars alone, so `buildCreate`'s RETURNING list and the terminal read's
+   *  projection name the same columns. `_count` is a relation projection, not a
+   *  scalar one: a folded create answered it from a RETURNING subquery whose outer
+   *  reference binds by name, which counted a child row whose own `id` equalled its
+   *  FK instead of the (necessarily zero) children of the fresh row. */
   private projectionIsScalarOnly(): boolean {
     if (this.parsedInclude) return false;
-    if (!this.parsedSelect) return true;
-    return !Object.keys(this.parsedSelect).some((field) =>
-      this.model["~"].relationSet.has(field)
-    );
+    return !selectProjectsRelation(this.model, this.parsedSelect);
   }
 
   private assertCreateTreeKinds(

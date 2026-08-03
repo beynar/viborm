@@ -112,6 +112,7 @@ import {
   type SubOperationOptions,
   sameScalarValue,
   selectExecutionMode,
+  selectProjectsRelation,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
@@ -720,11 +721,15 @@ export class UpdateOperation {
     // projection and the terminal `buildFindUnique` projection are the same
     // columns, so the parsed result is byte-identical; a relation projection
     // (lateral joins vs RETURNING subqueries) keeps the proven terminal-read
-    // path. Gated to `transaction` mode: the folded step's postcondition has no
-    // atomic-batch lowering yet (compileToEntries), so batch-only drivers keep
+    // path. `_count` is a relation projection too — it is not a `relationSet`
+    // member, and a fold that judged it scalar answered a WRONG count from the
+    // name-captured correlation (`selectProjectsRelation`). Gated to
+    // `transaction` mode: the folded step's postcondition has no atomic-batch
+    // lowering yet (compileToEntries), so batch-only drivers keep
     // plan-then-execute (their batch guard checks presence).
-    const selectIsScalarOnly = !Object.keys(this.parsedSelect).some((field) =>
-      model["~"].relationSet.has(field)
+    const selectIsScalarOnly = !selectProjectsRelation(
+      model,
+      this.parsedSelect
     );
     const canFold =
       txMode &&

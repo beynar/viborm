@@ -27,7 +27,12 @@ import {
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
-import { getStepModelName, isRecord, selectExecutionMode } from "./shared";
+import {
+  getStepModelName,
+  isRecord,
+  selectExecutionMode,
+  selectProjectsRelation,
+} from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -175,7 +180,10 @@ export class DeleteOperation {
     //    pinned by non-returning-delete-plan.test.ts).
     //  - a SCALAR-ONLY projection. A relation `include`/`select` must read the
     //    related rows BEFORE the row is gone — a cascade takes them with it — and
-    //    a lateral join has no RETURNING spelling anyway.
+    //    a lateral join has no RETURNING spelling anyway. `_count` is a relation
+    //    projection too (`selectProjectsRelation`): it is not a `relationSet`
+    //    member, and a fold that judged it scalar answered a WRONG count from the
+    //    name-captured correlation, not merely a stale one.
     //
     // The race protection the multi-statement path buys with its captured PK
     // (locate FOR UPDATE by an alternate unique, then `WHERE id`, so a concurrent
@@ -184,8 +192,9 @@ export class DeleteOperation {
     // the write to race, because there is no separate locate. One statement
     // matches, locks and removes one row atomically. This is the identical
     // argument the update fold makes for `UPDATE … WHERE selector RETURNING`.
-    const selectIsScalarOnly = !Object.keys(this.parsedSelect ?? {}).some(
-      (field) => model["~"].relationSet.has(field)
+    const selectIsScalarOnly = !selectProjectsRelation(
+      model,
+      this.parsedSelect
     );
     const canFold =
       txMode &&

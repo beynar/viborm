@@ -239,6 +239,148 @@ describe("the delete fold — statement traffic", () => {
   });
 });
 
+describe("the delete fold — a projection answers what the read answers", () => {
+  /**
+   * THE ORACLE the `_count` defect got past. A delete's projection is asserted
+   * against `findUnique`'s answer for the SAME projection on the SAME row — not
+   * against a literal, and not only on the substrate that happens to fold.
+   *
+   * `_count` is a relation projection that is NOT a member of `relationSet`, so a
+   * gate spelled `relationSet.has(field)` judged it scalar and folded. A relation
+   * subquery inside a `RETURNING` list has no table alias to correlate against:
+   * `DELETE` has no alias, so the outer reference was emitted BARE as `"id"`, and
+   * inside a subquery whose FROM is the child table it bound to the CHILD's `id`.
+   * The predicate silently became `note.id = note.accountId`. Measured on PGlite
+   * and better-sqlite3 before the fix: the read said 3 and the folded delete said
+   * 0 — one payload, two substrates, two different answers.
+   *
+   * Stated as read-equality rather than fold-equality on purpose: it is the
+   * property that must hold whatever the gate decides, so it keeps biting if the
+   * fold ever widens again.
+   */
+  const projections = [
+    {
+      name: "_count with an explicit relation",
+      count: { select: { notes: true } },
+    },
+    { name: "_count shorthand (every relation)", count: true },
+  ] as const;
+
+  for (const projection of projections) {
+    test(`a delete projecting ${projection.name} answers the read's count, on both substrates`, async () => {
+      const truthDriver = new RecordingPGliteDriver();
+      const truthClient = await boot(truthDriver);
+      // Three notes, so a wrong answer cannot coincide with the right one and the
+      // seeded single note of `boot` cannot be mistaken for a correct count.
+      for (const id of [31, 32]) {
+        await truthClient.note.create({
+          data: { id, body: `n${id}`, accountId: 3 },
+        });
+      }
+      const select = { id: true, _count: projection.count };
+
+      // The control: the same projection through the read path, which builds the
+      // correlation against an ALIASED outer SELECT.
+      const truth = await truthClient.account.findUnique({
+        where: { id: 3 },
+        select,
+      });
+      expect(truth).toEqual({ id: 3, _count: { notes: 3 } });
+
+      for (const driver of [
+        new RecordingPGliteDriver(),
+        new BatchOnlyRecordingDriver(),
+      ]) {
+        const client = await boot(driver);
+        for (const id of [31, 32]) {
+          await client.note.create({
+            data: { id, body: `n${id}`, accountId: 3 },
+          });
+        }
+        driver.recording = true;
+        const deleted = await client.account.delete({
+          where: { id: 3 },
+          select,
+        });
+        const statements = drain(driver);
+        driver.recording = false;
+
+        expect(deleted).toEqual(truth);
+        // ...and it got there by declining the fold: the count has to be read
+        // through an aliased SELECT, which is a statement of its own.
+        expect(statements.length).toBeGreaterThan(1);
+        expect(statements.some((sql) => sql.startsWith("DELETE"))).toBe(true);
+        expect(
+          await client.account.findUnique({ where: { id: 3 } })
+        ).toBeNull();
+      }
+    });
+  }
+});
+
+describe("every RETURNING fold — the same projection gate, the same oracle", () => {
+  /**
+   * The gate `DeleteOperation` shares with its three siblings lives in ONE place
+   * (`shared.selectProjectsRelation`), so the sibling folds are asserted against
+   * the same oracle here rather than left to a separate filing: `create`'s
+   * `foldStep`, `update`'s `directWrite` and `upsert`'s `canFoldUpdateArm` each
+   * emit `… RETURNING <select>` and each answered `_count` from a bare, aliasless
+   * correlation. Measured before the fix, an account with three notes:
+   * `update`/`upsert` said 0 where the read said 3, and a pure-scalar `create` —
+   * whose truth is necessarily 0, because nothing can reference a row that did not
+   * exist — said 1 whenever some child row's own `id` equalled its foreign key.
+   *
+   * That last row is seeded here on purpose (`note 7` on `account 7`): it makes the
+   * captured predicate `note.id = note.accountId` true for exactly one row, so the
+   * wrong answer is a wrong NUMBER on every operation rather than an empty one that
+   * could be mistaken for a cascade or a read-after-write.
+   */
+  test("create / update / upsert answer the read's `_count`, not the captured one", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+    for (const id of [31, 32]) {
+      await client.note.create({ data: { id, body: `n${id}`, accountId: 3 } });
+    }
+    await client.account.create({
+      data: { id: 7, email: "a7@x", label: "L7" },
+    });
+    await client.note.create({ data: { id: 7, body: "n7", accountId: 7 } });
+
+    const select = { id: true, _count: { select: { notes: true } } } as const;
+    expect(
+      await client.account.findUnique({ where: { id: 3 }, select })
+    ).toEqual({ id: 3, _count: { notes: 3 } });
+
+    // `update` — a scalar SET with no nested relation work, the shape that folds.
+    expect(
+      await client.account.update({
+        where: { id: 3 },
+        data: { label: "L3-updated" },
+        select,
+      })
+    ).toEqual({ id: 3, _count: { notes: 3 } });
+
+    // `upsert` — its update arm is the same fold.
+    expect(
+      await client.account.upsert({
+        where: { id: 3 },
+        create: { id: 3, email: "a3@x", label: "L3" },
+        update: { label: "L3-upserted" },
+        select,
+      })
+    ).toEqual({ id: 3, _count: { notes: 3 } });
+
+    // `create` — a pure scalar create, the shape that folds. A fresh row owns
+    // nothing, so the only answer that is not the captured one is zero.
+    expect(
+      await client.account.create({
+        data: { id: 8, email: "a8@x", label: "L8" },
+        select,
+      })
+    ).toEqual({ id: 8, _count: { notes: 0 } });
+  });
+});
+
 describe("the delete fold — the NotFoundError is unchanged", () => {
   /**
    * The identity of the rejection a missing row produces — class, name, message
@@ -393,6 +535,23 @@ describe("the delete fold — the plan shape, without a database", () => {
     );
 
     expect(operation!.planning().steps).toHaveLength(1);
+  });
+
+  test("`_count` in `select` does not fold either, in either spelling", () => {
+    // `_count` is a relation projection that is NOT a member of `relationSet`, so
+    // the gate cannot key on that set alone — the first spelling did, judged
+    // `_count` scalar, and folded into a `RETURNING` list where the correlation
+    // loses its alias. Both Prisma spellings name the same projection.
+    for (const count of [true, { select: { notes: true } }]) {
+      const operation = constructRoutedOperation(
+        engineFor(new PGliteDriver()),
+        schema.account,
+        "delete",
+        { where: { id: 1 }, select: { id: true, _count: count } }
+      );
+
+      expect(operation!.planning().steps).toHaveLength(1);
+    }
   });
 
   test("a NON-RETURNING driver keeps the locate, the read, and the delete", () => {

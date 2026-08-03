@@ -140,6 +140,48 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Does this `select` project a RELATION rather than scalars alone?
+ *
+ * Two keys spell one projection and both are it: a relation key, and `_count` — a
+ * relation-derived projection built by the same correlated-subquery machinery, and
+ * NOT a member of `relationSet`.
+ *
+ * One home (X2), because four fold gates ask it and must answer alike:
+ * `CreateOperation.foldStep`, `UpdateOperation.directWrite`,
+ * `UpsertOperation.canFoldUpdateArm` and `DeleteOperation.foldStep`. Each folds its
+ * operation into ONE `… RETURNING <select>` statement, and **a relation subquery in
+ * a RETURNING list has no table alias to correlate against**: its outer column
+ * reference is emitted bare and binds by NAME, so the inner table captures it
+ * whenever both tables carry a column of that name. This is the identical defect
+ * `restrictToScalarProjection` (`validation/model/args/bulk-write-projection.ts`)
+ * refuses outright on bulk writes.
+ *
+ * Measured on PGlite (PG 17) and better-sqlite3 3.51, an `author` with three `post`
+ * children and a `post` table that has its own `id`, `findUnique` as the control:
+ *
+ *   findUnique({ select: { id, _count: { select: { posts } } } })   -> { posts: 3 }
+ *   delete    (same select, folded)                                 -> { posts: 0 }
+ *   update    (same select, folded)                                 -> { posts: 0 }
+ *   create    (pure scalar, folded, one child row whose own id equals
+ *              its FK)                                              -> { posts: 1 }, truth 0
+ *
+ * The correlation degrades to `post.id = post.authorId`, so the answer is not even
+ * reliably empty — it counts whatever the captured name happens to make true, which
+ * is why a child table without an `id` column would have looked correct. Answer "yes,
+ * a relation" here and the gate declines the fold; the unfolded path reads the
+ * projection through an aliased SELECT, which correlates and answers the truth.
+ */
+export function selectProjectsRelation(
+  model: Model<any>,
+  select: Readonly<Record<string, unknown>> | undefined
+): boolean {
+  if (!select) return false;
+  return Object.keys(select).some(
+    (key) => key === "_count" || model["~"].relationSet.has(key)
+  );
+}
+
+/**
  * Whether a referenced-key transition is a NO-OP — an `increment: 0` or a `set` to the
  * value the key already carries. The SET writes something, but the key does not MOVE, so
  * no slot is vacated, no child is stranded, and the ordinary parts hold unchanged: no

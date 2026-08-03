@@ -59,6 +59,7 @@ import {
   isRecord,
   type SubOperationOptions,
   selectExecutionMode,
+  selectProjectsRelation,
   UnsupportedOperationError,
 } from "./shared";
 import { UpdateOperation } from "./UpdateOperation";
@@ -291,8 +292,12 @@ export class UpsertOperation {
       select: this.parsedSelect,
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
     };
-    const selectIsScalarOnly = !Object.keys(this.parsedSelect).some((field) =>
-      model["~"].relationSet.has(field)
+    // `_count` counts as a relation projection here too: it is not a `relationSet`
+    // member, and a folded update arm answered it from a RETURNING subquery whose
+    // outer reference binds by name (`selectProjectsRelation`).
+    const selectIsScalarOnly = !selectProjectsRelation(
+      model,
+      this.parsedSelect
     );
     this.canFoldUpdateArm =
       !updateHasRelations &&

@@ -308,7 +308,7 @@ Emit `DELETE FROM t WHERE <unique where> RETURNING <scalar select>` as one state
 
 #### What shipped
 
-One gate and one step in [`src/query-engine-v2/DeleteOperation.ts`](../../src/query-engine-v2/DeleteOperation.ts), mirroring `UpdateOperation`'s `canFold` and `CreateOperation.foldStep`. A delete folds when all four hold: transaction mode, a RETURNING driver, a scalar-only projection, and no `include`. The folded operation has EMPTY planning and one write step, so `OperationExecutor.statementAtomicPlan` runs it directly on the base driver — no transaction envelope — with `affectedRows(1, notFound)` enforced in JS afterwards.
+One gate and one step in [`src/query-engine-v2/DeleteOperation.ts`](../../src/query-engine-v2/DeleteOperation.ts), mirroring `UpdateOperation`'s `canFold` and `CreateOperation.foldStep`. A delete folds when all four hold: transaction mode, a RETURNING driver, a scalar-only projection (see the `_count` correction below), and no `include`. The folded operation has EMPTY planning and one write step, so `OperationExecutor.statementAtomicPlan` runs it directly on the base driver — no transaction envelope — with `affectedRows(1, notFound)` enforced in JS afterwards.
 
 The DELETE already carried a RETURNING clause whose rows were discarded; the snapshot SELECT re-read exactly what the write was handing back. The fold is that clause put to use.
 
@@ -328,9 +328,25 @@ The DELETE already carried a RETURNING clause whose rows were discarded; the sna
 - **The extended-whereUnique filter half.** The filter rides into the folded DELETE's WHERE. It is only wrapped in a derived table on dialects that reject reading the mutated table (MySQL 1093) — and MySQL never folds — so PostgreSQL and SQLite are unaffected. The whole `extended-where-unique` suite is green on both substrates, self-relation filters included.
 - **The batch substrate**, **MySQL**, and the frozen `OperationFragment.ts` vocabulary.
 
+#### The `_count` correction (review, 2026-08-03)
+
+**The first spelling of "scalar-only" let `_count` fold, and a folded delete answered a WRONG relation count.** `selectIsScalarOnly` asked `model["~"].relationSet.has(field)`, and `_count` is a relation-derived projection that is **not a member of that set** — while `getDeleteArgs` validates `select` against the full `core.select`, which does include it. So `delete({ where, select: { id: true, _count: { select: { posts: true } } } })` folded, and measured on PGlite (PG 17) and better-sqlite3 3.51 with an author owning three posts:
+
+| Path | Answer |
+| --- | --- |
+| `findUnique` (the control) | `{ id: 1, _count: { posts: 3 } }` |
+| `delete`, folded (transaction substrate) | `{ id: 1, _count: { posts: 0 } }` — **wrong** |
+| `delete`, unfolded (batch substrate) | `{ id: 1, _count: { posts: 3 } }` |
+
+One payload, two substrates, two different answers. **The cause is name capture, not a cascade and not a read-after-write** — reproduced with a nullable FK and no cascade, the children surviving the delete. A `DELETE` has no table alias, so the count correlation is emitted BARE: `… json_build_object($2, (SELECT COUNT(*) FROM "f_post" AS "t1" WHERE "id" = "t1"."authorId"))`. Inside a subquery whose `FROM` is the child table — which has its own `id` — the bare `"id"` binds to `"t1"."id"` and the predicate silently becomes `t1.id = t1.authorId`. The unfolded read emits `"t0"."id" = "t1"."authorId"` and is right. This is the identical defect `restrictToScalarProjection` ([`bulk-write-projection.ts`](../../src/validation/model/args/bulk-write-projection.ts)) already refuses outright on bulk writes, and its doc comment already said `_count` counts as a relation there.
+
+**Fix.** The predicate has one home now — `shared.selectProjectsRelation` — and it answers `_count` as a relation. The **three sibling folds carried the same defect and are corrected in the same commit**, because they read the same gate off the same helper: `update`'s `directWrite` and `upsert`'s `canFoldUpdateArm` also answered 0 where the read said 3, and `create`'s `foldStep` — whose truth is necessarily 0, since nothing can reference a row that did not exist — answered **1** whenever some child row's own `id` equalled its foreign key. All four now match `findUnique`.
+
+**Why nothing caught it.** The full estate was green, `pnpm test:gates` 72/72, `tests/query-engine` + `tests/query-engine-v2` exit 0. Nothing in the estate exercised a relation projection on a delete against a database: this phase's own `select`-with-relation witness is pinned at the PLAN level only, deliberately, because that path has a separate PostgreSQL 0A000 defect — and that deliberate narrowing is exactly what let the `_count` sibling through. The new witnesses are therefore stated as **read-equality**, not fold-equality: a delete's projection must equal what `findUnique` answers for the SAME projection on the SAME row, on BOTH substrates, so the property keeps biting whatever the gate decides.
+
 #### Witnesses
 
-[`tests/query-engine-v2/delete-fold.test.ts`](../../tests/query-engine-v2/delete-fold.test.ts) — nine, on a recording PGlite driver plus three plan-shape assertions that need no database. Every conjunct of the gate was falsified individually: removing the gate fails the two count witnesses and the plan shape; removing the `include` exclusion fails the include witness; removing the transaction-mode conjunct fails the batch witness; removing the RETURNING conjunct fails the non-returning plan witness.
+[`tests/query-engine-v2/delete-fold.test.ts`](../../tests/query-engine-v2/delete-fold.test.ts) — nine, on a recording PGlite driver plus three plan-shape assertions that need no database; four more added by the `_count` correction (two live `_count` spellings against the read on both substrates, one live create/update/upsert oracle whose seed includes a child row whose own `id` equals its foreign key so a wrong answer is a wrong NUMBER rather than an empty one, and one plan-level decline for both `_count` spellings). Each of the four fails when the `_count` conjunct is removed: live, 0 (delete) and 1 (create/update/upsert) against a truth of 3; at the plan level, empty planning where one locate step is required. Every conjunct of the gate was falsified individually: removing the gate fails the two count witnesses and the plan shape; removing the `include` exclusion fails the include witness; removing the transaction-mode conjunct fails the batch witness; removing the RETURNING conjunct fails the non-returning plan witness.
 
 The delete pin in `tests/query-engine/sql-generation.test.ts` was updated deliberately, with the rationale in place: the old test asserted that `build()` REJECTS a root delete, which pinned the very round-trip count this phase removes. It is replaced by two tests — one folded statement on a RETURNING adapter, and the surviving refusal on MySQL.
 
