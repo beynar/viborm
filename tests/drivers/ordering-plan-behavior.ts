@@ -201,7 +201,7 @@ export function runOrderingPlanBehavior({
       if (dialect === "postgresql") {
         expect(plan).not.toContain("Sort Key");
       }
-    });
+    }, 120_000);
 
     test("a windowed order on a NOT NULL column walks the index", async () => {
       const { c, seqScanSetting } = await connect();

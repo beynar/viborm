@@ -398,12 +398,19 @@ describe("the delete fold — the NotFoundError is unchanged", () => {
       () => undefined,
       (caught: unknown) => caught
     );
-    const notFound = error as NotFoundError;
+    // Narrow rather than assert: AGENTS.md forbids type assertions, and the
+    // assertion here also lied about the resolved case — when `act` RESOLVES,
+    // `error` is `undefined`, and only the optional chaining kept the reads from
+    // throwing. The `toEqual` against a full object below is what catches both a
+    // resolution and a different error class.
+    if (!(error instanceof NotFoundError)) {
+      return { isNotFoundError: false };
+    }
     return {
-      isNotFoundError: error instanceof NotFoundError,
-      name: notFound?.name,
-      message: notFound?.message,
-      code: notFound?.code,
+      isNotFoundError: true,
+      name: error.name,
+      message: error.message,
+      code: error.code,
     };
   }
 
