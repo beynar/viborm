@@ -338,6 +338,26 @@ describe("SQLite3 DDL Generation", () => {
       );
     });
 
+    // Plan §10.6: `IndexType` now spells `fulltext`/`spatial` because MySQL's
+    // whole round trip already did. The per-dialect refusal is what keeps the
+    // widened union honest, and it is stated here rather than assumed.
+    it("refuses a fulltext index by name — SQLite has none", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "posts",
+        index: {
+          name: "idx_posts_body",
+          columns: ["body"],
+          unique: false,
+          type: "fulltext",
+        },
+      };
+
+      expect(() => generateDDL(op)).toThrow(
+        'Index "idx_posts_body" uses unsupported index type "fulltext". Supported types for sqlite: btree'
+      );
+    });
+
     it("should generate multi-column index", () => {
       const op: DiffOperation = {
         type: "createIndex",

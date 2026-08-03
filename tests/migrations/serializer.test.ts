@@ -536,6 +536,25 @@ describe("declared index columns resolve through .map()", () => {
     ]);
   });
 
+  /**
+   * Plan §10.6. Everything under the schema already spoke `fulltext` — the
+   * MySQL emitter, its introspection, its capability list and the snapshot's
+   * own `IndexDef` — but `IndexType` could not spell it, so no schema could
+   * ask. This is the declaration that could not be written before, and it has
+   * to reach the snapshot for any of the rest to be reachable.
+   */
+  it("carries a declared fulltext index type into the snapshot", () => {
+    const Post = s
+      .model({ id: s.string().id(), body: s.string() })
+      .index(["body"], { type: "fulltext" });
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      expect.objectContaining({ columns: ["body"], type: "fulltext" }),
+    ]);
+  });
+
   it("writes the mapped column names into a compound index, in order", () => {
     const Post = s
       .model({
