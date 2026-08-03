@@ -685,6 +685,74 @@ The compiled writes ride one atomic batch. The planning reads do not: each plann
 1. Count the round trips with the batch-only PGlite driver (a counter subclass): a nested-write update must cost at most three; a scalar update must cost one.
 2. Make sure that staleness handling, guards, and error attribution stay identical (run the staleness-injection suite in batch mode).
 
+### Measured starting line, and two blockers the plan text does not account for
+
+**Delivered here: the measurement, not the change.** Both units were implemented and
+measured live on the batch-only PGlite stand-in, and each ran into a blocker that is a
+decision rather than a defect. The counts below are pinned by
+[`tests/query-engine-v2/batch-round-trip-baseline.test.ts`](../../tests/query-engine-v2/batch-round-trip-baseline.test.ts),
+which counts every call reaching a driver execution seam — on D1 and Neon HTTP that is
+one HTTP request each. It is a harness, not an endorsement: every number in it is a
+target this phase exists to lower, and a change that raises one is a regression.
+
+| Payload (batch-only driver) | Today | 6.1 measured | 6.2 measured |
+| --- | --- | --- | --- |
+| scalar `update` | 2 | 2 | **1** |
+| scalar `delete` / `upsert` update-arm | 2 | 2 | not reached |
+| nested update, one child target | 3 | 3 | — |
+| nested update, two sibling targets | 4 | **3** | — |
+| nested update, four sibling targets | 6 | **3** | — |
+| `update` with a nested `upsert` | 3 | **2** | — |
+
+6.1 behaves exactly as the plan predicts: only a technique-#1 reference orders planning
+steps, so grouping by level makes the planning cost one round trip per LEVEL rather than
+per READ, and the total stops growing with the fan-out. The falsification bites as
+specified — ignoring the references and sending every planning read in one batch fails
+with `Operation reference 'user.locate.id' is unresolved`, because the correlated probe's
+parameter is the locate's output.
+
+**Blocker 6.1 — the race-injection harness assumes the first batch is the write batch.**
+Nine test files carry the same one-shot `beforeBatch` driver hook, whose contract is
+stated as "runs between planning and the atomic batch — the deterministic staleness
+window". It is implemented as "fire on the first `executeBatch`". Once planning reads
+also travel by batch, that hook fires on a PLANNING batch and the injected concurrent
+mutation lands before planning instead of between planning and the write, so the window
+under test is never opened: **12 tests across 4 files go red**, every one of them a race
+premise (`staleness-injection`, `upsert-family`, `create-family`,
+`produced-identity-race-pin`). No guard, error or attribution changes — the compiled
+write unit and `compileToEntries` are untouched, and grouping READS under one batch makes
+planning see a single snapshot rather than several, which is a strengthening. The
+harness's timing assumption is what breaks. Making 6.1 shippable therefore means editing
+the race-protection net in nine files so this phase's own optimization goes green, which
+is the one thing this plan's rules single out for a reviewer's attack. **Disposition: the
+harness change wants its own review and its own authorization; it is not a step to fold
+into a performance phase.**
+
+**Blocker 6.2 — a JS postcondition cannot abort a batch that has already committed.**
+Removing the `txMode` conjunct from `UpdateOperation.canFold` does deliver the plan's
+number: a scalar update on a batch-only driver drops from 2 round trips to **1**, running
+through `statementAtomicPlan` with `affectedRows(1, notFound)` enforced in JS, exactly as
+the plan describes. But the folded fragment is then one step carrying a postcondition, and
+`$transaction([...])` on a batch-only driver reaches `prepareSharedBatch` →
+`compileToEntries`, which fails closed on precisely that:
+
+```text
+QueryEngineError: Step 'user.update' carries a postcondition
+that is not yet enforced in batch mode.
+```
+
+That refusal is correct and must stay. The array seam merges several operations into ONE
+driver batch, so a JS check that runs after the batch returns cannot un-commit the
+siblings; the presence assertion has to be IN the batch, which is what the unfolded path's
+guard already is. So `$transaction([client.user.update(…)])` — working today, and pinned
+by the baseline harness — would become a typed refusal. The fold is legal exactly where the
+operation is its OWN atomic unit and illegal where it is merged with siblings, and the
+operation is constructed before either seam is known. **Disposition: 6.2 needs a seam
+decision first.** The shape that satisfies both is not the plan's ("move the check to the
+JS postcondition") but its batch-mode analogue: emit `[presence guard, UPDATE … RETURNING]`
+with no postcondition, which is also one round trip, keeps the array seam working, and
+reuses the existing `attributeGuardFailure` attribution unchanged.
+
 ---
 
 ## Phase 7 — Four maintainer decisions
