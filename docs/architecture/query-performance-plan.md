@@ -1758,6 +1758,99 @@ assertions Phase 8 retargeted with its recorded rationale.
 5. **Schema API gaps, record or implement.** Expression indexes are not declarable (`IndexDefinition.fields` is a plain name array, [`model.ts:75-81`](../../src/schema/model/model.ts)); this closes the only index escape for the insensitive-mode predicates. ANN vector indexes (ivfflat, hnsw) are not declarable while vector `orderBy` ships ([`vector-distance-builder.ts:97`](../../src/query-engine/builders/vector-distance-builder.ts)) — each vector similarity query is a full scan.
 6. **The index-type union.** The MySQL driver validates `fulltext` and `spatial` ([`mysql/index.ts:62`](../../src/migrations/drivers/mysql/index.ts)) but the type union `"btree" | "hash" | "gin" | "gist"` ([`model.ts:66`](../../src/schema/model/model.ts)) cannot spell them. Align the union or remove the driver validation.
 
+### Phase 10 delivery record
+
+**Delivered:** 2026-08-03. Branch `nested-write-boundaries`, on top of the Phase 8/9 wave. The same wave carries Decision 7.4, whose disposition is written into its own section above.
+
+#### 10.1 — the false capability flag: **already delivered, in Phase 8**
+
+Not redone here. `supportsCteWithMutations` was flipped to `false` for SQLite in the Phase 8 wave, because Phase 8's own folds are the first readers of it — see the Phase 8 delivery record, which measured SQLite 3.51 and records why the flag was corrected rather than removed. This item is closed by that work, not by this one.
+
+#### 10.2 — the MySQL `BINARY` wrap: an accelerator conjunction, on `equals` and `in` only
+
+**Measured first, on the Docker MySQL 8.4 container, 20,000 rows, before any code moved.** Two tables with the same data and the same index: one in `utf8mb4_0900_bin`, the collation viborm's own `CREATE TABLE` declares ([`mysql/index.ts:298`](../../src/migrations/drivers/mysql/index.ts)), one in MySQL's default `utf8mb4_0900_ai_ci`, which is what a table viborm did not create looks like.
+
+| predicate | plan on the `_bin` table | rows examined |
+| --- | --- | --- |
+| `name = ?` | `ref` on `name_idx` | **1** |
+| `BINARY name = ?` — *what viborm emitted* | `index` (full scan) | **20,455** |
+| `name IN (…)` | `range` on `name_idx` | **3** |
+| `BINARY name IN (…)` — *what viborm emitted* | `index` (full scan) | **20,455** |
+| `name = ? AND BINARY name = ?` | `ref` on `name_idx` | **1** |
+
+So the wrap really does cost the index, and it costs it on the tables viborm creates, where it changes no answer. **But it is not redundant in general**, which is the half that decides the disposition:
+
+| query on the `ai_ci` table | rows returned |
+| --- | --- |
+| `name = 'NAME12345'` | 1 — the wrong-case row, matched |
+| `BINARY name = 'NAME12345'` | 0 |
+| `name = 'NAME12345' AND BINARY name = 'NAME12345'` | 0 |
+| `name = 'name12345' AND BINARY name = 'name12345'` | 1 |
+
+**Disposition: ship the conjunction, do not remove the wrap.** Removal would need "viborm requires a binary collation on MySQL" as a documented precondition, and the adapter's own header promises the opposite — that portable string filters override the database collation explicitly. 7.3 made exactly this call for `startsWithPrefix` three months of decisions ago; this is the same shape for the same reason, and the same measurement supports it.
+
+**Scoped to `equals` and `in`, deliberately, and the exclusions are measured too.**
+
+| form | plan, plain | plan, `BINARY` | verdict |
+| --- | --- | --- | --- |
+| `<>` | `range`, 12,829 rows | `index`, 20,442 | no point lookup to protect |
+| `NOT IN` | `index`, 20,442 rows | `index`, 20,442 | **identical** — nothing to win |
+
+And for the negated forms the accelerator would be **wrong**: on the `ai_ci` table `BINARY name NOT IN ('NAME12345')` keeps 20,000 rows while `name NOT IN ('NAME12345')` keeps 19,999, so a conjunct would REMOVE a row the contract keeps. The implication `BINARY-equal ⟹ collation-equal` only runs in the positive direction. A field-REFERENCE operand is excluded for the third reason: comparing two columns is not an index lookup, so a conjunct there would decide no row's membership and buy no plan — the same scoping `startsWithPrefix` already documents.
+
+**What shipped.** Two adapter operators, `exactTextEq` and `exactTextIn` ([`database-adapter.ts`](../../src/adapters/database-adapter.ts)), which receive the UNWRAPPED column and apply each dialect's own case-sensitive treatment. PostgreSQL and SQLite spell exactly what they spelled before — `caseSensitiveText` is the identity on one and a COLLATION rather than a function on the other, so both were already index-usable and both emissions are byte-identical. MySQL adds the conjunct. The where-builder routes `equals` through `exactEquals` (bound operand + text scalar) and `in` through `exactTextIn`; every other path is untouched.
+
+**One pinned SQL change, deliberate.** `tests/query-engine/field-reference-sql.test.ts`, *a literal operand leaves the column uncast and bound*: MySQL now reads `(t0.status = $1 AND BINARY t0.status = $2)` and binds the operand twice. The pin moved from a shared `exactText(column) = $1` to a per-dialect `exactLiteralEquals`, which is what makes the divergence visible rather than averaged away. PostgreSQL's and SQLite's rows are byte-identical to before. **The doubled parameter is the cost of the conjunction and is recorded as such**: an `IN` list of N values binds 2N placeholders on MySQL.
+
+**Witnesses**, on the Docker MySQL leg, in [`tests/drivers/mysql2.test.ts`](../../tests/drivers/mysql2.test.ts):
+
+- *exact equality on a collation viborm did not choose* — four tests on a hand-made `utf8mb4_0900_ai_ci` table: the accelerator alone answers `equals` and `in` case-INSENSITIVELY (3 and 4 rows), the shipped conjunctions answer exactly (`['Alpha']`, `['Alpha','Beta']`). These state what the SPELLING must do, 7.3's shape exactly.
+- *exact equality keeps the index it used to lose* — MySQL's own `EXPLAIN` verdict, taken on **the statement the client emitted**, captured through the logging instrumentation the same way the Phase 5 plan witnesses take theirs: the emitted `equals` plans `ref`, the emitted `in` plans `range`. The third test keeps the regression on the record by EXPLAINing `BINARY name = ?` itself, which is the one spelling the emitter no longer produces.
+- *emitted equality on a collation viborm did not choose* — the contract half, also on the emitted predicate: the table is pushed (so `_bin`) and then `ALTER`ed to `utf8mb4_0900_ai_ci`, and a real `findMany` with `equals` / `in` must answer `['p1']` and `['p1','p4']` rather than fold the three `Alpha` spellings together.
+
+**That last suite exists because the falsification found it missing.** With only the two spelling-level suites, deleting the `BINARY` conjunct from the adapter failed **one SQL pin and no live test** — measured, not supposed. The spelling suites assert what a predicate does; they cannot assert that the emitter uses it. The `ALTER`-to-`ai_ci` suite closes that, and this gap is worth naming because 7.3's witnesses have the same shape and the same limit.
+
+**Falsification.**
+
+| Reverted | What failed |
+| --- | --- |
+| the accelerator conjunct (back to `BINARY col = ?`) | *the emitted equality plans a lookup* and *the emitted membership plans a range*; the contract witnesses still passed |
+| the `BINARY` conjunct (accelerator only) | *equals/in answers exactly* on the `ai_ci` column, plus the SQL pin; the plan witnesses still passed |
+
+Each conjunct fails on its own, which is what says the two are not one guard twice.
+
+7.3's own two witnesses (*the accelerator alone would answer case-insensitively*, *the shipped conjunction keeps the case-sensitivity contract*) are byte-identical — they are in the section above this one and nothing in the diff reaches `startsWithPrefix`.
+
+#### 10.3 / 10.4 — documentation
+
+| Page | What changed |
+| --- | --- |
+| [`schema/model.mdx`](../../docs/content/docs/schema/model.mdx) | A *Composite indexes for ordered includes* subsection: an `include` that both orders and limits reads each parent's children through a filter-sort-limit, so `(foreignKey, orderColumn)` — in that order — is the index that lets the database stop at N instead of sorting all of them. Says which includes do NOT need it. Plus a per-dialect table for `type` and `where`, replacing the `btree \| hash \| gin \| gist` comment, which was both incomplete after 10.6 and silent about the refusals. |
+| [`relations/many-to-one.mdx`](../../docs/content/docs/schema/relations/many-to-one.mdx) | A new *The foreign-key index* section. **The note flips**: Phase 1 shipped the automatic index, so this no longer says "declare it yourself" — it says you do not, and then says when to widen it, that the leading column must be the foreign key for the wider index to replace the automatic one rather than duplicate it, and that a PARTIAL index does not count (Phase 2's `isTotalIndex` correction, stated where a user would hit it). |
+| [`drivers/postgresql/pglite.mdx`](../../docs/content/docs/drivers/postgresql/pglite.mdx) | PGlite's planner settings, with the value read from the running instance rather than quoted. |
+
+#### 10.5 — the schema-API gaps: RECORDED, not implemented
+
+Neither is one line, and both are recorded here and in the [capability matrix](capability-matrix-2026-07.md) §1.9 rather than half-built.
+
+**Expression indexes are not declarable.** `IndexDefinition.fields` is `Keys extends StringKeyOf<State["scalars"]>[]` ([`model.ts`](../../src/schema/model/model.ts)) — a list of field NAMES, checked against the model, resolved through `getFieldName().sql` by the serializer. There is no position in that shape for `lower(email)`. **What it closes:** `mode: "insensitive"` folds ASCII A–Z client-side into `REPLACE`/`TRANSLATE`/`lower` chains over the column, which no plain-column index can serve — an expression index over the identical fold is the only escape, and the schema cannot ask for one. Implementing it is not a type widening: the field-name resolution, the differ's column comparison, `isTotalIndex`, the Phase-1 coverage decision and three emitters all read `columns: string[]` as names.
+
+**ANN vector indexes are not declarable.** Vector `orderBy` ships and emits the distance operator ([`vector-distance-builder.ts`](../../src/query-engine/builders/vector-distance-builder.ts)), so **every vector similarity query is a full scan** — the exact cost pgvector's `ivfflat`/`hnsw` exist to remove. Declaring one needs more than a new member of the type union: both take an operator class chosen to match the metric (`vector_l2_ops` vs `vector_cosine_ops` — the wrong one silently returns wrong neighbours) and build parameters (`lists`, `m`, `ef_construction`) that `IndexOptions` has no shape for, and the introspection would have to read all of it back or the differ churns the index on every push — the shape Decision 7.4 spent a wave on.
+
+#### 10.6 — the index-type union: ALIGNED
+
+**Measured, not assumed.** The `fulltext`/`spatial` round trip is already complete everywhere except the one line a user touches:
+
+| layer | state before this item |
+| --- | --- |
+| MySQL capability list | `["btree", "fulltext", "spatial"]` — declared |
+| MySQL emitter | writes the `FULLTEXT `/`SPATIAL ` prefix, and refuses to combine either with `UNIQUE` |
+| MySQL introspection | reads them back, normalizing MySQL's `RTREE` to `spatial` |
+| migration snapshot `IndexDef.type` | already `… \| "fulltext" \| "spatial"` |
+| **schema `IndexType`** | **`"btree" \| "hash" \| "gin" \| "gist"` — cannot spell either** |
+
+So the direction was not a judgement call: deleting the driver validation would delete a working emitter, a working introspection and a declared capability to preserve a union that is simply short. `IndexType` gains `"fulltext" | "spatial"`, and `validateIndexType` stays exactly as it is — it is what refuses `fulltext` on PostgreSQL and SQLite, by name, listing what that dialect supports. The capability matrix's own row said as much: *`@@fulltext` — ❌ at schema level, though the migration layer supports it*. That row is now updated.
+
 ---
 
 ## Order of the phases

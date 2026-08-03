@@ -306,8 +306,9 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `@updatedAt` | `.updatedAt()` | ✅ |
 | `@map` / `@@map` | `.map()` | ✅ |
 | `@ignore` / `@@ignore` | `.omit({field:true})` | 🟡 **different semantic** — a SCHEMA-level projection exclusion (since W5-U4: hard, unnameable in `select`/`omit`), not "invisible to client but present in DB": the column is still writable and filterable. No DB-only-field marker |
-| `@@index` | `.index(fields, {name, unique, type, where})` | ✅➕ adds `unique`, `btree\|hash\|gin\|gist`, PG partial-index `where` |
-| `@@fulltext` | — | ❌ at schema level, though the migration layer supports it |
+| `@@index` | `.index(fields, {name, unique, type, where})` | ✅➕ adds `unique`, `btree\|hash\|gin\|gist\|fulltext\|spatial` (refused by name on the dialects that lack each), PG/SQLite partial-index `where`. ❌ **field NAMES only** — an EXPRESSION index (`lower(email)`) cannot be declared, which closes the only index escape for `mode: "insensitive"` predicates; see plan §10.5 |
+| `@@fulltext` | `.index(fields, { type: "fulltext" })` | ✅ **CLOSED by plan §10.6** (MySQL only — the emitter, introspection and capability list already had it; only the schema-level `IndexType` union was short) |
+| — | ANN vector index (`ivfflat`, `hnsw`) | ❌ **not declarable while vector `orderBy` ships** — so every vector similarity query is a full scan. Needs a metric-matched operator class and build parameters `IndexOptions` has no shape for; see plan §10.5 |
 | `@relation(fields, references)` | `.fields()` / `.references()` | ✅ |
 | `@relation(name:)` | `.name()` on all 4 relation kinds | ✅ |
 | Referential actions | `.onDelete()`/`.onUpdate()`: `cascade\|setNull\|restrict\|noAction` | 🟡 **`SetDefault` absent** at schema level. **DDL-enforced only** — no `relationMode="prisma"` client emulation |
