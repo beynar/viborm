@@ -62,6 +62,20 @@ const GROUP_SIZE = 7;
 /** The MySQL emulation spelling or the native one — either states a placement. */
 const NULL_PLACEMENT_REGEX = /IS NULL|NULLS FIRST/;
 
+/**
+ * PostgreSQL's seek, stated about the OUTER relation and nothing else: the scan of
+ * `t0` through the composite index must be bounded by a ROW-value index condition.
+ *
+ * Anchored to the line that follows the `t0` scan node because a bare
+ * `toContain("Index Cond")` is satisfied by the cursor row's OWN primary-key
+ * lookup — which both cursor spellings emit — and so held on the regressed plan
+ * (`Nested Loop Semi Join` with the OR-of-ANDs in a `Join Filter` over a full
+ * `Index Scan` of t0). Measured: with the SQL assertions disabled and the row-value
+ * spelling forced off, the old plan assertions passed on both dialects.
+ */
+const PG_OUTER_ROW_VALUE_SEEK_REGEX =
+  /Index Scan using order_plan_rows_bucket_id_idx on order_plan_rows t0[^\n]*\n\s*Index Cond: \(ROW\(/;
+
 export interface OrderingPlanBehaviorOptions {
   driverName: string;
   createDriver: () => AnyDriver;
@@ -240,15 +254,28 @@ export function runOrderingPlanBehavior({
       expect(emitted).not.toContain("EXISTS");
 
       const plan = await explainOnlyStatement();
-      expect(plan).toContain("order_plan_rows_bucket_id_idx");
+      // Every assertion below names the OUTER relation by its ALIAS, and each of
+      // them names the composite index, so no separate "the index is in the plan"
+      // line is needed. Both cursor spellings locate the cursor row by its own
+      // primary key, and THAT lookup is a seek in both — an `Index Cond` on
+      // PostgreSQL, a `SEARCH` on SQLite — so an assertion that does not say WHICH
+      // relation seeks is satisfied by the walk-and-filter plan this unit replaced.
       if (dialect === "postgresql") {
-        // The seek shows up as a bound on the index, not as a join filter.
-        expect(plan).toContain("Index Cond");
+        // The seek is a ROW-value bound on t0's index, not a join filter.
+        expect(plan).toMatch(PG_OUTER_ROW_VALUE_SEEK_REGEX);
+        // ...and the other relation — the cursor row, addressed by its primary
+        // key, which the regex above says nothing about — is not scanned either.
         expect(plan).not.toContain("Seq Scan");
       } else {
         // SEARCH is a seek; SCAN is a walk.
-        expect(plan).toContain("SEARCH");
-        expect(plan).not.toContain("SCAN order_plan_rows");
+        expect(plan).toContain(
+          "SEARCH t0 USING INDEX order_plan_rows_bucket_id_idx ("
+        );
+        // The outer table must not ALSO appear as a walk — a plan can seek t0 once
+        // and still cross it elsewhere. Spelled with the alias because SQLite
+        // prints only aliases: the earlier `SCAN order_plan_rows` named a string
+        // the planner never emits, so it could not have failed on any plan.
+        expect(plan).not.toContain("SCAN t0");
       }
     }, 120_000);
 
