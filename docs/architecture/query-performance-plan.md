@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phases 4 and 6-10 not started. Phase 2 raised one new maintainer decision, 7.4.
+**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded `connect`/`disconnect` and recorded a disposition for `set` and the M2M junction, which it did not fold. Phases 6-10 not started. Phase 2 raised one new maintainer decision, 7.4.
 
 ## Source of this plan
 
@@ -425,6 +425,74 @@ Group the targets by unique key. For each group, send one probe (`SELECT pk, key
 2. Make sure that a missing target produces the same error text as before, and names the correct target.
 3. Run the full nested-write conformance suite and the M2M behavior suites, tx and batch.
 4. Falsify: remove the grouped probe, and make sure the missing-target witness fails.
+
+#### Phase 4 delivery record
+
+**Delivered:** 2026-08-03, branch `nested-write-boundaries`. Baseline for every number below is `1e67bab`.
+
+**What shipped, and what did not.** The child-held-FK `connect` and `disconnect` families fold. `set` and the M2M junction families do **not** — see the disposition at the end of this record. That is narrower than the plan text above, and the reason is one mechanism, stated there rather than left implicit.
+
+`src/query-engine-v2/link-target-groups.ts` is the fold's one home: `groupLinkTargets` splits a relation's targets into key-shape GROUPS, `linkGroupSelector` builds a group's one `WHERE`, `countDistinctTargets` says how many rows that `WHERE` can name. Two call sites read it — `RelationLinkPart` (the update family's connect/disconnect) and `ChildConnectPart` in `CreateOperation.ts` (the create tree's own child-held connect, which is a separate Part and would otherwise have kept the per-target shape).
+
+**Measured — PGlite, three targets, statements counted at the driver's `execute`/`executeRaw` seam (which sees both substrates).**
+
+| Operation | Before | After |
+| --- | --- | --- |
+| `update` + `connect: [a,b,c]`, transaction | 8 | **4** |
+| `update` + `connect: [a,b,c]`, atomic batch | 12 | **8** |
+| `update` + `disconnect: [a,b,c]`, transaction | 8 | **4** |
+| `update` + `disconnect: [a,b,c]`, atomic batch | 12 | **8** |
+| `create` + `connect: [a,b,c]`, transaction | 8 | **4** |
+| `update` + `connect` over TWO key shapes (2 + 1) | 8 | **6** |
+| `update` + `set: [a,b,c]` | 9 / 13 | unchanged |
+| M2M `connect: [a,b,c]` / `disconnect: [a,b,c]` | 8 / 5 | unchanged |
+
+The link's own traffic is what moved: six statements became two. The other two in the transaction row are the root's locate and terminal read, which this phase does not touch. In batch mode the probe and the write fold and the three presence guards stay, which is the plan's own instruction and is why the batch row lands on eight rather than five.
+
+**A one-target group keeps the arity-1 statements verbatim.** `connect: [{ id: 10 }]` still emits `WHERE "id" = $1` and `UPDATE … WHERE "id" = $2 RETURNING`, not a one-element `IN`. That is deliberate: the single-target spelling is what the overwhelming majority of the estate and every existing plan exercises, and widening it would have made the fold's blast radius the whole engine rather than the list case. A witness pins it.
+
+**What decides a group.** Three clauses, all in `groupLinkTargets`, all of them the fold's PRECONDITION rather than a guard against observed input:
+
+1. *The same discriminator columns.* `{ id }` and `{ email }` are different IN lists.
+2. *No extra filter half.* An extended selector carries a predicate as well as an identity, and two targets' predicates need not agree.
+3. *Primitive key values only.* The missing-target verdict counts distinct keys, and that count must agree with what SQL calls one row.
+
+Clauses 2 and 3 are **not reachable through the client today**, and that was measured rather than assumed: nested `connect`/`disconnect` take the STRICT `core.whereUnique` at the parse boundary (`{ id, archived: false }` is rejected with `Unknown key: archived`), and no scalar that admits `.unique()` validates to an object — `blob` refuses `.unique()` outright, and a `dateTime` unique key arrives as a primitive, so it folds. They are kept because `partitionWhereUnique` is the shared extractor and the alternative to reading its `filters` half is *silently dropping* it; and because the count algorithm is simply wrong for object values, so the clause states what it needs rather than guarding against what it fears. Both are exercised directly on the rule (a unit test on `groupLinkTargets`), not left as an unfalsifiable branch.
+
+**The missing-target error keeps its text, its attribution and its phase.** It is decided by a COUNT, and the count is exact rather than approximate: a complete unique key names at most one row, so the grouped probe returns exactly as many rows as there are distinct keys that exist, and fewer means one of the named targets is absent. **Nothing compares a decoded column value against an input value** — which is why `connect: [{ id: 1 }, { id: 1 }]` (two entries, one row) still succeeds, and why clause 3 above exists. A witness takes the arity-1 path's message and byte-compares the grouped path's against it rather than against a literal copied from the source; another puts the absent target first, middle and last in the list; another puts a satisfiable relation beside an unsatisfiable one in the same update and asserts the message and `meta.relation` name the relation that actually failed.
+
+**The write addresses rows by the CALLER's key, not by the probe's primary keys.** The plan text above suggests `UPDATE … WHERE pk IN (…)`. In batch mode the probe runs before the atomic unit while the presence guard runs inside it, so a primary key read at planning time is older than the assertion that admits the write: a row deleted and re-inserted under the same unique key between the two would satisfy the guard and be missed by a pk-addressed write. The key columns are exactly what the guard re-asserts, so the write uses them. For the common `connect: [{ id }]` case the two spellings are the same statement.
+
+**The Pin Rule is untouched.** The probe is still a planning read whose rows `compile(known)` consumes; only its `WHERE` is wider. `OperationFragment.ts` is byte-identical to `1e67bab`, no error message or attribution was removed, and the `set` orphan guard was not touched.
+
+**A note on locking.** N separate `FOR UPDATE` probes acquired their locks in input order, so two transactions connecting `[10, 11]` and `[11, 10]` could deadlock. One IN-list `FOR UPDATE` lets the database choose a scan order, which is consistent across transactions. The fold reduces that exposure; it does not create any.
+
+**Witnesses.** [`tests/query-engine-v2/link-in-list-fold.test.ts`](../../tests/query-engine-v2/link-in-list-fold.test.ts) — 20 tests over three groups: the statement traffic (counts and the emitted `IN`/`OR`, tx and batch, update root and create root, compound unique, mixed shapes), what may share a group (the rule exercised directly, plus the repeated-target and date-key readings), and the missing-target error. Five cases were added to [`tests/drivers/nested-write-behavior.ts`](../../tests/drivers/nested-write-behavior.ts), which is already wired on every driver, so the SQL the fold newly emits — an `IN` list inside a locked read and inside a bulk UPDATE — runs on all of them. MySQL matters most there: it is non-returning, so the folded write goes out as a plain `UPDATE … WHERE key IN (…)` with no RETURNING clause to confirm it.
+
+**Falsification — seven mutations, each applied alone, each caught.**
+
+| Mutation | What failed |
+| --- | --- |
+| The count check becomes `rows.length === 0` | all 5 missing-target witnesses |
+| The shape key stops distinguishing key shapes | the mixed-shape witness |
+| The grouped disconnect probe loses its correlation half | the disconnect count witness and the another-parent witness |
+| The batch guards collapse from per-target to one per group | the batch guard witness |
+| The distinct count stops deduplicating | the repeated-target witness and its unit test |
+| Clause 3 (primitive values) removed | the object-key unit test |
+| Clause 2 (filter half) removed | the predicate-half unit test |
+
+**Gate.** `tsc` clean. Repo-pinned `npx biome check` (2.3.11) clean on all five changed files. `pnpm test:gates` **72 passed**, census unchanged. Suites run in this worktree, 0 failures: `tests/query-engine-v2` 1047, `tests/query-engine` + `tests/adapters` 2286, `tests/drivers` 3373 (2109 skipped), and the three local driver legs (PGlite tx + batch, SQLite3, LibSQL) 2963 after the behavior cases landed. No pinned SQL file changed — `sql-generation.test.ts` holds no connect/disconnect pin, and the arity-1 spelling did not move. The Docker MySQL (3307) and PostgreSQL (5434) legs belong to the gate agent.
+
+#### Not folded, and why — `set` and the M2M junction
+
+Both were measured and both were left alone. The reason is the same in each: their batch-mode guard is a **split-witness** guard that pairs each selector with the primary key that selector's OWN probe captured (`RelationWritePart.ts` `RelationSetPart.compile`, `RelationJunctionPart.ts` `targetPresenceGuard` / `connectedPresenceGuard`). It exists so a concurrent write that moves a selector onto a replacement row is rejected instead of adopting the replacement. Folding the probe destroys the pairing: recovering which returned row answers which selector means comparing a DECODED column value against an input value, and that comparison is exactly what this phase's missing-target verdict was designed to avoid, because its failure mode is a false rejection of a legitimate operation. The two weaker group-wide restatements were considered and rejected — an `exists` over the group is satisfied by one row, and `notExists(group ∧ pk NOT IN captured)` accepts a concurrent swap between two members of the same group that the paired guards reject.
+
+Two consequences worth recording for whoever picks this up:
+
+- **`set`'s reparent write can fold without touching the pairing** (`UPDATE … WHERE pk IN (all captured pks)`, since `set` already writes by captured PK), taking `set: [N]` from 2N to N+1 statements in both modes. It was not done here to keep this phase's change to one mechanism.
+- **M2M `connect` can fold its N junction INSERTs into one `junctionInsertMany`** (the consolidated precedent the plan names at `RelationJunctionPart.ts:436-443` — the `set` arm already uses it), using the per-target probes' PKs, so the pairing survives. That takes M2M `connect: [3]` from 8 statements to 6. M2M `disconnect` folds only with a change to `ManyToManyStatements` (each `junctionDelete` builds its own target subquery from one unique `where`; folding needs it to take a list).
+
+Phase 6's premise — that the tx-mode condition can come off some fold gates on batch-only drivers — is the natural place to revisit whether the split-witness guard can be restated so these two fold as well.
 
 ---
 
