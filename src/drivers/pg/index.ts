@@ -2,6 +2,14 @@
  * PostgreSQL Driver (node-postgres)
  *
  * Driver implementation for pg (node-postgres) with connection pooling.
+ *
+ * No statement pipelining. node-postgres has no pipeline mode: a `Client` holds
+ * one query active at a time and drains the rest from an internal queue, so the
+ * statements of a transaction always cost one round trip each no matter how
+ * they are issued. Nothing here can change that, and nothing here tries to —
+ * see the Phase 9 disposition in `docs/architecture/query-performance-plan.md`,
+ * which measured the same limit on the postgres.js driver for different
+ * reasons.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";

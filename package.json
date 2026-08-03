@@ -124,7 +124,7 @@
     "test:types": "tsc --noEmit",
     "test:runtime": "vitest run tests/runtime/",
     "test:gates": "vitest run tests/query-engine-v2/architecture-gates.test.ts tests/query-engine-v2/decline-surface-gate.test.ts tests/query-engine-v2/dead-symbol-gate.test.ts tests/query-engine-v2/parse-boundary-gate.test.ts tests/errors/error-registry-gate.test.ts",
-    "test:pg": "vitest run --no-file-parallelism tests/drivers/pg.test.ts tests/drivers/postgres.test.ts tests/query-engine/starts-with-prefix-plan.test.ts",
+    "test:pg": "vitest run --no-file-parallelism tests/drivers/pg.test.ts tests/drivers/postgres.test.ts tests/drivers/postgres-pipelining.test.ts tests/query-engine/starts-with-prefix-plan.test.ts",
     "test:pglite": "vitest run tests/drivers/pglite.test.ts",
     "test:sqlite": "vitest run tests/drivers/sqlite3.test.ts tests/drivers/libsql.test.ts",
     "test:mysql": "vitest run tests/drivers/mysql2.test.ts",
