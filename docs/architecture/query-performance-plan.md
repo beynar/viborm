@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 delivered its measurement and pinned it as a baseline; both of its units hit a blocker that is a decision rather than a defect, and neither shipped. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. Phases 8, 9 and 10 not started.
+**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 is delivered: it first shipped its measurement and pinned it as a baseline, then both of its units hit a blocker that was a decision rather than a defect, and both decisions were taken on 2026-08-03 — 6.1's level-grouped planning reads (fan-out 6 → 3) and 6.2's batch-mode `[presence guard, write … RETURNING]` fold (2 → 1) shipped together and are certified by the P6 completion gate at the end of the Phase 6 section. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. Phases 8, 9 and 10 not started.
 
 ## Source of this plan
 
@@ -685,24 +685,26 @@ The compiled writes ride one atomic batch. The planning reads do not: each plann
 1. Count the round trips with the batch-only PGlite driver (a counter subclass): a nested-write update must cost at most three; a scalar update must cost one.
 2. Make sure that staleness handling, guards, and error attribution stay identical (run the staleness-injection suite in batch mode).
 
-### Measured starting line, and two blockers the plan text does not account for
+### Measured starting line, and the two blockers that were resolved
 
-**Delivered here: the measurement, not the change.** Both units were implemented and
-measured live on the batch-only PGlite stand-in, and each ran into a blocker that is a
-decision rather than a defect. The counts below are pinned by
+**Both units are DELIVERED.** They were first implemented and measured against the
+starting line below, and each hit a blocker that was a decision rather than a defect; both
+decisions were then taken by the maintainer (2026-08-03) and both units shipped. The
+delivery record follows the starting line. The counts below are pinned by
 [`tests/query-engine-v2/batch-round-trip-baseline.test.ts`](../../tests/query-engine-v2/batch-round-trip-baseline.test.ts),
 which counts every call reaching a driver execution seam — on D1 and Neon HTTP that is
 one HTTP request each. It is a harness, not an endorsement: every number in it is a
 target this phase exists to lower, and a change that raises one is a regression.
 
-| Payload (batch-only driver) | Today | 6.1 measured | 6.2 measured |
-| --- | --- | --- | --- |
-| scalar `update` | 2 | 2 | **1** |
-| scalar `delete` / `upsert` update-arm | 2 | 2 | not reached |
-| nested update, one child target | 3 | 3 | — |
-| nested update, two sibling targets | 4 | **3** | — |
-| nested update, four sibling targets | 6 | **3** | — |
-| `update` with a nested `upsert` | 3 | **2** | — |
+| Payload (batch-only driver) | Starting line | 6.1 | 6.2 | Shipped |
+| --- | --- | --- | --- | --- |
+| scalar `update` | 2 | 2 | **1** | **1** |
+| scalar `delete` | 2 | 2 | **1** | **1** |
+| `upsert` update-arm (7.1's door excludes it) | 2 | 2 | n/a — already folded | 2 |
+| nested update, one child target | 3 | 3 | — | 3 |
+| nested update, two sibling targets | 4 | **3** | — | **3** |
+| nested update, four sibling targets | 6 | **3** | — | **3** |
+| `update` with a nested `upsert` | 3 | **2** | — | **2** |
 
 6.1 behaves exactly as the plan predicts: only a technique-#1 reference orders planning
 steps, so grouping by level makes the planning cost one round trip per LEVEL rather than
@@ -724,9 +726,10 @@ write unit and `compileToEntries` are untouched, and grouping READS under one ba
 planning see a single snapshot rather than several, which is a strengthening. The
 harness's timing assumption is what breaks. Making 6.1 shippable therefore means editing
 the race-protection net in nine files so this phase's own optimization goes green, which
-is the one thing this plan's rules single out for a reviewer's attack. **Disposition: the
-harness change wants its own review and its own authorization; it is not a step to fold
-into a performance phase.**
+is the one thing this plan's rules single out for a reviewer's attack. **Disposition:
+RESOLVED — the maintainer authorized the hook rewrite (2026-08-03) as an implementation
+catch-up to the hook's own documented contract, on its own commit, ahead of the
+optimization. See "6.1 delivered" below.**
 
 **Blocker 6.2 — a JS postcondition cannot abort a batch that has already committed.**
 Removing the `txMode` conjunct from `UpdateOperation.canFold` does deliver the plan's
@@ -747,11 +750,145 @@ siblings; the presence assertion has to be IN the batch, which is what the unfol
 guard already is. So `$transaction([client.user.update(…)])` — working today, and pinned
 by the baseline harness — would become a typed refusal. The fold is legal exactly where the
 operation is its OWN atomic unit and illegal where it is merged with siblings, and the
-operation is constructed before either seam is known. **Disposition: 6.2 needs a seam
-decision first.** The shape that satisfies both is not the plan's ("move the check to the
-JS postcondition") but its batch-mode analogue: emit `[presence guard, UPDATE … RETURNING]`
-with no postcondition, which is also one round trip, keeps the array seam working, and
-reuses the existing `attributeGuardFailure` attribution unchanged.
+operation is constructed before either seam is known. **Disposition: RESOLVED — the
+maintainer chose the recorded ALTERNATIVE (2026-08-03), not the falsified plan mechanism.**
+The shape that satisfies both is not the plan's ("move the check to the JS postcondition")
+but its batch-mode analogue: emit `[presence guard, UPDATE … RETURNING]` with no
+postcondition, which is also one round trip, keeps the array seam working, and reuses the
+existing `attributeGuardFailure` attribution unchanged. See "6.2 delivered" below.
+
+### 6.1 delivered — the hook first, then the grouping
+
+Two commits, in that order, because the first is behaviour-neutral and the second is the
+one that needs it.
+
+**`2a3268d` — the hook rewrite.** Ten test files carried the same one-shot concurrent-writer
+injection, every one of them documenting its window as "between planning and the atomic
+batch" and every one of them implementing it as "fire on the first `executeBatch`". Those
+were the same thing only while planning reads travelled one `_execute` at a time. The hook
+now asks the question its comment always asked — *is this batch the operation's compiled
+atomic unit?* — through one predicate,
+[`tests/fixtures/atomic-unit-batch.ts`](../../tests/fixtures/atomic-unit-batch.ts), that
+the ten drivers share. The unit is recognised by what only `compileToEntries` can put in a
+batch: a write, **or** a guard assertion (the `__viborm_assert__` alias every adapter
+emits). Both halves are load-bearing and neither is redundant with the other:
+
+- *Write alone is not enough, measured.* An upsert whose `targetWhere`/`setWhere`
+  conditional does not match compiles to a deliberate no-op unit — `[notExists guard,
+  terminal read]`, no write at all — and the skip-premise pin three `upsert-family` tests
+  attack lives in exactly that write-free batch. A "contains a write" test stops injecting
+  there, deleting race coverage rather than relocating it.
+- *The anchoring is the other half.* A locked planning probe is a `SELECT … FOR UPDATE`;
+  a substring test for `update` calls it the write batch and injects one batch early. The
+  predicate anchors the keyword at the start of the statement.
+
+[`staleness-window.test.ts`](../../tests/query-engine-v2/staleness-window.test.ts) pins all
+three edges directly, so an edit that widens or narrows the window fails there rather than
+quietly relocating a dozen race premises somewhere they no longer bite. No error message,
+no attribution and no race protection was removed: the twelve premises that would have gone
+dark are the ones this commit keeps alive.
+
+**`f690597` — the grouping.** `OperationExecutor.executePlanningLevels` splits the planning
+reads into dependency LEVELS (level 0 references nothing the fragment produces; level N
+references a level-(N-1) producer) and sends a multi-read level through `_executeBatch`.
+A level of ONE stays on the per-statement path — there is nothing to group, and routing the
+overwhelmingly common single-locate through the batch seam would change its call shape for
+no saving. A step whose reference this pass cannot place gets a level of its own, so it
+runs alone and materialization raises the same unresolved-reference error from the same
+place. Only the atomic-batch path plans this way; `runLinearOn` (transaction mode) keeps
+the sequential path, because its probes take a row lock on an open transaction handle and
+it is not the substrate whose round trips this phase exists to lower. Grouping reads is a
+strengthening: several reads in one atomic batch see ONE snapshot where several `_execute`
+calls saw several.
+
+### 6.2 delivered — the guard in the batch, not the check after it
+
+`a29374b`. `UpdateOperation.canFold` and `DeleteOperation`'s fold gate drop the `txMode`
+conjunct. In transaction mode nothing changes: the folded step keeps its
+`affectedRows(1, notFound)` postcondition and stays statement-atomic. In batch mode the
+folded step carries NO postcondition and rides one atomic batch behind a presence guard —
+`[presence guard, UPDATE … RETURNING]`, `[presence guard, DELETE … RETURNING]`.
+
+Three things this shape gets right that the plan's own correction did not:
+
+- **The `$transaction([...])` array seam keeps working.** Nothing is deferred past the
+  merge, so `compileToEntries`'s refusal ("carries a postcondition that is not yet enforced
+  in batch mode") is never reached — and that refusal stays, correct and untouched, for
+  anything that does defer. The seam's payload moved from two round trips to one *and* its
+  result is asserted unchanged.
+- **The guard is not the split-witness downgrade.** It names the CALLER's selector, not a
+  captured primary key, and there is no capture to be split from: the guard and the UPDATE
+  carry the same predicate inside one atomic unit, so there is no window between them and
+  no second row for a reassignment to walk onto. (The unfolded path locates by one
+  predicate and writes by another, which is why `buildRootPresenceGuard` answers for the
+  located row there.)
+- **Attribution is byte-identical.** The guard's failure is the same `notFound` the
+  transaction fold's postcondition carries, so `attributeGuardFailure` builds the same
+  `NotFoundError` — same class, same message, same `V6001`.
+
+**Where 6.2 does NOT extend, measured rather than asserted** — both pinned in the baseline
+harness so the claims stay measured:
+
+- *The upsert update-arm.* It ALREADY compiles to `[presence guard, UPDATE … RETURNING]`
+  with no postcondition (`enforceAffected` is a transaction-mode-only conjunct). There is
+  nothing to fold. Its remaining round trip is the planning locate, and that locate is what
+  DECIDES create-versus-update — an upsert with no locate has no arm. Decision 7.1's
+  `INSERT … ON CONFLICT DO UPDATE` door is the mechanism that removes it, and the payload
+  pinned here is the one that door excludes (conjunct 6).
+- *`create`.* A scalar create has no planning read at all — there is no premise about an
+  existing row to check — so it already costs one round trip on this substrate. Its
+  transaction-mode fold saves a STATEMENT, not a round trip, and this phase is about round
+  trips.
+
+### Re-measured at the P6 completion gate
+
+Taken independently at the tip through the batch-only stand-in's `_execute` /
+`_executeBatch` seams, on a throwaway harness written for this reading rather than by
+running the pinned file. Every number reproduces the delivery columns:
+
+```text
+scalar update                       1 round trip    [batch:2]
+scalar delete                       1 round trip    [batch:2]
+scalar create                       1 round trip    [batch:6]
+upsert update-arm (door excludes)   2 round trips   [execute:1 batch:2]
+nested update, 1 target             3 round trips   [execute:1 execute:1 batch:4]
+nested update, 2 targets            3 round trips   [execute:1 batch:2  batch:6]
+nested update, 4 targets            3 round trips   [execute:1 batch:4  batch:10]
+update with a nested upsert         2 round trips   [batch:2 batch:4]
+$transaction([ scalar update ])     1 round trip    [batch:2]
+```
+
+The batch WIDTHS are shown because they are what says the saving is real rather than a lost
+statement: the four-sibling row's planning batch carries four probes where the two-sibling
+row's carries two, and both cost one trip. "Nested update, 1 target" stays at three — two
+levels of one read each, both of which stay on the per-statement path by the rule above.
+
+**Gate legs.** `pnpm test:types` clean (tsc 5.9.3). Full estate, run alone,
+`npx vitest run --minWorkers=1 --maxWorkers=4`: **9489 passed, 0 failed**, 2163 skipped
+(270 files, 4 skipped) — baseline 9480/0. `pnpm test:gates`: **72 passed**, census pin 39
+unchanged. Repo-pinned `npx biome check` (2.3.11) over all twenty changed files: **zero
+diagnostics**. Docker MySQL 8 port 3307: **1016 passed, 0 failed** (baseline 1016). Docker
+PostgreSQL port 5434: **1135 passed, 0 failed**, 14 skipped (baseline 1135).
+
+**Standing rules held.** `OperationFragment.ts` is untouched — the frozen step vocabulary
+did not grow; the fold reuses `presenceGuard` and the existing `GuardStep`. No error
+message and no attribution literal was deleted anywhere in the `src` diff. No race
+protection was removed: the hook rewrite is the reason twelve race premises still bite, and
+`staleness-window.test.ts` is new coverage pinning the window's three edges. The pinned
+round-trip numbers that moved carry a `BASELINE UPDATED DELIBERATELY` comment naming the
+unit that moved them, and each moved count is pinned beside the round-trip KIND and the
+statement shape, so "one trip" cannot be satisfied by an operation that dropped its
+presence assertion.
+
+**Three PR-20 review comments dispositioned** (`b0d8712`), each checked against the tip
+rather than against the hunk it was written on: the `as NotFoundError` assertion in
+`delete-fold`'s `rejection` helper — **applied** (AGENTS.md forbids type assertions, and
+the assertion was masking the resolve case; the narrowed shape is what reported a real
+regression when the 6.2 guard was falsified out); the missing `120_000` timeout on the
+ordering-plan test — **applied**, measured (seven of the cohort's eight tests carry it and
+the eighth calls the same 4,000-row `connect()`); the markdown blank line before the
+Decision 7.4 rule — **rejected as already fixed**, verified by scanning the file for `---`
+rules preceded by a non-blank line and finding none. Nothing was posted to GitHub.
 
 ---
 
@@ -834,6 +971,10 @@ nested update, 4 targets   6 round trips
 These are the "Today" column of the Phase 6 table, unchanged — which is the correct reading:
 6.1 and 6.2 were both measured and both parked on a blocker, and neither landed. Every number
 is a target the phase exists to lower.
+
+*(Superseded. This is a dated record of tip `f0450cc` and is left standing as one. Both
+units shipped on 2026-08-03; the numbers above are the starting line, not the tip — see
+"Re-measured at the P6 completion gate" in the Phase 6 section.)*
 
 ### Standing rules
 
