@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 is delivered: it first shipped its measurement and pinned it as a baseline, then both of its units hit a blocker that was a decision rather than a defect, and both decisions were taken on 2026-08-03 — 6.1's level-grouped planning reads (fan-out 6 → 3) and 6.2's batch-mode `[presence guard, write … RETURNING]` fold (2 → 1) shipped together and are certified by the P6 completion gate at the end of the Phase 6 section. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. **Phase 8 is delivered** — both CTE folds, plus item 10.1 (the SQLite capability flag), whose value Phase 8 is the first reader of; see the Phase 8 delivery record. Phase 9 is parked on its own measurement: the correction it proposed was measured to buy exactly nothing, the win it was after turned out to sit behind a deployment decision rather than a transport change, and the numbers plus the shut door are recorded in the Phase 9 disposition. Phases 8 and 9 landed in one wave and are certified together by the Phase 8/9 wave gate at the end of the Phase 9 section. Phase 10 not started, less item 10.1.
+**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 is delivered: it first shipped its measurement and pinned it as a baseline, then both of its units hit a blocker that was a decision rather than a defect, and both decisions were taken on 2026-08-03 — 6.1's level-grouped planning reads (fan-out 6 → 3) and 6.2's batch-mode `[presence guard, write … RETURNING]` fold (2 → 1) shipped together and are certified by the P6 completion gate at the end of the Phase 6 section. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section, and all three are certified together by the Phase 7 wave gate that follows Decision 7.4; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. **Phase 8 is delivered** — both CTE folds, plus item 10.1 (the SQLite capability flag), whose value Phase 8 is the first reader of; see the Phase 8 delivery record. Phase 9 is parked on its own measurement: the correction it proposed was measured to buy exactly nothing, the win it was after turned out to sit behind a deployment decision rather than a transport change, and the numbers plus the shut door are recorded in the Phase 9 disposition. Phases 8 and 9 landed in one wave and are certified together by the Phase 8/9 wave gate at the end of the Phase 9 section, whose final subsection is the gate run on the tip after the wave's four review corrections. Phase 10 not started, less item 10.1.
 
 ## Source of this plan
 
@@ -1603,6 +1603,87 @@ Both deltas are accounted for exactly, which is the point of writing them down: 
 **The two lanes are disjoint in code, and the merge did not have to reconcile any of it.** Phase 9 changed two driver doc comments, one test file and one `package.json` script — no executable line. Phase 8 changed the emitters. The one true conflict was the plan's own status sentence, which both lanes rewrote; it is resolved above to carry both dispositions.
 
 The wave's binding rules held: `OperationFragment.ts` is byte-identical to `c9c06e5` (neither phase grew the frozen vocabulary — each fold is one `write` step where there used to be several), no error message, error attribution or race protection was removed, and the pinned SQL that moved is the three assertions Phase 8 retargeted with the rationale recorded in its own delivery record.
+
+### The final wave gate, run on the tip after the four review corrections
+
+The gate above certified the merge. Four review-correction commits landed after it —
+`740f237` (guard 1 walks the whole payload), `aa414fa` (guard 2 asks what a foreign key
+may reference), `dcbf071` (the arms keep the caller's declaration order) and `2e813c2`
+(the certification of the twice-corrected fold). Each was re-gated in its own lane; the
+delivery record above carries those numbers piecemeal. This is the one gate run on the
+merged tip with all four in, at `2e813c2`, every leg in its own shell.
+
+| Leg | Result at `2e813c2` | Baseline at `c9c06e5` |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, one run, `--minWorkers=1 --maxWorkers=4` | **9444 passed, 81 failed**, 2168 skipped (276 files) — 9525 non-skipped; the 81 are `tests/cli` and are not this wave's, see below | 9489, 0 failed |
+| `pnpm test:gates` | **72 passed** | 72 |
+| census pin (`route-inventory.test.ts`) | **39**, and the file is byte-identical to `c9c06e5` | 39 |
+| Docker MySQL (3307) | **1016 passed, 0 failed** | 1016 |
+| Docker PostgreSQL (5434), serial | **1140 passed, 0 failed**, 14 skipped | 1135 |
+| repo-pinned `npx biome check` (2.3.11), each of the 16 changed files | zero diagnostics | — |
+
+**The 81 failures are the maintainer's in-flight dependency change, and that was measured
+rather than assumed.** All 81 are in `tests/cli`, all of them `loadConfig` cases, all with
+the same symptom: `Failed to load …/viborm.config.ts. Make sure you're running with a
+TypeScript loader`. That message is a mask — `importModule` (`src/cli/utils.ts`) catches
+the real error and replaces it for any `.ts` path. Unmasked, the real error is
+`Cannot find module …/viborm.config.ts` thrown by vite-node's `_fetchModule`: the temp
+config is never resolved at all, so **no viborm source is reached** and no file this wave
+changed is on the failing path. Confirmed by construction (the wave touches no CLI file)
+and then by experiment: a detached worktree at `c9c06e5`, sharing this repo's very
+`node_modules` by symlink, runs `tests/cli` to **exactly 81 failed | 506 passed** — the
+same count, at the baseline commit. The cause is visible in the working tree: an
+uncommitted `pnpm-lock.yaml` (+2311/−1550) belonging to the docs site moves it to
+vite 8 / `@tanstack` and leaves the root `vite` unresolvable (`require('vite/package.json')`
+throws `MODULE_NOT_FOUND`), which is what vite-node's file resolution rests on. Left
+alone deliberately, as the Phase 8 record already said: a lane certifying a fold does not
+touch someone else's install.
+
+Both non-skipped deltas still account exactly: the estate's **+36** over the baseline's
+9489 is the wave's two witness files and nothing else (+26 at the merge gate, +6 for
+guard 1's completed walk, +4 for the two review corrections' witnesses), and
+PostgreSQL's **+5** is `postgres-pipelining.test.ts`. MySQL does not move, and cannot:
+no fold gate it could reach ever opens there.
+
+**Phase 9's five witnesses were executed by name against the real server**, not PGlite —
+`pnpm test:pg` runs them through the actual `postgres.js` wire transport on 5434, which
+is the only place the claim means anything, since PGlite is not a wire transport at all:
+
+- `the driver's batch costs two round trips per parameterized statement`
+- `pipelining stays closed when statements are issued without intermediate awaits`
+- `the pipeline gate opens only for cached prepared statements`
+- `a mid-run failure reports the same error and rolls back the same way on both paths`
+- `statement order survives a run issued without intermediate awaits`
+
+**Phase 8's fold was measured at this gate on the real PostgreSQL 17 server**, through the
+`pg` driver, because the phase's own witness file runs on PGlite. `acct.update({ where:
+{ id: 1 }, data: { label: "z" }, include: { notes: true } })` emitted **one** statement at
+the driver seam and answered `{ id: 1, label: "z", notes: [{ id: 10, … }] }`:
+
+```sql
+WITH "__viborm_mutation" AS (
+  UPDATE "gp_acct" SET "label" = $1 WHERE "gp_acct"."id" = $2 RETURNING "id", "label"
+)
+SELECT "t0"."id" AS "id", "t0"."label" AS "label", "t2"."_result" AS "notes"
+FROM "__viborm_mutation" AS "t0"
+LEFT JOIN LATERAL (…json_agg over "gp_note" AS "t1" WHERE "t0"."id" = "t1"."acctId"…)
+  AS "t2" ON TRUE
+```
+
+That is the shipped shape as the delivery record describes it — the aliased `FROM` over
+the CTE, the include as a LATERAL join, and the correlation carrying `"t0"."id"` rather
+than a bare column. The unfolded path for the same payload is three statements.
+
+MySQL's non-movement has no P8 witness of its own by name, and should not be claimed to:
+the phase's non-PG parity witness is `SQLite keeps the unfolded path and the same answer`,
+which runs in the plain estate. MySQL's evidence is its whole 1016-test leg landing on
+the baseline number exactly.
+
+The binding rules still hold at this tip: `OperationFragment.ts` and
+`route-inventory.test.ts` are both byte-identical to `c9c06e5`, no error message,
+attribution or race protection was removed, and no pinned SQL moved beyond the three
+assertions Phase 8 retargeted with its recorded rationale.
 
 ---
 
