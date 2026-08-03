@@ -755,6 +755,106 @@ reuses the existing `attributeGuardFailure` attribution unchanged.
 
 ---
 
+## Wave gate — Phases 4 and 6 together
+
+**Run:** 2026-08-03, main checkout, branch `nested-write-boundaries`, tip `f0450cc` (four
+commits from `1886518`, the grouped link probe and write, through `f0450cc`, the Phase 6
+round-trip harness). Baseline for every number below is `1e67bab`.
+
+### The legs
+
+| Leg | Result | Baseline |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9338 passed, 0 failed**, 2124 skipped (264 files, 4 skipped) | 9279 / 0 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin 39, unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11) per changed file | **clean — zero diagnostics on all eight** | — |
+| Docker MySQL 8, port 3307 | **993 passed, 0 failed** | 990 |
+| Docker PostgreSQL, port 5434 | **1110 passed, 0 failed**, 14 skipped | 1102 |
+
+**Biome.** The wave changed eight TypeScript files. Unlike the Phases 2/3/5 wave, none of
+them carries a surviving diagnostic: `npx biome check` reports nothing on any of the eight,
+so "no new diagnostics" holds by construction and needed no baseline comparison.
+
+**The Docker PostgreSQL leg has to run serially, and the gate proved why.** Run as
+`npx vitest run tests/drivers/pg.test.ts tests/drivers/postgres.test.ts` — without
+`--no-file-parallelism`, which `pnpm test:pg` supplies — the two files push the same schema
+into the same database concurrently and all ten Phase 4 witnesses fail in about 4 ms, before
+any statement of the operation under test runs. Re-run under the script's own flag they are
+green. This is a harness constraint, not a product finding, and it is recorded so the next
+gate does not read it as one.
+
+**Phase 4's grouped-link witnesses, executed by name.** The five cases added to
+`tests/drivers/nested-write-behavior.ts` ran green on all three gated legs:
+*connect with a list of targets reparents every one of them*, *a connect list with one
+absent target writes nothing*, *disconnect with a list nulls every one of them*, *a
+disconnect list naming ANOTHER parent's child nulls nothing*, and *a create tree's connect
+list reparents every one of them* — on `MySQL2 nested write behavior`, on
+`pg nested write behavior` and on `postgres.js nested write behavior`. MySQL is the leg
+that matters most: it is non-returning, so the folded write goes out as a plain
+`UPDATE … WHERE key IN (…)` with no RETURNING clause to confirm it.
+
+### Measured at the gate, not copied
+
+Taken independently at the tip through the PGlite `execute`/`executeRaw` seam (which sees
+both substrates) and through the batch-only stand-in's `_execute` / `_executeBatch` seams,
+on a schema written for this reading rather than on the witness files' own.
+
+**Phase 4 — statements for a three-target link.** Every "after" number in the delivery
+record reproduced exactly:
+
+```text
+update + connect: [a,b,c]     transaction      4 statements   (2 are the link)
+update + connect: [a,b,c]     atomic batch     8 statements   (5 are the link)
+update + disconnect: [a,b,c]  transaction      4 statements   (2 are the link)
+create + connect: [a,b,c]     transaction      4 statements   (2 are the link)
+update + set: [a,b,c]         transaction      7 statements
+M2M    connect: [a,b,c]       transaction      6 statements
+```
+
+Six link statements became two for `connect`/`disconnect`: one IN-list `FOR UPDATE` probe
+and one IN-list UPDATE. The remaining two in each transaction row are the root's own locate
+and terminal read, which this phase does not touch. The batch row keeps its three per-target
+presence guards, which is the plan's own instruction, and is why it lands on eight rather
+than five. `set` and the M2M junction fold their write only, for the split-witness reason
+recorded above.
+
+**Phase 6 — round trips on the batch-only driver, at the tip.** Phase 6 shipped the
+measurement and not the change, so the gate's job is to confirm the starting line still
+reads as the harness pins it:
+
+```text
+scalar update              2 round trips
+scalar delete              2 round trips
+nested update, 1 target    3 round trips
+nested update, 2 targets   4 round trips
+nested update, 4 targets   6 round trips
+```
+
+These are the "Today" column of the Phase 6 table, unchanged — which is the correct reading:
+6.1 and 6.2 were both measured and both parked on a blocker, and neither landed. Every number
+is a target the phase exists to lower.
+
+### Standing rules
+
+`src/query-engine-v2/OperationFragment.ts` is byte-identical to `1e67bab` — the frozen step
+vocabulary did not grow. No pinned SQL changed: `tests/query-engine/sql-generation.test.ts`
+is not in the wave's diff at all, and the arity-1 link spelling did not move, which is what
+keeps every existing single-target pin unmoved. No error message and no error attribution was
+removed — no message literal is deleted anywhere in the wave's `src` diff. No race protection
+was removed: `presenceGuard` occurs the same number of times at the tip as at the baseline in
+each of the four Parts that carry one (`RelationLinkPart` 2, `RelationJunctionPart` 2,
+`RelationWritePart` 3, `CreateOperation` 2), and the `set` orphan guard was not touched — the
+only hunks in `RelationWritePart.ts` are inside `RelationSetPart.compile`.
+
+**Open and recorded, not fixed here:** both Phase 6 blockers (the race-injection harness's
+first-batch assumption, and the batch-seam decision a postcondition-carrying fold needs),
+M2M `disconnect`'s unfolded per-target deletes, and the `set` selector-addressing coverage
+gap Phase 4's falsification surfaced. All four are dispositions, not defects, and all four
+are stated above.
+
+---
+
 ## Phase 7 — Four maintainer decisions
 
 These items need a written disposition. They are choices, not defects.
