@@ -134,6 +134,27 @@ export interface DatabaseAdapter {
      */
     startsWithPrefix: (column: Sql, value: string) => Sql;
 
+    /**
+     * `column = value` and `column IN (values)` on a TEXT column, under the
+     * case-sensitive semantics `caseSensitiveText` spells, written so the
+     * dialect's planner can still use an index.
+     *
+     * `column` arrives unwrapped: each adapter applies its own
+     * `caseSensitiveText` where its own semantics need it, and is free to put
+     * an index-usable conjunct in front of it. On PostgreSQL and SQLite that
+     * is exactly `caseSensitiveText(column) <op> …` and nothing more — their
+     * case-sensitive spellings are already index-usable. MySQL's is not: the
+     * `BINARY` cast is a function of the column, so the planner drops to a full
+     * scan, and MySQL adds a collation-native conjunct in front. See
+     * `docs/architecture/query-performance-plan.md`, §10.2 for the plans.
+     *
+     * The operands are BOUND values, never referenced columns — the caller
+     * routes a reference to the plain comparison, which has no index lookup to
+     * preserve.
+     */
+    exactTextEq: (column: Sql, value: Sql) => Sql;
+    exactTextIn: (column: Sql, values: Sql) => Sql;
+
     // Set membership
     in: (column: Sql, values: Sql) => Sql;
     notIn: (column: Sql, values: Sql) => Sql;

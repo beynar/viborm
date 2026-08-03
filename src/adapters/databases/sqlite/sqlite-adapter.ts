@@ -192,6 +192,15 @@ export class SQLiteAdapter implements DatabaseAdapter {
     startsWithPrefix: (column: Sql, value: string): Sql =>
       sql`${column} GLOB ${`${escapeGlobLiteral(value)}*`}`,
 
+    // `COLLATE BINARY` names a COLLATION, not a function of the column, and
+    // SQLite's ordinary index is a BINARY index — so the case-sensitive
+    // spelling is already the index-usable one and there is nothing to add.
+    // Byte-identical to what shipped before §10.2.
+    exactTextEq: (column: Sql, value: Sql): Sql =>
+      sql`${column} COLLATE BINARY = ${value}`,
+    exactTextIn: (column: Sql, values: Sql): Sql =>
+      sql`${column} COLLATE BINARY IN ${values}`,
+
     // Set membership
     ...createMembershipOperators(),
 

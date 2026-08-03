@@ -138,6 +138,12 @@ export class PostgresAdapter implements DatabaseAdapter {
     startsWithPrefix: (column: Sql, value: string): Sql =>
       sql`${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\'`,
 
+    // PostgreSQL's text comparison is already byte-exact and already
+    // index-usable — `caseSensitiveText` is the identity here — so these are
+    // the plain comparisons, byte-identical to what shipped before §10.2.
+    exactTextEq: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
+    exactTextIn: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
+
     // Set membership — values is a parenthesized list from literals.list(),
     // so ANY/ALL (which need an array) would produce invalid SQL here
     ...createMembershipOperators(),

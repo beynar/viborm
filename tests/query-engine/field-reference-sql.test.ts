@@ -8,7 +8,6 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import {
   createModelFieldRefs,
-  FIELD_REF_BRAND,
   type FieldRef,
   fieldRefPayload,
   isFieldRef,
@@ -149,6 +148,17 @@ type DialectCase = {
   createAdapter: () => DatabaseAdapter;
   /** The dialect's case-SENSITIVE text wrapper, spelled as it lands in SQL. */
   exactText: (expr: string) => string;
+  /**
+   * Case-sensitive equality against a BOUND operand, spelled as it lands in
+   * SQL, and the parameters it binds.
+   *
+   * Not `exactText(column) = $1` on every dialect, which is what it used to be
+   * (plan §10.2). MySQL's `BINARY` is a function of the column, so that
+   * spelling forecloses the index; MySQL now emits a collation-native conjunct
+   * in front of it and binds the operand twice. The other two dialects are
+   * unchanged — their case-sensitive spelling is already index-usable.
+   */
+  exactLiteralEquals: (column: string) => { sql: string; values: string[] };
   /** The dialect's ASCII A-Z fold, spelled as it lands in SQL. */
   asciiFold: (expr: string) => string;
   /** The dialect's cast-to-text, spelled as it lands in SQL. */
@@ -163,6 +173,10 @@ const dialectCases: DialectCase[] = [
     createAdapter: () => new PostgresAdapter(),
     // Postgres needs no wrapper: `=` on text is already byte-exact there.
     exactText: (expr) => expr,
+    exactLiteralEquals: (column) => ({
+      sql: `${column} = $1`,
+      values: ["draft"],
+    }),
     asciiFold: (expr) =>
       `TRANSLATE(${expr}, '${ASCII_UPPERCASE}', '${ASCII_LOWERCASE}')`,
     toText: (expr) => `CAST(${expr} AS TEXT)`,
@@ -173,6 +187,10 @@ const dialectCases: DialectCase[] = [
     quote: "`",
     createAdapter: () => new MySQLAdapter(),
     exactText: (expr) => `BINARY ${expr}`,
+    exactLiteralEquals: (column) => ({
+      sql: `(${column} = $1 AND BINARY ${column} = $2)`,
+      values: ["draft", "draft"],
+    }),
     asciiFold: (expr) => {
       let folded = expr;
       for (let i = 0; i < ASCII_UPPERCASE.length; i++) {
@@ -188,6 +206,10 @@ const dialectCases: DialectCase[] = [
     quote: '"',
     createAdapter: () => new SQLiteAdapter(),
     exactText: (expr) => `${expr} COLLATE BINARY`,
+    exactLiteralEquals: (column) => ({
+      sql: `${column} COLLATE BINARY = $1`,
+      values: ["draft"],
+    }),
     asciiFold: (expr) => `lower(${expr})`,
     toText: (expr) => `CAST(${expr} AS TEXT)`,
   },
@@ -360,7 +382,8 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
    * value as text — answered it. The cast is what makes the comparison exist
    * on Postgres, and it is spelled identically on all three so no dialect is
    * quietly doing something else. A LITERAL operand keeps the bare column, so
-   * ordinary enum equality can still use the column's index.
+   * ordinary enum equality can still use the column's index — see
+   * `exactLiteralEquals` for what each dialect had to spell to make that true.
    */
   describe("enum operands", () => {
     const predicateOf = (args: Record<string, unknown>) => {
@@ -392,10 +415,13 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
       const { values } = buildPostQuery(dialectCase, {
         where: { status: { equals: "draft" } },
       });
-      expect(predicateOf({ where: { status: { equals: "draft" } } })).toBe(
-        `${dialectCase.exactText(`${q("t0")}.${q("status")}`)} = $1`
+      const expected = dialectCase.exactLiteralEquals(
+        `${q("t0")}.${q("status")}`
       );
-      expect(values).toEqual(["draft"]);
+      expect(predicateOf({ where: { status: { equals: "draft" } } })).toBe(
+        expected.sql
+      );
+      expect(values).toEqual(expected.values);
     });
   });
 

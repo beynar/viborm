@@ -183,6 +183,33 @@ export class MySQLAdapter implements DatabaseAdapter {
     startsWithPrefix: (column: Sql, value: string): Sql =>
       sql`(${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\\\' AND LEFT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value})`,
 
+    // `startsWithPrefix`'s twin, for the same reason and in the same shape
+    // (plan §10.2). `BINARY col` is a FUNCTION of the column, so MySQL cannot
+    // range on it: measured on MySQL 8.4 over 20,000 rows in the collation
+    // viborm's own DDL declares, `BINARY name = ?` planned `index` over 20,455
+    // rows where `name = ?` planned `ref` over 1, and `BINARY name IN (…)`
+    // planned `index` over 20,455 where `name IN (…)` planned `range` over 3.
+    //
+    // The collation-native conjunct is the accelerator and decides no row's
+    // membership: byte-identical strings compare equal under every collation
+    // of the charset, so the BINARY comparison IMPLIES it. On the tables
+    // viborm creates (`utf8mb4_0900_bin`) the two conjuncts say the same
+    // thing; on a table viborm did not create the BINARY one is what keeps the
+    // case-sensitivity contract, and the same measurement shows the pair still
+    // plans `ref` over 1 row there.
+    //
+    // `notIn` and `not` deliberately have no such pair. Their implication runs
+    // the other way — `BINARY col NOT IN ('X')` KEEPS a row spelled `x` that
+    // `col NOT IN ('X')` drops on a case-insensitive column, measured at
+    // 20,000 rows against 19,999 — so a conjunct would remove rows. There is
+    // also nothing to win: both spellings of `NOT IN` scan all 20,442 rows.
+    //
+    // Parenthesized because this fragment gets composed into AND/OR chains.
+    exactTextEq: (column: Sql, value: Sql): Sql =>
+      sql`(${column} = ${value} AND BINARY ${column} = ${value})`,
+    exactTextIn: (column: Sql, values: Sql): Sql =>
+      sql`(${column} IN ${values} AND BINARY ${column} IN ${values})`,
+
     // Set membership
     ...createMembershipOperators(),
 
