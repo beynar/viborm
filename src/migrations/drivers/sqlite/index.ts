@@ -314,20 +314,33 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
   /**
    * The table definition a recreation has to rebuild — the introspected one,
-   * carrying the indexes the table holds *at this point in the batch*.
+   * carrying the indexes *and the foreign keys* the table holds at this point
+   * in the batch.
    *
-   * `currentSchema` is read once, before the first statement runs, so its index
-   * list is the pre-batch one. A recreation drops the table, which drops its
-   * indexes, and then re-creates whatever this definition names: with the
-   * pre-batch list it destroys every index the same batch created earlier and
-   * resurrects every index the same batch dropped. `createIndex` runs at
-   * priority 15 and `addForeignKey` at 16, and SQLite recreates the table for
-   * every foreign-key change — so on a database that predates the FK index each
-   * `manyToOne` push created the index and then threw it away, forever.
+   * `currentSchema` is read once, before the first statement runs, so its lists
+   * are the pre-batch ones. A recreation drops the table, which drops both, and
+   * then re-creates whatever this definition names: with the pre-batch lists it
+   * destroys everything the same batch created earlier and resurrects
+   * everything the same batch dropped.
    *
-   * `createIndex` and `dropIndex` are the only operations that move an index in
-   * or out of `TableDef.indexes`, so replaying the preceding ones gives the set
-   * the database actually has when the recreation runs.
+   * Indexes: `createIndex` runs at priority 15 and `addForeignKey` at 16, and
+   * SQLite recreates the table for every foreign-key change — so on a database
+   * that predates the FK index each `manyToOne` push created the index and then
+   * threw it away, forever.
+   *
+   * Foreign keys: `dropForeignKey` runs at priority 2 and `addForeignKey` at
+   * 16, and the differ plans exactly that pair for every changed foreign key.
+   * With the pre-batch list the add rebuilt the table around the constraint the
+   * drop had just removed *plus* its replacement. That is not a corner either:
+   * `PRAGMA foreign_key_list` carries no constraint name, so introspection
+   * synthesises `<table>_fk_<n>` and the differ plans drop-and-add on every
+   * push for every `manyToOne`. Measured on better-sqlite3, `zz_posts` held 1,
+   * then 2, then 3 identical foreign keys after three idempotent pushes — the
+   * duplicates accumulate without bound, and each one is separately enforced.
+   *
+   * These four operations are the only ones that move an index or a foreign key
+   * in or out of `TableDef`, so replaying the preceding ones gives the sets the
+   * database actually has when the recreation runs.
    */
   protected getCurrentTable(
     tableName: string,
@@ -341,15 +354,20 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     }
 
     let indexes = table.indexes;
+    let foreignKeys = table.foreignKeys;
     for (const op of context?.precedingOperations ?? []) {
       if (op.type === "createIndex" && op.tableName === tableName) {
         indexes = [...indexes, op.index];
       } else if (op.type === "dropIndex" && op.tableName === tableName) {
         indexes = indexes.filter((index) => index.name !== op.indexName);
+      } else if (op.type === "addForeignKey" && op.tableName === tableName) {
+        foreignKeys = [...foreignKeys, op.fk];
+      } else if (op.type === "dropForeignKey" && op.tableName === tableName) {
+        foreignKeys = foreignKeys.filter((fk) => fk.name !== op.fkName);
       }
     }
 
-    return { ...table, indexes };
+    return { ...table, indexes, foreignKeys };
   }
 
   // ===========================================================================
