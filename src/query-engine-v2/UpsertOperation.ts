@@ -58,9 +58,9 @@ import {
   createDataUniqueWhere,
   getStepModelName,
   isRecord,
+  projectionNamesNoRelation,
   type SubOperationOptions,
   selectExecutionMode,
-  selectProjectsRelation,
   UnsupportedOperationError,
 } from "./shared";
 import { UpdateOperation } from "./UpdateOperation";
@@ -315,15 +315,13 @@ export class UpsertOperation {
     // `_count` counts as a relation projection here too: it is not a `relationSet`
     // member, and a folded update arm answered it from a RETURNING subquery whose
     // outer reference binds by name (`selectProjectsRelation`).
-    const selectIsScalarOnly = !selectProjectsRelation(
-      model,
-      this.parsedSelect
-    );
+    // `projectionNamesNoRelation` is the ONE spelling of "scalars only" — both
+    // halves (`select` naming a relation or `_count`, and `include` at all) in a
+    // single predicate.
     this.canFoldUpdateArm =
       !updateHasRelations &&
       engine.adapter.capabilities.supportsReturning &&
-      selectIsScalarOnly &&
-      !this.parsedInclude;
+      projectionNamesNoRelation(model, this.parsedSelect, this.parsedInclude);
 
     const parentName = getStepModelName(model, "parent");
     const locateId = scope.allocate(`${parentName}.locate`);

@@ -189,6 +189,31 @@ export function selectProjectsRelation(
 }
 
 /**
+ * THE whole-projection question, in one place: does this result shape name NO
+ * relation at all?
+ *
+ * A projection names a relation through EITHER half — a relation (or `_count`)
+ * key inside `select`, or an `include` at all — and the two halves are not
+ * interchangeable. Every caller that needs "scalars only" needs both, so the
+ * conjunction lives here rather than being re-spelled at each site: the four
+ * mutation operations were each writing `!selectProjectsRelation(…) &&
+ * !parsedInclude` in their fold gates, and `DeleteOperation`'s terminal read
+ * asked the SAME question with the `!parsedInclude` half alone. That half is a
+ * proxy, not the invariant: a relation nested in `select` slipped past it and the
+ * read emitted a LATERAL join under `FOR UPDATE`, which PostgreSQL rejects with
+ * 0A000 — the delete crashed. One spelling, so a caller cannot hold a correct
+ * expression of this invariant at one site and a wrong proxy for it at another.
+ */
+export function projectionNamesNoRelation(
+  model: Model<any>,
+  select: Readonly<Record<string, unknown>> | undefined,
+  include: Readonly<Record<string, unknown>> | undefined
+): boolean {
+  if (include) return false;
+  return !selectProjectsRelation(model, select);
+}
+
+/**
  * PHASE 8.1, INVARIANT 1 — does this projection read the table the statement is
  * MUTATING?
  *

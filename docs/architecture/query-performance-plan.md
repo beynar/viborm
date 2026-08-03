@@ -409,9 +409,30 @@ The delete pin in `tests/query-engine/sql-generation.test.ts` was updated delibe
 | `pnpm test:gates` | 72 passed |
 | repo-pinned `npx biome check` per changed file | clean |
 
-#### Found, not fixed — a pre-existing defect this phase's witnesses surfaced
+#### Found, not fixed here — a pre-existing defect this phase's witnesses surfaced (**since FIXED**, see below)
 
 `delete({ where, select: { …, someRelation: {…} } })` — a relation nested in `select` rather than in `include` — fails on PostgreSQL with `0A000`. The shape-capturing read gates its lock on `forUpdate: txMode && !this.parsedInclude`, and that proxy misses a relation reached through `select`, so `FOR UPDATE` is emitted over a lateral join. Reproduced on the PR tip with this phase reverted; SQLite is unaffected (it omits `FOR UPDATE` entirely). Nothing in the estate covers the shape. It is left alone here on purpose: removing that lock is a locking change on a path this phase deliberately keeps, and it wants its own review and its own witnesses. Filed separately.
+
+##### Resolution — the deferred `0A000`, closed
+
+Fixed on `nested-write-boundaries` after this plan closed, as the review this record asked for.
+
+**Reproduced first**, on PGlite in transaction mode, in BOTH directions — one defect, two PostgreSQL messages, because the two relation cardinalities compile to different lateral shapes:
+
+| projection | emitted | PostgreSQL says (`0A000`) |
+| --- | --- | --- |
+| `select: { id, notes: { select: { body } } }` (to-many) | `LEFT JOIN LATERAL (… json_agg …) … FOR UPDATE` | `FOR UPDATE is not allowed with aggregate functions` |
+| `select: { id, account: { select: { label } } }` (to-one) | `LEFT JOIN LATERAL (… json_build_object …) … FOR UPDATE` | `FOR UPDATE cannot be applied to the nullable side of an outer join` |
+
+**The fix is one predicate, not a second guard.** The correct question — *does the projection name no relation?* — already existed a few lines above as the Phase 3 fold gate. It now lives once, in `shared.projectionNamesNoRelation`, and both sites ask it. `!parsedInclude` was never the invariant; it was one of the invariant's two halves. `CreateOperation`, `UpdateOperation` and `UpsertOperation` were each re-spelling the same conjunction in their own fold gates and now call the shared predicate too, so there is no second spelling left to drift.
+
+**The locking claim carries, verified rather than assumed.** The site's comment asserted that the PK-only locate already holds the row lock in transaction mode. That is true for the `select`-relation case for the same structural reason it is true for `include`: the fold gate declines EVERY relation projection, so the locate is always planned; the locate is built unconditionally with `forUpdate: txMode`; and `OperationExecutor.runTransaction` runs the planning fragment and the compiled fragment on ONE `withTransaction` handle, so the lock the locate takes is still held when the DELETE runs.
+
+**The drop is not widened.** A scalar-only projection still takes `FOR UPDATE` on its shape-capturing read — pinned on the non-returning (MySQL2) plan, the only driver class where that read is reachable at all, since a RETURNING driver folds the same payload to one statement.
+
+**Siblings swept, measured not assumed.** `UpdateOperation.buildTerminal`, `UpsertOperation.buildTerminal` and `CreateOperation`'s terminal read are the only other reads that carry the caller's `select`/`include`, and none of them requests `forUpdate` at all — they never re-lock. Every other `forUpdate` read across the four operations (locates, probes, occupied guards) projects PK or FK scalars only. The defect was unique to `DeleteOperation`.
+
+**Witnesses.** Behavioural, in the shared `nested-write-behavior.ts` suite so the pg and mysql legs run them: to-many-in-`select`, to-one-in-`select`, and `include` alongside them (the half the old proxy did cover, so a fix cannot trade one spelling for the other). Structural, in `delete-fold.test.ts`: both spellings decline the fold, their locate keeps `FOR UPDATE`, their capture joins and does NOT; and the non-returning scalar capture does. **Falsified** by restoring `!this.parsedInclude`: the two `select` witnesses fail in transaction mode, `include` and both batch-mode variants still pass — the exact discrimination the defect had.
 
 ---
 
@@ -671,7 +692,7 @@ Phase 2 is a DDL change and has no statement count or plan to read; its evidence
 
 No error message, no error attribution and no race protection was removed anywhere in the wave. The step vocabulary in `OperationFragment.ts` is byte-identical to `c45e2b5`. Three pinned-SQL files changed, each deliberately and each with its rationale in place: `sql-generation.test.ts` (Phase 3 — the old pin asserted the very refusal the fold removes), `cursor-pagination-sql.test.ts` (Units 5.1 and 5.2), and two further pins moved by 5.1 in `operation-equivalence-oracles.test.ts` and `located-parent-ref.test.ts`.
 
-**Open and recorded, not fixed here:** Decision 7.4 (the PostgreSQL partial-index predicate churn, raised by Phase 2), and the `0A000` on `delete({ select: { relation } })` on PostgreSQL that Phase 3's witnesses surfaced — both pre-existing, both filed above.
+**Open and recorded, not fixed here:** Decision 7.4 (the PostgreSQL partial-index predicate churn, raised by Phase 2), and the `0A000` on `delete({ select: { relation } })` on PostgreSQL that Phase 3's witnesses surfaced — both pre-existing, both filed above. (The `0A000` has since been fixed on `nested-write-boundaries`; see "Resolution — the deferred `0A000`, closed" under Phase 3.)
 
 ---
 
@@ -1979,7 +2000,9 @@ the reason each is not a one-line change, in the section above and in the capabi
 7.3's `text_pattern_ops` companion index remains the Phase-1 emitter decision it was; note
 that Decision 7.4 has now built the canonicalization seam that decision was said to need, so
 the objection to it is narrower than when it was written. The `0A000` on
-`delete({ select: { relation } })` on PostgreSQL, filed in the Phase 3 record, is untouched.
+`delete({ select: { relation } })` on PostgreSQL, filed in the Phase 3 record, was untouched by
+this wave and has since been FIXED on `nested-write-boundaries` — see the resolution appended to
+that Phase 3 record.
 
 ---
 

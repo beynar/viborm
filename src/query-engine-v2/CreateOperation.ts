@@ -82,10 +82,10 @@ import { StepScope } from "./StepScope";
 import {
   getStepModelName,
   isRecord,
+  projectionNamesNoRelation,
   projectionReadsMutatedModel,
   type SubOperationOptions,
   selectExecutionMode,
-  selectProjectsRelation,
   UnsupportedOperationError,
 } from "./shared";
 
@@ -1809,8 +1809,11 @@ export class CreateOperation {
    *  reference binds by name, which counted a child row whose own `id` equalled its
    *  FK instead of the (necessarily zero) children of the fresh row. */
   private projectionIsScalarOnly(): boolean {
-    if (this.parsedInclude) return false;
-    return !selectProjectsRelation(this.model, this.parsedSelect);
+    return projectionNamesNoRelation(
+      this.model,
+      this.parsedSelect,
+      this.parsedInclude
+    );
   }
 
   private assertCreateTreeKinds(

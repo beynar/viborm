@@ -112,11 +112,11 @@ import {
   getStepModelName,
   isRecord,
   type NestedTargetLocate,
+  projectionNamesNoRelation,
   projectionReadsMutatedModel,
   type SubOperationOptions,
   sameScalarValue,
   selectExecutionMode,
-  selectProjectsRelation,
   setCanFireReferentialAction,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
@@ -735,9 +735,14 @@ export class UpdateOperation {
     // name-captured correlation (`selectProjectsRelation`). NOT gated to
     // `transaction` mode — see {@link UpdateOperation.directGuard} for how the
     // presence assertion is carried on each substrate.
-    const selectIsScalarOnly = !selectProjectsRelation(
+    //
+    // `projectionNamesNoRelation` is the ONE spelling of "scalars only": both
+    // halves — a relation or `_count` key in `select`, and `include` at all — in
+    // a single predicate, so no site can drift onto half of it.
+    const projectionIsScalarOnly = projectionNamesNoRelation(
       model,
-      this.parsedSelect
+      this.parsedSelect,
+      this.parsedInclude
     );
     // The WRITE half of the fold: is this update ONE statement's worth of work?
     const writeIsOneStatement =
@@ -775,10 +780,8 @@ export class UpdateOperation {
       ) &&
       !setCanFireReferentialAction(model, parentSet);
     const canFold =
-      writeIsOneStatement &&
-      ((selectIsScalarOnly && !this.parsedInclude) || cteProjectionFold);
-    const foldsProjectionIntoCte =
-      canFold && !(selectIsScalarOnly && !this.parsedInclude);
+      writeIsOneStatement && (projectionIsScalarOnly || cteProjectionFold);
+    const foldsProjectionIntoCte = canFold && !projectionIsScalarOnly;
     const notFound = notFoundFailure(
       `query-engine-v2 update located no '${parentName}' row for its unique where.`
     );

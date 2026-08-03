@@ -525,29 +525,64 @@ describe("the delete fold — the plan shape, without a database", () => {
     });
   });
 
-  test("a relation nested in `select` does not fold either", () => {
-    // `include` is not the only relation projection: `select: { notes: … }`
-    // produces the same lateral join, and the same reason applies — the related
-    // rows have to be read while they still exist. The gate keys on the
-    // PROJECTION, not on which of the two keys spelled it, so this shape keeps
-    // its planning read.
-    //
-    // Pinned at the plan rather than against a database because this path has a
-    // pre-existing PostgreSQL defect unrelated to the fold: the shape-capturing
-    // read asks for `FOR UPDATE` over the lateral join and PostgreSQL answers
-    // 0A000. Reproduced on the PR tip with this phase reverted; filed separately.
-    // What THIS phase owns is the verdict below — that the shape is declined.
+  /**
+   * The two halves of "the projection names a relation", asserted against the
+   * SAME two properties, so no fix can satisfy one spelling by breaking the other.
+   *
+   * DECLINING THE FOLD is what Phase 3 owns: both shapes keep their planning
+   * locate, because the related rows must be read while they still exist.
+   *
+   * DROPPING `FOR UPDATE` on the shape-capturing read is the defect this closes.
+   * That read used to gate the lock on `!include` — half the question — so a
+   * relation nested in `select` slipped past and PostgreSQL rejected the locked
+   * lateral join with 0A000. Both spellings, measured live on PGlite in
+   * transaction mode before the fix:
+   *
+   *   select: { id, notes: { select: { body } } }
+   *     -> "FOR UPDATE is not allowed with aggregate functions"
+   *   select: { id, account: { select: { label } } }   (the to-one direction)
+   *     -> "FOR UPDATE cannot be applied to the nullable side of an outer join"
+   *
+   * (This test previously recorded that crash as a known, separately-filed
+   * defect and asserted only the fold verdict. It is fixed; the lock assertion
+   * below is what keeps it fixed.)
+   *
+   * Nothing is lost by dropping the lock: the locate above is `FOR UPDATE` and
+   * `OperationExecutor.runTransaction` wraps BOTH the planning fragment and the
+   * compiled fragment in ONE `withTransaction` handle, so the row lock the locate
+   * takes is still held when the DELETE runs.
+   */
+  test.each([
+    ["select", { id: true, notes: { select: { body: true } } }, undefined],
+    ["include", undefined, { notes: true }],
+  ])("a relation named by `%s` declines the fold and reads UNLOCKED", (_spelling, select, include) => {
     const operation = constructRoutedOperation(
       engineFor(new PGliteDriver()),
       schema.account,
       "delete",
       {
         where: { id: 1 },
-        select: { id: true, notes: { select: { body: true } } },
+        ...(select ? { select } : {}),
+        ...(include ? { include } : {}),
       }
     );
 
-    expect(operation!.planning().steps).toHaveLength(1);
+    // Declined: the locate survives.
+    const planning = operation!.planning();
+    expect(planning.steps).toHaveLength(1);
+    // ...and it is the lock-taking one.
+    expect(sqlOf(planning.steps[0]!)).toContain("FOR UPDATE");
+
+    // The shape-capturing read joins the relation and must NOT re-lock.
+    const compiled = operation!.compile({
+      [planningKey(planning.steps[0]!.id, "rows")]: [{ id: 1 }],
+    });
+    expect(compiled.steps.map((step) => step.kind)).toEqual(["read", "write"]);
+    const capture = sqlOf(compiled.steps[0]!);
+    // The join is what makes the lock illegal — assert it is really there, so
+    // the `not.toContain` below cannot pass on a read that lost its relation.
+    expect(capture).toContain("JOIN");
+    expect(capture).not.toContain("FOR UPDATE");
   });
 
   test("`_count` in `select` does not fold either, in either spelling", () => {
@@ -593,5 +628,12 @@ describe("the delete fold — the plan shape, without a database", () => {
       step: compiled.steps[0]!.id,
       output: "result",
     });
+
+    // THE LOCK IS LOAD-BEARING. A SCALAR projection has no join to make
+    // `FOR UPDATE` illegal, so the shape-capturing read still takes it — the drop
+    // is scoped to relation projections, not widened to every unfolded read. This
+    // is the ONLY reachable scalar-only shape-capturing read: on a RETURNING
+    // driver the same payload folds to a single statement and never builds one.
+    expect(sqlOf(compiled.steps[0]!)).toContain("FOR UPDATE");
   });
 });

@@ -1172,6 +1172,114 @@ export function runNestedWriteBehavior({
         ["post-in-new-2", "user-in-new"],
       ]);
     });
+
+    /**
+     * A DELETE whose projection names a relation may not lock the shape-capturing
+     * read.
+     *
+     * `DeleteOperation` runs the unfolded path for any relation projection:
+     * locate (PK-only, `FOR UPDATE` in transaction mode), shape-capturing read,
+     * DELETE. That middle read must NOT carry `FOR UPDATE` — a relation
+     * projection compiles to a LATERAL join, and PostgreSQL rejects the
+     * combination outright with SQLSTATE 0A000. The gate for dropping the lock
+     * used to be `!include`, which is only HALF of "the projection names a
+     * relation": a relation nested in `select` sailed past it and the delete
+     * crashed. MEASURED on PGlite in transaction mode before the fix, both
+     * spellings of the same defect:
+     *
+     *   select: { id, posts: { select: { title } } }
+     *     -> 0A000 "FOR UPDATE is not allowed with aggregate functions"
+     *        (to-many: LEFT JOIN LATERAL … json_agg)
+     *   select: { id, author: { select: { name } } }
+     *     -> 0A000 "FOR UPDATE cannot be applied to the nullable side of an
+     *        outer join" (to-one: LEFT JOIN LATERAL)
+     *
+     * `include` — the half the old proxy did cover — is asserted alongside them,
+     * so a fix that traded one spelling for the other cannot pass. Dropping the
+     * lock here costs nothing: the PK-only locate took the row lock inside the
+     * SAME transaction (the executor wraps planning AND the compiled fragment in
+     * one `withTransaction`), and it still holds when the DELETE runs.
+     *
+     * On every driver, because the crash is dialect-specific but the plan is not:
+     * MySQL and SQLite build the identical unfolded shape and only PostgreSQL
+     * refuses it, so a regression would go unseen without the pg leg.
+     */
+    describe("delete with a relation projection", () => {
+      beforeEach(async () => {
+        const currentClient = requireClient(client);
+        await currentClient.user.create({
+          data: {
+            id: "user-relsel",
+            name: "Rhea",
+            posts: {
+              create: [
+                { id: "post-relsel-1", title: "First" },
+                { id: "post-relsel-2", title: "Second" },
+              ],
+            },
+          },
+        });
+      });
+
+      test("a to-many relation inside `select` comes back, and the row is gone", async () => {
+        const currentClient = requireClient(client);
+
+        const deleted = await currentClient.user.delete({
+          where: { id: "user-relsel" },
+          select: {
+            id: true,
+            posts: { select: { title: true }, orderBy: { id: "asc" } },
+          },
+        });
+
+        // Read BEFORE the delete — the children must be in the answer, not the
+        // empty list a post-delete read would give.
+        expect(deleted).toEqual({
+          id: "user-relsel",
+          posts: [{ title: "First" }, { title: "Second" }],
+        });
+        expect(
+          await currentClient.user.findUnique({ where: { id: "user-relsel" } })
+        ).toBeNull();
+      });
+
+      test("a to-one relation inside `select` comes back, and the row is gone", async () => {
+        const currentClient = requireClient(client);
+
+        const deleted = await currentClient.post.delete({
+          where: { id: "post-relsel-1" },
+          select: { id: true, author: { select: { name: true } } },
+        });
+
+        expect(deleted).toEqual({
+          id: "post-relsel-1",
+          author: { name: "Rhea" },
+        });
+        expect(
+          await currentClient.post.findUnique({
+            where: { id: "post-relsel-1" },
+          })
+        ).toBeNull();
+      });
+
+      test("the `include` spelling is unaffected", async () => {
+        const currentClient = requireClient(client);
+
+        const deleted = await currentClient.user.delete({
+          where: { id: "user-relsel" },
+          include: { posts: { orderBy: { id: "asc" } } },
+        });
+
+        expect(deleted.id).toBe("user-relsel");
+        expect(deleted.posts.map((post) => post.id)).toEqual([
+          "post-relsel-1",
+          "post-relsel-2",
+        ]);
+        expect(
+          await currentClient.user.findUnique({ where: { id: "user-relsel" } })
+        ).toBeNull();
+      });
+    });
   });
 }
 

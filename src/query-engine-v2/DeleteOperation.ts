@@ -30,8 +30,8 @@ import { StepScope } from "./StepScope";
 import {
   getStepModelName,
   isRecord,
+  projectionNamesNoRelation,
   selectExecutionMode,
-  selectProjectsRelation,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -65,6 +65,11 @@ export class DeleteOperation {
   private readonly deleteId: string;
   private readonly rootGuardId: string;
   private readonly foldStep: StatementStep | undefined;
+  /** THE projection predicate, in ONE spelling: does the result shape name no
+   *  relation at all? Two sites need exactly this question — the Phase 3 fold gate
+   *  and the terminal read's `FOR UPDATE` — so they ask it once. See
+   *  {@link projectionNamesNoRelation}. */
+  private readonly projectionIsScalarOnly: boolean;
   /** PLAN Phase 6.2 — the fold's presence premise on a batch-only driver, where
    *  no JS postcondition can run. `undefined` in transaction mode (the fold's
    *  own `expects` carries it) and wherever `foldStep` is undefined. */
@@ -192,14 +197,14 @@ export class DeleteOperation {
     // the write to race, because there is no separate locate. One statement
     // matches, locks and removes one row atomically. This is the identical
     // argument the update fold makes for `UPDATE … WHERE selector RETURNING`.
-    const selectIsScalarOnly = !selectProjectsRelation(
+    this.projectionIsScalarOnly = projectionNamesNoRelation(
       model,
-      this.parsedSelect
+      this.parsedSelect,
+      this.parsedInclude
     );
     const canFold =
       engine.adapter.capabilities.supportsReturning &&
-      selectIsScalarOnly &&
-      !this.parsedInclude;
+      this.projectionIsScalarOnly;
     const foldNotFound = notFoundFailure(
       `query-engine-v2 delete located no '${parentName}' row for its unique where.`
     );
@@ -283,12 +288,25 @@ export class DeleteOperation {
         where,
         ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
         ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
-        // `FOR UPDATE` cannot be applied to an include's relation join/aggregate
+        // `FOR UPDATE` cannot be applied to a relation projection's join/aggregate
         // (Postgres 0A000). The PK-only locate above already took the row lock in
         // transaction mode, so the shape-capturing read never needs to re-lock —
         // it drops `FOR UPDATE` whenever a relation projection is present, exactly
         // as the create/update terminal reads (which never re-lock) do.
-        forUpdate: txMode && !this.parsedInclude,
+        //
+        // THE SAME predicate the fold gate asks, not a second spelling of it: the
+        // question at both sites is "does the projection name no relation?", and
+        // `include` is only one of the two ways to name one. A `!parsedInclude`
+        // proxy here missed a relation nested in `select` and emitted the join
+        // WITH the lock — MEASURED on PGlite in transaction mode, both spellings:
+        //   select: { id, notes: { select: { body } } }  (to-many, LATERAL json_agg)
+        //     -> 0A000 "FOR UPDATE is not allowed with aggregate functions"
+        //   select: { id, account: { select: { label } } } (to-one, LEFT JOIN LATERAL)
+        //     -> 0A000 "FOR UPDATE cannot be applied to the nullable side of an
+        //        outer join"
+        // Neither shape can fold (the fold gate declines every relation
+        // projection), so this read is what runs, and it crashed the delete.
+        forUpdate: txMode && this.projectionIsScalarOnly,
       }),
       outputs: { result: { kind: "rows" } },
     };
