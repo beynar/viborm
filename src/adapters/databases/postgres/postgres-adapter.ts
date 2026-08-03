@@ -116,9 +116,25 @@ export class PostgresAdapter implements DatabaseAdapter {
     // accent-sensitive natively, which is the contract `startsWithText` holds,
     // and `match_pattern_prefix` extracts `name >= 'x' AND name < 'y'` from the
     // constant-folded pattern even though it arrives as a bound parameter.
-    // Measured on PGlite (PG 17), 20k rows, plain btree index: this plans as a
-    // Bitmap Index Scan over 111 rows where `LEFT(col, LENGTH($1)) = $1` is a
-    // Seq Scan over all 20000.
+    //
+    // THE INDEX RANGE HAS A COLLATION PRECONDITION, and the common case does
+    // not meet it. Measured, 20k rows, plain btree index:
+    //   - C-collated database (PGlite, `datcollate = 'C'`): Bitmap Index Scan
+    //     over 111 rows, where `LEFT(col, LENGTH($1)) = $1` is a Seq Scan over
+    //     all 20000.
+    //   - `en_US.utf8` (postgres:16 — the project's own test container, and
+    //     what a default `initdb` produces): BOTH spellings Seq Scan. Only a
+    //     `(col text_pattern_ops)` index ranges, and `generateCreateIndex`
+    //     (src/migrations/drivers/postgres/index.ts) emits no opclass, so
+    //     viborm cannot create one.
+    // What survives on a default-locale cluster — and the reason this spelling
+    // still stands there — is the row estimate: `LIKE` tracks the data
+    // (202/1010/11111/19998 against truths 111/1111/11111/20000) while
+    // `LEFT(...)` is an opaque function estimated at a flat 100 for every
+    // prefix width, a 111x error at `name1%` that propagates into the row
+    // estimate of any join above it. It is never worse than the spelling it
+    // replaced on any measured leg. Full record: Decision 7.3 in
+    // docs/architecture/query-performance-plan.md.
     startsWithPrefix: (column: Sql, value: string): Sql =>
       sql`${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\'`,
 

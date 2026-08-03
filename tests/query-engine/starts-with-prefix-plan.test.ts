@@ -7,6 +7,7 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import Database from "better-sqlite3";
+import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 /**
@@ -21,6 +22,18 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
  * Both halves matter and both are asserted: the new spelling ranges, and the
  * old one scans. Without the second half a planner that ranged on everything
  * would pass this file while proving nothing.
+ *
+ * PostgreSQL's range is NOT unconditional, and this file must not be read as
+ * saying it is. It needs byte-ordered index keys, which a `C`-collated
+ * database gives for free and a default-locale one does not. So the two
+ * PostgreSQL describes below are deliberately split by substrate:
+ *
+ *   - PGlite is `datcollate = 'C'`, and its describe asserts that precondition
+ *     before claiming anything, so it can never silently certify the general
+ *     case.
+ *   - The Docker leg (`PG_TEST_CONNECTION_STRING`, `en_US.utf8`) pins what
+ *     actually happens without the precondition: neither spelling ranges, and
+ *     what survives is the row estimate. Skipped when the container is absent.
  */
 
 const ROW_COUNT = 20_000;
@@ -30,6 +43,8 @@ const PREFIX = "name123";
 const PREFIX_MATCHES = 111;
 /** The lower bound PostgreSQL derives from the prefix pattern. */
 const PG_INDEX_RANGE = /Index Cond:.*title >= 'name123'/;
+/** The planner's row estimate, as EXPLAIN spells it on the top plan node. */
+const PG_ROW_ESTIMATE = /rows=(\d+)/;
 
 class MockDriver extends Driver<null, null> {
   readonly adapter: DatabaseAdapter;
@@ -103,7 +118,7 @@ function predicateFor(
   };
 }
 
-describe("PostgreSQL prefix plans", () => {
+describe("PostgreSQL prefix plans (C-collated substrate)", () => {
   let db: PGlite;
 
   beforeAll(async () => {
@@ -130,6 +145,18 @@ describe("PostgreSQL prefix plans", () => {
     );
     return result.rows.map((row) => row["QUERY PLAN"]).join("\n");
   };
+
+  test("PRECONDITION: this database is C-collated, which is what buys the range", async () => {
+    // Every claim below depends on it. On a default-locale cluster a plain
+    // btree stores locale sort keys, `match_pattern_prefix` cannot use them,
+    // and the range disappears — see the `en_US.utf8` describe at the bottom
+    // of this file. Asserting it here keeps this describe from reading as a
+    // statement about PostgreSQL in general.
+    const collation = await db.query<{ datcollate: string }>(
+      "SELECT datcollate FROM pg_database WHERE datname = current_database()"
+    );
+    expect(collation.rows[0]?.datcollate).toBe("C");
+  });
 
   test("default-mode startsWith becomes an index range", async () => {
     const { predicate, values } = predicateFor(
@@ -272,5 +299,156 @@ describe("SQLite prefix plans", () => {
       .prepare(`SELECT count(*) AS c FROM ${TABLE} WHERE title GLOB ?`)
       .get(`${PREFIX.toUpperCase()}*`) as { c: number };
     expect(globUpper.c).toBe(0);
+  });
+});
+
+/**
+ * The same measurement without the collation precondition, on the Docker leg
+ * the plan's Rules make mandatory (`postgres:16`, `datcollate = en_US.utf8` —
+ * what a default `initdb` produces).
+ *
+ * This describe exists because the PGlite one above cannot see the common
+ * case. It pins two things: that the index range is genuinely gone here, and
+ * that what remains — the row estimate — is real and is why the spelling still
+ * stands. Both are what Decision 7.3 now claims; neither was witnessed before.
+ */
+const PG_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
+const describeIfDockerPg = PG_CONNECTION_STRING ? describe : describe.skip;
+const LOCALE_TABLE = "prefix_plan_locale_probe";
+/** A prefix wide enough that a flat default estimate is visibly wrong. */
+const WIDE_PREFIX = "name1";
+const WIDE_PREFIX_MATCHES = 11_111;
+
+describeIfDockerPg("PostgreSQL prefix plans (default-locale substrate)", () => {
+  let client: PgClient;
+
+  beforeAll(async () => {
+    client = new PgClient({ connectionString: PG_CONNECTION_STRING });
+    await client.connect();
+    // Own table, own teardown: the sibling driver suites push() against this
+    // same database and drop whatever their schema does not name.
+    await client.query(`DROP TABLE IF EXISTS ${LOCALE_TABLE}`);
+    await client.query(
+      `CREATE TABLE ${LOCALE_TABLE} (id text PRIMARY KEY, title text NOT NULL)`
+    );
+    await client.query(
+      `INSERT INTO ${LOCALE_TABLE} (id, title)
+       SELECT g::text, 'name' || g || '_suffix' FROM generate_series(1,${ROW_COUNT}) g`
+    );
+    // The only index viborm's emitter can produce: no operator class.
+    await client.query(
+      `CREATE INDEX ${LOCALE_TABLE}_title ON ${LOCALE_TABLE} (title)`
+    );
+    await client.query(`ANALYZE ${LOCALE_TABLE}`);
+  }, 120_000);
+
+  afterAll(async () => {
+    await client?.query(`DROP TABLE IF EXISTS ${LOCALE_TABLE}`);
+    await client?.end();
+  });
+
+  const planFor = async (predicate: string, values: unknown[]) => {
+    const result = await client.query<{ "QUERY PLAN": string }>(
+      `EXPLAIN SELECT id FROM ${LOCALE_TABLE} WHERE ${predicate}`,
+      values
+    );
+    return result.rows.map((row) => row["QUERY PLAN"]).join("\n");
+  };
+
+  /** The planner's row estimate for a predicate, read off the top plan node. */
+  const estimateFor = async (predicate: string, values: unknown[]) => {
+    const plan = await planFor(predicate, values);
+    const match = plan.match(PG_ROW_ESTIMATE);
+    if (!match) {
+      throw new Error(`no row estimate in plan: ${plan}`);
+    }
+    return Number(match[1]);
+  };
+
+  const shippedPredicate = (prefix: string) =>
+    predicateFor(
+      new PostgresAdapter(),
+      "postgresql",
+      { title: { startsWith: prefix } },
+      "$n"
+    );
+
+  test("PRECONDITION: this cluster is NOT C-collated", async () => {
+    // The whole point of this describe. If someone re-creates the container
+    // with `--locale=C` these assertions would start passing for the wrong
+    // reason, so the substrate is asserted, not assumed.
+    const collation = await client.query<{ datcollate: string }>(
+      "SELECT datcollate FROM pg_database WHERE datname = current_database()"
+    );
+    expect(collation.rows[0]?.datcollate).not.toBe("C");
+  });
+
+  test("the shipped spelling does NOT range here — and neither did the one it replaced", async () => {
+    const { predicate, values } = shippedPredicate(PREFIX);
+    const shipped = await planFor(predicate, values);
+    expect(shipped).toContain("Seq Scan");
+    expect(shipped).not.toContain("Index Cond");
+
+    const replaced = await planFor("LEFT(title, LENGTH($1)) = $1", [PREFIX]);
+    expect(replaced).toContain("Seq Scan");
+    expect(replaced).not.toContain("Index Cond");
+  });
+
+  test("it is still exact — the seq scan answers with the same rows", async () => {
+    const { predicate, values } = shippedPredicate(PREFIX);
+    const rows = await client.query(
+      `SELECT id FROM ${LOCALE_TABLE} WHERE ${predicate}`,
+      values
+    );
+    expect(rows.rowCount).toBe(PREFIX_MATCHES);
+  });
+
+  test("what survives is the estimate: LIKE tracks the data, LEFT is a constant", async () => {
+    const narrow = await shippedPredicate(PREFIX);
+    const wide = await shippedPredicate(WIDE_PREFIX);
+    const narrowEstimate = await estimateFor(narrow.predicate, narrow.values);
+    const wideEstimate = await estimateFor(wide.predicate, wide.values);
+
+    const narrowLeft = await estimateFor("LEFT(title, LENGTH($1)) = $1", [
+      PREFIX,
+    ]);
+    const wideLeft = await estimateFor("LEFT(title, LENGTH($1)) = $1", [
+      WIDE_PREFIX,
+    ]);
+
+    // The truths the two prefixes actually have, two orders of magnitude apart.
+    const wideRows = await client.query(
+      `SELECT id FROM ${LOCALE_TABLE} WHERE ${wide.predicate}`,
+      wide.values
+    );
+    expect(wideRows.rowCount).toBe(WIDE_PREFIX_MATCHES);
+
+    // `LEFT(...)` is an opaque function call: the planner cannot tell the two
+    // prefixes apart and guesses the same number for both.
+    expect(wideLeft).toBe(narrowLeft);
+    expect(wideLeft).toBeLessThan(WIDE_PREFIX_MATCHES / 10);
+
+    // The shipped spelling tracks instead — the estimate moves with the data.
+    expect(wideEstimate).toBeGreaterThan(narrowEstimate * 10);
+    expect(wideEstimate).toBeGreaterThan(wideLeft * 10);
+  });
+
+  test("only an operator-class index restores the range — and viborm cannot emit one", async () => {
+    // Named so the fix is unambiguous if it is ever taken: this is the index
+    // `generateCreateIndex` has no vocabulary for, which is why Decision 7.3
+    // records the companion index as an open residual rather than shipping it.
+    await client.query(
+      `CREATE INDEX ${LOCALE_TABLE}_title_pat ON ${LOCALE_TABLE} (title text_pattern_ops)`
+    );
+    try {
+      await client.query(`ANALYZE ${LOCALE_TABLE}`);
+      const { predicate, values } = shippedPredicate(PREFIX);
+      const plan = await planFor(predicate, values);
+      expect(plan).toContain(`Index Scan on ${LOCALE_TABLE}_title_pat`);
+      expect(plan).toContain("Index Cond");
+    } finally {
+      await client.query(`DROP INDEX ${LOCALE_TABLE}_title_pat`);
+      await client.query(`ANALYZE ${LOCALE_TABLE}`);
+    }
   });
 });
