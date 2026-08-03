@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phases 6-10 not started. Phase 2 raised one new maintainer decision, 7.4.
+**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phase 6 delivered its measurement and pinned it as a baseline; both of its units hit a blocker that is a decision rather than a defect, and neither shipped. Phase 7's decisions 7.1, 7.2 and 7.3 are delivered, each with the disposition the maintainer asked for written into its own section; **7.4 is the one Phase 7 decision still open**, and it is the debt Phase 2 raised. Phases 8, 9 and 10 not started.
 
 ## Source of this plan
 
@@ -977,7 +977,6 @@ The current spellings can never use an index: `LEFT(col, LENGTH($1)) = $1` on Po
 **One thing the falsification could not break, recorded rather than claimed.** Dropping the `ESCAPE '\'` clause from the PostgreSQL predicate fails no witness: backslash is already PostgreSQL's default `LIKE` escape character, so the clause restates the default. It is kept for uniformity with the sibling `like`/`notLike`/`ilike` operators, which all carry it, and because it pins the escape character against a server default rather than inheriting one — not because it is load-bearing here. What *is* load-bearing is the client-side escaper: neutering `escapeLikeLiteral` fails four witnesses on PostgreSQL, and neutering `escapeGlobLiteral` fails the GLOB-metacharacter witness on SQLite. On MySQL a neutered `escapeLikeLiteral` fails only the two backslash cases — the `%`/`_` cases are absorbed by the `BINARY` conjunct, since over-permissive wildcards leave the accelerator a superset while a mis-escaped backslash does not. Dropping the `BINARY` conjunct fails the `ai_ci` witness above.
 
 **Pinned SQL updated deliberately** in [`starts-with-prefix-sql.test.ts`](../../tests/query-engine/starts-with-prefix-sql.test.ts) (three dialects, plus the complements proving `startsWith` is the only operation that moved) and the index-range claim is re-run as a test in [`starts-with-prefix-plan.test.ts`](../../tests/query-engine/starts-with-prefix-plan.test.ts), which asserts both halves: the new spelling ranges and the old one scans. Adversarial values (`50%`, `a_b`, `x\`, escape-char-only, empty, `a%b_c\d`, plus `*`/`?`/`[`) run live on all four drivers in [`like-escape-behavior.ts`](../../tests/drivers/like-escape-behavior.ts).
-
 
 ### Decision 7.4 — The PostgreSQL partial-index predicate (raised by Phase 2)
 
