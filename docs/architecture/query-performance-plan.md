@@ -1448,6 +1448,27 @@ Count the wire round trips for a multi-statement transaction before and after. R
 
 ---
 
+## The Phase 8 / Phase 9 wave gate
+
+Phases 8 and 9 were built in separate lanes off `c9c06e5` and landed together. Each lane gated its own tip; this gate is the one that matters, because it is the only one run on the **merged** tree — five commits, Phase 9 first (transport) and then Phase 8 (emitter).
+
+| Leg | Result | Baseline at `c9c06e5` |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, one run, `--minWorkers=1 --maxWorkers=4` | **9515 passed, 0 failed**, 2168 skipped (271 files) | 9489, 0 failed |
+| `pnpm test:gates` | **72 passed**; census pin unchanged at 39 | 72 |
+| Docker MySQL (3307) | **1016 passed, 0 failed** | 1016 |
+| Docker PostgreSQL (5434), serial | **1140 passed, 0 failed**, 14 skipped | 1135 |
+| repo-pinned `npx biome check` (2.3.11), all 15 changed files | clean | — |
+
+Both deltas are accounted for exactly, which is the point of writing them down: the estate's **+26** is Phase 8's witness file (`mutation-projection-cte-fold.test.ts`), and PostgreSQL's **+5** is Phase 9's (`postgres-pipelining.test.ts`, which is env-gated and therefore skips in the plain estate — it is wired into the serial `test:pg` script, and must stay there, because `postgres.test.ts` drops tables outside its own schema). MySQL does not move because neither phase reaches it: MySQL folds nothing (no RETURNING, read-only CTEs) and is not a PostgreSQL transport.
+
+**The two lanes are disjoint in code, and the merge did not have to reconcile any of it.** Phase 9 changed two driver doc comments, one test file and one `package.json` script — no executable line. Phase 8 changed the emitters. The one true conflict was the plan's own status sentence, which both lanes rewrote; it is resolved above to carry both dispositions.
+
+The wave's binding rules held: `OperationFragment.ts` is byte-identical to `c9c06e5` (neither phase grew the frozen vocabulary — each fold is one `write` step where there used to be several), no error message, error attribution or race protection was removed, and the pinned SQL that moved is the three assertions Phase 8 retargeted with the rationale recorded in its own delivery record.
+
+---
+
 ## Phase 10 — Small corrections and documentation
 
 1. ~~**The false capability flag.**~~ **DONE in Phase 8** (see its delivery record). Set to `false` for SQLite after measuring it on 3.51.2, and kept rather than removed: Phase 8's two folds read it, so it is no longer the dead flag this item described.
