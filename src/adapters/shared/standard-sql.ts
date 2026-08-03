@@ -374,3 +374,25 @@ export const createLateralJoins = (
   lateralLeft: (subquery: Sql, alias: string): Sql =>
     sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw`${quoteIdent(alias)}`} ON TRUE`,
 });
+
+/**
+ * Escape a user value so a SQL `LIKE` pattern matches it literally.
+ *
+ * `%`, `_` and the escape character itself become escaped; every other
+ * character is left alone. The caller appends its own wildcard and must emit
+ * a matching `ESCAPE` clause — backslash is only the escape character because
+ * every `ESCAPE` clause in this codebase spells backslash.
+ */
+export const escapeLikeLiteral = (value: string): string =>
+  value.replace(/[\\%_]/g, (char) => `\\${char}`);
+
+/**
+ * Escape a user value so a SQLite `GLOB` pattern matches it literally.
+ *
+ * GLOB has no `ESCAPE` clause, so a metacharacter is quoted by wrapping it in
+ * a one-character class: `*` becomes `[*]`. Only `*`, `?` and `[` need it —
+ * a `]` outside a class is already literal in SQLite's GLOB, and backslash is
+ * not a GLOB metacharacter at all.
+ */
+export const escapeGlobLiteral = (value: string): string =>
+  value.replace(/[*?[]/g, (char) => `[${char}]`);

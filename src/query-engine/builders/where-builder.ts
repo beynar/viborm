@@ -632,12 +632,28 @@ function buildFilterOperation(
     }
 
     case "startsWith": {
-      return isInsensitive
-        ? adapter.operators.startsWithText(
-            foldedTextColumn,
-            foldedOperand(value)
-          )
-        : adapter.operators.startsWithText(column, plainOperand(value));
+      if (isInsensitive) {
+        return adapter.operators.startsWithText(
+          foldedTextColumn,
+          foldedOperand(value)
+        );
+      }
+      // A literal string operand is the only shape that can be escaped into a
+      // pattern here, and so the only one the index-usable spelling can serve.
+      // The alternative is a field reference or an SQL fragment — an object,
+      // with no client-side string to escape — which keeps the LEFT/substr
+      // spelling and loses nothing: its operand is a column, so no planner
+      // could have ranged the predicate either way.
+      //
+      // The COLUMN's type needs no check to go with this. `startsWith` is
+      // admitted on a non-array string scalar and nowhere else; an enum or a
+      // string list is refused at the parse boundary, which
+      // `tests/query-engine/starts-with-prefix-sql.test.ts` pins as the
+      // boundary's job rather than restating it here.
+      if (typeof value === "string") {
+        return adapter.operators.startsWithPrefix(column, value);
+      }
+      return adapter.operators.startsWithText(column, plainOperand(value));
     }
 
     case "endsWith": {

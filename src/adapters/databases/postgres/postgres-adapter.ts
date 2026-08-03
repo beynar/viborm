@@ -32,6 +32,7 @@ import {
   createStandardClauses,
   createStandardLiterals,
   createSubqueries,
+  escapeLikeLiteral,
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter('"');
@@ -110,6 +111,16 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`LEFT(${column}, LENGTH(${value})) = ${value}`,
     endsWithText: (column: Sql, value: Sql): Sql =>
       sql`RIGHT(${column}, LENGTH(${value})) = ${value}`,
+    // PostgreSQL is the one dialect where the escaped LIKE spelling is both
+    // exact and index-usable, so it stands alone here: `LIKE` is case- and
+    // accent-sensitive natively, which is the contract `startsWithText` holds,
+    // and `match_pattern_prefix` extracts `name >= 'x' AND name < 'y'` from the
+    // constant-folded pattern even though it arrives as a bound parameter.
+    // Measured on PGlite (PG 17), 20k rows, plain btree index: this plans as a
+    // Bitmap Index Scan over 111 rows where `LEFT(col, LENGTH($1)) = $1` is a
+    // Seq Scan over all 20000.
+    startsWithPrefix: (column: Sql, value: string): Sql =>
+      sql`${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\'`,
 
     // Set membership — values is a parenthesized list from literals.list(),
     // so ANY/ALL (which need an array) would produce invalid SQL here

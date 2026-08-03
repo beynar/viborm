@@ -629,6 +629,90 @@ describeIf("MySQL2 Driver", () => {
     }
   });
 
+  /**
+   * What the `BINARY` conjunct in `startsWithPrefix` is for (plan §7.3).
+   *
+   * MySQL's prefix predicate is two conjuncts: a collation-native `LIKE` that
+   * the index can range on, and a `BINARY` comparison that carries the
+   * case-sensitivity contract. On a table `push()` created the second looks
+   * redundant — viborm's DDL declares `COLLATE=utf8mb4_0900_bin`
+   * (`src/migrations/drivers/mysql/index.ts:298`), so `LIKE` is already
+   * byte-exact there and the conjunct changes no answer.
+   *
+   * Its coverage is the table viborm did NOT create. The adapter's header
+   * promises "portable string filters override the database collation
+   * explicitly", and a column carrying MySQL's own default
+   * `utf8mb4_0900_ai_ci` is where that promise is either kept or broken. This
+   * builds exactly that column and runs both spellings against it.
+   */
+  describe("prefix predicate on a collation viborm did not choose", () => {
+    const TABLE = "l73_ai_ci_probe";
+    const NEEDLE = "Alpha";
+
+    const withClient = async (
+      fn: (client: {
+        $executeRawUnsafe: (
+          sql: string,
+          ...values: unknown[]
+        ) => Promise<unknown>;
+        $queryRawUnsafe: <T>(sql: string, ...values: unknown[]) => Promise<T[]>;
+      }) => Promise<void>
+    ) => {
+      const client = createClient({ schema: {}, driver: createMySQL2Driver() });
+      try {
+        await fn(client);
+      } finally {
+        await client.$disconnect();
+      }
+    };
+
+    beforeEach(async () => {
+      await withClient(async (client) => {
+        await client.$executeRawUnsafe(`DROP TABLE IF EXISTS ${TABLE}`);
+        await client.$executeRawUnsafe(
+          `CREATE TABLE ${TABLE} (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(191) NOT NULL)
+           ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`
+        );
+        await client.$executeRawUnsafe(
+          `INSERT INTO ${TABLE} (name) VALUES ('Alpha one'), ('alpha two'), ('ALPHA three'), ('Beta')`
+        );
+      });
+    });
+
+    afterEach(async () => {
+      await withClient(async (client) => {
+        await client.$executeRawUnsafe(`DROP TABLE IF EXISTS ${TABLE}`);
+      });
+    });
+
+    test("the accelerator alone would answer case-insensitively", async () => {
+      await withClient(async (client) => {
+        const rows = await client.$queryRawUnsafe<{ name: string }>(
+          `SELECT name FROM ${TABLE} WHERE name LIKE ? ESCAPE '\\\\' ORDER BY name`,
+          `${NEEDLE}%`
+        );
+        // All three 'alpha' spellings — this is the answer the shipped
+        // predicate must NOT give.
+        expect(rows).toHaveLength(3);
+      });
+    });
+
+    test("the shipped conjunction keeps the case-sensitivity contract", async () => {
+      await withClient(async (client) => {
+        const rows = await client.$queryRawUnsafe<{ name: string }>(
+          `SELECT name FROM ${TABLE}
+             WHERE (name LIKE ? ESCAPE '\\\\'
+                    AND LEFT(BINARY name, OCTET_LENGTH(?)) = BINARY ?)
+             ORDER BY name`,
+          `${NEEDLE}%`,
+          NEEDLE,
+          NEEDLE
+        );
+        expect(rows.map((row) => row.name)).toEqual(["Alpha one"]);
+      });
+    });
+  });
+
   // The batch-only suites (batch-primary-key-dataflow, batch-ref-smoke) are
   // not wired here: they need a batch-only driver subclass and MySQL2
   // exercises the transaction-based nested-write path instead.

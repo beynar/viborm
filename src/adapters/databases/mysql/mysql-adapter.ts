@@ -38,6 +38,7 @@ import {
   createStandardClauses,
   createStandardLiterals,
   createSubqueries,
+  escapeLikeLiteral,
   stringifyJson,
 } from "../../shared/standard-sql";
 
@@ -161,6 +162,26 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`LEFT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
     endsWithText: (column: Sql, value: Sql): Sql =>
       sql`RIGHT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
+    // Two conjuncts, because on MySQL no single predicate is both exact and
+    // index-usable. The index stores the column's own collation's sort keys —
+    // `utf8mb4_0900_ai_ci` on a default install, which is case- AND
+    // accent-insensitive — so any comparison forced to BINARY cannot range on
+    // it. Measured on MySQL 8 (Docker, 20k rows): `col LIKE 'x%'` is a `range`
+    // over 111 rows, while both `col LIKE BINARY 'x%'` and the
+    // `LEFT(BINARY col, …)` spelling above degrade to a full `index` scan of
+    // all 19731 entries.
+    //
+    // So the collation-native LIKE goes first as an index accelerator, and the
+    // BINARY predicate — byte-identical to `startsWithText` above — follows as
+    // the semantics. The accelerator can never drop a row the BINARY conjunct
+    // would keep: byte-equal strings compare equal under every collation, so a
+    // binary prefix match implies the collation-native one. It is not a second
+    // guard on the same invariant — it decides no row's membership, only which
+    // rows the server has to look at.
+    //
+    // Parenthesized because this fragment gets composed into AND/OR chains.
+    startsWithPrefix: (column: Sql, value: string): Sql =>
+      sql`(${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\\\' AND LEFT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value})`,
 
     // Set membership
     ...createMembershipOperators(),

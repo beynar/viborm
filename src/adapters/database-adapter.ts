@@ -110,6 +110,29 @@ export interface DatabaseAdapter {
     containsText: (column: Sql, value: Sql) => Sql;
     startsWithText: (column: Sql, value: Sql) => Sql;
     endsWithText: (column: Sql, value: Sql) => Sql;
+    /**
+     * `startsWithText` for a plain string operand, spelled so the dialect's
+     * planner can turn it into an index range.
+     *
+     * Same answer as `startsWithText` on every input — it exists only because
+     * `startsWithText` wraps the COLUMN in a function (`LEFT`/`substr`), which
+     * no planner can range on. This one takes the raw JS string instead of a
+     * bound `Sql` so the adapter can escape it into its own pattern language
+     * and bind the finished pattern; a pattern assembled in SQL from the
+     * operand would be non-constant and lose the range again.
+     *
+     * Only the where-builder's default-mode, plain-string, `string`-scalar path
+     * reaches it. A field-reference operand, a JSON path, an enum column and
+     * `mode: "insensitive"` all keep `startsWithText`: each of those either has
+     * no client-side string to escape, or already wraps the column in a fold
+     * that forecloses the range anyway.
+     *
+     * Each dialect's implementation must hold the case-sensitivity contract
+     * `startsWithText` documents. See the per-adapter comments — the three
+     * answers are not the same shape, and the measurements that forced that
+     * are recorded in `docs/architecture/query-performance-plan.md`, §7.3.
+     */
+    startsWithPrefix: (column: Sql, value: string) => Sql;
 
     // Set membership
     in: (column: Sql, values: Sql) => Sql;

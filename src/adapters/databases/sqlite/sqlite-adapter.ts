@@ -31,6 +31,7 @@ import {
   createStandardClauses,
   createStandardLiterals,
   createSubqueries,
+  escapeGlobLiteral,
   stringifyJson,
 } from "../../shared/standard-sql";
 
@@ -171,6 +172,25 @@ export class SQLiteAdapter implements DatabaseAdapter {
       sql`substr(${column}, 1, length(${value})) COLLATE BINARY = ${value}`,
     endsWithText: (column: Sql, value: Sql): Sql =>
       sql`CASE WHEN length(${value}) = 0 THEN 1 ELSE substr(${column}, -length(${value})) COLLATE BINARY = ${value} END`,
+    // GLOB, not LIKE — and this is the one place the "portable escaped LIKE"
+    // premise of Decision 7.3 does not survive contact with SQLite. Both of
+    // SQLite's LIKE-optimization preconditions fail here: an ESCAPE clause
+    // disqualifies the optimization outright, and with `case_sensitive_like`
+    // off (the default, and connection-global, so not ours to flip) the
+    // optimization additionally wants a NOCASE-collated index, while `push()`
+    // only ever creates BINARY ones. Measured on better-sqlite3, 20k rows,
+    // plain index: `col LIKE ? ESCAPE '\'` is a SCAN — exactly what the
+    // `substr` spelling above already costs — AND it answers case-insensitively,
+    // which would break the case-sensitivity contract this operator holds.
+    //
+    // GLOB has neither problem. It compares bytes, so it is case- and
+    // accent-sensitive by construction (that is what `COLLATE BINARY` buys
+    // above, so nothing is lost by dropping it), and it ranges on the ordinary
+    // BINARY index: the same probe plans this as a covering index SEARCH over
+    // 111 rows against a 20000-row SCAN. Its wildcards are `*`/`?`/`[`, and it
+    // has no ESCAPE clause, so `escapeGlobLiteral` quotes them as classes.
+    startsWithPrefix: (column: Sql, value: string): Sql =>
+      sql`${column} GLOB ${`${escapeGlobLiteral(value)}*`}`,
 
     // Set membership
     ...createMembershipOperators(),

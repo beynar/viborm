@@ -90,6 +90,12 @@ adapter.operators.ilike(col, pattern)     // → col ILIKE pattern (PG)
 adapter.operators.containsText(col, value)   // exact literal substring
 adapter.operators.startsWithText(col, value) // exact literal prefix
 adapter.operators.endsWithText(col, value)   // exact literal suffix
+// Same answer as startsWithText, spelled so the planner can range an index.
+// Takes the raw JS string (not an Sql operand) because the adapter escapes it
+// into its own pattern language and binds the finished pattern. The three
+// dialects do NOT share a spelling — see the per-adapter comments and
+// docs/architecture/query-performance-plan.md §7.3.
+adapter.operators.startsWithPrefix(col, value: string)
 
 // Set membership
 adapter.operators.in(col, values)      // → col IN values
