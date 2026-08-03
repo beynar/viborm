@@ -261,21 +261,28 @@ describe("live push — an index name that moves to another table", () => {
     it(`is freed before it is taken on ${driverName}`, async () => {
       const driver = createDriver();
       const before = createClient({ schema: beforeMove as never, driver });
-      await push(before as never, { force: true });
-
       const after = createClient({ schema: afterMove as never, driver });
-      const planned = await push(after as never, { force: true });
+      try {
+        await push(before as never, { force: true });
+        const planned = await push(after as never, { force: true });
 
-      expect(
-        planned.operations.map((op) =>
-          op.type === "dropIndex"
-            ? `dropIndex:${op.tableName}`
-            : op.type === "createIndex"
-              ? `createIndex:${op.tableName}`
-              : op.type
-        )
-      ).toEqual(["dropIndex:moved_a", "createIndex:moved_b"]);
-      await after.$disconnect();
+        expect(
+          planned.operations.map((op) =>
+            op.type === "dropIndex"
+              ? `dropIndex:${op.tableName}`
+              : op.type === "createIndex"
+                ? `createIndex:${op.tableName}`
+                : op.type
+          )
+        ).toEqual(["dropIndex:moved_a", "createIndex:moved_b"]);
+      } finally {
+        // ONE disconnect, because there is one driver: both clients wrap the same
+        // `createDriver()` handle, so closing it through `after` closes it for
+        // `before` too. What was missing was not a second call but this `finally` —
+        // a failed plan assertion used to skip the call entirely and leave the
+        // loop's per-dialect handle open for the rest of the run.
+        await after.$disconnect();
+      }
     });
   }
 });

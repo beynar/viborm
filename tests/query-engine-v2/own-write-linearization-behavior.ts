@@ -152,41 +152,49 @@ export function runOwnWriteLinearizationBehavior(options: {
       const stateDriver = options.createStateDriver?.() ?? driver;
       const client = makeClient(stateDriver);
       const run = makeRunner(driver);
-      await push(client, { force: true });
-      // Author 1 is the subject; author 2 is the DECOY — every membership assertion
-      // below would also pass if a write landed on author 2, so each test that can
-      // reach the decoy asserts its membership stayed empty.
-      await client.author.create({
-        data: { id: 1, email: "one@x", name: "one" },
-      });
-      await client.author.create({
-        data: { id: 2, email: "two@x", name: "two" },
-      });
-      await client.note.createMany({
-        data: [
-          { id: 801, body: "member-801", authorId: 1 },
-          { id: 802, body: "member-802", authorId: 1 },
-          { id: 803, body: "free-803", authorId: null },
-          { id: 804, body: "bulk-804", authorId: 1 },
-        ],
-      });
-      for (const id of [811, 812, 813, 814]) {
-        await client.post.create({
-          data: {
-            id,
-            slug: `s${id}`,
-            title: id === 814 ? "bulk-814" : `p${id}`,
-          },
-        });
-      }
-      await client.author.update({
-        where: { id: 1 },
-        data: { posts: { connect: [{ id: 811 }, { id: 812 }, { id: 814 }] } },
-      });
       const dispose = async () => {
         await client.$disconnect();
         if (driver !== stateDriver) await driver.disconnect();
       };
+      // The fixture work runs BEFORE any test body, so no test's `finally` covers it.
+      // A `push` or seed write that throws here would otherwise strand the driver — a
+      // connection pool per failed setup on the Docker legs.
+      try {
+        await push(client, { force: true });
+        // Author 1 is the subject; author 2 is the DECOY — every membership assertion
+        // below would also pass if a write landed on author 2, so each test that can
+        // reach the decoy asserts its membership stayed empty.
+        await client.author.create({
+          data: { id: 1, email: "one@x", name: "one" },
+        });
+        await client.author.create({
+          data: { id: 2, email: "two@x", name: "two" },
+        });
+        await client.note.createMany({
+          data: [
+            { id: 801, body: "member-801", authorId: 1 },
+            { id: 802, body: "member-802", authorId: 1 },
+            { id: 803, body: "free-803", authorId: null },
+            { id: 804, body: "bulk-804", authorId: 1 },
+          ],
+        });
+        for (const id of [811, 812, 813, 814]) {
+          await client.post.create({
+            data: {
+              id,
+              slug: `s${id}`,
+              title: id === 814 ? "bulk-814" : `p${id}`,
+            },
+          });
+        }
+        await client.author.update({
+          where: { id: 1 },
+          data: { posts: { connect: [{ id: 811 }, { id: 812 }, { id: 814 }] } },
+        });
+      } catch (error) {
+        await dispose();
+        throw error;
+      }
       return { client, run, dispose };
     };
 

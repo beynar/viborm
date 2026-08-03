@@ -305,11 +305,18 @@ export function runProducedIdentityBehavior(options: {
       const stateDriver = options.createStateDriver?.() ?? driver;
       const client = makeStateClient(stateDriver);
       const run = makeRunner(driver);
-      await push(client, { force: true });
       const dispose = async () => {
         await client.$disconnect();
         if (driver !== stateDriver) await driver.disconnect();
       };
+      // The push runs BEFORE any test body, so no test's `finally` covers it. A DDL
+      // failure here would otherwise strand the driver for the rest of the run.
+      try {
+        await push(client, { force: true });
+      } catch (error) {
+        await dispose();
+        throw error;
+      }
       return { client, ...run, dispose };
     };
 

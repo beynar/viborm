@@ -215,14 +215,24 @@ async function runOracleArm(
   let result: unknown;
   let error: { name: string; message: string } | undefined;
   try {
-    result = await scenario.act(opClient);
-  } catch (thrown) {
-    if (!(thrown instanceof Error)) throw thrown;
-    error = { name: thrown.constructor.name, message: thrown.message };
+    try {
+      result = await scenario.act(opClient);
+    } catch (thrown) {
+      if (!(thrown instanceof Error)) throw thrown;
+      error = { name: thrown.constructor.name, message: thrown.message };
+    }
+    const state = await dumpState(stateClient);
+    return error ? { error, state } : { result, state };
+  } finally {
+    // ONE disconnect for both arms, because there is one database: the batch arm's
+    // second driver is constructed over the SAME `db`, and closing that instance
+    // through either client closes it for both. Disconnecting the batch arm's client
+    // as well was tried and MEASURED — the second close raises `ConnectionError:
+    // Database disconnection failed`, and seven oracle scenarios fail. What was
+    // actually missing is this `finally`: a `dumpState` that threw used to skip the
+    // one disconnect and strand the PGlite instance for the rest of the run.
+    await stateClient.$disconnect();
   }
-  const state = await dumpState(stateClient);
-  await stateClient.$disconnect();
-  return error ? { error, state } : { result, state };
 }
 
 const oracleScenarios: OracleScenario[] = [
@@ -484,63 +494,69 @@ describe("the batch root address, statement by statement", () => {
     const db = new PGlite();
     const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
     const client = makeClient(driver);
-    await push(client, { force: true });
-    await seed(client);
+    try {
+      await push(client, { force: true });
+      await seed(client);
 
-    driver.recording = true;
-    await client.account.update({
-      where: { id: 2 },
-      data: { label: "pinned", notes: { create: { id: 300, body: "b" } } },
-    });
-    driver.recording = false;
+      driver.recording = true;
+      await client.account.update({
+        where: { id: 2 },
+        data: { label: "pinned", notes: { create: { id: 300, body: "b" } } },
+      });
+      driver.recording = false;
 
-    expect(driver.statements).toEqual([
-      // The locate, unchanged.
-      PK_LOCATE,
-      // The presence guard: still `findUnique(where)`. The captured PK would be the
-      // same column with the same literal, and a duplicated conjunct is a second
-      // guard on one invariant.
-      `SELECT 1 / CASE WHEN EXISTS (${PK_LOCATE}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
-      // The root UPDATE addresses the captured PK, as it always does. The statement is
-      // unchanged because here the captured PK and the `where` are the same conjunct
-      // with the same literal — which is also why the write site carries no branch for
-      // this shape: there would be nothing to tell the two arms apart.
-      `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
-      NOTE_INSERT,
-      TERMINAL,
-    ]);
-    await client.$disconnect();
+      expect(driver.statements).toEqual([
+        // The locate, unchanged.
+        PK_LOCATE,
+        // The presence guard: still `findUnique(where)`. The captured PK would be the
+        // same column with the same literal, and a duplicated conjunct is a second
+        // guard on one invariant.
+        `SELECT 1 / CASE WHEN EXISTS (${PK_LOCATE}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+        // The root UPDATE addresses the captured PK, as it always does. The statement is
+        // unchanged because here the captured PK and the `where` are the same conjunct
+        // with the same literal — which is also why the write site carries no branch for
+        // this shape: there would be nothing to tell the two arms apart.
+        `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
+        NOTE_INSERT,
+        TERMINAL,
+      ]);
+    } finally {
+      await client.$disconnect();
+    }
   });
 
   test("where:{email} moves exactly the guard and the root UPDATE onto the captured PK", async () => {
     const db = new PGlite();
     const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
     const client = makeClient(driver);
-    await push(client, { force: true });
-    await seed(client);
+    try {
+      await push(client, { force: true });
+      await seed(client);
 
-    driver.recording = true;
-    await client.account.update({
-      where: { email: "target@x" },
-      data: { label: "reffed", notes: { create: { id: 400, body: "b" } } },
-    });
-    driver.recording = false;
+      driver.recording = true;
+      await client.account.update({
+        where: { email: "target@x" },
+        data: { label: "reffed", notes: { create: { id: 400, body: "b" } } },
+      });
+      driver.recording = false;
 
-    expect(driver.statements).toEqual([
-      // The locate still asks the question the caller asked.
-      `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."email" = $1 LIMIT 1`,
-      // The guard is now the split-witness: the selector AND the row it located.
-      // The tie-breaker carries no null placement (query-performance plan
-      // Unit 5.1): `id` is NOT NULL, so `NULLS LAST` named nothing and cost
-      // the index. The guard's meaning is unchanged.
-      `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
-      // The root UPDATE addresses the captured PK — the same row the note INSERT
-      // below and the terminal read already address.
-      `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
-      NOTE_INSERT,
-      TERMINAL,
-    ]);
-    await client.$disconnect();
+      expect(driver.statements).toEqual([
+        // The locate still asks the question the caller asked.
+        `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."email" = $1 LIMIT 1`,
+        // The guard is now the split-witness: the selector AND the row it located.
+        // The tie-breaker carries no null placement (query-performance plan
+        // Unit 5.1): `id` is NOT NULL, so `NULLS LAST` named nothing and cost
+        // the index. The guard's meaning is unchanged.
+        `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+        // The root UPDATE addresses the captured PK — the same row the note INSERT
+        // below and the terminal read already address.
+        `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
+        NOTE_INSERT,
+        TERMINAL,
+      ]);
+    } finally {
+      await client.$disconnect();
+    }
   });
 });
 

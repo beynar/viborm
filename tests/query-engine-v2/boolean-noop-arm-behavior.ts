@@ -5,7 +5,7 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
 import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
 
@@ -175,6 +175,16 @@ export function runBooleanNoOpArmBehavior(options: {
       driver: stateDriver,
     });
     const run = makeRunner(driver);
+
+    // The other half of the one-driver-per-suite decision above: what is opened once
+    // has to be closed once. Without this the pool the comment is trying to protect
+    // outlives the suite that opened it, and `tests/drivers/pg.test.ts` registers this
+    // file twice. `$disconnect` closes the state driver (the client owns it), so the
+    // subject driver is closed here only when it is a second one.
+    afterAll(async () => {
+      await client.$disconnect();
+      if (driver !== stateDriver) await driver.disconnect();
+    });
 
     let suffix = 0;
 
