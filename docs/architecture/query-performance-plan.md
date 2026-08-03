@@ -1983,6 +1983,72 @@ the objection to it is narrower than when it was written. The `0A000` on
 
 ---
 
+## Post-closure — the constraint name SQLite cannot read back
+
+Phase 1 fixed the half of this family that made a SQLite rebuild destroy the
+index the same batch had created, and Phase 2's review correction fixed the half
+that made it resurrect a foreign key the same batch had dropped (commit
+"Rebuild the SQLite table around the indexes it has now"). Both were repairs to
+the CONSEQUENCE. The CAUSE stayed: SQLite's introspection cannot read the name
+of either constraint the differ matches, so an unchanged schema read as changed
+on every push, and the differ kept planning the churn those two commits had
+learned to survive.
+
+**Delivered — 2026-08-04.** Two corrections, each measured before it was written.
+
+1. **Identity.** `MigrationCapabilities.introspectionReadsConstraintNames` says
+   whether `introspect()` reads the name the DDL gave a foreign key and a unique
+   constraint. PostgreSQL (`pg_constraint.conname`) and MySQL
+   (`information_schema.CONSTRAINT_NAME`) do; SQLite and LibSQL do not —
+   `PRAGMA foreign_key_list` has no name column, so introspection synthesises
+   `<table>_fk_<n>`, and an inline `CONSTRAINT x UNIQUE (...)` comes back only
+   as `sqlite_autoindex_<table>_<n>`. Where the name cannot be read, `planPush`
+   tells the differ to recognize both constraints by their SHAPE instead, as a
+   multiset so a legacy database still sheds the duplicates it accumulated.
+   Measured at `f33d16a` on better-sqlite3: push #2 of a two-model `manyToOne`
+   schema planned `dropForeignKey` + `addForeignKey` — two full table rebuilds,
+   copy included, forever — and push #2 of any schema with a compound unique
+   FAILED, because the drop's SQLite spelling is
+   `DROP INDEX "sqlite_autoindex_…"`, which SQLite refuses. After: pushes #2 and
+   #3 plan nothing at all. Witnesses in
+   `tests/migrations/constraint-identity.test.ts` and, on all five drivers,
+   "re-pushing the schema is not a foreign-key change" in
+   `tests/drivers/fk-index-behavior.ts`.
+
+2. **Staleness, completed.** `SQLite3MigrationDriver.getCurrentTable` replayed
+   only the batch's index and foreign-key operations. The same pre-batch read
+   reached the columns, the unique constraints and the primary key, and the
+   column case needed no foreign key to go wrong: `addColumn` runs at priority
+   10 and `alterColumn` at 12, and `alterColumn` IS a recreation on SQLite.
+   Measured live — a model that widened one column and added another emitted the
+   `ALTER TABLE … ADD COLUMN`, then rebuilt the table without it, reported
+   success, and lost the column again on every later push. The replay now covers
+   every operation that names the table. Witnesses in
+   `tests/migrations/sqlite-recreation-indexes.test.ts`.
+
+**Not closed, and measured rather than assumed.** Two defects remain in this
+area. Both are SQLite's unique-constraint DDL, not the identity or the staleness
+mechanism above, and both need a different correction: SQLite writes a unique
+constraint INLINE in `CREATE TABLE` but drops it as a standalone index, and its
+introspection can round-trip neither spelling back to a declared-name unique
+constraint. The fix is to route both the add and the drop through a table
+recreation, so a unique constraint is always inline. Measured at this tip:
+
+- **A real change to a compound unique fails on SQLite.** Spelling:
+  `.unique(["a", "b"])` → `.unique(["b", "a"])` on a mapped model, pushed twice.
+  The second push plans `dropUniqueConstraint` and emits
+  `DROP INDEX "sqlite_autoindex_uq_t_2"`, which SQLite refuses. Correction 1
+  narrowed this from "every push" to "only a real change", but did not close it.
+- **A unique constraint added to an existing table churns and then fails.**
+  Spelling: push a model, then add `.unique(["a", "b"])` to it, then push twice
+  more. `addUniqueConstraint` emits `CREATE UNIQUE INDEX "<declared name>"`,
+  which `PRAGMA index_list` reports with `origin = "c"`, so the next
+  introspection files it under `indexes` and not under `uniqueConstraints` — the
+  buckets disagree, and every later push plans `addUniqueConstraint` (the index
+  already exists) beside `dropIndex` on the same name. Push #3 fails. This one
+  is untouched by correction 1: the two names match exactly, so no identity
+  reading changes it.
+
 ## Order of the phases
 
 ```text
