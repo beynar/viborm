@@ -170,6 +170,39 @@ export function runOrderingPlanBehavior({
 
     // --- Unit 5.1 ----------------------------------------------------------
 
+    test("an EXPLICIT non-default placement on a NOT NULL column is elided too", async () => {
+      // The P2/P3/P5 review's blocking finding: the elision must not key on the
+      // requested placement matching the dialect default. A NOT NULL column has
+      // no nulls to place, so ANY requested placement is semantically inert —
+      // and keeping it re-creates the headline PostgreSQL regression (Sort Key
+      // instead of the index walk). This is the one shape no other test spells:
+      // asc + nulls:'first' is the NON-default placement for ascending order.
+      const { c, seqScanSetting } = await connect();
+      if (dialect === "postgresql") {
+        expect(seqScanSetting).toBe("on");
+      }
+
+      statements.length = 0;
+      const page = await c.orderRow.findMany({
+        orderBy: { bucket: { sort: "asc", nulls: "first" } },
+        take: 20,
+      });
+      expect(page).toHaveLength(20);
+      expect(page[0].bucket).toBe(0);
+
+      expect(statements).toHaveLength(1);
+      const emitted = statements[0]!.sql;
+      expect(emitted).not.toContain("IS NULL");
+      expect(emitted).not.toContain("NULLS FIRST");
+      expect(emitted).not.toContain("NULLS LAST");
+
+      const plan = await explainOnlyStatement();
+      expect(plan).toContain("order_plan_rows_bucket_id_idx");
+      if (dialect === "postgresql") {
+        expect(plan).not.toContain("Sort Key");
+      }
+    });
+
     test("a windowed order on a NOT NULL column walks the index", async () => {
       const { c, seqScanSetting } = await connect();
       if (dialect === "postgresql") {
