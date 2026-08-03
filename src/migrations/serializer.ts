@@ -320,17 +320,24 @@ export function serializeModels(
               // serves. Only a schema that has no foreign-key index today can
               // take the fallback, so no database that already holds the index
               // is renamed into a drop and a create.
+              //
+              // A schema may of course have spent BOTH names on indexes of its
+              // own — `.index([...], { name: "<table>_<cols>_fkey_idx" })` is
+              // legal. Then this index has no name left to take, and pushing it
+              // anyway put two entries under one name into the snapshot: the
+              // differ emitted two `CREATE INDEX` and the second failed the
+              // whole push (measured on better-sqlite3: `index
+              // zz_fb_kid_ownerId_fkey_idx already exists`). The index is a read
+              // optimization, not a correctness requirement, so it yields to the
+              // names the schema declared.
+              const declaredNames = new Set(indexes.map((index) => index.name));
               const preferredName = `${tableName}_${fkColumns.join("_")}_idx`;
-              const nameTaken = indexes.some(
-                (index) => index.name === preferredName
-              );
-              indexes.push({
-                name: nameTaken
-                  ? `${tableName}_${fkColumns.join("_")}_fkey_idx`
-                  : preferredName,
-                columns: fkColumns,
-                unique: false,
-              });
+              const name = declaredNames.has(preferredName)
+                ? `${tableName}_${fkColumns.join("_")}_fkey_idx`
+                : preferredName;
+              if (!declaredNames.has(name)) {
+                indexes.push({ name, columns: fkColumns, unique: false });
+              }
             }
           }
 

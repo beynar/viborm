@@ -930,6 +930,44 @@ describe("foreign-key index for to-many relations", () => {
     ).toEqual(["post_authorId_idx", "post_author_id_idx"]);
   });
 
+  // REGRESSION (PR #20 review): the fallback covered only HALF the invariant it
+  // exists for. Both candidate names are ordinary strings a schema may declare
+  // — `.index([...], { name: "post_authorId_fkey_idx" })` is legal — and with
+  // both taken the automatic index was pushed anyway, putting two entries under
+  // one name into the snapshot. The differ then emitted two `CREATE INDEX` for
+  // that name and the second failed the whole push (measured on better-sqlite3:
+  // `index post_authorId_fkey_idx already exists`). The index is a read
+  // optimization, so it yields; the schema's own names win.
+  it("emits no FK index when the schema holds both candidate names", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string(),
+        title: s.string(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      // Neither declared index COVERS `authorId`, so neither suppresses the
+      // FK index on coverage grounds — they only take its two names.
+      .index(["title"], { name: "post_authorId_idx" })
+      .index(["id"], { name: "post_authorId_fkey_idx" });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    expect(
+      snapshot.tables
+        .find((t) => t.name === "post")!
+        .indexes.map((i) => `${i.name}(${i.columns.join(",")})`)
+    ).toEqual(["post_authorId_idx(title)", "post_authorId_fkey_idx(id)"]);
+  });
+
   it("adds no FK index for a oneToOne relation", () => {
     const User = s.model({
       id: s.string().id(),
