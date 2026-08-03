@@ -3,7 +3,15 @@ import type { Model } from "@schema/model";
 import { isSql } from "@sql";
 import { isBatchValueRef } from "../query-engine/builders/values-builder";
 import { partitionWhereUnique } from "../query-engine/builders/where-unique-builder";
+import {
+  createChildScope,
+  getRelationInfo,
+  getRelationNames,
+  getTableName,
+} from "../query-engine/context/query-scope";
 import type { QueryEngine } from "../query-engine/query-engine";
+import { getTargetIdentityFields } from "../query-engine/TargetConstraint";
+import type { QueryScope } from "../query-engine/types";
 import type { TargetConstraintPin } from "./OperationFragment";
 import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
@@ -178,6 +186,117 @@ export function selectProjectsRelation(
   if (!select) return false;
   return Object.keys(select).some(
     (key) => key === "_count" || model["~"].relationSet.has(key)
+  );
+}
+
+/**
+ * PHASE 8.1, INVARIANT 1 — does this projection read the table the statement is
+ * MUTATING?
+ *
+ * In PostgreSQL every sub-statement of one command sees the same snapshot, so
+ * the `SELECT` on the outer side of `WITH u AS (UPDATE … RETURNING *) SELECT …`
+ * reads every table as it stood BEFORE the statement. The mutated row is the one
+ * exception: it arrives through `u`, post-mutation, out of `RETURNING`. Any
+ * OTHER row of that same table is read stale.
+ *
+ * A projection that never reaches the mutated model therefore reads only
+ * untouched tables and answers exactly what the unfolded terminal read answers.
+ * One that does — a self-relation (`employee.manager`, `category.parent`) — can
+ * address the mutated row itself and would hand back its pre-mutation shape, so
+ * the fold declines. Walks the whole projection, at every depth, because a
+ * self-relation two levels down reads the same table a top-level one does.
+ *
+ * `_count` is walked as the relation projection it is: it correlates on the same
+ * columns and reads the same tables, it just aggregates them.
+ */
+export function projectionReadsMutatedModel(
+  scope: QueryScope,
+  select: Readonly<Record<string, unknown>> | undefined,
+  include: Readonly<Record<string, unknown>> | undefined
+): boolean {
+  return projectionReachesTable(
+    scope,
+    select,
+    include,
+    getTableName(scope.model)
+  );
+}
+
+function projectionReachesTable(
+  scope: QueryScope,
+  select: Readonly<Record<string, unknown>> | undefined,
+  include: Readonly<Record<string, unknown>> | undefined,
+  table: string
+): boolean {
+  for (const [key, value] of [
+    ...Object.entries(select ?? {}),
+    ...Object.entries(include ?? {}),
+  ]) {
+    if (value === false || value === undefined) continue;
+    if (key === "_count") {
+      if (countReachesTable(scope, value, table)) return true;
+      continue;
+    }
+    const relation = getRelationInfo(scope, key);
+    if (!relation) continue;
+    if (getTableName(relation.targetModel) === table) return true;
+    if (!isRecord(value)) continue;
+    const child = createChildScope(
+      scope,
+      relation.targetModel,
+      scope.rootAlias
+    );
+    const childSelect = isRecord(value.select) ? value.select : undefined;
+    const childInclude = isRecord(value.include) ? value.include : undefined;
+    if (projectionReachesTable(child, childSelect, childInclude, table)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** `_count: true` counts every relation; `_count: { select: { … } }` counts the
+ *  named ones. A count has no nested projection, so this does not recurse. */
+function countReachesTable(
+  scope: QueryScope,
+  value: unknown,
+  table: string
+): boolean {
+  const named =
+    isRecord(value) && isRecord(value.select) ? value.select : undefined;
+  const names = named ? Object.keys(named) : getRelationNames(scope.model);
+  return names.some((name) => {
+    const relation = getRelationInfo(scope, name);
+    return (
+      relation !== undefined && getTableName(relation.targetModel) === table
+    );
+  });
+}
+
+/**
+ * PHASE 8.1, INVARIANT 2 — can this `SET` fire a referential action?
+ *
+ * `ON UPDATE CASCADE` / `SET NULL` / `SET DEFAULT` rewrite rows in a CHILD table
+ * as part of the same statement. The outer `SELECT` of the fold reads that table
+ * from the pre-statement snapshot, so it would hand back the children as they
+ * were before the cascade — where the unfolded terminal read, running after the
+ * `UPDATE`, sees them after it. That is a wrong answer, not a slower one.
+ *
+ * A foreign key may only point at a UNIQUE column set, so a `SET` that rewrites
+ * no unique-participating field can fire no action at all. That is the test:
+ * `getTargetIdentityFields` is the one home for "every field in a primary key or
+ * a unique constraint" (single and compound alike). It over-approximates in one
+ * direction only — a unique column that NOTHING references declines a fold that
+ * would have been legal — which costs a statement, never an answer. Deciding it
+ * exactly would mean scanning every model in the schema for an inbound
+ * reference, and the mainstream `update` rewrites ordinary scalars.
+ */
+export function setCanFireReferentialAction(
+  model: Model<any>,
+  set: Readonly<Record<string, unknown>>
+): boolean {
+  return getTargetIdentityFields(model).some((field) =>
+    Object.hasOwn(set, field)
   );
 }
 

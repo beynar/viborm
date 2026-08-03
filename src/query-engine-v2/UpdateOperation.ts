@@ -29,7 +29,9 @@ import {
   buildDeleteMany,
   buildFind,
   buildFindUnique,
+  buildMutationProjectionFold,
   buildUpdate,
+  buildUpdateStatement,
 } from "../query-engine/operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
@@ -110,10 +112,12 @@ import {
   getStepModelName,
   isRecord,
   type NestedTargetLocate,
+  projectionReadsMutatedModel,
   type SubOperationOptions,
   sameScalarValue,
   selectExecutionMode,
   selectProjectsRelation,
+  setCanFireReferentialAction,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
@@ -735,7 +739,8 @@ export class UpdateOperation {
       model,
       this.parsedSelect
     );
-    const canFold =
+    // The WRITE half of the fold: is this update ONE statement's worth of work?
+    const writeIsOneStatement =
       // X1c: a nested target emits no terminal read and must LOCATE + CORRELATE (its
       // membership in the enclosing parent is verified by the locate) — never the
       // single-statement RETURNING fold, which skips both the locate and the terminal.
@@ -747,9 +752,33 @@ export class UpdateOperation {
       afterRootParts.length === 0 &&
       toOneLinks.length === 0 &&
       parentHeldTargets.length === 0 &&
-      selectIsScalarOnly &&
-      !this.parsedInclude &&
       Object.keys(parentSet).length > 0;
+    // PLAN Phase 8.1 — the PROJECTION half. A scalar-only projection rides the
+    // plain `UPDATE … RETURNING <select>`. A RELATION projection needs a table
+    // alias to correlate against, which a RETURNING list has not got, so it rides
+    // the CTE instead: `WITH u AS (UPDATE … RETURNING <every column>) SELECT
+    // <projection over u> FROM u`, whose outer SELECT is the terminal read's
+    // projection built by the terminal read's builder over a real alias.
+    //
+    // Legal only while the outer SELECT reads nothing the statement changes —
+    // PostgreSQL gives every sub-statement of one command the SAME snapshot, so a
+    // read of a changed table answers pre-statement. The two ways that can happen
+    // each have their guard: the projection reaching the mutated model itself
+    // (`projectionReadsMutatedModel`), and the SET firing a referential action
+    // into a child table (`setCanFireReferentialAction`).
+    const cteProjectionFold =
+      engine.adapter.capabilities.supportsCteWithMutations &&
+      !projectionReadsMutatedModel(
+        parent,
+        this.parsedSelect,
+        this.parsedInclude
+      ) &&
+      !setCanFireReferentialAction(model, parentSet);
+    const canFold =
+      writeIsOneStatement &&
+      ((selectIsScalarOnly && !this.parsedInclude) || cteProjectionFold);
+    const foldsProjectionIntoCte =
+      canFold && !(selectIsScalarOnly && !this.parsedInclude);
     const notFound = notFoundFailure(
       `query-engine-v2 update located no '${parentName}' row for its unique where.`
     );
@@ -757,14 +786,26 @@ export class UpdateOperation {
       ? {
           id: updateId,
           kind: "write",
-          statement: buildUpdate(parent, {
-            where: this.parentWhere,
-            data: parentSet,
-            select: this.parsedSelect,
-          }),
+          statement: foldsProjectionIntoCte
+            ? buildMutationProjectionFold(parent, {
+                mutation: buildUpdateStatement(parent, {
+                  where: this.parentWhere,
+                  data: parentSet,
+                }),
+                select: this.parsedSelect,
+                ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
+              })
+            : buildUpdate(parent, {
+                where: this.parentWhere,
+                data: parentSet,
+                select: this.parsedSelect,
+              }),
           outputs: { result: { kind: "rows" } },
           // Transaction mode enforces presence in JS after the single
-          // round-trip. Batch mode cannot — see `directGuard`.
+          // round-trip. Batch mode cannot — see `directGuard`. `affectedRows`
+          // reads the same number under both spellings: the plain fold returns
+          // one RETURNING row, the CTE fold one outer-SELECT row, and a missed
+          // target returns none either way.
           ...(txMode ? { expects: affectedRows(1, notFound) } : {}),
         }
       : undefined;

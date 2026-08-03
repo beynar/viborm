@@ -1,0 +1,637 @@
+import { createClient } from "@client/client";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+import { PGliteDriver } from "@drivers/pglite";
+import { SQLite3Driver } from "@drivers/sqlite3";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { NotFoundError, UniqueConstraintError } from "@errors";
+import { push } from "@migrations";
+import { hydrateSchemaNames, s } from "@schema";
+import { beforeAll, describe, expect, test } from "vitest";
+
+/**
+ * PHASE 8.1 — the terminal read, folded into the mutating statement
+ * (query-performance-plan).
+ *
+ * A mutation that answers with a RELATION projection used to send its write and
+ * then a separate `SELECT` to shape the answer. On PostgreSQL the two are now one
+ * statement:
+ *
+ *   WITH "__viborm_mutation" AS (UPDATE … RETURNING <every column>)
+ *   SELECT <projection over the CTE> FROM "__viborm_mutation" AS "t0"
+ *
+ * MEASURED at c9c06e5, PGlite, before the fold:
+ *   update + include, transaction ....... 3 statements (locate, UPDATE, SELECT)
+ *   update + include, atomic batch ...... 4 statements (locate, guard, UPDATE, SELECT)
+ *   update + `_count`, transaction ...... 3 statements
+ *   create + include, transaction ....... 2 statements (INSERT, SELECT)
+ * and after: 1, 2 (the batch keeps its in-unit presence guard), 1, 1.
+ *
+ * The fold is legal only while the outer `SELECT` reads nothing the statement
+ * CHANGES — PostgreSQL gives every sub-statement of one command the same
+ * snapshot, so a read of a changed table answers pre-statement. Two guards say
+ * so, and both are witnessed here declining:
+ *   · `projectionReadsMutatedModel` — a self-relation in the projection.
+ *   · `setCanFireReferentialAction` — a SET that can cascade into a child table.
+ *
+ * The ORACLE below is what makes the whole thing checkable: every folded answer
+ * is asserted against the SAME projection read back through `findUnique`, on the
+ * same row, over seeded state. Not against a literal, and not only on the
+ * substrate that happens to fold.
+ */
+
+const account = s
+  .model({
+    id: s.int().id(),
+    email: s.string().unique(),
+    label: s.string(),
+    notes: s.oneToMany(() => note),
+    managerId: s.int().nullable(),
+    manager: s
+      .manyToOne(() => account)
+      .fields("managerId")
+      .references("id")
+      .optional(),
+    reports: s.oneToMany(() => account),
+  })
+  .map("p81_accounts");
+
+const note = s
+  .model({
+    id: s.int().id(),
+    body: s.string(),
+    accountId: s.int(),
+    account: s
+      .manyToOne(() => account)
+      .fields("accountId")
+      .references("id")
+      .onUpdate("cascade"),
+  })
+  .map("p81_notes");
+
+const schema = { account, note };
+
+/** A SECOND schema whose parent key nothing cascades from, so the referential
+ *  action guard has a control: the same PK rewrite that declines above folds
+ *  here — the guard is not simply "never fold a key rewrite". */
+const tag = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    color: s.string(),
+    palettes: s.manyToMany(() => palette),
+  })
+  .map("p81_tags");
+const palette = s
+  .model({
+    id: s.int().id(),
+    title: s.string(),
+    tags: s.manyToMany(() => tag),
+  })
+  .map("p81_palettes");
+const soloSchema = { tag, palette };
+
+beforeAll(() => {
+  hydrateSchemaNames(schema);
+  hydrateSchemaNames(soloSchema);
+});
+
+/**
+ * Records every statement the operation sends, in order. Hooks the PROTECTED
+ * `execute`/`executeRaw` seam (as `delete-fold.test.ts` does), because a
+ * transaction runs its statements through a transaction-bound driver that
+ * delegates back to exactly these two — so one hook sees both substrates.
+ */
+class RecordingPGliteDriver extends PGliteDriver {
+  readonly statements: string[] = [];
+  recording = false;
+
+  protected override execute<T>(
+    client: PGlite | Transaction,
+    sqlText: string,
+    params: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    if (this.recording) this.statements.push(sqlText);
+    return super.execute<T>(client, sqlText, params, context);
+  }
+
+  protected override executeRaw<T>(
+    client: PGlite | Transaction,
+    sqlText: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    if (this.recording) this.statements.push(sqlText);
+    return super.executeRaw<T>(client, sqlText, params, context);
+  }
+}
+
+class BatchOnlyRecordingDriver extends RecordingPGliteDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    return this.transaction(client, async (transaction) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(
+          await this.executeRaw<T>(transaction, query.sql, query.params)
+        );
+      }
+      return results;
+    });
+  }
+}
+
+async function boot(driver: RecordingPGliteDriver) {
+  const client = createClient({ schema, driver });
+  await push(client, { force: true });
+  for (const id of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+    await client.account.create({
+      data: { id, email: `a${id}@x`, label: `L${id}` },
+    });
+  }
+  // Account 3 owns three notes; account 4 owns one; the rest own none, so an
+  // empty relation payload and a non-empty one are both exercised and a wrong
+  // count cannot coincide with a right one.
+  for (const id of [30, 31, 32]) {
+    await client.note.create({ data: { id, body: `n${id}`, accountId: 3 } });
+  }
+  await client.note.create({ data: { id: 40, body: "n40", accountId: 4 } });
+  // Account 9 reports to account 8, and account 7 is its OWN manager — the
+  // self-relation witnesses. The self-managed row is the one that makes guard 1
+  // load-bearing: its `manager` subquery reads the row the statement is
+  // updating, so a fold would answer with that row's PRE-update shape.
+  await client.account.update({ where: { id: 9 }, data: { managerId: 8 } });
+  await client.account.update({ where: { id: 7 }, data: { managerId: 7 } });
+  return client;
+}
+
+function drain(driver: RecordingPGliteDriver): string[] {
+  return driver.statements.splice(0, driver.statements.length);
+}
+
+const foldedInOneStatement = (statements: string[]) =>
+  statements.length === 1 && statements[0]?.startsWith("WITH ") === true;
+
+describe("Phase 8.1 — the fold's statement traffic", () => {
+  test("update + include is ONE statement, and it is the CTE", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const updated = await client.account.update({
+      where: { id: 3 },
+      data: { label: "changed" },
+      include: { notes: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // THE measurement: three payload statements became one.
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('WITH "__viborm_mutation" AS (UPDATE');
+    expect(statements[0]).toContain('FROM "__viborm_mutation"');
+
+    expect(updated).toEqual({
+      id: 3,
+      email: "a3@x",
+      label: "changed",
+      managerId: null,
+      notes: [
+        { id: 30, body: "n30", accountId: 3 },
+        { id: 31, body: "n31", accountId: 3 },
+        { id: 32, body: "n32", accountId: 3 },
+      ],
+    });
+    // …and the write landed.
+    expect(
+      await client.account.findUnique({
+        where: { id: 3 },
+        select: { label: true },
+      })
+    ).toEqual({ label: "changed" });
+  });
+
+  test("create + include is ONE statement, and it is the CTE", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const created = await client.account.create({
+      data: { id: 100, email: "a100@x", label: "L100" },
+      include: { notes: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('WITH "__viborm_mutation" AS (INSERT');
+
+    // A fresh row owns nothing, and the CTE says so — the same `[]` the separate
+    // terminal read answered.
+    expect(created).toEqual({
+      id: 100,
+      email: "a100@x",
+      label: "L100",
+      managerId: null,
+      notes: [],
+    });
+  });
+
+  // PIN UPDATED DELIBERATELY. This shape sent four statements (planning locate,
+  // in-unit presence guard, UPDATE, terminal SELECT). The guard is what the
+  // atomic batch uses instead of a JS postcondition (PLAN Phase 6.2), so it
+  // stays; the locate and the terminal read are what the fold removes.
+  test("batch mode folds behind its in-unit presence guard", async () => {
+    const driver = new BatchOnlyRecordingDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const updated = await client.account.update({
+      where: { id: 4 },
+      data: { label: "batched" },
+      include: { notes: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toContain("__viborm_assert__");
+    expect(statements[1]).toContain('WITH "__viborm_mutation" AS (UPDATE');
+
+    expect(updated).toEqual({
+      id: 4,
+      email: "a4@x",
+      label: "batched",
+      managerId: null,
+      notes: [{ id: 40, body: "n40", accountId: 4 }],
+    });
+  });
+});
+
+describe("Phase 8.1 — the fold answers what the read answers", () => {
+  /**
+   * THE ORACLE. Each case runs the mutation folded and asserts its projection
+   * against `findUnique`'s answer for the SAME projection on the SAME row — the
+   * control the `_count` correlation defect got past on the RETURNING fold
+   * (`delete-fold.test.ts`), and the reason this fold projects over an aliased
+   * `FROM` instead.
+   */
+  const projections = [
+    {
+      name: "a to-many include",
+      folds: true,
+      args: { include: { notes: true } },
+    },
+    {
+      name: "a to-many include with its own select",
+      folds: true,
+      args: { include: { notes: { select: { body: true } } } },
+    },
+    {
+      name: "a to-many include with a where and an orderBy",
+      folds: true,
+      args: {
+        include: {
+          notes: { where: { id: { gt: 30 } }, orderBy: { id: "desc" } },
+        },
+      },
+    },
+    {
+      name: "_count with an explicit relation",
+      folds: true,
+      args: { select: { id: true, _count: { select: { notes: true } } } },
+    },
+    {
+      // DECLINES, and the reason is guard 1: the shorthand counts EVERY
+      // relation, and `manager`/`reports` are self-relations — so this
+      // projection reads the very table the statement changes. The oracle
+      // still holds, which is the point of asserting the answer separately
+      // from the fold decision.
+      name: "_count shorthand (every relation)",
+      folds: false,
+      args: { select: { id: true, _count: true } },
+    },
+    {
+      name: "a select mixing scalars and a relation",
+      folds: true,
+      args: { select: { label: true, notes: { select: { id: true } } } },
+    },
+  ] as const;
+
+  for (const projection of projections) {
+    test(`${projection.name} answers what the read answers, on both substrates`, async () => {
+      const truthDriver = new RecordingPGliteDriver();
+      const truthClient = await boot(truthDriver);
+      // The control reads the row AFTER the same write, through the read path.
+      await truthClient.account.update({
+        where: { id: 3 },
+        data: { label: "oracle" },
+      });
+      const truth = await truthClient.account.findUnique({
+        where: { id: 3 },
+        ...projection.args,
+      });
+
+      for (const driver of [
+        new RecordingPGliteDriver(),
+        new BatchOnlyRecordingDriver(),
+      ]) {
+        const client = await boot(driver);
+        driver.recording = true;
+        const answer = await client.account.update({
+          where: { id: 3 },
+          data: { label: "oracle" },
+          ...projection.args,
+        });
+        const statements = drain(driver);
+        driver.recording = false;
+
+        expect(answer).toEqual(truth);
+        // …and by the route the gate chose, not another one.
+        expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(
+          projection.folds
+        );
+      }
+    });
+  }
+
+  test("a create's include folds to the read's answer", async () => {
+    const truthDriver = new RecordingPGliteDriver();
+    const truthClient = await boot(truthDriver);
+    await truthClient.account.create({
+      data: { id: 200, email: "a200@x", label: "L200" },
+    });
+    const truth = await truthClient.account.findUnique({
+      where: { id: 200 },
+      select: { id: true, _count: { select: { notes: true } } },
+    });
+
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+    driver.recording = true;
+    const created = await client.account.create({
+      data: { id: 200, email: "a200@x", label: "L200" },
+      select: { id: true, _count: { select: { notes: true } } },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(created).toEqual(truth);
+    expect(foldedInOneStatement(statements)).toBe(true);
+  });
+});
+
+describe("Phase 8.1 — the two legality guards", () => {
+  /**
+   * GUARD 1 — the projection reaches the MUTATED model. `manager` and `reports`
+   * are self-relations on `account`: their subquery reads the very table the CTE
+   * is updating, and inside one PostgreSQL command that read is the
+   * PRE-statement snapshot. Folding a row that is its OWN manager would hand
+   * back the pre-update copy of itself.
+   */
+  test("a self-managed row declines the fold and answers with its POST-update self", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const updated = await client.account.update({
+      where: { id: 7 },
+      data: { label: "renamed" },
+      include: { manager: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // THE answer a fold would get wrong — asserted FIRST, so removing the guard
+    // shows the wrong answer and not merely the wrong route: account 7 IS its
+    // own manager, so the nested copy must carry the new label. A CTE would
+    // read it from the pre-statement snapshot and hand back "L7".
+    expect(updated).toEqual({
+      id: 7,
+      email: "a7@x",
+      label: "renamed",
+      managerId: 7,
+      manager: {
+        id: 7,
+        email: "a7@x",
+        label: "renamed",
+        managerId: 7,
+      },
+    });
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+    expect(statements.length).toBeGreaterThan(1);
+  });
+
+  test("a plain self-relation declines it too, and matches the read", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const updated = await client.account.update({
+      where: { id: 9 },
+      data: { label: "self" },
+      include: { manager: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+    expect(updated).toEqual(
+      await client.account.findUnique({
+        where: { id: 9 },
+        include: { manager: true },
+      })
+    );
+  });
+
+  test("a self-relation nested two levels down declines it too", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.account.update({
+      where: { id: 3 },
+      data: { label: "deep" },
+      include: { notes: { include: { account: true } } },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // `notes` alone would fold; `notes.account` walks back to `p81_accounts`,
+    // which is what the statement changes. The walk is what catches it.
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+  });
+
+  /**
+   * GUARD 2 — the SET can fire a referential action. `note.accountId` is
+   * `ON UPDATE CASCADE` onto `account.id`, so rewriting the primary key rewrites
+   * the child rows inside the same statement — and the outer SELECT would read
+   * them from the pre-cascade snapshot, under the NEW key, and find none.
+   */
+  test("a primary-key rewrite with a to-many include declines the fold and carries the children", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const updated = await client.account.update({
+      where: { id: 3 },
+      data: { id: 33 },
+      include: { notes: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // THE answer the fold would have got wrong — asserted FIRST, so removing
+    // the guard shows the wrong answer and not merely the wrong route: three
+    // cascaded children under the new key, not the empty list a pre-cascade
+    // snapshot reports.
+    expect(updated).toEqual({
+      id: 33,
+      email: "a3@x",
+      label: "L3",
+      managerId: null,
+      notes: [
+        { id: 30, body: "n30", accountId: 33 },
+        { id: 31, body: "n31", accountId: 33 },
+        { id: 32, body: "n32", accountId: 33 },
+      ],
+    });
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+  });
+
+  test("a unique rewrite with a scalar-only projection is untouched by guard 2", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const updated = await client.account.update({
+      where: { id: 5 },
+      data: { email: "moved@x" },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // The scalar fold is the pre-Phase-8 `UPDATE … RETURNING`, whose legality
+    // never depended on a snapshot: no relation is read at all.
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.startsWith("UPDATE")).toBe(true);
+    expect(updated.email).toBe("moved@x");
+  });
+});
+
+describe("Phase 8.1 — what the fold must not change", () => {
+  test("a missed target raises the same NotFoundError, on both substrates", async () => {
+    for (const driver of [
+      new RecordingPGliteDriver(),
+      new BatchOnlyRecordingDriver(),
+    ]) {
+      const client = await boot(driver);
+      await expect(
+        client.account.update({
+          where: { id: 4242 },
+          data: { label: "ghost" },
+          include: { notes: true },
+        })
+      ).rejects.toBeInstanceOf(NotFoundError);
+    }
+  });
+
+  /**
+   * Failure attribution through constraint names. The folded statement violates
+   * a unique constraint INSIDE the CTE, and the driver must still map it to the
+   * typed error the unfolded path raised — same class, and naming the same
+   * field, not a raw driver error escaping through the new statement shape.
+   */
+  test("a constraint violated inside the CTE keeps its typed attribution", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    const folded = await client.account
+      .update({
+        where: { id: 6 },
+        data: { email: "a7@x" },
+        include: { notes: true },
+      })
+      .catch((error: unknown) => error);
+    const unfolded = await client.account
+      .update({ where: { id: 6 }, data: { email: "a7@x" } })
+      .catch((error: unknown) => error);
+
+    expect(folded).toBeInstanceOf(UniqueConstraintError);
+    expect(unfolded).toBeInstanceOf(UniqueConstraintError);
+    expect((folded as UniqueConstraintError).message).toBe(
+      (unfolded as UniqueConstraintError).message
+    );
+    // …and nothing was written by the aborted fold.
+    expect(
+      await client.account.findUnique({
+        where: { id: 6 },
+        select: { email: true },
+      })
+    ).toEqual({ email: "a6@x" });
+  });
+
+  /**
+   * NON-PG DIALECTS ARE BYTE-IDENTICAL TO BEFORE. SQLite's `WITH` admits a
+   * SELECT and nothing else (measured on 3.51.2: `near "UPDATE": syntax
+   * error`), which is exactly what `supportsCteWithMutations: false` now says —
+   * corrected in this phase, PLAN 10.1. The gate reads that flag, so SQLite
+   * keeps the three-statement path.
+   */
+  test("SQLite keeps the unfolded path and the same answer", async () => {
+    const sqliteClient = createClient({
+      schema,
+      driver: new SQLite3Driver({ dataDir: ":memory:" }),
+    });
+    await push(sqliteClient, { force: true });
+    for (const id of [1, 2, 3]) {
+      await sqliteClient.account.create({
+        data: { id, email: `a${id}@x`, label: `L${id}` },
+      });
+    }
+    for (const id of [30, 31]) {
+      await sqliteClient.note.create({
+        data: { id, body: `n${id}`, accountId: 3 },
+      });
+    }
+
+    const updated = await sqliteClient.account.update({
+      where: { id: 3 },
+      data: { label: "sqlite" },
+      include: { notes: true },
+    });
+    expect(updated).toEqual(
+      await sqliteClient.account.findUnique({
+        where: { id: 3 },
+        include: { notes: true },
+      })
+    );
+  });
+
+  test("a model nothing references folds a key rewrite that the cascading model declines", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = createClient({ schema: soloSchema, driver });
+    await push(client, { force: true });
+    await client.tag.create({ data: { id: 1, name: "red", color: "#f00" } });
+    await client.palette.create({ data: { id: 1, title: "warm" } });
+
+    driver.recording = true;
+    await client.tag.update({
+      where: { id: 1 },
+      data: { color: "#00f" },
+      select: { id: true, _count: { select: { palettes: true } } },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // Guard 2 is about what the SET rewrites, not about the model having
+    // relations: `color` is in no unique constraint, so no action can fire and
+    // the m2m `_count` folds.
+    expect(foldedInOneStatement(statements)).toBe(true);
+  });
+});

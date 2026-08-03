@@ -50,23 +50,35 @@ export interface CreateManyPlan {
  * @param args - Create arguments
  * @returns SQL statement (INSERT with optional RETURNING)
  */
-export function buildCreate(ctx: QueryScope, args: CreateArgs): Sql {
+/**
+ * The bare single-row `INSERT`, with no `RETURNING`.
+ *
+ * Split out of {@link buildCreate} so Phase 8.1's CTE fold can supply its own
+ * all-columns `RETURNING` (`mutation-projection-fold.ts`) — the two callers must
+ * write the same row the same way, so the statement has one home.
+ */
+export function buildInsertStatement(
+  ctx: QueryScope,
+  data: Record<string, unknown>
+): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
-  // Build VALUES
-  const { columns, values } = buildValues(ctx, args.data);
+  const { columns, values } = buildValues(ctx, data);
 
   if (values.length === 0) {
     throw new QueryEngineError("No data to insert");
   }
 
-  // Build INSERT
   const table = adapter.identifiers.escape(tableName);
-  const insertSql =
-    columns.length === 0
-      ? adapter.mutations.insertDefault(table)
-      : adapter.mutations.insert(table, columns, values);
+  return columns.length === 0
+    ? adapter.mutations.insertDefault(table)
+    : adapter.mutations.insert(table, columns, values);
+}
+
+export function buildCreate(ctx: QueryScope, args: CreateArgs): Sql {
+  const { adapter } = ctx;
+  const insertSql = buildInsertStatement(ctx, args.data);
 
   // Build RETURNING clause if supported (no alias for INSERT RETURNING)
   // Note: MySQL doesn't support RETURNING, so this will be empty

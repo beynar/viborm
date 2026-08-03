@@ -532,7 +532,14 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   capabilities = {
     supportsReturning: true, // SQLite 3.35+
-    supportsCteWithMutations: true,
+    // FALSE IN FACT, and it read `true` until the Phase 8 fold gave the flag its
+    // first reader (query-performance-plan Phase 10.1). SQLite's `WITH` grammar
+    // admits a SELECT and nothing else: measured on SQLite 3.51.2, each of
+    // `WITH x AS (UPDATE …/INSERT …/DELETE … RETURNING …) SELECT * FROM x` is a
+    // parse error (`near "UPDATE": syntax error`). Kept as a capability rather
+    // than deleted because Phase 8's `WITH u AS (UPDATE … RETURNING *) SELECT …`
+    // fold reads it to decide whether it may emit at all.
+    supportsCteWithMutations: false,
     supportsFullOuterJoin: false,
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
     supportsVector: false,

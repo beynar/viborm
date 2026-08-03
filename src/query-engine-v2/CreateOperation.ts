@@ -29,6 +29,8 @@ import {
   buildCreateManyPlan,
   buildFind,
   buildFindUnique,
+  buildInsertStatement,
+  buildMutationProjectionFold,
   buildUpdate,
   buildUpdateMany,
 } from "../query-engine/operations";
@@ -80,6 +82,7 @@ import { StepScope } from "./StepScope";
 import {
   getStepModelName,
   isRecord,
+  projectionReadsMutatedModel,
   type SubOperationOptions,
   selectExecutionMode,
   selectProjectsRelation,
@@ -417,19 +420,44 @@ export class CreateOperation {
       this.root.childCreates.length === 0 &&
       this.root.createManyGroups.length === 0 &&
       this.root.afterParts.length === 0;
+    // PLAN Phase 8.1 — the same fold for a RELATION projection, which cannot ride
+    // a RETURNING list (no alias to correlate against) but can ride a CTE:
+    // `WITH p AS (INSERT … RETURNING <every column>) SELECT <projection over p>
+    // FROM p`. Legal here on ONE guard rather than the update's two: an INSERT
+    // fires no `ON UPDATE` referential action, so the only table this statement
+    // changes is its own — and the projection must not read it
+    // (`projectionReadsMutatedModel`), because PostgreSQL hands the outer SELECT
+    // the pre-statement snapshot of every table but the row arriving through `p`.
+    const scalarOnlyProjection = this.projectionIsScalarOnly();
+    const foldsProjectionIntoCte =
+      !scalarOnlyProjection &&
+      engine.adapter.capabilities.supportsCteWithMutations &&
+      !projectionReadsMutatedModel(
+        parent,
+        this.parsedSelect,
+        this.parsedInclude
+      );
     this.foldStep =
       !this.suppressTerminal &&
       txMode &&
       isPureScalar &&
-      this.projectionIsScalarOnly() &&
+      (scalarOnlyProjection || foldsProjectionIntoCte) &&
       engine.adapter.capabilities.supportsReturning
         ? {
             id: this.root.writeStepId,
             kind: "write",
-            statement: buildCreate(parent, {
-              data: this.root.scalarData,
-              ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
-            }),
+            statement: foldsProjectionIntoCte
+              ? buildMutationProjectionFold(parent, {
+                  mutation: buildInsertStatement(parent, this.root.scalarData),
+                  ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
+                  ...(this.parsedInclude
+                    ? { include: this.parsedInclude }
+                    : {}),
+                })
+              : buildCreate(parent, {
+                  data: this.root.scalarData,
+                  ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
+                }),
             outputs: { result: { kind: "rows" } },
             expects: exactlyOneRow(terminalFailure()),
           }
