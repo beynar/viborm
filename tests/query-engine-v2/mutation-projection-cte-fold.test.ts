@@ -1122,6 +1122,88 @@ describe("Phase 8.2 — the nested-create tree", () => {
     ).toEqual({ accountId: 305 });
   });
 
+  test("a tree that PROBED declines: the parent-held connect, where only the planning conjunct stands", async () => {
+    // P8/P9 review (blocking): the child-held sibling above is ALSO declined by
+    // the order-insensitivity classification (its connect write comes from a
+    // Part), so deleting the empty-planning conjunct left that witness green —
+    // coincidental coverage. A PARENT-held to-one connect is classified, so the
+    // ONLY conjunct standing between it and the fold is planningSteps.length
+    // === 0 — its probe is a `SELECT … FOR UPDATE` planning read. This witness
+    // fails if that conjunct is deleted.
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.account.create({
+      data: {
+        id: 306,
+        email: "a306@x",
+        label: "L306",
+        manager: { connect: { id: 5 } },
+        notes: { create: [{ id: 3060, body: "n" }] },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+    expect(
+      await client.account.findUnique({
+        where: { id: 306 },
+        select: { managerId: true },
+      })
+    ).toEqual({ managerId: 5 });
+    expect(
+      await client.note.findUnique({
+        where: { id: 3060 },
+        select: { accountId: true },
+      })
+    ).toEqual({ accountId: 306 });
+  });
+
+  test("a folded tree declines when a skip-carrying arm shares its table with another arm", async () => {
+    // P8/P9 review (blocking): ON CONFLICT DO NOTHING cannot see a tuple another
+    // arm of the SAME command inserted, so folding this shape turned a succeeding
+    // create into a UniqueConstraintError with nothing written. The gate now
+    // declines it; the unfolded path keeps skipDuplicates' contract.
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    const created = await client.account.create({
+      data: {
+        id: 307,
+        email: "a307@x",
+        label: "L307",
+        notes: {
+          create: [{ id: 3070, body: "A" }],
+          createMany: {
+            data: [
+              { id: 3070, body: "B" },
+              { id: 3071, body: "C" },
+            ],
+            skipDuplicates: true,
+          },
+        },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(created).toMatchObject({ id: 307 });
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+    // The duplicate skipped, the sibling landed — skipDuplicates' promise.
+    const notes = await client.note.findMany({
+      where: { accountId: 307 },
+      orderBy: { id: "asc" },
+      select: { id: true, body: true },
+    });
+    expect(notes).toEqual([
+      { id: 3070, body: "A" },
+      { id: 3071, body: "C" },
+    ]);
+  });
+
   test("a lone scalar create keeps its own single-statement fold", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);

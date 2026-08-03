@@ -590,6 +590,7 @@ export class CreateOperation {
       siblings.length > 0 &&
       rootWrite?.id === this.root.writeStepId &&
       armsAreOrderInsensitive(writes, assignments) &&
+      !foldWouldDropSkipSemantics(writes) &&
       writes.every(
         (step) =>
           step.kind === "write" &&
@@ -1914,6 +1915,39 @@ function freshReferenced(
  * declines here and keeps the multi-statement path, while the same children through
  * `createMany` — one arm, one defined row order — still fold.
  */
+/** The SQL-leaf skip spelling on the one dialect that folds (PostgreSQL). */
+const SKIP_LEAF_PATTERN = /\bON CONFLICT\b[\s\S]*?\bDO NOTHING\b/i;
+/** The table an INSERT arm writes, read from the statement head. */
+const INSERT_TARGET_PATTERN = /^\s*INSERT\s+INTO\s+("[^"]+"|\S+)/i;
+
+/**
+ * P8/P9 review (blocking): `ON CONFLICT DO NOTHING` cannot see a tuple another
+ * arm of the SAME command inserted — measured raw on PostgreSQL 16: two CTE arms
+ * writing one table, one carrying the skip leaf, turn a succeeding create into a
+ * `UniqueConstraintError` with NOTHING written, where the unfolded statements
+ * skip the duplicate exactly as `skipDuplicates` promises. So a fold declines
+ * when a skip-carrying arm shares its target table with ANY other arm (the root
+ * included — a self-relation puts the root's tuple in the same blind spot). A
+ * single skip arm with internal duplicates stays foldable: rows within one
+ * statement see each other's conflicts.
+ * (The `onUniqueConflict` conjunct in the gate covers the recoverableUniqueError
+ * strategy — MySQL — which has no CTE fold at all; this is the leaf spelling's
+ * guard, the one the folding dialect actually uses.)
+ */
+function foldWouldDropSkipSemantics(writes: readonly OperationStep[]): boolean {
+  const armsPerTable = new Map<string, number>();
+  const skipTables: string[] = [];
+  for (const step of writes) {
+    if (step.kind !== "write" || !isSql(step.statement)) continue;
+    const text = step.statement.strings.join("?");
+    const target = INSERT_TARGET_PATTERN.exec(text)?.[1];
+    if (!target) continue;
+    armsPerTable.set(target, (armsPerTable.get(target) ?? 0) + 1);
+    if (SKIP_LEAF_PATTERN.test(text)) skipTables.push(target);
+  }
+  return skipTables.some((table) => (armsPerTable.get(table) ?? 0) >= 2);
+}
+
 function armsAreOrderInsensitive(
   writes: readonly OperationStep[],
   assignments: ReadonlyMap<string, boolean>
