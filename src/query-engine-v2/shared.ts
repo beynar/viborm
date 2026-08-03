@@ -204,8 +204,26 @@ export function sameScalarValue(before: unknown, after: unknown): boolean {
     return before.getTime() === after.getTime();
   }
   if (typeof before === typeof after) return before === after;
-  // Cross-type numeric identity (a bigint PK a portable op returned as bigint vs a
-  // number literal `where`): compare by string form, never a lossy Number() cast.
+  // Cross-type numeric identity. From the public client this branch is UNREACHABLE, and
+  // that — not the exactness of `String()` — is what makes the string compare safe. The
+  // typed parse boundary refuses a number wherever a bigInt field is addressed and a
+  // bigint wherever an int field is addressed, in `where` and in `data` alike, so the
+  // field's declared type governs BOTH operands and they arrive the same type. Measured
+  // on PGlite against `s.bigInt().id()`: `where: { id: 42 }` → "ValidationError:
+  // Validation failed for update: Expected bigint"; `data: { id: 42 }` → "… Expected
+  // bigint, Expected object"; `data: { id: { increment: 0 } }` → "… Expected bigint,
+  // Expected bigint" — and the int model mirrors it for a bigint literal. The arithmetic
+  // route is closed twice over: `toBigInt` (`mutation-identity.ts`) converts a number
+  // only when `Number.isSafeInteger`, and every safe integer stringifies to its exact
+  // decimal, so String() there answers what BigInt() would.
+  //
+  // `String()` is NOT exact in general — it prints the SHORTEST round-tripping decimal.
+  // `String(18014398509481992)` is "18014398509481990" while `String(18014398509481992n)`
+  // is "…992", and 2^54+8 is well inside an int64 key (this client stores it as a
+  // `s.bigInt().id()` on PG and SQLite). So if the parse boundary is ever loosened to
+  // accept numbers for bigInt fields, a `set` at an unsafe magnitude reaches here as a
+  // divergent pair and this compare must become `BigInt(before) === after`: otherwise a
+  // same-value SET reads as a TRANSITION and fires an occupied guard the root does not.
   if (
     (typeof before === "bigint" || typeof before === "number") &&
     (typeof after === "bigint" || typeof after === "number")
