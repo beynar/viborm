@@ -235,6 +235,33 @@ export function serializeModels(
       }
     }
 
+    // A `oneToOne` foreign key gets a unique constraint at the bottom of the
+    // relation loop, and that constraint is an index — so it covers the
+    // foreign-key index exactly as a declared unique does. It is collected HERE,
+    // before the loop, because `uniqueConstraints` grows INSIDE it: one model may
+    // name the same columns from a `manyToOne` and from a `oneToOne` (legal, and
+    // measured through `serializeModels`), and reading the half-built list made
+    // the answer depend on which relation the schema happened to spell first —
+    // `many` before `one` emitted the redundant index, `one` before `many` did
+    // not. The condition mirrors the branch that pushes the constraint, target
+    // model included, so this claims coverage only where the constraint follows.
+    const oneToOneFkColumns: string[][] = [];
+    for (const relation of Object.values(modelState.relations)) {
+      const oneToOneState = (relation as AnyRelation)["~"].state;
+      if (
+        oneToOneState.type === "oneToOne" &&
+        oneToOneState.fields &&
+        oneToOneState.references &&
+        oneToOneState.getter()?.["~"]
+      ) {
+        oneToOneFkColumns.push(
+          oneToOneState.fields.map(
+            (field: string) => model["~"].getFieldName(field).sql
+          )
+        );
+      }
+    }
+
     // Process relations to generate foreign keys
     for (const [relationName, relation] of Object.entries(
       modelState.relations
@@ -305,6 +332,7 @@ export function serializeModels(
             const coveringColumns = [
               pkColumns,
               ...uniqueConstraints.map((unique) => unique.columns),
+              ...oneToOneFkColumns,
               ...declaredIndexColumns,
             ];
             const alreadyIndexed = coveringColumns.some((columns) =>

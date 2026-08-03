@@ -1047,6 +1047,43 @@ describe("foreign-key index for to-many relations", () => {
       snapshot.tables.find((t) => t.name === "profile")!.uniqueConstraints
     ).toEqual([{ name: "profile_userId_key", columns: ["userId"] }]);
   });
+
+  // REGRESSION (PR #20 review): the coverage scan read `uniqueConstraints` while
+  // the 1:1 branch was still APPENDING to it, so a model naming the same columns
+  // from a `manyToOne` and from a `oneToOne` answered by declaration order. Both
+  // spellings are serialized here and the FK index has to be absent from both:
+  // the 1:1 constraint covers the column either way, and which relation the
+  // schema happens to list first is not a fact about the database.
+  it.each([
+    ["manyToOne first", true],
+    ["oneToOne first", false],
+  ])("emits no FK index when a 1:1 on the same columns makes them unique (%s)", (_name, manyFirst) => {
+    const Target = s.model({ id: s.string().id(), n: s.string() });
+    const manyRelation = s
+      .manyToOne(() => Target)
+      .fields("ownerId")
+      .references("id");
+    const oneRelation = s
+      .oneToOne(() => Target)
+      .fields("ownerId")
+      .references("id");
+    const Child = s.model({
+      id: s.string().id(),
+      ownerId: s.string(),
+      ...(manyFirst
+        ? { many: manyRelation, one: oneRelation }
+        : { one: oneRelation, many: manyRelation }),
+    });
+
+    const childTable = serialize({ target: Target, child: Child }).tables.find(
+      (t) => t.name === "child"
+    );
+
+    expect(childTable!.indexes).toEqual([]);
+    expect(childTable!.uniqueConstraints).toEqual([
+      { name: "child_ownerId_key", columns: ["ownerId"] },
+    ]);
+  });
 });
 
 // =============================================================================
