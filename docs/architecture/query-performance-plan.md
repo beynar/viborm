@@ -863,6 +863,75 @@ These items need a written disposition. They are choices, not defects.
 
 ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level scalar upsert with an expressible conflict target ([`ATOM.md:243-262`](../../src/query-engine-v2/ATOM.md), the "legal, but observably divergent" note at `:250-254`). The current sequence is at [`UpsertOperation.ts:342-351, 446-492`](../../src/query-engine-v2/UpsertOperation.ts). This changes four or five round trips into one on PostgreSQL and SQLite. MySQL stays on the probe path: its `ON DUPLICATE KEY` fires on any unique collision ([`mysql-adapter.ts:408-414`](../../src/adapters/databases/mysql/mysql-adapter.ts)), which breaks the documented unrelated-collision behavior. The disposition must state the accepted observable divergence against the oracle.
 
+#### DISPOSITION — TAKE the door. Delivered 2026-08-03, branch `nested-write-boundaries`.
+
+**The measured baseline** (PGlite, statements counted at the driver's `execute`/`executeRaw` seam, which sees both substrates):
+
+| Shape | Before | After |
+| --- | --- | --- |
+| `upsert` → create arm, transaction | 3 payload statements (locate `FOR UPDATE`, INSERT, terminal SELECT) inside BEGIN/COMMIT — 5 round trips | **1**, no envelope — 1 round trip |
+| `upsert` → update arm, transaction | 2 (locate `FOR UPDATE`, `UPDATE … RETURNING`) — 4 round trips | **1** |
+| `upsert` → create arm, atomic batch | 3 | **1** |
+| `upsert` → update arm, atomic batch | 3 (locate, presence guard, `UPDATE … RETURNING`) | **1** |
+
+The gate is in `UpsertOperation.buildOnConflictFold`. It has **six** conjuncts, and every one of them has coverage no other has — each was removed on its own and the witness that failed is recorded below.
+
+1. `canFoldUpdateArm` — the update arm's existing fold gate, reused rather than restated, so `supportsReturning` is read in ONE place in the class. It carries a RETURNING driver, a scalar update arm, and a scalar-only projection with no `include`.
+2. `supportsTargetedUpsert` — a NEW adapter capability naming the arbiter property.
+3. no `targetWhere` / `setWhere`.
+4. a plain unique `where` (no extended-selector filter half).
+5. the create data spells every conflict-target column with the `where`'s own value.
+6. a `set`-only update payload.
+
+**Why the arbiter is a capability and not an inference.** `ON DUPLICATE KEY UPDATE` carries no target and fires on ANY unique collision, so it would silently ADOPT a row the caller never named — a wrong answer, not a missing optimization. It reads `false` on exactly the same adapters as `supportsReturning` today; that is a coincidence of the three adapters shipped, not an implication (MariaDB has `RETURNING` on `INSERT` and still arbitrates on any key), and the capability's doc comment says so, so it is not "simplified" away later.
+
+**The ACCEPTED divergence against the oracle — one, and it is measured.**
+
+> **The update path burns one sequence value the probe path did not.** `INSERT … ON CONFLICT DO UPDATE` evaluates the INSERT's column defaults before it detects the conflict, so a database-generated identity the create data omits consumes a value even when the row already existed. Measured: PostgreSQL `last_value` **100 → 101**; SQLite `sqlite_sequence` **2 → 3**. Probe-first runs no INSERT on that path and consumes nothing. Sequences are documented as non-gap-free on both dialects, and ATOM §4 names this burn as the divergence a written disposition covers. **Pinned** as `DIVERGENCE 1` in [`tests/query-engine-v2/upsert-on-conflict-fold.test.ts`](../../tests/query-engine-v2/upsert-on-conflict-fold.test.ts), which asserts the probe path's delta is 1 and the folded path's is 2 — so the number stays measured rather than becoming prose.
+
+**What was FEARED and does NOT diverge — each checked by the dual-run oracle, not by argument.** The oracle runs the same payload twice from the same seeded state and compares the answer, the persisted rows, the thrown error's class/code/`meta`, and the statement count. The two paths are selected by flipping the gate's OWN arbiter conjunct, so "the old path" is literally the shipped probe-first sequence; a meta-test asserts the lever really does select two different paths.
+
+| Feared divergence | Measured verdict |
+| --- | --- |
+| unrelated-unique collision on the CREATE arm (`where` absent, create data collides on another unique) | **identical** — `UniqueConstraintError`, `V3001`, `providerCode 23505`, `constraint: <table>_email_key`, on both paths. The arbiter is `id`; the `email` index is not the arbiter, so its violation is raised as itself. |
+| unrelated collision produced by the UPDATE payload | **identical** — probe-first runs the same `UPDATE`, so both raise. |
+| a collision carried by the create half when the UPDATE arm is taken | **identical, neither raises** — probe-first never runs an INSERT; the fold's speculative insertion is rolled back into `DO UPDATE`. Measured, because this was the case most likely to differ. |
+| affected-count reporting | **identical** — `ON CONFLICT` affects exactly one row on both arms (`affectedRows: 1`, one RETURNING row). It cannot affect zero, so no postcondition was moved or dropped. |
+| the pinned-abort error class disappearing (ATOM §4's phrase) | **not observable.** The create arm's `racePin` only ever classified a violation so the routed layer could retry ONCE and converge. The folded statement converges without retrying, to the same answer. |
+
+**Race semantics: atomic where probe-first retried.** Structurally, the folded fragment has EMPTY planning and exactly one step carrying no `racePin` — there is no window between a decision and the write that acts on it. Behaviourally, a competitor on its **own connection** (a file-backed SQLite database, because an in-process PGlite cannot be raced against itself without deadlocking its own serialization queue) commits the contested key in the window between decision and write: probe-first loses its INSERT, the `racePin` classifies it, the routed retry re-plans into the update arm and converges — paying a second full round of statements. The folded statement takes its `DO UPDATE` arm and answers the same thing in one. **The race protection is not removed; it is discharged by the database**, which is what makes the absent `racePin` sound rather than a hole.
+
+**What the gate excludes, and why each exclusion is correctness rather than caution.**
+
+- **`targetWhere`/`setWhere`** — their contract is V1's silent no-op: no write, and the terminal read still answers with the UNCHANGED row. `DO UPDATE … WHERE <no match>` returns ZERO rows (measured on PG 17), so a folded upsert would answer nothing where the contract says it answers the row.
+- **an extended selector** — the filter half decides WHICH row the operation means and `ON CONFLICT` has nowhere to put it; the conflict would arbitrate on the unique half alone and adopt the very row the filter EXCLUDED. This is the same rule `childRacePin` already applies when it withholds the create arm's pin for an extended selector.
+- **`create` that does not satisfy `where`** — Prisma does not require it to, and `ON CONFLICT` arbitrates on the VALUES row rather than on the caller's `where` (measured: `where: { id: 10 }` with `create: { id: 20 }` conflicts on 20, inserting a second row where probe-first would have updated row 10).
+- **atomic arithmetic / `push` / `unshift` in the update payload** — `buildSet` spells these `col = <col> op x` with ONE column expression on both sides, and inside `DO UPDATE SET` PostgreSQL rejects every spelling it can produce: bare on both sides is `42702` ("column reference is ambiguous" — the proposed row and the existing row both offer the name), and qualifying the assignment target is `42703`. Only "bare target, qualified source" parses, and no emitter in this codebase writes that. **Recorded residual:** the common counter idiom `update: { count: { increment: 1 } }` therefore keeps the probe path. Closing it needs a SET emitter that qualifies only the source — a new adapter-surface spelling, deliberately out of this decision's scope.
+- **a relation projection or `include`** — carried by conjunct 1; `_count` off a RETURNING subquery binds by name, the defect Phase 3 already corrected once.
+
+**A conjunct that was written and then REMOVED.** A seventh conjunct, `!createHasRelations`, was in the first spelling. Falsification found **nothing in the estate that could tell it apart from conjunct 5**: `createData` is `{}` for a relation-bearing payload, so every conflict-target column reads `undefined` and the fold already declines. That is a check whose unique coverage cannot be named, which this codebase forbids, so it went — and the coupling it relied on is written down at conjunct 5 instead, together with the instruction to restore it in the same edit if `createData` ever holds the scalar half of a relation-bearing payload.
+
+**Falsification — ten mutations, each applied alone.**
+
+| Mutation | What failed |
+| --- | --- |
+| the gate forced CLOSED (`permitted = false`) | 9 — every traffic witness, both divergence measurements, the oracle's lever meta-test, the fold control |
+| conjunct 1 removed (`canFoldUpdateArm`) | the `include` witness and the `_count` witness |
+| conjunct 2 removed **and** a target-ignoring arbiter substituted (the MySQL semantic, live) | 5 — including the unrelated-collision witness, which stops raising and adopts a row the caller never named |
+| MySQL declared `supportsTargetedUpsert: true` (the brief's literal falsification) | the arbiter witness |
+| conjunct 3 removed | both conditional witnesses |
+| conjunct 4 removed | the extended-selector witness |
+| conjunct 5 removed | the create-does-not-satisfy-where witness **and** the relation-bearing create-arm witness |
+| conjunct 5 WEAKENED to "the key is present", dropping the value comparison | the create-does-not-satisfy-where witness |
+| conjunct 6 removed | the atomic-arithmetic witness |
+| `!createHasRelations` removed | **nothing** — which is why it is no longer there |
+
+**Witnesses.** [`tests/query-engine-v2/upsert-on-conflict-fold.test.ts`](../../tests/query-engine-v2/upsert-on-conflict-fold.test.ts) — 31 tests in four groups: the traffic (counts on both arms and both substrates, the alternate-unique conflict target, and the plan shape without a database), the dual-run oracle (ten payloads plus the lever meta-test), the accepted and rejected divergences, and one case per excluded shape. Four more in [`upsert-family-behavior.ts`](../../tests/query-engine-v2/upsert-family-behavior.ts), which is wired on **every** driver leg, so the folded shape's answer is certified on SQLite3, LibSQL, PGlite, Docker PostgreSQL **and Docker MySQL** — the dialect the door is closed to, where the same payloads must answer identically through the unchanged probe path.
+
+**One pinned baseline moved, deliberately.** `batch-round-trip-baseline.test.ts`'s *"a scalar upsert update-arm costs two"* was Phase 6's measurement of this exact shape. It now costs ONE, which is this decision's deliverable, so the number moves with it and the round-trip KIND is pinned alongside (one round trip would also be true of an operation that planned nothing and wrote nothing). A second test was added holding the OLD number for an upsert the door excludes, so Phase 6's baseline is still measured on a shape that still has it. No pinned SQL in `tests/query-engine/sql-generation.test.ts` changed — it holds no root-upsert pin.
+
+**Gate.** `npx tsc --noEmit` (5.9.3) clean. `pnpm test:gates` **72 passed**, census unchanged. Repo-pinned `npx biome check` clean on all changed files. Suites in this worktree, 0 failures: `tests/query-engine-v2` **1101**, `tests/query-engine` + `tests/adapters` **2339**, `tests/drivers/sqlite3` + `tests/drivers/libsql` **2240**, `tests/drivers/pglite` + `tests/drivers/libsql` **1825**. No error message, error attribution or race protection was removed. `OperationFragment.ts` is byte-identical. The Docker MySQL (3307) and PostgreSQL (5434) legs belong to the gate agent; the four cross-dialect cases are wired on both.
+
 ### Decision 7.2 — Multi-row `INSERT … RETURNING` for `createMany` with select
 
 The per-row emission exists for an exact input ordinal ([`create.ts:116-119`](../../src/query-engine/operations/create.ts); [`ManyAndReturnOperation.ts:451-467`](../../src/query-engine-v2/ManyAndReturnOperation.ts)). One multi-row statement replaces N statements. PostgreSQL does not contractually guarantee the RETURNING row order. The choice: accept the implementation guarantee (Prisma does), or match the returned rows by key.

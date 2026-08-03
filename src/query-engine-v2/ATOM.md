@@ -259,6 +259,46 @@ where that *is* the specified semantic:
 - **to-one upsert** — never: the decision is FK-slot occupancy, not a unique
   conflict; no conflict target exists.
 
+#### The first bullet's disposition, written (PLAN Decision 7.1, 2026-08-03)
+
+The door is **TAKEN** for the top-level scalar-arm upsert. `UpsertOperation.-
+buildOnConflictFold` emits one `INSERT … ON CONFLICT (target) DO UPDATE …
+RETURNING` — empty planning, one step, no envelope — and everything outside its
+six conjuncts keeps the probe-first sequence byte-identically. The full record,
+with the numbers, is the plan doc's Decision 7.1 section; what belongs *here* is
+what the three divergences this section named turned out to be when measured.
+
+- **"sequence burn on the update path"** — **REAL, and ACCEPTED.** The statement
+  evaluates the INSERT's defaults before it detects the conflict, so a generated
+  identity the create data omits consumes a value even when the row existed:
+  PostgreSQL `last_value` 100 → 101, SQLite `sqlite_sequence` 2 → 3. Probe-first
+  consumes none. Sequences are documented as non-gap-free on both dialects.
+  Pinned as a test, not as prose, so it stays a number.
+- **"MySQL `LAST_INSERT_ID` semantics"** — **does not arise, and could not have
+  been made to.** The door is closed to MySQL by a capability,
+  `supportsTargetedUpsert`, and closed for a stronger reason than identity
+  reporting: `ON DUPLICATE KEY UPDATE` carries no conflict target and fires on
+  ANY unique collision, so an unrelated collision would silently adopt a row the
+  caller never named. That is a wrong answer, which is why it is a capability
+  rather than an inference — and why it must not be collapsed into
+  `supportsReturning`, whose per-adapter values happen to match today.
+- **"the pinned-abort error class disappearing"** — **not observable.** The
+  create arm's `racePin` never surfaced a class of its own; it classified a
+  unique violation so the routed layer could retry ONCE and converge. The folded
+  statement converges without retrying, to the same answer. The dual-run oracle
+  found the thrown error's class, code and `meta` identical on every payload
+  that throws at all, including both unrelated-collision shapes.
+
+**And the guardian this section exists to protect is intact.** The elision that
+makes the fold sound is not a new one: the door is only open where the operation
+asks the database *nothing* before it writes, so there is no planning read whose
+answer a write could invalidate. The Pin Rule has nothing to bind — which is the
+same reason the folded step carries no `racePin` and the executor's
+statement-atomic path accepts it. The race protection is discharged by the
+database rather than removed; a competitor on its own connection taking the
+contested key in the decision-to-write window is adopted by `DO UPDATE` in one
+statement, where probe-first loses its INSERT and pays a full retry to converge.
+
 ### 4.1 The own-write linearization (N6-U3 — AMENDMENT, 2026-07-30)
 
 The guardian above says "*earlier* same-operation write". It never said **in which

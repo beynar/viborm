@@ -121,14 +121,38 @@ describe("PLAN Phase 6 baseline — round trips on a batch-only driver", () => {
     expect(driver.roundTrips).toHaveLength(2);
   });
 
-  test("a scalar upsert update-arm costs two", async () => {
+  // BASELINE UPDATED DELIBERATELY — PLAN Decision 7.1, the ON CONFLICT door.
+  // This shape cost two round trips (a planning locate, then the write batch)
+  // when this file was written for Phase 6. It now costs ONE: the whole upsert is
+  // a single `INSERT … ON CONFLICT ("email") DO UPDATE … RETURNING`, with empty
+  // planning and no batch envelope at all. That is this decision's deliverable,
+  // so the number moves with it rather than the assertion being relaxed — the
+  // KIND is pinned too, because "one round trip" would also be true of a broken
+  // operation that planned nothing and wrote nothing.
+  test("a scalar upsert costs ONE — the folded statement, not a batch", async () => {
     const { driver, client } = await seeded();
     await client.user.upsert({
       where: { email: "root@x" },
       create: { email: "root@x", count: 9 },
       update: { count: 7 },
     });
+    expect(driver.roundTrips).toHaveLength(1);
+    expect(driver.roundTrips[0]?.kind).toBe("execute");
+  });
+
+  test("an upsert the door excludes still costs two", async () => {
+    // The same shape with atomic arithmetic in the update payload: conjunct 6
+    // declines it (PostgreSQL calls the bare column reference ambiguous inside
+    // `DO UPDATE SET`), so the Phase 6 baseline above still describes it.
+    const { driver, client } = await seeded();
+    await client.user.upsert({
+      where: { email: "root@x" },
+      create: { email: "root@x", count: 9 },
+      update: { count: { increment: 7 } },
+    });
     expect(driver.roundTrips).toHaveLength(2);
+    expect(driver.roundTrips[0]?.kind).toBe("execute");
+    expect(driver.roundTrips[1]?.kind).toBe("batch");
   });
 
   test("planning reads are SEQUENTIAL: one round trip per read", async () => {

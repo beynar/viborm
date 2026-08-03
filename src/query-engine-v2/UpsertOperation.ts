@@ -390,7 +390,7 @@ export class UpsertOperation {
 
     // Decided LAST: the fold reads the parsed arms, the projection, the
     // conditionals and the extended-where half, all of which are settled above.
-    this.onConflictFold = this.buildOnConflictFold(parent, createHasRelations);
+    this.onConflictFold = this.buildOnConflictFold(parent);
   }
 
   planning(): OperationFragment {
@@ -469,29 +469,27 @@ export class UpsertOperation {
    *    `INSERT … RETURNING` cannot carry, and `_count` read off a RETURNING
    *    subquery binds by name — the P3 `_count` defect). Reusing it is deliberate:
    *    it keeps `supportsReturning` read in ONE place in this class.
-   * 2. **a scalar create arm** — a relation-bearing create delegates to a whole
-   *    {@link CreateOperation} tree; there is no single statement to fold to.
-   * 3. **{@link DatabaseAdapterCapabilities.supportsTargetedUpsert}** — MySQL's
+   * 2. **{@link DatabaseAdapterCapabilities.supportsTargetedUpsert}** — MySQL's
    *    `ON DUPLICATE KEY UPDATE` fires on ANY unique collision, so an unrelated
    *    collision would silently adopt a row the caller never named. Measured, and
    *    falsified by a witness that swaps in that emitter.
-   * 4. **no `targetWhere` / `setWhere` conditional** — their contract is V1's
+   * 3. **no `targetWhere` / `setWhere` conditional** — their contract is V1's
    *    SILENT NO-OP: no write, and the terminal read still answers with the
    *    unchanged row. `DO UPDATE … WHERE <no match>` returns ZERO rows (measured
    *    on PG 17), so the folded statement would answer nothing where the contract
    *    says it answers the row.
-   * 5. **a plain unique `where`** — an extended selector's FILTER half decides
+   * 4. **a plain unique `where`** — an extended selector's FILTER half decides
    *    WHICH row the operation means, and `ON CONFLICT` has nowhere to put it: the
    *    conflict would arbitrate on the unique half alone and adopt the very row
    *    the filter EXCLUDED. This is the same rule {@link childRacePin} already
    *    applies when it withholds the create arm's race pin for an extended
    *    selector — an excluded row's violation is a genuine conflict, not a race.
-   * 6. **the create data spells the conflict target, with the `where`'s values** —
+   * 5. **the create data spells the conflict target, with the `where`'s values** —
    *    see {@link UpsertOperation.createDataSpellsConflictTarget}. Prisma does not
    *    require `create` to satisfy `where`, and `ON CONFLICT` arbitrates on the
    *    VALUES row, not on the caller's `where` (measured). Without this the fold
    *    would ask a different question from the one the caller asked.
-   * 7. **a `set`-only update payload** — see {@link isPlainSetUpdate}. Atomic
+   * 6. **a `set`-only update payload** — see {@link isPlainSetUpdate}. Atomic
    *    arithmetic and `push`/`unshift` reference the column on BOTH sides of the
    *    assignment, and inside `DO UPDATE SET` PostgreSQL rejects every spelling
    *    `buildSet` can produce: bare on both sides is `42702` "column reference is
@@ -507,13 +505,9 @@ export class UpsertOperation {
    * gap-free on either dialect, and ATOM §4 names this burn as the divergence a
    * written disposition covers. See the plan doc's Decision 7.1 record.
    */
-  private buildOnConflictFold(
-    parent: QueryScope,
-    createHasRelations: boolean
-  ): StatementStep | undefined {
+  private buildOnConflictFold(parent: QueryScope): StatementStep | undefined {
     const permitted =
       this.canFoldUpdateArm &&
-      !createHasRelations &&
       this.engine.adapter.capabilities.supportsTargetedUpsert &&
       this.conditionals.length === 0 &&
       this.whereFilters === undefined &&
@@ -551,6 +545,18 @@ export class UpsertOperation {
    * two independently parsed values, and identity is not equality for a `Date`, a
    * `Decimal` or a byte array. The same reasoning `groupLinkTargets` clause 3
    * already states for the link fold.
+   *
+   * **This conjunct also answers a RELATION-BEARING CREATE ARM**, and it is the
+   * only thing that does. `this.createData` is `{}` whenever the create payload
+   * carries relations — the constructor leaves the whole payload to the delegated
+   * {@link CreateOperation} — so every conflict-target column reads `undefined`
+   * here and the fold declines. A separate `!createHasRelations` conjunct was
+   * written first and then removed: falsification found NOTHING in the estate
+   * that could tell the two apart, which is a check whose unique coverage cannot
+   * be named. The coupling is recorded here rather than defended twice: anyone
+   * who makes `createData` hold the scalar half of a relation-bearing payload
+   * must restore that conjunct in the same edit, or a fold will silently drop the
+   * relation writes.
    */
   private createDataSpellsConflictTarget(parent: QueryScope): boolean {
     const entries = getWhereUniqueEntries(parent, this.parentWhere);

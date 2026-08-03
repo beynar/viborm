@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
@@ -7,15 +10,12 @@ import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import Database from "better-sqlite3";
-import type { Database as SQLite3Database } from "better-sqlite3";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
 import { createSchemaRegistry } from "@validation";
+import type { Database as SQLite3Database } from "better-sqlite3";
+import Database from "better-sqlite3";
 import { beforeAll, describe, expect, test } from "vitest";
 import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
 
@@ -143,7 +143,9 @@ function drain(driver: { statements: string[] }): string[] {
  * "old" here means literally what shipped before Decision 7.1, not a re-creation
  * of it.
  */
-function closeTheDoor(driver: { adapter: { capabilities: { supportsTargetedUpsert: boolean } } }): void {
+function closeTheDoor(driver: {
+  adapter: { capabilities: { supportsTargetedUpsert: boolean } };
+}): void {
   driver.adapter.capabilities.supportsTargetedUpsert = false;
 }
 
@@ -344,7 +346,9 @@ describe("the ON CONFLICT fold — statement traffic", () => {
     // depends on. No probe ran, and none is needed: ON CONFLICT decides in the
     // database. The executor's statement-atomic path also refuses a step that
     // carries one, so this is what keeps the single round trip.
-    expect(step && "racePin" in step ? step.racePin : undefined).toBeUndefined();
+    expect(
+      step && "racePin" in step ? step.racePin : undefined
+    ).toBeUndefined();
   });
 });
 
@@ -486,7 +490,13 @@ describe("the ON CONFLICT fold — the dual-run oracle", () => {
         // this the unrelated-collision case, and it is the one the MySQL grammar
         // would break. On a targeted-conflict dialect the arbiter is `id`, the
         // `email` index is not the arbiter, and the violation is raised as itself.
-        create: { id: 70, email: "a1@x", handle: "h70", label: "N70", score: 7 },
+        create: {
+          id: 70,
+          email: "a1@x",
+          handle: "h70",
+          label: "N70",
+          score: 7,
+        },
         update: { label: "U70" },
       },
     },
@@ -725,14 +735,16 @@ async function traffic(
 }
 
 describe("the ON CONFLICT fold — what stays on the probe path", () => {
-  test("conjunct 3 (the arbiter): MySQL declares itself out, and says why", () => {
+  test("conjunct 2 (the arbiter): MySQL declares itself out, and says why", () => {
     // The capability IS the conjunct, and it reads false on MySQL for the reason
     // the plan gives: `ON DUPLICATE KEY UPDATE` carries no conflict target, so an
     // unrelated collision would adopt a row the caller never named. Asserted on
     // the adapters themselves, so the falsification the phase brief names —
     // open the gate to MySQL — has a witness that fails on the one-line edit.
     expect(new MySQLAdapter().capabilities.supportsTargetedUpsert).toBe(false);
-    expect(new PostgresAdapter().capabilities.supportsTargetedUpsert).toBe(true);
+    expect(new PostgresAdapter().capabilities.supportsTargetedUpsert).toBe(
+      true
+    );
     expect(new SQLiteAdapter().capabilities.supportsTargetedUpsert).toBe(true);
 
     // And the emitter that makes it true: MySQL's `onConflict` discards the
@@ -745,7 +757,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(mysqlUpsert.strings.join("")).toContain("ON DUPLICATE KEY UPDATE");
   });
 
-  test("conjunct 4: a `targetWhere` keeps the probe path AND its silent no-op", async () => {
+  test("conjunct 3: a `targetWhere` keeps the probe path AND its silent no-op", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);
     driver.recording = true;
@@ -766,7 +778,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(result).toMatchObject({ id: 1, label: "L1", score: 10 });
   });
 
-  test("conjunct 4: a `setWhere` keeps the probe path too", async () => {
+  test("conjunct 3: a `setWhere` keeps the probe path too", async () => {
     const { statements } = await traffic({
       where: { id: 1 },
       setWhere: { score: 999 },
@@ -776,7 +788,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(statements.join("\n")).not.toContain("ON CONFLICT");
   });
 
-  test("conjunct 5: an extended selector whose filter EXCLUDES the row keeps the probe path", async () => {
+  test("conjunct 4: an extended selector whose filter EXCLUDES the row keeps the probe path", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);
     driver.recording = true;
@@ -803,12 +815,12 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     // UPDATED row 1 instead.
     expect(caught).toBeDefined();
     expect((caught as { code?: string }).code).toBe("V3001");
-    expect(
-      await client.account.findUnique({ where: { id: 1 } })
-    ).toMatchObject({ label: "L1" });
+    expect(await client.account.findUnique({ where: { id: 1 } })).toMatchObject(
+      { label: "L1" }
+    );
   });
 
-  test("conjunct 6: `create` that does not satisfy `where` keeps the probe path", async () => {
+  test("conjunct 5: `create` that does not satisfy `where` keeps the probe path", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);
     driver.recording = true;
@@ -827,7 +839,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(result).toMatchObject({ id: 41, label: "N41" });
   });
 
-  test("conjunct 6: the SAME key spelled with the SAME value does fold — the control", async () => {
+  test("conjunct 5: the SAME key spelled with the SAME value does fold — the control", async () => {
     const { statements, answer } = await traffic({
       where: { handle: "h1" },
       create: { email: "a1@x", handle: "h1", label: "N", score: 0 },
@@ -841,7 +853,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(answer).toMatchObject({ id: 1, label: "BY-HANDLE" });
   });
 
-  test("conjunct 7: atomic arithmetic in the update payload keeps the probe path", async () => {
+  test("conjunct 6: atomic arithmetic in the update payload keeps the probe path", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);
     driver.recording = true;
@@ -903,8 +915,11 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     expect(result).toEqual({ id: 1, _count: { notes: 2 } });
   });
 
-  test("conjunct 2: a relation-bearing create arm keeps the probe path", async () => {
-    const { statements } = await traffic({
+  test("conjunct 5 also covers a relation-bearing create arm — and the child is written", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+    driver.recording = true;
+    await client.account.upsert({
       where: { id: 45 },
       create: {
         id: 45,
@@ -916,7 +931,21 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
       },
       update: { label: "U45" },
     });
+    const statements = drain(driver);
+    driver.recording = false;
+
     expect(statements.join("\n")).not.toContain("ON CONFLICT");
+    // A `!createHasRelations` conjunct was written and then REMOVED: nothing in
+    // the estate could distinguish it from conjunct 5, because `createData` is
+    // empty for a relation-bearing payload and the conflict target therefore
+    // reads `undefined`. This assertion is what the removed conjunct was really
+    // protecting — that the child write is not silently dropped — so it is
+    // stated on the effect rather than on the decline.
+    expect(await client.note.findUnique({ where: { id: 9 } })).toMatchObject({
+      id: 9,
+      body: "child",
+      accountId: 45,
+    });
   });
 
   test("conjunct 1: a relation-bearing update arm keeps the probe path", async () => {
