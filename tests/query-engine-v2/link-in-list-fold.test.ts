@@ -36,8 +36,17 @@ const author = s
     name: s.string(),
     posts: s.oneToMany(() => post),
     notes: s.oneToMany(() => note),
+    labels: s.manyToMany(() => label),
   })
   .map("p4_authors");
+
+const label = s
+  .model({
+    id: s.int().id(),
+    text: s.string().unique(),
+    authors: s.manyToMany(() => author),
+  })
+  .map("p4_labels");
 
 const post = s
   .model({
@@ -72,7 +81,7 @@ const note = s
   .unique(["org", "ref"])
   .map("p4_notes");
 
-const schema = { author, note, post };
+const schema = { author, label, note, post };
 
 beforeAll(() => {
   hydrateSchemaNames(schema);
@@ -150,6 +159,9 @@ async function boot(driver: RecordingPGliteDriver) {
   }
   for (const id of [20, 21, 22]) {
     await client.note.create({ data: { id, org: "acme", ref: `r${id}` } });
+  }
+  for (const id of [30, 31, 32]) {
+    await client.label.create({ data: { id, text: `L${id}` } });
   }
   return client;
 }
@@ -344,6 +356,138 @@ describe("the link IN-list fold — statement traffic", () => {
 
     const rows = await client.note.findMany({ where: { authorId: 1 } });
     expect(rows.map((row: any) => row.id).sort()).toEqual([20, 21]);
+  });
+
+  /**
+   * `set` and the M2M `connect` keep their PER-TARGET probes: the batch guard
+   * pairs each selector with the primary key THAT selector's probe captured
+   * (the split-witness assertion), and a grouped probe cannot hand that pairing
+   * back without comparing a decoded column value against an input value. Their
+   * WRITE folds anyway, because both already address rows by the captured
+   * primary key rather than by the caller's selector — so the fold needs no
+   * pairing at all.
+   */
+  test("set reparents its whole target list in ONE write", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.author.update({
+      where: { id: 1 },
+      data: { posts: { set: [{ id: 10 }, { id: 11 }, { id: 12 }] } },
+    });
+    const link = childStatements(drain(driver), "p4_posts");
+    driver.recording = false;
+
+    // Three probes (the pairing the guards need), the departing-rows UPDATE that
+    // `set` always sends, and ONE reparent write over the captured PKs — five
+    // statements where there were seven.
+    expect(link).toHaveLength(5);
+    expect(link.slice(0, 3).every((sql) => sql.startsWith("SELECT"))).toBe(
+      true
+    );
+    expect(link[3]).toContain('"authorId" = NULL');
+    expect(link[4]).toContain('"p4_posts"."id" IN ($2, $3, $4)');
+
+    expect(await authorOf(client, 10)).toBe(1);
+    expect(await authorOf(client, 11)).toBe(1);
+    expect(await authorOf(client, 12)).toBe(1);
+    expect(await authorOf(client, 13)).toBeNull();
+  });
+
+  test("set in batch mode keeps a guard per target ahead of the one write", async () => {
+    const driver = new BatchOnlyRecordingDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.author.update({
+      where: { id: 1 },
+      data: { posts: { set: [{ id: 10 }, { id: 11 }] } },
+    });
+    const link = childStatements(drain(driver), "p4_posts");
+    driver.recording = false;
+
+    // Two probes, two split-witness guards, the departing UPDATE, one reparent.
+    expect(link).toHaveLength(6);
+    expect(
+      link.slice(2, 4).every((sql) => sql.includes("__viborm_assert__"))
+    ).toBe(true);
+    expect(link[5]).toContain('"p4_posts"."id" IN ($2, $3)');
+    expect(await authorOf(client, 10)).toBe(1);
+    expect(await authorOf(client, 11)).toBe(1);
+  });
+
+  test("an M2M connect list becomes ONE junction insert", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.author.update({
+      where: { id: 1 },
+      data: { labels: { connect: [{ id: 30 }, { id: 31 }, { id: 32 }] } },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    // Three INSERTs became one. The duplicate skip is the same clause — the
+    // single-row builder IS the many-row builder over a one-element list — so
+    // connecting an already-connected label stays idempotent (below).
+    const inserts = statements.filter((sql) => sql.startsWith("INSERT"));
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]).toContain("ON CONFLICT DO NOTHING");
+    expect(inserts[0]).toContain("($1, $2), ($3, $4), ($5, $6)");
+
+    const author1 = await client.author.findUnique({
+      where: { id: 1 },
+      include: { labels: true },
+    });
+    expect(author1?.labels.map((row: any) => row.id).sort()).toEqual([
+      30, 31, 32,
+    ]);
+  });
+
+  test("the folded M2M connect is still idempotent", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+    await client.author.update({
+      where: { id: 1 },
+      data: { labels: { connect: [{ id: 30 }, { id: 31 }] } },
+    });
+
+    // Re-connecting an existing member alongside a new one must add the new join
+    // row and leave the existing one alone, not raise a primary-key conflict.
+    await client.author.update({
+      where: { id: 1 },
+      data: { labels: { connect: [{ id: 30 }, { id: 32 }] } },
+    });
+
+    const author1 = await client.author.findUnique({
+      where: { id: 1 },
+      include: { labels: true },
+    });
+    expect(author1?.labels.map((row: any) => row.id).sort()).toEqual([
+      30, 31, 32,
+    ]);
+  });
+
+  test("an M2M connect naming an absent label writes no join row", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    await expect(
+      client.author.update({
+        where: { id: 1 },
+        data: { labels: { connect: [{ id: 30 }, { id: 999 }] } },
+      })
+    ).rejects.toThrow(
+      "Cannot connect relation 'labels': target record was not found."
+    );
+
+    const author1 = await client.author.findUnique({
+      where: { id: 1 },
+      include: { labels: true },
+    });
+    expect(author1?.labels).toEqual([]);
   });
 
   test("the create tree's own connect folds the same way", async () => {

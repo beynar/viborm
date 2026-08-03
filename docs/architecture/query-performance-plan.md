@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded `connect`/`disconnect` and recorded a disposition for `set` and the M2M junction, which it did not fold. Phases 6-10 not started. Phase 2 raised one new maintainer decision, 7.4.
+**Status:** Phases 1, 2, 3, 4 and 5 delivered (see their delivery records, and the wave gate that follows Phase 5). Phase 4 folded the probe and the write for `connect`/`disconnect`, the write only for `set` and M2M `connect`, and recorded why the other probes stay per target. Phases 6-10 not started. Phase 2 raised one new maintainer decision, 7.4.
 
 ## Source of this plan
 
@@ -430,9 +430,9 @@ Group the targets by unique key. For each group, send one probe (`SELECT pk, key
 
 **Delivered:** 2026-08-03, branch `nested-write-boundaries`. Baseline for every number below is `1e67bab`.
 
-**What shipped, and what did not.** The child-held-FK `connect` and `disconnect` families fold. `set` and the M2M junction families do **not** — see the disposition at the end of this record. That is narrower than the plan text above, and the reason is one mechanism, stated there rather than left implicit.
+**What shipped, and what did not.** The child-held-FK `connect` and `disconnect` families fold **probe and write**. `set` and the M2M `connect` fold their **write only** — their probes stay per target, for one reason stated at the end of this record. M2M `disconnect` does not fold at all.
 
-`src/query-engine-v2/link-target-groups.ts` is the fold's one home: `groupLinkTargets` splits a relation's targets into key-shape GROUPS, `linkGroupSelector` builds a group's one `WHERE`, `countDistinctTargets` says how many rows that `WHERE` can name. Two call sites read it — `RelationLinkPart` (the update family's connect/disconnect) and `ChildConnectPart` in `CreateOperation.ts` (the create tree's own child-held connect, which is a separate Part and would otherwise have kept the per-target shape).
+`src/query-engine-v2/link-target-groups.ts` is the grouped-probe fold's one home: `groupLinkTargets` splits a relation's targets into key-shape GROUPS, `linkGroupSelector` builds a group's one `WHERE`, `countDistinctTargets` says how many rows that `WHERE` can name. Two call sites read it — `RelationLinkPart` (the update family's connect/disconnect) and `ChildConnectPart` in `CreateOperation.ts` (the create tree's own child-held connect, which is a separate Part and would otherwise have kept the per-target shape).
 
 **Measured — PGlite, three targets, statements counted at the driver's `execute`/`executeRaw` seam (which sees both substrates).**
 
@@ -444,8 +444,10 @@ Group the targets by unique key. For each group, send one probe (`SELECT pk, key
 | `update` + `disconnect: [a,b,c]`, atomic batch | 12 | **8** |
 | `create` + `connect: [a,b,c]`, transaction | 8 | **4** |
 | `update` + `connect` over TWO key shapes (2 + 1) | 8 | **6** |
-| `update` + `set: [a,b,c]` | 9 / 13 | unchanged |
-| M2M `connect: [a,b,c]` / `disconnect: [a,b,c]` | 8 / 5 | unchanged |
+| `update` + `set: [a,b,c]`, transaction | 9 | **7** |
+| `update` + `set: [a,b,c]`, atomic batch | 13 | **11** |
+| M2M `connect: [a,b,c]`, transaction | 8 | **6** |
+| M2M `disconnect: [a,b,c]`, transaction | 5 | unchanged |
 
 The link's own traffic is what moved: six statements became two. The other two in the transaction row are the root's locate and terminal read, which this phase does not touch. In batch mode the probe and the write fold and the three presence guards stay, which is the plan's own instruction and is why the batch row lands on eight rather than five.
 
@@ -467,9 +469,9 @@ Clauses 2 and 3 are **not reachable through the client today**, and that was mea
 
 **A note on locking.** N separate `FOR UPDATE` probes acquired their locks in input order, so two transactions connecting `[10, 11]` and `[11, 10]` could deadlock. One IN-list `FOR UPDATE` lets the database choose a scan order, which is consistent across transactions. The fold reduces that exposure; it does not create any.
 
-**Witnesses.** [`tests/query-engine-v2/link-in-list-fold.test.ts`](../../tests/query-engine-v2/link-in-list-fold.test.ts) — 20 tests over three groups: the statement traffic (counts and the emitted `IN`/`OR`, tx and batch, update root and create root, compound unique, mixed shapes), what may share a group (the rule exercised directly, plus the repeated-target and date-key readings), and the missing-target error. Five cases were added to [`tests/drivers/nested-write-behavior.ts`](../../tests/drivers/nested-write-behavior.ts), which is already wired on every driver, so the SQL the fold newly emits — an `IN` list inside a locked read and inside a bulk UPDATE — runs on all of them. MySQL matters most there: it is non-returning, so the folded write goes out as a plain `UPDATE … WHERE key IN (…)` with no RETURNING clause to confirm it.
+**Witnesses.** [`tests/query-engine-v2/link-in-list-fold.test.ts`](../../tests/query-engine-v2/link-in-list-fold.test.ts) — 25 tests over three groups: the statement traffic (counts and the emitted `IN`/`OR`, tx and batch, update root and create root, compound unique, mixed shapes, `set`'s folded reparent, the M2M `junctionInsertMany` with its idempotence and its absent-target rejection), what may share a group (the rule exercised directly, plus the repeated-target and date-key readings), and the missing-target error. Five cases were added to [`tests/drivers/nested-write-behavior.ts`](../../tests/drivers/nested-write-behavior.ts), which is already wired on every driver, so the SQL the fold newly emits — an `IN` list inside a locked read and inside a bulk UPDATE — runs on all of them. MySQL matters most there: it is non-returning, so the folded write goes out as a plain `UPDATE … WHERE key IN (…)` with no RETURNING clause to confirm it.
 
-**Falsification — seven mutations, each applied alone, each caught.**
+**Falsification — nine mutations, each applied alone, each caught.**
 
 | Mutation | What failed |
 | --- | --- |
@@ -480,19 +482,27 @@ Clauses 2 and 3 are **not reachable through the client today**, and that was mea
 | The distinct count stops deduplicating | the repeated-target witness and its unit test |
 | Clause 3 (primitive values) removed | the object-key unit test |
 | Clause 2 (filter half) removed | the predicate-half unit test |
+| `set`'s folded write addresses by SELECTOR, not captured PK | the two `set` witnesses — **and nothing else in the estate**, see the gap noted below |
+| M2M `connect` goes back to one INSERT per target | the M2M insert-count witness |
 
-**Gate.** `tsc` clean. Repo-pinned `npx biome check` (2.3.11) clean on all five changed files. `pnpm test:gates` **72 passed**, census unchanged. Suites run in this worktree, 0 failures: `tests/query-engine-v2` 1047, `tests/query-engine` + `tests/adapters` 2286, `tests/drivers` 3373 (2109 skipped), and the three local driver legs (PGlite tx + batch, SQLite3, LibSQL) 2963 after the behavior cases landed. No pinned SQL file changed — `sql-generation.test.ts` holds no connect/disconnect pin, and the arity-1 spelling did not move. The Docker MySQL (3307) and PostgreSQL (5434) legs belong to the gate agent.
+**Gate.** `tsc` clean. Repo-pinned `npx biome check` (2.3.11) clean on all seven changed files. `pnpm test:gates` **72 passed**, census unchanged. Suites run in this worktree, 0 failures: `tests/query-engine-v2` + `tests/query-engine` + `tests/adapters` **2301**, `tests/drivers` **3393** (2124 skipped, and the three local legs — PGlite tx + batch, SQLite3, LibSQL — carry the five new behavior cases). No pinned SQL file changed — `sql-generation.test.ts` holds no connect/disconnect pin, and the arity-1 spelling did not move. The Docker MySQL (3307) and PostgreSQL (5434) legs belong to the gate agent.
 
-#### Not folded, and why — `set` and the M2M junction
+#### The probes that stay per target — `set` and the M2M junction
 
-Both were measured and both were left alone. The reason is the same in each: their batch-mode guard is a **split-witness** guard that pairs each selector with the primary key that selector's OWN probe captured (`RelationWritePart.ts` `RelationSetPart.compile`, `RelationJunctionPart.ts` `targetPresenceGuard` / `connectedPresenceGuard`). It exists so a concurrent write that moves a selector onto a replacement row is rejected instead of adopting the replacement. Folding the probe destroys the pairing: recovering which returned row answers which selector means comparing a DECODED column value against an input value, and that comparison is exactly what this phase's missing-target verdict was designed to avoid, because its failure mode is a false rejection of a legitimate operation. The two weaker group-wide restatements were considered and rejected — an `exists` over the group is satisfied by one row, and `notExists(group ∧ pk NOT IN captured)` accepts a concurrent swap between two members of the same group that the paired guards reject.
+Their WRITES fold; their PROBES do not, and the reason is one mechanism.
 
-Two consequences worth recording for whoever picks this up:
+Both families' batch guard is a **split-witness** guard: it pairs each selector with the primary key that selector's OWN probe captured (`RelationWritePart.ts` `RelationSetPart.compile`, `RelationJunctionPart.ts` `targetPresenceGuard` / `connectedPresenceGuard`). It exists so a concurrent write that moves a selector onto a replacement row is rejected rather than adopting the replacement. A grouped probe destroys the pairing: recovering which returned row answers which selector means comparing a DECODED column value against an input value — exactly the comparison this phase's missing-target verdict was built to avoid, because its failure mode is a false rejection of a legitimate operation. The two weaker group-wide restatements were considered and rejected: an `exists` over the group is satisfied by one row, and `notExists(group ∧ pk NOT IN captured)` accepts a concurrent swap between two members of the same group that the paired guards reject.
 
-- **`set`'s reparent write can fold without touching the pairing** (`UPDATE … WHERE pk IN (all captured pks)`, since `set` already writes by captured PK), taking `set: [N]` from 2N to N+1 statements in both modes. It was not done here to keep this phase's change to one mechanism.
-- **M2M `connect` can fold its N junction INSERTs into one `junctionInsertMany`** (the consolidated precedent the plan names at `RelationJunctionPart.ts:436-443` — the `set` arm already uses it), using the per-target probes' PKs, so the pairing survives. That takes M2M `connect: [3]` from 8 statements to 6. M2M `disconnect` folds only with a change to `ManyToManyStatements` (each `junctionDelete` builds its own target subquery from one unique `where`; folding needs it to take a list).
+The writes need no pairing, because both families **already address rows by the captured primary key** rather than by the caller's selector:
 
-Phase 6's premise — that the tx-mode condition can come off some fold gates on batch-only drivers — is the natural place to revisit whether the split-witness guard can be restated so these two fold as well.
+- **`set`'s reparent** is one `UPDATE … SET fk = parent WHERE pk IN (all captured pks)` (`buildUpdateMany`), taking `set: [3]` from nine statements to seven in a transaction and from thirteen to eleven in a batch. The guards moved ahead of the single write, which changes nothing: inside an atomic unit a failed assertion aborts the whole unit, and in transaction mode there are no guards.
+- **M2M `connect`** is one `junctionInsertMany` — the consolidated form the `set` arm at `RelationJunctionPart.ts:436-443` already used. `buildJunctionInsert` IS `buildJunctionInsertMany` over a one-element list, so the duplicate-skip clause that makes `connect` idempotent is byte-identical; a witness re-connects an existing member alongside a new one and asserts no conflict. M2M `connect: [3]` goes from eight statements to six.
+
+**M2M `disconnect` was left alone.** Its N `junctionDelete` statements each build their own target subquery from one unique `where` (`ManyToManyStatements.materialize`, the `junctionDelete` arm through `buildTargetPkSubquery`). Folding needs that statement to take a LIST of unique wheres, which is a change to a query-engine builder shared beyond this phase — out of scope here, and recorded so the next reader does not have to rediscover it.
+
+**A coverage gap found while falsifying, and not closed here.** Forcing `set`'s folded write to address rows by the caller's SELECTOR instead of the captured primary key — which discards V1's mutation-identity and lets a concurrent selector move redirect the write — was caught by NOTHING in the estate except the two new SQL-shape assertions in the witness file. The property is pre-existing and the per-target spelling had exactly the same hole; a behavioral witness needs a second connection to commit the concurrent move, so it belongs with the Docker-gated driver tests beside `m2m-deletemany-staleness-behavior.ts`. Filed, not fixed.
+
+Phase 6's premise — that the tx-mode condition can come off some fold gates on batch-only drivers — is the natural place to revisit whether the split-witness guard can be restated so these probes fold as well.
 
 ---
 

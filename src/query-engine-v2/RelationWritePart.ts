@@ -1216,16 +1216,29 @@ export class RelationSetPart implements Part {
     return steps;
   }
 
+  /**
+   * P4 — the departing half, then every target's batch guard, then ONE reparent
+   * write over the captured primary keys.
+   *
+   * `set` already addressed each target by the primary key its own probe captured
+   * (V1's mutation-identity: the write can never land on a replacement), so the
+   * whole target list is one `UPDATE … SET fk = parent WHERE pk IN (…)`. The
+   * per-target PROBES stay, and so do the per-target guards: each guard is the
+   * split-witness assertion pairing ONE selector with the primary key THAT
+   * selector's probe captured, and a grouped probe cannot hand that pairing back
+   * without comparing a decoded column value against an input value. Moving the
+   * guards ahead of the single write changes nothing — inside an atomic unit a
+   * failed assertion aborts the whole unit, and in transaction mode there are no
+   * guards at all.
+   */
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     const capturedPks = this.targets.map((target) =>
       this.capturedTargetPk(target, known)
     );
     const steps: OperationStep[] = [];
     this.compileDeparting(known, steps);
-    for (let index = 0; index < this.targets.length; index += 1) {
-      const target = this.targets[index]!;
-      const capturedPk = capturedPks[index];
-      if (!this.config.txMode) {
+    if (!this.config.txMode) {
+      for (const [index, target] of this.targets.entries()) {
         // Split-witness correlation: the guard requires the ORIGINAL selector and
         // the captured PK to still name the same row. A concurrent move of the
         // selector onto a replacement leaves no such row — reject, never adopt the
@@ -1239,7 +1252,11 @@ export class RelationSetPart implements Part {
                 where: {
                   AND: [
                     ...this.uniqueEqualityFilters(target.where),
-                    { [this.config.childPrimaryKey]: { equals: capturedPk } },
+                    {
+                      [this.config.childPrimaryKey]: {
+                        equals: capturedPks[index],
+                      },
+                    },
                   ],
                 },
                 select: { [this.config.childPrimaryKey]: true },
@@ -1254,15 +1271,19 @@ export class RelationSetPart implements Part {
           )
         );
       }
+    }
+    if (capturedPks.length > 0) {
       steps.push({
-        id: target.reparentId,
+        // The first target's write id, because this statement replaces exactly
+        // the writes those targets used to emit one at a time.
+        id: this.targets[0]!.reparentId,
         kind: "write",
-        statement: buildUpdate(this.config.childScope, {
-          // Reparent the captured row by its PK, not the user selector (V1's
-          // mutation-identity), so the write can never land on a replacement.
-          where: { [this.config.childPrimaryKey]: capturedPk },
+        statement: buildUpdateMany(this.config.childScope, {
+          // Reparent the captured rows by their PKs, not the user selectors
+          // (V1's mutation-identity), so the write can never land on a
+          // replacement.
+          where: { [this.config.childPrimaryKey]: { in: capturedPks } },
           data: this.fkAssignData(known),
-          select: { [this.config.childPrimaryKey]: true },
         }),
         outputs: {},
       });

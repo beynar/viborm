@@ -420,25 +420,39 @@ export class RelationJunctionPart implements Part {
     }
   }
 
-  // connect — probe the target globally, then INSERT the idempotent join row.
+  // connect — probe the targets globally, then INSERT the idempotent join rows.
+  //
+  // P4 — ONE `junctionInsertMany` for the whole list, the consolidated form the
+  // `set` arm below already uses. `buildJunctionInsert` IS `buildJunctionInsertMany`
+  // over a one-element list, so the duplicate skip that makes `connect` idempotent
+  // is the same clause; nothing about the statement changes except how many target
+  // tuples it carries. The target PROBES stay per target: their captured primary
+  // keys are what the split-witness guards pair with their own selector, and a
+  // grouped probe cannot hand that pairing back without comparing a decoded column
+  // value against an input value.
   private compileConnect(
     parent: unknown,
     known: PlanningKnown
   ): readonly OperationStep[] {
-    const steps: OperationStep[] = [];
+    const guards: OperationStep[] = [];
+    const targetPks: unknown[] = [];
     for (const target of this.targets) {
       const targetPk = this.requireTarget(target, known, "connect");
+      targetPks.push(targetPk);
       if (!this.config.txMode) {
-        steps.push(this.targetPresenceGuard(target, "connect", targetPk));
+        guards.push(this.targetPresenceGuard(target, "connect", targetPk));
       }
-      steps.push(
-        this.junctionWrite(target.writeId, "junctionInsert", {
-          parentValue: parent,
-          targetValue: targetPk,
-        })
-      );
     }
-    return steps;
+    if (targetPks.length === 0) return guards;
+    return [
+      ...guards,
+      // The first slot's write id, because this statement replaces exactly the
+      // writes those slots used to emit one at a time.
+      this.junctionWrite(this.targets[0]!.writeId, "junctionInsertMany", {
+        parentValue: parent,
+        targetValues: targetPks,
+      }),
+    ];
   }
 
   // disconnect — DELETE join rows by target subquery; idempotent, no probe.
