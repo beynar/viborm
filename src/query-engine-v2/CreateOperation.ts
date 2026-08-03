@@ -27,8 +27,10 @@ import {
 import {
   buildCreate,
   buildCreateManyPlan,
+  buildFind,
   buildFindUnique,
   buildUpdate,
+  buildUpdateMany,
 } from "../query-engine/operations";
 import { assertPortableCreateManySkip } from "../query-engine/operations/create-many-portability";
 import { planNestedCreateIdentity } from "../query-engine/operations/mutation-identity";
@@ -42,6 +44,11 @@ import {
   presenceGuard,
   referenceSql,
 } from "./fragment-builders";
+import {
+  countDistinctTargets,
+  groupLinkTargets,
+  linkGroupSelector,
+} from "./link-target-groups";
 import { relationTargetNotFound } from "./messages";
 import {
   buildFreshArmPart,
@@ -1147,8 +1154,13 @@ export class CreateOperation {
           break;
         case "connect":
           input.afterParts.push(
-            ...normalizeItems(relationInput.connect, relationName).map(
-              (where) =>
+            // P4 — one Part per key-shape GROUP, so `connect: [a, b, c]` sends one
+            // probe and one write instead of six statements.
+            ...groupLinkTargets(
+              childScope,
+              normalizeItems(relationInput.connect, relationName)
+            ).map(
+              (wheres) =>
                 new ChildConnectPart(this.scope, {
                   engine: this.engine,
                   childScope,
@@ -1158,7 +1170,7 @@ export class CreateOperation {
                   ),
                   relationName,
                   relationInfo,
-                  where,
+                  wheres,
                   fkAssign: this.childFkAssign(
                     input.self,
                     fk,
@@ -1746,6 +1758,11 @@ function targetGeneratesReferencedKey(
  * unique`, pinned in batch by an `exists` guard. Absent → V1's verbatim
  * `Cannot connect …`. The parent value arrives as a ready {@link referenceSql}
  * assignment (Ref or literal), so it serves both a generated and a known parent id.
+ *
+ * P4 — one Part carries a whole key-shape GROUP of targets (`groupLinkTargets`),
+ * so `connect: [a, b, c]` sends one `… WHERE key IN (a,b,c) FOR UPDATE` probe and
+ * one `UPDATE … WHERE key IN (a,b,c)`. A one-target group keeps the arity-1
+ * statements verbatim. The batch presence guards stay per target.
  */
 interface ChildConnectConfig {
   readonly engine: QueryEngine;
@@ -1753,7 +1770,8 @@ interface ChildConnectConfig {
   readonly childName: string;
   readonly relationName: string;
   readonly relationInfo: RelationInfo;
-  readonly where: Record<string, unknown>;
+  /** One key-shape group of connect targets, in input order. */
+  readonly wheres: readonly Record<string, unknown>[];
   readonly fkAssign: Record<string, unknown>;
   readonly txMode: boolean;
 }
@@ -1762,22 +1780,36 @@ class ChildConnectPart implements Part {
   private readonly config: ChildConnectConfig;
   private readonly probeId: string;
   private readonly writeId: string;
-  private readonly guardId: string;
+  private readonly guardIds: readonly string[];
+  private readonly distinctTargets: number;
   private readonly probe: StatementStep;
 
   constructor(scope: StepScope, config: ChildConnectConfig) {
     this.config = config;
     this.probeId = scope.allocate(`${config.childName}.find`);
     this.writeId = scope.allocate(`${config.childName}.connect`);
-    this.guardId = scope.allocate(`${config.childName}.guard.exists`);
+    this.guardIds = config.wheres.map(() =>
+      scope.allocate(`${config.childName}.guard.exists`)
+    );
+    this.distinctTargets = countDistinctTargets(
+      config.childScope,
+      config.wheres
+    );
     this.probe = {
       id: this.probeId,
       kind: "read",
-      statement: buildFindUnique(config.childScope, {
-        where: config.where,
-        select: this.pkSelect(),
-        forUpdate: config.txMode,
-      }),
+      statement:
+        config.wheres.length === 1
+          ? buildFindUnique(config.childScope, {
+              where: config.wheres[0]!,
+              select: this.pkSelect(),
+              forUpdate: config.txMode,
+            })
+          : buildFind(config.childScope, {
+              where: this.groupSelector(),
+              select: this.pkSelect(),
+              forUpdate: config.txMode,
+            }),
       outputs: { rows: { kind: "rows" } },
     };
   }
@@ -1788,7 +1820,10 @@ class ChildConnectPart implements Part {
 
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     const rows = known[planningKey(this.probeId, "rows")];
-    if (!Array.isArray(rows) || rows.length === 0) {
+    // A complete unique key names at most one row, so the probe returns exactly
+    // as many rows as there are DISTINCT targets that exist: fewer means one of
+    // the named targets is absent. Same message, same attribution, same phase.
+    if (!Array.isArray(rows) || rows.length < this.distinctTargets) {
       throw new NestedWriteError(
         relationTargetNotFound(this.config.relationInfo, "connect"),
         this.config.relationName
@@ -1796,32 +1831,44 @@ class ChildConnectPart implements Part {
     }
     const steps: OperationStep[] = [];
     if (!this.config.txMode) {
-      steps.push(
-        presenceGuard(
-          this.guardId,
-          buildFindUnique(this.config.childScope, {
-            where: this.config.where,
-            select: this.pkSelect(),
-          }),
-          nestedWriteFailure(
-            relationTargetNotFound(this.config.relationInfo, "connect"),
-            this.config.relationName,
-            false
+      for (const [index, where] of this.config.wheres.entries()) {
+        steps.push(
+          presenceGuard(
+            this.guardIds[index]!,
+            buildFindUnique(this.config.childScope, {
+              where,
+              select: this.pkSelect(),
+            }),
+            nestedWriteFailure(
+              relationTargetNotFound(this.config.relationInfo, "connect"),
+              this.config.relationName,
+              false
+            )
           )
-        )
-      );
+        );
+      }
     }
     steps.push({
       id: this.writeId,
       kind: "write",
-      statement: buildUpdate(this.config.childScope, {
-        where: this.config.where,
-        data: this.config.fkAssign,
-        select: this.pkSelect(),
-      }),
+      statement:
+        this.config.wheres.length === 1
+          ? buildUpdate(this.config.childScope, {
+              where: this.config.wheres[0]!,
+              data: this.config.fkAssign,
+              select: this.pkSelect(),
+            })
+          : buildUpdateMany(this.config.childScope, {
+              where: this.groupSelector(),
+              data: this.config.fkAssign,
+            }),
       outputs: {},
     });
     return steps;
+  }
+
+  private groupSelector(): Record<string, unknown> {
+    return linkGroupSelector(this.config.childScope, this.config.wheres);
   }
 
   private pkSelect(): Record<string, boolean> {

@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationLinkPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
+import type { Sql } from "@sql";
 import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
 import {
   buildFind,
@@ -14,6 +15,11 @@ import {
   presenceGuard,
   referenceSql,
 } from "./fragment-builders";
+import {
+  countDistinctTargets,
+  groupLinkTargets,
+  linkGroupSelector,
+} from "./link-target-groups";
 import { relationTargetNotFound } from "./messages";
 import {
   type OperationStep,
@@ -34,8 +40,14 @@ export interface RelationLinkConfig {
   readonly relationName: string;
   readonly relationInfo: RelationInfo;
   readonly kind: LinkKind;
-  /** The child unique locator (connect, or disconnect of one child). */
-  readonly where?: Record<string, unknown>;
+  /**
+   * The child unique locators this Part links — one **key-shape group** (P4), in
+   * input order. A one-entry group is the arity-1 case and keeps every statement
+   * byte-identical to the per-target spelling that preceded the fold; a group of
+   * N sends one probe and one write for all N. {@link groupLinkTargets} decides
+   * the grouping.
+   */
+  readonly wheres?: readonly Record<string, unknown>[];
   /** `disconnect: true` — null every child currently connected to the parent. */
   readonly disconnectAll?: boolean;
   /**
@@ -67,6 +79,15 @@ export interface RelationLinkConfig {
  *   globally); compile emits `UPDATE child SET fk = parent WHERE unique`, pinned
  *   in batch by an exists guard on the target. Absent target → V1's verbatim
  *   `Cannot connect …` error.
+ *
+ * **The IN-list fold (Phase 4).** One Part now carries a whole key-shape GROUP of
+ * targets, not one target: `connect: [a, b, c]` sends one `… WHERE key IN (a,b,c)
+ * FOR UPDATE` probe and one `UPDATE … WHERE key IN (a,b,c)` write instead of six
+ * statements. The probe is still a planning read whose rows `compile(known)`
+ * consumes — the same mechanism as before, with a wider `WHERE`, so the Pin Rule
+ * is untouched. The batch presence guards stay PER TARGET (they are free
+ * assertions inside the atomic unit, and one guard per target is what says which
+ * target went missing). See {@link groupLinkTargets} for what may share a group.
  * - **disconnect** plans a *correlated* existence probe — `WHERE unique AND
  *   fk = Ref(locate.id)` — the hard-correlation nested read ATOM §8.1 note (a)
  *   scheduled here: its probe SQL literally carries a `Ref` to the locate
@@ -84,14 +105,28 @@ export class RelationLinkPart implements Part {
   private readonly config: RelationLinkConfig;
   private readonly probeId: string;
   private readonly writeId: string;
-  private readonly guardId: string;
+  /** One id per target — the batch presence guards stay per target. */
+  private readonly guardIds: readonly string[];
+  /**
+   * How many DISTINCT rows the group's selector can name. The probe's row count
+   * is compared against this to decide the missing-target error, which is exact
+   * because a unique key names at most one row: `rows.length` IS the number of
+   * distinct keys that exist. See {@link countDistinctTargets}.
+   */
+  private readonly distinctTargets: number;
   private readonly probe?: StatementStep;
 
   constructor(scope: StepScope, config: RelationLinkConfig) {
     this.config = config;
     this.probeId = scope.allocate(`${config.childName}.find`);
     this.writeId = scope.allocate(`${config.childName}.${config.kind}`);
-    this.guardId = scope.allocate(`${config.childName}.guard.exists`);
+    this.guardIds = (config.wheres ?? []).map(() =>
+      scope.allocate(`${config.childName}.guard.exists`)
+    );
+    this.distinctTargets = countDistinctTargets(
+      config.childScope,
+      config.wheres ?? []
+    );
     this.probe = this.buildProbe();
   }
 
@@ -108,17 +143,27 @@ export class RelationLinkPart implements Part {
   private buildProbe(): StatementStep | undefined {
     if (this.config.disconnectAll) return undefined;
     const { childScope, txMode, childPrimaryKey } = this.config;
-    const where = this.requiredWhere();
+    const wheres = this.requiredWheres();
     const select = { [childPrimaryKey]: true };
     if (this.config.kind === "connect") {
       return {
         id: this.probeId,
         kind: "read",
-        statement: buildFindUnique(childScope, {
-          where,
-          select,
-          forUpdate: txMode,
-        }),
+        statement:
+          wheres.length === 1
+            ? buildFindUnique(childScope, {
+                where: wheres[0]!,
+                select,
+                forUpdate: txMode,
+              })
+            : // The group's whole IN list in one locked read. No `limit` — the
+              // selector is a set of unique keys, so it bounds itself, and a
+              // limit would only add an ORDER BY the read does not need.
+              buildFind(childScope, {
+                where: this.groupSelector(),
+                select,
+                forUpdate: txMode,
+              }),
         outputs: { rows: { kind: "rows" } },
       };
     }
@@ -131,47 +176,44 @@ export class RelationLinkPart implements Part {
         childScope,
         {
           where: {
-            AND: [
-              ...this.uniqueEqualityFilters(where),
-              ...this.correlationFilters(),
-            ],
+            AND: [...this.selectorConjuncts(), ...this.correlationFilters()],
           },
           select,
           forUpdate: txMode,
         },
-        { limit: 1 }
+        wheres.length === 1 ? { limit: 1 } : {}
       ),
       outputs: { rows: { kind: "rows" } },
     };
   }
 
   private compileConnect(known: PlanningKnown): readonly OperationStep[] {
-    this.requireProbeFound(known, "connect");
+    this.requireProbeFoundAll(known, "connect");
     const { childScope } = this.config;
-    const where = this.requiredWhere();
+    const wheres = this.requiredWheres();
     const steps: OperationStep[] = [];
     if (!this.config.txMode) {
-      // Batch: pin the target's presence before the reparent write (atomicity
-      // then makes the WHERE-unique update affect exactly one row).
-      steps.push(
-        presenceGuard(
-          this.guardId,
-          buildFindUnique(childScope, {
-            where,
-            select: { [this.config.childPrimaryKey]: true },
-          }),
-          this.connectFailure()
-        )
-      );
+      // Batch: pin each target's presence before the reparent write (atomicity
+      // then makes the grouped update affect exactly one row per target). One
+      // guard per target, not one per group: the guards are free in-batch
+      // assertions, and per target is what names the target that went missing.
+      for (const [index, where] of wheres.entries()) {
+        steps.push(
+          presenceGuard(
+            this.guardIds[index]!,
+            buildFindUnique(childScope, {
+              where,
+              select: { [this.config.childPrimaryKey]: true },
+            }),
+            this.connectFailure()
+          )
+        );
+      }
     }
     steps.push({
       id: this.writeId,
       kind: "write",
-      statement: buildUpdate(childScope, {
-        where,
-        data: this.fkAssignData(known),
-        select: { [this.config.childPrimaryKey]: true },
-      }),
+      statement: this.linkWrite(this.fkAssignData(known)),
       outputs: {},
     });
     return steps;
@@ -179,43 +221,75 @@ export class RelationLinkPart implements Part {
 
   private compileDisconnect(known: PlanningKnown): readonly OperationStep[] {
     if (this.config.disconnectAll) return [this.buildDisconnectAll(known)];
-    this.requireProbeFound(known, "disconnect");
+    this.requireProbeFoundAll(known, "disconnect");
     const { childScope } = this.config;
-    const where = this.requiredWhere();
+    const wheres = this.requiredWheres();
     const steps: OperationStep[] = [];
     if (!this.config.txMode) {
-      // Batch: pin that the child is still connected to this parent.
-      steps.push(
-        presenceGuard(
-          this.guardId,
-          buildFind(
-            childScope,
-            {
-              where: {
-                AND: [
-                  ...this.uniqueEqualityFilters(where),
-                  ...this.guardCorrelationFilters(known),
-                ],
+      // Batch: pin that each child is still connected to this parent.
+      for (const [index, where] of wheres.entries()) {
+        steps.push(
+          presenceGuard(
+            this.guardIds[index]!,
+            buildFind(
+              childScope,
+              {
+                where: {
+                  AND: [
+                    ...this.uniqueEqualityFilters(where),
+                    ...this.guardCorrelationFilters(known),
+                  ],
+                },
+                select: { [this.config.childPrimaryKey]: true },
               },
-              select: { [this.config.childPrimaryKey]: true },
-            },
-            { limit: 1 }
-          ),
-          this.disconnectFailure()
-        )
-      );
+              { limit: 1 }
+            ),
+            this.disconnectFailure()
+          )
+        );
+      }
     }
     steps.push({
       id: this.writeId,
       kind: "write",
-      statement: buildUpdate(childScope, {
-        where,
-        data: this.fkNullData(),
-        select: { [this.config.childPrimaryKey]: true },
-      }),
+      statement: this.linkWrite(this.fkNullData()),
       outputs: {},
     });
     return steps;
+  }
+
+  /**
+   * The group's one write. A one-target group keeps `UPDATE … WHERE <the unique
+   * where the caller wrote>` verbatim; a group of N addresses its rows by the
+   * SAME unique key columns, widened to an IN list. Addressing by the caller's
+   * key rather than by the probe's primary keys is deliberate: in batch mode the
+   * probe runs before the atomic unit, so a primary key read there is older than
+   * the guard that admits the write, while the key columns are exactly what the
+   * guard re-asserts.
+   */
+  private linkWrite(data: Record<string, unknown>): Sql {
+    const { childScope } = this.config;
+    const wheres = this.requiredWheres();
+    if (wheres.length === 1) {
+      return buildUpdate(childScope, {
+        where: wheres[0]!,
+        data,
+        select: { [this.config.childPrimaryKey]: true },
+      });
+    }
+    return buildUpdateMany(childScope, { where: this.groupSelector(), data });
+  }
+
+  private groupSelector(): Record<string, unknown> {
+    return linkGroupSelector(this.config.childScope, this.requiredWheres());
+  }
+
+  /** The selector half of the disconnect probe: the arity-1 spelling verbatim,
+   *  or the group's one IN-list / OR term. */
+  private selectorConjuncts(): Record<string, unknown>[] {
+    const wheres = this.requiredWheres();
+    if (wheres.length === 1) return this.uniqueEqualityFilters(wheres[0]!);
+    return [this.groupSelector()];
   }
 
   private buildDisconnectAll(known: PlanningKnown): StatementStep {
@@ -231,7 +305,23 @@ export class RelationLinkPart implements Part {
     };
   }
 
-  private requireProbeFound(known: PlanningKnown, kind: LinkKind): void {
+  /**
+   * Every target in the group must have been found, or the operation raises V1's
+   * verbatim target-not-found for this relation — the same message, the same
+   * attribution and the same phase (compile, before any write) as the per-target
+   * path raised.
+   *
+   * The verdict is a COUNT, and the count is exact rather than approximate: each
+   * member of the group is a complete unique key, so the group's selector names
+   * at most one row per DISTINCT key, and the probe therefore returns exactly as
+   * many rows as there are distinct keys that exist. Fewer rows than distinct
+   * keys means at least one named target is not there. This needs no comparison
+   * of a decoded column value against an input value — which is why a repeated
+   * target (`connect: [{ id: 1 }, { id: 1 }]`, one row, two entries) still
+   * succeeds, and why {@link groupLinkTargets} folds only keys whose values it
+   * can compare exactly.
+   */
+  private requireProbeFoundAll(known: PlanningKnown, kind: LinkKind): void {
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -239,7 +329,7 @@ export class RelationLinkPart implements Part {
         this.config.relationName
       );
     }
-    if (rows.length === 0) {
+    if (rows.length < this.distinctTargets) {
       throw new NestedWriteError(
         kind === "connect"
           ? relationTargetNotFound(this.config.relationInfo, "connect")
@@ -344,21 +434,22 @@ export class RelationLinkPart implements Part {
     );
   }
 
-  private requiredWhere(): Record<string, unknown> {
-    if (!this.config.where) {
+  private requiredWheres(): readonly Record<string, unknown>[] {
+    const wheres = this.config.wheres;
+    if (!wheres || wheres.length === 0) {
       throw new QueryEngineError(
         `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' requires a unique where.`
       );
     }
-    return this.config.where;
+    return wheres;
   }
 }
 
 /**
  * Fold one to-many connect/disconnect relation mutation into link Parts — one
- * per unique target (arrays fold to several), plus the `disconnect: true` /
- * `connect`-single spellings. The FK must be child-held; a parent-held FK is a
- * same-row change and is handled in {@link UpdateOperation}.
+ * per **key-shape group** of targets ({@link groupLinkTargets}), plus the
+ * `disconnect: true` / `connect`-single spellings. The FK must be child-held; a
+ * parent-held FK is a same-row change and is handled in {@link UpdateOperation}.
  */
 export function buildToManyLinkParts(
   scope: StepScope,
@@ -391,9 +482,10 @@ export function buildToManyLinkParts(
   if (kind === "disconnect" && input === true) {
     return [new RelationLinkPart(scope, { ...base, disconnectAll: true })];
   }
-  return normalizeWhereItems(input, relationName, kind).map(
-    (where) => new RelationLinkPart(scope, { ...base, where })
-  );
+  return groupLinkTargets(
+    childScope,
+    normalizeWhereItems(input, relationName, kind)
+  ).map((wheres) => new RelationLinkPart(scope, { ...base, wheres }));
 }
 
 function normalizeWhereItems(
