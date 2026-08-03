@@ -169,14 +169,26 @@ test("an occupied slot is decided by the constraint alone, and is not retried", 
 // wave cannot quietly add a to-many key to the to-one surface (or lose a to-one one).
 // ---------------------------------------------------------------------------
 
+/**
+ * ONE engine for every construction witness below, because the thing under test is the
+ * `UpdateOperation` CONSTRUCTOR: it reads the registries and never executes a statement.
+ *
+ * The measured cost of the per-call form this replaces was the fourteen schema and model
+ * registries, NOT fourteen databases — `PGliteDriver`'s constructor stores its options
+ * and defers `initClient` to the first query, so a driver that is never queried never
+ * opens one. There is nothing here to dispose, which is why nothing does.
+ */
+const constructEngine = new QueryEngine(
+  new PGliteDriver(),
+  createModelRegistry(
+    inverseToOneCreateSchema,
+    createSchemaRegistry(inverseToOneCreateSchema)
+  )
+);
+
 function construct(args: Record<string, unknown>): void {
-  const schemas = createSchemaRegistry(inverseToOneCreateSchema);
-  const engine = new QueryEngine(
-    new PGliteDriver(),
-    createModelRegistry(inverseToOneCreateSchema, schemas)
-  );
   new UpdateOperation(
-    engine,
+    constructEngine,
     inverseToOneCreateSchema.account as unknown as Model<any>,
     args
   );
@@ -217,8 +229,15 @@ test.each(
   expect(() =>
     construct({ where: { id: 1 }, data: { profile: { [key]: {} } } })
   ).toThrow();
-  // Bidirectional: the SAME key is accepted where Prisma accepts it (to-many), so
-  // this test cannot pass by the schema simply rejecting everything.
+  // The control that keeps the line above from passing by blanket rejection: a key
+  // Prisma DOES offer on this to-one surface still constructs. It is deliberately NOT
+  // the same key — `inverseToOneCreateSchema.account` holds two to-one relations and no
+  // to-many one, so "the same key on a to-many" is not expressible here (and the one
+  // to-many in the fixture, `profile.tags`, sits behind `profile.update`, which the
+  // engine refuses wholesale for an unrelated reason — measured, so the rejection would
+  // say nothing about the key). The claim this control is standing in for — that the
+  // offered set is EXACTLY Prisma's, no key missing and none extra — is carried by the
+  // key-set test above, which reads the surface directly instead of probing it.
   expect(() =>
     construct({
       where: { id: 1 },

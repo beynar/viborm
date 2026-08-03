@@ -233,6 +233,11 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
       { table: "n4pi_squads", column: "id", wrongValue: undefined }
     );
     const engine = makeEngine(driver);
+    // The refusal is NAMED, not merely "something threw". A bare `toThrow()` is
+    // satisfied by any failure on this path — a decoder crash, a constraint
+    // violation, a typo in the payload — while the claim is narrower: the ABSENCE of
+    // the produced key is what stopped the operation. The message is the measured one,
+    // so the pin fails if an incidental error ever stands in for the guard.
     await expect(
       new OperationExecutor(engine).execute(
         new UpdateOperation(engine, schema.org as Model<any>, {
@@ -253,7 +258,7 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
         }),
         createOperationExecutionContext("org", "update", engine.instrumentation)
       )
-    ).rejects.toThrow();
+    ).rejects.toThrow("Step 'squad.create' did not produce row field 'id'.");
     await expect(stateClient.drill.findMany({})).resolves.toEqual([]);
     await expect(stateClient.squad.findMany({})).resolves.toEqual([]);
     await stateClient.$disconnect();

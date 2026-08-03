@@ -179,6 +179,11 @@ test("no transition means no reordering: the adopt write keeps its pre-N5 place"
     const adoptIndex = writes.findIndex(({ sql }) =>
       sql.includes("n5_pta_items")
     );
+    // `findIndex` answers -1 for "not recorded", and -1 < 0 would satisfy the ordering
+    // claim below with no root UPDATE in the stream at all. Only `rootIndex` needs
+    // saying: `writes[adoptIndex]?.params` on the last line is already unsatisfiable
+    // at -1, so a second assertion for `adoptIndex` would guard nothing.
+    expect(rootIndex).toBeGreaterThanOrEqual(0);
     // Without a referenced-key transition the adopt is an ordinary child part: the root
     // UPDATE still comes first (nothing is reordered around it), and the deferral list
     // is empty. This is the byte-identity half of the change — the new machinery is
