@@ -36,6 +36,7 @@ import {
 } from "./fragment-builders";
 import {
   relationKeyOccupiedMessage,
+  relationOwnsForeignKey,
   relationTargetNotFound,
   setRequiredOrphan,
   upsertPremiseChanged,
@@ -1505,6 +1506,40 @@ interface WritePartBase {
   readonly freshArm: FreshArmBuilder;
 }
 
+/**
+ * **M12 — the relation's own foreign key, spelled in nested UPDATE data.** The column
+ * `fkFields` names is not the payload's to write here: this family DERIVES it from the
+ * row the enclosing step acted on (`fk = <parent>`, the correlation every Part below is
+ * built around). A value spelled beside the relation is a SECOND provenance for that
+ * same column — and it WINS, because it rides the target's own SET, which lands after
+ * the correlation has already chosen the row. Measured live (PGlite, public client): the
+ * parent silently loses the child it was updating through, no error, wrong row reparented.
+ * That is the wrong-row doctrine at the value path, so the shape is refused, not absorbed.
+ *
+ * ONE check covers BOTH spellings, by construction rather than by a second branch: the
+ * parse boundary coerces a bare literal into the `{ set: … }` envelope
+ * (`validation/primitives/shorthand.ts`), and `separateData` files the value under the
+ * FIELD NAME whichever envelope it wears — so keying on the key is spelling-blind, and an
+ * unwrap here would be a check with no coverage of its own to name. `undefined` is
+ * absence (`separateData` drops it), matching Prisma and the adopt-family seam.
+ *
+ * The three nested UPDATE positions call this; the nested CREATE positions do not need
+ * it (`v.omit(core.create, fkFields)` answers them at the parse boundary — see
+ * {@link RelationWritePart.upsertCreateScalarData}), and the adopt family already has its
+ * own (`buildOneUpsertPart`, `RelationUpsertPart.ts`). All say it from one string.
+ */
+function assertOwnedFkAbsentFromUpdateData(
+  base: WritePartBase,
+  data: Record<string, unknown>
+): void {
+  const { scalarData } = separateData(base.childScope, data);
+  if (base.fkFields.some((fkField) => Object.hasOwn(scalarData, fkField))) {
+    throw new UnsupportedOperationError(
+      relationOwnsForeignKey(base.relationName, base.fkFields)
+    );
+  }
+}
+
 /** `update`: one targeted correlated part per `{ where, data }` item. A target whose
  *  data carries the located-target projection of mechanism 1/2 (a parent-held to-one
  *  write, or a non-PK / compound referenced edge — D4) delegates its WHOLE update to an
@@ -1514,8 +1549,13 @@ export function buildToManyUpdateParts(
   base: WritePartBase,
   input: unknown
 ): Part[] {
-  return normalizeWhereData(input, base.relationName, "update").map((item) =>
-    targetNeedsFullUpdate(base.childScope, item.data)
+  return normalizeWhereData(input, base.relationName, "update").map((item) => {
+    // M12 position 1 — the to-many `update` arm's data (`posts: { update: { where,
+    // data } }`). Uniquely covered here because it is the only place this payload is
+    // held before the fork below: refusing on BOTH sides costs one check, while a
+    // check inside either branch would leave the other silent.
+    assertOwnedFkAbsentFromUpdateData(base, item.data);
+    return targetNeedsFullUpdate(base.childScope, item.data)
       ? buildNestedTargetUpdatePart({
           scope: base.scope,
           engine: base.engine,
@@ -1537,8 +1577,8 @@ export function buildToManyUpdateParts(
           ...partConfig(base, "update"),
           where: item.where,
           data: item.data,
-        })
-  );
+        });
+  });
 }
 
 /**
@@ -1558,6 +1598,13 @@ export function buildToManyUpdateParts(
  */
 export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
   const target = splitToOneUpdateTarget(data);
+  // M12 position 2 — the inverse-side to-one `update` arm's data (`profile: { update:
+  // … } }`). Uniquely covered here: this is the only place BOTH the bare and the
+  // `{ data, where }` spellings are the same object (`splitToOneUpdateTarget` has just
+  // reconciled them) and the only place before the X1c fork below. This relation's FK
+  // is the child's whole locator — spelling it moves the row OUT of the parent that is
+  // updating through it.
+  assertOwnedFkAbsentFromUpdateData(base, target.data);
   // X1c: an inverse-side to-one target whose data carries a parent-held to-one write
   // (child-SET folding) or a D4 edge delegates its whole update to the update root,
   // located by the FK correlation alone (a to-one carries no unique `where`).
@@ -1620,6 +1667,13 @@ export function buildInverseToOneUpsertPart(
     );
   }
   const createData = create as Record<string, unknown>;
+  // M12 position 3 — the inverse-side to-one `upsert` UPDATE arm. Uniquely covered
+  // here: this arm reaches `RelationWritePart` as an `update` config, but through a
+  // builder position no other guard sees, and it is the arm the FOUND branch runs — the
+  // one branch whose row already belongs to this parent and can therefore be stolen from
+  // it. The CREATE arm needs nothing: `v.omit(core.create, fkFields)` refuses the key at
+  // the parse boundary, which is what `upsertCreateScalarData`'s internal invariant states.
+  assertOwnedFkAbsentFromUpdateData(base, update as Record<string, unknown>);
   // N4-U2 — a relation-carrying create arm is the create SUBTREE, the same absorption
   // the to-many adopt family's create arm takes. The arm's foreign key is injected into
   // the subtree's root INSERT by the identical expression the scalar arm writes, so the

@@ -110,6 +110,22 @@ export function relationKeyOccupiedMessage(
   return `Cannot update relation '${relationName}' with onUpdate('${action}') while the current relation is occupied.`;
 }
 
+/**
+ * The owned-foreign-key refusal: a nested payload spells, as a scalar assignment, the
+ * very column the enclosing relation OWNS. The engine derives that column from the row
+ * the enclosing step acted on; a spelled value is a second, contradicting provenance for
+ * it. One rule, so one string — the adopt family's seam
+ * (`RelationUpsertPart.buildOneUpsertPart`) and the nested-update seam
+ * (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`, M12) both say it from here, so
+ * the two can never drift and the census keys ONE message family.
+ */
+export function relationOwnsForeignKey(
+  relationName: string,
+  fkFields: readonly string[]
+): string {
+  return `Relation '${relationName}' owns '${fkFields.join(", ")}'; omit it from nested create and update data.`;
+}
+
 // Extension-only shapes — no V1 behavior to equal (catalogued, PLAN P−1.2).
 // These describe shapes V2 supports beyond V1, or V2's own unsupported-shape
 // rejections. They carry a `query-engine-v2` prefix so they never masquerade

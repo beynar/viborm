@@ -26,6 +26,7 @@ import {
 } from "./fragment-builders";
 import {
   nestedReplacement,
+  relationOwnsForeignKey,
   upsertTargetNotFoundForParent,
   upsertTargetVanished,
 } from "./messages";
@@ -856,7 +857,7 @@ function buildOneUpsertPart(
     )
   ) {
     throw new UnsupportedOperationError(
-      `Relation '${relationName}' owns '${fkFields.join(", ")}'; omit it from nested create and update data.`
+      relationOwnsForeignKey(relationName, fkFields)
     );
   }
   const childPrimaryKeys = getPrimaryKeyFields(child.model);

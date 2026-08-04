@@ -8,6 +8,9 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 
 const AUTHOR_ID_RELATION_KEY_ERROR = /relation key field 'authorId'/;
+// M12: the general owned-foreign-key refusal, which precedes this file's rule wherever
+// the rewritten relation key is the key the ENCLOSING relation owns.
+const POSTS_OWN_AUTHOR_ID_ERROR = /Relation 'posts' owns 'authorId'/;
 const CODE_RELATION_KEY_ERROR = /relation key field 'code'/;
 const ID_RELATION_KEY_ERROR = /relation key field 'id'/;
 const OCCUPIED_RELATION_ERROR = /current relation is occupied/;
@@ -316,14 +319,18 @@ async function runScenario(
 
 async function expectParity(
   scenario: Scenario,
-  expectedError: RegExp | undefined
+  expectedError: RegExp | undefined,
+  // Which typed refusal answers. `NestedWriteError` is this file's rule (CLASS IV, the
+  // relation-key legality walk); a scenario whose payload is refused by a STRICTLY MORE
+  // GENERAL rule first names that rule's class instead — see the M12 note below.
+  expectedName = "NestedWriteError"
 ): Promise<void> {
   const live = await runScenario("live", scenario);
   const batch = await runScenario("batch", scenario);
 
   expect(batch.error).toEqual(live.error);
   if (expectedError) {
-    expect(live.error?.name).toBe("NestedWriteError");
+    expect(live.error?.name).toBe(expectedName);
     expect(live.error?.message).toMatch(expectedError);
   } else {
     expect(live.error).toBeUndefined();
@@ -413,6 +420,17 @@ describe("relation-key update legality", () => {
     );
   });
 
+  // M12 — DELIBERATE CLASS CHANGE, the state contract unchanged. `authorId` is not just
+  // a relation key of the target here: it is the foreign key the ENCLOSING `posts`
+  // relation owns, so this payload is illegal on its own, with or without the sibling
+  // `author: { update }` this file's rule needs. The general refusal now answers first
+  // ("Relation 'posts' owns 'authorId'; omit it from nested create and update data"),
+  // which is also where Prisma lands — its `PostUpdateWithoutAuthorInput` omits the key
+  // outright, so the relation-key rule is never consulted for this shape. What the test
+  // is FOR is unchanged and still asserted: the nested data is judged before any outer
+  // effect, and the snapshot shows nothing written. CLASS IV keeps its own coverage —
+  // any relation key of the target that the enclosing relation does NOT own (and the two
+  // root-level scenarios above and below) still raise `NestedWriteError` here.
   test("recurses into nested update data before outer effects", async () => {
     await expectParity(
       {
@@ -435,7 +453,8 @@ describe("relation-key update legality", () => {
         snapshot: authorPostState,
         expectedState: originalAuthorPostState,
       },
-      AUTHOR_ID_RELATION_KEY_ERROR
+      POSTS_OWN_AUTHOR_ID_ERROR,
+      "UnsupportedOperationError"
     );
   });
 
