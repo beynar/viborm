@@ -25,6 +25,18 @@ import { describe, expect, test } from "vitest";
  * REGION alone and `depotCodeTwin` on the CODE alone, so an implementation that spent
  * one member on both columns, or that compared only the first, does not write a wrong
  * string — it mutates, deletes, or adopts A DIFFERENT ROW.
+ *
+ * THE NULL MEMBER NEEDS NO CARVE-OUT, and that is a measurement rather than a hope. The
+ * parse admits a half-null parent foreign key (both columns are ordinary nullable
+ * scalars — nothing here goes through a compound where-unique), and the correlation is a
+ * plain conjunction of equalities, so SQL's three-valued logic answers it with zero rows.
+ * Measured at 58271e2: `update` raises the family's OWN typed
+ * `Cannot update relation 'depot': target record was not found for this parent.`,
+ * `delete` nulls the surviving parent column and removes nothing, `upsert` takes its
+ * absent arm — and in all three the twin that AGREES on the surviving member is
+ * untouched. That is Prisma's "a partially-null foreign key is no relation", reached
+ * without an engine guard, so adding one would be the redundant second guard the rules
+ * forbid. The test below is what keeps it true.
  */
 export const parentHeldCompoundEdgeSchema = (() => {
   const depot = s
@@ -218,6 +230,81 @@ export function registerParentHeldCompoundEdgeBehavior(
         },
       });
 
+      expect(
+        await client.station.findUnique({ where: { id: "s1" } })
+      ).toMatchObject({ depotRegion: "af", depotCode: "south" });
+      expect(await depots(client)).toEqual({
+        "d-code-twin": "before",
+        "d-minted": "absent-arm",
+        "d-region-twin": "before",
+        "d-target": "before",
+      });
+    });
+
+    test("a NULL member makes the edge name NO target, on all three kinds", async () => {
+      const client = await connect();
+      await seed(client);
+      // One member kept, one nulled. `d-region-twin` AGREES on the surviving member,
+      // so an implementation that dropped the null conjunct — or that compared only
+      // the members it could see — would find a row here.
+      await client.station.update({
+        where: { id: "s1" },
+        data: { depotCode: null },
+      });
+
+      // `update` gets the family's OWN typed not-found, not a raw driver error and
+      // not a wrong row: SQL's three-valued logic answers the correlated probe with
+      // zero rows and the probe's postcondition attributes it.
+      await expect(
+        client.station.update({
+          where: { id: "s1" },
+          data: { depot: { update: { note: "must-not-land" } } },
+        })
+      ).rejects.toThrow(
+        "Cannot update relation 'depot': target record was not found for this parent."
+      );
+      expect(await depots(client)).toEqual({
+        "d-code-twin": "before",
+        "d-region-twin": "before",
+        "d-target": "before",
+      });
+
+      // `delete` nulls the remaining parent column and removes NOTHING: the
+      // correlated DELETE matches no row, and the one-member twin is not it.
+      await client.station.update({
+        where: { id: "s1" },
+        data: { depot: { delete: true } },
+      });
+      expect(
+        await client.station.findUnique({ where: { id: "s1" } })
+      ).toMatchObject({ depotRegion: null, depotCode: null });
+      expect(await depots(client)).toEqual({
+        "d-code-twin": "before",
+        "d-region-twin": "before",
+        "d-target": "before",
+      });
+
+      // `upsert` takes its ABSENT arm for the same reason and rebinds both columns.
+      await client.station.update({
+        where: { id: "s1" },
+        data: { depotRegion: "eu", depotCode: null },
+      });
+      await client.station.update({
+        where: { id: "s1" },
+        data: {
+          depot: {
+            upsert: {
+              update: { note: "must-not-land" },
+              create: {
+                id: "d-minted",
+                region: "af",
+                code: "south",
+                note: "absent-arm",
+              },
+            },
+          },
+        },
+      });
       expect(
         await client.station.findUnique({ where: { id: "s1" } })
       ).toMatchObject({ depotRegion: "af", depotCode: "south" });
