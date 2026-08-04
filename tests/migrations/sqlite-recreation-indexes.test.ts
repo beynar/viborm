@@ -346,9 +346,10 @@ describe("SQLite table recreation — the batch's own columns", () => {
 
 describe("SQLite table recreation — the batch's own unique constraints and key", () => {
   it("carries a unique constraint the same batch added before it", () => {
-    // `addUniqueConstraint` runs at 14, before `addForeignKey` at 16, and
-    // `DROP TABLE` takes the unique index with it. Same shape as the index
-    // hazard at the top of this file.
+    // `addUniqueConstraint` runs at 14, before `addForeignKey` at 16. On
+    // SQLite the constraint is INLINE in `CREATE TABLE`
+    // (`sqlite-unique-constraint.test.ts`), so the later rebuild has to carry
+    // it forward or the `DROP TABLE` at 16 takes it away.
     const statements = sqliteStatements(
       [
         {

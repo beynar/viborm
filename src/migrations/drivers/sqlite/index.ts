@@ -415,9 +415,13 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    *   was gone. The push reported success, and the next one added and lost it
    *   again. Two `alterColumn`s in one batch reverted each other the same way.
    *
-   * - UNIQUE CONSTRAINTS. `addUniqueConstraint` runs at 14, before the same two
-   *   recreations, and `DROP TABLE` takes the unique index with it; the rebuild
-   *   would not name it. Same shape as the index hazard above.
+   * - UNIQUE CONSTRAINTS. `dropUniqueConstraint` runs at 4 and
+   *   `addUniqueConstraint` at 14, and both ARE recreations here — the
+   *   constraint is inline in `CREATE TABLE` (see
+   *   `generateAddUniqueConstraint`). So the pair a changed constraint plans
+   *   reads its own predecessor, and a later recreation at 16 has to rebuild
+   *   around the constraint the add put there rather than the one the drop
+   *   removed.
    *
    * - PRIMARY KEY. `dropPrimaryKey` runs at 5 and `addPrimaryKey` at 13, both
    *   ahead of `addForeignKey`, so a later recreation would rebuild around the
@@ -598,16 +602,84 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // DDL GENERATION - Unique Constraint Operations
   // ===========================================================================
 
-  generateAddUniqueConstraint(op: AddUniqueConstraintOperation): string {
-    const { tableName, constraint } = op;
-    const cols = constraint.columns
-      .map((c) => this.escapeIdentifier(c))
-      .join(", ");
-    return `CREATE UNIQUE INDEX ${this.escapeIdentifier(constraint.name)} ON ${this.escapeIdentifier(tableName)} (${cols})`;
+  /**
+   * A unique constraint is INLINE in `CREATE TABLE` on SQLite, so both halves
+   * of the diff go through a table recreation. There is no other spelling that
+   * round-trips.
+   *
+   * SQLite has two ways to spell "these columns are unique" and only one of
+   * them survives introspection as a constraint. An inline
+   * `CONSTRAINT x UNIQUE (...)` is reported by `PRAGMA index_list` with
+   * `origin = "u"`, which `introspect` files under `uniqueConstraints` —
+   * matched by shape against the declared one (see
+   * `introspectionReadsConstraintNames`), so an unchanged schema plans nothing.
+   * A standalone `CREATE UNIQUE INDEX` is reported with `origin = "c"` and
+   * filed under `indexes` instead, where no declared unique constraint will
+   * ever match it.
+   *
+   * Measured on better-sqlite3 at `f78fa83`, with the add as a standalone
+   * index: push #2 of a model that gained `.unique(["slug", "tenant"])`
+   * planned `addUniqueConstraint` and created the index; push #3 read that
+   * index back under the wrong bucket and planned `addUniqueConstraint` again
+   * beside `dropIndex` on the same name — and since `addUniqueConstraint` (14)
+   * runs ahead of a superseded index drop (15.5), the push died on
+   * `index "…_slug_tenant_key" already exists`. Every later push died the same
+   * way. Before the shape matching landed the FK churn rebuilt the table on
+   * every push and destroyed the index before push #3 could collide with it,
+   * so the same schema pushed green forever and the unique was never enforced.
+   *
+   * The drop had no working spelling at all: every `dropUniqueConstraint` the
+   * differ plans here names a constraint read out of `PRAGMA index_list` with
+   * `origin = "u"`, i.e. `sqlite_autoindex_<table>_<n>`, and SQLite refuses
+   * `DROP INDEX` on an index it created itself.
+   *
+   * A database written by the old add still holds the standalone index. It
+   * heals on the next push: the recreation rebuilds the table with the
+   * constraint inline, and the stale index — dropped with the old table and
+   * re-created by step 6 of the recreation, because it is still in the
+   * introspected definition — is removed by the `dropIndex` the same batch
+   * plans for it.
+   */
+  generateAddUniqueConstraint(
+    op: AddUniqueConstraintOperation,
+    context?: DDLContext
+  ): string {
+    const currentTable = this.getCurrentTable(op.tableName, context);
+    if (!currentTable) {
+      throw new Error(
+        `Cannot add unique constraint: table "${op.tableName}" not found in current schema. ` +
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+      );
+    }
+
+    const newTable: TableDef = {
+      ...currentTable,
+      uniqueConstraints: [...currentTable.uniqueConstraints, op.constraint],
+    };
+
+    return this.generateTableRecreation(op.tableName, newTable, currentTable);
   }
 
-  generateDropUniqueConstraint(op: DropUniqueConstraintOperation): string {
-    return `DROP INDEX ${this.escapeIdentifier(op.constraintName)}`;
+  generateDropUniqueConstraint(
+    op: DropUniqueConstraintOperation,
+    context?: DDLContext
+  ): string {
+    const currentTable = this.getCurrentTable(op.tableName, context);
+    if (!currentTable) {
+      throw new Error(
+        `Cannot drop unique constraint: table "${op.tableName}" not found in current schema. ` +
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+      );
+    }
+
+    const newTable: TableDef = {
+      ...currentTable,
+      uniqueConstraints: currentTable.uniqueConstraints.filter(
+        (constraint) => constraint.name !== op.constraintName
+      ),
+    };
+
+    return this.generateTableRecreation(op.tableName, newTable, currentTable);
   }
 
   // ===========================================================================

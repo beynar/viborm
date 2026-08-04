@@ -28,10 +28,13 @@
  * read, tells the differ to recognize both constraints by their SHAPE instead —
  * the columns, what they point at, and what happens on delete and update.
  *
- * The residue this did NOT close is recorded in
- * `docs/architecture/query-performance-plan.md`: SQLite still writes a unique
- * constraint inline in `CREATE TABLE` but drops it as a standalone index, so a
- * REAL change to a compound unique still fails there.
+ * The residue this did NOT close was SQLite's unique-constraint DDL: the add
+ * emitted a standalone `CREATE UNIQUE INDEX` and the drop a `DROP INDEX` on a
+ * name SQLite owns. Both now go through a table recreation, so the constraint
+ * is always inline — `sqlite-unique-constraint.test.ts`. Note the direction
+ * that file records: this shape matching is what UNMASKED the add's failure,
+ * because before it the foreign-key churn destroyed the just-created index on
+ * every push and the constraint was silently never enforced.
  */
 
 import { createClient } from "@client/client";

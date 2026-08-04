@@ -2049,28 +2049,77 @@ learned to survive.
    every operation that names the table. Witnesses in
    `tests/migrations/sqlite-recreation-indexes.test.ts`.
 
-**Not closed, and measured rather than assumed.** Two defects remain in this
-area. Both are SQLite's unique-constraint DDL, not the identity or the staleness
-mechanism above, and both need a different correction: SQLite writes a unique
-constraint INLINE in `CREATE TABLE` but drops it as a standalone index, and its
-introspection can round-trip neither spelling back to a declared-name unique
-constraint. The fix is to route both the add and the drop through a table
-recreation, so a unique constraint is always inline. Measured at this tip:
+**Correction 3, and a correction to what was written about it — 2026-08-04.**
+Two defects were left open here, both SQLite's unique-constraint DDL rather than
+the identity or the staleness mechanism above. Both are now closed by the fix
+this entry already named: SQLite writes a unique constraint INLINE in
+`CREATE TABLE`, so `generateAddUniqueConstraint` and
+`generateDropUniqueConstraint` both go through a table recreation. The two
+spellings and why only one round-trips:
 
-- **A real change to a compound unique fails on SQLite.** Spelling:
+- inline `CONSTRAINT x UNIQUE (...)` → `PRAGMA index_list` reports
+  `origin = "u"` → `introspect` files it under `uniqueConstraints`, where the
+  shape matching of correction 1 pairs it with the declared one;
+- standalone `CREATE UNIQUE INDEX x` → `origin = "c"` → filed under `indexes`,
+  where no declared unique constraint will ever match it.
+
+What was recorded wrongly. The second residue below was described as "untouched
+by correction 1: the two names match exactly, so no identity reading changes
+it." That is false as a causal claim, and the outcome it reports was measured
+before correction 1 landed. Re-measured on better-sqlite3 at both tips, same
+probe:
+
+- at `f33d16a` (pre-correction-1) every push succeeded and NO unique index
+  survived — the foreign-key churn rebuilt the table on every push and
+  `DROP TABLE` destroyed the index the same batch had just created, so the
+  constraint was silently never enforced;
+- at `f78fa83` (post-correction-1) push #2 created the index and it LANDED, and
+  push #3 died on `index "…_slug_tenant_key" already exists`.
+
+So correction 1 is what made push #3 reach the failure: removing the churn
+stopped the rebuild that had been deleting the index between pushes. It unmasked
+the defect rather than leaving it untouched, and the record should have said the
+outcome changed from "push succeeds, unique not enforced" to "push fails".
+
+The two residues, as they were measured, and what closes each:
+
+- **A real change to a compound unique failed on SQLite.** Spelling:
   `.unique(["a", "b"])` → `.unique(["b", "a"])` on a mapped model, pushed twice.
-  The second push plans `dropUniqueConstraint` and emits
+  The second push planned `dropUniqueConstraint` and emitted
   `DROP INDEX "sqlite_autoindex_uq_t_2"`, which SQLite refuses. Correction 1
-  narrowed this from "every push" to "only a real change", but did not close it.
-- **A unique constraint added to an existing table churns and then fails.**
+  narrowed this from "every push" to "only a real change"; the recreation closes
+  it. Every `dropUniqueConstraint` the differ plans here names a constraint read
+  with `origin = "u"`, i.e. `sqlite_autoindex_<table>_<n>`, so `DROP INDEX` had
+  no working case at all on this dialect.
+- **A unique constraint added to an existing table churned and then failed.**
   Spelling: push a model, then add `.unique(["a", "b"])` to it, then push twice
-  more. `addUniqueConstraint` emits `CREATE UNIQUE INDEX "<declared name>"`,
-  which `PRAGMA index_list` reports with `origin = "c"`, so the next
-  introspection files it under `indexes` and not under `uniqueConstraints` — the
-  buckets disagree, and every later push plans `addUniqueConstraint` (the index
-  already exists) beside `dropIndex` on the same name. Push #3 fails. This one
-  is untouched by correction 1: the two names match exactly, so no identity
-  reading changes it.
+  more. `addUniqueConstraint` emitted `CREATE UNIQUE INDEX "<declared name>"`,
+  the buckets disagreed, and every later push planned `addUniqueConstraint`
+  beside `dropIndex` on the same name — the add at priority 14 first, the
+  superseded index drop at 15.5 second, so the add collided. The recreation
+  writes the constraint inline, so push #3 on plans nothing.
+
+A database written by the old add still holds the standalone index; it heals on
+the next push, because the rebuild re-creates that index from the introspected
+definition and the same batch's `dropIndex` then removes it. Witnesses in
+`tests/migrations/sqlite-unique-constraint.test.ts` — both dialects, the
+enforcement, the surviving rows, and the legacy heal — and the two SQLite DDL
+pins in `ddl-drivers.test.ts` were changed deliberately with the reason inline.
+Each half was falsified on its own: reverting the add alone fails all four
+witnesses, reverting the drop alone fails the compound-unique one.
+
+**Gate — 2026-08-04, main checkout, branch `nested-write-boundaries`, on top of
+`f78fa83`.** `npx tsc --noEmit` clean; `tests/migrations` **384 passed**;
+`tests/migrations` + `tests/drivers` together **3851 passed, 0 failed**;
+`pnpm test:gates` **72 passed**, census pin unchanged; full estate run alone
+(`--minWorkers=1 --maxWorkers=4`) **9497 passed, 81 failed, 2192 skipped** across
+278 files, where the 81 are the same four `tests/cli` files the maintainer's
+uncommitted `pnpm-lock.yaml` breaks (`Failed to load … viborm.config.ts`) and
+everything outside `tests/cli` is at zero; Docker MySQL 8.4 on 3307
+**1029 passed, 0 failed**; Docker PostgreSQL on 5434 **1151 passed, 0 failed,
+14 skipped**; repo-pinned `npx biome check` (2.3.11) over the touched files
+reports only the three pre-existing `useTopLevelRegex` infos in
+`ddl-drivers.test.ts`, byte-for-byte the ones the file already had.
 
 ## Order of the phases
 

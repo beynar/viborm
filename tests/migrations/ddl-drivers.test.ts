@@ -433,33 +433,63 @@ describe("SQLite3 DDL Generation", () => {
     });
   });
 
+  // Both pins CHANGED DELIBERATELY: the add used to emit a standalone
+  // `CREATE UNIQUE INDEX`, which introspection reads back with `origin = "c"`
+  // and files under `indexes`, so the next push planned the add again beside a
+  // `dropIndex` on the same name and died on "index already exists"; the drop
+  // used to emit `DROP INDEX` on the `sqlite_autoindex_…` name every
+  // introspection reports, which SQLite refuses outright. A unique constraint
+  // is INLINE in `CREATE TABLE` on SQLite, so both halves go through a table
+  // recreation. Behaviour witnessed in `sqlite-unique-constraint.test.ts`.
+  const usersSchema: SchemaSnapshot = {
+    tables: [
+      {
+        name: "users",
+        columns: [
+          { name: "id", type: "INTEGER", nullable: false },
+          { name: "email", type: "TEXT", nullable: false },
+        ],
+        indexes: [],
+        foreignKeys: [],
+        uniqueConstraints: [{ name: "users_email_key", columns: ["email"] }],
+      },
+    ],
+  };
+
   describe("addUniqueConstraint", () => {
-    it("should generate CREATE UNIQUE INDEX", () => {
+    it("should recreate the table with the constraint inline", () => {
       const op: DiffOperation = {
         type: "addUniqueConstraint",
         tableName: "users",
         constraint: { name: "users_email_key", columns: ["email"] },
       };
 
-      const ddl = generateDDL(op);
+      const ddl = generateDDL(op, {
+        currentSchema: {
+          tables: [{ ...usersSchema.tables[0]!, uniqueConstraints: [] }],
+        },
+      });
 
-      expect(ddl).toBe(
-        'CREATE UNIQUE INDEX "users_email_key" ON "users" ("email")'
-      );
+      expect(ddl).toContain('CREATE TABLE "__new_users"');
+      expect(ddl).toContain('CONSTRAINT "users_email_key" UNIQUE ("email")');
+      expect(ddl).toContain('DROP TABLE "users"');
+      expect(ddl).not.toContain("CREATE UNIQUE INDEX");
     });
   });
 
   describe("dropUniqueConstraint", () => {
-    it("should generate DROP INDEX", () => {
+    it("should recreate the table without the constraint", () => {
       const op: DiffOperation = {
         type: "dropUniqueConstraint",
         tableName: "users",
         constraintName: "users_email_key",
       };
 
-      const ddl = generateDDL(op);
+      const ddl = generateDDL(op, { currentSchema: usersSchema });
 
-      expect(ddl).toBe('DROP INDEX "users_email_key"');
+      expect(ddl).toContain('CREATE TABLE "__new_users"');
+      expect(ddl).not.toContain('CONSTRAINT "users_email_key"');
+      expect(ddl).not.toContain("DROP INDEX");
     });
   });
 

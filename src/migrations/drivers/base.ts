@@ -243,10 +243,12 @@ export abstract class MigrationDriver {
   // ===========================================================================
 
   abstract generateAddUniqueConstraint(
-    op: AddUniqueConstraintOperation
+    op: AddUniqueConstraintOperation,
+    context?: DDLContext
   ): string;
   abstract generateDropUniqueConstraint(
-    op: DropUniqueConstraintOperation
+    op: DropUniqueConstraintOperation,
+    context?: DDLContext
   ): string;
 
   // ===========================================================================
@@ -707,9 +709,9 @@ export abstract class MigrationDriver {
       case "dropForeignKey":
         return this.generateDropForeignKey(operation, context);
       case "addUniqueConstraint":
-        return this.generateAddUniqueConstraint(operation);
+        return this.generateAddUniqueConstraint(operation, context);
       case "dropUniqueConstraint":
-        return this.generateDropUniqueConstraint(operation);
+        return this.generateDropUniqueConstraint(operation, context);
       case "addPrimaryKey":
         return this.generateAddPrimaryKey(operation, context);
       case "dropPrimaryKey":
