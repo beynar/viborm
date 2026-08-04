@@ -239,7 +239,7 @@ interface SharedPkIdentity {
  * record's own INSERT (a backward `Ref`, materialized when that statement runs) or a
  * value already knowable at construction.
  */
-type FreshReferenced =
+export type FreshReferenced =
   | { readonly kind: "ref"; readonly ref: OperationValueReference }
   | { readonly kind: "literal"; readonly value: unknown };
 
@@ -467,6 +467,20 @@ export class CreateOperation {
             expects: exactlyOneRow(terminalFailure()),
           }
         : undefined;
+  }
+
+  /**
+   * E1 U3 — the value THIS subtree's root record produces for one referenced field,
+   * for an enclosing operation whose own foreign key points AT the subtree root (a
+   * parent-held to-one `create`/`connectOrCreate`/`upsert` arm at the update root).
+   * The identity flows BACKWARD there — the enclosing UPDATE's SET reads the key of
+   * the row this subtree makes — so the seam that resolves it is this operation's
+   * own {@link freshReferenced}, not a re-derivation at the caller. `undefined` is
+   * the caller's typed refusal (an `Sql` operand, a null/absent value): both would
+   * name a row that does not exist.
+   */
+  freshRootReferenced(referencedField: string): FreshReferenced | undefined {
+    return freshReferenced(this.root, referencedField);
   }
 
   planning(): OperationFragment {

@@ -18,7 +18,6 @@ import {
   separateData,
 } from "../builders/relation-data-builder";
 import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
-import { buildInsert } from "../builders/values-builder";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
   createQueryScope,
@@ -26,7 +25,6 @@ import {
   getTableName,
 } from "../context/query-scope";
 import {
-  buildCreate,
   buildDeleteMany,
   buildFind,
   buildFindUnique,
@@ -38,7 +36,6 @@ import {
   assertPortablePrimaryKeyUpdateInput,
   getUpdatedPrimaryKeyValue,
   getUpdatedPrimaryKeyWhere,
-  planNestedCreateIdentity,
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import { assertNullable } from "../RelationProgramValues";
@@ -49,6 +46,7 @@ import {
 import { ResultParser } from "../result/ResultParser";
 import { classifyRelationKeyScalarUpdate } from "../TargetConstraint";
 import type { QueryScope, RelationInfo } from "../types";
+import type { CreateOperation } from "./CreateOperation";
 import {
   absenceGuard,
   affectedRows,
@@ -68,6 +66,7 @@ import {
   upsertPremiseChanged,
 } from "./messages";
 import {
+  buildBeforeRootTargetSubtree,
   buildFreshArmPart,
   buildLiteralParentCreateManyPart,
   buildLiteralParentCreatePart,
@@ -146,21 +145,26 @@ interface ToOneLink {
 }
 
 /**
- * A **before-root target** INSERT plan (TO-ONE.md §7.0.2): a scalar-only nested
- * record created ahead of the root parent UPDATE, whose (possibly generated)
- * identity the parent's FK column references. It is the arity-1 `create` payload
- * of the parent-held direction, with the parent INSERT replaced by the parent
- * UPDATE. A nested-relation target `create` is out of T2 scope (routes to V1).
+ * A **before-root target** (TO-ONE.md §7.0.2): a nested record created ahead of the
+ * root parent UPDATE, whose (possibly generated) identity the parent's FK column
+ * references. It is the arity-1 `create` payload of the parent-held direction, with
+ * the parent INSERT replaced by the parent UPDATE.
+ *
+ * E1 U3 — the target is a create SUBTREE, not one INSERT: a whole
+ * {@link CreateOperation} in its `nestedFresh` mode (the X1b/N4-U2 seam), so the
+ * target's own relations at any depth fall out of the create root unchanged. The
+ * identity flows the OTHER way here than it does for a nested fresh arm — the
+ * enclosing UPDATE's SET reads the SUBTREE ROOT's key — and the subtree exports it
+ * through {@link CreateOperation.freshRootReferenced}, the same resolution the
+ * create root already spends for a before-parent target.
+ *
+ * The subtree PLANS unconditionally (technique 2 — the superset) and COMPILES only
+ * in the arm that is taken: `buildBeforeTarget` serves three arms and two of them
+ * choose at compile, so an unconditional compile would write an orphan row for an
+ * arm nobody took.
  */
 interface BeforeTarget {
-  readonly childScope: QueryScope;
-  /** Materialized scalar data (defaults applied, the generated PK removed). */
-  readonly scalarData: Record<string, unknown>;
-  /** The single auto-increment PK captured from the INSERT, if any. */
-  readonly generatedField: string | undefined;
-  /** The known PK literals (the generated PK is absent here). */
-  readonly identity: Record<string, unknown>;
-  readonly writeStepId: string;
+  readonly subtree: CreateOperation;
 }
 
 /**
@@ -201,10 +205,6 @@ type ParentHeldTarget =
       readonly where: Record<string, unknown>;
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
-      /** Withheld (`undefined`) when the selector could not establish the missing
-       *  premise — see {@link childRacePin}. A `connectOrCreate` selector is strict,
-       *  so today this is always present here. */
-      readonly racePin: TargetConstraintPin | undefined;
     }
   // FK-holder-side (parent-held) to-one `update` under update (TO-ONE.md §7.2,
   // family A): mutate the REFERENCED target row located through the parent's own
@@ -975,6 +975,19 @@ export class UpdateOperation {
         target.kind === "upsert"
       ) {
         steps.push(target.probe);
+      }
+      // E1 U3 — a before-root target is a create SUBTREE, and its own planning reads
+      // are the SUPERSET (ATOM §3 technique 2): they run whether or not the arm that
+      // writes them is taken. They are safe to plan unconditionally because a fresh
+      // subtree correlates to nothing outside itself — its root holds no key back to
+      // the enclosing record, and its children correlate to its OWN root identity,
+      // which is resolved at compile.
+      if (
+        target.kind === "create" ||
+        target.kind === "connectOrCreate" ||
+        target.kind === "upsert"
+      ) {
+        steps.push(...target.before.subtree.planning().steps);
       }
       // A parent-held `update` whose located target carries nested relation writes
       // (family A-remainder): its child Parts plan their probes here, correlated to
@@ -2705,8 +2718,7 @@ export class UpdateOperation {
     );
     const before = this.buildBeforeTarget(
       childScope,
-      requireRecord(spec.create, `${relationName}.upsert.create`),
-      relationName
+      requireRecord(spec.create, `${relationName}.upsert.create`)
     );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const probeId = input.scope.allocate(`${childName}.find`);
@@ -2852,8 +2864,7 @@ export class UpdateOperation {
     );
     const before = this.buildBeforeTarget(
       childScope,
-      normalizeSingle(input.parsedRelation.create, relationName, "create"),
-      relationName
+      normalizeSingle(input.parsedRelation.create, relationName, "create")
     );
     return {
       kind: "create",
@@ -2891,7 +2902,11 @@ export class UpdateOperation {
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const before = this.buildBeforeTarget(childScope, createData, relationName);
+    const before = this.buildBeforeTarget(
+      childScope,
+      createData,
+      childRacePin(childScope, where)
+    );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const probeId = input.scope.allocate(`${childName}.find`);
     const guardId = input.scope.allocate(`${childName}.guard.exists`);
@@ -2918,7 +2933,6 @@ export class UpdateOperation {
       where,
       before,
       missingFkAssign: this.beforeTargetFkAssign(fk, before, relationName),
-      racePin: childRacePin(childScope, where),
     };
   }
 
@@ -2938,28 +2952,32 @@ export class UpdateOperation {
     }
   }
 
-  /** Build a scalar-only before-root target INSERT plan (defaults materialized,
-   *  the generated PK captured). A nested-relation target create routes to V1. */
+  /**
+   * Build a before-root target as a create SUBTREE (E1 U3): the whole `create`
+   * payload — its scalars AND every relation it carries, at any depth — is a
+   * {@link CreateOperation} in `nestedFresh` mode, sharing this operation's step
+   * scope. The subtree holds NO foreign key back to the enclosing record (the
+   * enclosing record holds the key, and the root UPDATE's SET is where it lands),
+   * so its root FK inject is empty.
+   *
+   * `rootRacePin` is the enclosing arm's raceable missing premise, carried by the
+   * subtree's ROOT INSERT — the statement that was this arm's whole create leaf
+   * before the arm became a subtree.
+   */
   private buildBeforeTarget(
     childScope: QueryScope,
     createData: Record<string, unknown>,
-    relationName: string
+    rootRacePin?: TargetConstraintPin
   ): BeforeTarget {
-    const separated = separateData(childScope, createData);
-    if (Object.keys(separated.relations).length > 0) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support a nested-relation target create on the parent-held to-one relation '${relationName}'.`
-      );
-    }
-    const { identity, generatedField } = planNestedCreateIdentity(
-      childScope.model,
-      separated.scalarData
-    );
-    const scalarData = { ...separated.scalarData };
-    if (generatedField) delete scalarData[generatedField];
-    const childName = getStepModelName(childScope.model, "record");
-    const writeStepId = this.scope.allocate(`${childName}.create`);
-    return { childScope, scalarData, generatedField, identity, writeStepId };
+    return {
+      subtree: buildBeforeRootTargetSubtree({
+        scope: this.scope,
+        engine: this.engine,
+        targetModel: childScope.model,
+        data: createData,
+        ...(rootRacePin ? { rootRacePin } : {}),
+      }),
+    };
   }
 
   /** The record FK columns ← a before-root target's referenced values (a `Ref` to
@@ -2985,22 +3003,30 @@ export class UpdateOperation {
     return fkAssign;
   }
 
-  /** The value a before-root target produces for one referenced field — a `Ref`
-   *  to its captured generated id, or its known literal identity. */
+  /**
+   * The value a before-root target produces for one referenced field. The SUBTREE
+   * answers it (E1 U3): a `Ref` to the key its own root INSERT generates, a key
+   * already resolved into that record's identity, or — the widening this unit gets
+   * for free — a NON-primary-key referenced column the subtree's own create data
+   * SPELLS. Three provenances, all of them the row that INSERT writes.
+   *
+   * What stays refused is what the create root refuses for the same reason: an
+   * `Sql` operand (evaluated a second time for the foreign key, and two evaluations
+   * of one expression are two values) and a null/absent value (a foreign key equal
+   * to NULL references no row).
+   */
   private beforeTargetReferencedValue(
     before: BeforeTarget,
     referencedField: string,
     relationName: string
   ): unknown {
-    if (before.generatedField === referencedField) {
-      return ref(before.writeStepId, "id");
+    const resolved = before.subtree.freshRootReferenced(referencedField);
+    if (resolved === undefined) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update cannot resolve referenced field '${referencedField}' for the before-root target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
+      );
     }
-    if (Object.hasOwn(before.identity, referencedField)) {
-      return before.identity[referencedField];
-    }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update cannot resolve referenced field '${referencedField}' for the before-root target of relation '${relationName}'.`
-    );
+    return resolved.kind === "ref" ? resolved.ref : resolved.value;
   }
 
   /**
@@ -3081,42 +3107,22 @@ export class UpdateOperation {
     }
   }
 
-  /** The before-root target INSERT step (capturing a generated PK). Mirrors
-   *  `CreateOperation.buildInsertStep`: `firstRowField` on a returning driver in
-   *  tx mode, the driver `insertId` otherwise. */
-  private buildBeforeTargetInsert(before: BeforeTarget): StatementStep {
-    const { childScope, generatedField, writeStepId, scalarData } = before;
-    const txMode = this.mode === "transaction";
-    if (!generatedField) {
-      return {
-        id: writeStepId,
-        kind: "write",
-        statement: buildInsert(
-          childScope,
-          getTableName(childScope.model),
-          scalarData
-        ),
-        outputs: {},
-      };
+  /**
+   * Emit a before-root target's create SUBTREE into the taken arm (E1 U3). The
+   * subtree's own root INSERT leads, its deeper writes follow in ATOM §4.1 order,
+   * and its guards hoist ahead of every write exactly as a child Part's do. Called
+   * ONLY from the arm the compile-time branch takes, which is what keeps an
+   * untaken `connectOrCreate`/`upsert` create arm from writing an orphan row.
+   */
+  private emitBeforeTarget(
+    before: BeforeTarget,
+    known: Readonly<Record<string, unknown>>,
+    guards: OperationStep[],
+    beforeRootWrites: OperationStep[]
+  ): void {
+    for (const step of before.subtree.compile(known).steps) {
+      (step.kind === "guard" ? guards : beforeRootWrites).push(step);
     }
-    const returning = this.engine.adapter.capabilities.supportsReturning;
-    return {
-      id: writeStepId,
-      kind: "write",
-      statement:
-        txMode && returning
-          ? buildCreate(childScope, {
-              data: scalarData,
-              select: { [generatedField]: true },
-            })
-          : buildInsert(childScope, getTableName(childScope.model), scalarData),
-      outputs: {
-        id:
-          txMode && returning
-            ? { kind: "firstRowField", field: generatedField }
-            : { kind: "insertId" },
-      },
-    };
   }
 
   /**
@@ -3138,7 +3144,7 @@ export class UpdateOperation {
     for (const target of this.parentHeldTargets) {
       switch (target.kind) {
         case "create":
-          beforeRootWrites.push(this.buildBeforeTargetInsert(target.before));
+          this.emitBeforeTarget(target.before, known, guards, beforeRootWrites);
           Object.assign(extraSet, target.fkAssign);
           break;
         case "connectOrCreate":
@@ -3208,10 +3214,9 @@ export class UpdateOperation {
       }
       return;
     }
-    beforeRootWrites.push({
-      ...this.buildBeforeTargetInsert(target.before),
-      racePin: target.racePin,
-    });
+    // The arm's raceable missing premise rides the SUBTREE's root INSERT, threaded
+    // through `nestedFresh.rootRacePin` at construction (N4-U2's seam).
+    this.emitBeforeTarget(target.before, known, guards, beforeRootWrites);
     Object.assign(extraSet, target.missingFkAssign);
   }
 
@@ -3346,7 +3351,7 @@ export class UpdateOperation {
     if (rows.length === 0) {
       // Absent arm: INSERT the target before the root, then rebind the parent's FK
       // to its (possibly generated) identity — V1's `updateParentForeignKey`.
-      beforeRootWrites.push(this.buildBeforeTargetInsert(target.before));
+      this.emitBeforeTarget(target.before, known, guards, beforeRootWrites);
       writes.push({
         id: target.parentSetId,
         kind: "write",

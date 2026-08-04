@@ -115,7 +115,41 @@ export const parentHeldLookupSchema = (() => {
         .references("id"),
     })
     .map("e1_profiles");
-  return { author, award, badge, book, holder, node, owner, profile };
+  // The REVERSED produced identity (E1 U3): the target's primary key is assigned by
+  // the DATABASE, so the enclosing UPDATE's SET can only reference the key the
+  // subtree's own INSERT reports. `issue` holds the foreign key, `magazine` produces
+  // the value it points at.
+  const magazine = s
+    .model({
+      id: s.int().id().increment(),
+      title: s.string(),
+      issues: s.oneToMany(() => issue),
+    })
+    .map("e1_magazines");
+  const issue = s
+    .model({
+      id: s.int().id(),
+      name: s.string(),
+      magazineId: s.int().nullable(),
+      magazine: s
+        .manyToOne(() => magazine)
+        .fields("magazineId")
+        .references("id")
+        .optional(),
+    })
+    .map("e1_issues");
+  return {
+    author,
+    award,
+    badge,
+    book,
+    holder,
+    issue,
+    magazine,
+    node,
+    owner,
+    profile,
+  };
 })();
 
 hydrateSchemaNames(parentHeldLookupSchema);
@@ -154,6 +188,12 @@ export async function seedLookupBed(client: LookupClient): Promise<void> {
   await client.node.create({ data: { id: 2, label: "leaf", parentId: null } });
   await client.owner.create({ data: { id: 1, email: "owner@x" } });
   await client.profile.create({ data: { ownerId: 1, bio: "seed" } });
+  // Seeded FIRST so it holds the LOWER generated key: a produced identity that came
+  // from anywhere but the subtree's own INSERT lands here.
+  await client.magazine.create({ data: { title: "decoy-magazine" } });
+  await client.issue.create({
+    data: { id: 1, name: "issue-1", magazineId: null },
+  });
 }
 
 /**
@@ -340,6 +380,248 @@ export function runParentHeldLookupBehavior(options: {
             data: { badge: { connect: { slug: "gold-slug" } } },
           })
         ).resolves.toEqual({ id: 1, name: "holder-1", badgeCode: "GOLD" });
+      })
+    );
+  });
+}
+
+/**
+ * E1 U3 — the before-root target as a create SUBTREE.
+ *
+ * The enclosing record holds the foreign key, so the target is written FIRST and
+ * the root UPDATE's SET reads its key. Two things are being claimed and each test
+ * names one: the target's OWN relations now come along at any depth, and the key
+ * the enclosing UPDATE spends is the SUBTREE ROOT's — generated or spelled.
+ */
+export function runBeforeRootSubtreeBehavior(options: {
+  readonly name: string;
+  readonly createDriver: () => AnyDriver;
+}): void {
+  describe(`${options.name} before-root target subtree (E1 U3)`, () => {
+    const run = (
+      body: (client: LookupClient) => Promise<void>
+    ): (() => Promise<void>) => {
+      return async () => {
+        const driver = options.createDriver();
+        const client = makeLookupClient(driver);
+        await push(client, { force: true });
+        await seedLookupBed(client);
+        try {
+          await body(client);
+        } finally {
+          await client.$disconnect();
+        }
+      };
+    };
+
+    test(
+      "a parent-held `create` target carries its own relations",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await expect(
+          client.book.update({
+            where: { id: 2 },
+            data: {
+              author: {
+                create: {
+                  id: 9,
+                  email: "fresh@x",
+                  name: "fresh",
+                  awards: { create: { id: 9, title: "gold" } },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 2, title: "book-2", authorId: 9 });
+        // The award must hang off the FRESH author, not off the decoy that holds
+        // the lower key.
+        await expect(
+          client.award.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([{ id: 9, title: "gold", authorId: 9 }]);
+      })
+    );
+
+    test(
+      "a NON-primary-key referenced column the subtree's own create data spells resolves",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The holder's foreign key references `badge.code`, which is neither the
+        // badge's primary key nor a value any read produces — it is spelled in the
+        // very create data the badge's INSERT writes. That is the third provenance
+        // the create root already had and the update root did not.
+        await expect(
+          client.holder.update({
+            where: { id: 1 },
+            data: {
+              badge: {
+                create: {
+                  id: 9,
+                  slug: "fresh-slug",
+                  code: "FRESH",
+                  tier: "tin",
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 1, name: "holder-1", badgeCode: "FRESH" });
+        await expect(
+          client.badge.findUnique({ where: { id: 9 } })
+        ).resolves.toEqual({
+          id: 9,
+          slug: "fresh-slug",
+          code: "FRESH",
+          tier: "tin",
+        });
+      })
+    );
+
+    test(
+      "a connectOrCreate FOUND arm writes NO part of its create subtree",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The arm gate, from the side that can leave an orphan: the create arm's
+        // subtree carries a child of its own, and the found arm is the one taken.
+        // If the subtree compiled unconditionally, award 9 would exist under an
+        // author nobody asked for.
+        await expect(
+          client.book.update({
+            where: { id: 2 },
+            data: {
+              author: {
+                connectOrCreate: {
+                  where: { email: "target@x" },
+                  create: {
+                    id: 9,
+                    email: "target@x",
+                    name: "never",
+                    awards: { create: { id: 9, title: "orphan" } },
+                  },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 2, title: "book-2", authorId: 2 });
+        await expect(client.award.findMany({})).resolves.toEqual([]);
+        await expect(
+          client.author.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, email: "decoy@x", name: "decoy" },
+          { id: 2, email: "target@x", name: "target" },
+        ]);
+      })
+    );
+
+    test(
+      "a connectOrCreate MISSING arm writes the whole subtree",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await expect(
+          client.book.update({
+            where: { id: 2 },
+            data: {
+              author: {
+                connectOrCreate: {
+                  where: { email: "fresh@x" },
+                  create: {
+                    id: 9,
+                    email: "fresh@x",
+                    name: "fresh",
+                    awards: { create: { id: 9, title: "kept" } },
+                  },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 2, title: "book-2", authorId: 9 });
+        await expect(
+          client.award.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([{ id: 9, title: "kept", authorId: 9 }]);
+      })
+    );
+
+    test(
+      "an upsert FOUND arm writes NO part of its create subtree",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // Book 1 already points at author 1, so the upsert's probe finds it and the
+        // update arm is taken. The create arm's award must not appear.
+        await expect(
+          client.book.update({
+            where: { id: 1 },
+            data: {
+              author: {
+                upsert: {
+                  update: { name: "renamed" },
+                  create: {
+                    id: 9,
+                    email: "fresh@x",
+                    name: "never",
+                    awards: { create: { id: 9, title: "orphan" } },
+                  },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 1, title: "book-1", authorId: 1 });
+        await expect(client.award.findMany({})).resolves.toEqual([]);
+        await expect(
+          client.author.findUnique({ where: { id: 1 } })
+        ).resolves.toEqual({ id: 1, email: "decoy@x", name: "renamed" });
+      })
+    );
+
+    test(
+      "an upsert ABSENT arm writes the whole subtree and rebinds the parent",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // Book 2 points at nothing, so the upsert probe finds nothing.
+        await expect(
+          client.book.update({
+            where: { id: 2 },
+            data: {
+              author: {
+                upsert: {
+                  update: { name: "never" },
+                  create: {
+                    id: 9,
+                    email: "fresh@x",
+                    name: "fresh",
+                    awards: { create: { id: 9, title: "kept" } },
+                  },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 2, title: "book-2", authorId: 9 });
+        await expect(
+          client.award.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([{ id: 9, title: "kept", authorId: 9 }]);
+      })
+    );
+
+    test(
+      "a null referenced field in the target's create data stays refused",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The carve-out that stays: the badge's own create data sets `code` to NULL,
+        // so there is no value for the holder's foreign key to reference. A foreign
+        // key equal to NULL names no row, which is a contradiction rather than a
+        // shape the engine has not learned.
+        await expect(
+          client.holder.update({
+            where: { id: 1 },
+            data: {
+              badge: {
+                create: { id: 9, slug: "fresh-slug", code: null, tier: "tin" },
+              },
+            },
+          })
+        ).rejects.toThrow(
+          "query-engine-v2 update cannot resolve referenced field 'code' for the before-root target of relation 'badge': it is neither that record's primary key nor a knowable value in its own create data."
+        );
+        await expect(
+          client.badge.findMany({ where: { id: 9 } })
+        ).resolves.toEqual([]);
       })
     );
   });

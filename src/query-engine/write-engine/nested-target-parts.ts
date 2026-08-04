@@ -218,6 +218,43 @@ export function buildNestedTargetFreshCreatePart(input: {
   return new NestedFreshCreatePart(op);
 }
 
+/**
+ * E1 U3 — the BEFORE-ROOT to-one target of an update root. The enclosing record
+ * holds the foreign key, so the target is written FIRST and the enclosing UPDATE's
+ * SET reads its key: the identity flows the OPPOSITE way from every other nested
+ * fresh subtree, where the parent's key flows down into the child.
+ *
+ * That reversal is why this returns the OPERATION rather than a {@link Part}. The
+ * caller needs two things a Part cannot give it: the subtree root's referenced value
+ * ({@link CreateOperation.freshRootReferenced}) at CONSTRUCTION, so the FK fold can
+ * be built; and the freedom to compile the subtree only in the arm that is TAKEN,
+ * because one `buildBeforeTarget` serves three arms and two of them choose at
+ * compile. The root FK inject is empty — the subtree owes the enclosing record
+ * nothing.
+ */
+export function buildBeforeRootTargetSubtree(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  targetModel: Model<any>;
+  data: Record<string, unknown>;
+  rootRacePin?: TargetConstraintPin;
+}): CreateOperation {
+  return new CreateOperation(
+    input.engine,
+    input.targetModel,
+    {},
+    {
+      scope: input.scope,
+      skipOwnWrite: true,
+      nestedFresh: {
+        data: input.data,
+        rootFkInject: () => ({}),
+        ...(input.rootRacePin ? { rootRacePin: input.rootRacePin } : {}),
+      },
+    }
+  );
+}
+
 function foldOneNestedRelation(input: {
   scope: StepScope;
   engine: QueryEngine;

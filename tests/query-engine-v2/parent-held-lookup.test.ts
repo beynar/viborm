@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   makeLookupClient,
+  runBeforeRootSubtreeBehavior,
   runParentHeldLookupBehavior,
   seedLookupBed,
 } from "./parent-held-lookup-behavior";
@@ -38,6 +39,16 @@ runParentHeldLookupBehavior({
 });
 
 runParentHeldLookupBehavior({
+  name: "PGlite atomic batch",
+  createDriver: () => new BatchOnlyPGliteDriver(),
+});
+
+runBeforeRootSubtreeBehavior({
+  name: "PGlite transaction",
+  createDriver: () => new PGliteDriver(),
+});
+
+runBeforeRootSubtreeBehavior({
   name: "PGlite atomic batch",
   createDriver: () => new BatchOnlyPGliteDriver(),
 });
@@ -273,6 +284,121 @@ describe("E1 U1 — the guard→UPDATE vanish window", () => {
       await expect(
         stateClient.book.findUnique({ where: { id: 2 } })
       ).resolves.toEqual({ id: 2, title: "book-2", authorId: null });
+      await stateClient.$disconnect();
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The REVERSED produced identity (E1 U3, watch item a). The enclosing UPDATE's
+// SET reads the key of the row the SUBTREE made, so the identity flows backward
+// here: `Ref(subtree-root INSERT, id)`. Only corrupting what that INSERT reported
+// can tell "the key its own INSERT produced" from any re-derivation.
+// ---------------------------------------------------------------------------
+
+/** One-shot: rewrites the key the FIRST returning INSERT into `table` reported. */
+class CorruptSubtreeInsertDriver extends PGliteDriver {
+  private armed = true;
+  private readonly config: {
+    table: string;
+    column: string;
+    wrongValue: unknown;
+  };
+
+  constructor(
+    options: ConstructorParameters<typeof PGliteDriver>[0],
+    config: { table: string; column: string; wrongValue: unknown }
+  ) {
+    super(options);
+    this.config = config;
+  }
+
+  private corrupt<T>(
+    statement: string,
+    result: QueryResult<T>
+  ): QueryResult<T> {
+    const isProducingInsert =
+      this.armed &&
+      statement.startsWith("INSERT INTO") &&
+      statement.includes(this.config.table) &&
+      statement.includes("RETURNING") &&
+      result.rows.length > 0;
+    if (!isProducingInsert) return result;
+    this.armed = false;
+    return {
+      ...result,
+      rows: result.rows.map((row) => ({
+        ...(row as Record<string, unknown>),
+        [this.config.column]: this.config.wrongValue,
+      })) as T[],
+    };
+  }
+
+  protected override async execute<T>(
+    client: PGlite | Transaction,
+    statement: string,
+    params: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return this.corrupt(
+      statement,
+      await super.execute<T>(client, statement, params, context)
+    );
+  }
+
+  protected override async executeRaw<T>(
+    client: PGlite | Transaction,
+    statement: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return this.corrupt(
+      statement,
+      await super.executeRaw<T>(client, statement, params, context)
+    );
+  }
+}
+
+describe("E1 U3 — the subtree root's produced identity", () => {
+  test(
+    "the enclosing UPDATE's SET follows the key the SUBTREE's INSERT returned",
+    { timeout: 30_000 },
+    async () => {
+      const db = new PGlite();
+      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
+      await push(stateClient, { force: true });
+      await seedLookupBed(stateClient);
+      const decoy = await stateClient.magazine.findFirst({
+        orderBy: { id: "asc" },
+      });
+
+      const client = makeLookupClient(
+        new CorruptSubtreeInsertDriver(
+          { client: db },
+          { table: "e1_magazines", column: "id", wrongValue: decoy?.id }
+        )
+      );
+      // THE CLAIM. The issue's foreign key follows the CORRUPTED returned key —
+      // the decoy magazine — because that is what the subtree's own INSERT
+      // reported having produced. An implementation that re-read the fresh
+      // magazine by its title, or spent the driver's last-insert id independently,
+      // would bind the real fresh row and this assertion would fail. Both values
+      // are live magazines, so no constraint can stand in for the assertion.
+      await client.issue.update({
+        where: { id: 1 },
+        data: { magazine: { create: { title: "fresh-magazine" } } },
+      });
+      const magazines = await stateClient.magazine.findMany({
+        orderBy: { id: "asc" },
+      });
+      expect(magazines.map((row) => row.title)).toEqual([
+        "decoy-magazine",
+        "fresh-magazine",
+      ]);
+      await expect(
+        stateClient.issue.findUnique({ where: { id: 1 } })
+      ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: decoy?.id });
+      expect(decoy?.id).not.toBe(magazines[1]?.id);
       await stateClient.$disconnect();
     }
   );
