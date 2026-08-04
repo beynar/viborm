@@ -103,7 +103,7 @@ declined item carries the measurement that declined it.
 | # | Site (body claim) | Disposition |
 | --- | --- | --- |
 | B1 | `query-engine-v2/shared.ts:3-7` — use the `@query-engine` alias | **REJECTED, measured.** `src/query-engine-v2` carries **134** `../query-engine/…` imports across 22 files and **0** alias-form ones. Converting three in one file makes that file the exception, not the rule; converting all 134 is a repo-wide sweep with its own gate, not a PR-20 review follow-up. |
-| B2 | `validation/model/core/where.ts:208-212` — drop the `as` on the merged entries | **REJECTED, measured.** Deleting the assertion and letting the spread infer produces `TS2322`: the compiler cannot prove the inferred spread equals `Omit<WhereSchema<M,F>["entries"], keyof WhereUniqueEntries<M,F>> & WhereUniqueEntries<M,F>` through the generics, so `WhereUniqueExtendedSchema<M,F>` rejects it. The suggested remedy — "a helper type alias or a typed local so the compiler checks the merge" — is exactly what fails. |
+| B2 | `validation/model/core/where.ts:208-212` — drop the `as` on the merged entries | **FIXED — and the first disposition of this row was wrong.** It was declined on a measurement that was not the measurement the claim needed. See below. |
 | B3 | `DeleteOperation.ts:82-92`, `UpsertOperation.ts:205-214` — the PK invariant runs before the parse it cites | **REJECTED, measured.** Built a model with no `.id()` and drove all three families through the public client: `delete`, `upsert` and `update` each raise `ValidationError: Validation failed for <op>: Missing required field: one of `. The parse the comments cite is the CLIENT's, which runs before any operation is constructed, so the in-constructor order is unobservable and the comments' "answers first, measured" holds. |
 | B4 | `nested-target-parts.ts:359` — one fresh-arm closure, not three | **FIXED.** `foldOneChildHeldKind` already receives `writeBase`; the two inline re-bindings now pass `writeBase.freshArm`. Byte-identical closure (same `scope`, same `engine`), and the seam's single home is named in a comment. |
 | B5 | `RelationWritePart.ts:910-934` — the unique-selector doc block sits on the wrong member | **FIXED.** The block describing `uniqueSelectorConjuncts` now documents `optionalWhereFilters`, which is the member that calls it; the W4-U3 block stays on `targetFilters`. |
@@ -133,6 +133,51 @@ declined item carries the measurement that declined it.
 | B29 | `index-ddl-behavior.ts:263-268` — replace `as never` with generics | **REJECTED** — same convention measurement as B12/B24. |
 | B30 | `ordering-plan-behavior.ts:112-118` — reduce the client assertions | **REJECTED.** The bot's own text concedes it: *"The sibling behavior suites use the same pattern, so this is a suite-wide convention rather than a defect in this file."* |
 | B31 | `DeleteOperation.ts:158-203` — build the locate only when the fold declines | **REJECTED, measured.** The WHOLE `DeleteOperation` constructor — parse, locate, fold, guard — costs **4.7 µs**; one round trip on PGlite, the cheapest substrate in the estate, costs **140 µs**, and the fold removes four of them. The locate `Sql` is a fraction of 4.7 µs against a ~560 µs saving. Paying for it means turning a total `readonly locate: StatementStep` into `… \| undefined`, which `compile()`'s non-fold path then needs either a `!` (banned) or a second existence guard (banned) to read. |
+
+## B2 — a rejection that rested on a measurement nobody took
+
+The row above first read **REJECTED**, on this sentence:
+
+> Deleting the assertion and letting the spread infer produces `TS2322` … The suggested
+> remedy — "a helper type alias or a typed local so the compiler checks the merge" — is
+> exactly what fails.
+
+Only the first clause was measured. Deleting the assertion outright does raise `TS2322` — but
+that is not what the bot asked for, and the second clause was never run. The bot asked for the
+merge to be *annotated* rather than *asserted*, and that form compiles.
+
+Seven runs of `npx tsc --noEmit` (whole project, `src` + `tests`; EXIT=0 with zero diagnostics
+at the tip), each one mutation of the merge in `getWhereUniqueExtendedSchema`:
+
+| Merge written as | Spread | `tsc --noEmit` |
+| --- | --- | --- |
+| neither annotated nor asserted | both halves | **EXIT=2** — `TS2322` at `where.ts(216,3)` |
+| `as Omit<…> & WhereUniqueEntries<…>` (the form that shipped) | both halves | EXIT=0 |
+| annotated local (the bot's remedy) | both halves | EXIT=0 |
+| `as` form | `...discriminators` dropped | EXIT=0 |
+| annotated local | `...discriminators` dropped | EXIT=0 |
+| `as` form | `...where.entries` dropped | EXIT=0 |
+| annotated local | `...where.entries` dropped | **EXIT=2** — `TS2322` at `where.ts(208,9)` |
+
+The last two rows are the finding. The annotation is **strictly stronger** than the assertion:
+dropping the filter half of the merge is a compile error under the annotation and is accepted
+in silence under the `as`. Neither form catches dropping the discriminator half — those entries
+overwrite `where` entries that are optional there, so the shorter object stays assignable — so
+the checking the bot wants is *partial*, not total. Partial at zero cost is still more than the
+assertion bought, and the annotated form is already this file's own convention: `discriminators`
+five lines above the site, and the sibling `getWhereUniqueSchema`, both build their merge that
+way. The `as` was the file's lone exception.
+
+So the merge type is named once, `WhereUniqueExtendedEntries<M, F>`, which
+`WhereUniqueExtendedSchema` and the local now both spell; the local is annotated with it. The
+emitted JavaScript is unchanged — annotation and assertion both erase.
+
+**Falsified:** dropping `...where.entries` from the annotated local fails `tsc` with `TS2322` at
+`where.ts(220,9)`. Under the `as` this file shipped, the same deletion compiled clean.
+
+This is the second time in this pass that a sentence written as a measurement was not the
+command that ran (`a221a14` certified a Biome leg it had not re-run). The rule holds either
+way: if a row says *measured*, the measurement in it is the one that was executed.
 
 ## B22 — written, then refused by the estate
 

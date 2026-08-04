@@ -131,6 +131,17 @@ export const getWhereUniqueSchema = <
 // =============================================================================
 
 /**
+ * The merged entry set: the ordinary `where` MINUS the names the discriminators
+ * take back, PLUS the discriminators. Named once so the local that builds it can
+ * be annotated with the same type `WhereUniqueExtendedSchema` declares.
+ */
+type WhereUniqueExtendedEntries<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = Omit<WhereSchema<M, F>["entries"], keyof WhereUniqueEntries<M, F>> &
+  WhereUniqueEntries<M, F>;
+
+/**
  * Build the EXTENDED whereUnique schema — Prisma >= 4.5's `AtLeast<…>` shape:
  * the unique discriminators (single field or complete compound) PLUS the model's
  * ordinary `where` — non-unique scalar filters, RELATION filters, and `AND` /
@@ -183,11 +194,7 @@ export const getWhereUniqueSchema = <
 export type WhereUniqueExtendedSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
-> = V.Object<
-  Omit<WhereSchema<M, F>["entries"], keyof WhereUniqueEntries<M, F>> &
-    WhereUniqueEntries<M, F>,
-  WhereUniqueOptions<M, F>
->;
+> = V.Object<WhereUniqueExtendedEntries<M, F>, WhereUniqueOptions<M, F>>;
 
 export const getWhereUniqueExtendedSchema = <
   M extends AnyModel,
@@ -205,11 +212,15 @@ export const getWhereUniqueExtendedSchema = <
     ...compoundConstraintFilter.entries,
   };
   const keys = Object.keys(discriminators) as WhereUniqueKey<M, F>[];
-  const entries = {
+  // Annotated, not asserted, like `discriminators` above and the sibling
+  // `getWhereUniqueSchema`: the annotation checks the FILTER half of the merge
+  // (dropping `...where.entries` is a compile error; under an `as` it was not).
+  // It cannot check the discriminator half — those entries are optional in the
+  // ordinary `where` they overwrite, so their absence is assignable either way.
+  const entries: WhereUniqueExtendedEntries<M, F> = {
     ...where.entries,
     ...discriminators,
-  } as Omit<WhereSchema<M, F>["entries"], keyof WhereUniqueEntries<M, F>> &
-    WhereUniqueEntries<M, F>;
+  };
 
   // The filter portion of an extended unique `where` is an ordinary filter, so
   // it opens the same operand callbacks and needs the same scope. (The
