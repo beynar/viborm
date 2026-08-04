@@ -19,19 +19,32 @@ import { planningKey } from "./Part";
 import type { ParentIdSource } from "./RelationUpsertPart";
 
 /**
- * The SQL `Ref` a *planning* probe uses to correlate to the parent's referenced
- * field (technique #1). Only a `planned` source can be referenced this way — the
- * locate read has not run yet, so the value is symbolic.
+ * What a *planning* probe correlates on for the parent's referenced field.
+ *
+ * A `planned` source is symbolic — the locate read has not run when the probe is
+ * built, so the correlation is the SQL `Ref` technique #1 names. A `literal` source
+ * is a compile-time constant, so the correlation is that constant inlined: the probe
+ * reads `WHERE fk = <literal>`, which is what the same part's WRITE correlation
+ * ({@link referencedFieldValue}) already emits for it. `RelationJunctionPart.parentRef`
+ * is the precedent — a membership read materializes a `Ref` and a literal identically,
+ * so no leaf learns which it received.
+ *
+ * Both kinds arrive here for real: a depth-composed part under a located-by-PK target
+ * (T3b mechanism 1) and under an upsert's UPDATE arm named by its own primary key (E3)
+ * carry a `literal`, while the update root's children carry a `planned`. Before this
+ * widening those two positions raised an internal `QueryEngineError` for a payload the
+ * public client admits.
  */
-export function referencedFieldRef(
+export function referencedFieldCorrelation(
   source: ParentIdSource,
   referencedField: string,
   relationName: string,
   kind: string
-): OperationValueReference {
+): OperationValueReference | unknown {
+  if (source.kind === "literal") return source.value;
   if (source.kind !== "planned") {
     throw new QueryEngineError(
-      `query-engine-v2 ${kind} for relation '${relationName}' requires a planned parent id to correlate its probe.`
+      `query-engine-v2 ${kind} for relation '${relationName}' requires a planned or literal parent id to correlate its probe.`
     );
   }
   return ref(source.readStep, referencedField);

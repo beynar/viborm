@@ -51,7 +51,10 @@ import {
 import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import { referencedFieldRef, referencedFieldValue } from "./parent-reference";
+import {
+  referencedFieldCorrelation,
+  referencedFieldValue,
+} from "./parent-reference";
 import {
   literalParentId,
   type ParentIdSource,
@@ -629,7 +632,7 @@ export class RelationWritePart implements Part {
     return this.config.fkFields.map((fkField, index) => ({
       [fkField]: {
         equals: refable
-          ? referencedFieldRef(
+          ? referencedFieldCorrelation(
               this.config.parentId,
               this.config.referencedFields[index]!,
               this.config.relationName,
@@ -1472,7 +1475,7 @@ export class RelationSetPart implements Part {
     return this.config.fkFields.map((fkField, index) => ({
       [fkField]: {
         equals: useRef
-          ? referencedFieldRef(
+          ? referencedFieldCorrelation(
               source,
               this.config.referencedFields[index]!,
               this.config.relationName,

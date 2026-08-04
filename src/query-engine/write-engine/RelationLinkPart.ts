@@ -21,13 +21,10 @@ import {
   linkGroupSelector,
 } from "./link-target-groups";
 import { relationTargetNotFound } from "./messages";
-import {
-  type OperationStep,
-  ref,
-  type StatementStep,
-} from "./OperationFragment";
+import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
+import { referencedFieldCorrelation } from "./parent-reference";
 import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 
@@ -379,17 +376,19 @@ export class RelationLinkPart implements Part {
   }
 
   /** The disconnect probe's `fk_i = Ref(locate.referenced_i)` clauses — the
-   *  technique #1 markers, one per compound-key field. */
+   *  technique #1 markers, one per compound-key field — or, under a depth-composed
+   *  LITERAL parent (a located-by-PK nested target, an upsert UPDATE arm named by its
+   *  own primary key), that parent's compile-time constant inlined. One home for both
+   *  provenances: {@link referencedFieldCorrelation}. */
   private correlationFilters(): Record<string, unknown>[] {
-    const source = this.config.parentId;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 disconnect for relation '${this.config.relationName}' requires a planned parent id to correlate its probe.`
-      );
-    }
     return this.config.fkFields.map((fkField, index) => ({
       [fkField]: {
-        equals: ref(source.readStep, this.config.referencedFields[index]!),
+        equals: referencedFieldCorrelation(
+          this.config.parentId,
+          this.config.referencedFields[index]!,
+          this.config.relationName,
+          "disconnect"
+        ),
       },
     }));
   }
