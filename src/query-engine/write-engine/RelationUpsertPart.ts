@@ -896,6 +896,7 @@ function buildOneUpsertPart(
   const updateChildParts = buildArmChildParts(
     scope,
     child,
+    childPrimaryKey,
     engine,
     updateArmParentId,
     childUpdate.relations,
@@ -958,10 +959,16 @@ function buildOneUpsertPart(
  * families — needs machinery this module cannot import without a cycle
  * (`buildNestedTargetChildParts`, reached through the `nestedBuilder` seam elsewhere),
  * so it stays a typed refusal named for the update arm.
+ *
+ * The arm's parent value is also bounded in a second dimension — which COLUMN of the
+ * located row it can speak for. It speaks for exactly one, this child's primary key, so
+ * every kind admitted here is additionally gated by
+ * {@link assertArmEdgeReferencesLocatedPk}.
  */
 function buildArmChildParts(
   scope: StepScope,
   child: QueryScope,
+  childPrimaryKey: string,
   engine: QueryEngine,
   parentId: ParentIdSource,
   relations: Record<string, RelationMutation>,
@@ -974,6 +981,21 @@ function buildArmChildParts(
   const parts: Part[] = [];
   for (const [childRelationName, mutation] of entries) {
     const kinds = getRelationMutationKinds(mutation).join(",");
+    if (
+      kinds !== "upsert" &&
+      kinds !== "connectOrCreate" &&
+      kinds !== "create"
+    ) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 supports only nested upsert/connectOrCreate/create one level deeper on the update arm; relation '${childRelationName}' uses '${kinds}'.`
+      );
+    }
+    assertArmEdgeReferencesLocatedPk(
+      child,
+      childPrimaryKey,
+      childRelationName,
+      mutation
+    );
     if (kinds === "upsert") {
       parts.push(
         ...buildToManyUpsertParts(
@@ -1013,25 +1035,67 @@ function buildArmChildParts(
     // primary key (a `where` literal, or the probe's captured value under a `planned`
     // source). The INSERT is unconditional: its compile splices onto the taken arm, so
     // it fires only when the row was found.
-    if (kinds === "create") {
-      parts.push(
-        ...buildUpdateArmChildCreateParts(
-          scope,
-          child,
-          engine,
-          childRelationName,
-          mutation,
-          parentId,
-          freshArm
-        )
-      );
-      continue;
-    }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 supports only nested upsert/connectOrCreate/create one level deeper on the update arm; relation '${childRelationName}' uses '${kinds}'.`
+    parts.push(
+      ...buildUpdateArmChildCreateParts(
+        scope,
+        child,
+        engine,
+        childRelationName,
+        mutation,
+        parentId,
+        freshArm
+      )
     );
   }
   return parts;
+}
+
+/**
+ * M11 — the update arm's parent value speaks for exactly ONE column of the located row:
+ * this child's primary key. It is that key's `where` literal, or a `planned` read of this
+ * part's own probe, whose projection ({@link RelationUpsertPart.identitySelect}) is the
+ * child's primary key plus the child's OWN foreign key columns and nothing else. But
+ * {@link fkAssignData} writes EVERY foreign-key column of a deeper edge from that one
+ * value, so an edge referencing a compound tuple — or a single NON-primary-key column —
+ * of this child receives the primary key in all of them. Measured through the public
+ * client: a grandchild silently adopted by whichever row happens to hold the
+ * cross-matched tuple, a grandchild silently reparented away, and a bare
+ * `ForeignKeyError` when no row holds it. No wrong value is representable once this
+ * refuses at construction, before a statement exists.
+ *
+ * What such an edge needs is a PER-FIELD parent source — one value per referenced column,
+ * which is exactly what {@link referencedFieldValue} already gives the update ROOT, whose
+ * locate read unions every referenced column into its own projection. Building that source
+ * for this seam is E4's unit; until it exists this is a refusal, not a repair.
+ *
+ * Its unique coverage is the parent source {@link buildOneUpsertPart} MANUFACTURES for its
+ * own update arm — no other caller reaches it, and none changes. Every other source handed
+ * to that builder is already whole: the update root's locate-backed `planned` one resolves
+ * each referenced column per-field, `CreateOperation.edgeParentId` refuses a compound edge
+ * before building a source at all, the adopt classifier refuses past its single-PK surface,
+ * and the nested-target builders pin the same condition twice
+ * (`targetNeedsFullUpdate` / `referencesTargetPk`).
+ */
+function assertArmEdgeReferencesLocatedPk(
+  child: QueryScope,
+  childPrimaryKey: string,
+  relationName: string,
+  mutation: RelationMutation
+): void {
+  const { relationInfo } = mutation;
+  // Many-to-many has no FK direction to ask for, and the parent-held direction's
+  // `pkFields` name the TARGET's columns rather than this child's — neither is an edge
+  // fed from the arm's parent value. Both are already refused, with their own wording, by
+  // the builders this function guards (`buildToManyUpsertParts`' relation-type gate and
+  // `buildUpdateArmChildCreateParts`' two). Asking `getFkDirection` about a many-to-many
+  // would raise its internal invariant INSTEAD of that typed refusal.
+  if (relationInfo.type === "manyToMany") return;
+  const fk = getFkDirection(child, relationInfo);
+  if (fk.holdsFK) return;
+  if (fk.pkFields.length === 1 && fk.pkFields[0] === childPrimaryKey) return;
+  throw new UnsupportedOperationError(
+    `query-engine-v2 does not support a compound or non-primary-key referenced edge one level deeper on the update arm of relation '${relationName}'; the arm's parent value is the located row's primary key '${childPrimaryKey}' alone, and each referenced column needs a per-field parent source.`
+  );
 }
 
 /** An unconditional set of write steps (no planning read, no probe) — a fresh
