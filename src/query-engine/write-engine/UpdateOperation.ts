@@ -2741,26 +2741,28 @@ export class UpdateOperation {
       spec.update,
       `${relationName}.upsert.update`
     );
-    // E1 U4 — an update arm that carries relations delegates its WHOLE arm to an
-    // UpdateOperation nested-target sub-op (the X1c seam the `update` arm already
-    // uses). A scalar-only arm keeps the in-place fold byte-identically, so the
-    // found+empty no-op the estate pins stays exactly where it was.
-    const delegated = this.delegateParentHeldUpsertArm(
-      input,
-      relationName,
-      relationInfo,
-      fk,
-      childScope,
-      updatePayload
-    );
-    const updateData = delegated
-      ? {}
-      : this.parentHeldScalarUpdateData(
-          childScope,
-          updatePayload,
-          relationName,
-          "upsert"
-        );
+    // E1 U4 — an arm that carries relations delegates its WHOLE arm (its SET and
+    // its relations together) to an UpdateOperation nested-target sub-op, the X1c
+    // seam the `update` arm already uses. A scalar-only arm keeps the in-place fold
+    // byte-identically, so the found+empty no-op the estate pins stays where it was.
+    const { scalarData, relations } = separateData(childScope, updatePayload);
+    const delegated =
+      Object.keys(relations).length > 0
+        ? this.delegateParentHeldUpsertArm(
+            input,
+            relationName,
+            relationInfo,
+            fk,
+            updatePayload
+          )
+        : undefined;
+    let updateData: Record<string, unknown> = {};
+    if (!delegated) {
+      assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
+        data: scalarData,
+      });
+      updateData = scalarData;
+    }
     const before = this.buildBeforeTarget(
       childScope,
       requireRecord(spec.create, `${relationName}.upsert.create`)
@@ -2820,18 +2822,16 @@ export class UpdateOperation {
    * to a literal in the same SET correlates on the value it is moving TO — the D1
    * contract, wired exactly as the `update` arm wires it.
    *
-   * Returns `undefined` for a scalar-only arm, which keeps its in-place fold.
+   * The caller decides WHETHER to delegate (it has already separated the payload);
+   * this builds the arm.
    */
   private delegateParentHeldUpsertArm(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
     fk: FkDirection,
-    childScope: QueryScope,
     updatePayload: Record<string, unknown>
-  ): Part | undefined {
-    const { relations } = separateData(childScope, updatePayload);
-    if (Object.keys(relations).length === 0) return undefined;
+  ): Part {
     for (const field of fk.fkFields) input.parentFkLocateFields.add(field);
     return buildNestedTargetUpdatePart({
       scope: input.scope,
@@ -2851,28 +2851,6 @@ export class UpdateOperation {
         notFoundMessage: upsertPremiseChanged(relationName),
       },
     });
-  }
-
-  /** The validated scalar update data for a parent-held to-one `update`/`upsert`
-   *  arm. Nested-relation data (the located target's own grandchild writes, V1's
-   *  staged recursion) routes the whole tree to V1 — the parent-held projection of
-   *  the family-B boundary. */
-  private parentHeldScalarUpdateData(
-    childScope: QueryScope,
-    data: Record<string, unknown>,
-    relationName: string,
-    kind: string
-  ): Record<string, unknown> {
-    const { scalarData, relations } = separateData(childScope, data);
-    if (Object.keys(relations).length > 0) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support nested relation writes in the '${kind}' data of the parent-held to-one relation '${relationName}'.`
-      );
-    }
-    assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
-      data: scalarData,
-    });
-    return scalarData;
   }
 
   /** `child.<referenced> = <finalFk>` — a SQL `Ref` to the located parent at
