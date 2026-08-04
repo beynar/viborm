@@ -11,6 +11,7 @@ import {
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
 import {
+  buildConnectSubqueryForField,
   type FkDirection,
   getFkDirection,
   type RelationMutation,
@@ -60,6 +61,7 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import {
+  lookupKeyIsNull,
   nestedReplacement,
   relationKeyOccupiedMessage,
   relationTargetNotFound,
@@ -130,11 +132,16 @@ interface ToOneLink {
   readonly relationInfo: RelationInfo;
   /** FK assignment merged into the parent SET clause. */
   readonly assignment: Record<string, unknown>;
-  /** Present for `connect`: an existence probe + its batch guard id. */
+  /** Present for `connect`: an existence probe + its batch guard id. `fk`/`where`
+   *  carry the edge and the selector the fold was built from, which the
+   *  compile-time NULL check on a NON-referenced-unique lookup needs
+   *  ({@link UpdateOperation.assertLookupKeyPresent}, E1 U1). */
   readonly connect?: {
     readonly probeId: string;
     readonly guardId: string;
     readonly probe: StatementStep;
+    readonly fk: FkDirection;
+    readonly where: Record<string, unknown>;
   };
 }
 
@@ -187,6 +194,11 @@ type ParentHeldTarget =
       readonly guardProbe: Sql;
       readonly probe: StatementStep;
       readonly foundFkAssign: Record<string, unknown>;
+      /** The edge and the selector the found arm's fold was built from — the
+       *  compile-time NULL check on a NON-referenced-unique lookup needs both
+       *  ({@link UpdateOperation.assertLookupKeyPresent}, E1 U2). */
+      readonly fk: FkDirection;
+      readonly where: Record<string, unknown>;
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
       /** Withheld (`undefined`) when the selector could not establish the missing
@@ -2901,7 +2913,9 @@ export class UpdateOperation {
         }),
         outputs: { rows: { kind: "rows" } },
       },
-      foundFkAssign: this.toOneFkAssignLiteral(fk, where, relationName),
+      foundFkAssign: this.toOneFkAssign(relationInfo, fk, where),
+      fk,
+      where,
       before,
       missingFkAssign: this.beforeTargetFkAssign(fk, before, relationName),
       racePin: childRacePin(childScope, where),
@@ -2989,30 +3003,82 @@ export class UpdateOperation {
     );
   }
 
-  /** The record FK columns ← the connectOrCreate found-arm's referenced literals
-   *  (from the connect `where`) — the connect-by-non-referenced-unique shape routes
-   *  to V1 (needs a lookup subquery). */
-  private toOneFkAssignLiteral(
+  /**
+   * The record FK columns ← the connect target's referenced values, for BOTH arms
+   * that fold a located to-one target into the root UPDATE's SET: a bare `connect`
+   * ({@link interpretToOneLink}) and a `connectOrCreate`'s found arm. A directly
+   * referenced unique (`where` carries the referenced column) is a compile-time
+   * literal; a **NON-referenced unique** — `connect: { email }` when the FK
+   * references `id` — resolves through the correlated lookup subquery `(SELECT
+   * referenced FROM target WHERE …)`, `CreateOperation.toOneFkAssign`'s donor at
+   * the update root (E1 U1/U2). One home for the two arms: absorbing only one of
+   * them would leave the connectOrCreate racePin's retry re-planning into the
+   * other's refusal.
+   *
+   * The scope declares `mutationTable`, so a SELF relation's lookup — which reads
+   * the very table this UPDATE writes — hides behind a derived table on MySQL
+   * (ERROR 1093, rule 11). PostgreSQL and SQLite never wrap.
+   *
+   * The existence premise is unaffected: both arms probe the target by the SAME
+   * `where`, so a missing target is answered exactly as the directly-referenced
+   * case is — the `connect` arm by `relationTargetNotFound`, the connectOrCreate
+   * arm by taking its create arm.
+   */
+  private toOneFkAssign(
+    relationInfo: RelationInfo,
     fk: FkDirection,
-    where: Record<string, unknown>,
-    relationName: string
+    where: Record<string, unknown>
   ): Record<string, unknown> {
+    const recordScope = {
+      ...createQueryScope(this.engine.adapter, this.model),
+      mutationTable: getTableName(this.model),
+    };
     const fkAssign: Record<string, unknown> = {};
     for (let index = 0; index < fk.fkFields.length; index += 1) {
       const referenced = fk.pkFields[index]!;
-      if (!Object.hasOwn(where, referenced)) {
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update to-one connectOrCreate for relation '${relationName}' must reference '${referenced}' directly.`
-        );
-      }
-      fkAssign[fk.fkFields[index]!] = referenceSql(
-        this.engine,
-        this.model,
-        fk.fkFields[index]!,
-        where[referenced]
-      );
+      const fkField = fk.fkFields[index]!;
+      fkAssign[fkField] = Object.hasOwn(where, referenced)
+        ? referenceSql(this.engine, this.model, fkField, where[referenced])
+        : buildConnectSubqueryForField(
+            recordScope,
+            relationInfo,
+            where,
+            referenced
+          );
     }
     return fkAssign;
+  }
+
+  /**
+   * The lookup's key must EXIST on the row the probe found. A referenced column
+   * the payload did not spell is read out of the target row, and a NULLABLE unique
+   * can hold NULL there — writing that NULL would not connect the relation, it
+   * would silently DISCONNECT it. The probe row is the one provenance for the
+   * verdict (tx mode locks it `FOR UPDATE`; batch mode pins its presence with the
+   * arm's own guard), and the refusal is typed and named, never a NULL write.
+   *
+   * Spelled referenced columns are not asked: their value is the caller's literal,
+   * and a `where` naming a unique column NULL matches no row at all — that is the
+   * not-found premise each arm already answers.
+   */
+  private assertLookupKeyPresent(
+    rows: readonly unknown[],
+    fk: FkDirection,
+    where: Record<string, unknown>,
+    relationInfo: RelationInfo
+  ): void {
+    const found = rows[0];
+    if (!(found && typeof found === "object")) return;
+    const row = found as Record<string, unknown>;
+    for (const referenced of fk.pkFields) {
+      if (Object.hasOwn(where, referenced)) continue;
+      if (row[referenced] === null || row[referenced] === undefined) {
+        throw new NestedWriteError(
+          lookupKeyIsNull(relationInfo.name, referenced),
+          relationInfo.name
+        );
+      }
+    }
   }
 
   /** The before-root target INSERT step (capturing a generated PK). Mirrors
@@ -3113,8 +3179,16 @@ export class UpdateOperation {
     extraSet: Record<string, unknown>
   ): void {
     const rows = known[planningKey(target.probeId, "rows")];
+    // Zero rows is the ARM DECISION here, not an error: the probe's empty read is
+    // exactly what makes this a create.
     const found = Array.isArray(rows) && rows.length > 0;
     if (found) {
+      this.assertLookupKeyPresent(
+        rows,
+        target.fk,
+        target.where,
+        target.relationInfo
+      );
       Object.assign(extraSet, target.foundFkAssign);
       if (this.mode === "batch") {
         guards.push(
@@ -3429,18 +3503,9 @@ export class UpdateOperation {
       relationName,
       "connect"
     );
-    const assignment: Record<string, unknown> = {};
-    for (let index = 0; index < fk.fkFields.length; index += 1) {
-      const referencedField = fk.pkFields[index]!;
-      if (!Object.hasOwn(connect, referencedField)) {
-        // Connect by a non-referenced unique needs a lookup value; out of P2a
-        // scope — route the whole tree to V1.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update to-one connect for relation '${relationName}' must reference '${referencedField}' directly.`
-        );
-      }
-      assignment[fk.fkFields[index]!] = { set: connect[referencedField] };
-    }
+    // A directly-referenced unique folds its literal; a non-referenced one folds the
+    // lookup subquery ({@link UpdateOperation.toOneFkAssign}, E1 U1).
+    const assignment = this.toOneFkAssign(relationInfo, fk, connect);
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
@@ -3462,7 +3527,7 @@ export class UpdateOperation {
       relationName,
       relationInfo,
       assignment,
-      connect: { probeId, guardId, probe },
+      connect: { probeId, guardId, probe, fk, where: connect },
     };
   }
 
@@ -3472,12 +3537,21 @@ export class UpdateOperation {
   ): OperationStep[] {
     if (!link.connect) return [];
     const rows = known[planningKey(link.connect.probeId, "rows")];
+    // Zero rows is the arm's own not-found premise, unchanged by the lookup fold:
+    // the probe reads the target by the SAME `where` the fold resolves through, so
+    // "no such target" is answered here, before anything is written.
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new NestedWriteError(
         relationTargetNotFound(link.relationInfo, "connect"),
         link.relationName
       );
     }
+    this.assertLookupKeyPresent(
+      rows,
+      link.connect.fk,
+      link.connect.where,
+      link.relationInfo
+    );
     if (this.mode === "transaction") return [];
     // Batch: pin the connect target's presence before the parent SET.
     return [

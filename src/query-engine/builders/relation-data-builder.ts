@@ -21,6 +21,10 @@ import {
   findInverseRelationState,
   getPrimaryKeyFields,
 } from "./correlation-utils";
+import {
+  hideMutationTarget,
+  readsMutationTarget,
+} from "./mutation-target-subquery";
 import { buildWhereUnique } from "./where-unique-builder";
 
 export { separateData } from "./relation-mutation-parser";
@@ -290,6 +294,12 @@ export function buildConnectFkValues(
 
 /**
  * Build subquery to select a specific field for connect
+ *
+ * A caller that declares `mutationTable` (an UPDATE's `SET`, E1 U1/U2) gets the
+ * lookup hidden behind a derived table when it reads the very table the statement
+ * mutates — a SELF relation. MySQL refuses that read otherwise (ERROR 1093,
+ * measured on 8.4.10); an INSERT's `VALUES` never declares a mutation table, so
+ * the create root's spelling is byte-identical to before.
  */
 export function buildConnectSubqueryForField(
   ctx: QueryScope,
@@ -310,9 +320,12 @@ export function buildConnectSubqueryForField(
   const fieldSql = adapter.identifiers.column(subAlias, fieldColumn);
   const tableSql = adapter.identifiers.escape(targetTable);
 
-  return sql`(SELECT ${fieldSql} FROM ${tableSql} ${sql.raw([
+  const lookup = sql`SELECT ${fieldSql} FROM ${tableSql} ${sql.raw([
     subAlias,
-  ])} WHERE ${whereClause})`;
+  ])} WHERE ${whereClause}`;
+  return readsMutationTarget(ctx, [targetTable])
+    ? sql`(${hideMutationTarget(ctx, sql`(${lookup})`)})`
+    : sql`(${lookup})`;
 }
 // ============================================================
 // ANALYSIS HELPERS

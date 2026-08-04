@@ -137,6 +137,20 @@ export function upsertPremiseChanged(relationName: string): string {
   return `Nested upsert premise changed for relation '${relationName}'.`;
 }
 
+/**
+ * A to-one `connect`/`connectOrCreate` addressed its target by a unique the
+ * foreign key does NOT reference, and the located row's referenced column is NULL
+ * (E1 U1/U2). The lookup would write that NULL into the foreign key, which
+ * disconnects the relation instead of connecting it — so the arm refuses, named,
+ * rather than writing it. Only a NULLABLE referenced unique can reach this.
+ */
+export function lookupKeyIsNull(
+  relationName: string,
+  referencedField: string
+): string {
+  return `Cannot connect relation '${relationName}': the located target's referenced field '${referencedField}' is null.`;
+}
+
 /** A nested upsert's located target vanished before its update (staleness). */
 export function upsertTargetVanished(relationName: string): string {
   return `Nested upsert target for relation '${relationName}' vanished before its update.`;
