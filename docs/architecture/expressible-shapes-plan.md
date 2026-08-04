@@ -6,7 +6,9 @@
 
 ## Goal
 
-The census holds 39 refusals. The floor audit gave 16 of them the class (c-ii): the shape is possible, and the mechanism that can do it exists. This plan absorbs all 16. After the plan, the census holds approximately 23 refusals. Each survivor is then a Prisma-parity refusal (4) or a measured-impossible shape (19).
+The census holds 39 refusals. The floor audit gave 16 of them the class (c-ii): the shape is possible, and the mechanism that can do it exists. This plan absorbs all 16.
+
+The maintainer set one more rule (2026-08-04): **parity with Prisma is not a reason to refuse.** If Prisma refuses a shape but this engine can express it, the engine absorbs it as a superset. So this plan also re-examines the capability half of the (a) class (Wave E5). After the plan, the census holds approximately 21 refusals. Each survivor is then a measured-impossible shape, a genuine payload contradiction, or a malformed-argument guard — never "Prisma says no".
 
 A closing unit (TH) makes the type surface honest for the survivors.
 
@@ -74,11 +76,22 @@ The located update arm holds a known primary key. Each mechanism the root owns a
 
 **Tests.** The compound edge runs with per-field decoys: one field agrees, one does not; the write must not cross-match. The generated-key arm's grandchildren must show the produced id. **Falsification.** Make the per-field source single-field again — the compound witness must fail.
 
+### Wave E5 — beyond parity: the (a) capability sites (2 sites)
+
+The two argument-shape guards (`UpsertOperation.ts:1181`, `:1188`) stay: a payload that is not an upsert is not an operation. The two capability sites get the superset examination:
+
+| Site | Shape | Correction |
+|---|---|---|
+| `CreateOperation.ts:1837` | m2m `upsert` under a create root (Prisma refuses it) | The child-held sibling already executes this as a documented superset: the global-lookup adopt-and-update. Carry the same semantics through the junction: probe globally; found means update the target and write the join row; absent means create the target and write the join row. The junction's produced-identity and the adopt family supply the machinery. Document the divergence from Prisma, as N6 did. |
+| `RelationUpsertPart.ts:865` | The relation's owned foreign key spelled beside the relation in nested data (Prisma refuses it) | Measure what the payload means. Two different values for one column are a genuine contradiction: that case stays refused, and the site re-classifies to (b) with the measurement. Two equal values are a redundancy, not a contradiction: absorb the agreeing case if the comparison is decidable at construction; record the boundary where it is not (a `Ref` value has no construction-time comparison). |
+
+**Tests.** The m2m upsert-under-create runs both arms, both substrates, with a decoy junction row; the divergence from Prisma is pinned as a test, not prose. The owned-FK site gets the agree / disagree / undecidable triple. **Falsification.** Put each refusal back; the witnesses must fail.
+
 ### Unit TH — the type-honesty closure (last)
 
-After the E-waves, 15 refusals are permanent: 11 measured-impossible and 4 Prisma-parity. For these 15, the input types must stop offering what always throws.
+After the E-waves, the permanent refusals are: the 11 measured-impossible sites, the two malformed-argument guards, and whatever E5 re-classified to (b). For these, the input types must stop offering what always throws.
 
-- Per-relation removals: the shared-PK kinds under create; the unresolvable-reference kinds; the owned foreign-key scalar in nested data; `skipDuplicates` on a generated-key junction `createMany`; m2m `upsert` under create.
+- Per-relation removals: the shared-PK kinds under create; the unresolvable-reference kinds; `skipDuplicates` on a generated-key junction `createMany`. (The owned-FK and m2m-upsert removals apply only if E5 keeps those sites refused.)
 - Position and one-of shapes: a to-one payload holds exactly one kind (an XOR union); a compound-PK child loses the targeted-mutation kinds.
 - Each narrowing ships a contextual type probe through the public client (the typo-beside-real-key convention) and a runtime witness that the refusal still fires for untyped callers.
 - Out of scope: the 16 absorbed sites (their wide types become true); the value-dependent and driver-dependent refusals (types cannot state them; the reasons are recorded).
@@ -90,15 +103,15 @@ After the E-waves, 15 refusals are permanent: 11 measured-impossible and 4 Prism
 ```
 E1 ∥ E2      (separate files: locate sources / recursion wiring)
    |
-E3 ∥ E4      (E3 needs E2's child-Part reach; E4 does not)
+E3 ∥ E4 ∥ E5 (E3 needs E2's child-Part reach; E4 and E5 do not)
    |
 TH           (types narrow only what stayed refused)
    |
-Final: census re-audit (target ~23; each survivor (a) or (b)),
+Final: census re-audit (target ~21; each survivor (b), a contradiction, or an argument guard),
 capability matrix rows, full estate + gates + Docker legs, delivery records.
 ```
 
-Sizes: E1 = M, E2 = L, E3 = M, E4 = M, TH = M. The census target is not a promise. A unit that finds a real wall re-classifies its site to (b) with the measurement. That is a valid delivery.
+Sizes: E1 = M, E2 = L, E3 = M, E4 = M, E5 = S-M, TH = M. The census target is not a promise. A unit that finds a real wall re-classifies its site to (b) with the measurement. That is a valid delivery.
 
 ## Risks
 
