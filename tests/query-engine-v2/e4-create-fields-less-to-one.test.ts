@@ -436,27 +436,34 @@ describe("E4-U1 what still refuses", () => {
     }
   }, 30_000);
 
-  test("the COMPOUND fields-less edge keeps E4-U2's arity refusal on the adopt kinds", async () => {
+  // DELIBERATE RETARGET (E4 merge): this test pinned "the compound fields-less edge
+  // keeps E4-U2's arity refusal on the adopt kinds" — true at U1's commit, where it
+  // proved U1's ordering (the carve-out held until the per-field source existed).
+  // U2 then built exactly that source, and the adopt kinds on this edge became
+  // expressible: the refusal it pinned is DISCHARGED, so the pin becomes the state
+  // witness the discharge owes. The per-field decoy coverage for the mechanism lives
+  // in e4-compound-adopt-behavior.ts; this witness pins the fields-less spelling.
+  test("the COMPOUND fields-less edge rides E4-U2's per-field source on the adopt kinds", async () => {
     const client = await setup(new PGliteDriver({ client: new PGlite() }));
     try {
-      await expect(
-        client.bay.create({
-          data: {
-            id: 1,
-            region: "eu",
-            zone: "z",
-            slot: {
-              connectOrCreate: {
-                where: { id: 200 },
-                create: { id: 200, name: "s" },
-              },
+      await client.bay.create({
+        data: {
+          id: 1,
+          region: "eu",
+          zone: "z",
+          slot: {
+            connectOrCreate: {
+              where: { id: 200 },
+              create: { id: 200, name: "s" },
             },
           },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 create does not support a compound child edge on relation 'slot'."
-      );
-      await expect(client.slot.findMany()).resolves.toEqual([]);
+        },
+      });
+      // Each FK column carries its OWN referenced value — a single-value collapse
+      // would write "eu" into both.
+      await expect(client.slot.findMany()).resolves.toEqual([
+        { id: 200, name: "s", bayRegion: "eu", bayZone: "z" },
+      ]);
 
       // The kinds that never ask `edgeParentId` for a single parent value — `create`
       // writes every FK column per-field through `childFkAssign` — already work on the

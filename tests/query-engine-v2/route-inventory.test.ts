@@ -1933,6 +1933,35 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     guard (join rows would correlate on the vacated key), and the asserting-probe
   //     conditional-arm boundary (named mechanism: locateNotFoundOptional threading, its
   //     own unit). Witnesses: e3-arm-dispatch(.test|-behavior|-docker.test).ts.
+  // 38 -> 36 (E4, THE CREATE-ROOT RESIDUE — two sites deleted, one route narrowed).
+  //   · **−1, the closed union spoke for itself** (CreateOperation): the relation-type
+  //     predicate at the create dispatch is DELETED, not widened — every other member of
+  //     the union leaves earlier (m2m at the top, holdsFK one line above, no-inverse at
+  //     getFkDirection's own typed throw, pinned as a test), so the fields-less manyToOne
+  //     routes to interpretChildHeld like the family it is. D5's arity twin and scanner
+  //     alignment had already closed the M8 gates; the spelled-FK shape needs NO engine
+  //     guard (the parse boundary refuses it — one guard per invariant). Witness:
+  //     e4-create-fields-less-to-one.test.ts.
+  //   · **route NARROWED, count flat** (CreateOperation, the compound-edge site): the
+  //     per-field parent source (PerFieldParentIdSource, keyed by referenced-field NAME —
+  //     no index to misalign) absorbs connectOrCreate/upsert on compound-referenced child
+  //     edges; the surviving refusal covers the m2m junction alone, re-justified (the
+  //     join row keys its parent half with ONE column). The correlated-mode collapse risk
+  //     is closed at the TYPE level: UpsertParentBinding's discriminant makes
+  //     {correlated, per-field} unspellable, asserted with @ts-expect-error. Witnesses:
+  //     e4-compound-adopt(.test|-behavior|-docker.test).ts, per-field decoys.
+  //   · **−1, the junction joins the row its own insert made** (RelationJunctionPart):
+  //     the generated-key relation-carrying create arm becomes a create subtree riding
+  //     the produced-identity Ref (freshTargetFold — one decision for every arm that
+  //     makes a junction target), which also discharges E2's inherited whole-create
+  //     delegation carve because the racePin wire E2's message named now exists
+  //     (buildNestedTargetFreshCreatePart threads rootRacePin for the subtree AND the
+  //     pre-existing scalar delegated arm). The E2×E4 dedup composition is witnessed:
+  //     the second connectOrCreate item adopts the FIRST item's produced row. Witnesses:
+  //     e4-junction-produced-identity(.test|-behavior|-docker.test).ts.
+  //   One merge-time retarget: e4-create-fields-less-to-one's compound-carve pin was a
+  //   commit-order proof (U1 before U2); U2 discharged the refusal it pinned, so the pin
+  //   became the state witness the discharge owes (per-field values asserted).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1946,7 +1975,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(38);
+    expect(sites).toBe(36);
   });
 });
 
