@@ -356,6 +356,9 @@ function foldOneNestedRelation(input: {
     parentId,
     txMode,
     nestedBuilder: deeperBuilder,
+    /** ONE home for the fresh-arm seam. `connectOrCreate` and `upsert` both hand it
+     *  to their part builders below; bound here so a change to what a fresh arm
+     *  builds has a single place to happen. */
     freshArm: (freshInput: Parameters<FreshArmBuilder>[0]) =>
       buildFreshArmPart(scope, engine, freshInput),
   } as const;
@@ -454,7 +457,7 @@ function foldOneChildHeldKind(args: {
           normalizeItems(parsedRelation.connectOrCreate, relationName),
           parentId,
           txMode,
-          (freshInput) => buildFreshArmPart(scope, engine, freshInput)
+          writeBase.freshArm
         )
       );
       return;
@@ -476,7 +479,7 @@ function foldOneChildHeldKind(args: {
           parentId,
           "correlated",
           txMode,
-          (freshInput) => buildFreshArmPart(scope, engine, freshInput)
+          writeBase.freshArm
         )
       );
       return;

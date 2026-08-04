@@ -54,21 +54,25 @@ test("through the PUBLIC client: `disconnect: false` moves nothing, `true` disco
     schema: booleanNoOpSchema,
     driver: new PGliteDriver(),
   });
-  await push(client, { force: true });
-  await client.card.create({ data: { id: 10, face: "face-a" } });
-  await client.holder.create({ data: { id: 1, name: "h", cardId: 10 } });
+  try {
+    await push(client, { force: true });
+    await client.card.create({ data: { id: 10, face: "face-a" } });
+    await client.holder.create({ data: { id: 1, name: "h", cardId: 10 } });
 
-  const noOp = await client.holder.update({
-    where: { id: 1 },
-    data: { card: { disconnect: false } },
-  });
-  expect(noOp).toMatchObject({ cardId: 10 });
+    const noOp = await client.holder.update({
+      where: { id: 1 },
+      data: { card: { disconnect: false } },
+    });
+    expect(noOp).toMatchObject({ cardId: 10 });
 
-  const acted = await client.holder.update({
-    where: { id: 1 },
-    data: { card: { disconnect: true } },
-  });
-  expect(acted).toMatchObject({ cardId: null });
+    const acted = await client.holder.update({
+      where: { id: 1 },
+      data: { card: { disconnect: true } },
+    });
+    expect(acted).toMatchObject({ cardId: null });
+  } finally {
+    await client.$disconnect();
+  }
 });
 
 test("through the PUBLIC client: an empty nested update writes nothing and needs no target", async () => {
@@ -76,19 +80,26 @@ test("through the PUBLIC client: an empty nested update writes nothing and needs
     schema: booleanNoOpSchema,
     driver: new PGliteDriver(),
   });
-  await push(client, { force: true });
-  await client.holder.create({ data: { id: 1, name: "h" } });
-  await client.item.create({ data: { id: 30, title: "item-a", holderId: 1 } });
+  try {
+    await push(client, { force: true });
+    await client.holder.create({ data: { id: 1, name: "h" } });
+    await client.item.create({ data: { id: 30, title: "item-a", holderId: 1 } });
 
-  await client.holder.update({
-    where: { id: 1 },
-    data: { items: { update: { where: { id: 30 }, data: {} } } },
-  });
-  await client.holder.update({
-    where: { id: 1 },
-    data: { items: { update: { where: { id: 999 }, data: {} } } },
-  });
-  expect(await client.item.findUnique({ where: { id: 30 } })).toMatchObject({
-    title: "item-a",
-  });
+    await client.holder.update({
+      where: { id: 1 },
+      data: { items: { update: { where: { id: 30 }, data: {} } } },
+    });
+    await client.holder.update({
+      where: { id: 1 },
+      data: { items: { update: { where: { id: 999 }, data: {} } } },
+    });
+    expect(await client.item.findUnique({ where: { id: 30 } })).toMatchObject({
+      title: "item-a",
+    });
+  } finally {
+    // These two are the only PGlite-backed clients in this cohort that were never
+    // released AT ALL — not merely released on the success path — so each pass left
+    // a live database held for the worker's lifetime.
+    await client.$disconnect();
+  }
 });

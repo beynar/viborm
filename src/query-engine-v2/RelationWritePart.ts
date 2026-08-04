@@ -907,6 +907,16 @@ export class RelationWritePart implements Part {
     return this.config.kind === "update" || this.config.kind === "delete";
   }
 
+  /** W4-U3 — the inverse-side to-one `update: { where, data }` filter on the currently
+   *  connected record, as a single ordinary `WhereInput` term (not a unique
+   *  discriminator, so it is handed to the find builder whole). `[]` for the bare
+   *  `update: <data>` spelling and for every other kind, which keeps their probe and
+   *  guard SQL byte-identical to pre-W4-U3. */
+  private targetFilters(): Record<string, unknown>[] {
+    const filter = this.config.targetFilter;
+    return filter && Object.keys(filter).length > 0 ? [filter] : [];
+  }
+
   /**
    * The child's unique-selector conjuncts, or `[]` when this targeted mutation has
    * no unique `where` — the **inverse-side to-one** case (TO-ONE.md §7.2), where the
@@ -923,16 +933,6 @@ export class RelationWritePart implements Part {
    * concurrent write to the filtered column slip a row past the guard the locate had
    * excluded.
    */
-  /** W4-U3 — the inverse-side to-one `update: { where, data }` filter on the currently
-   *  connected record, as a single ordinary `WhereInput` term (not a unique
-   *  discriminator, so it is handed to the find builder whole). `[]` for the bare
-   *  `update: <data>` spelling and for every other kind, which keeps their probe and
-   *  guard SQL byte-identical to pre-W4-U3. */
-  private targetFilters(): Record<string, unknown>[] {
-    const filter = this.config.targetFilter;
-    return filter && Object.keys(filter).length > 0 ? [filter] : [];
-  }
-
   private optionalWhereFilters(): Record<string, unknown>[] {
     return this.config.where
       ? uniqueSelectorConjuncts(this.config.childScope, this.config.where)

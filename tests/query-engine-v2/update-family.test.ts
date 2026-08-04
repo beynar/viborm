@@ -365,11 +365,7 @@ describe("query-engine-v2 update construction surface", () => {
   // driver and both substrates that it also EXECUTES, persisting what the
   // `where: { id }` spelling persists.
   test("both a scalar update and a nested to-many create by a non-PK unique construct on V2", () => {
-    const schemas = createSchemaRegistry(updateFamilySchema);
-    const engine = new QueryEngine(
-      new PGliteDriver(),
-      createModelRegistry(updateFamilySchema, schemas)
-    );
+    const engine = planningEngine();
     const userModel = updateFamilySchema.user;
 
     // A scalar update is V2-native — it constructs for the whole tree.
