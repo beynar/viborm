@@ -2081,7 +2081,10 @@ stopped the rebuild that had been deleting the index between pushes. It unmasked
 the defect rather than leaving it untouched, and the record should have said the
 outcome changed from "push succeeds, unique not enforced" to "push fails".
 
-The two residues, as they were measured, and what closes each:
+The two residues, as they were measured, and what closes each — but read
+correction 4 below with them: the recreation closes both only for a table no
+foreign key points AT, and the sentences below that say otherwise were written
+against witnesses that never exercised a referenced parent.
 
 - **A real change to a compound unique failed on SQLite.** Spelling:
   `.unique(["a", "b"])` → `.unique(["b", "a"])` on a mapped model, pushed twice.
@@ -2120,6 +2123,82 @@ everything outside `tests/cli` is at zero; Docker MySQL 8.4 on 3307
 14 skipped**; repo-pinned `npx biome check` (2.3.11) over the touched files
 reports only the three pre-existing `useTopLevelRegex` infos in
 `ddl-drivers.test.ts`, byte-for-byte the ones the file already had.
+
+**Correction 4 — the pragma the transaction was throwing away.** Correction 3
+says above, without qualification, that "the recreation closes it" and that
+"push #3 on plans nothing". That is only true of a table no foreign key points
+AT. `sqlite-unique-constraint.test.ts` recreates `uq_posts`, which HOLDS a
+foreign key but is not referenced by one, so all four witnesses passed over a
+hole correction 3 had just steered a new operation into.
+
+Step 4 of `generateTableRecreation` is `DROP TABLE <t>`, and with foreign keys
+enforced SQLite performs an implicit `DELETE FROM` before removing the table.
+`PRAGMA foreign_keys` is documented as a NO-OP inside a transaction, and
+`executeDDLStatements` runs the whole batch inside `driver.withTransaction`, so
+the `PRAGMA foreign_keys=OFF` step 1 emits had never taken effect. Measured on
+better-sqlite3 at `5e5bc60`, recreating a populated `fk_parent` with one child
+row in `fk_kid`:
+
+| `onDelete` | what push #2 did |
+| --- | --- |
+| `noAction` | `DROP TABLE` threw `FOREIGN KEY constraint failed`; nothing applied |
+| `cascade` | reported success, and every child row was gone |
+| `setNull` | reported success, and every child's key was NULL |
+
+It is a strict single-push regression for the `noAction` shape: at `f33d16a` the
+same push emitted `CREATE UNIQUE INDEX`, which the same populated database
+accepts. The other two shapes are worse than the regression — they lose data and
+say nothing.
+
+The hazard CLASS predates correction 3, and nothing about it is new here:
+`alterColumn` reaches the same recreation, and on the same fixture at `5e5bc60`
+it threw `Foreign key constraint violation` too — it is in the witness file for
+that reason. `addForeignKey` is the same shape. Correction 3 routed a
+previously-safe operation into a hole those two were already in.
+
+`PRAGMA defer_foreign_keys=ON`, the spelling SQLite does honor inside a
+transaction, does not close it. Measured: it defers the violation counter the
+implicit delete already incremented and nothing decrements it, so `noAction`
+moves its failure from `DROP TABLE` to `COMMIT`, and `cascade`/`setNull` still
+lose the children. There is no in-transaction spelling; `PRAGMA
+legacy_alter_table` + renaming the old table aside was measured too and fails
+identically, additionally rewriting the child's `REFERENCES` clause to the
+temporary name.
+
+**Delivered.** `src/migrations/foreign-keys.ts` lifts the pragma out to bracket
+the transaction — SQLite's own procedure has step 1 (`PRAGMA foreign_keys=OFF`)
+precede step 2 (`BEGIN`) — at all three seams that execute generated DDL:
+`push/executor.ts`, `apply/index.ts` and `apply/down.ts`. Native-batch drivers
+are excluded by `driver.supportsBatch`: one round trip has no outside to lift
+to, and the hole stays open there — D1 is the only batch-only SQLite driver and
+nothing in the estate exercises it, so any lift written for it would be
+unmeasured.
+
+Lifting is what makes the disable REAL for the first time, and a real disable is
+fail-open for the rest of the batch — a `dropTable` sharing it would orphan its
+children instead of refusing. `assertForeignKeysIntact` closes that: `PRAGMA
+foreign_key_check` runs last INSIDE the transaction, so a violation rolls the
+batch back. It cannot tell a reference the batch broke from one it merely found
+and refuses either way, which is what SQLite's step 10 prescribes.
+
+`reset.ts` is the fourth place a `ctx.transaction` wraps generated DDL and it is
+deliberately NOT lifted. It drops every table first and then replays the whole
+journal, so each recreation in the replay runs against a table the same
+transaction has just emptied and the implicit `DELETE FROM` has nothing to act
+on. Its step 1 — dropping populated tables in reverse journal order with
+enforcement on — is a separate question this entry does not answer, and it is
+unmeasured: `reset` has no witness anywhere in the estate. Lifting there would
+also have made the fix arbitrary, since the bracket only exists when some
+replayed file happens to carry a recreation.
+
+Witnesses in `tests/migrations/sqlite-recreation-foreign-key-parent.test.ts`:
+the three referential actions, `alterColumn` and `dropUniqueConstraint` on a
+referenced parent, LibSQL, the `generate`/`apply`/`down` seam, the refusal, and
+four unit assertions on which batches get lifted. Falsified one guard at a time
+— never lifting fails 8, dropping the check fails the refusal, dropping the
+native-batch gate fails the native-batch assertion, accepting half a bracket
+fails the half-bracket assertion, and reverting the lift at `apply` or at `down`
+separately each fails the migrate witness.
 
 ## Order of the phases
 

@@ -7,6 +7,12 @@
 
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { MigrationContext, type MigrationContextOptions } from "../context";
+import {
+  assertForeignKeysIntact,
+  type ForeignKeyBracket,
+  liftForeignKeyPragmas,
+  withForeignKeysLifted,
+} from "../foreign-keys";
 import type { MigrationClient } from "../push";
 import type { MigrationEntry } from "../types";
 
@@ -126,23 +132,40 @@ export async function down(
 
   // Execute rollback with lock, wrapped in a single transaction for atomicity
   return ctx.withLock(async () => {
-    return ctx.transaction(async (txCtx) => {
-      const rolledBack: MigrationEntry[] = [];
+    // Read every down script before opening the transaction: a rollback that
+    // undoes a SQLite table recreation carries `PRAGMA foreign_keys`, which a
+    // transaction discards, so the pragma has to bracket the one transaction
+    // they all share. See `src/migrations/foreign-keys.ts`.
+    const scripts: Array<{ entry: MigrationEntry; statements: string[] }> = [];
+    let bracket: ForeignKeyBracket | null = null;
 
-      for (const entry of toRollback) {
-        // Try to execute down SQL if available
-        const downSql = await readDownSql(txCtx, entry);
-        if (downSql) {
-          const statements = parseDownStatements(downSql);
-          await txCtx.executeMigrationStatements(statements);
+    for (const entry of toRollback) {
+      const downSql = await readDownSql(ctx, entry);
+      const lifted = liftForeignKeyPragmas(
+        ctx.driver,
+        downSql ? parseDownStatements(downSql) : []
+      );
+      bracket ??= lifted.bracket;
+      scripts.push({ entry, statements: lifted.statements });
+    }
+
+    return withForeignKeysLifted(ctx.driver, bracket, () =>
+      ctx.transaction(async (txCtx) => {
+        const rolledBack: MigrationEntry[] = [];
+
+        for (const script of scripts) {
+          if (script.statements.length > 0) {
+            await txCtx.executeMigrationStatements(script.statements);
+          }
+          // Remove from tracking
+          await txCtx.markMigrationRolledBack(script.entry.name);
+          rolledBack.push(script.entry);
         }
-        // Remove from tracking
-        await txCtx.markMigrationRolledBack(entry.name);
-        rolledBack.push(entry);
-      }
 
-      return { rolledBack };
-    });
+        await assertForeignKeysIntact(txCtx.driver, bracket);
+        return { rolledBack };
+      })
+    );
   });
 }
 

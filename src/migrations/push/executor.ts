@@ -1,5 +1,10 @@
 import type { AnyDriver } from "../../drivers/driver";
 import type { DDLContext, MigrationDriver } from "../drivers";
+import {
+  assertForeignKeysIntact,
+  liftForeignKeyPragmas,
+  withForeignKeysLifted,
+} from "../foreign-keys";
 import type { DiffOperation, SchemaSnapshot } from "../types";
 
 const MATCH_ALTER_TYPE_ADD_VALUE = /^ALTER\s+TYPE\s+.*\s+ADD\s+VALUE\s+/i;
@@ -45,23 +50,36 @@ export async function executeDDLStatements(
     await driver._executeRaw(`${statement};`);
   }
 
-  if (statementGroups.transactionalStatements.length > 0) {
-    if (!driver.supportsTransactions && driver.supportsBatch) {
-      await driver._executeBatch(
-        statementGroups.transactionalStatements.map((statement) => ({
-          sql: `${statement};`,
-          params: [],
-        }))
-      );
-      return;
-    }
+  if (statementGroups.transactionalStatements.length === 0) {
+    return;
+  }
 
-    await driver.withTransaction(async (txDriver) => {
-      for (const statement of statementGroups.transactionalStatements) {
+  if (!driver.supportsTransactions && driver.supportsBatch) {
+    await driver._executeBatch(
+      statementGroups.transactionalStatements.map((statement) => ({
+        sql: `${statement};`,
+        params: [],
+      }))
+    );
+    return;
+  }
+
+  // SQLite's table recreation asks for foreign keys off, and a transaction
+  // discards that request; the pragma has to bracket the transaction instead.
+  // See `src/migrations/foreign-keys.ts`.
+  const lifted = liftForeignKeyPragmas(
+    driver,
+    statementGroups.transactionalStatements
+  );
+
+  await withForeignKeysLifted(driver, lifted.bracket, () =>
+    driver.withTransaction(async (txDriver) => {
+      for (const statement of lifted.statements) {
         await txDriver._executeRaw(`${statement};`);
       }
-    });
-  }
+      await assertForeignKeysIntact(txDriver, lifted.bracket);
+    })
+  );
 }
 
 function splitTransactionStatements(
