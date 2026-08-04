@@ -13,7 +13,7 @@ import { buildCreateManyPlan } from "../operations/create";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
-import { CreateOperation } from "./CreateOperation";
+import { CreateOperation, type FreshReferenced } from "./CreateOperation";
 import { referenceSql } from "./fragment-builders";
 import type { OperationStep, TargetConstraintPin } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
@@ -225,7 +225,25 @@ export function buildNestedTargetFreshCreatePart(input: {
   engine: QueryEngine;
   targetModel: Model<any>;
   data: Record<string, unknown>;
-}): Part {
+  /**
+   * E4-U3 — the missing-premise pin the arm's own INSERT carried before the whole
+   * create was delegated. The subtree REPLACES that INSERT, so without threading the
+   * pin the delegation would trade a race protection for a shape; `nestedFresh`
+   * already knows how to put it on the subtree's ROOT insert (`rootRacePin`), the same
+   * channel the before-root target subtree uses. Absent for an unconditional `create`
+   * arm, which has no premise to miss.
+   */
+  racePin?: TargetConstraintPin;
+}): {
+  readonly part: Part;
+  /**
+   * E4-U3 — one referenced value of the row this subtree's ROOT makes: a backward
+   * `Ref` when its primary key is database-generated, a literal when the create data
+   * spells it, `undefined` when it is neither (the caller's typed refusal). The join
+   * row spends it, which is why the subtree has to hand it back rather than keep it.
+   */
+  readonly rootReferenced: (field: string) => FreshReferenced | undefined;
+} {
   const op = new CreateOperation(
     input.engine,
     input.targetModel,
@@ -233,10 +251,17 @@ export function buildNestedTargetFreshCreatePart(input: {
     {
       scope: input.scope,
       skipOwnWrite: true,
-      nestedFresh: { data: input.data, rootFkInject: () => ({}) },
+      nestedFresh: {
+        data: input.data,
+        rootFkInject: () => ({}),
+        ...(input.racePin ? { rootRacePin: input.racePin } : {}),
+      },
     }
   );
-  return new NestedFreshCreatePart(op);
+  return {
+    part: new NestedFreshCreatePart(op),
+    rootReferenced: (field) => op.freshRootReferenced(field),
+  };
 }
 
 /**

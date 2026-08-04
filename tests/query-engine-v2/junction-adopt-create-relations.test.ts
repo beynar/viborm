@@ -11,7 +11,6 @@ import type {
   OperationStep,
   StatementStep,
 } from "../../src/query-engine/write-engine/OperationFragment";
-import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
 import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 
 /**
@@ -523,91 +522,108 @@ describe("E2-U2 the missing-premise race pin survives the absorption", () => {
   }
 });
 
-describe("E2-U2 the carve-outs that stay refused", () => {
+describe("E2-U2 the carve-outs — both DISCHARGED by E4-U3", () => {
+  /**
+   * DELIBERATE RETARGET (E4-U3). This pinned E2's first carve-out: a relation-carrying
+   * create arm whose target primary key is DB-generated. The reason was that the arm's
+   * deeper edges folded against a compile-time literal and a produced key is a backward
+   * `Ref`.
+   *
+   * E4-U3 stopped folding. The arm is a whole create SUBTREE, the create root has
+   * threaded produced identities to its own children since N4-U4, and the join row asks
+   * the subtree for the identity its INSERT made. What this test pins now is that
+   * lift — and, unchanged, that the SCALAR-only spelling still rides the slot's own
+   * produced-identity path. The full state and provenance witnesses are
+   * `e4-junction-produced-identity(.test|-behavior|-docker.test).ts`.
+   */
   test("a relation-carrying arm with a DB-generated target primary key", async () => {
     const client = await setup(new PGliteDriver());
     try {
-      await expect(
-        client.post.update({
-          where: { id: "post1" },
-          data: {
-            stamps: {
-              connectOrCreate: {
-                where: { name: "fresh-stamp" },
-                create: {
-                  name: "fresh-stamp",
-                  notes: { create: { id: "sn1", body: "b" } },
-                },
-              },
-            },
-          },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 create-through-junction for relation 'stamps' requires the target primary key 'id' in the create data (connectOrCreate)."
-      );
-      // The scalar-only spelling of the SAME arm still rides the produced identity:
-      // the refusal is about the deeper edges' literal, not about generated keys.
       await client.post.update({
         where: { id: "post1" },
         data: {
           stamps: {
             connectOrCreate: {
               where: { name: "fresh-stamp" },
-              create: { name: "fresh-stamp" },
+              create: {
+                name: "fresh-stamp",
+                notes: { create: { id: "sn1", body: "b" } },
+              },
+            },
+          },
+        },
+      });
+      const stamps = await client.stamp.findMany({
+        where: { posts: { some: { id: "post1" } } },
+      });
+      expect(stamps).toMatchObject([{ name: "fresh-stamp" }]);
+      // The grandchild the subtree wrote carries the SAME produced id the join row does.
+      await expect(
+        client.stampNote.findUnique({ where: { id: "sn1" } })
+      ).resolves.toMatchObject({ stampId: (stamps[0] as any).id });
+      // The scalar-only spelling of the SAME arm is untouched.
+      await client.post.update({
+        where: { id: "post1" },
+        data: {
+          stamps: {
+            connectOrCreate: {
+              where: { name: "second-stamp" },
+              create: { name: "second-stamp" },
             },
           },
         },
       });
       await expect(
-        client.stamp.findMany({ where: { posts: { some: { id: "post1" } } } })
-      ).resolves.toMatchObject([{ name: "fresh-stamp" }]);
+        client.stamp.findMany({
+          where: { posts: { some: { id: "post1" } } },
+          orderBy: { name: "asc" },
+        })
+      ).resolves.toMatchObject([
+        { name: "fresh-stamp" },
+        { name: "second-stamp" },
+      ]);
     } finally {
       await client.$disconnect();
     }
   }, 30_000);
 
+  /**
+   * DELIBERATE RETARGET (E4-U3). E2's second carve-out refused the WHOLE-create
+   * delegation on this arm for one reason, stated in its own message: the delegated
+   * subtree replaces the arm's INSERT, and with it the unique-constraint `racePin` the
+   * arm's missing premise is enforced by. E2 declined to trade a race protection for a
+   * shape and named the wire that would settle it.
+   *
+   * E4-U3 laid that wire (`buildNestedTargetFreshCreatePart`'s `racePin`, threaded to
+   * the subtree's ROOT insert through `nestedFresh.rootRacePin`), so the trade is no
+   * longer being made. The pin's own witness is in
+   * `e4-junction-produced-identity.test.ts`; what this test pins is the SHAPE that used
+   * to be refused, executing.
+   */
   test("a create arm whose relations need the whole-create delegation", async () => {
     const client = await setup(new PGliteDriver());
     try {
-      await expect(
-        client.post.update({
-          where: { id: "post1" },
-          data: {
-            tags: {
-              connectOrCreate: {
-                where: { id: "t-owned" },
-                create: {
-                  id: "t-owned",
-                  name: "owned",
-                  owner: { create: { id: "u1", name: "owner" } },
-                },
+      await client.post.update({
+        where: { id: "post1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t-owned" },
+              create: {
+                id: "t-owned",
+                name: "owned",
+                owner: { create: { id: "u1", name: "owner" } },
               },
             },
           },
-        })
-      ).rejects.toThrow(UnsupportedOperationError);
-      await expect(
-        client.post.update({
-          where: { id: "post1" },
-          data: {
-            tags: {
-              connectOrCreate: {
-                where: { id: "t-owned" },
-                create: {
-                  id: "t-owned",
-                  name: "owned",
-                  owner: { create: { id: "u1", name: "owner" } },
-                },
-              },
-            },
-          },
-        })
-      ).rejects.toThrow(
-        "does not support a create arm whose relations need the whole-create delegation"
-      );
+        },
+      });
       await expect(
         client.tag.findUnique({ where: { id: "t-owned" } })
-      ).resolves.toBeNull();
+      ).resolves.toMatchObject({ ownerId: "u1" });
+      await expect(
+        client.tag.findMany({ where: { posts: { some: { id: "post1" } } } })
+      ).resolves.toMatchObject([{ id: "t-owned" }]);
     } finally {
       await client.$disconnect();
     }

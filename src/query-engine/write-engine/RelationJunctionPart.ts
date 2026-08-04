@@ -48,6 +48,7 @@ import {
   type OperationStep,
   ref,
   type StatementStep,
+  type TargetConstraintPin,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
@@ -192,6 +193,31 @@ export interface RelationJunctionConfig {
   // located-update-projection target.
   readonly createDelegated?: readonly (Part | undefined)[];
   readonly upsertCreateDelegated?: readonly (Part | undefined)[];
+  /** E4-U3 — the `connectOrCreate` create arm's delegated subtree, aligned to
+   *  `adopts`; present when the arm's whole create is a subtree rather than the
+   *  slot's own `childInsert`. */
+  readonly adoptCreateDelegated?: readonly (Part | undefined)[];
+  /**
+   * E4-U3 — the join row's target value when a DELEGATED subtree owns the INSERT,
+   * aligned to `creates` / `adopts` / `upserts`. The slot cannot ask `resolveCreatePk`
+   * for it: that resolver `Ref`s the slot's OWN `childInsert` step, which a delegated
+   * arm never emits, so the join row would address a statement that is not in the
+   * fragment. `undefined` keeps the slot's own resolution.
+   */
+  readonly createIdentity?: readonly (JunctionCreateIdentity | undefined)[];
+  readonly adoptIdentity?: readonly (JunctionCreateIdentity | undefined)[];
+  readonly upsertCreateIdentity?: readonly (
+    | JunctionCreateIdentity
+    | undefined
+  )[];
+}
+
+/** E4-U3 — a fresh junction target's identity as the join row spends it: the value,
+ *  and whether the row's INSERT is what PRODUCED it (which is what the connectOrCreate
+ *  dedup ledger keys on — a produced key has no compile-time value to key by). */
+interface JunctionCreateIdentity {
+  readonly pk: unknown;
+  readonly generatedField?: string;
 }
 
 /** A per-target probe slot (connect/set/delete/update) with its write ids. */
@@ -263,6 +289,10 @@ interface AdoptSlot {
   /** E2-U2 (mechanism 2): the fresh target's own nested child Parts, folded one level
    *  deeper against its explicit literal PK. Emitted on the CREATE branch only. */
   readonly childParts: readonly Part[];
+  /** E4-U3 — when present, the create arm's whole create is a SUBTREE which REPLACES
+   *  this slot's `childInsert` on the create branch (it carries the arm's `racePin` on
+   *  its own root INSERT) and produces the identity {@link createPk} references. */
+  readonly delegated?: Part;
 }
 
 /** An `upsert` slot — a membership probe + a global probe decide the three-way. */
@@ -385,6 +415,8 @@ export class RelationJunctionPart implements Part {
       // the same widened superset every other arm uses (ATOM §3 technique 2). Which
       // branch this slot takes is a compile-time decision made from `adopt.probe`'s
       // rows, and planning runs before that decision exists.
+      // E4-U3: a DELEGATED create arm plans its whole subtree here for the same reason.
+      if (adopt.delegated) steps.push(...adopt.delegated.planning(scope));
       for (const child of adopt.childParts)
         steps.push(...child.planning(scope));
     }
@@ -740,6 +772,16 @@ export class RelationJunctionPart implements Part {
         continue;
       }
       created.set(key, slot.createPk);
+      if (slot.delegated) {
+        // E4-U3: the whole create arm is a SUBTREE. It runs FIRST (its before-parent
+        // writes, then the target INSERT that produces the identity), and the join row
+        // references what that INSERT made — never this slot's own `childInsert`, which
+        // is not emitted here at all. The arm's missing-premise `racePin` rides the
+        // subtree's root INSERT, so the delegation costs the arm no race protection.
+        steps.push(...slot.delegated.compile(scope, known));
+        steps.push(this.joinInsert(slot.joinId, parent, slot.createPk));
+        continue;
+      }
       steps.push(
         this.childInsert(
           slot.childId,
@@ -966,7 +1008,9 @@ export class RelationJunctionPart implements Part {
   ): CreateSlot {
     const { childName } = this.config;
     const childId = scope.allocate(`${childName}.create`);
-    const resolved = this.resolveCreatePk(create, childId);
+    const resolved =
+      this.config.createIdentity?.[index] ??
+      this.resolveCreatePk(create, childId);
     return {
       create,
       createPk: resolved.pk,
@@ -988,7 +1032,9 @@ export class RelationJunctionPart implements Part {
     const { childName } = this.config;
     const probeId = scope.allocate(`${childName}.find`);
     const childId = scope.allocate(`${childName}.create`);
-    const resolved = this.resolveCreatePk(item.create, childId);
+    const resolved =
+      this.config.adoptIdentity?.[index] ??
+      this.resolveCreatePk(item.create, childId);
     return {
       where: item.where,
       create: item.create,
@@ -1001,6 +1047,7 @@ export class RelationJunctionPart implements Part {
       childId,
       joinId: scope.allocate(`${childName}.junction.insert`),
       childParts: this.config.adoptCreateChildParts?.[index] ?? [],
+      delegated: this.config.adoptCreateDelegated?.[index],
       // Global lookup-and-adopt: an uncorrelated probe by the child unique.
       probe: {
         id: probeId,
@@ -1033,7 +1080,9 @@ export class RelationJunctionPart implements Part {
     // for the just-created row on top of the join value; with the ledger deleted the
     // arm needs exactly what `create` / `connectOrCreate` / `createMany` need — the
     // join row's value — so it asks the same question in the same place.
-    const identity = this.resolveCreatePk(item.create, childId);
+    const identity =
+      this.config.upsertCreateIdentity?.[index] ??
+      this.resolveCreatePk(item.create, childId);
     return {
       where: item.where,
       create: item.create,
@@ -1690,22 +1739,115 @@ export function buildJunctionParts(input: {
       `query-engine-v2 nested '${foldKind}' on many-to-many relation '${relationName}' carries nested relation writes; it must locate the target by its primary key '${targetPkField}'.`
     );
   };
-  // The literal PK a relation-carrying create arm supplies (mechanism 2's fresh
-  // target). A scalar-only create supports a DB-generated identity (the slot's
-  // produced-Ref path, resolveCreatePk), but a RELATION-CARRYING one cannot: its
-  // deeper child Parts fold against a compile-time literalParentId, so a
-  // generated PK here stays an explicit typed refusal.
-  const requireCreatePkValue = (
+  /**
+   * E4-U3 — how a FRESH junction target and its own relations are written, in one
+   * decision for every arm that makes a row (`create` / `createMany` /
+   * `connectOrCreate` / the upsert create arm).
+   *
+   * Three shapes, and the difference between them is only where the target's identity
+   * comes from:
+   *
+   *  1. **scalar-only** — the slot writes its own `childInsert` and the join row takes
+   *     the literal PK, or the `Ref` that INSERT produces (`resolveCreatePk`).
+   *     Untouched.
+   *  2. **relations over a LITERAL PK** — mechanism 2: the deeper edges fold against
+   *     that compile-time value through the shared `nestedBuilder`, emitted after the
+   *     INSERT + join.
+   *  3. **relations over a PRODUCED PK, or a payload that needs the whole-create
+   *     delegation** — the arm becomes a create SUBTREE. Its root INSERT produces the
+   *     identity, its own grandchildren `Ref` that identity (N4-U4, inside the
+   *     subtree), and the JOIN ROW `Ref`s it too. This is the shape that used to be a
+   *     refusal: the deeper edges needed a compile-time literal, and a produced key is
+   *     a backward `Ref` — true of the fold, never true of the create root, which has
+   *     threaded produced identities to its children since N4-U4.
+   *
+   * The `racePin` is what makes (3) legal on an arm with a missing premise. The subtree
+   * REPLACES the arm's `childInsert`, and with it the pin that arm's premise is enforced
+   * by (the Pin Rule: a unique constraint, never a notExists guard) — so the pin rides
+   * the subtree's root INSERT instead, through {@link buildNestedTargetFreshCreatePart}.
+   * E2 refused the delegation rather than make that trade silently; this is the wire it
+   * named.
+   */
+  const freshTargetFold = (
     create: Record<string, unknown>,
-    foldKind: string
-  ): unknown => {
-    const pk = create[targetPkField];
-    if (pk === undefined || pk === null) {
+    foldKind: string,
+    racePin?: TargetConstraintPin
+  ): {
+    scalar: Record<string, unknown>;
+    childParts: readonly Part[];
+    delegated: Part | undefined;
+    /** Set only when the subtree owns the INSERT: the join row's target value, and
+     *  the generated-field marker the dedup ledger keys on. */
+    identity: JunctionCreateIdentity | undefined;
+  } => {
+    const { scalarData, relations } = separateData(childScope, create);
+    const spelledPk = create[targetPkField];
+    const pkIsLiteral = spelledPk !== undefined && spelledPk !== null;
+    if (Object.keys(relations).length === 0) {
+      return {
+        scalar: scalarData,
+        childParts: [],
+        delegated: undefined,
+        identity: undefined,
+      };
+    }
+    if (pkIsLiteral && !targetNeedsFullUpdate(childScope, create)) {
+      return {
+        scalar: scalarData,
+        childParts: input.nestedBuilder(
+          childScope,
+          literalParentId(spelledPk),
+          relations,
+          txMode
+        ),
+        delegated: undefined,
+        identity: undefined,
+      };
+    }
+    const subtree = buildNestedTargetFreshCreatePart({
+      scope,
+      engine,
+      targetModel: relationInfo.targetModel,
+      data: create,
+      ...(racePin ? { racePin } : {}),
+    });
+    if (pkIsLiteral) {
+      return {
+        scalar: scalarData,
+        childParts: [],
+        delegated: subtree.part,
+        identity: undefined,
+      };
+    }
+    const produced = subtree.rootReferenced(targetPkField);
+    if (produced === undefined) {
+      // The subtree cannot name its own row either: the primary key is neither spelled,
+      // nor generated by the INSERT, nor knowable from the create data (an `Sql`
+      // operand, a non-increment generated key). The join row would reference a value
+      // that does not exist, so the arm still refuses — the same sentence, now for the
+      // one case that is genuinely without an identity rather than for every generated
+      // key.
       throw new UnsupportedOperationError(
         `query-engine-v2 create-through-junction for relation '${relationName}' requires the target primary key '${targetPkField}' in the create data (${foldKind}).`
       );
     }
-    return pk;
+    return {
+      scalar: scalarData,
+      childParts: [],
+      delegated: subtree.part,
+      identity:
+        produced.kind === "ref"
+          ? {
+              pk: referenceSql(
+                engine,
+                childScope.model,
+                targetPkField,
+                produced.ref
+              ),
+              generatedField: targetPkField,
+            }
+          : { pk: produced.value },
+    };
   };
   // X1c — a junction target whose data carries the parent-held to-one projection (or a
   // D4 edge) is not folded in place; its WHOLE target write delegates to the update /
@@ -1757,75 +1899,6 @@ export function buildJunctionParts(input: {
           },
         }),
       ],
-    };
-  };
-  /**
-   * E2-U2 — the `connectOrCreate` CREATE arm's own relations.
-   *
-   * The arm inserts a row keyed by a literal PK the create data carries, so its deeper
-   * edges are the fresh-target case mechanism 2 already owns: fold them one level deeper
-   * against that literal through the same {@link foldTarget} the `create` / `upsert`
-   * arms use. What is arm-specific is not the fold but WHERE it is emitted —
-   * {@link RelationJunctionPart.compileConnectOrCreate} runs them on the create branch
-   * only.
-   *
-   * Two carve-outs, both about what the delegation would take away:
-   *
-   *  · a relation payload that needs the WHOLE-create delegation (a parent-held to-one
-   *    write, or an edge referencing a non-primary-key column — {@link
-   *    targetNeedsFullUpdate}) stays refused. The delegated subtree REPLACES the arm's
-   *    `childInsert`, and with it the `racePin` that is how this family's missing
-   *    premise is enforced (Pin Rule: never a notExists guard). Absorbing it here would
-   *    trade a race protection for a shape, which is not a trade this wave makes; the
-   *    racePin threading through that seam is E4's unit.
-   *  · a DB-generated target PK inherits {@link requireCreatePkValue}'s refusal, because
-   *    the child Parts fold against a COMPILE-TIME literal and a produced identity is a
-   *    backward `Ref`. A scalar-only arm keeps the produced-identity path untouched:
-   *    `foldTarget` asks for the parent id only when the payload carries relations.
-   */
-  const foldAdoptCreateArm = (
-    create: Record<string, unknown>
-  ): { scalar: Record<string, unknown>; childParts: readonly Part[] } => {
-    const { relations } = separateData(childScope, create);
-    if (
-      Object.keys(relations).length > 0 &&
-      targetNeedsFullUpdate(childScope, create)
-    ) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 nested 'connectOrCreate' on many-to-many relation '${relationName}' does not support a create arm whose relations need the whole-create delegation (a parent-held to-one write, or an edge referencing a non-primary-key column): that delegation replaces the arm's insert, and with it the unique-constraint race pin its missing premise is enforced by.`
-      );
-    }
-    return foldTarget(create, () =>
-      literalParentId(requireCreatePkValue(create, "connectOrCreate"))
-    );
-  };
-  const foldOrDelegateCreate = (
-    create: Record<string, unknown>
-  ): {
-    scalar: Record<string, unknown>;
-    childParts: readonly Part[];
-    delegated: Part | undefined;
-  } => {
-    if (!targetNeedsFullUpdate(childScope, create)) {
-      const folded = foldTarget(create, () =>
-        literalParentId(requireCreatePkValue(create, "create"))
-      );
-      return { ...folded, delegated: undefined };
-    }
-    // Validate the fresh target's PK is present: a delegated create keys the join
-    // row by the literal PK (the delegated CreateOperation owns the INSERT, so the
-    // junction slot has no produced-Ref path here) — a generated identity on a
-    // relation-carrying target stays an explicit typed refusal.
-    requireCreatePkValue(create, "create");
-    return {
-      scalar: separateData(childScope, create).scalarData,
-      childParts: [],
-      delegated: buildNestedTargetFreshCreatePart({
-        scope,
-        engine,
-        targetModel: relationInfo.targetModel,
-        data: create,
-      }),
     };
   };
   const parts: RelationJunctionPart[] = [];
@@ -1975,7 +2048,7 @@ export function buildJunctionParts(input: {
         const folded = normalizeCreates(
           parsedRelation.create,
           relationName
-        ).map((create) => foldOrDelegateCreate(create));
+        ).map((create) => freshTargetFold(create, "create"));
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
@@ -1983,6 +2056,7 @@ export function buildJunctionParts(input: {
             creates: folded.map((f) => f.scalar),
             createChildParts: folded.map((f) => f.childParts),
             createDelegated: folded.map((f) => f.delegated),
+            createIdentity: folded.map((f) => f.identity),
           })
         );
         break;
@@ -2014,7 +2088,9 @@ export function buildJunctionParts(input: {
         // An empty `data` writes nothing, exactly as the child-held-FK nested
         // `createMany` does (`CreateOperation.foldCreateMany`) — no Part, no steps.
         if (rows.length > 0) {
-          const foldedMany = rows.map((create) => foldOrDelegateCreate(create));
+          const foldedMany = rows.map((create) =>
+            freshTargetFold(create, "create")
+          );
           parts.push(
             new RelationJunctionPart(scope, {
               ...base,
@@ -2023,6 +2099,7 @@ export function buildJunctionParts(input: {
               creates: foldedMany.map((f) => f.scalar),
               createChildParts: foldedMany.map((f) => f.childParts),
               createDelegated: foldedMany.map((f) => f.delegated),
+              createIdentity: foldedMany.map((f) => f.identity),
             })
           );
         }
@@ -2036,7 +2113,15 @@ export function buildJunctionParts(input: {
           relationName,
           kind
         );
-        const armed = items.map((item) => foldAdoptCreateArm(item.create));
+        const armed = items.map((item) =>
+          // E4-U3: the arm's missing-premise pin rides the delegated subtree's root
+          // INSERT when the whole create is delegated (E2's carve, now wired).
+          freshTargetFold(
+            item.create,
+            "connectOrCreate",
+            childRacePin(childScope, item.where)
+          )
+        );
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
@@ -2046,6 +2131,8 @@ export function buildJunctionParts(input: {
               create: armed[index]!.scalar,
             })),
             adoptCreateChildParts: armed.map((f) => f.childParts),
+            adoptCreateDelegated: armed.map((f) => f.delegated),
+            adoptIdentity: armed.map((f) => f.identity),
           })
         );
         break;
@@ -2057,7 +2144,11 @@ export function buildJunctionParts(input: {
         // Each arm's child Parts are emitted branch-specifically by `compileUpsert`.
         const items = normalizeUpserts(parsedRelation.upsert, relationName);
         const foldedCreates = items.map((item) =>
-          foldOrDelegateCreate(item.create)
+          freshTargetFold(
+            item.create,
+            "create",
+            childRacePin(childScope, item.where)
+          )
         );
         const foldedUpdates = items.map((item) =>
           foldOrDelegateUpdate(item.update, item.where, "upsert", undefined)
@@ -2074,6 +2165,7 @@ export function buildJunctionParts(input: {
             upsertCreateChildParts: foldedCreates.map((f) => f.childParts),
             upsertUpdateChildParts: foldedUpdates.map((f) => f.childParts),
             upsertCreateDelegated: foldedCreates.map((f) => f.delegated),
+            upsertCreateIdentity: foldedCreates.map((f) => f.identity),
           })
         );
         break;
