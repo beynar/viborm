@@ -1,124 +1,174 @@
 # Expressible Shapes — the E-waves
 
-**Date:** 2026-08-04
+**Date:** 2026-08-04 (v2, rewritten after the adversarial edge-case audit of the same day)
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Plan only. No work has started.
+**Status:** Plan only. No work has started. Version 1 of this plan is superseded; its errors are recorded below.
+
+## The audit that produced this version
+
+Fourteen read-only agents (seven adversarial analysts, seven skeptics who re-verified every code citation and attacked every certainty claim) examined each planned absorption for edge cases, wrong donors, and hidden walls. Every claim below carries a confidence score from that audit (post-skeptic). The scores are honest: no site reached 100 by analysis alone. The plan closes the gap the other way — **decision-completeness**: every sub-100 residual is now either (a) resolved by a verified code citation, (b) a named carve-out that stays refused, or (c) a Wave-E0 measurement whose every possible outcome has a pre-decided disposition. No unit ships on an unmeasured guess.
+
+**Corrections to v1 the audit forced:**
+
+1. **E1's donor for the unresolvable-referenced-field site was wrong.** The referenced field is a CHILD column; `locateFields` publishes PARENT columns. The v1 correction would have silently wired a same-named parent column into the child FK — a wrong-table corruption the corrupt-locate harness cannot catch. The correct donor is `freshReferenced` (N4-U4): resolve from the child's own create data.
+2. **The shared-PK-at-UPDATE-root correction inverted the deleted V1 semantics**, and the inverted semantics are nearly unsatisfiable (the adopted key always collides with the living target's PK). The site becomes a measurement, not an absorption.
+3. **The plan claimed 16 (c-ii) sites and listed 15; the true class count is 17.** `RelationWritePart.ts:790` and the single-field non-PK half of the `UpdateOperation.ts~2457` split site were missing. Both are rows now.
+4. **The census target ~19 is unreachable.** The honest bracket for E1–E5+TH is **[21, 26]**. Wave E6 (re-opened (b) sites) lowers it further under its own accounting.
+5. **"E1 ∥ E2 (separate files)" was false.** Six of the eight rows live in `UpdateOperation.ts`, two in adjacent methods on one struct. The waves are restructured by file ownership.
+6. **A new hard wall was proven** (the batch capture wall, rule 9 below), and one recorded impossibility was found to cite a **deleted branch** (`RelationJunctionPart.ts:1590` — the N7-U-C deletion removed its justification; the refusal is a wiring gap, now Wave E6 work).
+7. **Two suspected live defects in shipped code** were found in passing. They are E0's first two probes.
+
+Site lines below are for HEAD `bd18a6a` and may drift a little; locate sites by their refusal messages via `tests/query-engine-v2/route-inventory.test.ts`.
 
 ## Goal
 
-The census holds 39 refusals. The floor audit gave 16 of them the class (c-ii): the shape is possible, and the mechanism that can do it exists. This plan absorbs all 16.
+The census holds 39 refusals: 4 (a) argument/parity, 18 (b) measured-impossible, 17 (c-ii) expressible. This plan absorbs the 17 (c-ii) sites (Waves E1–E4), takes the beyond-parity superset where the atom allows (Wave E5), moves the two pure shape checks to the parse boundary (Wave E5), and re-opens the (b) sites whose recorded impossibility did not survive re-examination (Wave E6). A closing unit (TH) makes the type surface honest for the survivors.
 
-The maintainer set one more rule (2026-08-04): **parity with Prisma is not a reason to refuse.** If Prisma refuses a shape but this engine can express it, the engine absorbs it as a superset. So this plan also re-examines the capability half of the (a) class (Wave E5). A second rule follows from the X2 doctrine: a shape check has one home, the parse boundary. Two census routes are pure shape checks that live in the engine only because validation does not know the upsert envelope. Wave E5 moves them. After the plan, the census holds approximately 19 refusals. Each survivor is then a measured-impossible shape or a genuine payload contradiction — never "Prisma says no", and never a shape the parse boundary owns.
-
-A closing unit (TH) makes the type surface honest for the survivors.
+The maintainer's rules stand: **parity with Prisma is not a reason to refuse**, and **a shape check has one home — the parse boundary**. After the plan, each survivor is a measured-impossible shape or a genuine payload contradiction, with a fresh justification (the final re-audit must re-argue every survivor against the full post-E mechanism inventory; inherited justifications are not accepted — the audit found one whose justification cited deleted code).
 
 ## Rules for the work
 
-- Each unit measures the refusal live before it changes code.
-- Each unit uses the standard harness: one implementer, two adversarial reviewers, a maximum of two fix rounds, and a Docker wave gate (MySQL on port 3307, PostgreSQL on port 5434, one at a time).
-- Each absorption changes the census pin, adds a count-evolution entry, adds a state witness for each shape on both substrates (transaction and atomic batch), and adds a falsification: put the refusal back, and the witness must fail.
-- The wrong-row doctrine applies: an identity comes from the row a step acted on or made, never from the input again.
-- One guard per invariant. The step vocabulary in `OperationFragment.ts` is frozen. The linearization order in ATOM §4.1 is the only order.
-- Do not remove an error message, an error attribution, or a race protection.
-- A conversion needs a public-surface witness, not a reachability argument.
-- Memory limits: one vitest process at a time; a worktree lane does not run the full estate; Docker variables go only on the gate agent's own command lines.
+1. Each unit measures its refusal live before it changes code. Wave E0's measurements run first; a unit must not start while an E0 probe it depends on is open.
+2. Standard harness: one implementer, two adversarial reviewers, a maximum of two fix rounds, a Docker wave gate (MySQL 3307, PostgreSQL 5434, one at a time).
+3. Each absorption: census pin edit with exact measured numbers, count-evolution entry, state witnesses on both substrates, and a falsification (put the refusal back; the witness must fail).
+4. Wrong-row doctrine: an identity comes from the row a step acted on or made, never re-derived from input. Every new `planned`/`Ref` path gets the corrupt-locate provenance witness.
+5. One guard per invariant. The `OperationFragment.ts` step vocabulary is frozen. ATOM §4.1 is the only linearization order.
+6. Do not remove an error message, an error attribution, or a race protection. An absorption must never downgrade a typed refusal into a raw driver error or an internal `QueryEngineError`.
+7. Memory limits: one vitest process at a time; a worktree lane never runs the full estate; Docker variables only on the gate agent's own command lines.
+8. **The `.join(",")` gate (new).** `buildArmChildParts` (`RelationUpsertPart.ts:976`) is the engine's only string-equality kind dispatch. E3 must replace it with the canonical per-kind loop over `getRelationMutationKinds`. Review gate, mechanical: if `.join(",")` survives in `buildArmChildParts` after E3, block the merge. A kind that cannot cross the arm boundary is excluded inside the loop with a measured refusal, never by re-stringifying.
+9. **The batch capture wall (new, proven).** `compileToEntries` threads only `insertId` outputs of writes; a write's `firstRowField` (RETURNING) output cannot feed a later statement in an atomic batch (`OperationExecutor.ts:563-633`, unresolved ref throws at `:956-967`). Every RETURNING-capture absorption is **transaction-substrate only**; the batch side keeps a typed refusal naming this wall.
+10. **The third execution seam (new).** The shared `$transaction([...])` driver-batch merge refuses `insertId`-threading fragments on batch-only drivers (fail-closed, `OperationExecutor.ts:232-259`). Witnesses that say "both substrates" must not imply this seam; such operations run as their own atomic unit.
+11. **The MySQL 1093 class (new).** A SET-side FK lookup subquery over the table being mutated (self-relations) raises MySQL error 1093. The N6-U2 `mutationTable` derived-table wrap lives in the relation-FILTER builder only; SET-side subqueries do not get it. Every lookup-subquery absorption carries the wrap or a per-dialect carve-out.
 
-## The 16 sites, in four waves
+## Wave E0 — the measurements (before any code)
 
-Site lines are for HEAD `20ccf5b`, in `src/query-engine/write-engine/`.
+Cheap, mostly test-only probes. Each has a total decision rule: no outcome is undecided.
 
-### Wave E1 — Values the locate read can supply (4 sites)
-
-The N1 mechanism: the locate read returns the value; the edge takes it as a `planned` source. The N4-U2 mechanism: a lookup subquery finds a value by a unique the foreign key does not reference.
-
-| Site | Shape | Correction |
+| # | Probe | Decision rule |
 |---|---|---|
-| `UpdateOperation.ts:2974` | The before-root target's referenced field is not resolvable | Add the field to `locateFields`. The locate read returns it. The edge takes the `planned` source. |
-| `UpdateOperation.ts:2991` | To-one `connectOrCreate` by a unique the foreign key does not reference | Use the lookup-subquery fold from N4-U2, at the root position. |
-| `UpdateOperation.ts:3425` | To-one `connect` by a unique the foreign key does not reference | Same lookup subquery. Do this site first; `connectOrCreate` reuses it. |
-| `UpdateOperation.ts:2908` | Shared-primary-key `create`/`connectOrCreate` at an UPDATE root | The root locate holds the primary key. The fold value is that key, as a `planned` source. (Under a CREATE root the value cannot exist. That site stays refused.) |
+| M1 | **Live-defect probe.** `tryDelegateParentHeldUpdate` (`UpdateOperation.ts:2403`): a LITERAL FK rebind beside a delegated parent-held update. `NestedTargetLocate` has no correlation override; the sub-op's locate may correlate on the STALE FK value (the legality walk explicitly allows the literal rebind). | Wrong row observed → fix immediately as its own unit (a per-field override in `NestedTargetLocate`), before E1 opens the same seam for upserts. Clean → record why (cite the code path that saves it) and pin a witness. |
+| M2 | **Live-defect probe.** The already-shipped T3c create-root connect-by-non-referenced-unique on a MySQL SELF-relation: `INSERT … VALUES (subquery on the same table)` — latent 1093 hazard. | 1093 fires → wrap or per-dialect refusal at the create root, shipped before E1 copies the donor. Clean (MySQL permits same-table reads in INSERT) → record the measurement; E1's UPDATE-root twin still needs the wrap (rule 11). |
+| M3 | Prisma 7.9.1 oracle: shared-PK 1:1 at an UPDATE root, nested `create` and `connectOrCreate` (both arms). | Prisma refuses → the site stays refused, re-justified (b): the only coherent semantics is V1's parent-PK transition, which needs the operand-applying planned source no wave builds (child-adopts-key always collides with the living target's PK — skeptic-proven). Prisma transitions the parent PK → re-file (b) under the E6.7 transition family. Either way E1's row shrinks to a comment/reclassification. |
+| M4 | Prisma oracle: m2m `updateMany` with relations in data, N>1 matched rows. | Prisma refuses → the N>1 sub-shape stays refused with the measurement; absorb N≤1 semantics only if Prisma defines them. Prisma executes per-row → pin the multiplicity semantics and absorb to match. |
+| M5 | The undefined-correlate bind matrix: an upsert whose update arm carries grandchild kinds with parent-correlated PLANNING reads, driven with a where matching NO row (create arm taken). Use m2m `delete`/`update`/`deleteMany` or child-held kinds — m2m `disconnect` has no planning read and `connect`/`set` probes are global (skeptic-corrected design). All five drivers, both substrates. | Planning tolerates the absent optional Ref (empty read) → absorb with witnesses. Planning throws → gate grandchild planning steps on the probe outcome; if that needs new step vocabulary (frozen), the affected kinds stay refused with this measured boundary. |
+| M6 | Owned-FK value-identity table: post-parse runtime representation of FK literals per referenced scalar type (int, bigint, string, dateTime, decimal, citext-mapped) at the `RelationUpsertPart.ts:858` seam. | Canonical primitives → agreeing set (fkEquals + bigint normalization). Instance-typed (Date/Decimal) → extend the comparator per type or place the type in the refused set; each type gets one row in the comparator table, no type undecided. |
+| M7 | `assertCreateOwnWriteSafety` walk: two m2m upsert items with overlapping selectors under a CREATE root; plus an upsert item beside a connect/connectOrCreate/create of the same relation naming one row. | Rejects with the typed split-these-operations error → pin and absorb (E5). Accepts → E5's absorption is blocked until the create walk is extended with the same rejection; the extension is part of E5's unit. |
+| M8 | Multi-kind to-one payload under create on the child-held path (`{create, connect}` together — no XOR at parse; `interpretChildHeld` loops every kind), and the inverse-scanner divergence (schema omit scanner skips name-mismatched candidates; engine scanner does not). | Both kinds land / FK silently overwritten → pre-existing hazard: add the typed refusal (kinds.length===1 twin) and align the two scanners before E4 widens the path. Parse or engine already refuses → record and absorb per E4. |
+| M9 | Reachability of `UpsertOperation.ts:969` (upsert create arm with no complete read-back identity): compound PK with one increment member; compound non-generated PK with a defaulted member omitted. | No payload reaches → demote to `QueryEngineError` (X1c convention), census −1. A payload reaches → absorb via produced identity (insertId member ⊎ spelled literals), witnesses both arms, all drivers. |
+| M10 | Root occupied-slot semantics: `user.update{ heldToOne: { create } }` with the FK already set — refuse (occupied guard) or overwrite? | Pins the answer the E3 arm mirror must reproduce byte-identically (the arm probe must then SELECT the target FK columns — `identitySelect` does NOT already carry them, skeptic-corrected). |
+| M11 | Depth compound cross-match probe: a grandchild edge referencing a compound NON-PK unique of the enclosing single-PK child (`buildOneUpsertPart` checks arity equality but never arity===1). | Cross-match reproduces → pre-existing hazard: refuse at construction now; per-field rides E4. Refused upstream → record where. |
+| M12 | The to-one inverse twin of the owned-FK shape: an inverse to-one update whose data spells the owned FK, through the public client. | ValidationError → parse owns it, record. Another engine refusal → out of E5 scope, record the pairing. Silently accepted → pre-existing wrong-provenance hazard: add the refusal beside E5's unit. |
 
-**Tests.** Run each shape end to end with a decoy row. The decoy shares the non-unique half of the selector. The write must land on the located row, not the decoy. **Falsification.** Corrupt the locate's published field. The witness must fail. The corrupt-locate harness exists.
+## Wave E1 — the UpdateOperation lane (one serialized unit; confidence per row below)
 
-### Wave E2 — Data positions that refuse nested relation writes (4 sites)
+E1 and v1's E2 rows in `UpdateOperation.ts` merge into ONE lane — six rows in one file, two in adjacent methods on the BeforeTarget struct (the N4×N5 merge-collision pattern). Internal order:
 
-The mechanism exists: the recursive child-Part builder (T3b1), the whole-target delegation (X1c), and the create subtree (`FreshArmBuilder`, N4-U2). These four positions are not connected to it.
+| Order | Site | Correction (post-audit) | Conf. |
+|---|---|---|---|
+| 1 | `:3425` to-one `connect` by non-referenced unique | V1's `buildConnectSubqueryForField` per-field into the found fold. Carve-outs: target's referenced nullable-unique column is NULL → typed refusal (never a silent NULL write); MySQL self-relation → rule-11 wrap or per-dialect refusal (M2 informs). Zero-row lookup = the arm decision (no error class to degrade); batch presence guard + tx forUpdate cover the vanish window (measure the intra-batch window once, pin the attribution). | 74 |
+| 2 | `:2991` `connectOrCreate` by non-referenced unique | Reuses row 1. RacePin interplay verified: retry re-plans; found arm then folds by lookup. Absorb rows 1–2 together — absorbing `:2974` alone leaves the racePin retry terminating in `:2991`'s refusal. | 70 |
+| 3 | `:2923` + `:2974` (ONE unit) | The before-root INSERT becomes a create subtree (N4-U2 pattern); the subtree makes the `freshReferenced` widening fall out of `CreateOperation` for free — v1's locateFields donor for `:2974` is DEAD (wrong table). Carve-outs: Sql-valued referenced field → refuse (E6.6 may absorb tx-mode later); null/absent → refuse (contradiction); reversed produced-identity (the enclosing op needs the SUBTREE's key) → the seam must export it or the sub-shape stays; `buildBeforeTarget` is shared by three arms — the connectOrCreate/upsert create arms are runtime-chosen: the subtree must be arm-gated (orphan risk) with per-arm witnesses. | 76/68 |
+| 4 | `:2729` relations in a parent-held upsert arm | X1c delegation with `locateNotFoundOptional` + arm-gated compile + caller-supplied `upsertPremiseChanged` wording (all donor machinery, verified). **Carve-out (skeptic-found):** a root scalar rebind of this relation's FK beside the upsert — `NestedTargetLocate` has no override channel, the sub-op's locate would correlate on the stale FK (M1's defect class). Refuse the mix, or build the per-field override first (M1 decides which ships). Two-probe staleness injection on batch: pin outcome per its rule. Delegate only the relation-carrying arm; scalar-only path stays byte-identical (found+empty no-op preserved). | 58 |
+| 5 | `:2908` shared-PK at UPDATE root | Per M3 only. No absorption ships from this plan; the row is a measurement + reclassification with all carve-outs pre-listed (root SET naming a shared column = contradiction; disagreeing spelled child PK = contradiction; found-arm key mismatch = guard conjunct extension). | 45 |
+| 6 | `~2457` single-field non-PK half (the missing 16th/17th row) | The E1 locate-donor mechanism applies (locateFields carries the referenced non-PK column; the edge takes the planned source). Compound half stays with E6.4. | — (new row; unit measures first) |
 
-| Site | Shape | Correction |
+**Tests.** Decoy rows sharing the non-unique selector half; corrupt-locate falsifications; per-arm orphan witnesses for row 3; the staleness injection for row 4. **Falsification.** Reinstate each refusal; family fails.
+
+## Wave E2 — the other-file data positions
+
+| Site | Correction | Conf. |
 |---|---|---|
-| `RelationWritePart.ts:709` | An inverse-side to-one `update` with relations in its data | Give the located target its child Parts. The to-many sibling already does this. |
-| `UpdateOperation.ts:2729` | Relations in a parent-held to-one `upsert` arm | The arm becomes an `UpdateOperation` sub-operation on the located target (the X1c pattern). |
-| `UpdateOperation.ts:2923` | A relation-carrying target `create` on a parent-held to-one | The before-root INSERT becomes a create subtree (the N4-U2 pattern). |
-| `RelationJunctionPart.ts:2066` | Relations inside m2m `updateMany` / `connectOrCreate` data | The junction target takes the child-Part builder. For `updateMany`, first measure what Prisma does with many matched rows. Pin the answer, or refuse with the measured reason. |
+| `RelationWritePart.ts:706` inverse to-one `update` with relations | Lift into the located target's child Parts (the to-many sibling's pattern; `getWhereUniqueEntries(childScope, undefined)` after the lift is verified safe). **Carve-outs:** the inverse to-one UPSERT found-arm SHARES this throw and its compile drops childParts — the upsert variant stays refused here (E3 owns inverse-upsert wiring); a naive lift breaks the upsert ABSENT arm too — the lift must be kind-scoped to `update`; PK transition in the same payload (no where-pinned pre-value) stays; the updateMany sibling and missing-nestedBuilder sub-shapes stay. | 88 |
+| `RelationJunctionPart.ts:2063` relations inside m2m `updateMany`/`connectOrCreate` data | Per M4 for updateMany (N>1 stays refused unless Prisma defines it — no expressible per-row identity). The connectOrCreate create-arm children absorb via the nested builder with guard conditioning across found/dedup-adopt/create branches (verified). **Carve-outs:** generated target PK on a relation-carrying arm inherits `:1605`'s refusal until E4 lands, and after E4 the dedup ledger must store the earlier subtree root's Ref for generated-PK adopt keys (the E2×E4 composition — witnessed, not assumed); `planning()` must be extended for the new child reads (today it plans only adopt.probe). | 80 |
+| `RelationWritePart.ts:790` (new row) m2m + non-cascade mixed-edge under a PK-transitioning target | The site's own record names the mechanism: `correlationParentId` carried into `RelationJunctionPart`. Absorb with the transition regime's ordering witnesses; the junction membership read must consume the POST-transition value. | — (new row) |
 
-**Tests.** Run three-level trees through each position, on both substrates, on all four driver files. The N4-U2 grandchild suite is the template. **Falsification.** Put each refusal back — its family must fail. Force one subtree off — a state witness must fail.
+## Wave E3 — the RelationUpsertPart dispatch chain (now owns `:716`)
 
-### Wave E3 — The grandchild kinds on the upsert update arm (3 sites)
+The whole chain is one wave: v1's E4 row `RelationUpsertPart.ts:716` moved here (its reachable caller IS this dispatch — two lanes in one chain was a collision).
 
-The located update arm holds a known primary key. Each mechanism the root owns applies at this position.
-
-| Site | Shape | Correction |
+| Site | Correction | Conf. |
 |---|---|---|
-| `RelationUpsertPart.ts:1091` | An m2m grandchild `create` | Use the junction machinery (N3) with the located key as the parent id. |
-| `RelationUpsertPart.ts:1097` | A parent-held grandchild `create` | Use the before-parent fold. The arm's UPDATE gets the FK SET, ordered after the target INSERT (the N5 reorder primitives). |
-| `RelationUpsertPart.ts:1037` | Grandchild kinds outside {upsert, connectOrCreate, create} | Open the switch to the other kinds through the same dispatch the root uses. A kind that cannot cross the arm boundary gets a measured refusal that names the boundary. |
+| `:1030` kind switch | Replace with the per-kind loop (rule 8) through an injected seam (FreshArmBuilder precedent — E3 needs NO E2 work; the stated v1 dependency was wrong). **Carve-outs:** targeted `disconnect` / required-FK `set` at a literal-parent arm — `RelationLinkPart`/`RelationSetPart` throw internal errors for non-planned parents; wire the junction's literal-inlining precedent or keep the typed refusal (never let it become a `QueryEngineError` downgrade); the arm PK-transition regime (`RelationWritePart.interpretChildParts`' no-op/postTransition/occupied machinery) is module-private — export and reuse it, or arm-PK-SET + any grandchild stays refused; eager `exactlyOneRow` planning postconditions must not run under the conditional arm; M5 decides the planned-parent planning-read matrix. | 50 |
+| `:1084` m2m grandchild create | Junction machinery with the located key; guard conditioning verified (compile-time arm choice; nothing emitted on the create arm). **Carve-out (missed case):** arm updateData transitioning the arm row's own PK while carrying the m2m grandchild — join rows would correlate on the vacated key; refuse, or port the transition regime. skipDuplicates+generated-PK and compound-PK m2m refusals inherited. | 78 |
+| `:1090` parent-held grandchild create | Before-parent fold; the FK SET merges into the ONE existing arm UPDATE (a second UPDATE would fork the pinned premise); tx-only `expects` preserved. Export the root's before-parent primitives — a re-derivation is the fork ATOM §4.1 exists to prevent. **Carve-outs:** shared-PK grandchild edge (arm-scope ground — the E1 same-value derivation is unported); arm PK transition beside the FK SET; occupied-slot per M10 with the probe widened to SELECT the target FK columns. The compound carve-out from v1 analysis is DROPPED (the donor is already per-field — a redundant guard). | 60 |
+| `:716` relation type outside the nested-upsert builder (moved from E4) | Route by direction through the same seam. The duplicateOfEarlier grandchild concern is MOOT (connectOrCreate update arms are empty by construction — skeptic-verified unreachable). **Carve-outs:** the routed families' own narrower boundaries survive verbatim (`:1590` until E6.1; the scalarOnly boundary until E2's row lands); whole-target delegation at the adopt arm needs the two-owner-SET / selector-re-locate provenance probe before it ships; m2m grandchild membership reads with planned parents per M5. | 68 |
 
-**Risk, named.** One order, one derivation. The grandchild dispatch must go through `RELATION_MUTATION_KEYS`. A local order forks the theorem ATOM §4.1 protects. **Tests.** One witness per absorbed kind, both substrates, with a swap-two-stages falsification of the order.
+## Wave E4 — the create-root residue
 
-### Wave E4 — The dispatch residue (4 sites)
-
-| Site | Shape | Correction |
+| Site | Correction | Conf. |
 |---|---|---|
-| `CreateOperation.ts:985` | A relation type outside the create dispatch | Measure which type reaches (N7 proved one does). Route it to its owning family, or re-classify to (b) with the measurement. |
-| `RelationUpsertPart.ts:723` | A relation type outside the nested-upsert builder | Same. The parent-held and m2m upserts have their own Parts. Route; do not refuse. |
-| `CreateOperation.ts:1521` | A compound-referenced child edge under a create root | Make the `ParentIdSource` per-field. N1-U2 proved the per-field move at the update root. The audit found no measurement against the same move here. |
-| `RelationJunctionPart.ts:1608` family | A relation-carrying junction create arm with a generated target key | The arm becomes a create subtree. Its root rides the produced-identity `Ref` (the N4-U4 backward `Ref`, junction position). |
+| `CreateOperation.ts:982` relation type outside the create dispatch | The union is closed; the fields-less manyToOne routes to interpretChildHeld (all three kinds have arms; no-inverse edges die typed BEFORE this check). **Gates from M8:** the multi-kind and scanner-divergence probes must land first; the spelled-FK silent-overwrite probe decides whether a typed refusal ships beside the widening. Compound fields-less connectOrCreate keeps `:1518`'s refusal until that row lands. | 80 |
+| `CreateOperation.ts:1518` compound-referenced child edge | Per-field literal/ref source keyed by referenced-field NAME (removes the cross-pair trap). **Carve-outs:** the per-field source is admitted ONLY into global-adopt consumers — a correlated-mode consumer must be structurally unable to receive it (gate or type-level proof required); NULL components refuse per-component (typed, never a silent no-match); compound-PK CHILD stays refused (child-side arity is census family (i)); until the source lands, the arity refusal stands (deleting the check first would cross-match field-0 into every column). Multiple Refs across shared-PK edges are handled (the ≤1-Ref claim was false but harmless — per-step scratch disambiguates). | 80 |
+| `RelationJunctionPart.ts:1605` relation-carrying junction create arm, generated key | The arm becomes a create subtree riding the produced-identity Ref; MySQL batch verified safe (per-step scratch store immediately after the producing INSERT — grandchild clobber impossible; multi-entry arrays disambiguate by construction). **Resolved statically (skeptic):** the delegated subtree's root INSERT carries NO racePin today — the unit MUST add racePin threading through the seam (for the existing scalar delegated arm too). **Carve-outs:** the junction upsert UPDATE-arm sibling (`:1590`) and skipDuplicates+generated-key stay (E6 owns them); M11's depth cross-match probe gates the grandchild edges. | 85 |
 
-**Tests.** The compound edge runs with per-field decoys: one field agrees, one does not; the write must not cross-match. The generated-key arm's grandchildren must show the produced id. **Falsification.** Make the per-field source single-field again — the compound witness must fail.
+## Wave E5 — beyond parity and the validation moves
 
-### Wave E5 — beyond parity: the (a) class (4 sites)
-
-The two capability sites get the superset examination. The two argument-shape guards move to their doctrinal home:
-
-| Site | Shape | Correction |
+| Site | Correction | Conf. |
 |---|---|---|
-| `CreateOperation.ts:1837` | m2m `upsert` under a create root (Prisma refuses it) | The child-held sibling already executes this as a documented superset: the global-lookup adopt-and-update. Carry the same semantics through the junction: probe globally; found means update the target and write the join row; absent means create the target and write the join row. The junction's produced-identity and the adopt family supply the machinery. Document the divergence from Prisma, as N6 did. |
-| `RelationUpsertPart.ts:865` | The relation's owned foreign key spelled beside the relation in nested data (Prisma refuses it) | Measure what the payload means. Two different values for one column are a genuine contradiction: that case stays refused, and the site re-classifies to (b) with the measurement. Two equal values are a redundancy, not a contradiction: absorb the agreeing case if the comparison is decidable at construction; record the boundary where it is not (a `Ref` value has no construction-time comparison). |
-| `UpsertOperation.ts:1181` | An upsert payload without `where` / `create` / `update` | Move the check to the validation path. The upsert envelope shape goes into the model-blind validation schemas at the parse boundary (the X2 home). The engine site becomes unreachable by construction and demotes to a `QueryEngineError` invariant (the X1c convention). The census loses the route. |
-| `UpsertOperation.ts:1188` | An upsert arm that is not an object | Same move, same demotion. One guard per invariant: after the move, the parse boundary is the guard; the engine keeps only the invariant assertion. |
+| `CreateOperation.ts:1834` m2m `upsert` under a create root | Absorb via the **adopt-slot donor** (`compileConnectOrCreate`), NOT the member arm: the member found-arm writes no join row and skips empty UPDATEs — reusing it verbatim ships a silent no-op adopt (skeptic-found). Found arm: global probe (fresh-parent elision — no membership read needed), `adoptFoundGuard` re-worded to the upsert premise, join row ALWAYS written, empty/relation-only update still adopts. Create arm: `childInsert` + racePin (plain whereUnique mints it — verified). **Gates:** M7 (own-write walk) must pass or be extended first. **Carve-outs:** relation-carrying found arm — `foldOrDelegateUpdate` branches into whole-target delegation BEFORE `requireWherePk`, silently bypassing the refusal: carve explicitly until E6.1 wires the probe; relation-carrying create arm with generated PK inherits `:1605` until E4; compound target PK inherited (N3-U3). After absorption, probe whether ANY parse-admitted kind still reaches `assertCreateTreeKinds` — if none, demote (census −1 bonus). Split `compatibility.mdx`'s adopt wording per relation type; pin the divergence as a test. | 72 |
+| `RelationUpsertPart.ts:858` owned FK beside the relation | Absorb the agreeing case for construction-comparable literals: unwrap `{ set: v }`; compare with fkEquals + bigint normalization; M6's table decides Date/Decimal/citext per type (citext = deliberate fkEquals boundary, documented). After an agree, STRIP the spelled value — the engine's fold stays the single provenance (including through the freshArm subtree, where a kept key collides with rootFkInject). `undefined` needs no work (separateData drops it — verified). **Stays refused:** disagreeing values (→ (b), the contradiction); null (always a contradiction); arithmetic envelopes on the owned FK (named message); compound edges, fully or partially spelled; `planned` AND `ref` parent sources (the recorded boundary widens from Ref-only — planned values also have no construction-time compare). The connectOrCreate create arm flows through the same guard — include it. M12 gates the to-one twin. | 74 |
+| `UpsertOperation.ts:1181` envelope without where/create/update → **move to the parse boundary** | A NEW model-blind ENVELOPE schema: three required keys + arm object-ness, NO transform, NO arm descent — reusing `getUpsertArgs` re-triggers both measured X2 regressions (non-idempotent transform; untaken-arm validation vs deferArmLegality). Needs a new identity-preserving raw-record leaf primitive (output reference-equal to input, arrays rejected; respect the barrel-cycle rule). The envelope's key set mirrors `assertUpsertKeys` exactly — the client strips `cache` before the engine (`client.ts:508-511`, resolved statically). Class change: `UnsupportedOperationError` (V8003, no prismaCode) → `ValidationError` (P2009) — closer to Prisma; the X2 census note authorized the identical change for the other write ops. **No behavioral witness exists today — create the two baseline witnesses BEFORE the move**, then retarget them. Same-commit deliberate edits: `parse-boundary-gate.test.ts` keyGateFiles list + premise comment + `MAX_SHAPE_THROW_MESSAGES` 21→19; census pin 39→37; count-evolution entry. The demoted invariant's wording must be chosen deliberately against the gate's regex (the convention keeps the phrase; the ceilings must match whichever is chosen). | 83 |
+| `UpsertOperation.ts:1188` arm not an object | Subset of the row above (one envelope, both facts). `where` needs only PRESENCE in the envelope — after the move the schema's own object gate catches non-object where (today the engine fires first; the reordering is part of the authorized class change). Arrays keep a named rejection via the leaf. Issue interleaving collapses two-stage throws into one ValidationError issue list — a superset of the facts; nothing pins the old ordering. | 84 |
 
-**Decision to pin.** The move changes the public error class for these two payloads: a validation error instead of an engine refusal. The error must still name the same facts (the missing key, the non-object arm). Record the change in the count-evolution log.
+## Wave E6 — the re-opened (b) sites
 
-**Tests.** The m2m upsert-under-create runs both arms, both substrates, with a decoy junction row; the divergence from Prisma is pinned as a test, not prose. The owned-FK site gets the agree / disagree / undecidable triple. The moved shape checks keep their public witnesses: the same untyped payloads must fail at validation and must name the same facts. **Falsification.** Put each capability refusal back; the witnesses must fail. Remove the new validation rule; the payload must then hit the engine invariant, and the witness that asserts the validation error class must fail.
+The re-audit re-argued all 18 (b) sites (plus the authorized `:434`) against the full mechanism inventory. Nine did not survive intact. Each unit below either absorbs with witnesses or re-files the site with a FRESH justification.
 
-### Unit TH — the type-honesty closure (last)
+| Unit | Site | Finding and correction | Conf. |
+|---|---|---|---|
+| E6.1 | `RelationJunctionPart.ts:1590` m2m upsert arm carrying relations, non-PK unique where | **The recorded justification cites a DELETED branch** (N7-U-C removed the created-earlier dedup path; verified end to end). The update arm's children run only under the member-found branch, whose probe reads the target PK — the refusal exists because the upsert fold hardcodes `probeId=undefined` while the update kind pre-allocates probe ids. Wire the probe ids (the constructor seam exists: `config.targetProbeIds`), rewrite the stale `:1574-1578` comment, corrupt-locate witness, census −1. One reachability grep to re-confirm at construction (callers lists lie — the `:708` lesson). | 90 |
+| E6.2 | `UpsertOperation.ts:969` create arm read-back identity | Per M9: demote (census −1) or absorb via produced identity. The floor table's "refused upstream" citation does NOT gate the root upsert arm (verified: no `assertCreateRefetchIdentity` caller there). | 82 |
+| E6.3 | `CreateOperation.ts:1026` shared-PK under CREATE root, non-literal fold | The blanket "cannot exist" is FALSE — the create sub-kind already absorbed (resolveSharedPkIdentity, N4-U4). Remaining: {connect-by-non-referenced-unique, connectOrCreate}. Mechanism: the Probe + compile-known literal (ONE provenance — the second-provenance measurement was about the inline-subquery spelling). Prototype rule: re-phase the construction-time identity fan-out to compile; if every consumer accepts a compile-resolved value → absorb both sub-kinds (guard keeps NotFound attribution; MySQL fine — compile-known literal addresses the terminal read); if a consumer structurally needs a construction value → re-file (b) with THAT fact. Collation-divergence probe per its rule. | 80 |
+| E6.4 | The compound-identity family (`UpdateOperation.ts:1350`, `RelationUpsertPart.ts:864`, `nested-target-parts.ts:335`, + `~2457` compound half) | "No tuple form" conflates one-column-per-OUTPUT with one-output-per-STEP — a step declares N `firstRowField` outputs today (validator builds from Object.keys; executor merges every entry; verified). Compound locates are planning READS → compile-inlined on batch (the batch wall does not apply). Hand-build the prototype fragment per its rule; rides E4's per-field source; NULL-member rule per its row; per-member decoy witnesses. | 78 |
+| E6.5 | Update-root vacate+supply pairs (`UpdateOperation.ts:1291` half) | The "two identities" contradiction covers supplier×supplier pairs only. {delete,create} / {disconnect,connect} / {delete,connect} supply ONE identity — expressible as the §4.1-ordered sequence. Enumerate the pairs the parse factory actually delivers (including mutator-involving pairs — {update,connect} etc. — and the empty `{}` payload, both unclassified today); absorb the sequence-deterministic pairs as documented supersets; order-ambiguous pairs stay refused re-justified as ORDER AMBIGUITY. Create-root pairs stay (b) — re-proven. | 74 |
+| E6.6 | The Sql-operand family (`CreateOperation.ts:1270/:1503/:1525`, `UpdateOperation.ts:1686`, Sql-halves of `:1375/:1621/:1651` and `RelationWritePart.ts:812`) | RETURNING captures the once-evaluated value → the two-values measurement dissolves — **on the transaction substrate of returning drivers only** (rule 9: no batch threading of write firstRowField outputs; skeptic-proven). Absorb tx+returning with the P8.1 CTE-fold interaction probe; **stays refused:** atomic batch (the wall), mysql2 (no RETURNING; insertId is increment-only), null (contradiction). The compile-phase derivation is honest new work (the "one branch away" reuse claim was phase-wrong — the pinned branch derives at construction). | 70–72 |
+| E6.7 | {set: literal} + portable-arithmetic PK transitions (`:1375/:1621/:1651` literal half, `RelationWritePart.ts:812` literal half) | The impossibility does not survive: locateFields carries the pre-value; compile applies the same `getUpdatedPrimaryKeyValue`; the occupied guard takes its pre-value from the probe row (the probe publishes the located PK — answered in code). CLASS IV portability gate already bounds the operand classes. Corrupt-locate AND concurrency falsifications (mutate between planning and batch — the batch must abort). `:812`'s junction-edge sibling (`:790`) ordering preserved (E2 owns it). The batch-TOCTOU pin is the presenceGuard, not postconditions (postconditions are tx-only — cite correctly in witnesses). | 70/76 |
+| E6.8 | `RelationJunctionPart.ts:1184` junction createMany + skipDuplicates + generated key | Decomposes. Models with NO conflictable unique besides the generated PK → the flag is vacuous → absorb by ignoring it (schema-decidable). Rows spelling exactly one complete unique → rewrite per row as connectOrCreate adopt IF the state-equivalence witnesses pass — **and only with the maintainer's acceptance that adopt-equivalence defines skip** (the multi-unique failure mode changes from silent skip to typed violation; the semantics note was pinned deliberately — decision input, ask before building). Multi-unique / conflict-on-another-unique / NULL-membered compound uniques → stay (b), impossibility RE-PROVEN (the probe can name a different row than the constraint that fired). | 84 |
+| E6.9 | `ManyAndReturnOperation.ts:434` createMany+select+skipDuplicates, non-returning driver | The statement-level impossibility stands; the operation-level claim fails in TX mode: per-row savepoints (the existing executeSkippableWrite effect) + per-row insertId of non-raising rows + refetch by collected ids, riding the frozen ordered reference-list vocabulary. This is the census's ONE maintainer-authorized refusal — measure the mechanism, then ASK: wire it, or record "expressible at N round trips in tx mode, declined" (both correct the recorded reason from "inexpressible"). App-materialized-PK models and DB-computed selects ride the same decision (nothing handles them today — the refusal at `:433` is unconditional). Atomic batch stays (b). | 74 |
 
-After the E-waves, the permanent refusals are: the 11 measured-impossible sites and whatever E5 re-classified to (b). For these, the input types must stop offering what always throws. (The two moved shape checks need no TH work: the types already require the envelope; the runtime check now lives where the types point.)
+## Unit TH — the type-honesty closure (last)
 
-- Per-relation removals: the shared-PK kinds under create; the unresolvable-reference kinds; `skipDuplicates` on a generated-key junction `createMany`. (The owned-FK and m2m-upsert removals apply only if E5 keeps those sites refused.)
-- Position and one-of shapes: a to-one payload holds exactly one kind (an XOR union); a compound-PK child loses the targeted-mutation kinds.
-- Each narrowing ships a contextual type probe through the public client (the typo-beside-real-key convention) and a runtime witness that the refusal still fires for untyped callers.
-- Out of scope: the 16 absorbed sites (their wide types become true); the value-dependent and driver-dependent refusals (types cannot state them; the reasons are recorded).
+After E1–E6, the permanent refusals get honest types. Three audit corrections:
 
-**The order is load-bearing.** TH runs last. A type narrowed before its absorption would forbid a shape the E-waves make real.
+1. **Per-shape polarity, not per-site.** The owned-FK removal applies only if E5 refuses ALL spellings — under the designed split (agree absorbs, disagree stays), the type KEEPS the field and TH ships nothing there. Same per-shape rewrite for every conditional.
+2. **The XOR is over NON-FALSE members.** `{delete: false, update: {...}}` executes today (N7-U-B); a strict XOR would regress it. Literal `false` stays spellable beside one real kind.
+3. **Shared-PK-under-create narrowing is connectOrCreate-only.** The literal sub-cases EXECUTE today (T3c); the refusal is value-dependent. Only the categorically-refused kind is type-narrowable — unless E6.3 absorbs it, in which case TH ships nothing there either.
+
+Check first whether the GENERATED client input types split per context as the runtime factories do (create-root vs update-root); if they alias one object, per-position narrowing is not expressible and the affected narrowings are recorded, not shipped. Each narrowing: contextual type probe (typo-beside-real-key convention) + runtime witness that the refusal still fires untyped. TH runs LAST.
 
 ## Order and parallelism
 
 ```
-E1 ∥ E2      (separate files: locate sources / recursion wiring)
+E0 (measurements; M1/M2 may spawn immediate fix units)
    |
-E3 ∥ E4 ∥ E5 (E3 needs E2's child-Part reach; E4 and E5 do not)
+E1 ∥ E2 ∥ E3     (disjoint files: UpdateOperation / RWP+RJP data positions / RelationUpsertPart chain)
    |
-TH           (types narrow only what stayed refused)
+E4                (CreateOperation + RJP create-arm; E2's generated-PK carve lifts after this)
    |
-Final: census re-audit (target ~19; each survivor (b) or a contradiction),
-capability matrix rows, full estate + gates + Docker legs, delivery records.
+E5                (CreateOperation m2m upsert + owned FK + the validation moves)
+   |
+E6                (re-opened (b) work; E6.4 rides E4's per-field source; E6.1 lifts E5's found-arm carve)
+   |
+TH                (types narrow only what stayed refused)
+   |
+Final census re-audit: every survivor re-argued against the FULL post-E mechanism
+inventory with a fresh justification (inherited justifications rejected);
+capability matrix rows; full estate + gates + Docker legs; delivery records.
 ```
 
-Sizes: E1 = M, E2 = L, E3 = M, E4 = M, E5 = M, TH = M. The census target is not a promise. A unit that finds a real wall re-classifies its site to (b) with the measurement. That is a valid delivery.
+The v1 orders "E1 ∥ E2" and "E3 ∥ E4 ∥ E5" are dead: they put two lanes in one file (and one dispatch chain). E3 needs nothing from E2 (verified — the seam it needs is its own).
+
+## Census arithmetic (the honest bracket)
+
+At census 39: 4 (a) + 18 (b) + 17 (c-ii). For E1–E5 + TH the audited bracket is **[21, 26]** (scenario A maximal ≈ 21–22; E5-partials ≈ 23–25; measure-first reclassifications ≈ 24–26). E6 lowers it further under its own per-unit accounting (E6.1 −1, E6.2 −1 either way, E6.3/6.5/6.6/6.7/6.8 split their sites into absorbed halves and re-justified survivors — each with the historical finer-boundary tax: every prior family absorption ADDED finer routes; T1 +3, T2 +8, T3b1 +8). **A delivered count outside the bracket means a scenario premise broke or a site was converted without its witness — investigate, do not re-tune the pin to fit.** Pin edits always land exact measured numbers.
+
+## Confidence record
+
+Post-skeptic scores per site are in the wave tables (45–90). The plan's claim to 100% is **decision-completeness, not clairvoyance**: every score below 100 is closed by (a) a verified code citation recorded above, (b) a carve-out that stays refused, or (c) an E0/unit-0 measurement whose every outcome is pre-decided in this document. The two lowest scores (`:2908` at 45, `:1030` at 50) are exactly the rows this plan converted from absorptions into measurements — they ship no code on the weak claim.
 
 ## Risks
 
-1. E2 and E3 add recursion under located arms. Each new `planned` or `Ref` path needs the corrupt-locate provenance witness, not only state assertions.
-2. The m2m `updateMany` multiplicity question is a semantics decision. Measure Prisma first. If Prisma refuses it, the site becomes (a), and the unit gets smaller.
-3. TH before absorption breaks the plan. Keep the order.
+1. Every new `planned`/`Ref` path under a located or conditional arm needs the corrupt-locate provenance witness, not only state assertions (plan-wide; the E3/E5 arm positions especially).
+2. M1 and M2 may confirm live defects in shipped code. If confirmed, their fixes precede everything and get their own witnesses and count-evolution entries.
+3. Two decisions belong to the maintainer, not to any unit: E6.8 (does adopt-equivalence define skip for generated-key rows?) and E6.9 (wire the tx-mode mechanism, or record it as declined?). Ask before building either.
+4. TH before absorption breaks the plan; the three TH corrections above are load-bearing. Keep the order.
