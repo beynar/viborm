@@ -8,7 +8,7 @@
 
 The census holds 39 refusals. The floor audit gave 16 of them the class (c-ii): the shape is possible, and the mechanism that can do it exists. This plan absorbs all 16.
 
-The maintainer set one more rule (2026-08-04): **parity with Prisma is not a reason to refuse.** If Prisma refuses a shape but this engine can express it, the engine absorbs it as a superset. So this plan also re-examines the capability half of the (a) class (Wave E5). After the plan, the census holds approximately 21 refusals. Each survivor is then a measured-impossible shape, a genuine payload contradiction, or a malformed-argument guard — never "Prisma says no".
+The maintainer set one more rule (2026-08-04): **parity with Prisma is not a reason to refuse.** If Prisma refuses a shape but this engine can express it, the engine absorbs it as a superset. So this plan also re-examines the capability half of the (a) class (Wave E5). A second rule follows from the X2 doctrine: a shape check has one home, the parse boundary. Two census routes are pure shape checks that live in the engine only because validation does not know the upsert envelope. Wave E5 moves them. After the plan, the census holds approximately 19 refusals. Each survivor is then a measured-impossible shape or a genuine payload contradiction — never "Prisma says no", and never a shape the parse boundary owns.
 
 A closing unit (TH) makes the type surface honest for the survivors.
 
@@ -76,20 +76,24 @@ The located update arm holds a known primary key. Each mechanism the root owns a
 
 **Tests.** The compound edge runs with per-field decoys: one field agrees, one does not; the write must not cross-match. The generated-key arm's grandchildren must show the produced id. **Falsification.** Make the per-field source single-field again — the compound witness must fail.
 
-### Wave E5 — beyond parity: the (a) capability sites (2 sites)
+### Wave E5 — beyond parity: the (a) class (4 sites)
 
-The two argument-shape guards (`UpsertOperation.ts:1181`, `:1188`) stay: a payload that is not an upsert is not an operation. The two capability sites get the superset examination:
+The two capability sites get the superset examination. The two argument-shape guards move to their doctrinal home:
 
 | Site | Shape | Correction |
 |---|---|---|
 | `CreateOperation.ts:1837` | m2m `upsert` under a create root (Prisma refuses it) | The child-held sibling already executes this as a documented superset: the global-lookup adopt-and-update. Carry the same semantics through the junction: probe globally; found means update the target and write the join row; absent means create the target and write the join row. The junction's produced-identity and the adopt family supply the machinery. Document the divergence from Prisma, as N6 did. |
 | `RelationUpsertPart.ts:865` | The relation's owned foreign key spelled beside the relation in nested data (Prisma refuses it) | Measure what the payload means. Two different values for one column are a genuine contradiction: that case stays refused, and the site re-classifies to (b) with the measurement. Two equal values are a redundancy, not a contradiction: absorb the agreeing case if the comparison is decidable at construction; record the boundary where it is not (a `Ref` value has no construction-time comparison). |
+| `UpsertOperation.ts:1181` | An upsert payload without `where` / `create` / `update` | Move the check to the validation path. The upsert envelope shape goes into the model-blind validation schemas at the parse boundary (the X2 home). The engine site becomes unreachable by construction and demotes to a `QueryEngineError` invariant (the X1c convention). The census loses the route. |
+| `UpsertOperation.ts:1188` | An upsert arm that is not an object | Same move, same demotion. One guard per invariant: after the move, the parse boundary is the guard; the engine keeps only the invariant assertion. |
 
-**Tests.** The m2m upsert-under-create runs both arms, both substrates, with a decoy junction row; the divergence from Prisma is pinned as a test, not prose. The owned-FK site gets the agree / disagree / undecidable triple. **Falsification.** Put each refusal back; the witnesses must fail.
+**Decision to pin.** The move changes the public error class for these two payloads: a validation error instead of an engine refusal. The error must still name the same facts (the missing key, the non-object arm). Record the change in the count-evolution log.
+
+**Tests.** The m2m upsert-under-create runs both arms, both substrates, with a decoy junction row; the divergence from Prisma is pinned as a test, not prose. The owned-FK site gets the agree / disagree / undecidable triple. The moved shape checks keep their public witnesses: the same untyped payloads must fail at validation and must name the same facts. **Falsification.** Put each capability refusal back; the witnesses must fail. Remove the new validation rule; the payload must then hit the engine invariant, and the witness that asserts the validation error class must fail.
 
 ### Unit TH — the type-honesty closure (last)
 
-After the E-waves, the permanent refusals are: the 11 measured-impossible sites, the two malformed-argument guards, and whatever E5 re-classified to (b). For these, the input types must stop offering what always throws.
+After the E-waves, the permanent refusals are: the 11 measured-impossible sites and whatever E5 re-classified to (b). For these, the input types must stop offering what always throws. (The two moved shape checks need no TH work: the types already require the envelope; the runtime check now lives where the types point.)
 
 - Per-relation removals: the shared-PK kinds under create; the unresolvable-reference kinds; `skipDuplicates` on a generated-key junction `createMany`. (The owned-FK and m2m-upsert removals apply only if E5 keeps those sites refused.)
 - Position and one-of shapes: a to-one payload holds exactly one kind (an XOR union); a compound-PK child loses the targeted-mutation kinds.
@@ -107,11 +111,11 @@ E3 ∥ E4 ∥ E5 (E3 needs E2's child-Part reach; E4 and E5 do not)
    |
 TH           (types narrow only what stayed refused)
    |
-Final: census re-audit (target ~21; each survivor (b), a contradiction, or an argument guard),
+Final: census re-audit (target ~19; each survivor (b) or a contradiction),
 capability matrix rows, full estate + gates + Docker legs, delivery records.
 ```
 
-Sizes: E1 = M, E2 = L, E3 = M, E4 = M, E5 = S-M, TH = M. The census target is not a promise. A unit that finds a real wall re-classifies its site to (b) with the measurement. That is a valid delivery.
+Sizes: E1 = M, E2 = L, E3 = M, E4 = M, E5 = M, TH = M. The census target is not a promise. A unit that finds a real wall re-classifies its site to (b) with the measurement. That is a valid delivery.
 
 ## Risks
 
