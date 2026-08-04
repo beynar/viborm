@@ -175,6 +175,13 @@ export function buildNestedTargetUpdatePart(input: {
   targetModel: Model<any>;
   data: Record<string, unknown>;
   locate: NestedTargetLocate;
+  /**
+   * E1 U4 — the delegated arm of an enclosing UPSERT. Its locate is a SUPERSET read
+   * (ATOM §3 technique 2): it runs whether or not the found arm is taken, so an empty
+   * match is the CREATE arm's decision and not a missing target. The caller compiles
+   * this Part only in the found arm, where the locate matched by construction.
+   */
+  locateNotFoundOptional?: boolean;
 }): Part {
   const op = new UpdateOperation(
     input.engine,
@@ -184,6 +191,7 @@ export function buildNestedTargetUpdatePart(input: {
       scope: input.scope,
       skipOwnWrite: true,
       nestedTarget: { data: input.data, locate: input.locate },
+      ...(input.locateNotFoundOptional ? { locateNotFoundOptional: true } : {}),
     }
   );
   return new NestedTargetUpdatePart(op);

@@ -269,6 +269,10 @@ type ParentHeldTarget =
       readonly correlation: ParentHeldCorrelation;
       readonly probe: StatementStep;
       readonly updateData: Record<string, unknown>;
+      /** E1 U4 — the relation-carrying UPDATE arm, delegated whole to a nested-target
+       *  sub-op. Present INSTEAD of `updateData`, never beside it: the sub-op owns the
+       *  arm's SET and its relations together. Compiled only in the FOUND arm. */
+      readonly delegated?: Part;
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
     };
@@ -996,6 +1000,13 @@ export class UpdateOperation {
         for (const part of target.childParts) {
           steps.push(...part.planning(this.scope));
         }
+      }
+      // E1 U4 — the delegated upsert UPDATE arm plans its whole sub-op here: its own
+      // correlated locate and everything below it. Both arms plan, the probe decides
+      // (ATOM §3 technique 2), which is why that locate carries no not-found
+      // postcondition — an empty match IS the create arm.
+      if (target.kind === "upsert" && target.delegated) {
+        steps.push(...target.delegated.planning(this.scope));
       }
     }
     for (const part of this.childParts)
@@ -1750,7 +1761,16 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     referencedFields: readonly string[]
   ): { parentId: ParentIdSource; afterRoot: boolean } {
-    if (referencedFields.length === 1) {
+    // The shortcut asks the CALLER'S unique `where` whether it pins this column to a
+    // literal. A nested target located by correlation alone has no such `where` (`{}`
+    // — see `parentWhere`), so there is no asker and nothing to pin; reached through
+    // E1 U4's delegated upsert arm, which is the first shape to bring a child-held
+    // create under a selector-less target. Falling through takes the located-row
+    // `Ref`, which is the provenance the wrong-row doctrine wants regardless.
+    if (
+      referencedFields.length === 1 &&
+      Object.keys(this.parentWhere).length > 0
+    ) {
       const pinned = getWhereUniqueEntries(input.parent, this.parentWhere).find(
         (entry) => entry.fieldName === referencedFields[0]
       );
@@ -2710,12 +2730,30 @@ export class UpdateOperation {
       relationName,
       "upsert"
     );
-    const updateData = this.parentHeldScalarUpdateData(
-      childScope,
-      requireRecord(spec.update, `${relationName}.upsert.update`),
-      relationName,
-      "upsert"
+    const updatePayload = requireRecord(
+      spec.update,
+      `${relationName}.upsert.update`
     );
+    // E1 U4 — an update arm that carries relations delegates its WHOLE arm to an
+    // UpdateOperation nested-target sub-op (the X1c seam the `update` arm already
+    // uses). A scalar-only arm keeps the in-place fold byte-identically, so the
+    // found+empty no-op the estate pins stays exactly where it was.
+    const delegated = this.delegateParentHeldUpsertArm(
+      input,
+      relationName,
+      relationInfo,
+      fk,
+      childScope,
+      updatePayload
+    );
+    const updateData = delegated
+      ? {}
+      : this.parentHeldScalarUpdateData(
+          childScope,
+          updatePayload,
+          relationName,
+          "upsert"
+        );
     const before = this.buildBeforeTarget(
       childScope,
       requireRecord(spec.create, `${relationName}.upsert.create`)
@@ -2746,9 +2784,66 @@ export class UpdateOperation {
         outputs: { rows: { kind: "rows" } },
       },
       updateData,
+      ...(delegated ? { delegated } : {}),
       before,
       missingFkAssign: this.beforeTargetFkAssign(fk, before, relationName),
     };
+  }
+
+  /**
+   * E1 U4 — the relation-carrying half of a parent-held to-one `upsert`'s UPDATE arm.
+   *
+   * The arm is the located referenced row's whole update, so it is the same shape
+   * {@link tryDelegateParentHeldUpdate} already delegates: an
+   * {@link UpdateOperation} nested-target sub-op correlated by `child.<referenced> =
+   * parent.<fk>`, sharing this operation's scope, emitting no terminal read. Three
+   * things make it the UPSERT's arm rather than a plain nested update:
+   *
+   *  · `locateNotFoundOptional` — the sub-op's locate is planned as the SUPERSET
+   *    (both arms plan; the probe decides at compile), so an empty match is the
+   *    create arm's decision and must not abort planning.
+   *  · the caller compiles it only when the probe FOUND a row, so the create arm
+   *    writes nothing from here.
+   *  · `notFoundMessage` is the upsert family's own {@link upsertPremiseChanged} —
+   *    reaching it means the row the probe saw was gone by the time the batch ran,
+   *    which is a changed premise and not a missing target.
+   *
+   * The FK-rebind mix ships with it: `resolveParentFkRebinds` is the one derivation
+   * of "the parent's FK value is its FINAL value", so an update that rebinds this FK
+   * to a literal in the same SET correlates on the value it is moving TO — the D1
+   * contract, wired exactly as the `update` arm wires it.
+   *
+   * Returns `undefined` for a scalar-only arm, which keeps its in-place fold.
+   */
+  private delegateParentHeldUpsertArm(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    relationName: string,
+    relationInfo: RelationInfo,
+    fk: FkDirection,
+    childScope: QueryScope,
+    updatePayload: Record<string, unknown>
+  ): Part | undefined {
+    const { relations } = separateData(childScope, updatePayload);
+    if (Object.keys(relations).length === 0) return undefined;
+    for (const field of fk.fkFields) input.parentFkLocateFields.add(field);
+    return buildNestedTargetUpdatePart({
+      scope: input.scope,
+      engine: this.engine,
+      targetModel: relationInfo.targetModel,
+      data: updatePayload,
+      locateNotFoundOptional: true,
+      locate: {
+        parentId: input.parentIdSource,
+        childFields: fk.pkFields,
+        parentFields: fk.fkFields,
+        parentFieldOverride: resolveParentFkRebinds(
+          input.rootScalarData,
+          fk.fkFields
+        ),
+        relationName,
+        notFoundMessage: upsertPremiseChanged(relationName),
+      },
+    });
   }
 
   /** The validated scalar update data for a parent-held to-one `update`/`upsert`
@@ -3365,6 +3460,16 @@ export class UpdateOperation {
         ),
         outputs: {},
       });
+      return;
+    }
+    // E1 U4 — the relation-carrying arm: the delegated sub-op owns this arm's whole
+    // update (its SET, its relations, its own correlated locate and batch presence
+    // guard, whose failure wording is this family's `upsertPremiseChanged`). Emitted
+    // ONLY here, in the found arm, so the create arm writes nothing from it.
+    if (target.delegated) {
+      for (const step of target.delegated.compile(this.scope, known)) {
+        (step.kind === "guard" ? guards : writes).push(step);
+      }
       return;
     }
     // Found + an update arm that asks for nothing: Prisma's no-op (the same rule

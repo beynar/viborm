@@ -9,6 +9,7 @@ import {
   makeLookupClient,
   runBeforeRootSubtreeBehavior,
   runParentHeldLookupBehavior,
+  runUpsertArmRelationBehavior,
   seedLookupBed,
 } from "./parent-held-lookup-behavior";
 
@@ -49,6 +50,16 @@ runBeforeRootSubtreeBehavior({
 });
 
 runBeforeRootSubtreeBehavior({
+  name: "PGlite atomic batch",
+  createDriver: () => new BatchOnlyPGliteDriver(),
+});
+
+runUpsertArmRelationBehavior({
+  name: "PGlite transaction",
+  createDriver: () => new PGliteDriver(),
+});
+
+runUpsertArmRelationBehavior({
   name: "PGlite atomic batch",
   createDriver: () => new BatchOnlyPGliteDriver(),
 });
@@ -399,6 +410,69 @@ describe("E1 U3 — the subtree root's produced identity", () => {
         stateClient.issue.findUnique({ where: { id: 1 } })
       ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: decoy?.id });
       expect(decoy?.id).not.toBe(magazines[1]?.id);
+      await stateClient.$disconnect();
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// E1 U4 — the TWO-PROBE staleness injection. The relation-carrying upsert arm is
+// read TWICE at planning: once by the arm's own probe (which picks found vs
+// create) and once by the delegated sub-op's correlated locate (which captures
+// the row the arm writes). This pins what happens when the row they both saw is
+// gone before the atomic batch runs.
+// ---------------------------------------------------------------------------
+
+describe("E1 U4 — the delegated upsert arm's staleness window", () => {
+  test(
+    "a target that vanishes before the batch aborts with the upsert family's wording",
+    { timeout: 30_000 },
+    async () => {
+      const db = new PGlite();
+      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
+      await push(stateClient, { force: true });
+      await seedLookupBed(stateClient);
+
+      const injector = makeLookupClient(new PGliteDriver({ client: db }));
+      const client = makeLookupClient(
+        new BeforeBatchLookupDriver(
+          async () => {
+            // Both reads saw author 1. Release the foreign key and delete it, so the
+            // premise the arm chose its branch on is false by the time the batch runs.
+            await injector.book.update({
+              where: { id: 1 },
+              data: { author: { disconnect: true } },
+            });
+            await injector.author.delete({ where: { id: 1 } });
+          },
+          { client: db }
+        )
+      );
+
+      // MEASURED OUTCOME (i): a typed abort carrying the UPSERT family's premise
+      // wording, from the delegated sub-op's own batch presence guard — not a
+      // not-found on a nested update, and not a write landing on some other row.
+      // Nothing is written: the atomic unit rolls back whole.
+      await expect(
+        client.book.update({
+          where: { id: 1 },
+          data: {
+            author: {
+              upsert: {
+                update: {
+                  name: "renamed",
+                  awards: { create: { id: 5, title: "medal" } },
+                },
+                create: { id: 9, email: "fresh@x", name: "never" },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow("Nested upsert premise changed for relation 'author'.");
+      await expect(stateClient.award.findMany({})).resolves.toEqual([]);
+      await expect(
+        stateClient.author.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([{ id: 2, email: "target@x", name: "target" }]);
       await stateClient.$disconnect();
     }
   );

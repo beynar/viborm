@@ -626,3 +626,189 @@ export function runBeforeRootSubtreeBehavior(options: {
     );
   });
 }
+
+/**
+ * E1 U4 — relations in a parent-held to-one UPSERT arm.
+ *
+ * The arm is the located referenced row's whole update, so it delegates to the same
+ * nested-target sub-op the plain `update` arm uses. What these tests separate is the
+ * arm GATE: the delegated work must appear in the found arm and nowhere else, and
+ * the scalar-only arm must keep the fold it always had — including its no-op.
+ */
+export function runUpsertArmRelationBehavior(options: {
+  readonly name: string;
+  readonly createDriver: () => AnyDriver;
+}): void {
+  describe(`${options.name} parent-held upsert arm relations (E1 U4)`, () => {
+    const run = (
+      body: (client: LookupClient) => Promise<void>
+    ): (() => Promise<void>) => {
+      return async () => {
+        const driver = options.createDriver();
+        const client = makeLookupClient(driver);
+        await push(client, { force: true });
+        await seedLookupBed(client);
+        try {
+          await body(client);
+        } finally {
+          await client.$disconnect();
+        }
+      };
+    };
+
+    test(
+      "the FOUND arm writes its scalars and its relations together",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // Book 1 points at author 1, so the probe finds it and the update arm runs.
+        await expect(
+          client.book.update({
+            where: { id: 1 },
+            data: {
+              author: {
+                upsert: {
+                  update: {
+                    name: "renamed",
+                    awards: { create: { id: 5, title: "medal" } },
+                  },
+                  create: { id: 9, email: "fresh@x", name: "never" },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 1, title: "book-1", authorId: 1 });
+        await expect(
+          client.author.findUnique({ where: { id: 1 } })
+        ).resolves.toEqual({ id: 1, email: "decoy@x", name: "renamed" });
+        // The award must hang off the LOCATED author, not off the other one.
+        await expect(
+          client.award.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([{ id: 5, title: "medal", authorId: 1 }]);
+      })
+    );
+
+    test(
+      "a relation-ONLY found arm writes the relation and no target SET",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await expect(
+          client.book.update({
+            where: { id: 1 },
+            data: {
+              author: {
+                upsert: {
+                  update: { awards: { create: { id: 5, title: "medal" } } },
+                  create: { id: 9, email: "fresh@x", name: "never" },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 1, title: "book-1", authorId: 1 });
+        await expect(
+          client.author.findUnique({ where: { id: 1 } })
+        ).resolves.toEqual({ id: 1, email: "decoy@x", name: "decoy" });
+        await expect(
+          client.award.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([{ id: 5, title: "medal", authorId: 1 }]);
+      })
+    );
+
+    test(
+      "the ABSENT arm writes NOTHING from the relation-carrying update arm",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // Book 2 points at nothing, so the create arm is taken. The update arm's
+        // relation was already PLANNED (both arms plan); it must not be written.
+        await expect(
+          client.book.update({
+            where: { id: 2 },
+            data: {
+              author: {
+                upsert: {
+                  update: {
+                    name: "never",
+                    awards: { create: { id: 5, title: "orphan" } },
+                  },
+                  create: { id: 9, email: "fresh@x", name: "fresh" },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 2, title: "book-2", authorId: 9 });
+        await expect(client.award.findMany({})).resolves.toEqual([]);
+        await expect(
+          client.author.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, email: "decoy@x", name: "decoy" },
+          { id: 2, email: "target@x", name: "target" },
+          { id: 9, email: "fresh@x", name: "fresh" },
+        ]);
+      })
+    );
+
+    test(
+      "a scalar-only found arm that asks for nothing is still the pinned no-op",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The byte-identical path: no relations, an empty update arm. Nothing is
+        // written and nothing is refused.
+        await expect(
+          client.book.update({
+            where: { id: 1 },
+            data: {
+              author: {
+                upsert: {
+                  update: {},
+                  create: { id: 9, email: "fresh@x", name: "never" },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 1, title: "book-1", authorId: 1 });
+        await expect(
+          client.author.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, email: "decoy@x", name: "decoy" },
+          { id: 2, email: "target@x", name: "target" },
+        ]);
+      })
+    );
+
+    test(
+      "a same-update FK rebind makes the arm correlate on the FINAL value",
+      { timeout: 30_000 },
+      run(async (client) => {
+        // The D1 contract, through the delegated arm: the same SET moves book 1 from
+        // author 1 to author 2, so the upsert arm must locate — and write — author 2.
+        // Correlating on the located (pre-rebind) value would rename the author the
+        // book is moving AWAY from, which is the wrong row.
+        await expect(
+          client.book.update({
+            where: { id: 1 },
+            data: {
+              authorId: 2,
+              author: {
+                upsert: {
+                  update: {
+                    name: "renamed",
+                    awards: { create: { id: 5, title: "medal" } },
+                  },
+                  create: { id: 9, email: "fresh@x", name: "never" },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 1, title: "book-1", authorId: 2 });
+        await expect(
+          client.author.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, email: "decoy@x", name: "decoy" },
+          { id: 2, email: "target@x", name: "renamed" },
+        ]);
+        await expect(
+          client.award.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([{ id: 5, title: "medal", authorId: 2 }]);
+      })
+    );
+  });
+}
