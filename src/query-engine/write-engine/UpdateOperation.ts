@@ -88,11 +88,15 @@ import {
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
-import { referencedFieldRef, referencedFieldValue } from "./parent-reference";
+import {
+  referencedFieldCorrelation,
+  referencedFieldValue,
+} from "./parent-reference";
 import { parseValidated } from "./parse-boundary";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
+  type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
   literalParentId,
@@ -354,6 +358,21 @@ export class UpdateOperation {
    *  engine (an arrow field, so `this` survives being passed as a callback). */
   private readonly buildFreshArm: FreshArmBuilder = (input) =>
     buildFreshArmPart(this.scope, this.engine, input);
+  /** E3 — the adopt family's whole seam: the fresh CREATE arm above, plus the
+   *  located UPDATE arm's deeper child Parts. Arrow fields, so this binds lazily
+   *  and field-initializer order does not matter. */
+  private readonly armSeam: ArmSeam = {
+    freshArm: (input) => this.buildFreshArm(input),
+    nestedChild: (targetScope, parentId, relations, txMode) =>
+      buildNestedTargetChildParts(
+        this.scope,
+        this.engine,
+        targetScope,
+        relations,
+        parentId,
+        txMode
+      ),
+  };
   private readonly model: Model<any>;
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
@@ -1850,7 +1869,7 @@ export class UpdateOperation {
             adoptParentId,
             "correlated",
             input.txMode,
-            this.buildFreshArm
+            this.armSeam
           )
         );
         return;
@@ -1867,7 +1886,7 @@ export class UpdateOperation {
             normalizeItems(parsedRelation.connectOrCreate, relationName),
             adoptParentId,
             input.txMode,
-            this.buildFreshArm
+            this.armSeam
           )
         );
         return;
@@ -2084,7 +2103,7 @@ export class UpdateOperation {
             normalizeItems(parsedRelation.connectOrCreate, relationName),
             adoptParentId,
             input.txMode,
-            this.buildFreshArm
+            this.armSeam
           )
         );
         return;
@@ -2880,7 +2899,7 @@ export class UpdateOperation {
       return {
         [childField]: {
           equals: useRef
-            ? referencedFieldRef(
+            ? referencedFieldCorrelation(
                 this.parentIdSource,
                 fkField,
                 relationName,
@@ -3944,7 +3963,7 @@ export class UpdateOperation {
       return {
         [childField]: {
           equals: refable
-            ? referencedFieldRef(
+            ? referencedFieldCorrelation(
                 nt.parentId,
                 parentField,
                 nt.relationName,

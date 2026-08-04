@@ -21,6 +21,7 @@ import { referencedFieldValue } from "./parent-reference";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
+  type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
   type ParentIdSource,
@@ -420,9 +421,18 @@ function foldOneNestedRelation(input: {
       buildFreshArmPart(scope, engine, freshInput),
   } as const;
 
+  // E3 — the adopt family's two injected builders, bound together here because this is
+  // the one place both halves exist: the fresh CREATE arm's create subtree and the
+  // located UPDATE arm's deeper child Parts (this same recursion, one level on).
+  const armSeam: ArmSeam = {
+    freshArm: writeBase.freshArm,
+    nestedChild: deeperBuilder,
+  };
+
   for (const kind of getRelationMutationKinds(mutation)) {
     foldOneChildHeldKind({
       kind,
+      armSeam,
       isInverseToOne,
       relationName,
       relationInfo,
@@ -443,6 +453,7 @@ function foldOneNestedRelation(input: {
 
 function foldOneChildHeldKind(args: {
   kind: string;
+  armSeam: ArmSeam;
   isInverseToOne: boolean;
   relationName: string;
   relationInfo: RelationMutation["relationInfo"];
@@ -460,6 +471,7 @@ function foldOneChildHeldKind(args: {
 }): void {
   const {
     kind,
+    armSeam,
     isInverseToOne,
     relationName,
     relationInfo,
@@ -514,7 +526,7 @@ function foldOneChildHeldKind(args: {
           normalizeItems(parsedRelation.connectOrCreate, relationName),
           parentId,
           txMode,
-          writeBase.freshArm
+          armSeam
         )
       );
       return;
@@ -536,7 +548,7 @@ function foldOneChildHeldKind(args: {
           parentId,
           "correlated",
           txMode,
-          writeBase.freshArm
+          armSeam
         )
       );
       return;

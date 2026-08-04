@@ -68,8 +68,10 @@ const MISMATCHED_FK = /mismatched foreign-key metadata/;
 const NEEDS_PLANNED_PARENT = /requires a planned parent id/;
 const NON_NULLABLE_PK = /Expected integer|Expected object/;
 const NOT_A_READ_BASE = /is not a read base/;
-const TO_MANY_SEAM_ONLY =
-  /only a child-held one-to-many .* is expressible at this seam/;
+// E3 — the upsert UPDATE arm's direction boundary replaced the child-held adopt
+// builder's relation-type gate as the answer a parent-held to-one grandchild meets.
+const ARM_EDGE_IS_PARENT_HELD =
+  /does not support a parent-held to-one write on relation .* one level deeper on the update arm/;
 const CREATE_ROOT_CHILD_HELD_ONLY =
   /supports only child-held one-to-many \/ one-to-one relations/;
 
@@ -906,15 +908,27 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
   });
 
   /**
-   * `RelationUpsertPart` :708 was filed "no reachable payload identified". The ROOT
-   * dispatches direction before the builder — but `buildUpdateArmParts`, the GRANDCHILD
-   * fold on an upsert's UPDATE arm, dispatches on the KIND alone and hands any
-   * `connectOrCreate` to `buildConnectOrCreateParts` with the direction unexamined. A
-   * PARENT-HELD to-one grandchild therefore arrives with `type === "manyToOne"`. Same
-   * family as :1079 (a parent-held to-one grandchild `create` on the same arm), so (c-ii):
-   * what it needs is the target's own SET fold, which X1c's delegation owns.
+   * DELIBERATE RETARGET (E3-U4). `RelationUpsertPart` :708 was filed "no reachable
+   * payload identified", and N7-U-A's re-verification overturned that: `buildArmChildParts`
+   * — the GRANDCHILD fold on an upsert's UPDATE arm — dispatched on the KIND alone and
+   * handed any `connectOrCreate` to `buildConnectOrCreateParts` with the direction
+   * unexamined, so a PARENT-HELD to-one grandchild arrived there with
+   * `type === "manyToOne"`.
+   *
+   * E3 removed that kind dispatch. The arm now routes by DIRECTION first, through the
+   * same located-target seam every other located-target caller uses, so the wrong
+   * `relationInfo.type` no longer reaches the child-held adopt builder — its type gate is
+   * an engine invariant again, and the (c-i) claim it lost is restored WITH the reason.
+   *
+   * This payload is still refused, still typed, and still at construction — that is what
+   * this witness keeps pinning. Only WHICH boundary answers changed: the parent-held
+   * direction now has its own wording at the arm (`assertArmEdgeIsChildHeld`), which says
+   * the thing the caller can act on — the arm's own row holds that foreign key, so the
+   * write belongs in the arm's UPDATE SET. The class assertion below is the load-bearing
+   * half: an absorption may not turn a typed refusal into an internal error, and this
+   * proves it did not.
    */
-  test("RelationUpsertPart :708 IS reachable — a parent-held to-one connectOrCreate on an upsert update arm", () => {
+  test("the parent-held to-one connectOrCreate on an upsert update arm is refused by DIRECTION", () => {
     const engine = new QueryEngine(
       new PGliteDriver(),
       createModelRegistry(nestedWriteBehaviorSchema, schemas)
@@ -951,6 +965,6 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
       refusal = error;
     }
     expect(refusal).toBeInstanceOf(UnsupportedOperationError);
-    expect((refusal as Error).message).toMatch(TO_MANY_SEAM_ONLY);
+    expect((refusal as Error).message).toMatch(ARM_EDGE_IS_PARENT_HELD);
   });
 });

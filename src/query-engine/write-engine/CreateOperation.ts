@@ -69,6 +69,7 @@ import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import {
+  type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
   literalParentId,
@@ -331,6 +332,21 @@ export class CreateOperation {
    *  engine (an arrow field, so `this` survives being passed as a callback). */
   private readonly buildFreshArm: FreshArmBuilder = (input) =>
     buildFreshArmPart(this.scope, this.engine, input);
+  /** E3 — the adopt family's whole seam: the fresh CREATE arm above, plus the
+   *  located UPDATE arm's deeper child Parts. Arrow fields, so this binds lazily
+   *  and field-initializer order does not matter. */
+  private readonly armSeam: ArmSeam = {
+    freshArm: (input) => this.buildFreshArm(input),
+    nestedChild: (targetScope, parentId, relations, txMode) =>
+      buildNestedTargetChildParts(
+        this.scope,
+        this.engine,
+        targetScope,
+        relations,
+        parentId,
+        txMode
+      ),
+  };
 
   constructor(
     engine: QueryEngine,
@@ -1375,7 +1391,7 @@ export class CreateOperation {
               normalizeItems(relationInput.connectOrCreate, relationName),
               this.edgeParentId(input.self, fk.pkFields, relationName),
               txMode,
-              this.buildFreshArm
+              this.armSeam
             )
           );
           break;
@@ -1391,7 +1407,7 @@ export class CreateOperation {
               this.edgeParentId(input.self, fk.pkFields, relationName),
               "global-adopt",
               txMode,
-              this.buildFreshArm,
+              this.armSeam,
               "upsert"
             )
           );
