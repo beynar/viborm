@@ -1866,8 +1866,7 @@ export class UpdateOperation {
             relationName,
             relationInfo,
             normalizeItems(parsedRelation.upsert, relationName),
-            adoptParentId,
-            "correlated",
+            { correlation: "correlated", parentId: adoptParentId },
             input.txMode,
             this.armSeam
           )

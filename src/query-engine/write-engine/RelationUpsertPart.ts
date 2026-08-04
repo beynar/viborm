@@ -79,6 +79,36 @@ export type ParentIdSource =
   | { readonly kind: "literal"; readonly value: unknown };
 
 /**
+ * E4-U2 — a parent source with ONE VALUE PER REFERENCED COLUMN, keyed by that column's
+ * NAME.
+ *
+ * Every member of {@link ParentIdSource} carries a SINGLE value, and every consumer of
+ * that union is written to spend that one value on whichever referenced column it is
+ * asked about — correct for a single-column edge, and the cross-pair trap for a compound
+ * one (field 0 written into every foreign-key column). A compound child edge under a
+ * CREATE root has a whole tuple to give: the parent's own create data spells some
+ * columns and its INSERT produces others, so each referenced column has its own
+ * provenance. This shape carries them separately, and the lookup is by NAME, so an
+ * index that drifts cannot silently pair the wrong two columns.
+ *
+ * It is deliberately NOT a member of {@link ParentIdSource}. That is the structural
+ * proof the plan asked for: {@link referencedFieldValue} and
+ * {@link referencedFieldCorrelation} — the readers a CORRELATED probe goes through —
+ * take `ParentIdSource`, so this shape is not assignable to them and the collapse
+ * "correlate a located row against field 0 of a tuple" cannot be written. The
+ * correlation modes are separated once more, one level up, by
+ * {@link UpsertParentBinding}.
+ */
+export type PerFieldParentIdSource = {
+  readonly kind: "per-field";
+  readonly members: Readonly<Record<string, ParentIdSource>>;
+};
+
+/** What an adopt-family part may take as its parent source (ATOM §1's per-field
+ *  produces, made first-class). */
+export type AdoptParentIdSource = ParentIdSource | PerFieldParentIdSource;
+
+/**
  * How the found branch reads the probe (ATOM §4):
  * - `global-adopt`: nested upsert under `create` — the parent is fresh, no
  *   correlation is possible, so any globally-matched row is adopted and updated
@@ -88,6 +118,27 @@ export type ParentIdSource =
  *   V7001 error (V1's message verbatim). Never `ON CONFLICT` (ATOM §4).
  */
 export type UpsertCorrelation = "global-adopt" | "correlated";
+
+/**
+ * E4-U2 — the parent source and the correlation mode as ONE value, because which
+ * sources are legal depends on the mode.
+ *
+ * A `correlated` part compares the located row's foreign key against the parent, per
+ * referenced column, at compile — so it needs a source every reader can resolve to a
+ * value: the three whole-value kinds. A `global-adopt` part compares nothing (its parent
+ * is fresh, so no row can already belong to it), so it also takes the per-referenced-
+ * field source a compound create-root edge builds.
+ *
+ * The union is the proof: `{ correlation: "correlated", parentId: { kind: "per-field" …
+ * } }` does not type-check, so no caller — present or future — can hand a tuple to a
+ * correlated probe and have it silently correlate on one member.
+ */
+export type UpsertParentBinding =
+  | { readonly correlation: "correlated"; readonly parentId: ParentIdSource }
+  | {
+      readonly correlation: "global-adopt";
+      readonly parentId: AdoptParentIdSource;
+    };
 
 /**
  * Which member of the adopt family this part expresses (ATOM §6 — connectOrCreate
@@ -122,7 +173,12 @@ export interface ArmSeam {
   readonly nestedChild: NestedChildBuilder;
 }
 
-export interface RelationUpsertConfig {
+/**
+ * Everything the part needs EXCEPT its parent binding, which is a discriminated union
+ * of its own ({@link UpsertParentBinding}) so the correlation mode and the source kinds
+ * legal under it stay one decision.
+ */
+interface RelationUpsertConfigCore {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
@@ -148,8 +204,6 @@ export interface RelationUpsertConfig {
   readonly fkFields: readonly string[];
   readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
-  readonly parentId: ParentIdSource;
-  readonly correlation: UpsertCorrelation;
   readonly txMode: boolean;
   /** Adopt-family member (default `upsert`); `connectOrCreate` omits update data. */
   readonly family?: UpsertFamily;
@@ -184,6 +238,9 @@ export interface RelationUpsertConfig {
    */
   readonly createSubtree?: Part;
 }
+
+export type RelationUpsertConfig = RelationUpsertConfigCore &
+  UpsertParentBinding;
 
 /**
  * The to-many nested-upsert child part (README §5's earned `RelationUpsert`
@@ -459,8 +516,13 @@ export class RelationUpsertPart implements Part {
     capturedPk: unknown,
     known: PlanningKnown | undefined
   ): Sql {
-    const { childScope, where, childPrimaryKey, fkFields, correlation } =
-      this.config;
+    const config = this.config;
+    const { childScope, where, childPrimaryKey, fkFields } = config;
+    // E4-U2 — the parent source, narrowed by the mode that is allowed to read it. In
+    // `correlated` mode the union hands back the whole-value kinds only, so the per-
+    // referenced-field source can never reach the comparison below.
+    const correlationParent =
+      config.correlation === "correlated" ? config.parentId : undefined;
     return buildFind(
       childScope,
       {
@@ -470,10 +532,14 @@ export class RelationUpsertPart implements Part {
             ...(capturedPk === undefined
               ? []
               : [{ [childPrimaryKey]: { equals: capturedPk } }]),
-            ...(known && correlation === "correlated"
+            ...(known && correlationParent
               ? fkFields.map((fkField, index) => ({
                   [fkField]: {
-                    equals: this.parentReferenced(known, index),
+                    equals: this.parentReferenced(
+                      correlationParent,
+                      known,
+                      index
+                    ),
                   },
                 }))
               : []),
@@ -495,13 +561,15 @@ export class RelationUpsertPart implements Part {
     known: PlanningKnown
   ): "create" | "found" {
     if (rows.length === 0) return "create";
-    if (this.config.correlation === "global-adopt") return "found";
+    const config = this.config;
+    if (config.correlation === "global-adopt") return "found";
     const record = locatedRow(rows);
     // Correlated: found only if EVERY child FK column already equals its
     // referenced parent column (a compound edge correlates per-field). A partial
     // or foreign match is the found-uncorrelated V7001 (V1's verbatim message).
-    const correlated = this.config.fkFields.every((fkField, index) =>
-      fkEquals(record?.[fkField], this.parentReferenced(known, index))
+    const parentId = config.parentId;
+    const correlated = config.fkFields.every((fkField, index) =>
+      fkEquals(record?.[fkField], this.parentReferenced(parentId, known, index))
     );
     if (correlated) return "found";
     throw new NestedWriteError(
@@ -582,10 +650,16 @@ export class RelationUpsertPart implements Part {
   }
 
   /** The concrete value of the parent column the FK field `index` references
-   *  (literal/planned; never a `ref`). */
-  private parentReferenced(known: PlanningKnown, index: number): unknown {
+   *  (literal/planned; never a `ref`). The source is passed in rather than read from
+   *  the config, because only the correlated half of {@link UpsertParentBinding} may
+   *  reach this and the narrowing lives at the two call sites. */
+  private parentReferenced(
+    source: ParentIdSource,
+    known: PlanningKnown,
+    index: number
+  ): unknown {
     return referencedFieldValue(
-      this.config.parentId,
+      source,
       this.config.referencedFields[index]!,
       known,
       this.config.relationName,
@@ -612,7 +686,7 @@ function fkAssignData(
   fkFields: readonly string[],
   referencedFields: readonly string[],
   context: {
-    readonly parentId: ParentIdSource;
+    readonly parentId: AdoptParentIdSource;
     readonly relationName: string;
     readonly known: PlanningKnown;
   }
@@ -621,15 +695,17 @@ function fkAssignData(
   const data: Record<string, unknown> = {};
   for (let index = 0; index < fkFields.length; index += 1) {
     const fkField = fkFields[index]!;
+    const referenced = referencedFields[index]!;
+    const source = memberSource(parentId, referenced, relationName);
     data[fkField] = referenceSql(
       engine,
       childScope.model,
       fkField,
-      parentId.kind === "ref"
-        ? parentId.ref
+      source.kind === "ref"
+        ? source.ref
         : referencedFieldValue(
-            parentId,
-            referencedFields[index]!,
+            source,
+            referenced,
             known,
             relationName,
             "upsert"
@@ -637,6 +713,32 @@ function fkAssignData(
     );
   }
   return data;
+}
+
+/**
+ * E4-U2 — the whole-value source ONE referenced column takes.
+ *
+ * A single-value source is that column's source, whichever column is asked for: the
+ * edge has one, so there is nothing to pick. A per-field source is picked BY NAME, and
+ * a name it does not carry is an engine invariant break, not a route: the source is
+ * built from `getFkDirection(...).pkFields` at the caller (`CreateOperation`), and this
+ * part re-derives `referencedFields` from the SAME call on the same relation — the two
+ * lists are one list. The alternative to saying so is `members[referenced]!`, which
+ * would write `undefined` into a foreign-key column and call it a value.
+ */
+function memberSource(
+  parentId: AdoptParentIdSource,
+  referencedField: string,
+  relationName: string
+): ParentIdSource {
+  if (parentId.kind !== "per-field") return parentId;
+  const member = parentId.members[referencedField];
+  if (member === undefined) {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: the per-field parent source for relation '${relationName}' carries no value for referenced column '${referencedField}'; it is built from the same foreign-key direction this part reads.`
+    );
+  }
+  return member;
 }
 
 /**
@@ -687,6 +789,13 @@ export function literalParentId(value: unknown): ParentIdSource {
   return { kind: "literal", value };
 }
 
+/** E4-U2 — one whole-value source per referenced column, keyed by that column's name. */
+export function perFieldParentId(
+  members: Readonly<Record<string, ParentIdSource>>
+): PerFieldParentIdSource {
+  return { kind: "per-field", members };
+}
+
 // ---------------------------------------------------------------------------
 // Recursive to-many upsert composition (PLAN P1.3). One shared builder folds a
 // nested upsert relation into a `RelationUpsertPart`; when that child's UPDATE
@@ -707,8 +816,7 @@ export function buildToManyUpsertParts(
   relationName: string,
   relationInfo: RelationInfo,
   items: readonly Record<string, unknown>[],
-  parentId: ParentIdSource,
-  correlation: UpsertCorrelation,
+  parent: UpsertParentBinding,
   txMode: boolean,
   seam: ArmSeam,
   family: UpsertFamily = "upsert"
@@ -772,8 +880,7 @@ export function buildToManyUpsertParts(
       relationName,
       relationInfo,
       item,
-      parentId,
-      correlation,
+      parent,
       txMode,
       seam,
       family,
@@ -808,7 +915,7 @@ export function buildConnectOrCreateParts(
   relationName: string,
   relationInfo: RelationInfo,
   items: readonly Record<string, unknown>[],
-  parentId: ParentIdSource,
+  parentId: AdoptParentIdSource,
   txMode: boolean,
   seam: ArmSeam
 ): RelationUpsertPart[] {
@@ -819,8 +926,7 @@ export function buildConnectOrCreateParts(
     relationName,
     relationInfo,
     items,
-    parentId,
-    "global-adopt",
+    { correlation: "global-adopt", parentId },
     txMode,
     seam,
     "connectOrCreate"
@@ -834,8 +940,7 @@ function buildOneUpsertPart(
   relationName: string,
   relationInfo: RelationInfo,
   item: Record<string, unknown>,
-  parentId: ParentIdSource,
-  correlation: UpsertCorrelation,
+  parent: UpsertParentBinding,
   txMode: boolean,
   seam: ArmSeam,
   family: UpsertFamily,
@@ -946,7 +1051,7 @@ function buildOneUpsertPart(
           data: create,
           rootFkInject: (known) =>
             fkAssignData(engine, child, fkFields, referencedFields, {
-              parentId,
+              parentId: parent.parentId,
               relationName,
               known,
             }),
@@ -968,8 +1073,7 @@ function buildOneUpsertPart(
     fkFields,
     referencedFields,
     childPrimaryKey,
-    parentId,
-    correlation,
+    ...parent,
     txMode,
     family,
     duplicateOfEarlier,

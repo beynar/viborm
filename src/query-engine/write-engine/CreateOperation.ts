@@ -69,11 +69,13 @@ import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import {
+  type AdoptParentIdSource,
   type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
   literalParentId,
   type ParentIdSource,
+  perFieldParentId,
   refParentId,
 } from "./RelationUpsertPart";
 import { StepScope } from "./StepScope";
@@ -1399,7 +1401,7 @@ export class CreateOperation {
               relationName,
               relationInfo,
               normalizeItems(relationInput.connectOrCreate, relationName),
-              this.edgeParentId(input.self, fk.pkFields, relationName),
+              this.childEdgeParentSource(input.self, fk.pkFields, relationName),
               txMode,
               this.armSeam
             )
@@ -1414,8 +1416,14 @@ export class CreateOperation {
               relationName,
               relationInfo,
               normalizeItems(relationInput.upsert, relationName),
-              this.edgeParentId(input.self, fk.pkFields, relationName),
-              "global-adopt",
+              {
+                correlation: "global-adopt",
+                parentId: this.childEdgeParentSource(
+                  input.self,
+                  fk.pkFields,
+                  relationName
+                ),
+              },
               txMode,
               this.armSeam,
               "upsert"
@@ -1573,8 +1581,18 @@ export class CreateOperation {
     return resolved.kind === "ref" ? resolved.ref : resolved.value;
   }
 
-  /** The {@link ParentIdSource} an after-parent adopt/M2M Part consumes (the
-   *  existing Parts read a single referenced parent value). */
+  /**
+   * The single parent value a many-to-many junction Part consumes.
+   *
+   * The junction row keys its parent half with ONE column — `getManyToManyJoinInfo`
+   * resolves it through `getRequiredSinglePrimaryKeyField`, which is where a compound
+   * primary key is answered for every other m2m shape (N3-U3). This refusal reaches the
+   * same fact one statement earlier, because the parent source is an ARGUMENT to
+   * `buildJunctionParts` and so is built before that resolution runs. It is not the
+   * child-edge arity boundary any more: E4-U2 gave the child-held adopt kinds a source
+   * with one value per referenced column ({@link childEdgeParentSource}), and they no
+   * longer come here.
+   */
   private edgeParentId(
     self: RecordIdentity,
     referencedFields: readonly string[],
@@ -1585,7 +1603,59 @@ export class CreateOperation {
         `query-engine-v2 create does not support a compound child edge on relation '${relationName}'.`
       );
     }
-    const referenced = referencedFields[0]!;
+    return this.referencedParentSource(
+      self,
+      referencedFields[0]!,
+      relationName
+    );
+  }
+
+  /**
+   * E4-U2 — the parent source a child-held ADOPT edge (`connectOrCreate` / `upsert`)
+   * consumes: one whole-value source per referenced column, keyed by that column's NAME.
+   *
+   * A single-column edge is the length-1 case and produces exactly the source it always
+   * did, so nothing about the common shape moves. A COMPOUND edge used to be refused
+   * here, and the refusal was right for the source that existed: every consumer of a
+   * single-value `ParentIdSource` spends that one value on every foreign-key column, so
+   * a two-column edge would have written the first referenced value into both — the
+   * cross-pair trap D3 measured one level deeper. Keying by name removes the trap by
+   * construction rather than by care: there is no index to misalign, and a column with
+   * no member is an engine invariant break rather than a silent `undefined`.
+   *
+   * Each column resolves through the SAME {@link freshReferenced} the single-column edge
+   * uses, so the per-component refusal is the same sentence naming the component that
+   * failed. That is what a NULL member gets: a spelled `null` (or an `Sql` operand, or
+   * an absent column) resolves nothing, and a foreign key equal to NULL references no
+   * row — it would make the adopt probe's correlated `WHERE` match nothing silently on a
+   * nullable column, and raise a bare NOT NULL violation on a required one.
+   */
+  private childEdgeParentSource(
+    self: RecordIdentity,
+    referencedFields: readonly string[],
+    relationName: string
+  ): AdoptParentIdSource {
+    const first = referencedFields[0];
+    if (referencedFields.length === 1 && first !== undefined) {
+      return this.referencedParentSource(self, first, relationName);
+    }
+    const members: Record<string, ParentIdSource> = {};
+    for (const referenced of referencedFields) {
+      members[referenced] = this.referencedParentSource(
+        self,
+        referenced,
+        relationName
+      );
+    }
+    return perFieldParentId(members);
+  }
+
+  /** One referenced column of this fresh record, as a whole-value parent source. */
+  private referencedParentSource(
+    self: RecordIdentity,
+    referenced: string,
+    relationName: string
+  ): ParentIdSource {
     const resolved = freshReferenced(self, referenced);
     if (resolved === undefined) {
       throw new UnsupportedOperationError(

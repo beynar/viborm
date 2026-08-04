@@ -545,8 +545,7 @@ function foldOneChildHeldKind(args: {
           relationName,
           relationInfo,
           normalizeItems(parsedRelation.upsert, relationName),
-          parentId,
-          "correlated",
+          { correlation: "correlated", parentId },
           txMode,
           armSeam
         )
