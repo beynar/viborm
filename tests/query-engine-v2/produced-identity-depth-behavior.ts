@@ -225,10 +225,6 @@ export const producedIdentitySchema = (() => {
 
 hydrateSchemaNames(producedIdentitySchema);
 
-/** The surviving update-arm boundary's wording (an m2m edge correlated to a LOCATED
- *  row, which needs a builder `RelationUpsertPart` cannot import without a cycle). */
-const M2M_ONE_LEVEL_DEEPER = /many-to-many create one level deeper/;
-
 /**
  * The operations run through the OPERATION, not the routed client: a batch-only,
  * non-returning driver refuses every single-row mutation at the client seam ("public
@@ -560,34 +556,44 @@ export function runProducedIdentityBehavior(options: {
     );
 
     test(
-      "the UPDATE arm one level deeper still refuses an m2m edge, with nothing written",
+      "the UPDATE arm one level deeper now WRITES its m2m edge, correlated to the located row",
       { timeout: 30_000 },
       async () => {
         const { client, update, dispose } = await setup();
         try {
           await seedOrgs(client);
-          // The surviving boundary, on the same relation as the absorbed create arm:
-          // the update arm's target is LOCATED, and a junction correlated to a located
-          // row needs a builder `RelationUpsertPart` cannot import without a cycle.
-          // A CONSTRUCTION-time decline: it throws before the operation exists, so
-          // nothing was planned, let alone written.
-          expect(() =>
-            update("org", producedIdentitySchema.org, {
-              where: { id: 1 },
-              data: {
-                teams: {
-                  upsert: {
-                    where: { code: "T-DECOY" },
-                    create: { id: 50, code: "T-DECOY", title: "x" },
-                    update: { labels: { create: { id: 2, name: "nope" } } },
-                  },
+          // DELIBERATE RETARGET (E3-U2). This asserted the boundary
+          //   `query-engine-v2 does not support a nested many-to-many create one level
+          //    deeper on the update arm of relation 'labels'.`
+          // whose reason was that a junction correlated to a LOCATED row needed a
+          // builder `RelationUpsertPart` could not import without a cycle. E3 injected
+          // that builder as a seam, so the reason is gone and the shape composes: the
+          // arm's row is located, and the junction correlates to it exactly as it does
+          // under a nested `update` target.
+          //
+          // `code: 'T-DECOY'` is team 10, which belongs to org 1 — so the found arm is
+          // taken, and the fresh label's join row must name THAT team, not the org and
+          // not the sibling org's teams.
+          await update("org", producedIdentitySchema.org, {
+            where: { id: 1 },
+            data: {
+              teams: {
+                upsert: {
+                  where: { code: "T-DECOY" },
+                  create: { id: 50, code: "T-DECOY", title: "x" },
+                  update: { labels: { create: { id: 2, name: "fresh" } } },
                 },
               },
-            })
-          ).toThrow(M2M_ONE_LEVEL_DEEPER);
+            },
+          });
           await expect(
             client.label.findMany({ where: { id: 2 } })
-          ).resolves.toEqual([]);
+          ).resolves.toEqual([{ id: 2, name: "fresh" }]);
+          const located = (await client.team.findUnique({
+            where: { id: 10 },
+            include: { labels: true },
+          })) as { labels: { id: number }[] } | null;
+          expect(located?.labels.map((row) => row.id)).toEqual([2]);
         } finally {
           await dispose();
         }

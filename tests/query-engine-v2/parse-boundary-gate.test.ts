@@ -95,7 +95,12 @@ const DELETED_KEY_GATES = [
 const MAX_PAYLOAD_RECORD_CASTS = 35;
 // 22 -> 21 (N4-U2): the same removal. `foldParentHeldConnect`'s "requires a where object
 // one level deeper" was the shape-check message that went with that cast.
-const MAX_SHAPE_THROW_MESSAGES = 21;
+// 21 -> 20 (E3): `RelationUpsertPart.normalizeUpsertItems` went with the upsert arm's
+// kind dispatch. The arm no longer unwraps a deeper relation's item array itself — it
+// hands the whole relation map to the located-target builder, whose own `normalizeItems`
+// already owns that narrowing. One home gained, one message gone; the ratchet shrinks
+// rather than moving sideways.
+const MAX_SHAPE_THROW_MESSAGES = 20;
 
 const PARSE_VALIDATED_DEF = /export function parseValidated\b/;
 const INFER_OUTPUT_CAST = /as InferOutput\b/;
