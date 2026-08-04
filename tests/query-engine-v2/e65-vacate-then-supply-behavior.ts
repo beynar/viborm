@@ -62,10 +62,24 @@ export async function resetVacateThenSupply(client: any): Promise<void> {
   await client.badge.create({ data: { id: "b-alt", tag: "alt" } });
 }
 
-/** `[id, tag, stationId]` for every badge, id-ordered. */
+/**
+ * `[id, tag, stationId]` for every badge, ordered by CODE UNIT rather than by the
+ * database.
+ *
+ * Not a style choice: `ORDER BY id` disagrees across the legs this suite runs on.
+ * PostgreSQL's default locale collation ignores punctuation at the primary weight, so
+ * it reads `b-alt` as `balt` and returns `b1` first; PGlite and SQLite compare bytes and
+ * return `b-alt` first. The rows and their foreign keys are identical either way, and
+ * they are the whole claim here — the ordering is not — so sorting in JS keeps a
+ * collation difference from being reported as a write-engine difference.
+ */
 async function badges(client: any): Promise<unknown[][]> {
-  const rows = await client.badge.findMany({ orderBy: { id: "asc" } });
-  return rows.map((row: any) => [row.id, row.tag, row.stationId]);
+  const rows = await client.badge.findMany({});
+  return rows
+    .map((row: any) => [row.id, row.tag, row.stationId])
+    .sort((left: unknown[], right: unknown[]) =>
+      String(left[0]) < String(right[0]) ? -1 : 1
+    );
 }
 
 export function registerVacateThenSupplyBehavior(
