@@ -1322,6 +1322,19 @@ export class UpdateOperation {
         `query-engine-v2 internal: relation '${relationName}' reached the child-held update dispatch as '${relationInfo.type}', which is neither to-one nor one-to-many.`
       );
     }
+    // The twin of the parent-held gate above, on the dispatch that reaches the child-held
+    // direction: a to-one slot holds ONE row, so two kinds name two intents for one slot.
+    // Its unique coverage is this DISPATCH position (with `CreateOperation`'s
+    // `interpretChildHeld`); the census's to-one two-kinds family covers only the ARM
+    // positions. Without it the per-kind loop below built every arm, and the outcome
+    // depended on whether the child's foreign key carried a unique — a database
+    // `UniqueConstraintError` on a 1:1 leg, TWO ROWS in the to-one slot and no diagnostic
+    // at all on a fields-less `manyToOne` inverse, whose FK is not unique.
+    if (isInverseToOne && kinds.length > 1) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ")}.`
+      );
+    }
     // Compound foreign keys are per-field (ATOM §1): every referenced parent
     // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
     // to the locate read's select/outputs so a per-field child part reads or refs

@@ -121,6 +121,16 @@ type ExtractInverseFields<TTargetModel, TSourceModel, TName> = [
  *
  * The target model's relations are inferred from S["getter"].
  * If the relation has a name, only matches inverse relations with the same name.
+ *
+ * KNOWN RESIDUAL (M8b): the runtime {@link getInverseRelationMap} demotes that name
+ * check to a disambiguator — a SOLE back-reference is the edge whether or not it echoes
+ * the name — so on a schema whose lone back-reference does not echo it, this type still
+ * omits nothing while the runtime omits (and the parse refuses) the foreign key. The gap
+ * is in the safe direction: the compiler permits a key the parse answers with a typed
+ * `ValidationError: Unknown key: <fk>` rather than the silent overwrite that preceded the
+ * alignment. Closing it belongs with the type-surface work, together with
+ * `ScannedInverseRelationMap` in `validation/relations/create.ts`, which scans the same
+ * edge and applies the same name check the same rejecting way.
  */
 export type GetInverseRelationMap<
   S extends RelationState,
@@ -138,7 +148,10 @@ export type GetInverseRelationMap<
  * Get the FK fields from the inverse relation at runtime.
  * - For to-one relations with `.fields()`: returns its own fields
  * - For inverse one-to-one, one-to-many, and many-to-many relations: finds the
- *   inverse to-one relation in the target model
+ *   inverse to-one relation in the target model, by the SAME rule the engine's
+ *   {@link findInverseRelationState} uses (see the note at the scan below): the
+ *   relation name disambiguates competing back-references, it never rejects the
+ *   only one.
  *
  * @param state - The current relation state
  * @param sourceModel - The source model (to verify the inverse points back)
@@ -162,6 +175,7 @@ export function getInverseRelationMap<S extends RelationState, TSourceModel>(
   };
   const targetRelations = targetModel["~"].state.relations;
 
+  const candidates: RelationState[] = [];
   for (const relation of Object.values(targetRelations)) {
     const relState = relation["~"].state;
 
@@ -178,12 +192,32 @@ export function getInverseRelationMap<S extends RelationState, TSourceModel>(
       continue;
     }
 
-    // If source relation has a name, inverse must have the same name
-    if (state.name && state.name !== relState.name) {
-      continue;
-    }
+    candidates.push(relState);
+  }
 
-    return relState.fields as GetInverseRelationMap<S, TSourceModel>;
+  // The relation name DISAMBIGUATES; it does not reject. When several to-one
+  // back-references point at the source model, `.name()` says which one carries THIS
+  // relation's foreign key. When there is exactly one, it IS this relation's foreign key
+  // whatever either side spelled — `.name()` on a single relation pair is legal
+  // decoration (R007 only asks for it when several relations run between two models, and
+  // R003/R004 pair relations by type, never by name).
+  //
+  // This is the rule `findInverseRelationState` — the ENGINE's scanner, which resolves
+  // the same edge for read correlation and for nested-write FK direction — has always
+  // applied. Rejecting a name-mismatched SOLE back-reference here made the two scanners
+  // answer differently about one edge: the parse omitted nothing, so it ADMITTED a
+  // spelled child foreign key, and `CreateOperation`'s inject then overwrote that value
+  // with the one the engine resolved — a user-supplied identity discarded silently.
+  // Aligned on the engine's reading because two live callers need it: a name-mismatched
+  // schema's reads correlate through that scanner with no parse boundary in front of
+  // them, and its nested writes resolve their FK direction through it.
+  if (candidates.length === 1) {
+    return candidates[0]!.fields as GetInverseRelationMap<S, TSourceModel>;
+  }
+  for (const candidate of candidates) {
+    if (!state.name || state.name === candidate.name) {
+      return candidate.fields as GetInverseRelationMap<S, TSourceModel>;
+    }
   }
 
   return undefined as GetInverseRelationMap<S, TSourceModel>;

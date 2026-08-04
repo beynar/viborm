@@ -1282,6 +1282,25 @@ export class CreateOperation {
     kinds: readonly string[]
   ): void {
     const { txMode, relationName, relationInput } = input;
+    // A to-one slot holds ONE row, so two kinds on it name two intents for one slot —
+    // the contradiction `interpretParentHeld` refuses above, refused here on the dispatch
+    // that reaches the OTHER direction. THAT is this guard's unique coverage: the
+    // child-held to-one DISPATCH positions (this one, and `UpdateOperation`'s inverse
+    // branch), which the census's to-one two-kinds family covers only at the ARM
+    // positions. Without it the loop below built EVERY arm, and which contradiction the
+    // user got depended on whether the child's foreign key happened to carry a unique: a
+    // database `UniqueConstraintError` on a 1:1 leg, and — on a leg whose FK is not
+    // unique, the fields-less `manyToOne` inverse — TWO ROWS in the to-one slot with no
+    // diagnostic at all.
+    //
+    // `> 1`, not `!== 1`: a payload naming NO kind (`{ card: {} }`) asks for nothing and
+    // is Prisma's no-op, which this loop already answers by building nothing — the same
+    // reading `UpdateOperation.interpretRelation` spells out for its empty payload.
+    if (relationInfo.isToOne && kinds.length > 1) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${kinds.join(", ")}.`
+      );
+    }
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel

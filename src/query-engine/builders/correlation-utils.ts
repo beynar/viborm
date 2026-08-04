@@ -108,6 +108,12 @@ export function buildCorrelation(
  * the wrong FK and return wrong rows.
  *
  * Shared by correlation building (reads) and nested-write FK resolution.
+ *
+ * The schema's `getInverseRelationMap` scans the same edge to decide which columns the
+ * PARSE omits from a nested create, and is aligned on this rule (M8b): a name is a
+ * disambiguator, never a rejection of the sole back-reference. The two must agree — an
+ * edge the parse admits a foreign key for is one this scanner would resolve and inject
+ * over it. Change one and change the other.
  */
 export function findInverseRelationState(
   sourceModel: Model<any>,
