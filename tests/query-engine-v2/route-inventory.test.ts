@@ -1996,6 +1996,62 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     the old description was wrong, the contract is now pinned as measured.
   //     Witnesses: upsert-envelope-parse-boundary.test.ts,
   //     upsert-untaken-arm-legality.test.ts, tests/validation/raw-record.test.ts.
+  // 34 -> 31 (E6.0-6.7, THE RE-OPENED (b) SITES — and three more live defects closed).
+  //   · **E6.0 (FIX, no route change):** the relation-key lowering had TWO defects split
+  //     by value availability, not dialect — temporal types cast to TEXT (42804 on PG,
+  //     the Ref path) and raw ISO strings bound without adapter.literals.dateTime
+  //     (errno 1292 on MySQL, the concrete path). Each half falsified with unique live
+  //     coverage on a real server. Witnesses: destination-cast(.test|-docker.test).ts.
+  //   · **E6.1 (-2):** the junction upsert arm's probeId — the refusal whose recorded
+  //     reason cited the branch N7-U-C deleted. Wired (the builder pre-allocates and the
+  //     slot publishes the captured PK as an optional firstRowField); lifts the
+  //     :1590-family refusal AND E5's assertAdoptArmFoldsInPlace carve. The update-root
+  //     twin was measured to be a LIVE DEFECT, not a refusal: a third selector read
+  //     wrong-addressed the arm and the untaken arm's second locate aborted the create
+  //     arm. Falsified BOTH ways (unwire; address the WRONG probe — the fragment
+  //     validator catches the fresh root structurally). Witnesses:
+  //     junction-upsert-arm-probe(.test|-docker.test).ts + retargets.
+  //   · **E6.2 (count flat, route narrowed):** the upsert create arm reads back a
+  //     produced COMPOUND identity (captured increment member ⊎ spelled literals through
+  //     buildPrimaryKeyWhereUnique — never a half key). Falsified by re-reading instead
+  //     of capturing (the decoy catches it). Witness: e6-produced-compound-identity.
+  //   · **E6.3 (net 0, one moved site) + A DEFECT CLOSED:** at the wave base, a
+  //     string-ulid shared-PK edge under create never reached the census refusal — the
+  //     materialized DEFAULT left a stale phantom identity, and ON THE ATOMIC BATCH THE
+  //     WRITE COMMITTED while the operation reported an internal error. The decision
+  //     moved to where the key's source is manufactured (assertSharedPkResolved beside
+  //     resolveSharedPkIdentity — the D3 placement rule). connectOrCreate ABSORBED for
+  //     the one-provenance agreeing case; connect-by-non-referenced-unique and
+  //     disagreeing arms RECLASSIFIED (b): a consumer structurally requires a
+  //     construction-time value (measured — no re-phasing). Witnesses:
+  //     e6-shared-pk-connect-or-create(.test|-docker.test).ts.
+  //   · **E6.4 (count flat, guard narrowed):** the compound-identity prototype PROVED
+  //     'no tuple form' false (two firstRowField outputs, both-member addressing, both
+  //     substrates, one-member decoys); the absorbed surface is the compound EDGE
+  //     (parent-held update/delete/upsert — the old guard conflated edge arity with
+  //     child-PK arity; connect/create already walked the same door). The compound CHILD
+  //     PK stays refused, re-filed with the prototype pinned for its future unit; the
+  //     NULL-member rule shipped. Witnesses: e64-*(.test).ts.
+  //   · **E6.5 (count flat, predicate lifted):** vacate-then-supply pairs on the
+  //     child-held/inverse to-one arm absorbed ({disconnect|delete} x
+  //     {connect|connectOrCreate|create} — the vacate arrives at RELATION_MUTATION_KEYS
+  //     index 0 by construction, fail-closed if the order ever changes); supplier x
+  //     supplier re-proven; the parent-held twin re-justified with its OWN measurement
+  //     (the FK-null lands post-root, after the supplier's rebind). All 21 pairs
+  //     enumerated. Witness: e65-vacate-then-supply.test.ts.
+  //   · **E6.6 (RECLASSIFIED — the plan's wall was wrong by one layer):** no public
+  //     payload can put an Sql operand into write data AT ALL (the typed create/update
+  //     inputs have no Sql member) — the family is parse-unreachable, the same class as
+  //     CreateWithOmittedFk. Falsified by deleting the isSql arm: nothing public
+  //     changes. The batch-capture-wall framing never applied. Witness:
+  //     e66-sql-operand-wall.test.ts.
+  //   · **E6.7 (-1: -2 +1):** {set: literal} and portable-arithmetic PK transitions
+  //     under compound/non-PK/unpinned locators — locateFields carries the
+  //     pre-transition members, COMPILE derives via getUpdatedPrimaryKeyValue over
+  //     locate-published values (the new transitioned ParentIdSource member); the two
+  //     resolveCreateParent refusals lift, one narrower refusal names the non-derivable
+  //     operands. Falsified three ways (vacated-key bind, corrupt locate, concurrency
+  //     abort). Witness: e67-compile-transition.test.ts.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -2009,7 +2065,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(34);
+    expect(sites).toBe(31);
   });
 });
 
