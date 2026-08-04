@@ -1,7 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpdateOperation is the architecture name.
 import { NestedWriteError, NotFoundError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import type { Sql } from "@sql";
+import { isSql, type Sql } from "@sql";
 import {
   splitToOneUpdateTarget,
   type ToOneUpdateTarget,
@@ -102,6 +102,7 @@ import {
   literalParentId,
   type ParentIdSource,
   plannedParentId,
+  transitionedParentId,
 } from "./RelationUpsertPart";
 import {
   buildInverseToOneUpsertPart,
@@ -1716,17 +1717,18 @@ export class UpdateOperation {
       return this.locatedCreateParent(input, referencedFields);
     }
     if (referencedFields.length !== 1) {
-      // What survives is a NON-cascade compound reference the root SET rewrites. The
-      // located row carries the pre-transition members, but a NO-ACTION foreign key does
-      // not follow them, so the fresh row must reference the POST-transition TUPLE — and
-      // that is per member: `getUpdatedPrimaryKeyValue` over each located value and its
-      // operand, at COMPILE (the locate has run) rather than at construction. What the
-      // engine has no way to spell today is a parent-id source meaning "the located row's
-      // column, with this SET operand applied" — every source is a literal, a planning
-      // read, or a SQL `Ref`, and none of the three transforms. That source is the single
-      // missing mechanism, shared with the unpinned single-key case below.
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update does not support a compound-key nested create on relation '${relationName}' while the root update rewrites non-cascading referenced column(s) '${rewritten.join(", ")}'.`
+      // E6.7 — a NON-cascade COMPOUND reference the root SET rewrites. The located row
+      // carries the pre-transition members, but a NO-ACTION foreign key does not follow
+      // them, so the fresh row must reference the POST-transition TUPLE — per member:
+      // `getUpdatedPrimaryKeyValue` over each located value and its operand, at COMPILE
+      // (the locate has run) rather than at construction. That is exactly what
+      // {@link transitionedParentId} names, and building it is this branch's whole work.
+      // A member the SET leaves alone comes back verbatim, so a partially rewritten tuple
+      // needs no second source.
+      return this.transitionedCreateParent(
+        input,
+        referencedFields,
+        relationName
       );
     }
     const referencedField = referencedFields[0]!;
@@ -1743,20 +1745,17 @@ export class UpdateOperation {
         this.parentWhere
       ).find((entry) => entry.fieldName === referencedField);
       if (!pinnedBefore) {
-        // N5-U2, MEASURED: the Ref reaches the pre-transition value — the locate row
-        // carries it, which is exactly what N1 proved — so this is not a dataflow gap and
-        // never was. What a NO-ACTION foreign key needs is the POST-transition value, and
-        // the derivation `getUpdatedPrimaryKeyValue(before, operand)` can only run once
-        // `before` is known, i.e. at COMPILE. Every parent-id source the engine has is
-        // fixed at construction: a `literal` (a value), a `planned` (a column of the
-        // located row, verbatim), a `ref` (a SQL reference). None of them applies a
-        // transform, so the value cannot be spelled — not because no SQL expresses it
-        // (`INSERT … VALUES (<new id>)` is trivial SQL) but because no source names it.
-        // The missing mechanism is one field: a `planned` source carrying the SET operand,
-        // resolved through the same derivation at compile. It is the SAME gap the compound
-        // branch above hits, and closing it closes both.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update nested create on relation '${relationName}' transitions non-cascading primary key '${referencedField}' whose pre-transition value is not pinned by the unique where.`
+        // E6.7 — the `where` pins some OTHER unique, so the pre-transition value lives
+        // only in the located row. N5-U2 measured that the Ref reaches it; what a
+        // NO-ACTION foreign key needs is the POST-transition value, and
+        // `getUpdatedPrimaryKeyValue(before, operand)` can only run once `before` is
+        // known, i.e. at COMPILE. That is the one thing every construction-fixed source
+        // could not do, and {@link transitionedParentId} is it — the SAME source the
+        // compound branch above takes, which is why one mechanism closed both.
+        return this.transitionedCreateParent(
+          input,
+          referencedFields,
+          relationName
         );
       }
       const transitioned = getUpdatedPrimaryKeyValue(
@@ -1795,6 +1794,85 @@ export class UpdateOperation {
       );
     }
     return { parentId: literalParentId(literal), afterRoot: false };
+  }
+
+  /**
+   * E6.7 — the parent id for a nested create under a NON-CASCADE transition whose
+   * post-transition value has no construction-time spelling: a compound reference, or a
+   * single primary key the unique `where` does not pin.
+   *
+   * The derivation is the pinned sibling's, moved one phase later. `getUpdatedPrimaryKeyValue`
+   * is the same JS==SQL arithmetic the terminal read and the T4b create leaf already
+   * trust; the only change is WHERE `before` comes from — the located row instead of the
+   * `where` — and therefore WHEN it can run. The referenced columns join
+   * `parentFkLocateFields`, not `locateFields`: they must appear in the locate's SELECT
+   * and `firstRowField` outputs, and they must NOT drive `reorderRootUpdateAfterChildren`,
+   * because the fresh INSERT is deliberately ordered AFTER the root UPDATE
+   * (`afterRoot: true`) — a NO-ACTION foreign key does not cascade a fresh row, so the
+   * new parent has to exist first. Reordering the root UPDATE behind the children would
+   * invert exactly that.
+   *
+   * The operand classes are already bounded when this runs, which is what makes the
+   * derivation total rather than a guess:
+   *
+   *  · a NON-primary-key referenced column reaches here only construction-resolved —
+   *    `assertRelationKeyUpdatesAreCompilable` refuses every other operand on a column an
+   *    edge references, with CLASS IV's own message ("Use a literal value or
+   *    '{ set: ... }'"), and it exempts primary keys explicitly;
+   *  · a PRIMARY-KEY column has passed `assertPortablePrimaryKeyUpdateInput`, so exactly
+   *    one operation is spelled and arithmetic on a float/decimal key is already gone.
+   *    What remains — a bare value, `{ set }`, and PORTABLE arithmetic — is precisely the
+   *    domain `getUpdatedPrimaryKeyValue` computes, JS==SQL, as the terminal read already
+   *    trusts it to.
+   *
+   * The two operands with no derivable post value keep a TYPED refusal here rather than
+   * falling into the internal error `getUpdatedPrimaryKeyValue` raises for them: `Sql`
+   * (whose value exists only once the database evaluates it) and `null` (which references
+   * no row at all). E6.6 measured that only the `null` arm is reachable from the public
+   * client — the parse boundary has no `Sql` member in write data — and the message is
+   * the one that family already owns.
+   */
+  private transitionedCreateParent(
+    input: Parameters<UpdateOperation["interpretRelation"]>[0],
+    referencedFields: readonly string[],
+    relationName: string
+  ): { parentId: ParentIdSource; afterRoot: boolean } {
+    for (const field of referencedFields) {
+      input.parentFkLocateFields.add(field);
+    }
+    const model = this.model;
+    const rootScalarData = input.rootScalarData;
+    const stepModelName = getStepModelName(model, "record");
+    return {
+      parentId: transitionedParentId(
+        this.locateId,
+        referencedFields[0]!,
+        (before, field) => {
+          // A member the SET leaves alone is not in transition: the located value IS
+          // the value the fresh row must reference.
+          if (!Object.hasOwn(rootScalarData, field)) return before;
+          const operand = classifyRelationKeyScalarUpdate(
+            rootScalarData[field]
+          );
+          const literal = operand.resolved
+            ? operand.value
+            : rootScalarData[field];
+          if (literal === null || isSql(literal)) {
+            throw new UnsupportedOperationError(
+              `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${field}'.`
+            );
+          }
+          return getUpdatedPrimaryKeyValue(
+            model,
+            field,
+            before,
+            rootScalarData[field],
+            stepModelName
+          );
+        }
+      ),
+      afterRoot: true,
+    };
   }
 
   /**

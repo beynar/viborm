@@ -68,6 +68,20 @@ import {
  *   depth-composed grandchild receives: its parent (a middle upsert located by
  *   its PK, emitted only on the found+correlated arm) has a known PK, so no
  *   probe/insert produces it.
+ * - `transitioned` (E6.7): it was located by a planning read AND the root SET rewrites
+ *   it, so the value the child must reference is the located one with that SET's operand
+ *   APPLIED — a derivation that cannot run before the locate has, and therefore runs at
+ *   compile.
+ *
+ * `transitioned` is a member of its own rather than a flag on `planned`, and the reason
+ * is the same one {@link PerFieldParentIdSource} was separated for. A `planned` source
+ * is legal to lower into a SQL `Ref` at the referenced COLUMN — several consumers do
+ * exactly that when `parentId.kind === "planned"` — and that column still holds the
+ * PRE-transition value when the child's statement runs. Spelling the transition as a
+ * flag would leave every one of those `=== "planned"` tests true and silently bind the
+ * vacated key. As a distinct kind, each of them is simply false, and the value goes
+ * through {@link referencedFieldValue}'s compile path, which is the only place the
+ * derivation exists.
  */
 export type ParentIdSource =
   | { readonly kind: "ref"; readonly ref: OperationValueReference }
@@ -75,6 +89,13 @@ export type ParentIdSource =
       readonly kind: "planned";
       readonly readStep: string;
       readonly field: string;
+    }
+  | {
+      readonly kind: "transitioned";
+      readonly readStep: string;
+      readonly field: string;
+      /** Applied to the located value at COMPILE, per referenced column. */
+      readonly transition: (before: unknown, field: string) => unknown;
     }
   | { readonly kind: "literal"; readonly value: unknown };
 
@@ -861,6 +882,17 @@ export function plannedParentId(
 
 export function literalParentId(value: unknown): ParentIdSource {
   return { kind: "literal", value };
+}
+
+/** E6.7 — the located value with the root SET's operand applied, per referenced column,
+ *  at compile. `readStep` and `field` are `planned`'s, because the READ is identical; only
+ *  the phase at which the value becomes knowable differs. */
+export function transitionedParentId(
+  readStep: string,
+  field: string,
+  transition: (before: unknown, field: string) => unknown
+): ParentIdSource {
+  return { kind: "transitioned", readStep, field, transition };
 }
 
 /** E4-U2 — one whole-value source per referenced column, keyed by that column's name. */

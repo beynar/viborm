@@ -56,6 +56,13 @@ export function referencedFieldCorrelation(
  * source is the single-field depth/create base case (its one value regardless of
  * `referencedField`); a `planned` source reads the named column from the located
  * row. A `ref` source is symbolic and must be lowered by the caller, not here.
+ *
+ * E6.7 — a `transitioned` source reads the SAME located column and then applies the
+ * root SET's operand to it. That is the whole of the "post-transition value" mechanism:
+ * the derivation cannot run at construction (the pre-value is not known until the locate
+ * has run), and compile is where it finally can. The read is identical, so the wrong-row
+ * doctrine is untouched — the value still comes from the row the locate ACTED ON, never
+ * from re-consulting the caller's `where`.
  */
 export function referencedFieldValue(
   source: ParentIdSource,
@@ -65,7 +72,9 @@ export function referencedFieldValue(
   kind: string
 ): unknown {
   if (source.kind === "literal") return source.value;
-  if (source.kind !== "planned" || !known) {
+  const readsLocatedRow =
+    source.kind === "planned" || source.kind === "transitioned";
+  if (!(readsLocatedRow && known)) {
     throw new QueryEngineError(
       `query-engine-v2 ${kind} for relation '${relationName}' requires a planned parent id.`
     );
@@ -84,5 +93,8 @@ export function referencedFieldValue(
   // from the result (`extractOutput`) — during PLANNING, before any write. Repeating
   // that check here would be redundant defense on an invariant that already has a
   // guard, which is exactly what the one-guard-per-invariant rule forbids.
-  return (row as Record<string, unknown>)[referencedField];
+  const before = (row as Record<string, unknown>)[referencedField];
+  return source.kind === "transitioned"
+    ? source.transition(before, referencedField)
+    : before;
 }
