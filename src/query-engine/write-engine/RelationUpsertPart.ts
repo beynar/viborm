@@ -757,6 +757,80 @@ function locatedRow(
     : undefined;
 }
 
+/**
+ * E5-U2 — the owned foreign key spelled in a nested create/update payload, when the
+ * value AGREES with the one the engine's fold is about to write.
+ *
+ * D4 made this family ONE refusal with ONE message: the engine derives the column from
+ * the row the enclosing step acted on, and a spelled value is a SECOND provenance for
+ * it. That is true of a value that DISAGREES. A value that agrees is not a second
+ * provenance — it is the same value, said twice — so the rule it breaks is a rule about
+ * nothing. This drops it and lets the fold speak; every other spelling keeps D4's
+ * message, byte for byte, from the one construction site.
+ *
+ * WHAT IT COMPARES (M6 measured the domain ALL-CANONICAL: the parse boundary normalizes
+ * every referenced scalar type — int, bigInt, string, dateTime, decimal — to a canonical
+ * primitive before either operand reaches here, so no `Date` or `Decimal` INSTANCE
+ * arrives and `fkEquals` is the whole comparator, bigint normalization included):
+ *
+ *  · `{ set: v }` is unwrapped first, and unwrapping is MANDATORY, not a convenience —
+ *    an update payload's scalar assignment arrives wrapped in the general case, and the
+ *    two spellings must decide identically.
+ *  · an ARITHMETIC envelope (`{ increment: n }`, …) is not unwrapped and cannot equal a
+ *    literal, so it refuses — correctly: the engine's fold writes an absolute key, and
+ *    an operand relative to the row's current one is a different value by construction.
+ *  · `null` refuses. An FK equal to NULL references no row, so it contradicts the
+ *    membership the enclosing relation is establishing, whatever the parent's key is.
+ *
+ * WHAT STAYS REFUSED, and why the refusal is the honest answer rather than a gap:
+ *
+ *  · a COMPOUND edge, fully or partially spelled. The comparison would have to be
+ *    per-column against a per-column source, and a partial spelling has no agreement to
+ *    test at all.
+ *  · a `planned` or `ref` parent source — the update root's located row, and the create
+ *    root's DB-generated key. There is NO VALUE at construction to compare against: one
+ *    is read at planning, the other produced by an INSERT that has not run. This widens
+ *    the recorded boundary from "Ref-only" to both, measured.
+ *
+ * COLLATION, deliberately: construction-time equality IS `fkEquals` equality, i.e. exact
+ * value identity. A `citext` (or any case-insensitive) referenced column would make the
+ * DATABASE call `'A'` and `'a'` the same key while this comparator calls them different,
+ * so such a spelling refuses instead of being absorbed. That direction fails CLOSED —
+ * the caller is told to omit a key the engine already owns — which is the only direction
+ * this seam may err in.
+ */
+function withoutAgreeingOwnedFk(
+  payload: Record<string, unknown>,
+  context: {
+    readonly fkFields: readonly string[];
+    readonly parentId: AdoptParentIdSource;
+    readonly relationName: string;
+  }
+): Record<string, unknown> {
+  const { fkFields, parentId, relationName } = context;
+  const spelled = fkFields.filter((fkField) => Object.hasOwn(payload, fkField));
+  if (spelled.length === 0) return payload;
+  const refusal = new UnsupportedOperationError(
+    relationOwnsForeignKey(relationName, fkFields)
+  );
+  const fkField = fkFields.length === 1 ? fkFields[0] : undefined;
+  if (fkField === undefined || parentId.kind !== "literal") throw refusal;
+  const value = unwrapSetOperand(payload[fkField]);
+  if (value === null || value === undefined) throw refusal;
+  if (!fkEquals(value, parentId.value)) throw refusal;
+  const { [fkField]: _agreed, ...rest } = payload;
+  return rest;
+}
+
+/** `{ set: v }` → `v`; anything else (a bare value, an arithmetic envelope) verbatim. */
+function unwrapSetOperand(value: unknown): unknown {
+  return isRecord(value) &&
+    Object.keys(value).length === 1 &&
+    Object.hasOwn(value, "set")
+    ? value.set
+    : value;
+}
+
 function fkEquals(childFk: unknown, parentId: unknown): boolean {
   if (Object.is(childFk, parentId)) return true;
   // Cross-driver numeric normalization (bigint vs number ids).
@@ -965,34 +1039,38 @@ function buildOneUpsertPart(
   const referencedFields = fk.pkFields;
   const child = createQueryScope(engine.adapter, relationInfo.targetModel);
   const where = requireRecord(item.where, `${relationName}.${family}.where`);
-  const create = requireRecord(item.create, `${relationName}.${family}.create`);
+  // E5-U2 — the owned foreign key, spelled beside the relation that owns it, decided
+  // ONCE for both arms and BEFORE either is separated: the agreeing spelling is dropped
+  // here, so the engine's fold stays the single provenance everywhere downstream — the
+  // create arm's scalar data, the update arm's SET, the primary-key stability check, and
+  // the fresh create SUBTREE, which is handed this same `create` object and whose root
+  // INSERT folds the parent key through `rootFkInject`. A kept key would meet that fold
+  // there and write the column twice.
+  const ownedFk = { fkFields, parentId: parent.parentId, relationName };
+  const create = withoutAgreeingOwnedFk(
+    requireRecord(item.create, `${relationName}.${family}.create`),
+    ownedFk
+  );
   const childCreate = separateData(child, create);
   // connectOrCreate has no update payload; its found arm is a pure connect.
-  const childUpdate =
+  const update =
     family === "connectOrCreate"
-      ? { scalarData: {}, relations: {} }
-      : separateData(
-          child,
-          requireRecord(item.update, `${relationName}.upsert.update`)
+      ? undefined
+      : withoutAgreeingOwnedFk(
+          requireRecord(item.update, `${relationName}.upsert.update`),
+          ownedFk
         );
-  if (family === "upsert") {
+  const childUpdate =
+    update === undefined
+      ? { scalarData: {}, relations: {} }
+      : separateData(child, update);
+  if (update !== undefined) {
     // V1's PK-arithmetic portability check on the nested upsert update arm
     // (float/decimal non-portability, divide-by-zero, one-op) — a construction-
     // time payload legality gate reusing V1's verbatim messages.
     assertPortablePrimaryKeyUpdateInput(child.model, "update", {
-      data: item.update,
+      data: update,
     });
-  }
-  if (
-    fkFields.some(
-      (fkField) =>
-        Object.hasOwn(childCreate.scalarData, fkField) ||
-        Object.hasOwn(childUpdate.scalarData, fkField)
-    )
-  ) {
-    throw new UnsupportedOperationError(
-      relationOwnsForeignKey(relationName, fkFields)
-    );
   }
   const childPrimaryKeys = getPrimaryKeyFields(child.model);
   if (childPrimaryKeys.length !== 1) {
