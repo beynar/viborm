@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { UniqueConstraintError } from "@errors";
+import { UniqueConstraintError, ValidationError } from "@errors";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
@@ -267,8 +267,16 @@ test.each(
  * `delete` become `boolean | where`) plus a filtered disconnect write, not a re-audit —
  * recorded in the census as a NAMED gap rather than smuggled in here.
  */
-/** A parse-boundary rejection, not an engine route: the schema's own vocabulary. */
-const PARSE_BOUNDARY_REJECTION = /valid|expected|boolean/i;
+/**
+ * The parse boundary's own error CLASS, which is the claim this test makes. The
+ * matcher used to be `/valid|expected|boolean/i` — a message regex broad enough that
+ * an ENGINE refusal mentioning `boolean` satisfied it, so the day the surface widens
+ * (`disconnect` / `delete` become `boolean | where`, the named gap above) the object
+ * form would start reaching the engine and this test would go on passing while
+ * testing the opposite of its name. `ValidationError` is raised by `parseValidated`
+ * and by nothing in the engine, so it separates the two the way the message cannot.
+ */
+const PARSE_BOUNDARY_REJECTION = ValidationError;
 
 test("the object form of disconnect/delete is refused at the PARSE boundary, not by the engine", () => {
   for (const key of ["disconnect", "delete"] as const) {

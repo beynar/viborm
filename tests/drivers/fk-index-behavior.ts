@@ -446,6 +446,9 @@ export interface FkIndexPlanBehaviorOptions {
   createDriver: () => AnyDriver;
 }
 
+/** The child table's alias in the emitted include, e.g. `"fk_plan_posts" AS "t1"`. */
+const CHILD_TABLE_ALIAS = /["`]fk_plan_posts["`]\s+AS\s+["`](\w+)["`]/;
+
 const USER_COUNT = 200;
 const POST_COUNT = 4000;
 
@@ -541,10 +544,22 @@ export function runFkIndexPlanBehavior({
         .join("\n");
 
       expect(plan).toContain("fk_plan_posts_author_id_idx");
-      // The child table is reached by that index and by nothing else. The
-      // aliases are the query's own (`t1` is the child).
-      expect(plan).not.toContain("Seq Scan on fk_plan_posts");
-      expect(plan).not.toContain("SCAN t1");
+      // The child table is reached by that index and by NOTHING else. Each
+      // dialect spells a full scan its own way, so run only the spelling this
+      // plan could actually contain — asserting both means one of the two is
+      // always vacuous, and a vacuous assertion is not a second opinion.
+      //
+      // The child alias is read off the emitted SQL rather than hard-coded:
+      // `SCAN <alias>` names the query's own alias, so a builder that renames it
+      // would leave a hard-coded `SCAN t1` matching nothing and passing forever.
+      // The match itself is the tripwire for that rename.
+      const childAlias = CHILD_TABLE_ALIAS.exec(included.sql)?.[1];
+      expect(childAlias).toBeDefined();
+      if (dialect === "postgresql") {
+        expect(plan).not.toContain("Seq Scan on fk_plan_posts");
+      } else {
+        expect(plan).not.toContain(`SCAN ${childAlias}`);
+      }
     }, 120_000);
   });
 }

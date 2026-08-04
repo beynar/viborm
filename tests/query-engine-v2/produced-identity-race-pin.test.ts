@@ -220,9 +220,14 @@ describe("N4-U2 — the adopt arm's missing-premise pin after the move", () => {
           // Already correlated to this parent, so the arm's three-way lands on `found`.
           "team.find.rows": [{ id: 21, orgId: 2 }],
         });
-        expect(
-          writeSteps(found.steps).every((step) => step.racePin === undefined)
-        ).toBe(true);
+        // `.every` answers `true` for an empty list, so the non-empty check is what
+        // this arm alone catches: an update arm that stopped emitting a write would
+        // otherwise satisfy the pin claim without ever compiling one.
+        const foundWrites = writeSteps(found.steps);
+        expect(foundWrites.length).toBeGreaterThan(0);
+        expect(foundWrites.every((step) => step.racePin === undefined)).toBe(
+          true
+        );
       } finally {
         await driver.disconnect();
       }
