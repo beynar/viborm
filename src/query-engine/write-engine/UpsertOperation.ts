@@ -82,17 +82,24 @@ interface ArmResult {
  *   primary-key field as a literal, or every column of some other unique
  *   constraint of the model. The read-back targets that `whereUnique` directly and
  *   the INSERT captures nothing.
- * - `generated` — the model's single primary key is a DB-generated identity
- *   (`increment`) the create data omits AND the create data spells no other
- *   complete unique, so the INSERT must CAPTURE the value the database produced
- *   and the read-back addresses the row by it.
+ * - `generated` — exactly ONE primary-key member is missing from the create data
+ *   and that member is a DB-generated identity (`increment`), AND the create data
+ *   spells no other complete unique. The INSERT CAPTURES the value the database
+ *   produced for `field`; the remaining members are `literals` the create data
+ *   already spells. The read-back is the ⊎ of the two: a complete primary key,
+ *   every part of it derived from the row this statement made or wrote.
+ *   A single-column primary key is the `literals = {}` case of the same shape.
  *
  * There is deliberately no third shape: any other create payload names no row the
  * upsert can read back, and `createArmIdentity` refuses instead of guessing.
  */
 type CreateArmIdentity =
   | { readonly kind: "known"; readonly where: Record<string, unknown> }
-  | { readonly kind: "generated"; readonly field: string };
+  | {
+      readonly kind: "generated";
+      readonly field: string;
+      readonly literals: Readonly<Record<string, unknown>>;
+    };
 
 /** A validated conditional filter on the located row (`targetWhere`/`setWhere`). */
 interface Conditional {
@@ -907,10 +914,19 @@ export class UpsertOperation {
    *    row holding them. Like (1) it is derived from the create data alone, so it
    *    is immune to the wrong-row bug even when a DIFFERENT live row satisfies
    *    the `where`;
-   * 3. **a captured DB-generated identity** — the model's single PK is an
-   *    `increment` the create data omits, so the INSERT captures what the database
-   *    produced (see {@link UpsertOperation.createArmInsert}) and the read-back
-   *    references it, exactly as {@link CreateOperation}'s root create does.
+   * 3. **a PRODUCED identity — the captured member ⊎ the spelled ones** — exactly
+   *    one primary-key member is absent from the create data and that member is an
+   *    `increment`, so the INSERT captures what the database produced for it (see
+   *    {@link UpsertOperation.createArmInsert}) and the read-back references it,
+   *    exactly as {@link CreateOperation}'s root create does. The remaining members
+   *    are the literals the create data spells, and the read-back is their union: a
+   *    complete primary key whose every part comes from the row this statement made
+   *    or wrote. A single-column PK is the degenerate case (the union is empty), and
+   *    a COMPOUND PK with one generated member is the general one — the shape M9
+   *    measured reaching the refusal below. Two absent members cannot both be
+   *    produced (one INSERT publishes ONE generated identity), and an absent member
+   *    that is not an `increment` is not produced at all (a column DEFAULT is
+   *    evaluated by the database and published nowhere) — both stay refused.
    *
    * **Why (2) outranks (3), uniformly and not just in batch mode.** All three are
    * equally correct; (1) and (2) are additionally CAPTURE-FREE — they compile to a
@@ -954,17 +970,30 @@ export class UpsertOperation {
     if (uniqueFromCreateData) {
       return { kind: "known", where: uniqueFromCreateData };
     }
-    const [only] = this.parentPrimaryKeys;
+    // Reaching here, at least one primary-key member is absent from the create
+    // data (the literal-PK rung above took the case where none is).
+    const absent = this.parentPrimaryKeys.filter(
+      (pk) => this.createData[pk] === undefined
+    );
+    const [produced] = absent;
     if (
-      this.parentPrimaryKeys.length === 1 &&
-      only !== undefined &&
-      this.model["~"].state.scalars[only]?.["~"].state.autoGenerate ===
+      absent.length === 1 &&
+      produced !== undefined &&
+      this.model["~"].state.scalars[produced]?.["~"].state.autoGenerate ===
         "increment"
     ) {
-      return { kind: "generated", field: only };
+      return {
+        kind: "generated",
+        field: produced,
+        literals: Object.fromEntries(
+          this.parentPrimaryKeys
+            .filter((pk) => pk !== produced)
+            .map((pk) => [pk, this.createData[pk]])
+        ),
+      };
     }
     throw new UnsupportedOperationError(
-      `query-engine-v2 upsert cannot read back the row its create arm inserts for '${getStepModelName(this.model, "record")}': the create data carries neither a complete primary key ('${this.parentPrimaryKeys.join(", ")}') nor any complete unique constraint of the model, and the primary key is not a single database-generated identity.`
+      `query-engine-v2 upsert cannot read back the row its create arm inserts for '${getStepModelName(this.model, "record")}': the create data carries neither a complete primary key ('${this.parentPrimaryKeys.join(", ")}') nor any complete unique constraint of the model, and its absent primary-key members are not a single database-generated identity the INSERT can capture.`
     );
   }
 
@@ -1008,20 +1037,32 @@ export class UpsertOperation {
     };
   }
 
-  /** The create arm's terminal where: the literal primary key the create data
-   *  carries, or a backward reference to the identity the INSERT captured. */
+  /**
+   * The create arm's terminal where: the literal primary key the create data
+   * carries, or the PRODUCED primary key — a backward reference to the identity
+   * the INSERT captured, joined with the members the create data spelled.
+   *
+   * Both halves come from the write, never from the `where`: the captured member
+   * is what the database assigned to the row this INSERT made, and the literal
+   * members are what the same INSERT wrote into it. On a single-column primary
+   * key the literal half is empty and `buildPrimaryKeyWhereUnique` returns the
+   * flat `{ pk: <ref> }` this method has always produced; on a compound one it
+   * returns the constraint's own `{ a_b: { … } }` spelling, so the read-back is a
+   * COMPLETE discriminator and never a half-specified compound.
+   */
   private createArmTerminalWhere(
     identity: CreateArmIdentity
   ): Record<string, unknown> {
     if (identity.kind === "known") return identity.where;
-    return {
+    return buildPrimaryKeyWhereUnique(this.model, {
+      ...identity.literals,
       [identity.field]: referenceSql(
         this.engine,
         this.model,
         identity.field,
         ref(this.createId, "id")
       ),
-    };
+    });
   }
 
   private pkSelect(): Record<string, boolean> {
