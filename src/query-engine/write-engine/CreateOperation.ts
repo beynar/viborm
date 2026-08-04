@@ -1005,21 +1005,31 @@ export class CreateOperation {
     // mixed-directions conformance scenario and the create-family oracle certify the
     // one-to-one `create`.
     //
-    // NOT a schema impossibility — N7-U-A MEASURED it. A `manyToOne` declared without
-    // `.fields()` (the inverse side spelled with the many-side helper, its FK resolved
-    // from the target's own back-reference) has `holdsFK === false` and
-    // `type === "manyToOne"`, so it lands HERE and is refused, while the SAME relation
-    // on the SAME schema constructs under `update` — `UpdateOperation`'s sibling gate
-    // asks `isToOne || type === "oneToMany"`, which admits it, and routes it down the
-    // very `interpretChildHeld` path this line withholds. The refusal is a create-root
-    // capability gap with a narrower predicate than its own update-root twin, not a
-    // defensive guard; it stays in the census (audit disposition (c-ii)) until a wave
-    // widens the predicate or measures why the child-held path cannot take it.
-    if (relationInfo.type !== "oneToMany" && relationInfo.type !== "oneToOne") {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create supports only child-held one-to-many / one-to-one relations; relation '${relationName}' is '${relationInfo.type}'.`
-      );
-    }
+    // E4-U1 — and the fields-less `manyToOne` too, which used to be REFUSED here by a
+    // type-name predicate (`oneToMany || oneToOne`). N7-U-A measured that refusal: a
+    // `manyToOne` declared without `.fields()` (the inverse side spelled with the
+    // many-side helper, its FK resolved from the target's own back-reference) has
+    // `holdsFK === false` and `type === "manyToOne"`, so it landed here and was refused,
+    // while the SAME relation on the SAME schema constructed under `update` —
+    // `UpdateOperation`'s sibling gate asks `isToOne || type === "oneToMany"` and routes
+    // it down this very path. It was a create-root capability gap with a narrower
+    // predicate than its own update-root twin.
+    //
+    // The predicate is deleted rather than extended by one member, because the union it
+    // tested is closed and every other member left before this line: `manyToMany`
+    // returned at the top, `holdsFK` returned just above, and an edge with NO inverse to
+    // resolve never arrives — `getFkDirection` raises its own typed "Cannot determine FK
+    // fields for relation" before a direction exists. What remains is one mechanism, not
+    // three names: the child INSERTs after the parent with `fk = parent`, and all three
+    // create-root kinds the parse admits (`create` / `connect` / `connectOrCreate`) have
+    // a child-held arm below. The to-one slot's own contradiction — two kinds naming one
+    // slot — is answered inside `interpretChildHeld` by D5's arity twin, which reads
+    // `relationInfo.isToOne` and so covers the fields-less spelling by construction.
+    //
+    // No occupied-slot decision belongs here either: this parent is FRESH, so its to-one
+    // slot starts empty and each admitted kind is a pure add against it (the same
+    // fresh-parent elision the m2m branch above cites). The occupied question is the
+    // UPDATE root's, where the slot may already hold a row (M10).
     this.interpretChildHeld(input, relationInfo, fk, kinds);
   }
 
