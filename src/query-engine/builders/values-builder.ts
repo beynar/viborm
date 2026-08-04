@@ -350,6 +350,17 @@ function castBatchRefValue(
   return castType ? ctx.adapter.expressions.cast(value, castType) : value;
 }
 
+/** The declared scalar type of a model field, or `undefined` when the model does
+ *  not declare `fieldName` as a scalar. One accessor, so the two questions the
+ *  write-side lowering asks about a destination column ("which cast?", "which
+ *  literal spelling?") read the same state. */
+export function getScalarType(
+  model: Model<any>,
+  fieldName: string
+): string | undefined {
+  return model["~"].state.scalars[fieldName]?.["~"].state.type;
+}
+
 /**
  * The cast a value must wear to land in this field's column domain.
  *
@@ -357,14 +368,34 @@ function castBatchRefValue(
  * two of three dialects it destroys an exact decimal (SQLite NUMERIC affinity
  * rounds the canonical spelling into a double; MySQL's bare `DECIMAL` is
  * `DECIMAL(10,0)` and rounds away every fraction). See {@link CastType}.
+ *
+ * A TEMPORAL column (`date`/`datetime`/`time`) wears NO cast. It used to answer
+ * `text`, which names a domain no dialect's temporal column has: the DDL emits
+ * `timestamptz`/`date`/`time` on PostgreSQL and `DATETIME(3)`/`DATE`/`TIME(3)`
+ * on MySQL, and only SQLite stores the value as TEXT. Measured on PGlite and on
+ * PostgreSQL 16.14: `SET "atRef" = CAST($1 AS TEXT)` against a `timestamptz`
+ * column raises **42804** — `column "atRef" is of type timestamp with time zone
+ * but expression is of type text`. An UNCAST bind takes its type from the
+ * assignment target on all three dialects, which is exactly what every ordinary
+ * temporal write already does: {@link buildScalarSqlValue} casts nothing.
+ *
+ * WHICH temporal value this serves, so it is not read as a second copy of the
+ * `literals.dateTime` branch in `referenceSql`: only the DEFERRED one. A
+ * CONCRETE temporal key never arrives at the cast — `referenceSql` spells it
+ * through the adapter's `dateTime` literal and returns before this answer is
+ * used. What is left here is the relation key whose value does not exist at
+ * build time: a `Ref` into a located parent's captured column, which the
+ * executor resolves and binds. Restore `text` for the temporal cases and the
+ * witness that dies is the UPDATE root's `connect` — the parent is located, its
+ * key is a `Ref`, and PostgreSQL 16.14 answers 42804 (falsified live, Docker and
+ * PGlite, both substrates); every concrete-key witness stays green, because the
+ * other branch already owns them.
  */
 export function getScalarCastType(
   model: Model<any>,
   fieldName: string
 ): CastType | undefined {
-  const scalarType = model["~"].state.scalars[fieldName]?.["~"].state.type;
-
-  switch (scalarType) {
+  switch (getScalarType(model, fieldName)) {
     case "int":
     case "bigint":
       return "integer";
@@ -375,9 +406,6 @@ export function getScalarCastType(
     case "boolean":
       return "boolean";
     case "string":
-    case "date":
-    case "datetime":
-    case "time":
       return "text";
     default:
       return undefined;

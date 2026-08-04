@@ -3,6 +3,7 @@ import { isSql, type Sql } from "@sql";
 import {
   decimalLiteral,
   getScalarCastType,
+  getScalarType,
   isBatchValueRef,
 } from "../builders/values-builder";
 import { getWhereUniqueFilters } from "../builders/where-unique-builder";
@@ -36,9 +37,30 @@ import {
  * statement pair — silently on drivers with foreign keys off, as a spurious
  * `ForeignKeyError` on drivers with them on.
  *
+ * A CONCRETE DATETIME takes the adapter's `dateTime` literal, for the same
+ * reason and with the same measurement behind it. MySQL's `DATETIME` rejects
+ * ISO-8601's `Z` suffix, so `literals.value` hands the referenced column a
+ * spelling that column never wears: `ER_TRUNCATED_WRONG_VALUE — Incorrect
+ * datetime value: '2020-01-01T00:00:00.000Z'` (errno 1292, SQLSTATE 22007) on
+ * 8.4.10, measured with and without a cast around it. `literals.dateTime` is the
+ * one serialization every other datetime write in the engine already goes
+ * through ({@link buildScalarSqlValue}, {@link scalarValueLiteral}); a relation
+ * key written any other way is the two-ends-disagree bug the decimal note above
+ * describes, in a second type. Restore `literals.value` here and the witnesses
+ * that die are the concrete ones — the fresh-parent adopt, the created child,
+ * connectOrCreate — on Docker MySQL only; PostgreSQL accepts the ISO spelling
+ * into a `timestamptz`, so this branch is the one MySQL leg no local substrate
+ * can stand in for.
+ *
+ * Like the decimal branch, this returns UNCAST: the temporal cast was the other
+ * half of the same defect, and it is gone at the source
+ * ({@link getScalarCastType}), which is where the DEFERRED temporal key — a
+ * `Ref` this function cannot spell yet — is covered.
+ *
  * A `Ref` or a pre-built `Sql` cannot be canonicalized here (its value does not
- * exist yet), so it keeps the cast path — which is now the EXACT-decimal cast
- * (`getScalarCastType` -> `"decimal"`), not the float `"numeric"` one.
+ * exist yet), so it keeps the cast path — which for a decimal is the
+ * EXACT-decimal cast (`getScalarCastType` -> `"decimal"`), not the float
+ * `"numeric"` one, and for a temporal is no cast at all.
  */
 export function referenceSql(
   engine: QueryEngine,
@@ -47,8 +69,16 @@ export function referenceSql(
   value: unknown
 ): Sql {
   const cast = getScalarCastType(model, field);
-  if (cast === "decimal" && isConcreteFkValue(value)) {
-    return decimalLiteral(engine.adapter, field, value);
+  if (isConcreteFkValue(value)) {
+    if (cast === "decimal") {
+      return decimalLiteral(engine.adapter, field, value);
+    }
+    if (
+      getScalarType(model, field) === "datetime" &&
+      typeof value === "string"
+    ) {
+      return engine.adapter.literals.dateTime(value);
+    }
   }
   const sqlValue = engine.adapter.literals.value(value);
   return cast ? engine.adapter.expressions.cast(sqlValue, cast) : sqlValue;

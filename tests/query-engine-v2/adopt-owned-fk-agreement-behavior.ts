@@ -557,17 +557,16 @@ export function registerAdoptOwnedFkBehavior(
       ).toBe(2n);
     }, 120_000);
 
-    test("dateTime: the agreement is reached, and the SEPARATE cast defect is what stops it", async () => {
-      // The comparison itself succeeds — both operands are the canonical ISO string the
-      // parse boundary produced (M6's ALL-CANONICAL measurement, confirmed here: a
-      // refusal would be an `UnsupportedOperationError` at CONSTRUCTION, before any
-      // statement). What fails is one statement later and is PRE-EXISTING: the adopt
-      // seam casts the reparent value to the destination column's type through
-      // `referenceSql`, and for a `dateTime` referenced column it emits
-      // `SET "atRef" = CAST(? AS TEXT)` — PostgreSQL 42804 against a timestamp column.
-      // Measured with the foreign key NOT spelled at all (`update: {}`), so it is the
-      // reparent write's cast, not this unit's decision. The compile-level agreement is
-      // pinned in `adopt-owned-fk-agreement.test.ts`.
+    test("AGREE on a dateTime referenced key", async () => {
+      // The comparison succeeds because both operands are the canonical ISO string the
+      // parse boundary produced (M6's ALL-CANONICAL measurement; a refusal would be an
+      // `UnsupportedOperationError` at CONSTRUCTION, before any statement). Until
+      // U-E6.0 the agreement could only be pinned at compile: the reparent write one
+      // statement later carried a SEPARATE, pre-existing destination-cast defect
+      // (`SET "atRef" = CAST(? AS TEXT)` — PostgreSQL 42804 against a `timestamptz`
+      // column, and the ISO `Z` spelling MySQL's `DATETIME` rejects). That defect is
+      // fixed, so this witness now says what it always wanted to: the agreeing spelling
+      // reparents the row, and the row carries the new key.
       const client = await connect();
       await reset(client);
       const first = new Date("2020-01-01T00:00:00.000Z");
@@ -576,7 +575,7 @@ export function registerAdoptOwnedFkBehavior(
       await client.timeRow.create({
         data: { id: "d0", slug: "d", atRef: first },
       });
-      const run = client.timeOwner.create({
+      await client.timeOwner.create({
         data: {
           at: second,
           rows: {
@@ -588,9 +587,9 @@ export function registerAdoptOwnedFkBehavior(
           },
         },
       });
-      await expect(run).rejects.not.toThrow(
-        "owns 'atRef'; omit it from nested create and update data."
-      );
+      const moved = await client.timeRow.findUnique({ where: { slug: "d" } });
+      expect(moved.id).toBe("d0");
+      expect(new Date(moved.atRef).toISOString()).toBe(second.toISOString());
     }, 120_000);
 
     test("AGREE on a decimal referenced key", async () => {

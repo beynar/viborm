@@ -124,9 +124,8 @@ describe("E5-U2 the fold stays the single provenance", () => {
     // M6's ALL-CANONICAL measurement, pinned where the decision is made. Both operands
     // are the ISO string the parse boundary produced — no `Date` instance reaches the
     // comparator, so `fkEquals` is the whole of it. Compile-level because the decision
-    // is made before any statement runs, and because the reparent write for a
-    // `dateTime` referenced column carries a SEPARATE, pre-existing cast defect
-    // (`CAST(? AS TEXT)` against a timestamp column) that has nothing to do with it.
+    // is made before any statement runs; the LIVE twin — which U-E6.0's
+    // destination-cast fix unblocked — is in `adopt-owned-fk-agreement-behavior.ts`.
     const at = new Date("2021-06-02T03:04:05.000Z");
     const compiled = new CreateOperation(
       new QueryEngine(
