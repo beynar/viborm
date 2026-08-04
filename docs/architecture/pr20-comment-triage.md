@@ -146,8 +146,9 @@ Only the first clause was measured. Deleting the assertion outright does raise `
 that is not what the bot asked for, and the second clause was never run. The bot asked for the
 merge to be *annotated* rather than *asserted*, and that form compiles.
 
-Seven runs of `npx tsc --noEmit` (whole project, `src` + `tests`; EXIT=0 with zero diagnostics
-at the tip), each one mutation of the merge in `getWhereUniqueExtendedSchema`:
+Seven runs of `npx tsc --noEmit` at `bb8ddcd` — the whole project, `src` + `tests`, which is
+EXIT=0 with zero diagnostics unmutated — each one mutation of the merge in
+`getWhereUniqueExtendedSchema`:
 
 | Merge written as | Spread | `tsc --noEmit` |
 | --- | --- | --- |
