@@ -829,8 +829,46 @@ describe("decline-surface gate: the depth seams execute on the one engine (N4)",
     await c.$disconnect();
   });
 
-  // N4-U3: `createMany` under a parent-held (`planned`) target — the shape this file's
-  // representative decline used to be. Reinstating that refusal makes this throw.
+  // U-E6.1: the UPSERT twin of the test above, and the shape this file's representative
+  // decline used to be. Reinstating that refusal makes this throw — the other half of
+  // this gate's bidirectional pin. The arm's update payload addresses the primary key
+  // the slot's own membership probe captured, so a target named by `name` carries its
+  // deeper edges exactly as the `update` kind's does.
+  test("a junction upsert named by a non-PK unique carries deeper writes", async () => {
+    const c = await freshClient(m2m);
+    await c.post.create({ data: { id: "p1", title: "t" } });
+    await c.post.create({ data: { id: "p2", title: "t2" } });
+    await c.post.update({
+      where: { id: "p1" },
+      data: { tags: { create: { id: "t1", name: "x" } } },
+    });
+    await c.post.update({
+      where: { id: "p1" },
+      data: {
+        tags: {
+          upsert: {
+            where: { name: "x" },
+            create: { id: "t9", name: "x" },
+            update: { posts: { connect: { id: "p2" } } },
+          },
+        },
+      },
+    });
+    const tag = await c.tag.findUnique({
+      where: { id: "t1" },
+      include: { posts: { orderBy: { id: "asc" } } },
+    });
+    expect((tag?.posts ?? []).map((p: { id: string }) => p.id)).toEqual([
+      "p1",
+      "p2",
+    ]);
+    // The create arm never ran: the probe found the member.
+    expect(await c.tag.count({ where: { id: "t9" } })).toBe(0);
+    await c.$disconnect();
+  });
+
+  // N4-U3: `createMany` under a parent-held (`planned`) target — an earlier
+  // representative decline. Reinstating that refusal makes this throw.
   test("a createMany under a parent-held planned target executes on V2", async () => {
     const c = await freshClient(nb);
     await c.user.create({ data: { id: "u1", name: "u" } });
@@ -975,37 +1013,41 @@ describe("decline-surface gate: the adopt family's create arm is a create subtre
 // would surface here.
 // ---------------------------------------------------------------------------
 const REPRESENTATIVE_CONSTRUCT_DECLINE = {
-  // RETARGETED by N4 (route-inventory's "76 -> 74" entry). The former representative —
-  // a `createMany` under a parent-held `planned` target — was N4-U3's absorption: it now
-  // EXECUTES, and its end-to-end witnesses live in `depth-seam-behavior.ts` on every
-  // driver leg and both substrates. The gate keeps its second half by naming the deeper
-  // boundary N4 measured and did NOT absorb, so the tripwire still has a live shape.
+  // RETARGETED TWICE, each time by the absorption that took the previous representative.
   //
-  // A nested `upsert` THROUGH A JUNCTION whose target is named by a non-primary-key
-  // unique and whose update arm carries its own relation writes. N4-U1 absorbed the
-  // `update` kind at this seam — the slot's membership read already selects the target
-  // primary key, so the deeper edges take a `planned` source into it — but an upsert's
-  // update arm is ALSO reachable by the created-earlier branch, whose global probe ran
-  // BEFORE this operation's own INSERT and located nothing. There is no row for a
-  // `planned` source to read, so the refusal stands on a measured absence of a value.
+  //  1. N4 (route-inventory's "76 -> 74" entry) took a `createMany` under a parent-held
+  //     `planned` target — N4-U3's absorption.
+  //  2. U-E6.1 took the one that replaced it: an m2m `upsert` whose non-PK-unique
+  //     target's update arm carries deeper relation writes. Its recorded justification
+  //     was the created-earlier branch — an update arm reached with the global probe
+  //     having run BEFORE this operation's own INSERT — and N7-U-C had already deleted
+  //     that branch. What was left was a wiring gap, not a wall: the fold now hands the
+  //     arm the probe id the `update` kind always had. It EXECUTES, with witnesses in
+  //     `junction-upsert-arm-probe-behavior.ts` on both substrates and both Docker legs.
+  //
+  // The tripwire needs a shape that still declines, so it names E6.8's site: a
+  // `createMany` THROUGH A JUNCTION with `skipDuplicates` onto a target whose primary key
+  // is DATABASE-GENERATED. A skipped row produces no identity, and the join row this arm
+  // owes has nothing to reference — the refusal names an absent value, not a missing
+  // wire. The plan re-proves it as a survivor pending a maintainer decision (does
+  // adopt-equivalence define skip?), so it is the honest live shape today.
   // A construct-time probe: no seed, no execution.
   label:
-    "m2m upsert whose non-PK-unique target's update arm carries deeper relation writes",
+    "m2m createMany through a junction with skipDuplicates onto a database-generated target key",
   schema: m2m as Record<string, Model<any>>,
   operation: "update",
   args: {
-    where: { id: "p1" },
+    where: { id: 1 },
     data: {
-      tags: {
-        upsert: {
-          where: { name: "t" },
-          create: { id: "t1", name: "t" },
-          update: { posts: { connect: { id: "p2" } } },
+      labels: {
+        createMany: {
+          data: [{ name: "l1" }, { name: "l2" }],
+          skipDuplicates: true,
         },
       },
     },
   } as Record<string, unknown>,
-  rootModel: m2m.post as Model<any>,
+  rootModel: m2m.article as Model<any>,
 } as const;
 
 describe("decline-surface gate: the documented narrower boundary still declines (P6)", () => {

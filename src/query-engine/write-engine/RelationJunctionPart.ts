@@ -181,6 +181,29 @@ export interface RelationJunctionConfig {
     readonly create: Record<string, unknown>;
     readonly update: Record<string, unknown>;
   }[];
+  /**
+   * E6.1 (`upsert` only): the slot's TWO probe ids, allocated by the builder before the
+   * arm payloads fold — {@link targetProbeIds}' reason in the kind that has two probes.
+   * Aligned to {@link upserts}, and allocated in the order {@link buildUpsertSlot} would
+   * allocate them, so threading them moves no step id ({@link StepScope.allocate} counts
+   * per label).
+   */
+  readonly upsertProbeIds?: readonly {
+    readonly member: string;
+    readonly global: string;
+  }[];
+  /**
+   * E6.1 — aligned to {@link upserts}: the id of the probe whose captured target primary
+   * key this arm's update payload addresses, or `undefined` when nothing addresses it
+   * (the payload named the primary key itself, or carries no deeper edge at all). Always
+   * one of the two ids in {@link upsertProbeIds}.
+   *
+   * The BUILDER makes this choice, because it must: a `ParentIdSource` is a value, so the
+   * arm cannot fold until the id exists. The slot then publishes the `firstRowField` on
+   * whichever probe this names — one decision, read twice, so the two sites cannot drift
+   * about which probe `compile` spends on the arm.
+   */
+  readonly upsertArmProbeIds?: readonly (string | undefined)[];
   // T3b-2 mechanism 2 / mechanism 1 reuse (TO-ONE.md §7.7). A junction create /
   // update / upsert target whose data carries its own relation writes folds them
   // one level deeper through the same {@link NestedChildBuilder} the child-held
@@ -1180,8 +1203,13 @@ export class RelationJunctionPart implements Part {
     index: number
   ): UpsertSlot {
     const { childName } = this.config;
-    const membershipProbeId = scope.allocate(`${childName}.member`);
-    const globalProbeId = scope.allocate(`${childName}.find`);
+    // E6.1 — the builder pre-allocates both ids when the arm addresses the key one of
+    // them captures; the fallback keeps every other caller's ids unchanged.
+    const allocated = this.config.upsertProbeIds?.[index];
+    const membershipProbeId =
+      allocated?.member ?? scope.allocate(`${childName}.member`);
+    const globalProbeId =
+      allocated?.global ?? scope.allocate(`${childName}.find`);
     const childId = scope.allocate(`${childName}.create`);
     // N7-U-C: ONE identity resolver for every junction create arm. The upsert arm
     // used to have its own, because its dedup ledger needed a compile-time `where`
@@ -1227,7 +1255,7 @@ export class RelationJunctionPart implements Part {
                 whereUnique: item.where,
                 take: 1,
               }),
-              outputs: { rows: { kind: "rows" as const } },
+              outputs: this.upsertArmProbeOutputs(index, membershipProbeId),
             },
           }),
       globalProbe: {
@@ -1238,7 +1266,37 @@ export class RelationJunctionPart implements Part {
           select: { [this.targetPkField]: true },
           forUpdate: this.config.txMode,
         }),
-        outputs: { rows: { kind: "rows" } },
+        outputs: this.upsertArmProbeOutputs(index, globalProbeId),
+      },
+    };
+  }
+
+  /**
+   * E6.1 — one upsert probe's outputs: always its rows, plus the captured target primary
+   * key when THIS is the probe the update arm addresses
+   * ({@link RelationJunctionConfig.upsertArmProbeIds}).
+   *
+   * `optional`, and that is the whole difference from {@link buildTargetSlot}'s
+   * publication. A nested `update` that finds no member is a not-found, so its probe
+   * carries the eager `exactlyOneRow` postcondition; an upsert that finds nothing is
+   * taking its CREATE arm, and on that decision no update-arm child compiles, so the
+   * value has no consumer. A REQUIRED output here would abort the planning pass on the
+   * arm that is meant to be taken — measured, before this wire existed, as the delegated
+   * target's own `Cannot update relation … for this parent` on a create-arm upsert.
+   */
+  private upsertArmProbeOutputs(
+    index: number,
+    probeId: string
+  ): StatementStep["outputs"] {
+    if (this.config.upsertArmProbeIds?.[index] !== probeId) {
+      return { rows: { kind: "rows" } };
+    }
+    return {
+      rows: { kind: "rows" },
+      [this.targetPkField]: {
+        kind: "firstRowField",
+        field: this.targetPkField,
+        optional: true,
       },
     };
   }
@@ -1850,25 +1908,26 @@ export function buildJunctionParts(input: {
    * that same membership read — the row the slot ACTED ON — and only the `where`'s own
    * literal is skipped, not the capability.
    *
-   * `probeId` is undefined for the UPSERT arms, and there the refusal stands, measured:
-   * an upsert's update arm can also be reached by the created-earlier branch, where the
-   * global probe ran BEFORE this operation's own INSERT and located nothing, so there is
-   * no row for a `planned` source to read. That is a genuine absence of a value, not a
-   * missing wire.
+   * E6.1: the same is now true of the UPSERT arms, and the refusal that stood here is
+   * gone. Its recorded justification was the created-earlier branch — an update arm
+   * reached with the global probe having run BEFORE this operation's own INSERT, so no
+   * row existed for a `planned` source to read. N7-U-C DELETED that branch: the junction
+   * upsert keeps no same-operation dedup ledger, because an `upsert` item names the row
+   * ITS `where` names and the own-write preflight rejects any item whose selector could
+   * name a row an earlier item wrote (the argument is in {@link compileUpsert}). What was
+   * left behind was a wiring gap and not a wall — the `update` kind pre-allocated its
+   * probe ids and the upsert fold passed `undefined`. Every arm that reaches here acts on
+   * a row ONE of its own probes located, so `probeId` is always a value.
    */
   const updateTargetParentId = (
     where: Record<string, unknown>,
-    foldKind: string,
-    probeId: string | undefined
+    probeId: string
   ): ParentIdSource => {
     const entry = getWhereUniqueEntries(childScope, where).find(
       (candidate) => candidate.fieldName === targetPkField
     );
     if (entry !== undefined) return literalParentId(entry.value);
-    if (probeId !== undefined) return plannedParentId(probeId, targetPkField);
-    throw new UnsupportedOperationError(
-      `query-engine-v2 nested '${foldKind}' on many-to-many relation '${relationName}' carries nested relation writes; it must locate the target by its primary key '${targetPkField}'.`
-    );
+    return plannedParentId(probeId, targetPkField);
   };
   /**
    * E4-U3 — how a FRESH junction target and its own relations are written, in one
@@ -1982,17 +2041,28 @@ export function buildJunctionParts(input: {
   };
   // X1c — a junction target whose data carries the parent-held to-one projection (or a
   // D4 edge) is not folded in place; its WHOLE target write delegates to the update /
-  // create ROOT. An UPDATE target (located by its `where` PK, membership verified by the
-  // junction slot's own probe/guard) delegates to `UpdateOperation`, returned as an empty
+  // create ROOT. An UPDATE target delegates to `UpdateOperation`, returned as an empty
   // scalar + the delegated Part in child Parts (the slot skips its empty self-UPDATE). A
   // CREATE target (a fresh row, its parent-held FK folded into its OWN INSERT — X1b's
   // fresh mechanism) delegates to `CreateOperation`, carried as `delegated` so the slot
   // skips its `childInsert`.
+  //
+  // E6.1 — the delegated target is addressed by the KEY THE SLOT'S PROBE CAPTURED, never
+  // by the selector again. It used to hand `UpdateOperation` the same `where` the probe
+  // had already spent: two locates, two chances to name a different row, while the join
+  // row and the arm's guard address the probe's key. That is the wrong-row doctrine's own
+  // failure — an identity comes from the row a step acted on — and on an upsert's CREATE
+  // arm it was not even latent: the second locate found nothing and raised the target's
+  // own not-found, aborting the arm that was meant to be taken (measured). The selector's
+  // filters are not lost with it; the probe reads the WHOLE `where`, so they are enforced
+  // once, where the row is chosen.
   const foldOrDelegateUpdate = (
     data: Record<string, unknown>,
     where: Record<string, unknown>,
-    foldKind: string,
-    probeId: string | undefined
+    probeId: string,
+    /** True for an UPSERT arm: an empty probe is the CREATE decision, so the delegated
+     *  locate must not raise its own not-found on the arm that is not taken. */
+    missingIsABranch: boolean
   ): {
     scalar: Record<string, unknown>;
     childParts: readonly Part[];
@@ -2001,7 +2071,7 @@ export function buildJunctionParts(input: {
     if (!targetNeedsFullUpdate(childScope, data)) {
       let usesLocatedPk = false;
       const folded = foldTarget(data, () => {
-        const source = updateTargetParentId(where, foldKind, probeId);
+        const source = updateTargetParentId(where, probeId);
         usesLocatedPk = source.kind === "planned";
         return source;
       });
@@ -2009,7 +2079,7 @@ export function buildJunctionParts(input: {
     }
     return {
       scalar: {},
-      usesLocatedPk: false,
+      usesLocatedPk: true,
       childParts: [
         buildNestedTargetUpdatePart({
           scope,
@@ -2017,45 +2087,16 @@ export function buildJunctionParts(input: {
           targetModel: relationInfo.targetModel,
           data,
           locate: {
-            where,
-            // The delegated target locates itself by this `where` and threads its OWN
-            // located row to its OWN children (N1 at the update root), and the
-            // correlation column lists are empty, so no parent value is ever read
-            // here. Nothing to resolve, and no unique to insist on.
-            parentId: literalParentId(undefined),
-            childFields: [],
-            parentFields: [],
+            parentId: plannedParentId(probeId, targetPkField),
+            childFields: [targetPkField],
+            parentFields: [targetPkField],
             relationName,
             notFoundMessage: relationTargetNotFound(relationInfo, "update"),
           },
+          ...(missingIsABranch ? { locateNotFoundOptional: true } : {}),
         }),
       ],
     };
-  };
-  /**
-   * E5-U1 CARVE-OUT — the fresh-parent adopt arm's update payload must fold IN PLACE,
-   * against the primary key the arm's own global probe captured.
-   *
-   * {@link foldOrDelegateUpdate} branches on `targetNeedsFullUpdate` BEFORE it asks
-   * `updateTargetParentId` for a key, so a payload that needs the whole-target
-   * delegation never meets that refusal: it delegates to an `UpdateOperation` which
-   * RE-LOCATES the target by the same `where` the probe already used. Two locates, two
-   * chances to name a different row — the split-witness a concurrent selector move
-   * opens, and the wrong-row doctrine's exact failure, since the join row this arm
-   * writes addresses the probe's captured key while the delegated UPDATE would address
-   * whatever the selector names at write time.
-   *
-   * Named and typed here rather than left implicit. It lifts when E6.1 wires the probe
-   * ids through the upsert fold (`config.targetProbeIds`), which gives the delegated
-   * target the located key instead of a second selector.
-   */
-  const assertAdoptArmFoldsInPlace = (
-    update: Record<string, unknown>
-  ): void => {
-    if (!targetNeedsFullUpdate(childScope, update)) return;
-    throw new UnsupportedOperationError(
-      `query-engine-v2 create does not support nested 'upsert' on the many-to-many relation '${relationName}' whose update arm carries a relation write that needs the whole-target update; the adopted target would be located a second time by its selector instead of by the key this arm's probe captured.`
-    );
   };
   const parts: RelationJunctionPart[] = [];
   // A stable, V1-mirroring kind order: adopt/link first, then set, then the
@@ -2157,11 +2198,12 @@ export function buildJunctionParts(input: {
           scope.allocate(`${childName}.find`)
         );
         const folded = items.map((item, index) =>
+          // A nested `update` that finds no member is a not-found, not a branch.
           foldOrDelegateUpdate(
             item.data,
             wheres[index]!,
-            "update",
-            targetProbeIds[index]
+            targetProbeIds[index]!,
+            false
           )
         );
         parts.push(
@@ -2306,15 +2348,29 @@ export function buildJunctionParts(input: {
             childRacePin(childScope, item.where)
           )
         );
-        const foldedUpdates = items.map((item) => {
-          if (input.freshParent) assertAdoptArmFoldsInPlace(item.update);
-          return foldOrDelegateUpdate(
+        // E6.1 — the slot's two probe ids, allocated HERE (before the arms fold) for the
+        // reason the `update` kind allocates its own: a `ParentIdSource` is a value, so
+        // the id has to exist before a payload can be folded against it. Allocated in
+        // the order the slot itself would, so no step id moves.
+        const upsertProbeIds = items.map(() => ({
+          member: scope.allocate(`${childName}.member`),
+          global: scope.allocate(`${childName}.find`),
+        }));
+        // WHICH probe the arm addresses is the choice `compile` already makes: a fresh
+        // parent decides its two-way from the global probe and spends that key on the
+        // arm's UPDATE ({@link compileFreshUpsert}); a correlated parent decides its
+        // three-way from the membership probe and spends THAT one ({@link compileUpsert}).
+        const armProbeIds = upsertProbeIds.map((ids) =>
+          input.freshParent ? ids.global : ids.member
+        );
+        const foldedUpdates = items.map((item, index) =>
+          foldOrDelegateUpdate(
             item.update,
             item.where,
-            "upsert",
-            undefined
-          );
-        });
+            armProbeIds[index]!,
+            true
+          )
+        );
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
@@ -2324,6 +2380,10 @@ export function buildJunctionParts(input: {
               create: foldedCreates[index]!.scalar,
               update: foldedUpdates[index]!.scalar,
             })),
+            upsertProbeIds,
+            upsertArmProbeIds: foldedUpdates.map((fold, index) =>
+              fold.usesLocatedPk ? armProbeIds[index] : undefined
+            ),
             upsertCreateChildParts: foldedCreates.map((f) => f.childParts),
             upsertUpdateChildParts: foldedUpdates.map((f) => f.childParts),
             upsertCreateDelegated: foldedCreates.map((f) => f.delegated),

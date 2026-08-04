@@ -222,8 +222,6 @@ const DELETE_TARGET_NOT_FOUND =
  *  NOT produce when the filter half excludes the member the discriminator names. */
 const UPSERT_TARGET_NOT_FOUND_FOR_PARENT =
   /Cannot upsert relation 'photos': target record was not found for this parent\./;
-/** The surviving N4-U1 wall's wording. */
-const MUST_LOCATE_BY_PK = /must locate the target by its primary key/;
 
 /**
  * The operations run through the OPERATION, not the routed client: a batch-only,
@@ -729,7 +727,7 @@ export function runDepthSeamBehavior(options: {
     );
 
     test(
-      "a junction UPSERT arm named by a non-PK unique is still a typed refusal, before any write",
+      "a junction UPSERT arm named by a non-PK unique writes against the MEMBER probe's key",
       {
         timeout: 30_000,
       },
@@ -737,31 +735,34 @@ export function runDepthSeamBehavior(options: {
         const { client, update, dispose } = await setup();
         try {
           await seedAlbum(client);
-          // The surviving wall, kept honest: an upsert's update arm can also be reached
-          // by the created-earlier branch, whose global probe ran BEFORE this operation's
-          // own INSERT and therefore located nothing. There is no row for a `planned`
-          // source to read, so the refusal names the missing primary key — and it fires
-          // at CONSTRUCTION, so nothing executes at all.
-          expect(() =>
-            update("album", depthSeamSchema.album, {
-              where: { id: 1 },
-              data: {
-                photos: {
-                  upsert: {
-                    where: { slug: "target" },
-                    create: { id: 20, slug: "target", caption: "c" },
-                    update: {
-                      caption: "edited",
-                      marks: { create: { id: 202, text: "x" } },
-                    },
+          // U-E6.1 — this was the surviving wall, justified by the created-earlier
+          // branch N7-U-C deleted. The arm acts on the row its OWN membership probe
+          // located, so the deeper edge takes a `planned` source into that probe. The
+          // DECOY (`slug: "decoy"`, id 10) is not a member of album 1, so a mark that
+          // read the selector — or any row but the located one — lands on it visibly.
+          await update("album", depthSeamSchema.album, {
+            where: { id: 1 },
+            data: {
+              photos: {
+                upsert: {
+                  where: { slug: "target" },
+                  create: { id: 20, slug: "target", caption: "c" },
+                  update: {
+                    caption: "edited",
+                    marks: { create: { id: 202, text: "x" } },
                   },
                 },
               },
-            })
-          ).toThrow(MUST_LOCATE_BY_PK);
-          await expect(client.mark.findMany({})).resolves.toEqual([]);
+            },
+          });
+          await expect(
+            client.mark.findUnique({ where: { id: 202 } })
+          ).resolves.toMatchObject({ photoId: 20 });
           await expect(
             client.photo.findUnique({ where: { id: 20 } })
+          ).resolves.toMatchObject({ caption: "edited" });
+          await expect(
+            client.photo.findUnique({ where: { id: 10 } })
           ).resolves.toMatchObject({ caption: "c" });
         } finally {
           await dispose();

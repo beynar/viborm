@@ -490,54 +490,117 @@ export function registerCreateJunctionUpsertBehavior(
     }, 120_000);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // The carve-outs, each a typed refusal before any write.
+    // Both of E5-U1's carve-outs, DISCHARGED by U-E6.1: the arm's probe id is now
+    // wired through the upsert fold, so the found arm addresses the key its own probe
+    // captured instead of asking the selector a second time. The two tests below were
+    // the refusals; they are the absorptions now, in the same place, with the state
+    // assertions the discharge owes.
     // ─────────────────────────────────────────────────────────────────────────
-    test("CARVE: an update arm needing the whole-target update is refused", async () => {
+    test("the WHOLE-TARGET update arm runs, and only on the located row", async () => {
       const client = await connect();
       await reset(client);
+      const decoy = await seedDecoy(client);
       await client.author.create({ data: { id: "au", name: "au" } });
-      await client.topic.create({ data: { name: "carve", weight: 1 } });
-      await expect(
-        client.article.create({
-          data: {
-            title: "carve",
-            topics: {
-              upsert: {
-                where: { id: 1 },
-                create: { name: "carve-2" },
-                // A parent-held to-one on the target: `targetNeedsFullUpdate`, which
-                // would delegate the whole update and RE-LOCATE the row by its selector.
-                update: { author: { connect: { id: "au" } } },
-              },
+      const target = await client.topic.create({
+        data: { name: "carve", weight: 1 },
+      });
+
+      const made = await client.article.create({
+        data: {
+          title: "carve",
+          topics: {
+            upsert: {
+              where: { id: target.id },
+              create: { name: "carve-2" },
+              // A parent-held to-one on the target: `targetNeedsFullUpdate`, so the
+              // whole target write delegates to `UpdateOperation` — which now locates
+              // by the primary key this arm's global probe captured, not by the
+              // selector the probe already spent.
+              update: { author: { connect: { id: "au" } } },
             },
           },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 create does not support nested 'upsert' on the many-to-many relation 'topics' whose update arm carries a relation write that needs the whole-target update; the adopted target would be located a second time by its selector instead of by the key this arm's probe captured."
-      );
+        },
+      });
+
+      // The create arm never ran, the adopt did, and the delegated update landed.
       expect(await client.topic.count({ where: { name: "carve-2" } })).toBe(0);
+      expect(
+        (await client.topic.findUnique({ where: { id: target.id } })).authorId
+      ).toBe("au");
+      expect(await topicsOf(client, made.id)).toEqual([target.id]);
+      // The decoy topic kept its own author (none) and its own membership.
+      expect(
+        (await client.topic.findUnique({ where: { id: decoy.topicId } }))
+          .authorId
+      ).toBeNull();
+      expect(await topicsOf(client, decoy.articleId)).toEqual([decoy.topicId]);
     }, 120_000);
 
-    test("CARVE: a relation-carrying update arm named by a NON-primary-key unique is refused", async () => {
+    test("a relation-carrying update arm named by a NON-primary-key unique runs", async () => {
       const client = await connect();
       await reset(client);
-      await expect(
-        client.article.create({
-          data: {
-            title: "non-pk",
-            topics: {
-              upsert: {
-                where: { name: "by-name" },
-                create: { name: "by-name" },
-                update: { notes: { create: { id: "n-x", body: "x" } } },
-              },
+      const decoy = await seedDecoy(client);
+      // A DECOY sharing the non-unique half: same weight, different unique name. The
+      // arm's deeper edge takes a `planned` source into the probe, so a note that
+      // landed on this row would be reading the selector rather than the located key.
+      await client.topic.create({ data: { name: "look-alike", weight: 4 } });
+      const target = await client.topic.create({
+        data: { name: "by-name", weight: 4 },
+      });
+
+      const made = await client.article.create({
+        data: {
+          title: "non-pk",
+          topics: {
+            upsert: {
+              where: { name: "by-name" },
+              create: { name: "by-name" },
+              update: { notes: { create: { id: "n-x", body: "x" } } },
             },
           },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 nested 'upsert' on many-to-many relation 'topics' carries nested relation writes; it must locate the target by its primary key 'id'."
-      );
-      expect(await client.note.count({ where: { id: "n-x" } })).toBe(0);
+        },
+      });
+
+      expect(
+        await client.note.findUnique({ where: { id: "n-x" } })
+      ).toMatchObject({ topicId: target.id });
+      expect(await topicsOf(client, made.id)).toEqual([target.id]);
+      expect(
+        (await client.note.findMany({ where: { topicId: decoy.topicId } })).map(
+          (row: any) => row.id
+        )
+      ).toEqual(["n-decoy"]);
+    }, 120_000);
+
+    test("the ABSENT arm still creates, with the update arm's deeper edge unapplied", async () => {
+      // The arm probe publishes its captured key as an OPTIONAL output for exactly this
+      // branch: nothing was found, no update-arm child compiles, and a REQUIRED output
+      // would have aborted the planning pass on the arm that is taken.
+      const client = await connect();
+      await reset(client);
+      await seedDecoy(client);
+
+      const made = await client.article.create({
+        data: {
+          title: "absent-arm",
+          topics: {
+            upsert: {
+              where: { name: "never-there" },
+              create: { name: "never-there", weight: 9 },
+              update: { notes: { create: { id: "n-unused", body: "x" } } },
+            },
+          },
+        },
+      });
+
+      const fresh = await client.topic.findUnique({
+        where: { name: "never-there" },
+      });
+      expect(fresh.weight).toBe(9);
+      expect(await topicsOf(client, made.id)).toEqual([fresh.id]);
+      expect(
+        await client.note.findUnique({ where: { id: "n-unused" } })
+      ).toBeNull();
     }, 120_000);
   });
 }
