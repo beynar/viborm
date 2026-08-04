@@ -151,9 +151,10 @@ export interface RelationWriteConfig {
    * this builder, exactly as a root update does — the family-B boundary lifted. The
    * target's primary key reaches them under either provenance (N4-U1): a {@link
    * literalParentId} when the unique `where` names it, a {@link plannedParentId} into
-   * this part's own locate probe when some other unique does. A relation-carrying
-   * `update` with no builder, a bulk `updateMany`, or an inverse-side to-one update
-   * with no unique locator still declines.
+   * this part's own locate probe when some other unique does — or when there is no
+   * `where` at all (E2-U1, the inverse-side to-one, whose locator IS the correlation).
+   * A relation-carrying `update` with no builder, a bulk `updateMany`, or the
+   * inverse-side to-one upsert arm still declines.
    */
   readonly nestedBuilder?: NestedChildBuilder;
 }
@@ -648,11 +649,13 @@ export class RelationWritePart implements Part {
   /**
    * Separate a targeted `update`/`updateMany` payload into its scalar assignments
    * and its child Parts (T3b mechanism 1). Pre-T3b this threw for any nested relation
-   * write; now a targeted `update` located by its unique PK folds those relations one
-   * level deeper ({@link nestedBuilder}), the located target building its own child
-   * Parts exactly as a root update does. A relation-carrying `updateMany` (bulk, no
-   * captured PK), an inverse-side to-one `update` with no unique `where`, or a build
-   * without the recursion seam still routes the whole tree to V1.
+   * write; now a targeted `update` folds those relations one level deeper
+   * ({@link nestedBuilder}), the located target building its own child Parts exactly
+   * as a root update does — whether the target was named by its primary key, by
+   * another unique (N4-U1), or by the FK correlation alone (E2-U1, the inverse-side
+   * to-one). A relation-carrying `updateMany` (bulk, no captured PK), the inverse-side
+   * to-one UPSERT arm (no arm for the child Parts to be emitted under), or a build
+   * without the recursion seam still declines.
    */
   private interpretChildParts(scope: StepScope): {
     childParts: readonly Part[];
@@ -700,12 +703,28 @@ export class RelationWritePart implements Part {
         parentIsLocatedPk: false,
       };
     }
-    // Nested relation writes present. Only a targeted `update` with a unique `where`
-    // and the recursion seam folds them; a bulk `updateMany` (no per-row identity) and
-    // an inverse-side to-one `update` with no unique locator still decline.
-    if (kind !== "update" || !this.config.where || !this.config.nestedBuilder) {
+    // Nested relation writes present. A targeted `update` folds them; the unique
+    // `where` is NOT part of that premise (E2-U1). An inverse-side to-one `update`
+    // carries no unique locator by construction (TO-ONE.md §7.2 — the FK correlation
+    // IS the locator), and the row it acts on is exactly as located as a to-many
+    // target named by a non-primary-key unique: this part's own correlated probe holds
+    // it, and N4-U1 already hands that probe's captured primary key to the deeper edges
+    // as a `planned` source. Both spellings converge on one identity — the row the
+    // probe locked — so the `where` decides only whether that identity is ALSO a
+    // compile-time literal, never whether the fold is possible.
+    //
+    // Three positions still decline, each for its own reason:
+    //  · the inverse-side to-one UPSERT arm — `compileInverseToOneUpsert` decides the
+    //    three-way at compile and its found arm emits the update leaf ALONE; the child
+    //    Parts have no arm to be emitted under, so folding them here would run the
+    //    grandchildren on the CREATE branch too (E3 owns the arm wiring);
+    //  · a bulk `updateMany` — a set-based write has no per-row identity for a deeper
+    //    edge to reference;
+    //  · a build without the recursion seam.
+    const isUpsertArm = this.config.upsertCreateData !== undefined;
+    if (kind !== "update" || isUpsertArm || !this.config.nestedBuilder) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 ${kind} for relation '${relationName}' does not support nested relation writes in its data.`
+        `query-engine-v2 ${isUpsertArm ? "upsert" : kind} for relation '${relationName}' does not support nested relation writes in its data.`
       );
     }
     // N4-U1 — the target's primary key, whichever unique named the row.
@@ -719,9 +738,16 @@ export class RelationWritePart implements Part {
     // gave the root's child edges the located-parent Ref, and the value they spend is
     // read from THE ROW THE PROBE LOCKED — never re-derived from the `where` (the
     // wrong-row doctrine). Both provenances converge on one identity: the located row.
-    const pkEntry = getWhereUniqueEntries(childScope, this.config.where).find(
-      (entry) => entry.fieldName === this.config.childPrimaryKey
-    );
+    //
+    // An inverse-side to-one has NO `where` at all, which is the same answer as a
+    // to-many named by another unique: no compile-time literal, so the deeper edges
+    // read the probe. `getWhereUniqueEntries` is asked only when there is a selector
+    // to partition — an absent one is not an empty one.
+    const pkEntry = this.config.where
+      ? getWhereUniqueEntries(childScope, this.config.where).find(
+          (entry) => entry.fieldName === this.config.childPrimaryKey
+        )
+      : undefined;
     const parentIsLocatedPk = pkEntry === undefined;
     const primaryKey = this.config.childPrimaryKey;
     // Does this target's own SET rewrite the primary key the deeper edges reference?
