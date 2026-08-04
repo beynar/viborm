@@ -190,7 +190,17 @@ ordering seam — a design change with its own measurement, not a set-membership
 | `pnpm test:gates` | **72 passed** (5 files) |
 | `tests/query-engine-v2` (63 files) | **1163 passed, 0 failed** |
 | `tests/migrations` + sqlite3 + pglite + libsql driver legs (17 files) | **3435 passed, 0 failed** — the single failure in the first run is the B22 attempt above, and it is what reverted it |
-| repo-pinned `npx biome check` (2.3.11), per changed file | no new diagnostics |
+| repo-pinned `npx biome check` (2.3.11), per changed file | no new diagnostics — **this row was wrong when written; see the correction below** |
+
+**Correction (`ceaf0b9`).** The Biome row above was written without the check having been
+re-run on `tests/query-engine-v2/boolean-noop-arm.test.ts` after that file was re-indented.
+The try/finally wrapper `a221a14` added moved the `item.create` call four columns right,
+past the 80-column print width, and repo-pinned biome 2.3.11 wanted it split across three
+lines: `npx biome check` on that file reports `Formatter would have printed the following
+content` at `a221a14` and is clean at `441cec1`, so the diagnostic is one this pass
+introduced, not one it inherited. `ceaf0b9` re-wraps the call — formatting only, no
+assertion or value moved — after which the check is clean on all eight TypeScript files
+this branch changes, and the file still passes 38/38 with `test:gates` at 72/72.
 
 No error message, no error attribution and no race protection was removed. The step
 vocabulary in `OperationFragment.ts` is untouched. Nothing was posted to GitHub.
