@@ -1302,14 +1302,21 @@ export class UpdateOperation {
           // carries its own relations folds them one level deeper through the same
           // literal-parent builder the child-held families use (mechanism 1 reuse for
           // located update targets; mechanism 2 fresh-parent elision for create arms).
-          nestedBuilder: (targetScope, parentId, relations, nestedTxMode) =>
+          nestedBuilder: (
+            targetScope,
+            parentId,
+            relations,
+            nestedTxMode,
+            correlationParentId
+          ) =>
             buildNestedTargetChildParts(
               scope,
               engine,
               targetScope,
               relations,
               parentId,
-              nestedTxMode
+              nestedTxMode,
+              correlationParentId
             ),
         })
       );
@@ -1463,7 +1470,8 @@ export class UpdateOperation {
         targetScope: QueryScope,
         parentId: ParentIdSource,
         relations: Record<string, RelationMutation>,
-        txMode: boolean
+        txMode: boolean,
+        correlationParentId?: ParentIdSource
       ) =>
         buildNestedTargetChildParts(
           input.scope,
@@ -1471,7 +1479,8 @@ export class UpdateOperation {
           targetScope,
           relations,
           parentId,
-          txMode
+          txMode,
+          correlationParentId
         ),
       // N4-U2: the inverse-side to-one upsert's relation-carrying create arm is a
       // create subtree, built through the same seam the to-many adopt family uses.

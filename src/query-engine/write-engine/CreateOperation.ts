@@ -954,14 +954,21 @@ export class CreateOperation {
           // relations folds them one level deeper against the fresh target's explicit
           // literal PK (mechanism 2, fresh-parent elision — ATOM §4). The fold
           // correlates to the junction target's OWN PK, not this fresh parent's.
-          nestedBuilder: (targetScope, parentId, relations, nestedTxMode) =>
+          nestedBuilder: (
+            targetScope,
+            parentId,
+            relations,
+            nestedTxMode,
+            correlationParentId
+          ) =>
             buildNestedTargetChildParts(
               scope,
               engine,
               targetScope,
               relations,
               parentId,
-              nestedTxMode
+              nestedTxMode,
+              correlationParentId
             ),
         })
       );

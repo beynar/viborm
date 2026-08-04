@@ -69,14 +69,24 @@ import { UpdateOperation } from "./UpdateOperation";
  * here — the two former boundary throws are now fail-closed internal invariants.
  */
 
-/** How a located-by-PK target's relations are folded one level deeper — the
- *  recursion seam {@link RelationWritePart} calls without importing this module at
- *  runtime (an erased type import breaks the cycle). */
+/**
+ * How a located-by-PK target's relations are folded one level deeper — the recursion
+ * seam {@link RelationWritePart} calls without importing this module at runtime (an
+ * erased type import breaks the cycle).
+ *
+ * `correlationParentId` is N5-U1's two-source split (`RelationSetConfig`) carried to
+ * depth: the value existing rows are READ by, when that is not the value new ones are
+ * WRITTEN with. They differ in exactly one situation — a target whose own SET moves the
+ * primary key its deeper edges reference, ordered after its self-UPDATE — and only the
+ * junction consumes it, because a junction is the one edge kind with a parent-correlated
+ * PLANNING read. Absent everywhere else, and then every read takes `parentId`.
+ */
 export type NestedChildBuilder = (
   targetScope: QueryScope,
   parentId: ParentIdSource,
   relations: Record<string, RelationMutation>,
-  txMode: boolean
+  txMode: boolean,
+  correlationParentId?: ParentIdSource
 ) => readonly Part[];
 
 /**
@@ -91,7 +101,8 @@ export function buildNestedTargetChildParts(
   targetScope: QueryScope,
   relations: Record<string, RelationMutation>,
   parentId: ParentIdSource,
-  txMode: boolean
+  txMode: boolean,
+  correlationParentId?: ParentIdSource
 ): readonly Part[] {
   const parts: Part[] = [];
   for (const [relationName, mutation] of Object.entries(relations)) {
@@ -102,6 +113,7 @@ export function buildNestedTargetChildParts(
       relationName,
       mutation,
       parentId,
+      correlationParentId,
       txMode,
       parts,
     });
@@ -270,6 +282,9 @@ function foldOneNestedRelation(input: {
   relationName: string;
   mutation: RelationMutation;
   parentId: ParentIdSource;
+  /** The junction-only READ source under a post-transition ordering (E2-U3); see
+   *  {@link NestedChildBuilder}. */
+  correlationParentId?: ParentIdSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -293,7 +308,8 @@ function foldOneNestedRelation(input: {
     deeperScope,
     deeperParentId,
     deeperRelations,
-    deeperTxMode
+    deeperTxMode,
+    deeperCorrelationParentId
   ) =>
     buildNestedTargetChildParts(
       scope,
@@ -301,7 +317,8 @@ function foldOneNestedRelation(input: {
       deeperScope,
       deeperRelations,
       deeperParentId,
-      deeperTxMode
+      deeperTxMode,
+      deeperCorrelationParentId
     );
 
   if (relationInfo.type === "manyToMany") {
@@ -320,6 +337,7 @@ function foldOneNestedRelation(input: {
         mutation,
         parsedRelation,
         parentId,
+        correlationParentId: input.correlationParentId,
         txMode,
         nestedBuilder: deeperBuilder,
       })

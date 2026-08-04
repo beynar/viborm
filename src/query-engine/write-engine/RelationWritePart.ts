@@ -804,20 +804,6 @@ export class RelationWritePart implements Part {
     const postTransition =
       transitionsPk &&
       !pkTransitionCascadeSafe(childScope, relations, primaryKey);
-    if (postTransition && hasJunctionRelation(relations)) {
-      // A junction alongside a non-cascade edge is the one mix this ordering cannot
-      // serve: a junction Part reads MEMBERSHIP at planning, correlated to the parent
-      // key, and planning runs before the self-UPDATE has written the new one — so the
-      // post-transition ordering would have it read a key no row carries yet, while the
-      // pre-transition ordering strands the non-cascade edge. Neither order is right for
-      // both edges at once; closing it needs the junction's membership read to correlate
-      // on the pre-transition key while its writes use the post-transition one, which is
-      // the two-source split `RelationSetConfig.correlationParentId` makes for `set`,
-      // carried into `RelationJunctionPart`. Named, measured, and not smuggled in here.
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${primaryKey}' while writing both a many-to-many edge and a child-held edge whose foreign key does not cascade on update.`
-      );
-    }
     const childParts: Part[] = [];
     let parentSource: ParentIdSource;
     if (pkEntry === undefined) {
@@ -856,12 +842,32 @@ export class RelationWritePart implements Part {
       }
       parentSource = literalParentId(postTransition ? afterPk : pkEntry.value);
     }
+    // E2-U3 — a junction edge BESIDE a non-cascade one, under the post-transition
+    // ordering. The mix used to decline because one value cannot serve both halves of a
+    // junction: its membership READ runs at planning, before the self-UPDATE exists, so
+    // it can only ask for the key the join rows carry NOW (the where-pinned pre-value);
+    // its WRITES run after that UPDATE, by which time `ON UPDATE CASCADE` has carried
+    // those same rows to the new key, so they must use it. Two values, two positions —
+    // which is not a missing mechanism but the split N5-U1 already built for `set`
+    // (`RelationSetConfig.correlationParentId`), carried through the child-Part seam to
+    // `RelationJunctionPart`. The non-cascade sibling keeps the ordering N5-U1 gave it
+    // (written against `afterPk`, after the self-UPDATE, behind the occupied guard
+    // above), so both edges get their own correct value from one ordering.
+    //
+    // Only the where-pinned spelling reaches here: `pkEntry === undefined` under a
+    // post-transition already declined above (no compile-time pre-value exists to read
+    // membership by, which is the same value the occupied guard needs).
+    const correlationParentId =
+      postTransition && pkEntry !== undefined
+        ? literalParentId(pkEntry.value)
+        : undefined;
     childParts.push(
       ...this.config.nestedBuilder(
         childScope,
         parentSource,
         relations,
-        this.config.txMode
+        this.config.txMode,
+        correlationParentId
       )
     );
     return {
@@ -994,17 +1000,6 @@ function pkTransitionCascadeSafe(
     }
   }
   return true;
-}
-
-/** Whether any deeper relation goes through a junction — the one edge kind whose
- *  PLANNING read is correlated to the parent key, which is why it cannot share the
- *  post-transition ordering (see {@link RelationWritePart.interpretChildParts}). */
-function hasJunctionRelation(
-  relations: Record<string, RelationMutation>
-): boolean {
-  return Object.values(relations).some(
-    (mutation) => mutation.relationInfo.type === "manyToMany"
-  );
 }
 
 /**

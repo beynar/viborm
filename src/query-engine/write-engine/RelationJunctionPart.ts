@@ -116,6 +116,18 @@ export interface RelationJunctionConfig {
   readonly kind: JunctionKind;
   /** The located parent id (a planning value; a literal at compile, a Ref at planning). */
   readonly parentId: ParentIdSource;
+  /**
+   * E2-U3 — where this parent's membership ALREADY is, when that is not the key its
+   * join rows must carry from now on. The two coincide everywhere except under a nested
+   * target that transitions its own primary key and is ordered AFTER its self-UPDATE (a
+   * non-cascade sibling edge, {@link RelationWritePart} `interpretChildParts`): the
+   * membership READ runs at planning, before any write, so it must ask for the key the
+   * join rows still carry; the WRITES run after the self-UPDATE, by which time
+   * `ON UPDATE CASCADE` has carried those same rows to the new one. Absent → every read
+   * takes {@link parentId}, byte-identical to pre-E2-U3. The same split
+   * `RelationSetConfig.correlationParentId` makes for `set`.
+   */
+  readonly correlationParentId?: ParentIdSource;
   readonly txMode: boolean;
   /** connect/disconnect/set/delete/update: the child unique locator(s). */
   readonly wheres?: readonly Record<string, unknown>[];
@@ -414,7 +426,7 @@ export class RelationJunctionPart implements Part {
       case "deleteMany":
         return this.compileDeleteMany(parent, known);
       case "update":
-        return this.compileUpdate(scope, parent, known);
+        return this.compileUpdate(scope, known);
       case "updateMany":
         return this.compileUpdateMany(parent);
       case "create":
@@ -522,7 +534,12 @@ export class RelationJunctionPart implements Part {
       const targetPk = this.requireTarget(target, known, "delete");
       if (!this.config.txMode) {
         guards.push(
-          this.connectedPresenceGuard(target, parent, "delete", targetPk)
+          this.connectedPresenceGuard(
+            target,
+            this.membershipLiteral(known),
+            "delete",
+            targetPk
+          )
         );
       }
       writes.push(
@@ -546,9 +563,10 @@ export class RelationJunctionPart implements Part {
     for (const bulk of this.bulks) {
       const targetPks = this.connectedSet(bulk, known);
       if (!this.config.txMode) {
+        const membershipParent = this.membershipLiteral(known);
         guards.push(
-          this.differenceGuard(bulk, parent, targetPks, "added"),
-          this.differenceGuard(bulk, parent, targetPks, "removed")
+          this.differenceGuard(bulk, membershipParent, targetPks, "added"),
+          this.differenceGuard(bulk, membershipParent, targetPks, "removed")
         );
       }
       writes.push(
@@ -563,9 +581,10 @@ export class RelationJunctionPart implements Part {
   }
 
   // update — locate the connected child, UPDATE it by primary key.
+  // `update` takes no written parent value: its guard asserts membership on the READ
+  // correlation and its write addresses the target's own captured primary key.
   private compileUpdate(
     scope: StepScope,
-    parent: unknown,
     known: PlanningKnown
   ): readonly OperationStep[] {
     const guards: OperationStep[] = [];
@@ -576,7 +595,12 @@ export class RelationJunctionPart implements Part {
       const targetPk = this.requireTarget(target, known, "update");
       if (!this.config.txMode) {
         guards.push(
-          this.connectedPresenceGuard(target, parent, "update", targetPk)
+          this.connectedPresenceGuard(
+            target,
+            this.membershipLiteral(known),
+            "update",
+            targetPk
+          )
         );
       }
       // The self-UPDATE lands only when the payload carries scalar assignments; a
@@ -767,7 +791,13 @@ export class RelationJunctionPart implements Part {
       if (Array.isArray(memberRows) && memberRows.length > 0) {
         const memberPk = this.pkOf(memberRows[0]);
         if (!this.config.txMode) {
-          steps.push(this.upsertMemberGuard(slot, parent, memberPk));
+          steps.push(
+            this.upsertMemberGuard(
+              slot,
+              this.membershipLiteral(known),
+              memberPk
+            )
+          );
         }
         // Update arm (a scalar SET only when non-empty; a relation-only update arm
         // writes just its child Parts — mechanism 1 reused at the arm level).
@@ -1473,9 +1503,13 @@ export class RelationJunctionPart implements Part {
    * as the write correlation ({@link parentLiteral}) already does. The membership
    * read's `parentValue` is materialized identically for a `Ref` or a literal
    * (both ride through `ManyToManyStatements.materialize`), so no leaf learns which.
+   *
+   * E2-U3: this is the READ side, so it takes {@link
+   * RelationJunctionConfig.correlationParentId} when the two sides differ — the one
+   * situation where the key existing join rows carry is not the key new ones must.
    */
   private parentRef(): unknown {
-    const source = this.config.parentId;
+    const source = this.config.correlationParentId ?? this.config.parentId;
     if (source.kind === "literal") return source.value;
     if (source.kind !== "planned") {
       throw new QueryEngineError(
@@ -1492,7 +1526,34 @@ export class RelationJunctionPart implements Part {
    *  riding `Sql.values` exactly as the child-FK path does (materialized by the
    *  executor in tx mode; scratch-threaded insertId in batch mode). */
   private parentLiteral(known: PlanningKnown): unknown {
-    const source = this.config.parentId;
+    return this.resolveParent(this.config.parentId, known);
+  }
+
+  /**
+   * The compile-time parent value a BATCH GUARD asserts membership on — the read
+   * correlation, not the write one.
+   *
+   * A guard re-asserts, at execution time, the premise its planning read established,
+   * and the atomic unit evaluates every guard BEFORE any write in it (the root's
+   * bucketing, `UpdateOperation.compile`: "a batch pins its premises before any
+   * write"). So under a post-transition ordering the guard runs while the join rows
+   * still carry the PRE-transition key — the same key the planning read asked for and
+   * the only one that can be true at that moment. Taking the written value here would
+   * assert membership under a key no row has yet and fail a premise that holds
+   * (measured: `Cannot update relation '…': target record was not found for this
+   * parent.` on the batch substrate while the transaction substrate succeeded).
+   *
+   * Without a transition the two sources are one value and every guard is
+   * byte-identical to pre-E2-U3.
+   */
+  private membershipLiteral(known: PlanningKnown): unknown {
+    return this.resolveParent(
+      this.config.correlationParentId ?? this.config.parentId,
+      known
+    );
+  }
+
+  private resolveParent(source: ParentIdSource, known: PlanningKnown): unknown {
     if (source.kind === "literal") return source.value;
     if (source.kind === "ref") {
       return referenceSql(
@@ -1535,6 +1596,9 @@ export function buildJunctionParts(input: {
   mutation: RelationMutation;
   parsedRelation: Record<string, unknown>;
   parentId: ParentIdSource;
+  /** E2-U3: the membership-READ parent value when it differs from the written one —
+   *  see {@link RelationJunctionConfig.correlationParentId}. */
+  correlationParentId?: ParentIdSource;
   txMode: boolean;
   /** T3b-2: the depth-recursive child-Part builder (mechanism 2 / mechanism 1
    *  reuse). REQUIRED — every `buildJunctionParts` caller threads it: the root
@@ -1568,6 +1632,7 @@ export function buildJunctionParts(input: {
     relationInfo,
     childName,
     parentId,
+    correlationParentId: input.correlationParentId,
     txMode,
   } as const;
   // T3b-2 — fold a create/update/upsert-arm target payload into (scalar SET, deeper

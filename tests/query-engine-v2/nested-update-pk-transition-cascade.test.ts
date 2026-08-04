@@ -287,29 +287,37 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
     }
 
     test(
-      `both edge kinds at once is the one mix neither ordering serves (${substrate})`,
+      `both edge kinds at once now run under ONE ordering (${substrate})`,
       { timeout: 30_000 },
       async () => {
         const { client } = freshClient(substrate);
         await push(client as any, { force: true });
         await seed(client);
-        // A junction reads MEMBERSHIP at planning, correlated to the parent key, and
-        // planning runs before the self-UPDATE writes the new one — so the
-        // post-transition ordering the child-held edge needs would have the junction
-        // read a key no row carries yet, while the pre-transition ordering the junction
-        // needs strands the child-held edge. The refusal names both edges, fires at
-        // construction, and leaves the seed untouched.
-        await expect(
-          (client as any).node.update(op({ ...CHILD_HELD_EDGE, ...M2M_EDGE }))
-        ).rejects.toBeInstanceOf(UnsupportedOperationError);
-        expect((await snapshot(client)).parents).toEqual([
-          [1, 10],
+        // **RETARGETED BY E2-U3 (authorized test change).** This arm asserted the
+        // refusal, on the reasoning that "neither ordering serves both edges": the
+        // junction reads MEMBERSHIP at planning, before the self-UPDATE exists, while
+        // the child-held edge must be written after it. Both halves of that reading are
+        // still true — what was false is that one ordering must supply one value. The
+        // junction now READS on the where-pinned pre-transition key and WRITES on the
+        // post-transition one (`RelationJunctionConfig.correlationParentId`, the split
+        // N5-U1 already made for `set`), so the post-transition ordering serves both
+        // edges at once. Same payload, and this arm asserts the state it produces.
+        await (client as any).node.update(
+          op({ ...CHILD_HELD_EDGE, ...M2M_EDGE })
+        );
+        const state = await snapshot(client);
+        // The child-held edge landed on the key the self-UPDATE wrote …
+        expect(state.parents).toEqual([
           [3, 10],
           [4, 20],
-          [5, null],
+          [5, 7],
+          [7, 10],
           [10, null],
           [20, null],
         ]);
+        // … and so did the join row: a write against the vacated 1 has no row to
+        // reference (the falsification raises a ForeignKeyError there).
+        expect(state.links).toContainEqual([7, [5]]);
         await client.$disconnect();
       }
     );
