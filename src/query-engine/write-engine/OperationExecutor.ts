@@ -816,7 +816,16 @@ function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {
           `Operation reference '${value.step}.${value.output}' is not a concrete runtime value.`
         );
       }
-      return resolved;
+      // An OPTIONAL `firstRowField` whose read matched no row is the ONE source
+      // that resolves to `undefined` — every other source either produces a value
+      // or fails the operation closed in `extractOutput`/`resolveRuntimeValue`
+      // before reaching a bind. Its absence has a meaning, and the meaning is SQL
+      // NULL: "no row, so this correlated read must match nothing" (`= NULL` is
+      // never true). Saying so here is what makes the untaken arm of an upsert's
+      // superset planning (ATOM §3 technique 2) behave identically on every
+      // driver — eight of nine binders coerce `undefined` to NULL, mysql2 rejects
+      // it outright — so the semantics live in the engine, not in one driver.
+      return resolved ?? null;
     })
   );
 }

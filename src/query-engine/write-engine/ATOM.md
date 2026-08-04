@@ -1572,6 +1572,17 @@ guard/probe vocabulary; every accepted shape executes native.
   superset probe resolves the FK to `undefined` and plans cleanly instead of aborting; the taken
   (found) branch rejects via the deferred `assertArmLegality` (V1's whenTrue timing), the untaken
   (create) branch succeeds. The parent-held-to-one decline is gone.
+  **M5 amendment** — "plans cleanly" was true on eight of the nine driver legs and false on the
+  ninth. `undefined` reached the provider as a bind parameter; eight binders coerce it to NULL
+  (the correlated read comes back empty, which is the intent), but mysql2 REJECTS it outright
+  ("Bind parameters must not contain undefined"), so this already-shipped public shape errored on
+  MySQL in BOTH substrates. The bind is now stated in the engine, not left to the driver:
+  `materializeLinearSql` materializes an unresolved reference as SQL NULL, because an optional
+  absent output MEANS "no row" and `= NULL` is never true — the untaken arm's superset read
+  matches nothing on every leg. Only the optional half changes: a non-optional output whose row is
+  absent still fails the operation closed in `extractOutput` before any bind
+  (`optional-absent-bind.test.ts` pins both halves at the seam, and the public shape on PGlite and
+  Docker MySQL, tx and batch).
 - **CLASS V**: a nested relation write inside `updateMany` data rejects with V1's byte-identical
   message — immediate at construction for a plain update, deferred to the taken branch for an
   upsert update arm.

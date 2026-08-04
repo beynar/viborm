@@ -30,6 +30,7 @@ import { runInverseToOneCreateBehavior } from "../query-engine-v2/inverse-to-one
 import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-create-many-behavior";
 import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runOptionalAbsentBindBehavior } from "../query-engine-v2/optional-absent-bind-behavior";
 import { runOwnWriteLinearizationBehavior } from "../query-engine-v2/own-write-linearization-behavior";
 import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
 import { runProducedIdentityBehavior } from "../query-engine-v2/produced-identity-depth-behavior";
@@ -423,6 +424,24 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
   runUpdateNestedUpsertBehavior({
+    name: "MySQL2 atomic batch",
+    createDriver: () =>
+      new MySQL2BatchForcedDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+    createStateDriver: createMySQL2Driver,
+  });
+
+  // M5 — mysql2's binder REJECTS an undefined parameter ("Bind parameters must
+  // not contain undefined"), where every other leg coerces it to NULL. This is
+  // the leg the engine's absent-optional normalization exists for: without it,
+  // the untaken update arm of an absent-target upsert errors here and nowhere
+  // else.
+  runOptionalAbsentBindBehavior({
+    name: "MySQL2 transaction",
+    createDriver: createMySQL2Driver,
+  });
+  runOptionalAbsentBindBehavior({
     name: "MySQL2 atomic batch",
     createDriver: () =>
       new MySQL2BatchForcedDriver({
