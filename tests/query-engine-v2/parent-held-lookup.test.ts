@@ -8,6 +8,7 @@ import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   makeLookupClient,
   runBeforeRootSubtreeBehavior,
+  runNonPkReferenceBehavior,
   runParentHeldLookupBehavior,
   runUpsertArmRelationBehavior,
   seedLookupBed,
@@ -60,6 +61,16 @@ runUpsertArmRelationBehavior({
 });
 
 runUpsertArmRelationBehavior({
+  name: "PGlite atomic batch",
+  createDriver: () => new BatchOnlyPGliteDriver(),
+});
+
+runNonPkReferenceBehavior({
+  name: "PGlite transaction",
+  createDriver: () => new PGliteDriver(),
+});
+
+runNonPkReferenceBehavior({
   name: "PGlite atomic batch",
   createDriver: () => new BatchOnlyPGliteDriver(),
 });
@@ -473,6 +484,54 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
       await expect(
         stateClient.author.findMany({ orderBy: { id: "asc" } })
       ).resolves.toEqual([{ id: 2, email: "target@x", name: "target" }]);
+      await stateClient.$disconnect();
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// E1 U6 — the captured-PK provenance on a NON-primary-key edge. The correlation
+// reads one column and the write addresses another, so the two can disagree, and
+// only corrupting the probe's returned row can say which one the write follows.
+// ---------------------------------------------------------------------------
+
+describe("E1 U6 — the non-PK edge's captured identity", () => {
+  test(
+    "the arm's UPDATE addresses the primary key the PROBE returned",
+    { timeout: 30_000 },
+    async () => {
+      const db = new PGlite();
+      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
+      await push(stateClient, { force: true });
+      await seedLookupBed(stateClient);
+      await stateClient.holder.update({
+        where: { id: 1 },
+        data: { badge: { connect: { code: "GOLD" } } },
+      });
+
+      // Badge 1 is a live row the corrupted key can legally name, so a wrong
+      // provenance is a silent WRONG ROW and not a constraint error. The probe is
+      // the FIRST read of `e1_badges` this operation makes.
+      const client = makeLookupClient(
+        new CorruptConnectProbeDriver(
+          { client: db },
+          { table: "e1_badges", column: "id", wrongValue: 1 }
+        )
+      );
+      await client.holder.update({
+        where: { id: 1 },
+        data: { badge: { update: { tier: "platinum" } } },
+      });
+      // THE CLAIM. The write follows the CORRUPTED captured key — badge 1 — because
+      // that is the row the probe reported acting on. An implementation that
+      // re-derived the target from the correlation column (`code = 'GOLD'`) would
+      // update badge 2 instead, and nothing else in the estate separates the two.
+      await expect(
+        stateClient.badge.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: 1, slug: "codeless", code: null, tier: "platinum" },
+        { id: 2, slug: "gold-slug", code: "GOLD", tier: "gold" },
+      ]);
       await stateClient.$disconnect();
     }
   );

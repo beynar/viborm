@@ -2502,9 +2502,19 @@ export class UpdateOperation {
    * is located by `child.<referenced> = parent.<fk>` where the parent's FK value is
    * its FINAL value (V1 correlates `holdsFK` on the post-scalar-update parentValues).
    * A column the same root update rebinds resolves to a construction-time literal;
-   * an untouched column reads the located parent row. Only a single-field FK whose
-   * referenced column is the child's single primary key is supported natively; any
-   * other shape (compound edge, non-PK reference) routes the whole tree to V1.
+   * an untouched column reads the located parent row.
+   *
+   * E1 U6 — the referenced column need not be the child's PRIMARY key. The two jobs
+   * this ledger does are separate and were conflated: the CORRELATION is
+   * `child.<referenced> = <finalFk>`, which any single referenced column answers,
+   * and the child's own single primary key is what the probe captures and the arm's
+   * write addresses — the immutable handle, exactly as the root update's own locate
+   * uses it. So a foreign key that references some OTHER unique of the child is a
+   * shape this ledger already expresses; only the ARITY was ever load-bearing.
+   *
+   * A COMPOUND edge stays refused (the compound-identity family, E6.4): the probe
+   * captures one column and the write addresses one column, and widening both to a
+   * tuple is that family's work, not this one's.
    */
   private parentHeldCorrelation(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
@@ -2517,13 +2527,10 @@ export class UpdateOperation {
     if (
       fk.fkFields.length !== 1 ||
       fk.pkFields.length !== 1 ||
-      childPrimaryKeys.length !== 1 ||
-      fk.pkFields[0] !== childPrimaryKeys[0]
+      childPrimaryKeys.length !== 1
     ) {
-      // A compound parent-held edge or a non-PK reference needs V1's staged
-      // mutation-identity resolution — a documented narrower boundary.
       throw new UnsupportedOperationError(
-        `query-engine-v2 update supports only a single-field primary-key reference for '${kind}' on the parent-held to-one relation '${relationName}'.`
+        `query-engine-v2 update supports only a single-field reference for '${kind}' on the parent-held to-one relation '${relationName}'.`
       );
     }
     // Every parent FK column must be a firstRowField output of the locate read so
@@ -3031,9 +3038,25 @@ export class UpdateOperation {
     };
   }
 
-  /** A shared-primary-key parent-held edge (the FK IS this record's PK) under
-   *  create/connectOrCreate would rewrite the parent PK — a PK transition. Route
-   *  the whole tree to V1 (its `getUpdatedPrimaryKeyWhere` resolves it). */
+  /**
+   * A shared-primary-key parent-held edge (the FK IS this record's PK) under
+   * `create` / `connectOrCreate` / `upsert` at the update ROOT.
+   *
+   * MEASURED (E0 probe M3, Prisma 7.9.1): this is not a shape without semantics —
+   * Prisma ACCEPTS it, and what it means is a **PK TRANSITION OF THE RECORD BEING
+   * UPDATED**. The arm writes (or finds) the target, and the record's own primary
+   * key then moves to that target's key; a destination key already taken is
+   * Prisma's P2014. The alternative reading — the child ADOPTS the record's
+   * existing key — is not merely unimplemented, it is unsatisfiable: the record is
+   * alive and holds that key, so the target's INSERT always collides.
+   *
+   * So the refusal stays, with the reason corrected. What it is waiting for is not
+   * this arm but the TRANSITION machinery: the operand-applying planned source that
+   * carries a pre-value through the locate into the new key, which is the family
+   * `:1375` / `:1621` / `:1651` and `RelationWritePart.ts:812` are waiting for too.
+   * The site is re-filed with them (E6.7) rather than kept as its own boundary. The
+   * message is unchanged, deliberately: nothing about the shape moved.
+   */
   private assertNotSharedPk(
     relationName: string,
     fk: FkDirection,

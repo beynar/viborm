@@ -32,7 +32,12 @@ import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-r
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
 import { runOptionalAbsentBindBehavior } from "../query-engine-v2/optional-absent-bind-behavior";
 import { runOwnWriteLinearizationBehavior } from "../query-engine-v2/own-write-linearization-behavior";
-import { runParentHeldLookupBehavior } from "../query-engine-v2/parent-held-lookup-behavior";
+import {
+  runBeforeRootSubtreeBehavior,
+  runNonPkReferenceBehavior,
+  runParentHeldLookupBehavior,
+  runUpsertArmRelationBehavior,
+} from "../query-engine-v2/parent-held-lookup-behavior";
 import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
 import { runProducedIdentityBehavior } from "../query-engine-v2/produced-identity-depth-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
@@ -332,6 +337,21 @@ describeIf("MySQL2 Driver", () => {
   // self-relation shape: `SET parentId = (SELECT … FROM the mutated table)` is
   // ERROR 1093 here unless the lookup hides behind a derived table (rule 11).
   runParentHeldLookupBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runBeforeRootSubtreeBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runUpsertArmRelationBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+
+  runNonPkReferenceBehavior({
     name: "MySQL2",
     createDriver: createMySQL2Driver,
   });

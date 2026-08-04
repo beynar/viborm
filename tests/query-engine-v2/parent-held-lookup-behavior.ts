@@ -812,3 +812,157 @@ export function runUpsertArmRelationBehavior(options: {
     );
   });
 }
+
+/**
+ * E1 U6 — a parent-held to-one edge whose referenced column is NOT the target's
+ * primary key.
+ *
+ * The holder's foreign key references `badge.code`; the badge's own primary key is
+ * `id`. The correlation reads `code`, the probe captures `id`, and the arm's write
+ * addresses `id` — two jobs the ledger had conflated into one. Every arm of the
+ * family runs here, and each asserts the row it landed on.
+ */
+export function runNonPkReferenceBehavior(options: {
+  readonly name: string;
+  readonly createDriver: () => AnyDriver;
+}): void {
+  describe(`${options.name} parent-held NON-primary-key reference (E1 U6)`, () => {
+    const run = (
+      body: (client: LookupClient) => Promise<void>
+    ): (() => Promise<void>) => {
+      return async () => {
+        const driver = options.createDriver();
+        const client = makeLookupClient(driver);
+        await push(client, { force: true });
+        await seedLookupBed(client);
+        // Holder 1 wears the gold badge; badge 1 (the codeless decoy) holds the
+        // LOWER primary key, so an arm that captured "the first row" — or that
+        // mistook the correlation column for the primary key — lands on it.
+        await client.holder.update({
+          where: { id: 1 },
+          data: { badge: { connect: { code: "GOLD" } } },
+        });
+        try {
+          await body(client);
+        } finally {
+          await client.$disconnect();
+        }
+      };
+    };
+
+    test(
+      "the `update` arm mutates the referenced row and nothing else",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await expect(
+          client.holder.update({
+            where: { id: 1 },
+            data: { badge: { update: { tier: "platinum" } } },
+          })
+        ).resolves.toEqual({ id: 1, name: "holder-1", badgeCode: "GOLD" });
+        await expect(
+          client.badge.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, slug: "codeless", code: null, tier: "bronze" },
+          { id: 2, slug: "gold-slug", code: "GOLD", tier: "platinum" },
+        ]);
+      })
+    );
+
+    test(
+      "the `update` arm carries its own relations one level deeper",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await expect(
+          client.holder.update({
+            where: { id: 1 },
+            data: {
+              badge: {
+                update: {
+                  tier: "platinum",
+                  holders: { create: { id: 7, name: "holder-7" } },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 1, name: "holder-1", badgeCode: "GOLD" });
+        // The fresh holder's foreign key is the badge's CODE, read from the row the
+        // probe captured by its primary key.
+        await expect(
+          client.holder.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, name: "holder-1", badgeCode: "GOLD" },
+          { id: 7, name: "holder-7", badgeCode: "GOLD" },
+        ]);
+      })
+    );
+
+    test(
+      "the `upsert` arm takes its FOUND branch on the referenced row",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await expect(
+          client.holder.update({
+            where: { id: 1 },
+            data: {
+              badge: {
+                upsert: {
+                  update: { tier: "platinum" },
+                  create: { id: 9, slug: "fresh", code: "FRESH", tier: "tin" },
+                },
+              },
+            },
+          })
+        ).resolves.toEqual({ id: 1, name: "holder-1", badgeCode: "GOLD" });
+        await expect(
+          client.badge.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, slug: "codeless", code: null, tier: "bronze" },
+          { id: 2, slug: "gold-slug", code: "GOLD", tier: "platinum" },
+        ]);
+      })
+    );
+
+    test(
+      "the `delete` arm nulls the key and removes the referenced row only",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await expect(
+          client.holder.update({
+            where: { id: 1 },
+            data: { badge: { delete: true } },
+          })
+        ).resolves.toEqual({ id: 1, name: "holder-1", badgeCode: null });
+        await expect(
+          client.badge.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, slug: "codeless", code: null, tier: "bronze" },
+        ]);
+      })
+    );
+
+    test(
+      "an unconnected holder's update arm finds nothing and writes nothing",
+      { timeout: 30_000 },
+      run(async (client) => {
+        await client.holder.create({
+          data: { id: 8, name: "holder-8", badgeCode: null },
+        });
+        // The correlation reads NULL, which matches no badge — the not-found premise,
+        // not a match on the codeless decoy whose `code` is also NULL.
+        await expect(
+          client.holder.update({
+            where: { id: 8 },
+            data: { badge: { update: { tier: "platinum" } } },
+          })
+        ).rejects.toThrow(NestedWriteError);
+        await expect(
+          client.badge.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: 1, slug: "codeless", code: null, tier: "bronze" },
+          { id: 2, slug: "gold-slug", code: "GOLD", tier: "gold" },
+        ]);
+      })
+    );
+  });
+}
