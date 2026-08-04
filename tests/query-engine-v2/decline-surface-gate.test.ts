@@ -1012,6 +1012,27 @@ describe("decline-surface gate: the adopt family's create arm is a create subtre
 // honestly visible so a future regression that silently changed its disposition
 // would surface here.
 // ---------------------------------------------------------------------------
+/** The representative decline's own schema (see the note below): a junction target with a
+ *  DB-generated primary key and TWO uniques a `whereUnique` can name. */
+const twoUniqueTarget = (() => {
+  const shelf = s
+    .model({
+      id: s.string().id(),
+      books: s.manyToMany(() => book).through("dsg_book_shelf"),
+    })
+    .map("dsg_shelves");
+  const book = s
+    .model({
+      id: s.int().id().increment(),
+      isbn: s.string().unique(),
+      code: s.string().unique(),
+      title: s.string(),
+      shelves: s.manyToMany(() => shelf).through("dsg_book_shelf"),
+    })
+    .map("dsg_books");
+  return { shelf, book };
+})();
+
 const REPRESENTATIVE_CONSTRUCT_DECLINE = {
   // RETARGETED TWICE, each time by the absorption that took the previous representative.
   //
@@ -1025,29 +1046,37 @@ const REPRESENTATIVE_CONSTRUCT_DECLINE = {
   //     arm the probe id the `update` kind always had. It EXECUTES, with witnesses in
   //     `junction-upsert-arm-probe-behavior.ts` on both substrates and both Docker legs.
   //
-  // The tripwire needs a shape that still declines, so it names E6.8's site: a
-  // `createMany` THROUGH A JUNCTION with `skipDuplicates` onto a target whose primary key
-  // is DATABASE-GENERATED. A skipped row produces no identity, and the join row this arm
-  // owes has nothing to reference — the refusal names an absent value, not a missing
-  // wire. The plan re-proves it as a survivor pending a maintainer decision (does
-  // adopt-equivalence define skip?), so it is the honest live shape today.
-  // A construct-time probe: no seed, no execution.
+  //  3. U-E6.8 took MOST of the one that replaced THAT: a `createMany` through a junction
+  //     with `skipDuplicates` onto a DB-generated target key. The maintainer's decision
+  //     (expressible-shapes-plan.md, Risks item 3) is that adopt-equivalence defines skip
+  //     for generated-key rows, so a row spelling exactly one nameable unique is now a
+  //     `connectOrCreate` adopt and a target with nothing to conflict on drops the flag —
+  //     witnessed in `e68-junction-skip-adopt-behavior.ts`, both substrates, both Docker
+  //     legs.
+  //
+  // The tripwire needs a shape that still declines, so it names the SURVIVOR of that same
+  // site, whose impossibility E6.8 re-proved: a row spelling TWO complete nameable uniques.
+  // Either constraint can be the one an INSERT meets, so no single probe names the row a
+  // skip would have skipped ON — and an adopt that guessed would join the parent to a row
+  // the skip never selected (the wrong-row doctrine; the decoy is in E6.8's witness file).
+  // The schema is local because the shape is about CONSTRAINTS, and the shared m2m fixture
+  // has only one unique per target. A construct-time probe: no seed, no execution.
   label:
-    "m2m createMany through a junction with skipDuplicates onto a database-generated target key",
-  schema: m2m as Record<string, Model<any>>,
+    "m2m createMany with skipDuplicates onto a generated key whose row spells two uniques",
+  schema: twoUniqueTarget as Record<string, Model<any>>,
   operation: "update",
   args: {
-    where: { id: 1 },
+    where: { id: "s1" },
     data: {
-      labels: {
+      books: {
         createMany: {
-          data: [{ name: "l1" }, { name: "l2" }],
+          data: [{ isbn: "i1", code: "c1", title: "t" }],
           skipDuplicates: true,
         },
       },
     },
   } as Record<string, unknown>,
-  rootModel: m2m.article as Model<any>,
+  rootModel: twoUniqueTarget.shelf as Model<any>,
 } as const;
 
 describe("decline-surface gate: the documented narrower boundary still declines (P6)", () => {

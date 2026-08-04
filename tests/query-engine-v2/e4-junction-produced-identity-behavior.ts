@@ -304,22 +304,41 @@ export function registerProducedIdentityBehavior(
       ).toMatchObject({ stampId: made.id });
     }, 120_000);
 
-    test("skipDuplicates with a produced key keeps its own refusal (E6.8's)", async () => {
+    test("skipDuplicates with a produced key ADOPTS instead of refusing (E4-U3 × E6.8)", async () => {
       const client = await connect();
       await reset(client);
-      await expect(
-        client.post.create({
-          data: {
-            id: "p6",
-            title: "t",
-            stamps: {
-              createMany: { data: [{ name: "x" }], skipDuplicates: true },
+      // RETARGETED by U-E6.8 (maintainer-authorized). This test used to pin the sibling
+      // refusal E4-U3 deliberately left standing. E6.8 absorbed it for this exact shape:
+      // `stamp` spells one nameable unique (`name`), so the row becomes a
+      // `connectOrCreate` adopt — which has an identity where the skip leaf had none.
+      // What the composition owes E4-U3 is that BOTH branches still produce a join row
+      // addressed to the right stamp: the adopted one by the probe's captured key, the
+      // fresh one by the `Ref` its own INSERT produced.
+      const existing = await client.stamp.create({ data: { name: "sitting" } });
+      await client.post.create({
+        data: {
+          id: "p6",
+          title: "t",
+          stamps: {
+            createMany: {
+              data: [{ name: "sitting" }, { name: "arriving" }],
+              skipDuplicates: true,
             },
           },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 createMany-through-junction for relation 'stamps' cannot use 'skipDuplicates' when the target primary key 'id' is database-generated: a skipped row produces no identity for its join row."
-      );
+        },
+      });
+      const fresh = await client.stamp.findUnique({
+        where: { name: "arriving" },
+      });
+      expect(fresh.id).not.toBe(existing.id);
+      expect(
+        (
+          await client.stamp.findMany({
+            where: { posts: { some: { id: "p6" } } },
+            orderBy: { name: "asc" },
+          })
+        ).map((row: any) => row.id)
+      ).toEqual([fresh.id, existing.id]);
     }, 120_000);
   });
 }

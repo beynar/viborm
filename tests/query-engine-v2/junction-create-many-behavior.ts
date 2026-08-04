@@ -235,9 +235,6 @@ async function marksOf(
 }
 
 const NO_BATCH_SKIP_LOWERING = /no atomic-batch lowering/;
-/** N3-U1's new refusal: a skipped INSERT produces no identity for its join row. */
-const SKIP_WITH_GENERATED_KEY =
-  /a skipped row produces no identity for its join row/;
 /** The own-write preflight's rejection of a second `upsert` item on one M2M relation. */
 const SECOND_UPSERT_ITEM =
   /depends on an earlier 'upsert' target write in the same nested write/;
@@ -512,26 +509,42 @@ export function runJunctionCreateManyBehavior(options: {
     );
 
     test(
-      "skipDuplicates with a DB-generated target key is a typed refusal, before any write",
+      "skipDuplicates with a DB-generated target key ADOPTS the row already there",
       { timeout: 30_000 },
       async () => {
         const { client, run, dispose } = await setup();
         try {
+          // RETARGETED from a refusal to an accept-and-execute assertion on the SAME
+          // payload (E6.8, maintainer-authorized — expressible-shapes-plan.md Risks item 3).
+          // N3-U1's refusal was right about the SKIP LEAF: a skipped INSERT produces no
+          // identity for its join row. It was too wide about the SHAPE. `label` spells
+          // exactly one unique a `whereUnique` can name, so the row is rewritten as a
+          // `connectOrCreate` adopt, which HAS an identity — and delivers the semantics the
+          // skip was pinned to: the row already there is untouched, and still linked.
+          //
+          // The refusal itself is not gone. What still reaches it is a row no single probe
+          // can name — two spelled uniques, a NULL-membered compound, a unique index no
+          // selector spells — witnessed in `e68-junction-skip-adopt-behavior.ts`, which also
+          // carries the state-equivalence and divergence witnesses for the absorbed halves.
+          const existing = await client.label.create({
+            data: { slug: "one", note: "ORIGINAL" },
+          });
           const article = await client.article.create({ data: { title: "a" } });
-          await expect(
-            run.update("article", junctionCreateManySchema.article, {
-              where: { id: article.id },
-              data: {
-                labels: {
-                  createMany: {
-                    data: [{ slug: "one", note: "n" }],
-                    skipDuplicates: true,
-                  },
+          await run.update("article", junctionCreateManySchema.article, {
+            where: { id: article.id },
+            data: {
+              labels: {
+                createMany: {
+                  data: [{ slug: "one", note: "IGNORED" }],
+                  skipDuplicates: true,
                 },
               },
-            })
-          ).rejects.toThrow(SKIP_WITH_GENERATED_KEY);
-          await expect(client.label.findMany()).resolves.toEqual([]);
+            },
+          });
+          await expect(
+            client.label.findUnique({ where: { slug: "one" } })
+          ).resolves.toMatchObject({ id: existing.id, note: "ORIGINAL" });
+          expect(await labelsOf(client, article.id)).toEqual(["one"]);
         } finally {
           await dispose();
         }

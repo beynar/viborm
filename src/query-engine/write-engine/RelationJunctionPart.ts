@@ -1,6 +1,8 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationJunctionPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
+import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
+import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import { getManyToManyJoinInfo } from "../builders/many-to-many-utils";
 import {
   type RelationMutation,
@@ -1460,14 +1462,21 @@ export class RelationJunctionPart implements Part {
     if (pk !== undefined && pk !== null) return { pk };
     const scalar = this.childScope.model["~"].state.scalars[this.targetPkField];
     if (pk === undefined && scalar?.["~"].state.autoGenerate === "increment") {
-      // N3-U1 — the produced identity and `skipDuplicates` are mutually exclusive,
-      // and this is the one place that can say so. A skipped INSERT writes no row, so
-      // it produces no identity: PostgreSQL's `ON CONFLICT DO NOTHING … RETURNING`
-      // yields zero rows, while SQLite's `INSERT OR IGNORE` and MySQL's rolled-back
-      // savepoint leave `insertId` at the PREVIOUS insert's value — a live key
-      // belonging to another row. The join row would then link the parent to that
-      // row, silently, with no constraint able to notice (the wrong-row doctrine).
-      // Refused, never guessed.
+      // N3-U1 — the produced identity and a skip LEAF are mutually exclusive, and this
+      // is the one place that can say so. A skipped INSERT writes no row, so it produces
+      // no identity: PostgreSQL's `ON CONFLICT DO NOTHING … RETURNING` yields zero rows,
+      // while SQLite's `INSERT OR IGNORE` and MySQL's rolled-back savepoint leave
+      // `insertId` at the PREVIOUS insert's value — a live key belonging to another row.
+      // The join row would then link the parent to that row, silently, with no constraint
+      // able to notice (the wrong-row doctrine). Refused, never guessed.
+      //
+      // E6.8 NARROWED WHAT REACHES HERE. The shape is no longer refused as a whole: a
+      // target with no unique besides this generated key drops the flag (nothing to
+      // conflict on), and rows spelling exactly one complete unique are rewritten as
+      // `connectOrCreate` adopts before construction — see
+      // {@link skipDuplicatesDisposition}. What still arrives is the case that genuinely
+      // has no identity: no single unique names the row a skip would skip ON, so no probe
+      // can find it. Same sentence, now for that case alone.
       if (this.config.skipDuplicates) {
         throw new UnsupportedOperationError(
           `query-engine-v2 createMany-through-junction for relation '${this.config.relationName}' cannot use 'skipDuplicates' when the target primary key '${this.targetPkField}' is database-generated: a skipped row produces no identity for its join row. Supply '${this.targetPkField}' in the createMany data, or drop 'skipDuplicates'.`
@@ -2039,6 +2048,105 @@ export function buildJunctionParts(input: {
           : { pk: produced.value },
     };
   };
+  /**
+   * E6.8 — what `skipDuplicates` MEANS on a junction `createMany` whose target primary
+   * key the database makes.
+   *
+   * N3-U1 refused the pair outright, and its reason was sound for the mechanism it had:
+   * the join row references the identity the child INSERT produced, and a skipped INSERT
+   * produces none (`ON CONFLICT DO NOTHING … RETURNING` yields no row; `INSERT OR IGNORE`
+   * and a rolled-back savepoint leave `insertId` on the PREVIOUS row — a live key
+   * belonging to somebody else). What that argument establishes is that the SKIP LEAF has
+   * no identity, not that the SHAPE has none.
+   *
+   * The maintainer's decision (recorded in expressible-shapes-plan.md, Risks item 3):
+   * **adopt-equivalence defines skip for generated-key rows.** The pinned semantics of a
+   * skip here is "the row that was already there stays untouched and is still linked to
+   * this parent" (the note on the `createMany` factory case below) — and that is exactly
+   * what `connectOrCreate` does, with an identity: probe by the unique, adopt the found
+   * row's captured primary key for the join, or INSERT and reference what the INSERT made.
+   * So two sub-shapes stop being refusals:
+   *
+   *  - **`vacuous`** — the target model declares NO unique constraint at all besides its
+   *    own generated primary key, which no row spells: no `.unique()` scalar, no compound
+   *    unique, no `.index(…, { unique: true })`. Nothing an INSERT of these rows can
+   *    violate exists, so the flag cannot change a single outcome: it is dropped and the
+   *    rows take the ordinary produced-identity create path. Decided from the SCHEMA, which
+   *    is the whole of what this engine knows about constraints — a unique index created in
+   *    the database behind the schema's back is outside that knowledge, and this decision
+   *    (like the `push`ed DDL itself) is wrong about such a database. A model whose only
+   *    declared unique is a PARTIAL index (`{ where }`) is NOT vacuous: it is counted like
+   *    any other, so the flag survives and the refusal below still answers.
+   *  - **`adopt`** — every row spells exactly ONE complete unique constraint a
+   *    `whereUnique` can NAME. That constraint names the row a skip would have skipped ON,
+   *    so the probe can find it and the arm becomes `connectOrCreate` verbatim: found →
+   *    join to the probe's captured key; absent → INSERT (its missing premise enforced by
+   *    that same constraint, racePin, never a guard) → join to the produced `Ref`; a
+   *    duplicate WITHIN the payload adopts the earlier item's row through the
+   *    first-create-wins ledger.
+   *
+   * **The authorized divergence.** On the `adopt` sub-shape a conflict on a DIFFERENT
+   * unique than the probed one is no longer silently skipped — the INSERT meets that other
+   * constraint and raises the typed unique violation. It is reachable exactly where a
+   * constraint exists that no selector can name: a `.index(…, { unique: true })`, which the
+   * database enforces and `whereUnique` cannot spell. That is the deliberate semantics
+   * change the maintainer accepted ("the multi-unique failure mode deliberately changes
+   * from silent skip to a typed unique violation"), and it is pinned as a test. It is never
+   * a wrong row — the alternative it replaces was silence, not correctness.
+   *
+   * **What stays refused, re-proven.** A row spelling two or more complete NAMEABLE
+   * uniques: no single probe names the row the constraint would have fired on, so the adopt
+   * could join the parent to a row the skip never selected — the wrong-row doctrine. A row
+   * spelling none of them (a compound unique with a NULL member is not "spelled": NULL is
+   * distinct from NULL in a unique index, so the probe finds nothing where the constraint
+   * also fires nothing — and a dialect that treated NULLs as equal would make the two
+   * disagree). Those keep `resolveCreatePk`'s message, verbatim.
+   *
+   * Note the substrate: an adopt carries NO `onUniqueConflict` effect, so it does not
+   * lower a savepoint into an atomic batch — it never meets the wall at
+   * `OperationExecutor.compileToEntries` ("carries an onUniqueConflict skip effect that has
+   * no atomic-batch lowering"). The wall is bypassed, not weakened; the `leaf` disposition
+   * still hits it, and the batch witness still asserts it.
+   */
+  const skipDuplicatesDisposition = (
+    rows: readonly Record<string, unknown>[]
+  ):
+    | { kind: "leaf" }
+    | { kind: "vacuous" }
+    | { kind: "adopt"; wheres: readonly Record<string, unknown>[] } => {
+    const scalar = childScope.model["~"].state.scalars[targetPkField];
+    const everyRowOmitsPk = rows.every(
+      (row) => row[targetPkField] === undefined
+    );
+    // A spelled primary key still has a compile-time identity, so the existing skip
+    // leaf (or MySQL's savepoint effect) answers for it exactly as it does today.
+    if (!everyRowOmitsPk || scalar?.["~"].state.autoGenerate !== "increment") {
+      return { kind: "leaf" };
+    }
+    const { probeable, indexOnly } = conflictableUniques(childScope.model);
+    if (probeable.length === 0 && indexOnly === 0) return { kind: "vacuous" };
+    const wheres: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      const spelled = probeable.filter((unique) =>
+        unique.fields.every((field) => {
+          const value = row[field];
+          return value !== undefined && value !== null;
+        })
+      );
+      const [only] = spelled;
+      if (spelled.length !== 1 || !only) return { kind: "leaf" };
+      wheres.push(
+        only.fields.length === 1 && only.fields[0] === only.selector
+          ? { [only.selector]: row[only.selector] }
+          : {
+              [only.selector]: Object.fromEntries(
+                only.fields.map((field) => [field, row[field]])
+              ),
+            }
+      );
+    }
+    return { kind: "adopt", wheres };
+  };
   // X1c — a junction target whose data carries the parent-held to-one projection (or a
   // D4 edge) is not folded in place; its WHOLE target write delegates to the update /
   // create ROOT. An UPDATE target delegates to `UpdateOperation`, returned as an empty
@@ -2286,6 +2394,38 @@ export function buildJunctionParts(input: {
         // An empty `data` writes nothing, exactly as the child-held-FK nested
         // `createMany` does (`CreateOperation.foldCreateMany`) — no Part, no steps.
         if (rows.length > 0) {
+          const skipDuplicates = payload.skipDuplicates === true;
+          // E6.8 — see {@link skipDuplicatesDisposition}. Only a generated target key
+          // reaches a decision here: everything else keeps the skip leaf it has today.
+          const disposition = skipDuplicates
+            ? skipDuplicatesDisposition(rows)
+            : ({ kind: "leaf" } as const);
+          if (disposition.kind === "adopt") {
+            // The rows ARE `connectOrCreate` items: the unique each row spells is the
+            // selector, the row is the create payload. Nothing below is new machinery —
+            // this is the adopt family verbatim, dedup ledger and racePin included.
+            const armed = rows.map((create, index) =>
+              freshTargetFold(
+                create,
+                "create",
+                childRacePin(childScope, disposition.wheres[index]!)
+              )
+            );
+            parts.push(
+              new RelationJunctionPart(scope, {
+                ...base,
+                kind: "connectOrCreate",
+                adopts: rows.map((_, index) => ({
+                  where: disposition.wheres[index]!,
+                  create: armed[index]!.scalar,
+                })),
+                adoptCreateChildParts: armed.map((f) => f.childParts),
+                adoptCreateDelegated: armed.map((f) => f.delegated),
+                adoptIdentity: armed.map((f) => f.identity),
+              })
+            );
+            break;
+          }
           const foldedMany = rows.map((create) =>
             freshTargetFold(create, "create")
           );
@@ -2293,7 +2433,10 @@ export function buildJunctionParts(input: {
             new RelationJunctionPart(scope, {
               ...base,
               kind: "createMany",
-              skipDuplicates: payload.skipDuplicates === true,
+              // `vacuous`: the flag is dropped because no constraint exists for it to
+              // act on. `leaf`: it rides each INSERT as it always has (and, for a
+              // generated key with no single naming unique, `resolveCreatePk` refuses).
+              skipDuplicates: skipDuplicates && disposition.kind !== "vacuous",
               creates: foldedMany.map((f) => f.scalar),
               createChildParts: foldedMany.map((f) => f.childParts),
               createDelegated: foldedMany.map((f) => f.delegated),
@@ -2477,6 +2620,47 @@ function requireObject(
   throw new QueryEngineError(
     `query-engine-v2 ${kind} for relation '${relation}' requires a '${field}' object.`
   );
+}
+
+/**
+ * Every unique constraint the schema declares for a model EXCEPT its primary key,
+ * split by whether a `whereUnique` can NAME it (E6.8).
+ *
+ * - `probeable` — the `.unique()` scalars and the declared compound uniques. A
+ *   `whereUnique` spells these (`{ slug: … }`, `{ nameAndOrg: { … } }`), so a probe can
+ *   read the exact row an INSERT would conflict with.
+ * - `indexOnly` — `.index(fields, { unique: true })`. The database enforces it, the
+ *   migration creates it, and NO selector names it: it is a constraint an INSERT can
+ *   violate but no probe can address. It is counted (a model carrying one has something
+ *   to conflict on) and never used as a selector.
+ *
+ * The primary key is excluded because the one caller asks only about rows that do not
+ * spell it. This is the whole of what the engine knows about unique constraints: an index
+ * created in the database behind the schema's back is outside it, exactly as the `push`ed
+ * DDL is.
+ */
+function conflictableUniques(model: Model<any>): {
+  probeable: { selector: string; fields: readonly string[] }[];
+  indexOnly: number;
+} {
+  const state = model["~"].state;
+  const primaryKeys = new Set(getPrimaryKeyFields(model));
+  const probeable: { selector: string; fields: readonly string[] }[] = [];
+  for (const field of Object.keys(state.uniques)) {
+    // `state.uniques` carries `.id()` fields too (extractUniqueScalarMap keys on
+    // `isUnique || isId`), so the primary key is filtered out here, once.
+    if (primaryKeys.has(field)) continue;
+    probeable.push({ selector: field, fields: [field] });
+  }
+  const compounds: Record<string, { entries: Record<string, unknown> }> =
+    state.compoundUniques ?? {};
+  for (const [selector, constraint] of Object.entries(compounds)) {
+    probeable.push({ selector, fields: Object.keys(constraint.entries) });
+  }
+  const indexOnly = state.indexes.filter(
+    (index) => index.options.unique === true
+  ).length;
+  return { probeable, indexOnly };
 }
 
 /** A stable key for a target primary key value (dedup of same-op created targets). */
