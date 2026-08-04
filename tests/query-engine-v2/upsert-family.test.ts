@@ -13,11 +13,11 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { executeRoutedOperation } from "../../src/query-engine-v2/routing";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
-import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { executeRoutedOperation } from "../../src/query-engine/write-engine/routing";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
+import { UpsertOperation } from "../../src/query-engine/write-engine/UpsertOperation";
 import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   runUpsertFamilyBehavior,

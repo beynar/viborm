@@ -5,8 +5,8 @@ import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
+import { constructRoutedOperation } from "../../src/query-engine/write-engine/routing";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
 
 /**
  * The two refusals the implicit-returning surface inherits, both scoped to

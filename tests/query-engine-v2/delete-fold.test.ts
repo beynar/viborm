@@ -9,9 +9,9 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import type { OperationStep } from "../../src/query-engine-v2/OperationFragment";
-import { planningKey } from "../../src/query-engine-v2/Part";
-import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
+import type { OperationStep } from "../../src/query-engine/write-engine/OperationFragment";
+import { planningKey } from "../../src/query-engine/write-engine/Part";
+import { constructRoutedOperation } from "../../src/query-engine/write-engine/routing";
 
 /**
  * PHASE 3 — the delete fold (query-performance-plan).

@@ -16,12 +16,12 @@ import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { CreateOperation } from "../../src/query-engine-v2/CreateOperation";
+import { CreateOperation } from "../../src/query-engine/write-engine/CreateOperation";
 import {
   isOperationValueReference,
   ref,
   type TargetConstraintPin,
-} from "../../src/query-engine-v2/OperationFragment";
+} from "../../src/query-engine/write-engine/OperationFragment";
 import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   createNestedUpsertArgs,

@@ -11,8 +11,8 @@ import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { UnsupportedOperationError as RootExport } from "../../src/index";
-import { UnsupportedOperationError as EngineReexport } from "../../src/query-engine-v2/shared";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { UnsupportedOperationError as EngineReexport } from "../../src/query-engine/write-engine/shared";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 
 /**

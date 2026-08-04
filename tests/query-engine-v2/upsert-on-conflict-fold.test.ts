@@ -17,7 +17,7 @@ import { createSchemaRegistry } from "@validation";
 import type { Database as SQLite3Database } from "better-sqlite3";
 import Database from "better-sqlite3";
 import { beforeAll, describe, expect, test } from "vitest";
-import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
+import { UpsertOperation } from "../../src/query-engine/write-engine/UpsertOperation";
 
 /**
  * PHASE 7 / Decision 7.1 — the scalar-upsert ON CONFLICT door (query-performance-plan).

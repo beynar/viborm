@@ -7,8 +7,8 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import type { StatementStep } from "../../src/query-engine-v2/OperationFragment";
-import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
+import type { StatementStep } from "../../src/query-engine/write-engine/OperationFragment";
+import { constructRoutedOperation } from "../../src/query-engine/write-engine/routing";
 
 /**
  * N6-U2 — how a RELATION filter inside a unique `where` compiles into the WRITE.

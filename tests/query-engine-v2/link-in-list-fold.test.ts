@@ -11,7 +11,7 @@ import {
   countDistinctTargets,
   groupLinkTargets,
   linkGroupSelector,
-} from "../../src/query-engine-v2/link-target-groups";
+} from "../../src/query-engine/write-engine/link-target-groups";
 
 /**
  * PHASE 4 — the link IN-list fold (query-performance-plan).

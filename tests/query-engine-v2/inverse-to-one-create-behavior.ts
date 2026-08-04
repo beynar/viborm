@@ -8,8 +8,8 @@ import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 
 /**
  * N2-U1 — nested `create` on the INVERSE-SIDE to-one, across the whole driver matrix.

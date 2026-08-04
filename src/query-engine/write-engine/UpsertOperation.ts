@@ -4,33 +4,33 @@ import type { Model } from "@schema/model";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
-} from "../query-engine/builders/correlation-utils";
-import { separateData } from "../query-engine/builders/relation-data-builder";
-import { buildInsert } from "../query-engine/builders/values-builder";
+} from "../builders/correlation-utils";
+import { separateData } from "../builders/relation-data-builder";
+import { buildInsert } from "../builders/values-builder";
 import {
   getWhereUniqueEntries,
   partitionWhereUnique,
-} from "../query-engine/builders/where-unique-builder";
+} from "../builders/where-unique-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
   getTableName,
-} from "../query-engine/context/query-scope";
+} from "../context/query-scope";
 import {
   assertCreateOwnWriteSafety,
   assertUpdateOwnWriteSafety,
-} from "../query-engine/OwnWriteAnalyzer";
+} from "../OwnWriteAnalyzer";
 import {
   buildCreate,
   buildFind,
   buildFindUnique,
   buildUpdate,
   buildUpsert,
-} from "../query-engine/operations";
-import { getUpdatedPrimaryKeyWhere } from "../query-engine/operations/mutation-identity";
-import type { QueryEngine } from "../query-engine/query-engine";
-import { ResultParser } from "../query-engine/result/ResultParser";
-import type { QueryScope } from "../query-engine/types";
+} from "../operations";
+import { getUpdatedPrimaryKeyWhere } from "../operations/mutation-identity";
+import type { QueryEngine } from "../query-engine";
+import { ResultParser } from "../result/ResultParser";
+import type { QueryScope } from "../types";
 import { CreateOperation } from "./CreateOperation";
 import {
   absenceGuard,

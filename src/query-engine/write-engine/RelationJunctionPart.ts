@@ -1,20 +1,17 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationJunctionPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import { getManyToManyJoinInfo } from "../query-engine/builders/many-to-many-utils";
+import { getManyToManyJoinInfo } from "../builders/many-to-many-utils";
 import {
   type RelationMutation,
   separateData,
-} from "../query-engine/builders/relation-data-builder";
-import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { buildInsert } from "../query-engine/builders/values-builder";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
-import {
-  createQueryScope,
-  getTableName,
-} from "../query-engine/context/query-scope";
-import { ManyToManyStatements } from "../query-engine/ManyToManyStatements";
-import { manyToManyStatement } from "../query-engine/many-to-many-statement";
+} from "../builders/relation-data-builder";
+import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
+import { buildInsert } from "../builders/values-builder";
+import { getWhereUniqueEntries } from "../builders/where-unique-builder";
+import { createQueryScope, getTableName } from "../context/query-scope";
+import { ManyToManyStatements } from "../ManyToManyStatements";
+import { manyToManyStatement } from "../many-to-many-statement";
 import {
   buildCreate,
   buildCreateMany,
@@ -23,9 +20,9 @@ import {
   buildFind,
   buildFindUnique,
   buildUpdate,
-} from "../query-engine/operations";
-import type { QueryEngine } from "../query-engine/query-engine";
-import type { QueryScope, RelationInfo } from "../query-engine/types";
+} from "../operations";
+import type { QueryEngine } from "../query-engine";
+import type { QueryScope, RelationInfo } from "../types";
 import {
   childRacePin,
   exactlyOneRow,

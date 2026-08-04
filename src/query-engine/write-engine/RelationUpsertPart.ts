@@ -1,27 +1,20 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
+import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
   getFkDirection,
   type RelationMutation,
   separateData,
-} from "../query-engine/builders/relation-data-builder";
-import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { buildInsert } from "../query-engine/builders/values-builder";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
-import {
-  createQueryScope,
-  getTableName,
-} from "../query-engine/context/query-scope";
-import {
-  buildFind,
-  buildFindUnique,
-  buildUpdate,
-} from "../query-engine/operations";
-import { assertPortablePrimaryKeyUpdateInput } from "../query-engine/operations/mutation-identity";
-import type { QueryEngine } from "../query-engine/query-engine";
-import type { QueryScope, RelationInfo } from "../query-engine/types";
+} from "../builders/relation-data-builder";
+import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
+import { buildInsert } from "../builders/values-builder";
+import { getWhereUniqueEntries } from "../builders/where-unique-builder";
+import { createQueryScope, getTableName } from "../context/query-scope";
+import { buildFind, buildFindUnique, buildUpdate } from "../operations";
+import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
+import type { QueryEngine } from "../query-engine";
+import type { QueryScope, RelationInfo } from "../types";
 import { validateProbe } from "./FragmentValidator";
 import {
   affectedRows,

@@ -7,16 +7,16 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
 import type {
   OperationStep,
   StatementStep,
-} from "../../src/query-engine-v2/OperationFragment";
+} from "../../src/query-engine/write-engine/OperationFragment";
 import {
   constructRoutedOperation,
   executeRoutedOperation,
-} from "../../src/query-engine-v2/routing";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+} from "../../src/query-engine/write-engine/routing";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { producedIdentitySchema } from "./produced-identity-depth-behavior";
 

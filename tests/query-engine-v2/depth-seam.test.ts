@@ -3,8 +3,8 @@ import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { describe, expect, test } from "vitest";
-import type { StatementStep } from "../../src/query-engine-v2/OperationFragment";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import type { StatementStep } from "../../src/query-engine/write-engine/OperationFragment";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   depthSeamSchema,

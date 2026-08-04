@@ -12,8 +12,8 @@
 // executor, and holds no dialect knowledge. It is imported by the concrete
 // operations and their Parts.
 
-import { relationTargetFailure } from "../query-engine/RelationProgramValues";
-import type { RelationInfo } from "../query-engine/types";
+import { relationTargetFailure } from "../RelationProgramValues";
+import type { RelationInfo } from "../types";
 
 // ---------------------------------------------------------------------------
 // Shared shapes — V1-verbatim. Sourced from V1's own message builder.

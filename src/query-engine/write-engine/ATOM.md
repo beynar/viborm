@@ -104,7 +104,7 @@ interface Failure {
 > the engine. They were removed from the public client surface and replaced by
 > IMPLICIT RETURNING: `createMany` / `updateMany` take an optional `select`, and
 > its presence routes the tree to the row-returning arm these two names refer to
-> (`src/query-engine-v2/routing.ts`, `returnsRows`). Every user-facing message
+> (`src/query-engine/write-engine/routing.ts`, `returnsRows`). Every user-facing message
 > spells the public form (`'createMany' with 'select'`); nothing below changes
 > mechanically, only what the client is allowed to type.
 - Postconditions are enforced where the substrate allows: tx mode checks the

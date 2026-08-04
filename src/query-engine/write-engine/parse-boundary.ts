@@ -1,6 +1,6 @@
 import { ValidationError } from "@errors";
 import { type InferOutput, parse, type VibSchema } from "@validation";
-import type { Operation } from "../query-engine/types";
+import type { Operation } from "../types";
 
 /**
  * THE typed parse boundary (X2 — one home for validation). Every seam that turns a

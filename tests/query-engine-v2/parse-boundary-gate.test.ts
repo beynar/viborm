@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * The parse-boundary gate (X2 — one home for validation). The typed parse boundary
- * ({@link file://../../src/query-engine-v2/parse-boundary.ts}) is the ONE place a user
+ * ({@link file://../../src/query-engine/write-engine/parse-boundary.ts}) is the ONE place a user
  * payload becomes a validated, typed value; every write operation's whole-args legality
  * flows through it. This gate holds three invariants and fails loudly if a future phase
  * erodes them.
@@ -43,7 +43,7 @@ import { describe, expect, it } from "vitest";
 
 const ENGINE = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../src/query-engine-v2"
+  "../../src/query-engine/write-engine"
 );
 const BOUNDARY = "parse-boundary.ts";
 

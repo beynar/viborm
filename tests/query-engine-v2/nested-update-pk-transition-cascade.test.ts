@@ -5,7 +5,7 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
 
 /**
  * T3b1 fixer round 1, finding #1 — the PK-transition cascade boundary, post-P6 (the

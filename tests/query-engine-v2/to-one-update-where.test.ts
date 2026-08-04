@@ -10,8 +10,8 @@ import { expect, test } from "vitest";
 import type {
   GuardStep,
   StatementStep,
-} from "../../src/query-engine-v2/OperationFragment";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+} from "../../src/query-engine/write-engine/OperationFragment";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   runToOneUpdateWhereBehavior,

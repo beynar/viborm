@@ -1,9 +1,9 @@
 // biome-ignore-all lint/style/useFilenamingConvention: CreateManyOperation is the architecture name.
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { createQueryScope } from "../query-engine/context/query-scope";
-import { buildCreateManyPlan } from "../query-engine/operations";
-import type { QueryEngine } from "../query-engine/query-engine";
+import { createQueryScope } from "../context/query-scope";
+import { buildCreateManyPlan } from "../operations";
+import type { QueryEngine } from "../query-engine";
 import {
   type FragmentOutputSource,
   type OperationFragment,

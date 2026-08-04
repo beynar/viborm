@@ -7,8 +7,8 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 
 /**

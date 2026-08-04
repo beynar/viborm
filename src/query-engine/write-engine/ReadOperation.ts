@@ -2,18 +2,18 @@
 import { NotFoundError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
-import { createQueryScope } from "../query-engine/context/query-scope";
+import { createQueryScope } from "../context/query-scope";
 import {
   buildAggregate,
   buildCount,
   buildFind,
   buildFindUnique,
   buildGroupBy,
-} from "../query-engine/operations";
-import type { QueryEngine } from "../query-engine/query-engine";
-import { ResultParser } from "../query-engine/result/ResultParser";
-import type { Operation } from "../query-engine/types";
-import { validate } from "../query-engine/validator";
+} from "../operations";
+import type { QueryEngine } from "../query-engine";
+import { ResultParser } from "../result/ResultParser";
+import type { Operation } from "../types";
+import { validate } from "../validator";
 import {
   type OperationFragment,
   ref,

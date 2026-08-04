@@ -18,7 +18,7 @@ import { describe, expect, test } from "vitest";
 import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
-} from "../../src/query-engine-v2/routing";
+} from "../../src/query-engine/write-engine/routing";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 
@@ -26,7 +26,7 @@ import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-sch
  * N7-U-A — THE CONVERSION WITNESSES.
  *
  * The final census-floor audit (PLAN "The floor — final census disposition") found 25 of
- * the 68 `UnsupportedOperationError` sites in `src/query-engine-v2/*.ts` refusing NOTHING:
+ * the 68 `UnsupportedOperationError` sites in `src/query-engine/write-engine/*.ts` refusing NOTHING:
  * a defensive type guard, an `unknown -> Record` narrowing, or the `default:` arm of a
  * switch total over the parse boundary's own key set. 23 were converted to
  * `QueryEngineError` internal invariants (the N2-U1 / X1c disposition — a branch

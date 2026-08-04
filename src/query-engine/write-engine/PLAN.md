@@ -1370,7 +1370,7 @@ conflict signal that depth had become an axis instead of a list splice).
 
 **The premise, audited first.** With V1 deleted, a user payload becomes a validated value in
 exactly one way: the schema layer. An audit classified every defensive guard in
-`src/query-engine-v2` and found ZERO schema gaps — the write schemas validate the whole tree
+`src/query-engine/write-engine` and found ZERO schema gaps — the write schemas validate the whole tree
 recursively inside the constructors (`object.ts:392` fails non-objects, strict mode rejects
 unknown keys, `singleOrArray` validates + normalizes elements), so every in-engine payload
 shape-check is runtime-unreachable, shadowed by the schema layer.

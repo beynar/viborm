@@ -10,9 +10,9 @@ import type { Model } from "@schema/model";
 import { isSql } from "@sql";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
-import type { StatementStep } from "../../src/query-engine-v2/OperationFragment";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
-import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
+import type { StatementStep } from "../../src/query-engine/write-engine/OperationFragment";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
+import { UpsertOperation } from "../../src/query-engine/write-engine/UpsertOperation";
 import {
   extendedWhereUniqueSchema,
   runExtendedWhereUniqueBehavior,

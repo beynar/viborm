@@ -10,9 +10,9 @@ import { beforeAll, describe, expect, test } from "vitest";
 import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
-} from "../../src/query-engine-v2/routing";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+} from "../../src/query-engine/write-engine/routing";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { compoundKeyBehaviorSchema } from "../fixtures/compound-key-behavior-schema";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 
@@ -1865,7 +1865,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
-    const dir = join(import.meta.dirname, "../../src/query-engine-v2");
+    const dir = join(import.meta.dirname, "../../src/query-engine/write-engine");
     const files = (await readdir(dir)).filter((f) => f.endsWith(".ts"));
     let sites = 0;
     for (const file of files) {

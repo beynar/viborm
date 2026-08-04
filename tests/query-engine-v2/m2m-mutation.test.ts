@@ -6,7 +6,7 @@ import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { createV2RoutedClient } from "./v2-client-proxy";
 

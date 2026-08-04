@@ -58,7 +58,7 @@ import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
 import { createSchemaRegistry } from "@validation";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { referenceSql } from "../../src/query-engine-v2/fragment-builders";
+import { referenceSql } from "../../src/query-engine/write-engine/fragment-builders";
 
 /**
  * A decimal PRIMARY KEY with children holding a decimal FK to it. The FK is the

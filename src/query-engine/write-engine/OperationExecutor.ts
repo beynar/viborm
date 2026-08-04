@@ -14,15 +14,15 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { isSql, Sql } from "@sql";
-import { createCorrelationId } from "../query-engine/execution-context";
-import type { QueryEngine } from "../query-engine/query-engine";
-import { executeSkippableWrite } from "../query-engine/skippable-write";
+import { createCorrelationId } from "../execution-context";
+import type { QueryEngine } from "../query-engine";
+import { executeSkippableWrite } from "../skippable-write";
 import type {
   Operation,
   PreparedBatchGuard,
   PreparedBatchOperation,
   PreparedQuery,
-} from "../query-engine/types";
+} from "../types";
 import { validateFragment } from "./FragmentValidator";
 import { NESTED_WRITE_ASSERTION_FLOOR_MESSAGE } from "./messages";
 import {
@@ -71,7 +71,7 @@ export interface ExecutableOperation {
    * payload carrying a callback has no stable serialization until validation has
    * run it, and two spellings of the same comparison must land on one key.
    * Present on the read families, which are the only cacheable operations
-   * ({@link file://../query-engine/cache-flow.ts}); a caller that asks any other
+   * ({@link file://../cache-flow.ts}); a caller that asks any other
    * operation for it gets a loud refusal rather than a raw-payload fallback.
    */
   readonly validatedArgs?: Record<string, unknown>;

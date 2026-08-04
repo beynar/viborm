@@ -4,8 +4,8 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import { ManyAndReturnOperation } from "../../src/query-engine-v2/ManyAndReturnOperation";
-import type { OperationStep } from "../../src/query-engine-v2/OperationFragment";
+import { ManyAndReturnOperation } from "../../src/query-engine/write-engine/ManyAndReturnOperation";
+import type { OperationStep } from "../../src/query-engine/write-engine/OperationFragment";
 
 /**
  * PHASE 7.2 — the plan SHAPE of the multi-row `INSERT … RETURNING` fold

@@ -6,8 +6,8 @@ import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { isOperationValueReference } from "../../src/query-engine-v2/OperationFragment";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { isOperationValueReference } from "../../src/query-engine/write-engine/OperationFragment";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import {
   runUpdateFamilyBehavior,
   updateFamilySchema,

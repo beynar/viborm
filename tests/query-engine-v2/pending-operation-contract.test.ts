@@ -6,8 +6,8 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { PendingOperationV2 } from "../../src/query-engine-v2/PendingOperationV2";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { PendingOperationV2 } from "../../src/query-engine/write-engine/PendingOperationV2";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import {
   correlatedUpsertArgs,
   updateSliceSchema,

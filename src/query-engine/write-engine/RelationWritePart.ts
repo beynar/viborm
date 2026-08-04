@@ -2,18 +2,15 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { splitToOneUpdateTarget } from "@validation/relations/to-one-update-form";
-import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
+import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
   getFkDirection,
   type RelationMutation,
   separateData,
-} from "../query-engine/builders/relation-data-builder";
-import { buildInsert } from "../query-engine/builders/values-builder";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
-import {
-  createQueryScope,
-  getTableName,
-} from "../query-engine/context/query-scope";
+} from "../builders/relation-data-builder";
+import { buildInsert } from "../builders/values-builder";
+import { getWhereUniqueEntries } from "../builders/where-unique-builder";
+import { createQueryScope, getTableName } from "../context/query-scope";
 import {
   buildDelete,
   buildDeleteMany,
@@ -21,14 +18,14 @@ import {
   buildFindUnique,
   buildUpdate,
   buildUpdateMany,
-} from "../query-engine/operations";
+} from "../operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
   getUpdatedPrimaryKeyValue,
-} from "../query-engine/operations/mutation-identity";
-import type { QueryEngine } from "../query-engine/query-engine";
-import { assertRelationKeyUpdatesAreCompilable } from "../query-engine/relation-key-legality";
-import type { QueryScope, RelationInfo } from "../query-engine/types";
+} from "../operations/mutation-identity";
+import type { QueryEngine } from "../query-engine";
+import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
+import type { QueryScope, RelationInfo } from "../types";
 import {
   absenceGuard,
   affectedRows,

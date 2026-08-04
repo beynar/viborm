@@ -288,7 +288,7 @@ export function buildScalarSqlValue(
  * the database a float spelling for an exact column.
  *
  * This takes the ADAPTER rather than a `QueryScope` because the FK lowering in
- * `query-engine-v2/fragment-builders.ts` reaches it holding the destination
+ * `write-engine/fragment-builders.ts` reaches it holding the destination
  * model, not the destination scope, and every decimal binding in the codebase
  * has to be this one function or the two spellings drift apart — which is
  * exactly how a decimal relation key came to be written two different ways in

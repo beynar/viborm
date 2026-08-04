@@ -7,9 +7,9 @@ import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
-import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
+import { UpsertOperation } from "../../src/query-engine/write-engine/UpsertOperation";
 
 /**
  * The P2b upsert-family schema. `user` (auto-increment PK, unique `email`, an

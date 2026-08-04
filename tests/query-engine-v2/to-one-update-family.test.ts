@@ -9,11 +9,11 @@ import { s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
 import {
   constructRoutedOperation,
   executeRoutedOperation,
-} from "../../src/query-engine-v2/routing";
+} from "../../src/query-engine/write-engine/routing";
 import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";

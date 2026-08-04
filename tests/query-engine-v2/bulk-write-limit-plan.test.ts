@@ -6,9 +6,9 @@ import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import type { OperationStep } from "../../src/query-engine-v2/OperationFragment";
-import { planningKey } from "../../src/query-engine-v2/Part";
-import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
+import type { OperationStep } from "../../src/query-engine/write-engine/OperationFragment";
+import { planningKey } from "../../src/query-engine/write-engine/Part";
+import { constructRoutedOperation } from "../../src/query-engine/write-engine/routing";
 
 /** The SQL text of a statement step (guard steps carry no statement). */
 function sqlOf(step: OperationStep): string {

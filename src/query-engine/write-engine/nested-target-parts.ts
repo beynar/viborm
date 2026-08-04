@@ -1,24 +1,18 @@
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
+import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
   getFkDirection,
   type RelationMutation,
   separateData,
-} from "../query-engine/builders/relation-data-builder";
-import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import {
-  buildInsert,
-  buildValueGroups,
-} from "../query-engine/builders/values-builder";
-import {
-  createQueryScope,
-  getTableName,
-} from "../query-engine/context/query-scope";
-import { buildCreateManyPlan } from "../query-engine/operations/create";
-import { assertPortableCreateManySkip } from "../query-engine/operations/create-many-portability";
-import type { QueryEngine } from "../query-engine/query-engine";
-import type { QueryScope } from "../query-engine/types";
+} from "../builders/relation-data-builder";
+import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
+import { buildInsert, buildValueGroups } from "../builders/values-builder";
+import { createQueryScope, getTableName } from "../context/query-scope";
+import { buildCreateManyPlan } from "../operations/create";
+import { assertPortableCreateManySkip } from "../operations/create-many-portability";
+import type { QueryEngine } from "../query-engine";
+import type { QueryScope } from "../types";
 import { CreateOperation } from "./CreateOperation";
 import { referenceSql } from "./fragment-builders";
 import type { OperationStep, TargetConstraintPin } from "./OperationFragment";

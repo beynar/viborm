@@ -4,14 +4,14 @@ import type { Model } from "@schema/model";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
-} from "../query-engine/builders/correlation-utils";
+} from "../builders/correlation-utils";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
-} from "../query-engine/context/query-scope";
-import { buildDelete, buildFindUnique } from "../query-engine/operations";
-import type { QueryEngine } from "../query-engine/query-engine";
-import { ResultParser } from "../query-engine/result/ResultParser";
+} from "../context/query-scope";
+import { buildDelete, buildFindUnique } from "../operations";
+import type { QueryEngine } from "../query-engine";
+import { ResultParser } from "../result/ResultParser";
 import {
   affectedRows,
   exactlyOneRow,

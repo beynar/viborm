@@ -5,8 +5,8 @@ import {
   TransactionError,
 } from "@errors";
 import type { Model } from "@schema/model";
-import { getPrimaryKeyFields } from "../query-engine/builders/correlation-utils";
-import { createQueryScope } from "../query-engine/context/query-scope";
+import { getPrimaryKeyFields } from "../builders/correlation-utils";
+import { createQueryScope } from "../context/query-scope";
 import {
   buildCreateManyPlan,
   buildDeleteMany,
@@ -15,16 +15,16 @@ import {
   buildFindUnique,
   buildUpdateMany,
   buildUpdateManyAndReturn,
-} from "../query-engine/operations";
+} from "../operations";
 import {
   getCreatedRowWhere,
   getPrimaryKeyValuesFromRecord,
   getUpdatedPrimaryKeyValues,
-} from "../query-engine/operations/mutation-identity";
-import type { QueryEngine } from "../query-engine/query-engine";
-import { ResultParser } from "../query-engine/result/ResultParser";
-import type { Operation, QueryScope } from "../query-engine/types";
-import { validate } from "../query-engine/validator";
+} from "../operations/mutation-identity";
+import type { QueryEngine } from "../query-engine";
+import { ResultParser } from "../result/ResultParser";
+import type { Operation, QueryScope } from "../types";
+import { validate } from "../validator";
 import {
   type FragmentOutputSource,
   type OperationFragment,

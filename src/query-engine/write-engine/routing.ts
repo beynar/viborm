@@ -1,7 +1,7 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
-import type { QueryEngine } from "../query-engine/query-engine";
+import type { QueryEngine } from "../query-engine";
 import { BulkCountOperation } from "./BulkCountOperation";
 import { CreateManyOperation } from "./CreateManyOperation";
 import { CreateOperation } from "./CreateOperation";

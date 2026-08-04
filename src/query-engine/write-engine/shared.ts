@@ -1,16 +1,16 @@
 import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import { isSql } from "@sql";
-import { isBatchValueRef } from "../query-engine/builders/values-builder";
-import { partitionWhereUnique } from "../query-engine/builders/where-unique-builder";
+import { isBatchValueRef } from "../builders/values-builder";
+import { partitionWhereUnique } from "../builders/where-unique-builder";
 import {
   createChildScope,
   getRelationInfo,
   getTableName,
-} from "../query-engine/context/query-scope";
-import type { QueryEngine } from "../query-engine/query-engine";
-import { getForeignKeyTargetFields } from "../query-engine/TargetConstraint";
-import type { QueryScope } from "../query-engine/types";
+} from "../context/query-scope";
+import type { QueryEngine } from "../query-engine";
+import { getForeignKeyTargetFields } from "../TargetConstraint";
+import type { QueryScope } from "../types";
 import type { TargetConstraintPin } from "./OperationFragment";
 import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";

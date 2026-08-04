@@ -1,8 +1,8 @@
 // biome-ignore-all lint/style/useFilenamingConvention: PendingOperationV2 is the architecture name.
 import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
 import type { Sql } from "@sql";
-import type { QueryEngine } from "../query-engine/query-engine";
-import type { PreparedQuery } from "../query-engine/types";
+import type { QueryEngine } from "../query-engine";
+import type { PreparedQuery } from "../types";
 import type { ExecutableOperation } from "./OperationExecutor";
 import { OperationExecutor } from "./OperationExecutor";
 

@@ -6,8 +6,8 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { afterAll, describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 
 /**
  * N7-U-B — **the arms that ask for nothing.**

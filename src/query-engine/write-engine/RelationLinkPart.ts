@@ -1,15 +1,15 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationLinkPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
+import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
   buildFind,
   buildFindUnique,
   buildUpdate,
   buildUpdateMany,
-} from "../query-engine/operations";
-import type { QueryEngine } from "../query-engine/query-engine";
-import type { QueryScope, RelationInfo } from "../query-engine/types";
+} from "../operations";
+import type { QueryEngine } from "../query-engine";
+import type { QueryScope, RelationInfo } from "../types";
 import {
   nestedWriteFailure,
   presenceGuard,

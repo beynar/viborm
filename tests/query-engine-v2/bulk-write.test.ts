@@ -556,7 +556,7 @@ describe("query-engine-v2 bulk-write dual-run oracle (both substrates)", () => {
 const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
 const LINE_COMMENT = /\/\/.*$/gm;
 const CALLS_ROUTING_SEAM = /constructRoutedOperation\(/;
-const IMPORTS_ROUTING_MODULE = /query-engine-v2\/routing/;
+const IMPORTS_ROUTING_MODULE = /write-engine\/routing/;
 /** `args.select === undefined` / `args.omit === undefined` — the copy's shape. */
 const OWN_RETURNING_DISCRIMINANT = /args\.(?:select|omit)\s*===/;
 
@@ -566,7 +566,7 @@ const OWN_RETURNING_DISCRIMINANT = /args\.(?:select|omit)\s*===/;
  * The `omit` scenarios above catch today's drift; this catches the NEXT one,
  * which will have the same shape. `v2-client-proxy.ts` carried its own
  * `constructOperation` under a comment reading "mirrors
- * src/query-engine-v2/routing.ts", and it stopped mirroring it the moment `omit`
+ * src/query-engine/write-engine/routing.ts", and it stopped mirroring it the moment `omit`
  * joined the discriminant — silently, because a copy cannot be re-derived and
  * the route spy still reported `engine: "v2"` while the wrong arm answered.
  *

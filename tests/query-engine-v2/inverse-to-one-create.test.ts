@@ -8,7 +8,7 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import {
   inverseToOneCreateSchema,
   runInverseToOneCreateBehavior,

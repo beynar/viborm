@@ -4,11 +4,11 @@ import {
   decimalLiteral,
   getScalarCastType,
   isBatchValueRef,
-} from "../query-engine/builders/values-builder";
-import { getWhereUniqueFilters } from "../query-engine/builders/where-unique-builder";
-import type { QueryEngine } from "../query-engine/query-engine";
-import type { QueryScope } from "../query-engine/types";
-import { uniqueConflictTarget } from "../query-engine/unique-conflict-target";
+} from "../builders/values-builder";
+import { getWhereUniqueFilters } from "../builders/where-unique-builder";
+import type { QueryEngine } from "../query-engine";
+import type { QueryScope } from "../types";
+import { uniqueConflictTarget } from "../unique-conflict-target";
 import { upsertPremiseChanged } from "./messages";
 import {
   type Failure,

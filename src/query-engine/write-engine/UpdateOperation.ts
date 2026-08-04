@@ -9,21 +9,21 @@ import {
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
-} from "../query-engine/builders/correlation-utils";
+} from "../builders/correlation-utils";
 import {
   type FkDirection,
   getFkDirection,
   type RelationMutation,
   separateData,
-} from "../query-engine/builders/relation-data-builder";
-import { getRelationMutationKinds } from "../query-engine/builders/relation-mutation-parser";
-import { buildInsert } from "../query-engine/builders/values-builder";
-import { getWhereUniqueEntries } from "../query-engine/builders/where-unique-builder";
+} from "../builders/relation-data-builder";
+import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
+import { buildInsert } from "../builders/values-builder";
+import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
   getTableName,
-} from "../query-engine/context/query-scope";
+} from "../context/query-scope";
 import {
   buildCreate,
   buildDeleteMany,
@@ -32,22 +32,22 @@ import {
   buildMutationProjectionFold,
   buildUpdate,
   buildUpdateStatement,
-} from "../query-engine/operations";
+} from "../operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
   getUpdatedPrimaryKeyValue,
   getUpdatedPrimaryKeyWhere,
   planNestedCreateIdentity,
-} from "../query-engine/operations/mutation-identity";
-import type { QueryEngine } from "../query-engine/query-engine";
-import { assertNullable } from "../query-engine/RelationProgramValues";
+} from "../operations/mutation-identity";
+import type { QueryEngine } from "../query-engine";
+import { assertNullable } from "../RelationProgramValues";
 import {
   assertRelationKeyUpdatesAreCompilable,
   assertUpdateManyRelationsAreCompilable,
-} from "../query-engine/relation-key-legality";
-import { ResultParser } from "../query-engine/result/ResultParser";
-import { classifyRelationKeyScalarUpdate } from "../query-engine/TargetConstraint";
-import type { QueryScope, RelationInfo } from "../query-engine/types";
+} from "../relation-key-legality";
+import { ResultParser } from "../result/ResultParser";
+import { classifyRelationKeyScalarUpdate } from "../TargetConstraint";
+import type { QueryScope, RelationInfo } from "../types";
 import {
   absenceGuard,
   affectedRows,
@@ -1897,7 +1897,7 @@ export class UpdateOperation {
    * with the 1:1 FK's UNIQUE constraint as the occupied-slot rule).
    *
    * The dispatch is TOTAL over the parse boundary's inverse-to-one surface. The
-   * relation schema for a to-one ({@link file://../validation/relations/update.ts}
+   * relation schema for a to-one ({@link file://../../validation/relations/update.ts}
    * `toOneUpdateFactory`) emits exactly `create` / `connect` / `connectOrCreate` /
    * `update` / `upsert`, plus `disconnect` / `delete` on an OPTIONAL relation — the
    * same seven keys Prisma's `<T>UpdateOneWithout<R>NestedInput` carries (measured

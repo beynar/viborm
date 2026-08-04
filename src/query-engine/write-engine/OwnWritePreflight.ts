@@ -2,8 +2,8 @@
 import {
   assertCreateOwnWriteSafety,
   assertUpdateOwnWriteSafety,
-} from "../query-engine/OwnWriteAnalyzer";
-import type { QueryScope } from "../query-engine/types";
+} from "../OwnWriteAnalyzer";
+import type { QueryScope } from "../types";
 
 /**
  * The own-write independence preflight (ATOM §4) — the soundness precondition

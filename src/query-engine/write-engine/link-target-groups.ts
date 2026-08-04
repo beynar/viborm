@@ -2,8 +2,8 @@ import {
   getWhereUniqueEntries,
   partitionWhereUnique,
   type WhereUniqueEntry,
-} from "../query-engine/builders/where-unique-builder";
-import type { QueryScope } from "../query-engine/types";
+} from "../builders/where-unique-builder";
+import type { QueryScope } from "../types";
 
 /**
  * The IN-list fold for the link families (query-performance-plan Phase 4).

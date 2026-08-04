@@ -7,9 +7,9 @@ import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { CreateOperation } from "../../src/query-engine-v2/CreateOperation";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { CreateOperation } from "../../src/query-engine/write-engine/CreateOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 
 /**
  * N4-U2 + N4-U4 — the PRODUCED identity, across the whole driver matrix.
