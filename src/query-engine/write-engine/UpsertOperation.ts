@@ -199,21 +199,18 @@ export class UpsertOperation {
     this.scope = new StepScope();
     const scope = this.scope;
 
-    // Upsert is the ONE write op that keeps its key gate + raw-narrowing requireRecords
-    // (X2 conflict — see PLAN "X2"). It has no whole-args parse: its create/update arms
-    // are delegated to CreateOperation/UpdateOperation sub-ops that parse the RAW payload
-    // FRESH, so the arms must receive the raw `args.create`/`args.update`, NOT a
-    // parseValidated OUTPUT — re-parsing the schema's transformed output regresses on a
-    // non-idempotent transform (`nested-create-many` "Expected string"). And the update
-    // arm's structure MUST stay deferred to the taken branch (`deferArmLegality`): an
-    // invalid UNTAKEN update branch must not reject the whole tree. A whole-args
-    // `parseValidated(args.upsert)` would both feed the arms a transformed payload AND
-    // validate the untaken arm upfront — two behavior changes — so upsert's front line is
-    // the key gate + requireRecord, kept deliberately.
-    assertUpsertKeys(args);
-    const where = requireRecord(args.where, "upsert.where");
-    const create = requireRecord(args.create, "upsert.create");
-    const update = requireRecord(args.update, "upsert.update");
+    // E5-U3 — upsert's ENVELOPE now has one home, the parse boundary
+    // (`upsertEnvelopeSchema`, wired at `routing.ts`): the three required keys, the five
+    // optional names, and the object-ness of the arms. What X2 kept in the engine was
+    // right about the ARMS and only the arms — they are delegated to
+    // CreateOperation/UpdateOperation sub-ops that parse the RAW payload FRESH (so the
+    // envelope hands them back BY REFERENCE, never a transformed copy), and the update
+    // arm's structure stays deferred to the taken branch (`deferArmLegality`), so the
+    // envelope reads nothing inside either arm. The narrowing below is what remains of
+    // the three `requireRecord` gates: an engine invariant, not a user boundary.
+    const where = envelopeRecord(args.where, "where");
+    const create = envelopeRecord(args.create, "create");
+    const update = envelopeRecord(args.update, "update");
     this.rawCreate = create;
     this.rawUpdate = update;
     const parent = createQueryScope(engine.adapter, model);
@@ -1165,25 +1162,25 @@ function defaultSelect(model: Model<any>): Record<string, unknown> {
   );
 }
 
-function assertUpsertKeys(value: Record<string, unknown>): void {
-  const required = ["where", "create", "update"] as const;
-  const optional = new Set([
-    "select",
-    "include",
-    "omit",
-    "targetWhere",
-    "setWhere",
-  ]);
-  const allowed = new Set<string>([...required, ...optional]);
-  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
-  const missing = required.filter((key) => !Object.hasOwn(value, key));
-  if (unexpected.length === 0 && missing.length === 0) return;
-  throw new UnsupportedOperationError(
-    `upsert arguments require ${required.join(", ")} (optional select, include, omit, targetWhere, setWhere); received ${Object.keys(value).join(", ") || "none"}.`
-  );
-}
-
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
+/**
+ * E5-U3 — what is left of the three `requireRecord` gates after the envelope moved to
+ * the parse boundary: a NARROWING, and the invariant behind it is the boundary's.
+ *
+ * `upsertEnvelopeSchema` proves the three arms are records before this operation is
+ * built (`routing.ts`, the one construction path a client payload takes), but the
+ * constructor's parameter is still an untyped bag, so TypeScript needs the narrowing
+ * spelled. Its failure is therefore an ENGINE fault — a caller that skipped the
+ * boundary — not a user one, and it says so: a `QueryEngineError`, and its wording sits
+ * deliberately OUTSIDE the shape-check phrase family the parse-boundary gate ratchets
+ * on, because this is no longer one of those checks. The gate's ceiling drops by one in
+ * the same commit.
+ */
+function envelopeRecord(
+  value: unknown,
+  key: "create" | "update" | "where"
+): Record<string, unknown> {
   if (isRecord(value)) return value;
-  throw new UnsupportedOperationError(`'${label}' must be an object.`);
+  throw new QueryEngineError(
+    `query-engine-v2 internal: upsert reached the operation with a non-record '${key}'; the envelope schema at the construction path admits records only.`
+  );
 }

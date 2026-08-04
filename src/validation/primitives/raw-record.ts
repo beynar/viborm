@@ -40,6 +40,31 @@ export interface RawRecordSchema
  * field: <key>` from the object schema and an optional one is simply skipped. This
  * leaf therefore sees a value only when the payload really carries one.
  */
+export interface AnyValueSchema extends VibSchema<unknown, unknown> {
+  readonly type: "anyValue";
+}
+
+/**
+ * The other identity leaf: it accepts ANY value and hands it back unchanged.
+ *
+ * A STRICT object schema needs an entry for every key it admits, and an ENVELOPE
+ * schema admits keys whose values a LATER schema owns. `upsert`'s five optional keys
+ * are exactly that: `select` / `include` / `omit` are validated one step on by the
+ * projection schema (which alone knows that `omit` is meaningful only beside `select`),
+ * and `targetWhere` / `setWhere` by the conditional-filter parse. Declaring them here
+ * with a shape of their own would MOVE those decisions, not remove them — measured:
+ * a non-object `targetWhere` is accepted today, and an object leaf here would start
+ * refusing it.
+ *
+ * So this leaf admits the KEY and owns nothing about the VALUE. What it buys is the
+ * unknown-key rejection the strict object gives the envelope, with no other change.
+ */
+export function anyValue(): AnyValueSchema {
+  return createSchema<unknown, unknown>("anyValue", (input) =>
+    ok(input)
+  ) as AnyValueSchema;
+}
+
 export function rawRecord(): RawRecordSchema {
   return createSchema<Record<string, unknown>, Record<string, unknown>>(
     "rawRecord",

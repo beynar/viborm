@@ -17,14 +17,20 @@ import { describe, expect, it } from "vitest";
  *     (`parseValidated(parentSchemas.args.<op>, …)`). Deleting one of those parses fails
  *     here. (`upsert` is the documented exception — see (2).)
  *
- *  2. THE THREE DELETED KEY GATES STAY DELETED (negative). X2 deleted `assertCreateKeys`,
- *     `assertDeleteKeys`, `assertUpdateKeys` — each duplicated the schemas' strict +
- *     `atLeast` checks AND ran BEFORE its whole-args validate(), degrading a precise
- *     per-key `ValidationError` into a coarse `UnsupportedOperationError`. Re-adding any of
- *     the three fails here. `assertUpsertKeys` is the ONE surviving key gate — kept
- *     deliberately (X2 conflict): upsert has no whole-args parse (its delegated arms
- *     re-parse the RAW payload, and the update arm's structure must stay deferred), so it
- *     remains upsert's front line. The gate pins EXACTLY that one, in `UpsertOperation.ts`.
+ *  2. NO KEY GATE SURVIVES (negative). X2 deleted `assertCreateKeys`, `assertDeleteKeys`,
+ *     `assertUpdateKeys` — each duplicated the schemas' strict + `atLeast` checks AND ran
+ *     BEFORE its whole-args validate(), degrading a precise per-key `ValidationError` into
+ *     a coarse `UnsupportedOperationError`. Re-adding any of the three fails here.
+ *     `assertUpsertKeys` was the ONE documented exception, and E5-U3 removed it: upsert
+ *     still has no whole-args parse — its delegated arms re-parse the RAW payload and the
+ *     untaken arm's CONTENT stays deferred — but neither reason is about the ENVELOPE, so
+ *     the envelope became a model-blind schema at the boundary
+ *     ({@link file://../../src/query-engine/write-engine/parse-boundary.ts},
+ *     `upsertEnvelopeSchema`: three required keys, five optional names, the arms' object-
+ *     ness, no transform, no descent) wired at the one construction path (`routing.ts`).
+ *     The class moved with it: `UnsupportedOperationError` (V8003, no prismaCode) →
+ *     `ValidationError` (P2009). The exception this test documented is GONE, so the
+ *     expectation is the EMPTY list: any `assert*Keys` anywhere fails here now.
  *
  *  3. RATCHET (growth fails). The in-engine shape-check surface — payload
  *     `as Record<string, unknown>` narrowings and `requires a … object` / `must be an
@@ -65,18 +71,22 @@ function countAll(pattern: RegExp): number {
 
 // The single-record write ops that validate their whole payload through the boundary
 // (`parentSchemas.args.<op>`). `upsert` is deliberately absent — its delegated arms
-// re-parse the raw payload and its update arm's structure stays deferred (see (2)).
+// re-parse the raw payload and its update arm's CONTENT stays deferred, so what moved to
+// the boundary (E5-U3) is its ENVELOPE, through a model-blind schema rather than a
+// per-model `args.upsert` (see (2)).
 const WHOLE_ARGS_WRITE_OPS = [
   ["CreateOperation.ts", "create"],
   ["UpdateOperation.ts", "update"],
   ["DeleteOperation.ts", "delete"],
 ] as const;
 
-// The three key gates X2 deleted; `assertUpsertKeys` is the surviving exception.
+// The key gates X2 deleted, plus `assertUpsertKeys` — the exception it kept, which
+// E5-U3 removed when the envelope moved to the boundary.
 const DELETED_KEY_GATES = [
   "assertCreateKeys",
   "assertDeleteKeys",
   "assertUpdateKeys",
+  "assertUpsertKeys",
 ] as const;
 
 // X2's measured shape-check surface (comments included — a stable, greppable ceiling).
@@ -100,13 +110,20 @@ const MAX_PAYLOAD_RECORD_CASTS = 35;
 // hands the whole relation map to the located-target builder, whose own `normalizeItems`
 // already owns that narrowing. One home gained, one message gone; the ratchet shrinks
 // rather than moving sideways.
-const MAX_SHAPE_THROW_MESSAGES = 20;
+// 20 -> 19 (E5-U3): `UpsertOperation.requireRecord` is gone. Its "must be an object"
+// was the last shape-check message on an envelope; the envelope is a schema now, and the
+// narrowing that replaced it is a `QueryEngineError` invariant worded outside this
+// family on purpose (a caller that skipped the boundary is an engine fault, not a user
+// one). Measured delta, not estimated: the source carried the phrase exactly once.
+const MAX_SHAPE_THROW_MESSAGES = 19;
 
 const PARSE_VALIDATED_DEF = /export function parseValidated\b/;
 const INFER_OUTPUT_CAST = /as InferOutput\b/;
 const KEY_GATE_FUNCTION = /function assert\w*Keys\b/;
 const PAYLOAD_RECORD_CAST = /as Record<string, unknown>/g;
 const SHAPE_THROW_MESSAGE = /requires an? [^`"']*object|must be an object/g;
+const UPSERT_ENVELOPE_DEF = /export const upsertEnvelopeSchema\b/;
+const UPSERT_ENVELOPE_PARSE = /parseValidated\(\s*upsertEnvelopeSchema\b/;
 
 describe("query-engine-v2 parse-boundary gate (X2 — one home for validation)", () => {
   it("(1) parseValidated is defined once — in the boundary — with the lone whole-tree cast", () => {
@@ -131,17 +148,27 @@ describe("query-engine-v2 parse-boundary gate (X2 — one home for validation)",
     expect(unwired).toEqual([]);
   });
 
-  it("(3) the three deleted key gates stay deleted; assertUpsertKeys is the lone exception", () => {
-    // The only surviving `assert*Keys` is upsert's (the documented conflict).
+  it("(3) no key gate survives anywhere — assertUpsertKeys was the last", () => {
+    // E5-U3: the documented exception is gone. No `assert*Keys` remains in the engine.
     const keyGateFiles = engineFiles().filter((file) =>
       KEY_GATE_FUNCTION.test(read(file))
     );
-    expect(keyGateFiles).toEqual(["UpsertOperation.ts"]);
-    // None of the three deleted gates may reappear anywhere.
+    expect(keyGateFiles).toEqual([]);
+    // …and none of the four named gates may reappear.
     const revived = DELETED_KEY_GATES.filter((gate) =>
       engineFiles().some((file) => read(file).includes(`function ${gate}`))
     );
     expect(revived).toEqual([]);
+  });
+
+  it("(5) the upsert envelope is a schema at the boundary, wired at the one construction path", () => {
+    // The positive half of (3): deleting the key gate is only an improvement if the
+    // envelope moved. It is defined in the boundary and parsed in `routing.ts`, once.
+    expect(read("parse-boundary.ts")).toMatch(UPSERT_ENVELOPE_DEF);
+    expect(read("routing.ts")).toMatch(UPSERT_ENVELOPE_PARSE);
+    expect(
+      engineFiles().filter((file) => UPSERT_ENVELOPE_PARSE.test(read(file)))
+    ).toEqual(["routing.ts"]);
   });
 
   it("(4) the in-engine shape-check surface may only shrink (X2 ratchet)", () => {

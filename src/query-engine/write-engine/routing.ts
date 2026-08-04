@@ -11,6 +11,7 @@ import type {
   ExecutableOperation,
   OperationExecutor,
 } from "./OperationExecutor";
+import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import { ReadOperation } from "./ReadOperation";
 import { isRetryableRace } from "./race-retry";
 import { UpdateOperation } from "./UpdateOperation";
@@ -164,7 +165,17 @@ function constructOperation(
     case "delete":
       return new DeleteOperation(engine, model, args);
     case "upsert":
-      return new UpsertOperation(engine, model, args);
+      // E5-U3 — the ENVELOPE is validated HERE, at the one construction path a client
+      // payload takes (a nested upsert never builds an `UpsertOperation`; it is a
+      // relation payload the enclosing operation's schema already validated). The
+      // envelope owns the three required keys, the five optional names, and the
+      // object-ness of the arms — nothing about what is INSIDE the arms, which the
+      // delegated sub-ops still parse raw, and which stays deferred to the taken branch.
+      return new UpsertOperation(
+        engine,
+        model,
+        parseValidated(upsertEnvelopeSchema, args, "upsert", "")
+      );
     // IMPLICIT RETURNING (maintainer decision D-1). One client family per bulk
     // write; the presence of `select` — never a second operation name — chooses
     // the arm. Without it the tree is the `{ count }` machinery exactly as
