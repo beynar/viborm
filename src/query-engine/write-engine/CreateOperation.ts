@@ -941,15 +941,18 @@ export class CreateOperation {
 
     if (relationInfo.type === "manyToMany") {
       // M2M is not special (WHY §4.3): the junction composes as ordinary Parts. A
-      // fresh parent has no existing memberships, so connect/create/connectOrCreate
-      // only add join rows (elision). create/connect/connectOrCreate are the
-      // create-tree M2M surface; disconnect/set/delete/upsert route to V1 (its
-      // rejection). M2M `upsert` under create is NOT the P−1.2 one-to-many
-      // superset — V1 rejects it (`NestedWriteError: … not supported in parent
-      // create`), so V2 declines it at construction and the whole tree routes to
-      // V1 for that byte-identical rejection (the junction upsert Part needs a
-      // *planned* parent id, which a fresh parent cannot supply — deferring the
-      // decision to compile would hard-fail instead of routing).
+      // fresh parent has no existing memberships, so every kind the parse boundary
+      // admits here — create/createMany/connect/connectOrCreate/upsert — only ADDS
+      // membership (elision, ATOM §4).
+      //
+      // E5-U1 — `upsert` is the last of them, and it is the beyond-parity superset the
+      // parse boundary has documented since P−1.2: Prisma has no `upsert` in a create
+      // input, VibORM accepts one with GLOBAL-LOOKUP, ADOPT-AND-UPDATE semantics. The
+      // reason it used to refuse was mechanical and is gone: the junction's correlated
+      // three-way reads a membership probe correlated on a `planned`/`literal` parent,
+      // and a fresh parent supplies a `ref`. {@link RelationJunctionConfig.freshParent}
+      // elides that read — the answer was never in doubt — and the three-way collapses
+      // to the adopt family's two-way.
       this.assertCreateTreeKinds(kinds, relationName);
       const engine = this.engine;
       const scope = this.scope;
@@ -967,6 +970,8 @@ export class CreateOperation {
             getPrimaryKeyFields(input.self.model),
             relationName
           ),
+          // E5-U1 — this record is being MADE, so it has no membership to read.
+          freshParent: true,
           txMode,
           // T3b-2 (family C): a junction create target whose data carries its own
           // relations folds them one level deeper against the fresh target's explicit
@@ -1953,22 +1958,31 @@ export class CreateOperation {
     kinds: readonly string[],
     relationName: string
   ): void {
-    // The M2M create-tree surface: create/createMany/connect/connectOrCreate. Every
-    // one of them only ADDS membership to a parent that cannot already have any
-    // (fresh-parent elision, ATOM §4). `createMany` joined the set in N3-U1 — it is
-    // the `create` slot per row plus the duplicate skip, and a fresh parent needs
-    // nothing more. The rest (upsert/disconnect/set/delete/update/updateMany/
-    // deleteMany) address a PRE-EXISTING membership a fresh parent cannot have, so
-    // they stay a typed refusal here.
+    // The M2M create-tree surface: create / createMany / connect / connectOrCreate /
+    // upsert. Every one of them only ADDS membership to a parent that cannot already
+    // have any (fresh-parent elision, ATOM §4). `createMany` joined the set in N3-U1
+    // (the `create` slot per row plus the duplicate skip); `upsert` joined it in E5-U1
+    // (the adopt family's third member — global lookup, then adopt-and-update).
+    //
+    // With `upsert` in, this is an ENGINE INVARIANT, not a capability boundary — the
+    // X1c disposition. The kinds it names are EXACTLY the kinds the parse boundary
+    // admits in a create-context to-many payload, measured through the public client on
+    // both relation spellings (`s.manyToMany` and the self-relation): `delete`,
+    // `deleteMany`, `disconnect`, `set`, `update` and `updateMany` are refused upstream
+    // by `ToManyCreateSchema` with `ValidationError: … Unknown key: <kind>`, so no
+    // payload arrives carrying one. The check stays because the union it walks is the
+    // runtime kind list, not a closed type — but it now describes a code path a user
+    // cannot reach, and a `QueryEngineError` is what that is.
     for (const kind of kinds) {
       if (
         kind !== "create" &&
         kind !== "createMany" &&
         kind !== "connect" &&
-        kind !== "connectOrCreate"
+        kind !== "connectOrCreate" &&
+        kind !== "upsert"
       ) {
-        throw new UnsupportedOperationError(
-          `query-engine-v2 create does not support nested '${kind}' on the many-to-many relation '${relationName}'.`
+        throw new QueryEngineError(
+          `query-engine-v2 internal: nested '${kind}' on the many-to-many relation '${relationName}' reached the create tree; the create-context relation schema admits no such key.`
         );
       }
     }

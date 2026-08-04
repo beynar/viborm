@@ -129,6 +129,21 @@ export interface RelationJunctionConfig {
    * `RelationSetConfig.correlationParentId` makes for `set`.
    */
   readonly correlationParentId?: ParentIdSource;
+  /**
+   * E5-U1 — this parent is a row the enclosing operation is MAKING, so it can have no
+   * membership yet (fresh-parent elision, ATOM §4). Only the `upsert` kind reads it,
+   * and what it means there is total: the correlated three-way collapses to the
+   * two-way the adopt family already expresses — a global probe, then adopt-and-update
+   * or create — because the "exists but is not a member of this parent" branch is the
+   * ONLY branch a fresh parent can take for an existing row, and refusing it would
+   * refuse every existing row.
+   *
+   * It is also what makes the shape expressible at all: the membership read correlates
+   * on {@link parentRef}, which requires a `planned` or `literal` parent, and a create
+   * root whose primary key is DB-generated supplies a `ref`. Eliding the read removes
+   * the requirement instead of working around it.
+   */
+  readonly freshParent?: boolean;
   readonly txMode: boolean;
   /** connect/disconnect/set/delete/update: the child unique locator(s). */
   readonly wheres?: readonly Record<string, unknown>[];
@@ -312,7 +327,15 @@ interface UpsertSlot {
   readonly childId: string;
   readonly updateId: string;
   readonly joinId: string;
-  readonly membershipProbe: StatementStep;
+  /**
+   * E5-U1 — absent under {@link RelationJunctionConfig.freshParent}. The membership
+   * read correlates on {@link RelationJunctionPart.parentRef}, which a fresh parent's
+   * `ref` source cannot answer, and the answer it would give is known anyway: a row
+   * this operation is MAKING has no members. The slot's id stays allocated so the
+   * correlated three-way ({@link RelationJunctionPart.compileUpsert}) reads one
+   * required field, not an optional one.
+   */
+  readonly membershipProbe?: StatementStep;
   readonly globalProbe: StatementStep;
   /** upsert arms (mechanism 2 / mechanism 1 reuse): the create-arm and update-arm
    *  nested child Parts, folded one level deeper against the target's literal PK
@@ -428,7 +451,10 @@ export class RelationJunctionPart implements Part {
         steps.push(...child.planning(scope));
     }
     for (const upsert of this.upserts) {
-      steps.push(upsert.membershipProbe, upsert.globalProbe);
+      // E5-U1: a fresh parent has no membership to read, so the slot carries only the
+      // global probe and the three-way is decided from it alone.
+      if (upsert.membershipProbe) steps.push(upsert.membershipProbe);
+      steps.push(upsert.globalProbe);
       // Both arms' child Parts plan unconditionally (a superset); `compile` emits
       // only the taken arm's writes (technique 2), exactly as the arm decision itself.
       if (upsert.createDelegated) {
@@ -470,7 +496,9 @@ export class RelationJunctionPart implements Part {
       case "connectOrCreate":
         return this.compileConnectOrCreate(scope, parent, known);
       case "upsert":
-        return this.compileUpsert(scope, parent, known);
+        return this.config.freshParent
+          ? this.compileFreshUpsert(scope, parent, known)
+          : this.compileUpsert(scope, parent, known);
       default: {
         const exhaustive: never = this.config.kind;
         throw new QueryEngineError(
@@ -864,26 +892,106 @@ export class RelationJunctionPart implements Part {
           this.config.relationName
         );
       }
-      if (slot.createDelegated) {
-        // X1c: the fresh create-arm target delegates its whole create to
-        // `CreateOperation` (a parent-held to-one folds into its OWN INSERT); the
-        // subtree runs BEFORE the join so the target exists first.
-        steps.push(...slot.createDelegated.compile(scope, known));
-        steps.push(this.joinInsert(slot.joinId, parent, slot.createPk));
+      steps.push(...this.upsertCreateArm(scope, slot, parent, known));
+    }
+    return steps;
+  }
+
+  /**
+   * E5-U1 — the m2m `upsert` under a parent this operation is MAKING (the create root,
+   * and any fresh target below it).
+   *
+   * The correlated three-way above has no third branch here. Its middle branch —
+   * "exists globally, but is not a member of THIS parent" — is the only branch an
+   * existing row can take when the parent is fresh, so keeping the V7001 would refuse
+   * every existing target: the shape would be spellable and never satisfiable. The
+   * parse boundary already documents the semantics this takes instead (a deliberate
+   * Prisma superset, `src/validation/relations/create.ts`): GLOBAL LOOKUP, then
+   * ADOPT-AND-UPDATE.
+   *
+   * So the donor is the ADOPT slot ({@link compileConnectOrCreate}), not the member arm
+   * — and deliberately not the member arm, whose found branch writes NO join row (a
+   * member already has one) and skips an empty UPDATE. Reused verbatim, that arm would
+   * make this a silent no-op: the adopt, which is the whole point of the shape, would
+   * never be written. Here the join row is written on BOTH branches, and an empty or
+   * relation-only update payload still adopts.
+   *
+   * No same-operation dedup ledger, for `compileUpsert`'s reason (an `upsert` item names
+   * the row ITS `where` names) — and the own-write preflight is stricter still at a
+   * create root: it rejects ANY second `upsert` item on one many-to-many relation, and
+   * an `upsert` beside a `connectOrCreate`, before this Part is built (measured; pinned
+   * in `create-junction-upsert-behavior.ts`).
+   */
+  private compileFreshUpsert(
+    scope: StepScope,
+    parent: unknown,
+    known: PlanningKnown
+  ): readonly OperationStep[] {
+    const steps: OperationStep[] = [];
+    for (const slot of this.upserts) {
+      const globalRows = known[planningKey(slot.globalProbeId, "rows")];
+      if (!(Array.isArray(globalRows) && globalRows.length > 0)) {
+        steps.push(...this.upsertCreateArm(scope, slot, parent, known));
         continue;
       }
-      steps.push(
-        this.childInsert(
-          slot.childId,
-          slot.create,
-          slot.where,
-          slot.generatedField
-        ),
-        this.joinInsert(slot.joinId, parent, slot.createPk)
-      );
-      // Create arm (mechanism 2): the fresh target's relations, emitted after its
-      // INSERT + join, correlated to its explicit literal PK.
-      emitChildren(slot.createChildParts);
+      const foundPk = this.pkOf(globalRows[0]);
+      if (!this.config.txMode) {
+        // The adopt family's found premise: the row the probe locked is STILL the one
+        // the selector names (split-witness correlation), pinned `raceable: false` and
+        // worded for THIS operation ({@link adoptFoundGuard}).
+        steps.push(this.adoptFoundGuard(slot, foundPk));
+      }
+      if (Object.keys(slot.update).length > 0) {
+        steps.push(
+          this.childUpdate(
+            slot.updateId,
+            { [this.targetPkField]: foundPk },
+            slot.update
+          )
+        );
+      }
+      for (const child of slot.updateChildParts) {
+        steps.push(...child.compile(scope, known));
+      }
+      // ALWAYS, and last: the membership add is what the found branch is FOR. The join
+      // row is idempotent (junction-PK skip), so a target that somehow already belonged
+      // to this fresh parent — it cannot — would still be one row.
+      steps.push(this.joinInsert(slot.joinId, parent, foundPk));
+    }
+    return steps;
+  }
+
+  /** The upsert create arm — INSERT the target (or run its delegated subtree), then the
+   *  join row, then the fresh target's own relations. One home, because the correlated
+   *  three-way and the fresh-parent two-way take the same arm when nothing was found. */
+  private upsertCreateArm(
+    scope: StepScope,
+    slot: UpsertSlot,
+    parent: unknown,
+    known: PlanningKnown
+  ): readonly OperationStep[] {
+    if (slot.createDelegated) {
+      // X1c: the fresh create-arm target delegates its whole create to
+      // `CreateOperation` (a parent-held to-one folds into its OWN INSERT); the
+      // subtree runs BEFORE the join so the target exists first.
+      return [
+        ...slot.createDelegated.compile(scope, known),
+        this.joinInsert(slot.joinId, parent, slot.createPk),
+      ];
+    }
+    const steps: OperationStep[] = [
+      this.childInsert(
+        slot.childId,
+        slot.create,
+        slot.where,
+        slot.generatedField
+      ),
+      this.joinInsert(slot.joinId, parent, slot.createPk),
+    ];
+    // Create arm (mechanism 2): the fresh target's relations, emitted after its
+    // INSERT + join, correlated to its explicit literal PK.
+    for (const child of slot.createChildParts) {
+      steps.push(...child.compile(scope, known));
     }
     return steps;
   }
@@ -1103,16 +1211,25 @@ export class RelationJunctionPart implements Part {
       // Two widened probes (technique #2): whether the target is a member of this
       // parent (correlated by a SQL Ref) AND whether it exists globally. `compile`
       // decides member / exists-not-member / absent from both.
-      membershipProbe: {
-        id: membershipProbeId,
-        kind: "read",
-        statement: this.membershipRead({
-          parentValue: this.parentRef(),
-          whereUnique: item.where,
-          take: 1,
-        }),
-        outputs: { rows: { kind: "rows" } },
-      },
+      //
+      // E5-U1 — a FRESH parent builds only the global one. The membership read has no
+      // question to ask (nothing can belong to a row this operation is making) and no
+      // way to ask it (`parentRef` needs a `planned` or `literal` parent; a create root
+      // with a DB-generated key supplies a `ref`).
+      ...(this.config.freshParent
+        ? {}
+        : {
+            membershipProbe: {
+              id: membershipProbeId,
+              kind: "read" as const,
+              statement: this.membershipRead({
+                parentValue: this.parentRef(),
+                whereUnique: item.where,
+                take: 1,
+              }),
+              outputs: { rows: { kind: "rows" as const } },
+            },
+          }),
       globalProbe: {
         id: globalProbeId,
         kind: "read",
@@ -1322,16 +1439,26 @@ export class RelationJunctionPart implements Part {
     );
   }
 
-  /** connectOrCreate found premise (batch): the adopted target still exists AND
+  /** The adopt family's found premise (batch): the adopted target still exists AND
    *  the captured PK still matches the selector (split-witness correlation — a
    *  concurrent move of the selector onto a replacement leaves no such row, so the
-   *  join never links the replacement). Existing-row premise, raceable:false. */
-  private adoptFoundGuard(slot: AdoptSlot, capturedPk: unknown): GuardStep {
+   *  join never links the replacement). Existing-row premise, raceable:false.
+   *
+   *  E5-U1 — the fresh-parent `upsert` takes the same premise through the same
+   *  construction site, worded for ITS operation: the two members of the adopt family
+   *  say `Record was replaced … during nested connectOrCreate` and `… nested upsert`,
+   *  and one site keeps them from drifting. */
+  private adoptFoundGuard(
+    slot: { readonly guardId: string; readonly where: Record<string, unknown> },
+    capturedPk: unknown
+  ): GuardStep {
     return presenceGuard(
       slot.guardId,
       this.capturedSelectorRead(slot.where, capturedPk),
       nestedWriteFailure(
-        nestedReplacement("connectOrCreate"),
+        nestedReplacement(
+          this.config.kind === "upsert" ? "upsert" : "connectOrCreate"
+        ),
         this.config.relationName,
         false
       )
@@ -1648,6 +1775,9 @@ export function buildJunctionParts(input: {
   /** E2-U3: the membership-READ parent value when it differs from the written one —
    *  see {@link RelationJunctionConfig.correlationParentId}. */
   correlationParentId?: ParentIdSource;
+  /** E5-U1 — see {@link RelationJunctionConfig.freshParent}. Threaded by the CREATE
+   *  root, the one caller whose parent row does not exist yet. */
+  freshParent?: boolean;
   txMode: boolean;
   /** T3b-2: the depth-recursive child-Part builder (mechanism 2 / mechanism 1
    *  reuse). REQUIRED — every `buildJunctionParts` caller threads it: the root
@@ -1682,6 +1812,7 @@ export function buildJunctionParts(input: {
     childName,
     parentId,
     correlationParentId: input.correlationParentId,
+    freshParent: input.freshParent,
     txMode,
   } as const;
   // T3b-2 — fold a create/update/upsert-arm target payload into (scalar SET, deeper
@@ -1900,6 +2031,31 @@ export function buildJunctionParts(input: {
         }),
       ],
     };
+  };
+  /**
+   * E5-U1 CARVE-OUT — the fresh-parent adopt arm's update payload must fold IN PLACE,
+   * against the primary key the arm's own global probe captured.
+   *
+   * {@link foldOrDelegateUpdate} branches on `targetNeedsFullUpdate` BEFORE it asks
+   * `updateTargetParentId` for a key, so a payload that needs the whole-target
+   * delegation never meets that refusal: it delegates to an `UpdateOperation` which
+   * RE-LOCATES the target by the same `where` the probe already used. Two locates, two
+   * chances to name a different row — the split-witness a concurrent selector move
+   * opens, and the wrong-row doctrine's exact failure, since the join row this arm
+   * writes addresses the probe's captured key while the delegated UPDATE would address
+   * whatever the selector names at write time.
+   *
+   * Named and typed here rather than left implicit. It lifts when E6.1 wires the probe
+   * ids through the upsert fold (`config.targetProbeIds`), which gives the delegated
+   * target the located key instead of a second selector.
+   */
+  const assertAdoptArmFoldsInPlace = (
+    update: Record<string, unknown>
+  ): void => {
+    if (!targetNeedsFullUpdate(childScope, update)) return;
+    throw new UnsupportedOperationError(
+      `query-engine-v2 create does not support nested 'upsert' on the many-to-many relation '${relationName}' whose update arm carries a relation write that needs the whole-target update; the adopted target would be located a second time by its selector instead of by the key this arm's probe captured.`
+    );
   };
   const parts: RelationJunctionPart[] = [];
   // A stable, V1-mirroring kind order: adopt/link first, then set, then the
@@ -2150,9 +2306,15 @@ export function buildJunctionParts(input: {
             childRacePin(childScope, item.where)
           )
         );
-        const foldedUpdates = items.map((item) =>
-          foldOrDelegateUpdate(item.update, item.where, "upsert", undefined)
-        );
+        const foldedUpdates = items.map((item) => {
+          if (input.freshParent) assertAdoptArmFoldsInPlace(item.update);
+          return foldOrDelegateUpdate(
+            item.update,
+            item.where,
+            "upsert",
+            undefined
+          );
+        });
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
