@@ -1900,6 +1900,39 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // undefined bind) change no route: they correct wrong-row/driver behavior on ACCEPTED
   // shapes — `parent-held-delegated-fk-rebind-correlation.test.ts`,
   // `optional-absent-bind.test.ts`.
+  // 43 -> 38 (E1+E2+E3, THE FIRST ABSORPTION STAGE of the expressible-shapes plan —
+  // measured per lane, verified by this grep at the merge: UpdateOperation -4,
+  // RelationWritePart -1, RelationJunctionPart +1, RelationUpsertPart -1).
+  //   · E1 (UpdateOperation, -4): the update root now CONNECTS and connectOrCreates by a
+  //     non-referenced unique (V1's lookup subquery per field, with the 1093
+  //     derived-table wrap extracted to its one home, builders/mutation-target-subquery.ts);
+  //     the before-root target became a whole CREATE SUBTREE (nested relations + the
+  //     spelled non-PK referenced value both absorbed — the wrong-donor site of the v1
+  //     plan); the parent-held upsert arm carries relations through X1c delegation riding
+  //     the D1 override channel. The shared-PK site keeps its refusal, re-filed (b) under
+  //     E6.7 (M3: Prisma transitions the parent's own PK; child-adopts-key always
+  //     collides). Witnesses: parent-held-lookup(.test|-behavior).ts, 4 driver legs.
+  //   · E2 (RelationWritePart -1 / RelationJunctionPart +1, net 0): the inverse to-one
+  //     UPDATE with relations absorbed kind-scoped (the site survives for upsert-arm /
+  //     updateMany / missing-builder sub-shapes); m2m connectOrCreate create-arm children
+  //     absorbed with a NEW racePin-preserving refusal for the DB-generated-PK
+  //     relation-carrying arm (E4 lifts it); the m2m + non-cascade mixed-edge under a PK
+  //     transition absorbed via correlationParentId threading — reads take the
+  //     PRE-transition key (planning runs before the self-UPDATE), writes the POST key
+  //     (cascade already carried the rows): the brief said the opposite; the measurement
+  //     won. Witnesses: inverse-to-one-update-depth.test.ts,
+  //     junction-adopt-create-relations.test.ts, pk-transition-junction-mixed-edge.test.ts.
+  //   · E3 (RelationUpsertPart, -1 net: -4 sites +3 finer refusals): the `.join(",")`
+  //     string dispatch is GONE (plan rule 8) — the arm routes by direction and delegates
+  //     the whole relation map to buildNestedTargetChildParts through the injected
+  //     ArmSeam, absorbing all eight child-held kinds, every m2m kind, and multi-kind
+  //     payloads; the old :718 type refusal CONVERTED to a QueryEngineError invariant
+  //     with its reachability proven (X1c/N7-U-A disposition). The three finer refusals:
+  //     the parent-held direction (the arm's own UPDATE SET owns that FK — unified,
+  //     covers kinds that previously fell through), the arm PK-transition-with-grandchildren
+  //     guard (join rows would correlate on the vacated key), and the asserting-probe
+  //     conditional-arm boundary (named mechanism: locateNotFoundOptional threading, its
+  //     own unit). Witnesses: e3-arm-dispatch(.test|-behavior|-docker.test).ts.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1913,7 +1946,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(43);
+    expect(sites).toBe(38);
   });
 });
 
