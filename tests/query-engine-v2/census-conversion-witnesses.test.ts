@@ -72,8 +72,6 @@ const NOT_A_READ_BASE = /is not a read base/;
 // builder's relation-type gate as the answer a parent-held to-one grandchild meets.
 const ARM_EDGE_IS_PARENT_HELD =
   /does not support a parent-held to-one write on relation .* one level deeper on the update arm/;
-const CREATE_ROOT_CHILD_HELD_ONLY =
-  /supports only child-held one-to-many \/ one-to-one relations/;
 
 const schemas = createSchemaRegistry(nestedWriteBehaviorSchema);
 
@@ -866,16 +864,22 @@ describe("N7-U-A (c-i) conversion witnesses — the roots", () => {
 
 describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
   /**
-   * `CreateOperation` :822's comment called this "a schema impossibility … kept as a
-   * defensive internal guard". It is not. A `manyToOne` with no `.fields()` reaches it —
-   * and the SAME relation constructs under `update`, down the very child-held path the
-   * create root withholds. The site therefore stays in the census, reclassified (c-ii);
-   * this test is the measurement that keeps the reclassification honest.
+   * DELIBERATE RETARGET (E4-U1). `CreateOperation` :822's comment called this "a schema
+   * impossibility … kept as a defensive internal guard". N7-U-A overturned that: a
+   * `manyToOne` with no `.fields()` reached it, and the SAME relation constructed under
+   * `update`, down the very child-held path the create root withheld. The site was
+   * reclassified (c-ii) and this test measured the ASYMMETRY that made the
+   * reclassification honest.
+   *
+   * E4-U1 discharged it. The asymmetry is gone — the create root now builds the same
+   * child-held arms the update root always did — so what this test pins is the other
+   * half of the same claim: BOTH roots construct, and the payload the census counted is
+   * a payload the engine answers. The class assertion survives in its own form: no
+   * refusal at all, rather than a refusal of a different class.
    */
-  test("CreateOperation :822 IS reachable — a fields-less manyToOne under a create root", () => {
+  test("CreateOperation :822 is ABSORBED — a fields-less manyToOne constructs at both roots", () => {
     const engine = routedEngine(fieldsLessManyToOneSchema);
-    let refusal: unknown;
-    try {
+    expect(
       constructRoutedOperation(
         engine,
         fieldsLessManyToOneSchema.left,
@@ -887,13 +891,8 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
             inverse: { create: { id: "r", title: "t" } },
           },
         }
-      );
-    } catch (error) {
-      refusal = error;
-    }
-    expect(refusal).toBeInstanceOf(UnsupportedOperationError);
-    expect((refusal as Error).message).toMatch(CREATE_ROOT_CHILD_HELD_ONLY);
-    // The asymmetry that makes it (c-ii) rather than (c-i): the update root takes it.
+      )
+    ).toBeDefined();
     expect(
       constructRoutedOperation(
         engine,
