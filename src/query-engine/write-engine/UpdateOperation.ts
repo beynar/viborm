@@ -2396,8 +2396,13 @@ export class UpdateOperation {
    * nested-target sub-op, correlated to THIS parent by `child.<referenced> = parent.<fk>`
    * (the referenced-row locator the A-remainder fold uses). The parent's FK columns are
    * added to `parentFkLocateFields` so the locate exposes them for the correlation `Ref`
-   * (technique #1). Relation-key legality forbids the same update rebinding its FK while
-   * mutating this relation, so the located FK value is the correct correlation target.
+   * (technique #1). Relation-key legality ALLOWS the same update rebinding this FK to a
+   * literal (`relation-key-legality.ts` rejects only a NON-literal operation there), so
+   * the correlation carries the same contract as the in-place twin: the parent's FK
+   * value is its FINAL value — a rebound column resolves to its construction-time
+   * literal through {@link resolveParentFkRebinds}, an untouched one reads the located
+   * row. Correlating on the located (pre-rebind) value would locate — and mutate — the
+   * row the parent is moving AWAY from.
    * Returns `undefined` when the target keeps the in-place A-remainder fold.
    */
   private tryDelegateParentHeldUpdate(
@@ -2413,6 +2418,10 @@ export class UpdateOperation {
     );
     if (!targetNeedsFullUpdate(childScope, target.data)) return undefined;
     for (const field of fk.fkFields) input.parentFkLocateFields.add(field);
+    const parentFieldOverride = resolveParentFkRebinds(
+      input.rootScalarData,
+      fk.fkFields
+    );
     return buildNestedTargetUpdatePart({
       scope: input.scope,
       engine: this.engine,
@@ -2422,6 +2431,7 @@ export class UpdateOperation {
         parentId: input.parentIdSource,
         childFields: fk.pkFields,
         parentFields: fk.fkFields,
+        parentFieldOverride,
         ...(target.filter ? { filter: target.filter } : {}),
         relationName,
         notFoundMessage: relationTargetNotFound(relationInfo, "update"),
@@ -2463,21 +2473,11 @@ export class UpdateOperation {
     // `locateFields`): these are the parent's own columns, not child-referenced, so
     // a same-root rebind of one must not trigger the child-edge reorder.
     for (const field of fk.fkFields) input.parentFkLocateFields.add(field);
-    const override: Record<string, unknown> = {};
-    for (const fkField of fk.fkFields) {
-      if (!Object.hasOwn(input.rootScalarData, fkField)) continue;
-      // `assertRelationKeyUpdatesAreCompilable` already ran (constructor): a mutated
-      // parent-held FK column is resolvable to a literal, never a DerivedValue.
-      const resolved = classifyRelationKeyScalarUpdate(
-        input.rootScalarData[fkField]
-      );
-      if (resolved.resolved) override[fkField] = resolved.value;
-    }
     return {
       correlation: {
         childReferencedFields: fk.pkFields,
         parentFkFields: fk.fkFields,
-        override,
+        override: resolveParentFkRebinds(input.rootScalarData, fk.fkFields),
       },
       childPrimaryKey: childPrimaryKeys[0]!,
     };
@@ -3713,7 +3713,15 @@ export class UpdateOperation {
   /** `child.<childField> = parent.<referenced>` per correlation field — a SQL `Ref` to
    *  the enclosing locate for a `planned` parent in a planning step (technique #1), the
    *  inlined literal at compile (the batch guard) or for a compile-time literal parent
-   *  (a depth-composed literal-parent target). Mirrors `RelationWritePart`'s locator. */
+   *  (a depth-composed literal-parent target). Mirrors `RelationWritePart`'s locator.
+   *
+   *  M1 — a parent column the enclosing update REBINDS resolves to its rebound literal
+   *  ({@link NestedTargetLocate.parentFieldOverride}) instead: the located row still
+   *  carries the pre-SET value, and correlating on that would address the row the parent
+   *  is leaving. The override is a literal in both worlds, so the Ref/value split below
+   *  is a question only for the columns this update does not touch. Both consumers take
+   *  this whole list, so the locate and the presence guard cannot disagree about which
+   *  row they mean. */
   private nestedTargetCorrelationFilters(
     known: PlanningKnown | undefined,
     useRef: boolean
@@ -3721,24 +3729,31 @@ export class UpdateOperation {
     const nt = this.nestedTarget;
     if (!nt) return [];
     const refable = useRef && nt.parentId.kind === "planned";
-    return nt.childFields.map((childField, index) => ({
-      [childField]: {
-        equals: refable
-          ? referencedFieldRef(
-              nt.parentId,
-              nt.parentFields[index]!,
-              nt.relationName,
-              "update"
-            )
-          : referencedFieldValue(
-              nt.parentId,
-              nt.parentFields[index]!,
-              known,
-              nt.relationName,
-              "update"
-            ),
-      },
-    }));
+    return nt.childFields.map((childField, index) => {
+      const parentField = nt.parentFields[index]!;
+      const override = nt.parentFieldOverride;
+      if (override && Object.hasOwn(override, parentField)) {
+        return { [childField]: { equals: override[parentField] } };
+      }
+      return {
+        [childField]: {
+          equals: refable
+            ? referencedFieldRef(
+                nt.parentId,
+                parentField,
+                nt.relationName,
+                "update"
+              )
+            : referencedFieldValue(
+                nt.parentId,
+                parentField,
+                known,
+                nt.relationName,
+                "update"
+              ),
+        },
+      };
+    });
   }
 
   private pkSelect(): Record<string, boolean> {
@@ -3779,6 +3794,33 @@ export class UpdateOperation {
         : {}),
     };
   }
+}
+
+/**
+ * The FINAL value of each parent-held FK column the SAME root update rebinds, keyed by
+ * the parent's column name — the one home for "the parent's FK value is its FINAL value"
+ * shared by the in-place family-A fold ({@link UpdateOperation.parentHeldCorrelation})
+ * and the X1c delegated locate ({@link UpdateOperation.tryDelegateParentHeldUpdate}).
+ * Both correlate a to-one target by the parent's FK, so both must read the post-SET
+ * value; keeping the resolution in one place is what makes that a shared contract rather
+ * than two spellings that can drift (M1 — they had drifted).
+ *
+ * A column absent here is untouched by this update and reads the located parent row.
+ * `assertRelationKeyUpdatesAreCompilable` already ran (constructor), so a mutated
+ * parent-held FK column is resolvable to a literal, never a `DerivedValue` — an
+ * unresolved classification cannot reach here for a relation being mutated.
+ */
+function resolveParentFkRebinds(
+  rootScalarData: Readonly<Record<string, unknown>>,
+  fkFields: readonly string[]
+): Record<string, unknown> {
+  const override: Record<string, unknown> = {};
+  for (const fkField of fkFields) {
+    if (!Object.hasOwn(rootScalarData, fkField)) continue;
+    const resolved = classifyRelationKeyScalarUpdate(rootScalarData[fkField]);
+    if (resolved.resolved) override[fkField] = resolved.value;
+  }
+  return override;
 }
 
 /** CLASS V (T4c): whether an `updateMany` input (one item or an array) carries a

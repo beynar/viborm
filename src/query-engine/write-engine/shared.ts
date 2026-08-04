@@ -43,6 +43,16 @@ export interface NestedTargetLocate {
   /** The enclosing parent's columns the correlation reads (child-held: the parent's
    *  referenced columns; parent-held: the parent's FK columns). */
   readonly parentFields: readonly string[];
+  /** M1 — the FINAL value of a {@link parentFields} column the SAME enclosing update
+   *  rebinds to a literal, keyed by that column's name. The parent-held twin that folds
+   *  in place has always correlated on the POST-SET FK value ("the parent's FK value is
+   *  its FINAL value"); this is the delegated path's channel for the same contract. A
+   *  column named here overrides the locate row for BOTH consumers (the correlated
+   *  locate and the batch presence guard); an unnamed one reads the located row, which
+   *  stays the only source for a column this update does not touch. Without it the
+   *  delegated sub-op would locate — and mutate — the row the parent is moving away
+   *  from, with the presence guard confirming that same stale row. */
+  readonly parentFieldOverride?: Readonly<Record<string, unknown>>;
   /** W4-U3 — the to-one `update: { where, data }` wrapper's NON-unique filter on the
    *  currently connected record. ANDed into the locate (and the batch presence guard)
    *  alongside the correlation: a connected row that fails it makes the locate empty,
