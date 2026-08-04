@@ -3190,11 +3190,10 @@ export class UpdateOperation {
     relationInfo: RelationInfo
   ): void {
     const found = rows[0];
-    if (!(found && typeof found === "object")) return;
-    const row = found as Record<string, unknown>;
+    if (!isRecord(found)) return;
     for (const referenced of fk.pkFields) {
       if (Object.hasOwn(where, referenced)) continue;
-      if (row[referenced] === null || row[referenced] === undefined) {
+      if (found[referenced] === null || found[referenced] === undefined) {
         throw new NestedWriteError(
           lookupKeyIsNull(relationInfo.name, referenced),
           relationInfo.name
