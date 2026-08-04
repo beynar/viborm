@@ -2200,6 +2200,18 @@ native-batch gate fails the native-batch assertion, accepting half a bracket
 fails the half-bracket assertion, and reverting the lift at `apply` or at `down`
 separately each fails the migrate witness.
 
+**Gate — 2026-08-04, main checkout, branch `nested-write-boundaries`, on top of
+`5e5bc60`.** `npx tsc --noEmit` clean; `tests/migrations` **397 passed**;
+`tests/migrations` + `tests/drivers` together **3864 passed, 0 failed** (3851 +
+the 13 witnesses); `pnpm test:gates` **72 passed**, census pin unchanged; full
+estate run alone (`--minWorkers=1 --maxWorkers=4`) **9510 passed, 81 failed,
+2192 skipped** across 279 files in 437s, where the 81 are the same four
+`tests/cli` files the maintainer's uncommitted `pnpm-lock.yaml` breaks
+(`Failed to load … viborm.config.ts`) and everything outside `tests/cli` is at
+zero — 9497 + the 13; Docker MySQL 8.4 on 3307 **1029 passed, 0 failed**;
+Docker PostgreSQL on 5434, serial **1151 passed, 0 failed, 14 skipped**;
+repo-pinned `npx biome check` (2.3.11) over the touched files reports nothing.
+
 ## Order of the phases
 
 ```text
