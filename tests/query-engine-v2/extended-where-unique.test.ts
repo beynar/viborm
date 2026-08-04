@@ -139,8 +139,8 @@ const identitySchema = (() => {
     })
     .id(["tenantId", "seq"])
     .map("ext_wu_seats");
-  // The same compound generated PK with NO other unique. RETARGETED BY E6.2 (the
-  // authorized decline → accept-and-execute retarget, same payload): this WAS the
+  // The same compound generated PK with NO other unique. RETARGETED BY E6.2
+  // (authorized test change: decline → accept-and-execute, same payload): this WAS the
   // shape the refusal was for, on the reading that a compound key needs a compound
   // capture. M9 measured the payload reaching the refusal and E6.2 absorbed it —
   // one member is produced by the INSERT, the other is a literal the same INSERT
@@ -310,7 +310,7 @@ test("a NULL member in the create data is no identity — the capture is taken",
 });
 
 test("a compound generated PK with no other unique reads back by the PRODUCED key", () => {
-  // RETARGETED BY E6.2 (decline → accept-and-execute, same payload). This test read
+  // RETARGETED BY E6.2 (authorized test change: decline → accept-and-execute, same payload). This test read
   // "no identity source at all is a typed refusal, not a guess" and asserted the
   // throw on exactly these arguments. The premise was wrong, not the doctrine: the
   // create data spells `tenantId` and the INSERT produces `seq`, so the read-back
@@ -392,7 +392,7 @@ test(
   "BEHAVIOR: the produced compound identity answers on both arms, on a model create cannot reach",
   { timeout: 30_000 },
   async () => {
-    // RETARGETED BY E6.2 (decline → accept-and-execute, same payload). This test
+    // RETARGETED BY E6.2 (authorized test change: decline → accept-and-execute, same payload). This test
     // read "the remaining refusal is typed, and its model is already write-capped"
     // and asserted the `UnsupportedOperationError` on the `slot` create arm. The
     // "write-capped" half is still TRUE and still pinned below: a single-row

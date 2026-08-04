@@ -928,6 +928,15 @@ export class UpsertOperation {
    *    that is not an `increment` is not produced at all (a column DEFAULT is
    *    evaluated by the database and published nowhere) — both stay refused.
    *
+   * Rungs (1) and (3) inline create-data values into the read-back `where`, so a
+   * NON-literal there would be evaluated a second time and could name a different
+   * row than the INSERT wrote. Rung (2) states that requirement itself
+   * ({@link createDataUniqueWhere}'s `isAddressableLiteral`); (1) and (3) do not,
+   * because for them the PARSE BOUNDARY is the one home: an `Sql` operand in a
+   * primary-key column of `create` is a `ValidationError` before this method runs
+   * (measured on both the compound and the single-column shape — "Validation
+   * failed for upsert: Expected string"). No engine guard duplicates it.
+   *
    * **Why (2) outranks (3), uniformly and not just in batch mode.** All three are
    * equally correct; (1) and (2) are additionally CAPTURE-FREE — they compile to a
    * plain INSERT with no output, whereas (3) makes the statement itself depend on
