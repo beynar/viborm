@@ -831,7 +831,7 @@ function unwrapSetOperand(value: unknown): unknown {
     : value;
 }
 
-function fkEquals(childFk: unknown, parentId: unknown): boolean {
+export function fkEquals(childFk: unknown, parentId: unknown): boolean {
   if (Object.is(childFk, parentId)) return true;
   // Cross-driver numeric normalization (bigint vs number ids).
   if (

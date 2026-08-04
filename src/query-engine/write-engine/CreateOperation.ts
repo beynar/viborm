@@ -73,6 +73,7 @@ import {
   type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
+  fkEquals,
   literalParentId,
   type ParentIdSource,
   perFieldParentId,
@@ -783,9 +784,39 @@ export class CreateOperation {
    * The `Ref` needs the target's write-step id BEFORE the arms fold (a value the
    * identity is built from, the N4-U1 allocation-order precedent), so this method
    * pre-allocates it and {@link interpretParentHeldCreate} consumes it instead of
-   * minting its own. A NON-referenced connect (the FK is a lookup subquery, and
-   * re-evaluating it for the identity would be a second provenance) and a
-   * `connectOrCreate` (a runtime arm decision) still yield nothing here.
+   * minting its own.
+   *
+   * **E6.3 — `connectOrCreate` is a third source, and it is the SAME literal.** The
+   * arm is a runtime decision, but the value is not: the found arm's foreign key is
+   * `connectOrCreate.where`'s referenced literal ({@link CreateOperation.toOneFkAssign}
+   * reads that `where`), and the create arm's is the created target's own referenced
+   * value. When the `where` spells the referenced column AND the `create` data spells
+   * the same value, both arms leave the record holding ONE compile-known key, so the
+   * identity is that key on either arm — one provenance, the probe deciding only which
+   * statement puts the row there. A `create` that spells a DIFFERENT value (or none, so
+   * a default mints one) makes the two arms disagree, and a disagreement is not an
+   * identity: it stays unresolved and refuses below.
+   *
+   * **What still yields nothing, and why it now REFUSES here rather than downstream.**
+   * A NON-referenced connect resolves its foreign key through a lookup SUBQUERY, and
+   * re-evaluating that expression for the identity is a second evaluation of one
+   * expression — the recorded second-provenance rule. The only other source is the
+   * planning probe this arm already runs, whose value is COMPILE-known; but the record
+   * identity is consumed at CONSTRUCTION by `planNestedCreateIdentity`, by
+   * {@link freshReferenced} (sibling edges and junction parent sources), and by
+   * {@link CreateOperation.freshRootReferenced} — a PUBLIC seam an enclosing
+   * `UpdateOperation` reads while building its own SET, with no `known` at the call
+   * site and no deferral in the `FreshReferenced` union (`literal | ref`, where a `ref`
+   * names an EMITTED step; ATOM §9 inv. 2 forbids a final-fragment step from
+   * referencing a planning step). So the sub-shape stays refused, and the refusal is
+   * raised HERE, where the shared key's source is manufactured: a record whose primary
+   * key is its foreign key must take that key from the edge, and a `s.string().id()`
+   * member carries an application-materialized `ulid` DEFAULT that the arm's foreign-key
+   * assignment then OVERWRITES. Leaving the check downstream let that phantom stand in
+   * for the edge's value — measured at 8c2908d, the operation ran and the terminal read
+   * addressed a key no row holds (transaction: the whole unit aborts on the read's
+   * postcondition; ATOMIC BATCH: the write COMMITS and the operation then reports an
+   * internal `QueryEngineError`). Deciding at the source is D3's placement rule.
    */
   private resolveSharedPkIdentity(
     childScope: QueryScope,
@@ -805,16 +836,34 @@ export class CreateOperation {
       );
       if (sharedFkFields.length === 0) continue;
       const kinds = getRelationMutationKinds(mutation);
+      // A multi-kind to-one payload is `interpretParentHeld`'s own arity refusal,
+      // which is more specific than this one and must reach the caller first.
       if (kinds.length !== 1) continue;
       const relationInput = data[relationName];
       if (!isRecord(relationInput)) continue;
+      const armSpec =
+        kinds[0] === "connectOrCreate"
+          ? normalizeSingle(relationInput.connectOrCreate, relationName)
+          : undefined;
+      // The value the found arm's foreign key takes, per E6.3's note above.
+      const agreeWith =
+        armSpec && isRecord(armSpec.create) ? armSpec.create : undefined;
       const source =
         kinds[0] === "connect"
           ? normalizeSingle(relationInput.connect, relationName)
           : kinds[0] === "create"
             ? normalizeSingle(relationInput.create, relationName)
-            : undefined;
-      if (!source) continue;
+            : armSpec && isRecord(armSpec.where)
+              ? armSpec.where
+              : undefined;
+      // ONE guard, asserted at BOTH exits of this iteration — the invariant is "this
+      // edge resolved every shared member", and an edge with no readable source exits
+      // here. It is deliberately asked about an EMPTY map, not the accumulated one: a
+      // sibling edge that already resolved the same column must not answer for this one.
+      if (!source) {
+        assertSharedPkResolved(childScope, relationName, kinds[0], fk, {});
+        continue;
+      }
       for (let index = 0; index < fk.fkFields.length; index += 1) {
         const fkField = fk.fkFields[index]!;
         const referenced = fk.pkFields[index]!;
@@ -824,7 +873,14 @@ export class CreateOperation {
         // carries the target's auto-increment key as an ABSENT value, so the key is
         // present-but-unspelled and only the INSERT will know it.
         const spelled = source[referenced];
+        // E6.3: on a `connectOrCreate` the two arms must leave the record holding the
+        // SAME key, so the create arm's own referenced value has to agree with the
+        // `where`'s. `fkEquals` is the comparator E5-U2 chose for exactly this
+        // construction-time question, reused rather than re-derived.
+        const armsAgree =
+          agreeWith === undefined || fkEquals(agreeWith[referenced], spelled);
         if (
+          armsAgree &&
           spelled !== undefined &&
           !isMissingGeneratedIncrement(
             relationInfo.targetModel["~"].state.scalars[referenced],
@@ -850,6 +906,7 @@ export class CreateOperation {
           identity[fkField] = ref(producedStep, "id");
         }
       }
+      assertSharedPkResolved(childScope, relationName, kinds[0], fk, identity);
     }
     return { identity, producedBy };
   }
@@ -1057,30 +1114,12 @@ export class CreateOperation {
         `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
       );
     }
-    // Shared-primary-key edge: the FK the record holds IS (part of) its own primary
-    // key. The PK is then supplied by the connect/create fold, not by scalar data.
-    // T3c: when that fold value is a COMPILE-TIME LITERAL (a direct-referenced connect,
-    // a literal-id create), `resolveSharedPkIdentity` threaded it into `self.identity`
-    // above, so the terminal read can address the created row — proceed natively. A
-    // fold value that is NOT a literal (a non-referenced connect subquery, a generated
-    // create id, a connectOrCreate runtime decision) leaves the shared PK field absent
-    // from the identity; the terminal read cannot address it without a produced value it
-    // does not carry, so route the whole tree to V1 (whose `getCreatedRowWhere` resolves
-    // the shared PK). A finer boundary of the same class as the non-referenced connect.
-    const recordPk = getPrimaryKeyFields(input.self.model);
-    const sharedFkFields = fk.fkFields.filter((fkField) =>
-      recordPk.includes(fkField)
-    );
-    if (
-      sharedFkFields.length > 0 &&
-      !sharedFkFields.every((fkField) =>
-        Object.hasOwn(input.self.identity, fkField)
-      )
-    ) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create does not support a shared-primary-key ${kinds[0]} on relation '${relationName}' whose foreign key '${fk.fkFields.join(", ")}' (this record's primary key) is not a compile-time literal.`
-      );
-    }
+    // The shared-primary-key edge is decided in `resolveSharedPkIdentity` (E6.3), which
+    // runs BEFORE this record's identity is planned and refuses there — at the site that
+    // manufactures the shared key's source. The check used to stand here and read
+    // `input.self.identity`, which by then could hold an application-materialized
+    // `ulid` DEFAULT for the key rather than the edge's value; see that method's note
+    // for the measurement.
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
@@ -2152,6 +2191,31 @@ function insertTakesDatabaseAssignedValue(
     if (isMissingGeneratedIncrement(scalar, row[fieldName])) return true;
   }
   return false;
+}
+
+/**
+ * E6.3 — every shared primary-key member must have taken its value FROM THE EDGE.
+ *
+ * Raised where the shared key's source is manufactured, so nothing downstream can read
+ * a stand-in: a `s.string().id()` member arrives carrying an application-materialized
+ * `ulid` default, and the arm's own foreign-key assignment overwrites that column, so a
+ * later "is the member present?" test answers YES about a value the row never holds.
+ * See {@link CreateOperation.resolveSharedPkIdentity} for the measurement and for what
+ * the surviving sub-shape is.
+ */
+function assertSharedPkResolved(
+  childScope: QueryScope,
+  relationName: string,
+  kind: string | undefined,
+  fk: FkDirection,
+  identity: Record<string, unknown>
+): void {
+  const recordPk = getPrimaryKeyFields(childScope.model);
+  const shared = fk.fkFields.filter((fkField) => recordPk.includes(fkField));
+  if (shared.every((fkField) => Object.hasOwn(identity, fkField))) return;
+  throw new UnsupportedOperationError(
+    `query-engine-v2 create does not support a shared-primary-key ${kind} on relation '${relationName}' whose foreign key '${fk.fkFields.join(", ")}' (this record's primary key) is not a compile-time literal.`
+  );
 }
 
 /**
