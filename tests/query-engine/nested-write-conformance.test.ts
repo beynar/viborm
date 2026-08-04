@@ -4661,13 +4661,23 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
       },
     },
     {
-      // RETARGETED by N6-U3. The payload's inner `tags: { create, connectOrCreate }`
-      // is the same sibling pair as the top-level cross-step case, one level deeper —
-      // the linearization is ONE order and applies at every depth, so the preflight no
-      // longer intercepts it here either. What the caller now sees is the m2m
-      // connectOrCreate's own standing refusal of nested relation writes in its data,
-      // which was always behind the preflight on this path. Rejects, writes nothing.
-      name: "connectOrCreate payload's inner sibling pair meets the m2m data refusal",
+      // RETARGETED TWICE, both times by an absorption that moved the boundary this
+      // payload used to stop at, and both times WITHOUT changing what it persists.
+      //
+      // N6-U3 first: the inner `tags: { create, connectOrCreate }` is the same sibling
+      // pair as the top-level cross-step case, one level deeper — the linearization is
+      // ONE order and applies at every depth, so the preflight stopped intercepting it
+      // and what surfaced was the m2m connectOrCreate's refusal of nested relation
+      // writes in its data (the OUTER `projects.connectOrCreate` create arm carries
+      // `tags`, and `projects` is itself many-to-many here).
+      //
+      // E2-U2 now absorbs exactly that create arm, so the payload reaches the inner
+      // pair — and lands on the answer its `upsert` twin below has always given: the
+      // adopt arm's probe runs before the sibling `create`'s INSERT (ATOM §4.1), so the
+      // duplicate insert meets the unique constraint. Same class as the twin, same
+      // persisted state as before (rejects, writes nothing) — the assertion that
+      // carries the contract is unchanged.
+      name: "connectOrCreate payload's inner sibling pair hits the unique constraint",
       seed: (client) => client.workspace.create({ data: { id: 1 } }),
       act: (client) =>
         client.workspace.update({
@@ -4691,7 +4701,7 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
           },
         }),
       expectReject: true,
-      expectedError: "does not support nested relation writes in its data",
+      expectedError: "Unique constraint violation",
       expected: {
         workspaces: [{ id: 1, projects: [], tags: [] }],
         projects: [],

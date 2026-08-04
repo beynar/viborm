@@ -165,6 +165,12 @@ export interface RelationJunctionConfig {
   readonly updateChildParts?: readonly (readonly Part[])[];
   readonly upsertCreateChildParts?: readonly (readonly Part[])[];
   readonly upsertUpdateChildParts?: readonly (readonly Part[])[];
+  /** E2-U2 — the `connectOrCreate` CREATE arm's own relations, folded one level deeper
+   *  against the arm's explicit literal PK (mechanism 2, the fresh target). Aligned to
+   *  {@link adopts}; emitted ONLY on the branch that inserts the row — an adopted target
+   *  (found globally, or created by an earlier item) is the row that was already there,
+   *  and this arm's create payload is not applied to it. Empty for a scalar-only arm. */
+  readonly adoptCreateChildParts?: readonly (readonly Part[])[];
   // X1c — a FRESH create/upsert-create junction target whose data carries the
   // parent-held to-one projection (its FK folds into the target's OWN INSERT — X1b's
   // fresh mechanism) delegates its whole create to `CreateOperation`. When present at an
@@ -242,6 +248,9 @@ interface AdoptSlot {
   readonly childId: string;
   readonly joinId: string;
   readonly probe: StatementStep;
+  /** E2-U2 (mechanism 2): the fresh target's own nested child Parts, folded one level
+   *  deeper against its explicit literal PK. Emitted on the CREATE branch only. */
+  readonly childParts: readonly Part[];
 }
 
 /** An `upsert` slot — a membership probe + a global probe decide the three-way. */
@@ -331,7 +340,9 @@ export class RelationJunctionPart implements Part {
         : [];
     this.adopts =
       kind === "connectOrCreate"
-        ? (config.adopts ?? []).map((item) => this.buildAdoptSlot(scope, item))
+        ? (config.adopts ?? []).map((item, index) =>
+            this.buildAdoptSlot(scope, item, index)
+          )
         : [];
     this.upserts =
       kind === "upsert"
@@ -356,7 +367,15 @@ export class RelationJunctionPart implements Part {
         steps.push(...child.planning(scope));
     }
     for (const bulk of this.bulks) steps.push(bulk.read);
-    for (const adopt of this.adopts) steps.push(adopt.probe);
+    for (const adopt of this.adopts) {
+      steps.push(adopt.probe);
+      // E2-U2: the create arm's child Parts plan their probes here, UNCONDITIONALLY —
+      // the same widened superset every other arm uses (ATOM §3 technique 2). Which
+      // branch this slot takes is a compile-time decision made from `adopt.probe`'s
+      // rows, and planning runs before that decision exists.
+      for (const child of adopt.childParts)
+        steps.push(...child.planning(scope));
+    }
     for (const create of this.creates) {
       // X1c: a delegated fresh-create target plans its whole `CreateOperation` subtree
       // (its before-parent writes / generated-PK probes) one level deeper.
@@ -405,7 +424,7 @@ export class RelationJunctionPart implements Part {
         // carries (see {@link RelationJunctionConfig.skipDuplicates}).
         return this.compileCreate(scope, parent, known);
       case "connectOrCreate":
-        return this.compileConnectOrCreate(parent, known);
+        return this.compileConnectOrCreate(scope, parent, known);
       case "upsert":
         return this.compileUpsert(scope, parent, known);
       default: {
@@ -664,6 +683,7 @@ export class RelationJunctionPart implements Part {
   // the exists guard (raceable:false); missing premise enforced by the child's
   // unique constraint (racePin), never a notExists guard (Pin Rule).
   private compileConnectOrCreate(
+    scope: StepScope,
     parent: unknown,
     known: PlanningKnown
   ): readonly OperationStep[] {
@@ -690,6 +710,8 @@ export class RelationJunctionPart implements Part {
       const key = adoptDedupKey(slot);
       if (created.has(key)) {
         // Created by an earlier same-target item — adopt (the join is idempotent).
+        // The earlier item's INSERT already ran this create payload, its child Parts
+        // included, so THIS item's children are not emitted: first create wins, whole.
         steps.push(this.joinInsert(slot.joinId, parent, created.get(key)));
         continue;
       }
@@ -703,6 +725,16 @@ export class RelationJunctionPart implements Part {
         ),
         this.joinInsert(slot.joinId, parent, slot.createPk)
       );
+      // E2-U2 (mechanism 2): the fresh target's own relations, correlated to its
+      // explicit literal PK and emitted AFTER its INSERT + join — the branch that made
+      // the row. The two ADOPT branches above skip them for the same reason they skip
+      // the INSERT: the row was already there, so this arm's create payload, relations
+      // and all, is not what describes it (Prisma's connectOrCreate semantics).
+      // Fresh-parent elision (ATOM §4): no pre-existing membership below a row this
+      // statement just made, so the child builders' writes are unconditional.
+      for (const child of slot.childParts) {
+        steps.push(...child.compile(scope, known));
+      }
     }
     return steps;
   }
@@ -920,7 +952,8 @@ export class RelationJunctionPart implements Part {
 
   private buildAdoptSlot(
     scope: StepScope,
-    item: { where: Record<string, unknown>; create: Record<string, unknown> }
+    item: { where: Record<string, unknown>; create: Record<string, unknown> },
+    index: number
   ): AdoptSlot {
     const { childName } = this.config;
     const probeId = scope.allocate(`${childName}.find`);
@@ -937,6 +970,7 @@ export class RelationJunctionPart implements Part {
       guardId: scope.allocate(`${childName}.guard.exists`),
       childId,
       joinId: scope.allocate(`${childName}.junction.insert`),
+      childParts: this.config.adoptCreateChildParts?.[index] ?? [],
       // Global lookup-and-adopt: an uncorrelated probe by the child unique.
       probe: {
         id: probeId,
@@ -1660,6 +1694,46 @@ export function buildJunctionParts(input: {
       ],
     };
   };
+  /**
+   * E2-U2 — the `connectOrCreate` CREATE arm's own relations.
+   *
+   * The arm inserts a row keyed by a literal PK the create data carries, so its deeper
+   * edges are the fresh-target case mechanism 2 already owns: fold them one level deeper
+   * against that literal through the same {@link foldTarget} the `create` / `upsert`
+   * arms use. What is arm-specific is not the fold but WHERE it is emitted —
+   * {@link RelationJunctionPart.compileConnectOrCreate} runs them on the create branch
+   * only.
+   *
+   * Two carve-outs, both about what the delegation would take away:
+   *
+   *  · a relation payload that needs the WHOLE-create delegation (a parent-held to-one
+   *    write, or an edge referencing a non-primary-key column — {@link
+   *    targetNeedsFullUpdate}) stays refused. The delegated subtree REPLACES the arm's
+   *    `childInsert`, and with it the `racePin` that is how this family's missing
+   *    premise is enforced (Pin Rule: never a notExists guard). Absorbing it here would
+   *    trade a race protection for a shape, which is not a trade this wave makes; the
+   *    racePin threading through that seam is E4's unit.
+   *  · a DB-generated target PK inherits {@link requireCreatePkValue}'s refusal, because
+   *    the child Parts fold against a COMPILE-TIME literal and a produced identity is a
+   *    backward `Ref`. A scalar-only arm keeps the produced-identity path untouched:
+   *    `foldTarget` asks for the parent id only when the payload carries relations.
+   */
+  const foldAdoptCreateArm = (
+    create: Record<string, unknown>
+  ): { scalar: Record<string, unknown>; childParts: readonly Part[] } => {
+    const { relations } = separateData(childScope, create);
+    if (
+      Object.keys(relations).length > 0 &&
+      targetNeedsFullUpdate(childScope, create)
+    ) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 nested 'connectOrCreate' on many-to-many relation '${relationName}' does not support a create arm whose relations need the whole-create delegation (a parent-held to-one write, or an edge referencing a non-primary-key column): that delegation replaces the arm's insert, and with it the unique-constraint race pin its missing premise is enforced by.`
+      );
+    }
+    return foldTarget(create, () =>
+      literalParentId(requireCreatePkValue(create, "connectOrCreate"))
+    );
+  };
   const foldOrDelegateCreate = (
     create: Record<string, unknown>
   ): {
@@ -1889,22 +1963,28 @@ export function buildJunctionParts(input: {
         }
         break;
       }
-      case "connectOrCreate":
+      case "connectOrCreate": {
+        // E2-U2: the create arm folds its own relations one level deeper against its
+        // literal PK (mechanism 2); the slot emits them on the create branch only.
+        const items = normalizeWhereCreate(
+          parsedRelation.connectOrCreate,
+          relationName,
+          kind
+        );
+        const armed = items.map((item) => foldAdoptCreateArm(item.create));
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
             kind: "connectOrCreate",
-            adopts: normalizeWhereCreate(
-              parsedRelation.connectOrCreate,
-              relationName,
-              kind
-            ).map((item) => ({
+            adopts: items.map((item, index) => ({
               where: item.where,
-              create: scalarOnly(childScope, item.create, relationName, kind),
+              create: armed[index]!.scalar,
             })),
+            adoptCreateChildParts: armed.map((f) => f.childParts),
           })
         );
         break;
+      }
       case "upsert": {
         // T3b-2: both arms fold their own relations one level deeper against the
         // target's literal PK — the create arm (mechanism 2, fresh target) against
@@ -2052,6 +2132,27 @@ function stableKey(record: Record<string, unknown>): string {
   );
 }
 
+/**
+ * The `updateMany` data boundary — the one payload position on this relation that stays
+ * scalar, and the reason is the ENGINE's, not Prisma's (M4, re-justified by E2-U2 when
+ * the sibling `connectOrCreate` position lifted).
+ *
+ * `updateMany` compiles to ONE set-based `UPDATE … WHERE <membership> AND <filter>`. It
+ * never learns which rows it touched, so a deeper edge in that data has no identity to
+ * reference: a child FK would need the primary key of EACH matched row, and the only way
+ * to produce those is to stop being a set-based write — read the set, then write per row,
+ * which is a different operation with different semantics under concurrency (the set can
+ * change between the read and the writes). Nothing about the child payload decides this;
+ * the absence of a per-row identity does. The measured Prisma 7.9.1 behavior (a type +
+ * parser refusal for every multiplicity) corroborates the boundary; it does not justify
+ * it, and a Prisma that accepted the shape would not make it expressible here.
+ *
+ * Reachability, measured live: at the UPDATE ROOT the CLASS V legality check answers
+ * first (`assertUpdateManyRelationsAreCompilable` — `NestedWriteError: Nested relation
+ * writes inside updateMany data for relation '…' are not supported.`); this throw is what
+ * a nested target's own `updateMany` meets one level deeper, where that root check does
+ * not run. Both refuse before any effect.
+ */
 function scalarOnly(
   childScope: QueryScope,
   data: Record<string, unknown>,
