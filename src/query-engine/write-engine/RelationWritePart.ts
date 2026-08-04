@@ -1528,6 +1528,10 @@ interface WritePartBase {
  * {@link RelationWritePart.upsertCreateScalarData}), and the adopt family already has its
  * own (`buildOneUpsertPart`, `RelationUpsertPart.ts`). All say it from one string.
  */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function assertOwnedFkAbsentFromUpdateData(
   base: WritePartBase,
   data: Record<string, unknown>
@@ -1652,28 +1656,19 @@ export function buildInverseToOneUpsertPart(
     create?: unknown;
     update?: unknown;
   };
-  if (
-    !(
-      create &&
-      typeof create === "object" &&
-      !Array.isArray(create) &&
-      update &&
-      typeof update === "object" &&
-      !Array.isArray(update)
-    )
-  ) {
+  if (!(isRecord(create) && isRecord(update))) {
     throw new QueryEngineError(
       `query-engine-v2 upsert for relation '${base.relationName}' requires 'create' and 'update' objects.`
     );
   }
-  const createData = create as Record<string, unknown>;
+  const createData = create;
   // M12 position 3 — the inverse-side to-one `upsert` UPDATE arm. Uniquely covered
   // here: this arm reaches `RelationWritePart` as an `update` config, but through a
   // builder position no other guard sees, and it is the arm the FOUND branch runs — the
   // one branch whose row already belongs to this parent and can therefore be stolen from
   // it. The CREATE arm needs nothing: `v.omit(core.create, fkFields)` refuses the key at
   // the parse boundary, which is what `upsertCreateScalarData`'s internal invariant states.
-  assertOwnedFkAbsentFromUpdateData(base, update as Record<string, unknown>);
+  assertOwnedFkAbsentFromUpdateData(base, update);
   // N4-U2 — a relation-carrying create arm is the create SUBTREE, the same absorption
   // the to-many adopt family's create arm takes. The arm's foreign key is injected into
   // the subtree's root INSERT by the identical expression the scalar arm writes, so the

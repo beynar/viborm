@@ -88,7 +88,11 @@ const DELETED_KEY_GATES = [
 // `connect` payload — the one thing the create root does not need a cast for, because a
 // create SUBTREE folds that connect through the same already-parsed relation mutation
 // every other arm uses. The cast went with the function, not around it.
-const MAX_PAYLOAD_RECORD_CASTS = 36;
+// 36 -> 35 (D-wave): `buildInverseToOneUpsertPart` replaced its two arm casts with an
+// `isRecord` narrowing predicate (the sibling modules' idiom), so the M12 owned-FK guard
+// could take the update arm without a new cast — the surface shrank by one instead of
+// growing by one.
+const MAX_PAYLOAD_RECORD_CASTS = 35;
 // 22 -> 21 (N4-U2): the same removal. `foldParentHeldConnect`'s "requires a where object
 // one level deeper" was the shape-check message that went with that cast.
 const MAX_SHAPE_THROW_MESSAGES = 21;

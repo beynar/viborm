@@ -1862,17 +1862,58 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // witness from a unique violation into a silent success (it fails on the throw); putting
   // `&& unique` back with its refusal fails the retargeted witness; both restored, 26/26
   // green on both substrates.
+  // 39 -> 43 (D-wave, THE FIVE LIVE DEFECTS — four sites ADDED, all defect fixes, none a
+  // capability retreat). Wave E0 of the expressible-shapes plan measured twelve probes
+  // before any absorption work; five came back as live defects in shipped code, and four
+  // of the five fixes are new typed refusals where a SILENT wrong write used to be. This
+  // is the first entry in this log where the count goes UP to fix wrong behavior:
+  //   · **+1, the arm's single-column parent value** (M11 — `RelationUpsertPart`,
+  //     `assertArmEdgeReferencesLocatedPk`). `buildOneUpsertPart` admitted compound and
+  //     non-PK referenced edges one level deeper on the update arm, then `fkAssignData`
+  //     wrote EVERY foreign-key column from the arm's ONE parent value (the located
+  //     child's primary key) — measured: silent wrong-row corruption against a decoy
+  //     holding the cross-matched tuple, a silent orphan, and a raw ForeignKeyError.
+  //     Refused at construction until E4's per-field parent source exists. Witnesses:
+  //     `upsert-arm-referenced-edge.test.ts` (refusals with empty statement logs +
+  //     working single-column control).
+  //   · **+1, the foreign key the relation already spoke for** (M12 —
+  //     `RelationWritePart`, `assertOwnedFkAbsentFromUpdateData`, one throw site, three
+  //     call positions). The relation-owned FK spelled in nested UPDATE data was silently
+  //     accepted at the inverse to-one update, the inverse to-one upsert update arm, and
+  //     the to-many update — and the spelled value WON over the engine's correlation,
+  //     reparenting the child away from the parent it was being updated through; both
+  //     spellings (bare and `{ set }`) reached the same write. Same message family as the
+  //     adopt-family seam, now built in `messages.ts` so it cannot drift. Witnesses:
+  //     `nested-update-owned-fk.test.ts` (6 positions x 2 spellings + controls). The
+  //     nested `updateMany` twin is measured, still silent, and deliberately NOT widened
+  //     here — recorded in the E-plan as a parse-boundary follow-up.
+  //   · **+2, one slot, one intent** (M8a — the `kinds.length > 1` twins at the
+  //     child-held to-one dispatch, `CreateOperation.interpretChildHeld` and
+  //     `UpdateOperation.interpretRelation`'s inverse branch). The parent-held dispatch
+  //     always demanded one kind; the child-held dispatch LOOPED every kind, so
+  //     `{ create, connect }` ran both — a UniqueConstraintError standing in for a typed
+  //     refusal on the unique-FK leg, and TWO ROWS in a to-one slot on the non-unique
+  //     leg. `> 1`, not `!== 1`: the empty payload stays Prisma's measured no-op. The
+  //     census's to-one two-kinds family covers the ARM positions; these twins cover the
+  //     dispatch positions. Witnesses: `child-held-to-one-multi-kind.test.ts`.
+  // The fifth fix (M1, the delegated stale-FK correlation) and the sixth (M5, the mysql2
+  // undefined bind) change no route: they correct wrong-row/driver behavior on ACCEPTED
+  // shapes — `parent-held-delegated-fk-rebind-correlation.test.ts`,
+  // `optional-absent-bind.test.ts`.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
-    const dir = join(import.meta.dirname, "../../src/query-engine/write-engine");
+    const dir = join(
+      import.meta.dirname,
+      "../../src/query-engine/write-engine"
+    );
     const files = (await readdir(dir)).filter((f) => f.endsWith(".ts"));
     let sites = 0;
     for (const file of files) {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(39);
+    expect(sites).toBe(43);
   });
 });
 
