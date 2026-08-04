@@ -1962,6 +1962,40 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //   One merge-time retarget: e4-create-fields-less-to-one's compound-carve pin was a
   //   commit-order proof (U1 before U2); U2 discharged the refusal it pinned, so the pin
   //   became the state witness the discharge owes (per-field values asserted).
+  // 36 -> 34 (E5, BEYOND PARITY AND THE LAST ENVELOPE — the maintainer's rule made law:
+  // nothing below survives because Prisma refuses it).
+  //   · **-1 then +1 then -1 (net -1), m2m upsert under a CREATE root**: Prisma refuses
+  //     the shape; the engine now runs it as the documented adopt superset — global
+  //     probe (the fresh-parent elision: a row this operation MAKES has no members),
+  //     found means update-if-nonempty + ALWAYS the join row, absent rides E4's
+  //     freshTargetFold with the racePin. The member arm was measured to be the WRONG
+  //     donor (no join row, skips empty updates — falsified: stripping the unconditional
+  //     joinInsert fails 12 witnesses). assertCreateTreeKinds DEMOTED to QueryEngineError
+  //     on a measurement (all eleven kinds driven publicly: with upsert absorbed the
+  //     allowed set EQUALS the parse-admitted set). One new typed carve-out
+  //     (assertAdoptArmFoldsInPlace): a found arm needing the whole-target update would
+  //     re-locate the adopted row by SELECTOR instead of the probe's captured key —
+  //     refused until E6.1 wires config.targetProbeIds (the update-root twin is recorded
+  //     there too). Witnesses: create-junction-upsert(.test|-behavior|-docker.test).ts.
+  //   · **count flat, the owned-FK AGREE case** (the adopt seam): { set: v } unwrapped,
+  //     fkEquals verbatim, agreement STRIPS the spelled key before separateData so the
+  //     engine's fold stays the single provenance; disagree/null/arithmetic/compound
+  //     keep D4's one message byte-identically, and the no-compare boundary WIDENED from
+  //     ref-only to planned+ref (measured). The create-arm half is parse-unreachable
+  //     (CreateWithOmittedFk omits the key) — pinned as a WALL test, kept as one
+  //     structural decision. Witnesses: adopt-owned-fk-agreement(...).ts.
+  //   · **-2, the upsert envelope went home** (X2 completed): assertUpsertKeys and
+  //     requireRecord are DELETED; upsertEnvelopeSchema (model-blind, no transform, no
+  //     arm descent, rawRecord() reference-equal arms) parses at the ONE construction
+  //     path; the class changes UnsupportedOperationError/no-code -> ValidationError/
+  //     P2009; the surviving narrowing is a QueryEngineError worded deliberately outside
+  //     the parse-boundary gate's regex (the ratchet caught a draft that was not — the
+  //     ceiling is load-bearing); MAX_SHAPE_THROW_MESSAGES 20 -> 19 in the same commit.
+  //     deferArmLegality re-measured: the deferral is UPDATE-ARM-ONLY (whole-args parse
+  //     + CLASS IV/V analyses) while both arms' scalar halves validate at construction —
+  //     the old description was wrong, the contract is now pinned as measured.
+  //     Witnesses: upsert-envelope-parse-boundary.test.ts,
+  //     upsert-untaken-arm-legality.test.ts, tests/validation/raw-record.test.ts.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1975,7 +2009,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(36);
+    expect(sites).toBe(34);
   });
 });
 
