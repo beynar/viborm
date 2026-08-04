@@ -83,7 +83,9 @@ test("through the PUBLIC client: an empty nested update writes nothing and needs
   try {
     await push(client, { force: true });
     await client.holder.create({ data: { id: 1, name: "h" } });
-    await client.item.create({ data: { id: 30, title: "item-a", holderId: 1 } });
+    await client.item.create({
+      data: { id: 30, title: "item-a", holderId: 1 },
+    });
 
     await client.holder.update({
       where: { id: 1 },
