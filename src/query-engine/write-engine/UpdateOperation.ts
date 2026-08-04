@@ -1349,6 +1349,24 @@ export class UpdateOperation {
       // (construction-known) FK literal into the root SET; `create`/`connectOrCreate`
       // write the target before the root UPDATE and reference its identity from the
       // UPDATE's SET (TO-ONE.md §7.0.2). Only one kind per to-one relation.
+      //
+      // E6.5 RE-JUSTIFIED, MEASURED. The vacate+supply pairs the inverse-side twin
+      // below absorbs do NOT compose here, and the reason is this direction's own
+      // write shape rather than the payload. `delete` is not one write but two — an
+      // UPDATE that NULLs the parent's own foreign key and a correlated DELETE of the
+      // old target — and the FK-null lands in the post-root write bucket, AFTER the
+      // supplier's rebind has already been folded into the root SET. Driving
+      // `{ delete: true, create: {...} }` through with only this guard lifted was
+      // measured at 8c2908d: the fresh row is inserted and then ORPHANED —
+      // `station.depotId = null`, `depots = [d-alt, d-new]` — the supplier's whole
+      // point undone by the vacate that was supposed to precede it. Making the pair
+      // mean what it says here is an ORDERING change (elide the FK-null when a
+      // sibling supplier rebinds the same column in the same payload), not a lifted
+      // guard, so the guard stays and the pair stays refused. `disconnect` + a
+      // supplier measured CORRECT in the same run, but only because both spellings
+      // collide on one key of the root SET and the later one wins by object-assign
+      // order — an implicit contract with no test of its own; absorbing it means
+      // owning that ordering deliberately, which is the same unit.
       if (kinds.length !== 1) {
         throw new UnsupportedOperationError(
           `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
@@ -1392,7 +1410,19 @@ export class UpdateOperation {
     // depended on whether the child's foreign key carried a unique — a database
     // `UniqueConstraintError` on a 1:1 leg, TWO ROWS in the to-one slot and no diagnostic
     // at all on a fields-less `manyToOne` inverse, whose FK is not unique.
-    if (isInverseToOne && kinds.length > 1) {
+    //
+    // E6.5 — except for a VACATE followed by a SUPPLY ({@link isVacateThenSupply}),
+    // which is the one two-kind shape that leaves the slot holding exactly ONE row.
+    // Two kinds, but ONE identity: the vacate names the row that is there now, the
+    // supplier names the row that will be. On this direction they touch DIFFERENT rows
+    // of the child table (the incumbent's foreign key, then the newcomer's), so the
+    // per-kind loop's `RELATION_MUTATION_KEYS` order is the whole mechanism — nothing
+    // is folded into a shared SET and no ordering has to be invented. Measured at
+    // 8c2908d over all six pairs: the incumbent ends orphaned under `disconnect` and
+    // GONE under `delete`, the supplied row ends connected, and the untouched decoy
+    // stays untouched. (`delete` + `connectOrCreate` is refused one layer up, by the
+    // own-write legality walk, and keeps that refusal.)
+    if (isInverseToOne && kinds.length > 1 && !isVacateThenSupply(kinds)) {
       throw new UnsupportedOperationError(
         `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ")}.`
       );
@@ -4049,6 +4079,50 @@ function resolveParentFkRebinds(
     if (resolved.resolved) override[fkField] = resolved.value;
   }
   return override;
+}
+
+/** Kinds that VACATE a to-one slot: they name the row that is there now and take it
+ *  out of the slot, leaving the slot empty. */
+const TO_ONE_VACATE_KINDS: ReadonlySet<string> = new Set([
+  "disconnect",
+  "delete",
+]);
+
+/** Kinds that SUPPLY a to-one slot with exactly one identity and read nothing that a
+ *  vacate could have invalidated. `upsert` is deliberately absent: it is a supplier
+ *  only on the arm its own probe does not take, so paired with a vacate its meaning
+ *  depends on state the vacate destroys. */
+const TO_ONE_SUPPLY_KINDS: ReadonlySet<string> = new Set([
+  "connectOrCreate",
+  "connect",
+  "create",
+]);
+
+/**
+ * E6.5 — a VACATE-then-SUPPLY pair on one to-one slot: `{delete, create}` is replace,
+ * `{disconnect, connect}` is retarget, and the four cross pairs are the same two moves.
+ *
+ * The old argument called every two-kind payload a contradiction — "two kinds name two
+ * intents for one slot". For two SUPPLIERS that is exactly right (two identities, one
+ * slot, no canonical winner) and they stay refused. A vacate and a supplier name ONE
+ * identity between them, in a fixed order: `kinds` arrives in `RELATION_MUTATION_KEYS`
+ * order, whose stage 1 (named readers — `disconnect`, `delete`) precedes stage 3 (pure
+ * adders — `connect`, `create`) with `connectOrCreate` in stage 1 ahead of both. So the
+ * vacate is always emitted first and the supplier last, and the final state is the
+ * supplier's row in an otherwise empty slot — the same state the two operations produce
+ * when a caller splits them, which is what makes the sequence the payload's meaning
+ * rather than a guess. Prisma refuses the pair; the maintainer's rule says parity is not
+ * a reason.
+ *
+ * Both members are required to be present exactly once — a third kind reopens the
+ * question the pair answers, so the guard still fires for it.
+ */
+function isVacateThenSupply(kinds: readonly string[]): boolean {
+  return (
+    kinds.length === 2 &&
+    TO_ONE_VACATE_KINDS.has(kinds[0]!) &&
+    TO_ONE_SUPPLY_KINDS.has(kinds[1]!)
+  );
 }
 
 /** CLASS V (T4c): whether an `updateMany` input (one item or an array) carries a
