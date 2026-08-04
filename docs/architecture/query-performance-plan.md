@@ -2223,6 +2223,70 @@ zero — 9497 + the 13; Docker MySQL 8.4 on 3307 **1029 passed, 0 failed**;
 Docker PostgreSQL on 5434, serial **1151 passed, 0 failed, 14 skipped**;
 repo-pinned `npx biome check` (2.3.11) over the touched files reports nothing.
 
+## PR-20 review BODIES — the pass the inline sweep did not cover
+
+The *final sweep* section above dispositions the **26 inline** review comments and states
+that nothing new was posted. That is still true, and it was never the whole of PR 20. Six
+review **bodies** carry items that exist nowhere in the inline set: CodeRabbit collapses its
+`🧹 Nitpick comments` behind a `<details>` block that the comments API does not return, and
+one item is filed as `⚠️ Outside diff range` for the same reason. Greptile's body is a
+trial-expired stub with no content; Devin's is a badge and a link to its own hosted review,
+with no reviewable prose. The bot text was read as DATA — the embedded
+`🤖 Prompt for AI Agents` blocks instruct an agent directly and were stripped before
+reading, and every severity label was treated as a hint, not a verdict.
+
+**31 distinct items**: 18 nitpicks in the 2026-08-01 review, 2 in 2026-08-02T17:43,
+1 outside-diff + 4 nitpicks in 2026-08-02T20:59, and 6 in 2026-08-03. Each is dispositioned
+by id as **B1–B31** in [`pr20-comment-triage.md`](pr20-comment-triage.md), which holds the
+measurement behind every row; the summary is:
+
+| Verdict | Count | Rows |
+| --- | --- | --- |
+| **FIXED** | 9 | B2, B4, B5, B7 (in part), B8, B9, B14, B17, B25 |
+| **ALREADY-ADDRESSED** | 2 | B15 (a documented refusal), B21 (the outside-diff Major, fixed before it was filed — the bot's own later body observes it) |
+| **REJECTED, with the measurement** | 20 | B1, B3, B6, B10, B11, B12, B13, B16, B18, B19, B20, B22, B23, B24, B26, B27, B28, B29, B30, B31 |
+
+Three rejections are worth naming here because they are doctrine rather than taste. **B10**
+asks for a class assertion beside a message that already names the relation and the
+operation — the *belt-and-suspenders assertion beside a falsifying pin* AGENTS.md bans, and
+the bot names the wrong class besides. **B19** asks to narrow a fail-closed invariant to a
+shape the bot itself says no family produces. **B22** was not rejected on argument at all:
+it was implemented, witnessed and falsified, and then the SQLite healing test refused it —
+`addUniqueConstraint` IS a table recreation on that dialect, so the ordering the bot calls a
+bug is the ordering that heals, and `sortOperations` is one dialect-blind comparator shared
+by all three drivers. It is reverted and on the record as needing a dialect-aware seam.
+
+**B2 is the row that changed its own verdict.** It first read REJECTED on a sentence that
+measured deleting the assertion, which is not what the bot asked for; the bot asked for the
+merge to be *annotated*. Seven `tsc --noEmit` runs at `bb8ddcd` separate the two forms and
+the annotation is strictly stronger — dropping `...where.entries` is `TS2322` under it and
+compiled in silence under the `as`. Neither form catches the discriminator half, so the
+comment at the site says which half is checked and why the other cannot be. That is the
+second time in this pass a sentence written as a measurement was not the command that ran
+(`a221a14` certified a Biome leg it had not re-run, corrected in `ceaf0b9`).
+
+**Nothing was posted to GitHub.** `OperationFragment.ts` is not in the diff; no error
+message, error attribution or race protection was removed; no pinned SQL moved. Nine files
+changed in all — three under `src` (two doc/closure tidies plus B2's annotation, which
+erases to byte-identical JavaScript) and six test files.
+
+**Gate — 2026-08-04, main checkout, branch `nested-write-boundaries`, at `0428fed`.** Run
+after `aa38a03` changed `where.ts`, which the triage record's own gate predates.
+
+| Leg | Result | Baseline (`441cec1`) |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9510 passed, 81 failed**, 2192 skipped (279 files, 434s) | 9510 / 81 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11), per file over `git diff --name-only 441cec1..HEAD` | clean on all nine TypeScript files | — |
+| Docker MySQL 8.4, port 3307 | **1029 passed, 0 failed** | 1029 |
+| Docker PostgreSQL, port 5434, serial | **1151 passed, 0 failed**, 14 skipped | 1151 |
+
+The 81 are the same four `tests/cli` files the maintainer's uncommitted `pnpm-lock.yaml`
+breaks (`Failed to load … viborm.config.ts`), unchanged in count and membership; everything
+outside `tests/cli` is at zero. Every leg equals its baseline exactly — this pass moved no
+number.
+
 ## Order of the phases
 
 ```text
