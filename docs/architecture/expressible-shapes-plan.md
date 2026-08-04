@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-04 (v2, rewritten after the adversarial edge-case audit of the same day)
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Status:** Plan only. No work has started. Version 1 of this plan is superseded; its errors are recorded below.
+**Status:** In progress. Wave E0 DELIVERED 2026-08-04 (all twelve probes; record below). The D-wave (five defect fixes E0 confirmed) is in flight. Version 1 of this plan is superseded; its errors are recorded below.
 
 ## The audit that produced this version
 
@@ -38,11 +38,29 @@ The maintainer's rules stand: **parity with Prisma is not a reason to refuse**, 
 8. **The `.join(",")` gate (new).** `buildArmChildParts` (`RelationUpsertPart.ts:976`) is the engine's only string-equality kind dispatch. E3 must replace it with the canonical per-kind loop over `getRelationMutationKinds`. Review gate, mechanical: if `.join(",")` survives in `buildArmChildParts` after E3, block the merge. A kind that cannot cross the arm boundary is excluded inside the loop with a measured refusal, never by re-stringifying.
 9. **The batch capture wall (new, proven).** `compileToEntries` threads only `insertId` outputs of writes; a write's `firstRowField` (RETURNING) output cannot feed a later statement in an atomic batch (`OperationExecutor.ts:563-633`, unresolved ref throws at `:956-967`). Every RETURNING-capture absorption is **transaction-substrate only**; the batch side keeps a typed refusal naming this wall.
 10. **The third execution seam (new).** The shared `$transaction([...])` driver-batch merge refuses `insertId`-threading fragments on batch-only drivers (fail-closed, `OperationExecutor.ts:232-259`). Witnesses that say "both substrates" must not imply this seam; such operations run as their own atomic unit.
-11. **The MySQL 1093 class (new).** A SET-side FK lookup subquery over the table being mutated (self-relations) raises MySQL error 1093. The N6-U2 `mutationTable` derived-table wrap lives in the relation-FILTER builder only; SET-side subqueries do not get it. Every lookup-subquery absorption carries the wrap or a per-dialect carve-out.
+11. **The MySQL 1093 class (new; widened by M2).** A SET-side or DELETE-predicate FK lookup subquery over the table being mutated (self-relations) raises MySQL error 1093 — measured on 8.4.10; INSERT VALUES-side subqueries are exempt (also measured). The N6-U2 `mutationTable` derived-table wrap lives in the relation-FILTER builder only. Every lookup-subquery absorption in an UPDATE SET or DELETE predicate carries the wrap or a per-dialect carve-out.
 
-## Wave E0 — the measurements (before any code)
+## Wave E0 — the measurements (DELIVERED 2026-08-04)
 
-Cheap, mostly test-only probes. Each has a total decision rule: no outcome is undecided.
+All twelve probes ran (six opus lanes, worktree-isolated, surgical runs only). **Five live defects confirmed in shipped code** — their fixes are the D-wave, which precedes E1:
+
+- **D1 (M1, wrong-row):** the delegated parent-held update correlates on the STALE FK value beside a legal literal rebind; both substrates, both spellings; the batch guard confirms the stale row. Fix: the per-field override channel in `NestedTargetLocate`, matching the in-place twin's pinned FINAL-value semantics; rewrite the false comment at `UpdateOperation.ts:2399-2400`.
+- **D2 (M5, mysql2):** an absent optional firstRowField Ref binds `undefined`; mysql2's binder rejects it — a shipped public shape errors on MySQL today (ATOM's plans-cleanly claim is false on that leg). Fix: normalize the absent-optional bind to NULL at the engine seam; non-optional refs keep throwing.
+- **D3 (M11, wrong-row):** `buildOneUpsertPart` admits compound edges into a single-value parent source — field-0 into every FK column; silent corruption/orphan/raw FK error measured publicly. Fix: construction-time typed refusal (census +1); the per-field source stays E4's unit.
+- **D4 (M12, wrong-provenance):** the owned FK spelled beside the relation is silently accepted at THREE child-held/inverse positions and WINS over the correlation; both spellings. Fix: extend the owns-it refusal to the three positions with `{ set }` unwrap (census +N); E5 later absorbs the agree case.
+- **D5 (M8, two halves):** `{create, connect}` on child-held to-one runs BOTH kinds (two rows in a to-one slot — live on the update root today); the schema/engine inverse scanners disagree → silent FK overwrite. Fix: the kinds.length===1 twin at both roots + scanner alignment (census +1/+2).
+
+**Measurement outcomes folded into the waves:**
+- **M2:** create root CLEAN on MySQL 8.4.10 (INSERT-side subqueries exempt); the UPDATE-root 1093 is measured fact — E1 row 1's wrap/carve MUST ship; rule 11 widened to DELETE predicates.
+- **M3:** Prisma 7.9.1 ACCEPTS shared-PK at the update root and TRANSITIONS THE PARENT'S OWN PK (V1's semantics); occupied destination key → P2014. `:2908` ships no absorption here: re-filed (b) under E6.7's transition family; E1 row 5 is a comment/reclassification.
+- **M4:** Prisma refuses m2m `updateMany` nested relations at type+parser level for EVERY multiplicity — nothing to absorb. The recorded justification is the ENGINE-side reason (a set-based UPDATE has no per-row identity for a child write to reference); Prisma corroborates, it does not justify.
+- **M6:** the comparator domain is ALL-CANONICAL — no Date/Decimal instance reaches the seam (the parse normalizes to canonical primitive strings). E5's comparator: unwrap `{ set: v }` (mandatory — every spelling arrives wrapped), then `fkEquals` verbatim; two fail-closed caveats recorded (non-canonical ISO dateTime spelling, citext case) — both refuse, never mis-write.
+- **M7:** the create walk ALREADY rejects overlapping m2m upsert selectors and upsert-beside-connectOrCreate — E5's gate is MET; pin the three messages as witnesses. **M7-b(ii) reviewer decision:** upsert+connect / upsert+create naming one row are accepted at BOTH roots (shipped semantics) — no walk extension; E5 measures the two compositions post-donor and pins the result (a non-idempotent join write would be a NEW defect, not an own-write question).
+- **M9:** payload (i) REACHES `:969` on both substrates — E6.2 is an ABSORPTION (insertId member ⊎ spelled literals), no demotion, no census −1.
+- **M10:** PINNED — the root PERMITS: insert new child, re-point the FK in the root UPDATE's own SET, strand the old child; no occupied guard, no pre-check. E3's `:1090` mirror reproduces exactly this (insert-then-SET-into-the-arm-UPDATE); there is no occupied decision to reproduce, so the carve is cheaper than v2 stated.
+- **M5 (rule outcome):** per-dialect, not binary — after D2 lands, branch 1 (absorb with witnesses) applies globally for E3.
+
+The original probe table with decision rules follows, for the record.
 
 | # | Probe | Decision rule |
 |---|---|---|
