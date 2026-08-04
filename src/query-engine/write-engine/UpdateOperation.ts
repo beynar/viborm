@@ -2539,9 +2539,17 @@ export class UpdateOperation {
    * uses it. So a foreign key that references some OTHER unique of the child is a
    * shape this ledger already expresses; only the ARITY was ever load-bearing.
    *
-   * A COMPOUND edge stays refused (the compound-identity family, E6.4): the probe
-   * captures one column and the write addresses one column, and widening both to a
-   * tuple is that family's work, not this one's.
+   * E6.4 — the ARITY OF THE EDGE was never load-bearing either, and the old refusal
+   * conflated it with the arity of the child's own key. The ledger's two jobs stay
+   * separate: {@link parentHeldCorrelationFilters} already emits ONE conjunct per
+   * referenced column, index-aligned with the parent FK column it reads (the same
+   * per-field loop `connect` / `disconnect` / `create` on the very same compound edge
+   * have always used — measured: those three kinds execute today while these three
+   * threw), so a compound edge needs no new mechanism here. What the probe CAPTURES
+   * and the arm's write ADDRESSES is the child's own primary key, and that is a
+   * single value exactly when the CHILD has one primary key — the one fact this guard
+   * still asserts, and the only half of the compound-identity family this unit leaves
+   * for the rest of E6.4.
    */
   private parentHeldCorrelation(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
@@ -2551,13 +2559,9 @@ export class UpdateOperation {
     kind: string
   ): { correlation: ParentHeldCorrelation; childPrimaryKey: string } {
     const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-    if (
-      fk.fkFields.length !== 1 ||
-      fk.pkFields.length !== 1 ||
-      childPrimaryKeys.length !== 1
-    ) {
+    if (childPrimaryKeys.length !== 1) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 update supports only a single-field reference for '${kind}' on the parent-held to-one relation '${relationName}'.`
+        `query-engine-v2 update requires a child with one primary key for '${kind}' on the parent-held to-one relation '${relationName}'.`
       );
     }
     // Every parent FK column must be a firstRowField output of the locate read so
