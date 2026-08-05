@@ -430,12 +430,12 @@ export class CreateOperation {
     // the whole enclosing tree, so it is skipped here (V1 checks it inside the
     // whenFalse branch only; a nested subtree's own-write is covered by the
     // enclosing operation's whole-tree walk).
-    const ownWrite = buildParsedRelationPrograms(parent, data);
+    const parsedData = buildParsedRelationPrograms(parent, data);
     const assertOwnWrite = () => {
       new OwnWritePreflight().assertCreate(
         parent,
-        ownWrite.scalarData,
-        ownWrite.relations
+        parsedData.scalarData,
+        parsedData.relations
       );
     };
     if (options.skipOwnWrite) {
@@ -449,7 +449,7 @@ export class CreateOperation {
       ? ""
       : this.scope.allocate(`${getStepModelName(model, "record")}.select`);
 
-    this.root = this.buildRecord(parent, data, txMode);
+    this.root = this.buildRecord(parent, data, txMode, undefined, parsedData);
 
     // The statement-atomic fast path (PERF): a pure scalar create — no nested
     // relation work — with a scalar-only projection on a RETURNING driver folds
@@ -699,10 +699,10 @@ export class CreateOperation {
     childScope: QueryScope,
     data: Record<string, unknown>,
     txMode: boolean,
-    presetWriteStepId?: string
+    presetWriteStepId?: string,
+    parsedData = buildParsedRelationPrograms(childScope, data)
   ): RecordPlan {
     const model = childScope.model;
-    const separated = buildParsedRelationPrograms(childScope, data);
     // T3c (shared-PK parent-held edge absorbed): a record whose primary key IS its
     // FK gets that PK from the edge fold, not scalar data — so `planNestedCreateIdentity`
     // would reject it as "primary key not known". Resolve the shared PK from a
@@ -712,13 +712,13 @@ export class CreateOperation {
     // yields no literal here; the shared-PK decline below still routes those to V1.
     const sharedPk = this.resolveSharedPkIdentity(
       childScope,
-      separated.relations
+      parsedData.relations
     );
     const { identity, generatedField } = planNestedCreateIdentity(model, {
-      ...separated.scalarData,
+      ...parsedData.scalarData,
       ...sharedPk.identity,
     });
-    const scalarData = { ...separated.scalarData };
+    const scalarData = { ...parsedData.scalarData };
     if (generatedField) delete scalarData[generatedField];
 
     const recordName = getStepModelName(model, "record");
@@ -744,11 +744,11 @@ export class CreateOperation {
     // arms so coverage is order-insensitive, exactly as V1's group-0 analysis.
     const coverage = this.beforeParentCoverage(
       childScope,
-      separated.relations
+      parsedData.relations
     );
 
     for (const [relationName, program] of Object.entries(
-      separated.relations
+      parsedData.relations
     )) {
       this.interpretRelation({
         childScope,
@@ -859,9 +859,7 @@ export class CreateOperation {
       const entry = entries[0];
       if (!entry) continue;
       const armSpec =
-        entry.kind === "connectOrCreate"
-          ? entry.items[0]
-          : undefined;
+        entry.kind === "connectOrCreate" ? entry.items[0] : undefined;
       // The value the found arm's foreign key takes, per E6.3's note above.
       const agreeWith =
         armSpec && isRecord(armSpec.create) ? armSpec.create : undefined;
@@ -923,7 +921,13 @@ export class CreateOperation {
           identity[fkField] = ref(producedStep, "id");
         }
       }
-      assertSharedPkResolved(childScope, relationName, entry.kind, fk, identity);
+      assertSharedPkResolved(
+        childScope,
+        relationName,
+        entry.kind,
+        fk,
+        identity
+      );
     }
     return { identity, producedBy };
   }
@@ -1444,10 +1448,7 @@ export class CreateOperation {
           input.afterParts.push(
             // P4 — one Part per key-shape GROUP, so `connect: [a, b, c]` sends one
             // probe and one write instead of six statements.
-            ...groupLinkTargets(
-              childScope,
-              entry.targets
-            ).map(
+            ...groupLinkTargets(childScope, entry.targets).map(
               (wheres) =>
                 new ChildConnectPart(this.scope, {
                   engine: this.engine,

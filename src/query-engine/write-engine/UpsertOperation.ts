@@ -5,7 +5,7 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import { separateData } from "../builders/relation-data-builder";
+import { partitionModelData } from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import {
   getWhereUniqueEntries,
@@ -228,11 +228,14 @@ export class UpsertOperation {
     this.parentPrimaryKeys = parentPrimaryKeys;
 
     // T3c: a scalar arm stays inline; a relation-bearing arm delegates to the
-    // create-root / update-root machinery. Separate each arm to decide.
-    const createSep = separateData(parent, create);
-    const updateSep = separateData(parent, update);
-    const createHasRelations = Object.keys(createSep.relations).length > 0;
-    const updateHasRelations = Object.keys(updateSep.relations).length > 0;
+    // create-root / update-root machinery. Partition each raw arm only to decide;
+    // the delegated operations own validation and program construction.
+    const createPartition = partitionModelData(parent, create);
+    const updatePartition = partitionModelData(parent, update);
+    const createHasRelations =
+      Object.keys(createPartition.relationPayloads).length > 0;
+    const updateHasRelations =
+      Object.keys(updatePartition.relationPayloads).length > 0;
 
     // CLASS IV (T4c): a **parent-held to-one** relation in the update arm builds a
     // probe correlated to the located parent's FK (a `firstRowField` of the delegated
@@ -265,7 +268,7 @@ export class UpsertOperation {
       ? {}
       : parseValidated(
           parentSchemas.core.scalarCreate,
-          createSep.scalarData,
+          createPartition.scalarData,
           "upsert",
           "create"
         );
@@ -273,7 +276,7 @@ export class UpsertOperation {
       ? {}
       : parseValidated(
           parentSchemas.core.scalarUpdate,
-          updateSep.scalarData,
+          updatePartition.scalarData,
           "upsert",
           "update"
         );
