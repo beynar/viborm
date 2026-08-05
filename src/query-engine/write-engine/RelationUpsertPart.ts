@@ -4,9 +4,13 @@ import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
   getFkDirection,
-  type RelationMutation,
-  separateData,
+  type ConnectOrCreateInput,
 } from "../builders/relation-data-builder";
+import {
+  buildParsedRelationPrograms,
+  type NormalizedRelationUpsert,
+  type RelationMutationProgram,
+} from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
@@ -923,7 +927,7 @@ export function buildToManyUpsertParts(
   engine: QueryEngine,
   relationName: string,
   relationInfo: RelationInfo,
-  items: readonly Record<string, unknown>[],
+  items: readonly NormalizedRelationUpsert[],
   parent: UpsertParentBinding,
   txMode: boolean,
   seam: ArmSeam,
@@ -974,7 +978,17 @@ export function buildToManyUpsertParts(
       : undefined;
   const childPk = child ? getPrimaryKeyFields(child.model)[0] : undefined;
   const seenTargets = child ? new Set<string>() : undefined;
-  return items.map((item) => {
+  return items.map((normalizedItem) => {
+    if (normalizedItem.target.kind !== "unique") {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: to-many upsert for relation '${relationName}' requires a unique target.`
+      );
+    }
+    const item: AdoptMutationItem = {
+      where: normalizedItem.target.where,
+      create: normalizedItem.create,
+      update: normalizedItem.update,
+    };
     let duplicateOfEarlier = false;
     if (seenTargets && childPk !== undefined) {
       const key = connectOrCreateTargetKey(item, childPk);
@@ -1000,7 +1014,7 @@ export function buildToManyUpsertParts(
 /** The stable target-PK key of a connectOrCreate item (its create data's child
  *  PK, falling back to the `where` unique) — the ledger key for first-create-wins. */
 function connectOrCreateTargetKey(
-  item: Record<string, unknown>,
+  item: AdoptMutationItem,
   childPk: string
 ): string {
   const create = isRecord(item.create) ? item.create : undefined;
@@ -1022,12 +1036,12 @@ export function buildConnectOrCreateParts(
   engine: QueryEngine,
   relationName: string,
   relationInfo: RelationInfo,
-  items: readonly Record<string, unknown>[],
+  items: readonly ConnectOrCreateInput[],
   parentId: AdoptParentIdSource,
   txMode: boolean,
   seam: ArmSeam
 ): RelationUpsertPart[] {
-  return buildToManyUpsertParts(
+  return buildAdoptParts(
     scope,
     parentScope,
     engine,
@@ -1036,9 +1050,48 @@ export function buildConnectOrCreateParts(
     items,
     { correlation: "global-adopt", parentId },
     txMode,
-    seam,
-    "connectOrCreate"
+    seam
   );
+}
+
+function buildAdoptParts(
+  scope: StepScope,
+  parentScope: QueryScope,
+  engine: QueryEngine,
+  relationName: string,
+  relationInfo: RelationInfo,
+  items: readonly AdoptMutationItem[],
+  parent: UpsertParentBinding,
+  txMode: boolean,
+  seam: ArmSeam
+): RelationUpsertPart[] {
+  const child = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const childPk = getPrimaryKeyFields(child.model)[0];
+  const seenTargets = new Set<string>();
+  return items.map((item) => {
+    const key = childPk ? connectOrCreateTargetKey(item, childPk) : undefined;
+    const duplicateOfEarlier = key !== undefined && seenTargets.has(key);
+    if (key !== undefined) seenTargets.add(key);
+    return buildOneUpsertPart(
+      scope,
+      parentScope,
+      engine,
+      relationName,
+      relationInfo,
+      item,
+      parent,
+      txMode,
+      seam,
+      "connectOrCreate",
+      duplicateOfEarlier
+    );
+  });
+}
+
+interface AdoptMutationItem {
+  readonly where: Record<string, unknown>;
+  readonly create: Record<string, unknown>;
+  readonly update?: Record<string, unknown>;
 }
 
 function buildOneUpsertPart(
@@ -1047,7 +1100,7 @@ function buildOneUpsertPart(
   engine: QueryEngine,
   relationName: string,
   relationInfo: RelationInfo,
-  item: Record<string, unknown>,
+  item: AdoptMutationItem,
   parent: UpsertParentBinding,
   txMode: boolean,
   seam: ArmSeam,
@@ -1085,7 +1138,7 @@ function buildOneUpsertPart(
     requireRecord(item.create, `${relationName}.${family}.create`),
     ownedFk
   );
-  const childCreate = separateData(child, create);
+  const childCreate = buildParsedRelationPrograms(child, create);
   // connectOrCreate has no update payload; its found arm is a pure connect.
   const update =
     family === "connectOrCreate"
@@ -1097,7 +1150,7 @@ function buildOneUpsertPart(
   const childUpdate =
     update === undefined
       ? { scalarData: {}, relations: {} }
-      : separateData(child, update);
+      : buildParsedRelationPrograms(child, update);
   if (update !== undefined) {
     // V1's PK-arithmetic portability check on the nested upsert update arm
     // (float/decimal non-portability, divide-by-zero, one-op) — a construction-
@@ -1233,7 +1286,7 @@ function buildArmChildParts(
   child: QueryScope,
   childPrimaryKey: string,
   parentId: ParentIdSource,
-  relations: Record<string, RelationMutation>,
+  relations: Record<string, RelationMutationProgram>,
   txMode: boolean,
   seam: ArmSeam
 ): readonly Part[] {
@@ -1278,7 +1331,7 @@ function buildArmChildParts(
 function assertArmEdgeIsChildHeld(
   child: QueryScope,
   relationName: string,
-  mutation: RelationMutation
+  mutation: RelationMutationProgram
 ): void {
   const { relationInfo } = mutation;
   if (relationInfo.type === "manyToMany") return;
@@ -1369,7 +1422,7 @@ function assertArmPkStable(
   relationName: string,
   wherePk: { readonly value: unknown } | undefined,
   updateScalarData: Record<string, unknown>,
-  relations: Record<string, RelationMutation>
+  relations: Record<string, RelationMutationProgram>
 ): void {
   if (Object.keys(relations).length === 0) return;
   if (!Object.hasOwn(updateScalarData, childPrimaryKey)) return;
@@ -1418,7 +1471,7 @@ function assertArmEdgeReferencesLocatedPk(
   child: QueryScope,
   childPrimaryKey: string,
   relationName: string,
-  mutation: RelationMutation
+  mutation: RelationMutationProgram
 ): void {
   const { relationInfo } = mutation;
   // Many-to-many has no FK direction to ask for (asking `getFkDirection` would raise its

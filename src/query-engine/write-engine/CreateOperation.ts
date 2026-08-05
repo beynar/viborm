@@ -11,12 +11,11 @@ import {
   buildConnectSubqueryForField,
   type FkDirection,
   getFkDirection,
-  type RelationMutation,
-  separateData,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
-  getRelationMutationKinds,
+  type RelationMutationEntry,
+  type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { buildInsert, buildValueGroups } from "../builders/values-builder";
 import {
@@ -703,7 +702,7 @@ export class CreateOperation {
     presetWriteStepId?: string
   ): RecordPlan {
     const model = childScope.model;
-    const separated = separateData(childScope, data);
+    const separated = buildParsedRelationPrograms(childScope, data);
     // T3c (shared-PK parent-held edge absorbed): a record whose primary key IS its
     // FK gets that PK from the edge fold, not scalar data — so `planNestedCreateIdentity`
     // would reject it as "primary key not known". Resolve the shared PK from a
@@ -713,8 +712,7 @@ export class CreateOperation {
     // yields no literal here; the shared-PK decline below still routes those to V1.
     const sharedPk = this.resolveSharedPkIdentity(
       childScope,
-      separated.relations,
-      data
+      separated.relations
     );
     const { identity, generatedField } = planNestedCreateIdentity(model, {
       ...separated.scalarData,
@@ -746,11 +744,10 @@ export class CreateOperation {
     // arms so coverage is order-insensitive, exactly as V1's group-0 analysis.
     const coverage = this.beforeParentCoverage(
       childScope,
-      separated.relations,
-      data
+      separated.relations
     );
 
-    for (const [relationName, mutation] of Object.entries(
+    for (const [relationName, program] of Object.entries(
       separated.relations
     )) {
       this.interpretRelation({
@@ -758,11 +755,7 @@ export class CreateOperation {
         self,
         sharedPkWriteStepId: sharedPk.producedBy.get(relationName),
         relationName,
-        mutation,
-        relationInput: requireRecord(
-          data[relationName],
-          `data.${relationName}`
-        ),
+        program,
         txMode,
         coverage,
         parentHeldArms,
@@ -845,14 +838,13 @@ export class CreateOperation {
    */
   private resolveSharedPkIdentity(
     childScope: QueryScope,
-    relations: Record<string, RelationMutation>,
-    data: Record<string, unknown>
+    relations: Record<string, RelationMutationProgram>
   ): SharedPkIdentity {
     const recordPk = getPrimaryKeyFields(childScope.model);
     const identity: Record<string, unknown> = {};
     const producedBy = new Map<string, string>();
-    for (const [relationName, mutation] of Object.entries(relations)) {
-      const relationInfo = mutation.relationInfo;
+    for (const [relationName, program] of Object.entries(relations)) {
+      const relationInfo = program.relationInfo;
       if (relationInfo.type === "manyToMany") continue;
       const fk = getFkDirection(childScope, relationInfo);
       if (!fk.holdsFK) continue;
@@ -860,25 +852,25 @@ export class CreateOperation {
         recordPk.includes(fkField)
       );
       if (sharedFkFields.length === 0) continue;
-      const kinds = getRelationMutationKinds(mutation);
+      const entries = program.entries;
       // A multi-kind to-one payload is `interpretParentHeld`'s own arity refusal,
       // which is more specific than this one and must reach the caller first.
-      if (kinds.length !== 1) continue;
-      const relationInput = data[relationName];
-      if (!isRecord(relationInput)) continue;
+      if (entries.length !== 1) continue;
+      const entry = entries[0];
+      if (!entry) continue;
       const armSpec =
-        kinds[0] === "connectOrCreate"
-          ? normalizeSingle(relationInput.connectOrCreate, relationName)
+        entry.kind === "connectOrCreate"
+          ? entry.items[0]
           : undefined;
       // The value the found arm's foreign key takes, per E6.3's note above.
       const agreeWith =
         armSpec && isRecord(armSpec.create) ? armSpec.create : undefined;
       const source =
-        kinds[0] === "connect"
-          ? normalizeSingle(relationInput.connect, relationName)
-          : kinds[0] === "create"
-            ? normalizeSingle(relationInput.create, relationName)
-            : armSpec && isRecord(armSpec.where)
+        entry.kind === "connect"
+          ? entry.targets[0]
+          : entry.kind === "create"
+            ? entry.items[0]
+            : armSpec
               ? armSpec.where
               : undefined;
       // ONE guard, asserted at BOTH exits of this iteration — the invariant is "this
@@ -886,7 +878,7 @@ export class CreateOperation {
       // here. It is deliberately asked about an EMPTY map, not the accumulated one: a
       // sibling edge that already resolved the same column must not answer for this one.
       if (!source) {
-        assertSharedPkResolved(childScope, relationName, kinds[0], fk, {});
+        assertSharedPkResolved(childScope, relationName, entry.kind, fk, {});
         continue;
       }
       for (let index = 0; index < fk.fkFields.length; index += 1) {
@@ -919,7 +911,7 @@ export class CreateOperation {
         // that INSERT's step id so the record's identity can `Ref` it here, before the
         // arms fold — one id, one producing statement, one value.
         if (
-          kinds[0] === "create" &&
+          entry.kind === "create" &&
           targetGeneratesReferencedKey(relationInfo.targetModel, referenced)
         ) {
           const producedStep =
@@ -931,7 +923,7 @@ export class CreateOperation {
           identity[fkField] = ref(producedStep, "id");
         }
       }
-      assertSharedPkResolved(childScope, relationName, kinds[0], fk, identity);
+      assertSharedPkResolved(childScope, relationName, entry.kind, fk, identity);
     }
     return { identity, producedBy };
   }
@@ -947,28 +939,22 @@ export class CreateOperation {
    */
   private beforeParentCoverage(
     childScope: QueryScope,
-    relations: Record<string, RelationMutation>,
-    data: Record<string, unknown>
+    relations: Record<string, RelationMutationProgram>
   ): CreatedTarget[] {
     const targets: CreatedTarget[] = [];
-    for (const [relationName, mutation] of Object.entries(relations)) {
-      const relationInfo = mutation.relationInfo;
+    for (const program of Object.values(relations)) {
+      const relationInfo = program.relationInfo;
       if (relationInfo.type === "manyToMany") continue;
       const fk = getFkDirection(childScope, relationInfo);
       if (!fk.holdsFK) continue;
-      const kinds = getRelationMutationKinds(mutation);
-      const producesTarget =
-        kinds.includes("create") || kinds.includes("connectOrCreate");
-      if (!producesTarget) continue;
-      const relationInput = data[relationName];
-      if (!isRecord(relationInput)) continue;
-      const createRaw = kinds.includes("create")
-        ? relationInput.create
-        : isRecord(relationInput.connectOrCreate)
-          ? relationInput.connectOrCreate.create
-          : undefined;
-      const createData = Array.isArray(createRaw) ? createRaw[0] : createRaw;
-      if (!isRecord(createData)) continue;
+      const createEntry = program.entries.find(
+        (entry) => entry.kind === "create"
+      );
+      const adoptEntry = program.entries.find(
+        (entry) => entry.kind === "connectOrCreate"
+      );
+      const createData = createEntry?.items[0] ?? adoptEntry?.items[0]?.create;
+      if (!createData) continue;
       const key: Record<string, unknown> = {};
       let hasAny = false;
       for (const referenced of fk.pkFields) {
@@ -1008,8 +994,7 @@ export class CreateOperation {
      *  relation's before-parent `create` is what produces this record's primary key. */
     sharedPkWriteStepId?: string;
     relationName: string;
-    mutation: RelationMutation;
-    relationInput: Record<string, unknown>;
+    program: RelationMutationProgram;
     txMode: boolean;
     coverage: readonly CreatedTarget[];
     parentHeldArms: ParentHeldArm[];
@@ -1017,9 +1002,9 @@ export class CreateOperation {
     createManyGroups: CreateManyGroup[];
     afterParts: Part[];
   }): void {
-    const { relationName, mutation, txMode, relationInput } = input;
-    const relationInfo = mutation.relationInfo;
-    const kinds = getRelationMutationKinds(mutation);
+    const { relationName, program, txMode } = input;
+    const relationInfo = program.relationInfo;
+    const entries = program.entries;
 
     if (relationInfo.type === "manyToMany") {
       // M2M is not special (WHY §4.3): the junction composes as ordinary Parts. A
@@ -1035,7 +1020,10 @@ export class CreateOperation {
       // and a fresh parent supplies a `ref`. {@link RelationJunctionConfig.freshParent}
       // elides that read — the answer was never in doubt — and the three-way collapses
       // to the adopt family's two-way.
-      this.assertCreateTreeKinds(kinds, relationName);
+      this.assertCreateTreeKinds(
+        entries.map((entry) => entry.kind),
+        relationName
+      );
       const engine = this.engine;
       const scope = this.scope;
       input.afterParts.push(
@@ -1045,8 +1033,7 @@ export class CreateOperation {
           parentScope: input.childScope,
           relationName,
           relationInfo,
-          mutation,
-          parsedRelation: relationInput,
+          program,
           parentId: this.edgeParentId(
             input.self,
             getPrimaryKeyFields(input.self.model),
@@ -1082,7 +1069,7 @@ export class CreateOperation {
 
     const fk = getFkDirection(input.childScope, relationInfo);
     if (fk.holdsFK) {
-      this.interpretParentHeld(input, relationInfo, fk, kinds);
+      this.interpretParentHeld(input, relationInfo, fk, entries);
       return;
     }
     // A child-held relation this record is the referenced side of: to-many
@@ -1119,7 +1106,7 @@ export class CreateOperation {
     // slot starts empty and each admitted kind is a pure add against it (the same
     // fresh-parent elision the m2m branch above cites). The occupied question is the
     // UPDATE root's, where the slot may already hold a row (M10).
-    this.interpretChildHeld(input, relationInfo, fk, kinds);
+    this.interpretChildHeld(input, relationInfo, fk, entries);
   }
 
   /**
@@ -1131,12 +1118,12 @@ export class CreateOperation {
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     relationInfo: RelationInfo,
     fk: FkDirection,
-    kinds: readonly string[]
+    entries: readonly RelationMutationEntry[]
   ): void {
     const { relationName } = input;
-    if (kinds.length !== 1) {
+    if (entries.length !== 1) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
+        `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ") || "none"}.`
       );
     }
     // The shared-primary-key edge is decided in `resolveSharedPkIdentity` (E6.3), which
@@ -1149,19 +1136,28 @@ export class CreateOperation {
       this.engine.adapter,
       relationInfo.targetModel
     );
-    switch (kinds[0]) {
+    const entry = entries[0];
+    if (!entry) return;
+    switch (entry.kind) {
       case "connect":
-        this.interpretParentHeldConnect(input, relationInfo, fk, childScope);
+        this.interpretParentHeldConnect(
+          input,
+          relationInfo,
+          fk,
+          childScope,
+          entry
+        );
         return;
       case "create":
-        this.interpretParentHeldCreate(input, fk, childScope);
+        this.interpretParentHeldCreate(input, fk, childScope, entry);
         return;
       case "connectOrCreate":
         this.interpretParentHeldConnectOrCreate(
           input,
           relationInfo,
           fk,
-          childScope
+          childScope,
+          entry
         );
         return;
       default:
@@ -1171,7 +1167,7 @@ export class CreateOperation {
         // under a create root are answered by the parse boundary first
         // (`ValidationError: Unknown key: <kind>`) — an engine invariant, not a route.
         throw new QueryEngineError(
-          `query-engine-v2 internal: kind '${kinds[0]}' reached the parent-held to-one create dispatch on relation '${relationName}'; the parse boundary admits only create/connect/connectOrCreate there.`
+          `query-engine-v2 internal: kind '${entry.kind}' reached the parent-held to-one create dispatch on relation '${relationName}'; the parse boundary admits only create/connect/connectOrCreate there.`
         );
     }
   }
@@ -1182,10 +1178,16 @@ export class CreateOperation {
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     relationInfo: RelationInfo,
     fk: FkDirection,
-    childScope: QueryScope
+    childScope: QueryScope,
+    entry: Extract<RelationMutationEntry, { kind: "connect" }>
   ): void {
-    const { relationName, relationInput } = input;
-    const where = normalizeSingle(relationInput.connect, relationName);
+    const { relationName } = input;
+    const where = entry.targets[0];
+    if (!where) {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: parent-held connect on relation '${relationName}' has no target.`
+      );
+    }
     const fkAssign = this.toOneFkAssign(
       input.self.model,
       relationInfo,
@@ -1238,15 +1240,22 @@ export class CreateOperation {
   private interpretParentHeldCreate(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     fk: FkDirection,
-    childScope: QueryScope
+    childScope: QueryScope,
+    entry: Extract<RelationMutationEntry, { kind: "create" }>
   ): void {
+    const createData = entry.items[0];
+    if (!createData) {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: parent-held create on relation '${input.relationName}' has no item.`
+      );
+    }
     // N4-U4: when this record's own primary key IS the foreign key this arm resolves,
     // the identity already `Ref`s a step id — so this INSERT must BE that step, not a
     // freshly allocated one. The allocation moved to `resolveSharedPkIdentity` because
     // the identity is built before the arms fold (the N4-U1 precedent).
     const before = this.buildRecord(
       childScope,
-      normalizeSingle(input.relationInput.create, input.relationName),
+      createData,
       input.txMode,
       input.sharedPkWriteStepId
     );
@@ -1268,18 +1277,18 @@ export class CreateOperation {
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     relationInfo: RelationInfo,
     fk: FkDirection,
-    childScope: QueryScope
+    childScope: QueryScope,
+    entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
   ): void {
-    const { relationName, relationInput } = input;
-    const spec = normalizeSingle(relationInput.connectOrCreate, relationName);
-    const where = requireRecord(
-      spec.where,
-      `${relationName}.connectOrCreate.where`
-    );
-    const createData = requireRecord(
-      spec.create,
-      `${relationName}.connectOrCreate.create`
-    );
+    const { relationName } = input;
+    const spec = entry.items[0];
+    if (!spec) {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: parent-held connectOrCreate on relation '${relationName}' has no item.`
+      );
+    }
+    const where = spec.where;
+    const createData = spec.create;
     const foundFkAssign = this.toOneFkAssign(
       input.self.model,
       relationInfo,
@@ -1397,9 +1406,9 @@ export class CreateOperation {
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     relationInfo: RelationInfo,
     fk: FkDirection,
-    kinds: readonly string[]
+    entries: readonly RelationMutationEntry[]
   ): void {
-    const { txMode, relationName, relationInput } = input;
+    const { txMode, relationName } = input;
     // A to-one slot holds ONE row, so two kinds on it name two intents for one slot —
     // the contradiction `interpretParentHeld` refuses above, refused here on the dispatch
     // that reaches the OTHER direction. THAT is this guard's unique coverage: the
@@ -1414,22 +1423,22 @@ export class CreateOperation {
     // `> 1`, not `!== 1`: a payload naming NO kind (`{ card: {} }`) asks for nothing and
     // is Prisma's no-op, which this loop already answers by building nothing — the same
     // reading `UpdateOperation.interpretRelation` spells out for its empty payload.
-    if (relationInfo.isToOne && kinds.length > 1) {
+    if (relationInfo.isToOne && entries.length > 1) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${kinds.join(", ")}.`
+        `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
       );
     }
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
     );
-    for (const kind of kinds) {
-      switch (kind) {
+    for (const entry of entries) {
+      switch (entry.kind) {
         case "create":
-          this.foldChildCreates(input, childScope, fk, relationInput.create);
+          this.foldChildCreates(input, childScope, fk, entry.items);
           break;
         case "createMany":
-          this.foldCreateMany(input, childScope, fk, relationInput.createMany);
+          this.foldCreateMany(input, childScope, fk, entry);
           break;
         case "connect":
           input.afterParts.push(
@@ -1437,7 +1446,7 @@ export class CreateOperation {
             // probe and one write instead of six statements.
             ...groupLinkTargets(
               childScope,
-              normalizeItems(relationInput.connect, relationName)
+              entry.targets
             ).map(
               (wheres) =>
                 new ChildConnectPart(this.scope, {
@@ -1469,7 +1478,7 @@ export class CreateOperation {
               this.engine,
               relationName,
               relationInfo,
-              normalizeItems(relationInput.connectOrCreate, relationName),
+              entry.items,
               this.childEdgeParentSource(input.self, fk.pkFields, relationName),
               txMode,
               this.armSeam
@@ -1484,7 +1493,7 @@ export class CreateOperation {
               this.engine,
               relationName,
               relationInfo,
-              normalizeItems(relationInput.upsert, relationName),
+              entry.items,
               {
                 correlation: "global-adopt",
                 parentId: this.childEdgeParentSource(
@@ -1494,8 +1503,7 @@ export class CreateOperation {
                 ),
               },
               txMode,
-              this.armSeam,
-              "upsert"
+              this.armSeam
             )
           );
           break;
@@ -1507,7 +1515,7 @@ export class CreateOperation {
           // first (`ValidationError: Unknown key: <kind>`) — an engine invariant, not a
           // route.
           throw new QueryEngineError(
-            `query-engine-v2 internal: kind '${kind}' reached the child-held create dispatch on relation '${relationName}'; the parse boundary admits only the five create-tree kinds there.`
+            `query-engine-v2 internal: unsupported entry reached the child-held create dispatch on relation '${relationName}'; the parse boundary admits only the five create-tree kinds there.`
           );
       }
     }
@@ -1518,7 +1526,7 @@ export class CreateOperation {
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     childScope: QueryScope,
     fk: FkDirection,
-    createInput: unknown
+    items: readonly Record<string, unknown>[]
   ): void {
     const inject = this.childFkAssign(
       input.self,
@@ -1526,7 +1534,7 @@ export class CreateOperation {
       childScope.model,
       input.relationName
     );
-    for (const item of normalizeItems(createInput, input.relationName)) {
+    for (const item of items) {
       input.childCreates.push({
         record: this.buildRecord(childScope, item, input.txMode),
         inject,
@@ -1539,14 +1547,10 @@ export class CreateOperation {
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     childScope: QueryScope,
     fk: FkDirection,
-    createManyInput: unknown
+    entry: Extract<RelationMutationEntry, { kind: "createMany" }>
   ): void {
-    const createMany = requireRecord(
-      createManyInput,
-      `${input.relationName}.createMany`
-    );
-    const skipDuplicates = createMany.skipDuplicates === true;
-    const userRows = normalizeItems(createMany.data, input.relationName);
+    const skipDuplicates = entry.skipDuplicates === true;
+    const userRows = entry.rows;
     if (skipDuplicates) {
       // V1's portability guard, run BEFORE the parent write (construction time) on
       // the PRE-injection user rows: a `skipDuplicates` createMany carrying a
@@ -2413,46 +2417,4 @@ function defaultSelect(model: Model<any>): Record<string, unknown> | undefined {
   const fields = getDefaultScalarFieldNames(model);
   if (fields.length === 0) return undefined;
   return Object.fromEntries(fields.map((field: string) => [field, true]));
-}
-
-/** An `unknown -> Record` narrowing, NOT a shape check (N7-U-A). Every caller reads a
- *  dynamically-keyed slot of an ALREADY-PARSED payload, so the whole-args
- *  `parseValidated(parentSchemas.args.create)` has already rejected a non-object here
- *  (`ValidationError: Expected object`). A non-record reaching this narrowing is an
- *  engine invariant break — the X1c disposition, not a route. */
-function normalizeSingle(
-  value: unknown,
-  relationName: string
-): Record<string, unknown> {
-  const item = Array.isArray(value) ? value[0] : value;
-  if (!isRecord(item)) {
-    throw new QueryEngineError(
-      `query-engine-v2 internal: the to-one connect for relation '${relationName}' reached the create tree without the single unique where the parse boundary validated.`
-    );
-  }
-  return item;
-}
-
-function normalizeItems(
-  value: unknown,
-  relationName: string
-): Record<string, unknown>[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!isRecord(item)) {
-      throw new QueryEngineError(
-        `Relation '${relationName}' create item must be an object.`
-      );
-    }
-    return item;
-  });
-}
-
-/** As {@link normalizeSingle}: an `unknown -> Record` narrowing behind the whole-args
- *  create parse, converted by N7-U-A. */
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (isRecord(value)) return value;
-  throw new QueryEngineError(
-    `query-engine-v2 internal: '${label}' must be an object after the parse boundary validated the create payload.`
-  );
 }

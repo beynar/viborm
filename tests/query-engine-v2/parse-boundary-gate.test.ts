@@ -102,7 +102,10 @@ const DELETED_KEY_GATES = [
 // `isRecord` narrowing predicate (the sibling modules' idiom), so the M12 owned-FK guard
 // could take the update arm without a new cast — the surface shrank by one instead of
 // growing by one.
-const MAX_PAYLOAD_RECORD_CASTS = 35;
+// 35 -> 18 (mutation-program migration): emitters now receive normalized entries instead
+// of reopening dynamically keyed relation payloads. The casts disappeared with the old
+// per-kind bag readers and their local array/single-item normalizers.
+const MAX_PAYLOAD_RECORD_CASTS = 18;
 // 22 -> 21 (N4-U2): the same removal. `foldParentHeldConnect`'s "requires a where object
 // one level deeper" was the shape-check message that went with that cast.
 // 21 -> 20 (E3): `RelationUpsertPart.normalizeUpsertItems` went with the upsert arm's
@@ -115,7 +118,9 @@ const MAX_PAYLOAD_RECORD_CASTS = 35;
 // narrowing that replaced it is a `QueryEngineError` invariant worded outside this
 // family on purpose (a caller that skipped the boundary is an engine fault, not a user
 // one). Measured delta, not estimated: the source carried the phrase exactly once.
-const MAX_SHAPE_THROW_MESSAGES = 19;
+// 19 -> 3 (mutation-program migration): canonical entries replace emitter-side payload
+// shape checks. The remaining messages belong to live parse-boundary invariants.
+const MAX_SHAPE_THROW_MESSAGES = 3;
 
 const PARSE_VALIDATED_DEF = /export function parseValidated\b/;
 const INFER_OUTPUT_CAST = /as InferOutput\b/;

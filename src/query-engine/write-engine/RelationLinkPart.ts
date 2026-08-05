@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationLinkPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
+import type { RelationMutationEntry } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
   buildFind,
@@ -21,11 +22,7 @@ import {
   linkGroupSelector,
 } from "./link-target-groups";
 import { relationTargetNotFound } from "./messages";
-import type {
-  OperationStep,
-  ReadStep,
-  WriteStep,
-} from "./OperationFragment";
+import type { OperationStep, ReadStep, WriteStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import { referencedFieldCorrelation } from "./parent-reference";
@@ -464,8 +461,7 @@ export function buildToManyLinkParts(
   fkFields: readonly string[],
   referencedFields: readonly string[],
   childPrimaryKey: string,
-  kind: LinkKind,
-  input: unknown,
+  entry: Extract<RelationMutationEntry, { kind: "connect" | "disconnect" }>,
   parentId: ParentIdSource,
   txMode: boolean
 ): RelationLinkPart[] {
@@ -475,34 +471,23 @@ export function buildToManyLinkParts(
     childName,
     relationName,
     relationInfo,
-    kind,
+    kind: entry.kind,
     fkFields,
     referencedFields,
     childPrimaryKey,
     parentId,
     txMode,
   } as const;
-  if (kind === "disconnect" && input === true) {
+  if (entry.kind === "disconnect" && entry.target.kind === "current") {
     return [new RelationLinkPart(scope, { ...base, disconnectAll: true })];
   }
-  return groupLinkTargets(
-    childScope,
-    normalizeWhereItems(input, relationName, kind)
-  ).map((wheres) => new RelationLinkPart(scope, { ...base, wheres }));
-}
-
-function normalizeWhereItems(
-  value: unknown,
-  relation: string,
-  kind: LinkKind
-): Record<string, unknown>[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a unique where object.`
-      );
-    }
-    return item as Record<string, unknown>;
-  });
+  const targets =
+    entry.kind === "connect"
+      ? entry.targets
+      : entry.target.kind === "selectors"
+        ? entry.target.targets
+        : [];
+  return groupLinkTargets(childScope, targets).map(
+    (wheres) => new RelationLinkPart(scope, { ...base, wheres })
+  );
 }

@@ -1,12 +1,12 @@
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
+import { getFkDirection } from "../builders/relation-data-builder";
 import {
-  getFkDirection,
-  type RelationMutation,
-  separateData,
-} from "../builders/relation-data-builder";
-import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
+  buildParsedRelationPrograms,
+  type RelationMutationEntry,
+  type RelationMutationProgram,
+} from "../builders/relation-mutation-parser";
 import { buildInsert, buildValueGroups } from "../builders/values-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
 import { buildCreateManyPlan } from "../operations/create";
@@ -89,7 +89,7 @@ import { UpdateOperation } from "./UpdateOperation";
 export type NestedChildBuilder = (
   targetScope: QueryScope,
   parentId: ParentIdSource,
-  relations: Record<string, RelationMutation>,
+  relations: Record<string, RelationMutationProgram>,
   txMode: boolean,
   correlationParentId?: ParentIdSource
 ) => readonly Part[];
@@ -104,19 +104,19 @@ export function buildNestedTargetChildParts(
   scope: StepScope,
   engine: QueryEngine,
   targetScope: QueryScope,
-  relations: Record<string, RelationMutation>,
+  relations: Record<string, RelationMutationProgram>,
   parentId: ParentIdSource,
   txMode: boolean,
   correlationParentId?: ParentIdSource
 ): readonly Part[] {
   const parts: Part[] = [];
-  for (const [relationName, mutation] of Object.entries(relations)) {
+  for (const [relationName, program] of Object.entries(relations)) {
     foldOneNestedRelation({
       scope,
       engine,
       targetScope,
       relationName,
-      mutation,
+      program,
       parentId,
       correlationParentId,
       txMode,
@@ -141,7 +141,7 @@ export function targetNeedsFullUpdate(
   targetScope: QueryScope,
   data: Record<string, unknown>
 ): boolean {
-  const { relations } = separateData(targetScope, data);
+  const { relations } = buildParsedRelationPrograms(targetScope, data);
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
   for (const mutation of Object.values(relations)) {
     const relationInfo = mutation.relationInfo;
@@ -310,7 +310,7 @@ function foldOneNestedRelation(input: {
   engine: QueryEngine;
   targetScope: QueryScope;
   relationName: string;
-  mutation: RelationMutation;
+  program: RelationMutationProgram;
   parentId: ParentIdSource;
   /** The junction-only READ source under a post-transition ordering (E2-U3); see
    *  {@link NestedChildBuilder}. */
@@ -323,12 +323,11 @@ function foldOneNestedRelation(input: {
     engine,
     targetScope,
     relationName,
-    mutation,
+    program,
     parentId,
     txMode,
   } = input;
-  const relationInfo = mutation.relationInfo;
-  const parsedRelation = mutation as unknown as Record<string, unknown>;
+  const relationInfo = program.relationInfo;
 
   // The recursion seam threaded to every kind that may carry its own relations one
   // level deeper (the m2m junction here; the child-held write/link/adopt families
@@ -364,8 +363,7 @@ function foldOneNestedRelation(input: {
         parentScope: targetScope,
         relationName,
         relationInfo,
-        mutation,
-        parsedRelation,
+        program,
         parentId,
         correlationParentId: input.correlationParentId,
         txMode,
@@ -459,14 +457,13 @@ function foldOneNestedRelation(input: {
     nestedChild: deeperBuilder,
   };
 
-  for (const kind of getRelationMutationKinds(mutation)) {
+  for (const entry of program.entries) {
     foldOneChildHeldKind({
-      kind,
+      entry,
       armSeam,
       isInverseToOne,
       relationName,
       relationInfo,
-      parsedRelation,
       childScope,
       childName,
       fk,
@@ -482,12 +479,11 @@ function foldOneNestedRelation(input: {
 }
 
 function foldOneChildHeldKind(args: {
-  kind: string;
+  entry: RelationMutationEntry;
   armSeam: ArmSeam;
   isInverseToOne: boolean;
   relationName: string;
-  relationInfo: RelationMutation["relationInfo"];
-  parsedRelation: Record<string, unknown>;
+  relationInfo: RelationMutationProgram["relationInfo"];
   childScope: QueryScope;
   childName: string;
   fk: ReturnType<typeof getFkDirection>;
@@ -500,12 +496,11 @@ function foldOneChildHeldKind(args: {
   parts: Part[];
 }): void {
   const {
-    kind,
+    entry,
     armSeam,
     isInverseToOne,
     relationName,
     relationInfo,
-    parsedRelation,
     childScope,
     childName,
     fk,
@@ -519,7 +514,7 @@ function foldOneChildHeldKind(args: {
   } = args;
   const push = (built: readonly Part[]) => parts.push(...built);
 
-  switch (kind) {
+  switch (entry.kind) {
     case "connect":
     case "disconnect":
       push(
@@ -533,13 +528,7 @@ function foldOneChildHeldKind(args: {
           fk.fkFields,
           fk.pkFields,
           writeBase.childPrimaryKey,
-          kind,
-          // The payload verbatim. An inverse-side to-one `disconnect` is `v.boolean()`
-          // at the parse boundary and reaches here only as `true` — `false` is Prisma's
-          // no-op and is dropped from the kind list (N7-U-B). Before that, this argument
-          // coerced the inverse-to-one arm to `true` unconditionally, which turned
-          // `disconnect: false` at depth into a SILENT disconnect.
-          parsedRelation[kind],
+          entry,
           parentId,
           txMode
         )
@@ -553,18 +542,22 @@ function foldOneChildHeldKind(args: {
           engine,
           relationName,
           relationInfo,
-          normalizeItems(parsedRelation.connectOrCreate, relationName),
+          entry.items,
           parentId,
           txMode,
           armSeam
         )
       );
       return;
-    case "upsert":
+    case "upsert": {
       if (isInverseToOne) {
-        parts.push(
-          buildInverseToOneUpsertPart(writeBase, parsedRelation.upsert)
-        );
+        const item = entry.items[0];
+        if (!item) {
+          throw new QueryEngineError(
+            `query-engine-v2 internal: to-one upsert for relation '${relationName}' has no item.`
+          );
+        }
+        parts.push(buildInverseToOneUpsertPart(writeBase, item));
         return;
       }
       push(
@@ -574,38 +567,44 @@ function foldOneChildHeldKind(args: {
           engine,
           relationName,
           relationInfo,
-          normalizeItems(parsedRelation.upsert, relationName),
+          entry.items,
           { correlation: "correlated", parentId },
           txMode,
           armSeam
         )
       );
       return;
+    }
     case "update":
       if (isInverseToOne) {
-        parts.push(buildToOneUpdatePart(writeBase, parsedRelation.update));
+        parts.push(buildToOneUpdatePart(writeBase, entry));
         return;
       }
-      push(buildToManyUpdateParts(writeBase, parsedRelation.update));
+      push(buildToManyUpdateParts(writeBase, entry));
       return;
     case "updateMany":
-      push(buildToManyUpdateManyParts(writeBase, parsedRelation.updateMany));
+      push(buildToManyUpdateManyParts(writeBase, entry));
       return;
     case "delete":
       if (isInverseToOne) {
         // `delete: true` — the arm's only reachable value at this seam too (the parse
         // boundary types an inverse-side to-one `delete` as `v.boolean()`; `false` is
         // Prisma's no-op, dropped from the kind list, N7-U-B).
-        push(buildToManyDeleteManyParts(writeBase, {}));
+        push(
+          buildToManyDeleteManyParts(writeBase, {
+            kind: "deleteMany",
+            filters: [{}],
+          })
+        );
         return;
       }
-      push(buildToManyDeleteParts(writeBase, parsedRelation.delete));
+      push(buildToManyDeleteParts(writeBase, entry));
       return;
     case "deleteMany":
-      push(buildToManyDeleteManyParts(writeBase, parsedRelation.deleteMany));
+      push(buildToManyDeleteManyParts(writeBase, entry));
       return;
     case "set":
-      parts.push(buildToManySetPart(writeBase, parsedRelation.set));
+      parts.push(buildToManySetPart(writeBase, entry));
       return;
     case "create":
       // A child-held `create` leaf under a located target. A LITERAL parent id (a
@@ -626,7 +625,7 @@ function foldOneChildHeldKind(args: {
               fk,
               parentId,
               txMode,
-              creates: normalizeItems(parsedRelation.create, relationName),
+              creates: entry.items,
             })
           : buildPlannedParentCreatePart({
               scope,
@@ -637,7 +636,7 @@ function foldOneChildHeldKind(args: {
               fk,
               parentId,
               txMode,
-              creates: normalizeItems(parsedRelation.create, relationName),
+              creates: entry.items,
             }))
       );
       return;
@@ -664,7 +663,7 @@ function foldOneChildHeldKind(args: {
               relationName,
               fk,
               parentId,
-              createManyInput: parsedRelation.createMany,
+              createManyEntry: entry,
             })
           : buildPlannedParentCreateManyPart({
               scope,
@@ -674,7 +673,7 @@ function foldOneChildHeldKind(args: {
               relationName,
               fk,
               parentId,
-              createManyInput: parsedRelation.createMany,
+              createManyEntry: entry,
             })
       );
       return;
@@ -684,7 +683,7 @@ function foldOneChildHeldKind(args: {
       // `disconnect` without a planned parent id — reach their OWN `QueryEngineError`
       // inside the built Part, not this switch). An engine invariant, not a route.
       throw new QueryEngineError(
-        `query-engine-v2 internal: kind '${kind}' reached the deeper nested dispatch on relation '${relationName}'; the parse boundary admits only the eleven to-many kinds, all of which are handled above.`
+        `query-engine-v2 internal: unsupported entry reached the deeper nested dispatch on relation '${relationName}'; the parse boundary admits only the eleven to-many kinds, all of which are handled above.`
       );
   }
 }
@@ -768,7 +767,10 @@ export function buildLiteralParentCreatePart(input: {
   const scalarSteps: OperationStep[] = [];
   const subtreeParts: Part[] = [];
   for (const create of input.creates) {
-    const { scalarData, relations } = separateData(childScope, create);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childScope,
+      create
+    );
     if (Object.keys(relations).length === 0) {
       scalarSteps.push({
         id: scope.allocate(`${childName}.create`),
@@ -926,19 +928,15 @@ function planNestedCreateMany(input: {
   engine: QueryEngine;
   childScope: QueryScope;
   relationName: string;
-  createManyInput: unknown;
+  createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
 }): {
   userRows: readonly Record<string, unknown>[];
   skipDuplicates: boolean;
   recoverUnique: boolean;
 } {
   const { engine, childScope, relationName } = input;
-  const createMany = requireRecord(
-    input.createManyInput,
-    `${relationName}.createMany`
-  );
-  const skipDuplicates = createMany.skipDuplicates === true;
-  const userRows = normalizeItems(createMany.data, relationName);
+  const skipDuplicates = input.createManyEntry.skipDuplicates === true;
+  const userRows = input.createManyEntry.rows;
   if (skipDuplicates) {
     // V1's portability guard, on the PRE-injection user rows (construction time): a
     // skipDuplicates createMany carrying a default-only row (no explicit user scalar
@@ -970,7 +968,7 @@ export function buildLiteralParentCreateManyPart(input: {
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
   parentId: ParentIdSource;
-  createManyInput: unknown;
+  createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
 }): Part {
   const { scope, engine, childScope, childName, relationName, fk, parentId } =
     input;
@@ -978,7 +976,7 @@ export function buildLiteralParentCreateManyPart(input: {
     engine,
     childScope,
     relationName,
-    createManyInput: input.createManyInput,
+    createManyEntry: input.createManyEntry,
   });
   const inject = literalFkInject(
     engine,
@@ -1029,7 +1027,7 @@ export function buildPlannedParentCreateManyPart(input: {
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
   parentId: ParentIdSource;
-  createManyInput: unknown;
+  createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
 }): Part {
   const { scope, engine, childScope, childName, relationName, fk, parentId } =
     input;
@@ -1037,7 +1035,7 @@ export function buildPlannedParentCreateManyPart(input: {
     engine,
     childScope,
     relationName,
-    createManyInput: input.createManyInput,
+    createManyEntry: input.createManyEntry,
   });
   if (userRows.length === 0) return new LiteralParentWriteParts([]);
   const shapeInject = Object.fromEntries(
@@ -1164,7 +1162,10 @@ export function buildPlannedParentCreatePart(input: {
   const scalarItems: { scalarData: Record<string, unknown>; id: string }[] = [];
   const subtreeParts: Part[] = [];
   for (const create of input.creates) {
-    const { scalarData, relations } = separateData(childScope, create);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childScope,
+      create
+    );
     if (Object.keys(relations).length === 0) {
       scalarItems.push({
         scalarData,
@@ -1210,26 +1211,4 @@ export function buildPlannedParentCreatePart(input: {
   }
   parts.push(...subtreeParts);
   return parts;
-}
-
-function normalizeItems(
-  value: unknown,
-  relation: string
-): Record<string, unknown>[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 update requires an object item for relation '${relation}' one level deeper.`
-      );
-    }
-    return item as Record<string, unknown>;
-  });
-}
-
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  throw new QueryEngineError(`'${label}' must be an object.`);
 }

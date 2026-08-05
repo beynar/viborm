@@ -1,14 +1,18 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationWritePart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import { splitToOneUpdateTarget } from "@validation/relations/to-one-update-form";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
   type FkDirection,
   getFkDirection,
-  type RelationMutation,
   separateData,
 } from "../builders/relation-data-builder";
+import type {
+  NormalizedRelationUpsert,
+  RelationMutationEntry,
+  RelationMutationProgram,
+} from "../builders/relation-mutation-parser";
+import { buildParsedRelationPrograms } from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
@@ -43,7 +47,6 @@ import {
   upsertPremiseChanged,
   upsertTargetVanished,
 } from "./messages";
-import { requiredForeignKeyFields } from "./relation-nullability";
 import {
   buildNestedTargetUpdatePart,
   type FreshArmBuilder,
@@ -67,6 +70,7 @@ import {
   type ParentIdSource,
   plannedParentId,
 } from "./RelationUpsertPart";
+import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -679,7 +683,11 @@ export class RelationWritePart implements Part {
         `query-engine-v2 ${kind} for relation '${relationName}' requires data.`
       );
     }
-    const { scalarData, relations } = separateData(childScope, data);
+    const legacyData = separateData(childScope, data);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childScope,
+      data
+    );
     // V1's PK-arithmetic portability check on the nested child data (float/decimal
     // non-portability, divide-by-zero, one-op) — a payload legality gate at construction
     // (before the probe), matching RelationUpdates, on the scalar assignments only
@@ -696,7 +704,11 @@ export class RelationWritePart implements Part {
     // `author: { update }`). V1 runs this at EVERY `compileLocatedUpdate` level; this
     // is the nested level (a to-many/inverse-to-one `update` target's payload), so the
     // reject recurses into nested update data BEFORE any outer effect, byte-identical.
-    assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
+    assertRelationKeyUpdatesAreCompilable(
+      childScope,
+      scalarData,
+      legacyData.relations
+    );
     if (Object.keys(relations).length === 0) {
       // An EMPTY nested update payload (`update: { where, data: {} }`,
       // `updateMany: { where, data: {} }`) asks for nothing. Measured against Prisma
@@ -997,7 +1009,7 @@ export class RelationWritePart implements Part {
  */
 function pkTransitionCascadeSafe(
   targetScope: QueryScope,
-  relations: Record<string, RelationMutation>,
+  relations: Record<string, RelationMutationProgram>,
   transitioningPk: string
 ): boolean {
   for (const mutation of Object.values(relations)) {
@@ -1032,7 +1044,7 @@ function pkTransitionCascadeSafe(
 function buildPkTransitionOccupiedGuards(args: {
   scope: StepScope;
   childScope: QueryScope;
-  relations: Record<string, RelationMutation>;
+  relations: Record<string, RelationMutationProgram>;
   transitioningPk: string;
   before: unknown;
   txMode: boolean;
@@ -1560,10 +1572,6 @@ interface WritePartBase {
  * {@link RelationWritePart.upsertCreateScalarData}), and the adopt family already has its
  * own (`buildOneUpsertPart`, `RelationUpsertPart.ts`). All say it from one string.
  */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function assertOwnedFkAbsentFromUpdateData(
   base: WritePartBase,
   data: Record<string, unknown>
@@ -1583,9 +1591,14 @@ function assertOwnedFkAbsentFromUpdateData(
  *  / create target stays on the proven leaf path. */
 export function buildToManyUpdateParts(
   base: WritePartBase,
-  input: unknown
+  entry: Extract<RelationMutationEntry, { kind: "update" }>
 ): Part[] {
-  return normalizeWhereData(input, base.relationName, "update").map((item) => {
+  return entry.items.map((item) => {
+    if (item.target.kind !== "unique") {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: to-many update for relation '${base.relationName}' requires a unique target.`
+      );
+    }
     // M12 position 1 — the to-many `update` arm's data (`posts: { update: { where,
     // data } }`). Uniquely covered here because it is the only place this payload is
     // held before the fork below: refusing on BOTH sides costs one check, while a
@@ -1598,7 +1611,7 @@ export function buildToManyUpdateParts(
           targetModel: base.childScope.model,
           data: item.data,
           locate: {
-            where: item.where,
+            where: item.target.where,
             parentId: base.parentId,
             childFields: base.fkFields,
             parentFields: base.referencedFields,
@@ -1611,7 +1624,7 @@ export function buildToManyUpdateParts(
         })
       : new RelationWritePart(base.scope, {
           ...partConfig(base, "update"),
-          where: item.where,
+          where: item.target.where,
           data: item.data,
         });
   });
@@ -1632,8 +1645,16 @@ export function buildToManyUpdateParts(
  * existing `Cannot update … for this parent` abort. The bare form yields no filter
  * and every step is byte-identical to pre-W4-U3, at the root and at every depth.
  */
-export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
-  const target = splitToOneUpdateTarget(data);
+export function buildToOneUpdatePart(
+  base: WritePartBase,
+  entry: Extract<RelationMutationEntry, { kind: "update" }>
+): Part {
+  const target = entry.items[0];
+  if (!target || target.target.kind !== "correlated") {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: to-one update for relation '${base.relationName}' requires one correlated target.`
+    );
+  }
   // M12 position 2 — the inverse-side to-one `update` arm's data (`profile: { update:
   // … } }`). Uniquely covered here: this is the only place BOTH the bare and the
   // `{ data, where }` spellings are the same object (`splitToOneUpdateTarget` has just
@@ -1654,7 +1675,7 @@ export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
         parentId: base.parentId,
         childFields: base.fkFields,
         parentFields: base.referencedFields,
-        ...(target.filter ? { filter: target.filter } : {}),
+        ...(target.target.filter ? { filter: target.target.filter } : {}),
         relationName: base.relationName,
         notFoundMessage: relationTargetNotFound(base.relationInfo, "update"),
       },
@@ -1663,7 +1684,7 @@ export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
     data: target.data,
-    ...(target.filter ? { targetFilter: target.filter } : {}),
+    ...(target.target.filter ? { targetFilter: target.target.filter } : {}),
   });
 }
 
@@ -1677,30 +1698,21 @@ export function buildToOneUpdatePart(base: WritePartBase, data: unknown): Part {
  */
 export function buildInverseToOneUpsertPart(
   base: WritePartBase,
-  input: unknown
+  input: NormalizedRelationUpsert
 ): RelationWritePart {
-  if (!(input && typeof input === "object" && !Array.isArray(input))) {
+  if (input.target.kind !== "correlated") {
     throw new QueryEngineError(
-      `query-engine-v2 upsert for relation '${base.relationName}' requires an object.`
+      `query-engine-v2 internal: to-one upsert for relation '${base.relationName}' requires a correlated target.`
     );
   }
-  const { create, update } = input as {
-    create?: unknown;
-    update?: unknown;
-  };
-  if (!(isRecord(create) && isRecord(update))) {
-    throw new QueryEngineError(
-      `query-engine-v2 upsert for relation '${base.relationName}' requires 'create' and 'update' objects.`
-    );
-  }
-  const createData = create;
+  const createData = input.create;
   // M12 position 3 — the inverse-side to-one `upsert` UPDATE arm. Uniquely covered
   // here: this arm reaches `RelationWritePart` as an `update` config, but through a
   // builder position no other guard sees, and it is the arm the FOUND branch runs — the
   // one branch whose row already belongs to this parent and can therefore be stolen from
   // it. The CREATE arm needs nothing: `v.omit(core.create, fkFields)` refuses the key at
   // the parse boundary, which is what `upsertCreateScalarData`'s internal invariant states.
-  assertOwnedFkAbsentFromUpdateData(base, update);
+  assertOwnedFkAbsentFromUpdateData(base, input.update);
   // N4-U2 — a relation-carrying create arm is the create SUBTREE, the same absorption
   // the to-many adopt family's create arm takes. The arm's foreign key is injected into
   // the subtree's root INSERT by the identical expression the scalar arm writes, so the
@@ -1716,7 +1728,7 @@ export function buildInverseToOneUpsertPart(
       : undefined;
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
-    data: update as Record<string, unknown>,
+    data: input.update,
     upsertCreateData: createData,
     ...(subtree ? { upsertCreateSubtree: subtree } : {}),
   });
@@ -1751,9 +1763,9 @@ function upsertArmFkInject(
 /** `updateMany`: one bulk correlated part per `{ where?, data }` item. */
 export function buildToManyUpdateManyParts(
   base: WritePartBase,
-  input: unknown
+  entry: Extract<RelationMutationEntry, { kind: "updateMany" }>
 ): RelationWritePart[] {
-  return normalizeWhereData(input, base.relationName, "updateMany").map(
+  return entry.items.map(
     (item) =>
       new RelationWritePart(base.scope, {
         ...partConfig(base, "updateMany"),
@@ -1766,9 +1778,14 @@ export function buildToManyUpdateManyParts(
 /** `delete`: one targeted correlated part per unique `where`. */
 export function buildToManyDeleteParts(
   base: WritePartBase,
-  input: unknown
+  entry: Extract<RelationMutationEntry, { kind: "delete" }>
 ): RelationWritePart[] {
-  return normalizeWheres(input, base.relationName, "delete").map(
+  if (entry.target.kind !== "selectors") {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: to-many delete for relation '${base.relationName}' requires selector targets.`
+    );
+  }
+  return entry.target.targets.map(
     (where) =>
       new RelationWritePart(base.scope, {
         ...partConfig(base, "delete"),
@@ -1780,9 +1797,9 @@ export function buildToManyDeleteParts(
 /** `deleteMany`: one bulk correlated part per filter `where`. */
 export function buildToManyDeleteManyParts(
   base: WritePartBase,
-  input: unknown
+  entry: Extract<RelationMutationEntry, { kind: "deleteMany" }>
 ): RelationWritePart[] {
-  return normalizeWheres(input, base.relationName, "deleteMany").map(
+  return entry.filters.map(
     (filter) =>
       new RelationWritePart(base.scope, {
         ...partConfig(base, "deleteMany"),
@@ -1796,7 +1813,7 @@ export function buildToManyDeleteManyParts(
  *  `base.parentId`. */
 export function buildToManySetPart(
   base: WritePartBase,
-  input: unknown,
+  entry: Extract<RelationMutationEntry, { kind: "set" }>,
   correlationParentId?: ParentIdSource
 ): RelationSetPart {
   const requiredFields = requiredForeignKeyFields(base.fk);
@@ -1812,7 +1829,7 @@ export function buildToManySetPart(
     childPrimaryKey: base.childPrimaryKey,
     requiredFk: requiredFields.length > 0,
     requiredFields,
-    targets: normalizeWheres(input, base.relationName, "set"),
+    targets: entry.targets,
     parentId: base.parentId,
     txMode: base.txMode,
   });
@@ -1836,47 +1853,4 @@ function partConfig(
     txMode: base.txMode,
     nestedBuilder: base.nestedBuilder,
   };
-}
-
-function normalizeWheres(
-  value: unknown,
-  relation: string,
-  kind: string
-): Record<string, unknown>[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a where object.`
-      );
-    }
-    return item as Record<string, unknown>;
-  });
-}
-
-function normalizeWhereData(
-  value: unknown,
-  relation: string,
-  kind: string
-): { where?: Record<string, unknown>; data: Record<string, unknown> }[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a { where, data } object.`
-      );
-    }
-    const record = item as Record<string, unknown>;
-    const data = record.data;
-    if (!(data && typeof data === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a data object.`
-      );
-    }
-    const where =
-      record.where && typeof record.where === "object"
-        ? (record.where as Record<string, unknown>)
-        : undefined;
-    return { where, data: data as Record<string, unknown> };
-  });
 }

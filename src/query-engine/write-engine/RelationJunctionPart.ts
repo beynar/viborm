@@ -5,10 +5,9 @@ import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import { getManyToManyJoinInfo } from "../builders/many-to-many-utils";
 import {
-  type RelationMutation,
-  separateData,
-} from "../builders/relation-data-builder";
-import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
+  buildParsedRelationPrograms,
+  type RelationMutationProgram,
+} from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
@@ -1828,8 +1827,7 @@ export function buildJunctionParts(input: {
   parentScope: QueryScope;
   relationName: string;
   relationInfo: RelationInfo;
-  mutation: RelationMutation;
-  parsedRelation: Record<string, unknown>;
+  program: RelationMutationProgram;
   parentId: ParentIdSource;
   /** E2-U3: the membership-READ parent value when it differs from the written one —
    *  see {@link RelationJunctionConfig.correlationParentId}. */
@@ -1852,8 +1850,7 @@ export function buildJunctionParts(input: {
     parentScope,
     relationName,
     relationInfo,
-    mutation,
-    parsedRelation,
+    program,
     parentId,
     txMode,
   } = input;
@@ -1884,7 +1881,10 @@ export function buildJunctionParts(input: {
     data: Record<string, unknown>,
     resolveParentId: () => ParentIdSource
   ): { scalar: Record<string, unknown>; childParts: readonly Part[] } => {
-    const { scalarData, relations } = separateData(childScope, data);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childScope,
+      data
+    );
     if (Object.keys(relations).length === 0) {
       return { scalar: scalarData, childParts: [] };
     }
@@ -1971,7 +1971,10 @@ export function buildJunctionParts(input: {
      *  the generated-field marker the dedup ledger keys on. */
     identity: JunctionCreateIdentity | undefined;
   } => {
-    const { scalarData, relations } = separateData(childScope, create);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childScope,
+      create
+    );
     const spelledPk = create[targetPkField];
     const pkIsLiteral = spelledPk !== undefined && spelledPk !== null;
     if (Object.keys(relations).length === 0) {
@@ -2202,19 +2205,19 @@ export function buildJunctionParts(input: {
   // A stable, V1-mirroring kind order: adopt/link first, then set, then the
   // correlated writes, then removals — every kind independent (the own-write
   // preflight has already rejected any overlapping pair).
-  for (const kind of getRelationMutationKinds(mutation)) {
-    switch (kind) {
+  for (const entry of program.entries) {
+    switch (entry.kind) {
       case "connect":
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
             kind: "connect",
-            wheres: normalizeWheres(parsedRelation.connect, relationName, kind),
+            wheres: entry.targets,
           })
         );
         break;
       case "disconnect": {
-        if (parsedRelation.disconnect === true) {
+        if (entry.target.kind === "current") {
           throw new NestedWriteError(
             m2mDisconnectRequiresSelector(relationName),
             relationName
@@ -2224,11 +2227,7 @@ export function buildJunctionParts(input: {
           new RelationJunctionPart(scope, {
             ...base,
             kind: "disconnect",
-            wheres: normalizeWheres(
-              parsedRelation.disconnect,
-              relationName,
-              kind
-            ),
+            wheres: entry.target.targets,
           })
         );
         break;
@@ -2238,12 +2237,12 @@ export function buildJunctionParts(input: {
           new RelationJunctionPart(scope, {
             ...base,
             kind: "set",
-            wheres: normalizeWheres(parsedRelation.set, relationName, kind),
+            wheres: entry.targets,
           })
         );
         break;
       case "delete": {
-        if (parsedRelation.delete === true) {
+        if (entry.target.kind === "current") {
           parts.push(
             new RelationJunctionPart(scope, {
               ...base,
@@ -2257,7 +2256,7 @@ export function buildJunctionParts(input: {
           new RelationJunctionPart(scope, {
             ...base,
             kind: "delete",
-            wheres: normalizeWheres(parsedRelation.delete, relationName, kind),
+            wheres: entry.target.targets,
           })
         );
         break;
@@ -2267,27 +2266,18 @@ export function buildJunctionParts(input: {
           new RelationJunctionPart(scope, {
             ...base,
             kind: "deleteMany",
-            filters: normalizeWheres(
-              parsedRelation.deleteMany,
-              relationName,
-              kind
-            ),
+            filters: entry.filters,
           })
         );
         break;
       case "update": {
-        const items = normalizeWhereData(
-          parsedRelation.update,
-          relationName,
-          kind
-        );
-        const wheres = items.map((item) => {
-          if (!item.where) {
+        const wheres = entry.items.map((item) => {
+          if (item.target.kind !== "unique") {
             throw new QueryEngineError(
-              `query-engine-v2 update for relation '${relationName}' requires a where.`
+              `query-engine-v2 internal: many-to-many update for relation '${relationName}' requires a unique target.`
             );
           }
-          return item.where;
+          return item.target.where;
         });
         // T3b-2 mechanism 1 reuse: a relation-carrying update target folds its own
         // relations one level deeper against its located PK; a scalar-only target
@@ -2297,7 +2287,7 @@ export function buildJunctionParts(input: {
         const targetProbeIds = wheres.map(() =>
           scope.allocate(`${childName}.find`)
         );
-        const folded = items.map((item, index) =>
+        const folded = entry.items.map((item, index) =>
           // A nested `update` that finds no member is a not-found, not a branch.
           foldOrDelegateUpdate(
             item.data,
@@ -2320,18 +2310,13 @@ export function buildJunctionParts(input: {
         break;
       }
       case "updateMany": {
-        const items = normalizeWhereData(
-          parsedRelation.updateMany,
-          relationName,
-          kind
-        );
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
             kind: "updateMany",
-            filters: items.map((item) => item.where ?? {}),
-            data: items.map((item) =>
-              scalarOnly(childScope, item.data, relationName, kind)
+            filters: entry.items.map((item) => item.where ?? {}),
+            data: entry.items.map((item) =>
+              scalarOnly(childScope, item.data, relationName, entry.kind)
             ),
           })
         );
@@ -2343,10 +2328,9 @@ export function buildJunctionParts(input: {
         // in the create data fold one level deeper against the fresh target's
         // explicit literal PK, emitted after its INSERT + join (fresh-parent elision,
         // ATOM §4); a scalar-only create keeps its empty child Parts.
-        const folded = normalizeCreates(
-          parsedRelation.create,
-          relationName
-        ).map((create) => freshTargetFold(create, "create"));
+        const folded = entry.items.map((create) =>
+          freshTargetFold(create, "create")
+        );
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
@@ -2376,17 +2360,11 @@ export function buildJunctionParts(input: {
         // alternative (skip the join too) cannot be decided at compile without a probe,
         // and would make a duplicate item silently do NOTHING — unobservable to the
         // caller. Witnessed by `junction-create-many-behavior.ts`.
-        const payload = requireObject(
-          parsedRelation.createMany,
-          relationName,
-          kind,
-          "createMany"
-        );
-        const rows = normalizeCreates(payload.data, relationName);
+        const rows = entry.rows;
         // An empty `data` writes nothing, exactly as the child-held-FK nested
         // `createMany` does (`CreateOperation.foldCreateMany`) — no Part, no steps.
         if (rows.length > 0) {
-          const skipDuplicates = payload.skipDuplicates === true;
+          const skipDuplicates = entry.skipDuplicates === true;
           // E6.8 — see {@link skipDuplicatesDisposition}. Only a generated target key
           // reaches a decision here: everything else keeps the skip leaf it has today.
           const disposition = skipDuplicates
@@ -2441,11 +2419,7 @@ export function buildJunctionParts(input: {
       case "connectOrCreate": {
         // E2-U2: the create arm folds its own relations one level deeper against its
         // literal PK (mechanism 2); the slot emits them on the create branch only.
-        const items = normalizeWhereCreate(
-          parsedRelation.connectOrCreate,
-          relationName,
-          kind
-        );
+        const items = entry.items;
         const armed = items.map((item) =>
           // E4-U3: the arm's missing-premise pin rides the delegated subtree's root
           // INSERT when the whole create is delegated (E2's carve, now wired).
@@ -2475,7 +2449,18 @@ export function buildJunctionParts(input: {
         // target's literal PK — the create arm (mechanism 2, fresh target) against
         // its `create` PK, the update arm (mechanism 1 reuse) against its `where` PK.
         // Each arm's child Parts are emitted branch-specifically by `compileUpsert`.
-        const items = normalizeUpserts(parsedRelation.upsert, relationName);
+        const items = entry.items.map((item) => {
+          if (item.target.kind !== "unique") {
+            throw new QueryEngineError(
+              `query-engine-v2 internal: many-to-many upsert for relation '${relationName}' requires a unique target.`
+            );
+          }
+          return {
+            where: item.target.where,
+            create: item.create,
+            update: item.update,
+          };
+        });
         const foldedCreates = items.map((item) =>
           freshTargetFold(
             item.create,
@@ -2532,86 +2517,14 @@ export function buildJunctionParts(input: {
         // one, `createMany`), so this is an internal exhaustiveness check, not a
         // capability boundary: no user payload reaches it. It was an
         // `UnsupportedOperationError` refusal until N3-U1 — census 77 -> 76.
-        const exhaustive: never = kind;
+        const exhaustive: never = entry;
         throw new QueryEngineError(
-          `query-engine-v2 junction part has no builder for '${exhaustive}'.`
+          `query-engine-v2 junction part has no builder for '${String(exhaustive)}'.`
         );
       }
     }
   }
   return parts;
-}
-
-function normalizeCreates(
-  value: unknown,
-  relation: string
-): Record<string, unknown>[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 create for relation '${relation}' requires a create object.`
-      );
-    }
-    return item as Record<string, unknown>;
-  });
-}
-
-function normalizeWhereCreate(
-  value: unknown,
-  relation: string,
-  kind: string
-): { where: Record<string, unknown>; create: Record<string, unknown> }[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a { where, create } object.`
-      );
-    }
-    const record = item as Record<string, unknown>;
-    const where = requireObject(record.where, relation, kind, "where");
-    const create = requireObject(record.create, relation, kind, "create");
-    return { where, create };
-  });
-}
-
-function normalizeUpserts(
-  value: unknown,
-  relation: string
-): {
-  where: Record<string, unknown>;
-  create: Record<string, unknown>;
-  update: Record<string, unknown>;
-}[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 upsert for relation '${relation}' requires a { where, create, update } object.`
-      );
-    }
-    const record = item as Record<string, unknown>;
-    return {
-      where: requireObject(record.where, relation, "upsert", "where"),
-      create: requireObject(record.create, relation, "upsert", "create"),
-      update: requireObject(record.update, relation, "upsert", "update"),
-    };
-  });
-}
-
-function requireObject(
-  value: unknown,
-  relation: string,
-  kind: string,
-  field: string
-): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  throw new QueryEngineError(
-    `query-engine-v2 ${kind} for relation '${relation}' requires a '${field}' object.`
-  );
 }
 
 /**
@@ -2714,54 +2627,14 @@ function scalarOnly(
   relationName: string,
   kind: string
 ): Record<string, unknown> {
-  const { scalarData, relations } = separateData(childScope, data);
+  const { scalarData, relations } = buildParsedRelationPrograms(
+    childScope,
+    data
+  );
   if (Object.keys(relations).length > 0) {
     throw new UnsupportedOperationError(
       `query-engine-v2 nested '${kind}' on many-to-many relation '${relationName}' does not support nested relation writes in its data.`
     );
   }
   return scalarData;
-}
-
-function normalizeWheres(
-  value: unknown,
-  relation: string,
-  kind: string
-): Record<string, unknown>[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a where object.`
-      );
-    }
-    return item as Record<string, unknown>;
-  });
-}
-
-function normalizeWhereData(
-  value: unknown,
-  relation: string,
-  kind: string
-): { where?: Record<string, unknown>; data: Record<string, unknown> }[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a { where, data } object.`
-      );
-    }
-    const record = item as Record<string, unknown>;
-    const data = record.data;
-    if (!(data && typeof data === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a data object.`
-      );
-    }
-    const where =
-      record.where && typeof record.where === "object"
-        ? (record.where as Record<string, unknown>)
-        : undefined;
-    return { where, data: data as Record<string, unknown> };
-  });
 }

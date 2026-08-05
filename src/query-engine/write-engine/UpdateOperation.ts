@@ -14,12 +14,17 @@ import {
   buildConnectSubqueryForField,
   type FkDirection,
   getFkDirection,
+  type NestedUpdateManyInput,
   type RelationMutation,
   separateData,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
+  buildRelationMutationProgram,
   getRelationMutationKinds,
+  type NormalizedRelationUpsert,
+  type RelationMutationEntry,
+  type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
@@ -535,6 +540,30 @@ export class UpdateOperation {
     }
     const parent = createQueryScope(engine.adapter, model);
     const separated = separateData(parent, data);
+    const relationPrograms: Record<string, RelationMutationProgram> = {};
+    for (const [relationName, mutation] of Object.entries(
+      separated.relations
+    )) {
+      const relationSchemas = parentSchemas.relations[relationName];
+      if (!relationSchemas) {
+        throw new QueryEngineError(
+          `query-engine-v2 internal: no validation schema exists for relation '${relationName}', which the model's own relation set declares.`
+        );
+      }
+      const parsedRelation = nestedTarget
+        ? mutation.payload
+        : parseValidated(
+            relationSchemas.update,
+            data[relationName],
+            "update",
+            `data.${relationName}`
+          );
+      const program = buildRelationMutationProgram(
+        mutation.relationInfo,
+        parsedRelation
+      );
+      if (program) relationPrograms[relationName] = program;
+    }
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
@@ -652,7 +681,7 @@ export class UpdateOperation {
       new OwnWritePreflight().assertUpdate(
         parent,
         ownWrite.scalarData,
-        ownWrite.relations,
+        relationPrograms,
         where
       );
     }
@@ -695,46 +724,12 @@ export class UpdateOperation {
     // like `partnerId` is the parent's own column; reordering the root UPDATE after a
     // sibling child write would race an unfreed UNIQUE value — the inverse holder).
     const parentFkLocateFields = new Set<string>();
-    for (const [relationName, mutation] of Object.entries(
-      separated.relations
-    )) {
-      const relationSchemas = parentSchemas.relations[relationName];
-      if (!relationSchemas) {
-        // Unreachable by construction (N7-U-A, the X1c disposition): `separated.relations`
-        // is keyed by `isRelation(model, key)` / `getRelationInfo` and
-        // `parentSchemas.relations` by `getRelationsSchemas`, and BOTH enumerate the same
-        // `model["~"].state.relations`. A key present in one is present in the other; there
-        // is no payload that spells a relation the registry has no schema for. An engine
-        // invariant, not a route — this one has no public spelling at all.
-        throw new QueryEngineError(
-          `query-engine-v2 internal: no validation schema exists for relation '${relationName}', which the model's own relation set declares.`
-        );
-      }
-      // THE ONE transform of this relation payload. A standalone update holds the RAW
-      // `data` (the whole-args parse above validates and its output is discarded), and
-      // an upsert update arm has no whole-args parse at all, so for both the relation
-      // schema here is where the payload is narrowed AND transformed — exactly once.
-      // X1c: a nested target holds the ENCLOSING parse's OUTPUT, which already ran THIS
-      // schema over this key (a target's `core.update` carries its relations' `update`
-      // entries), so it is consumed as-is. Re-parsing a transformed value is not a
-      // no-op: a JSON write's `{ set: … }` envelope is itself a legal JSON document, so
-      // a second pass wraps it AGAIN and the ORM's envelope lands in the user's column,
-      // and a JSON null sentinel fails the second pass outright. Parse once (X2, and
-      // the same lesson upsert's arms record) — never re-parse parsed data.
-      const parsedRelation = nestedTarget
-        ? mutation.payload
-        : parseValidated(
-            relationSchemas.update,
-            data[relationName],
-            "update",
-            `data.${relationName}`
-          );
+    for (const [relationName, program] of Object.entries(relationPrograms)) {
       this.interpretRelation({
         scope,
         parent,
         relationName,
-        mutation,
-        parsedRelation,
+        program,
         parentIdSource,
         txMode,
         childParts,
@@ -1297,8 +1292,7 @@ export class UpdateOperation {
     scope: StepScope;
     parent: QueryScope;
     relationName: string;
-    mutation: RelationMutation;
-    parsedRelation: Record<string, unknown>;
+    program: RelationMutationProgram;
     parentIdSource: ReturnType<typeof plannedParentId>;
     txMode: boolean;
     childParts: Part[];
@@ -1317,9 +1311,10 @@ export class UpdateOperation {
      *  that puts a nested arm on V1's referential-legality path (§7.2). */
     rootScalarData: Record<string, unknown>;
   }): void {
-    const { relationName, mutation, parsedRelation } = input;
-    const relationInfo = mutation.relationInfo;
-    const kinds = getRelationMutationKinds(mutation);
+    const { relationName, program } = input;
+    const relationInfo = program.relationInfo;
+    const entries = program.entries;
+    const kinds = entries.map((entry) => entry.kind);
 
     if (kinds.length === 0) {
       // A relation payload that asks for nothing: `{}`, or one whose only arms were
@@ -1344,8 +1339,7 @@ export class UpdateOperation {
           parentScope: input.parent,
           relationName,
           relationInfo,
-          mutation,
-          parsedRelation,
+          program,
           parentId: input.parentIdSource,
           txMode: input.txMode,
           // T3b-2 (family C): a junction create/update/upsert target whose data
@@ -1408,7 +1402,7 @@ export class UpdateOperation {
         relationName,
         relationInfo,
         fk,
-        kinds[0]!
+        entries[0]!
       );
       return;
     }
@@ -1550,7 +1544,7 @@ export class UpdateOperation {
       nestedBuilder: (
         targetScope: QueryScope,
         parentId: ParentIdSource,
-        relations: Record<string, RelationMutation>,
+        relations: Record<string, RelationMutationProgram>,
         txMode: boolean,
         correlationParentId?: ParentIdSource
       ) =>
@@ -1572,14 +1566,13 @@ export class UpdateOperation {
     // deleteMany }`, `{ update, updateMany }`, …). Each present kind contributes
     // its own Part(s); they compose into the one linear fragment in a stable,
     // V1-mirroring order (link/adopt, then removals, then updates).
-    for (const kind of kinds) {
+    for (const entry of entries) {
       if (isInverseToOne) {
         this.interpretInverseToOneKind({
-          kind,
+          entry,
           relationName,
           relationInfo,
           fk,
-          parsedRelation,
           childScope,
           childName,
           childPrimaryKey: childPrimaryKeys[0]!,
@@ -1598,12 +1591,11 @@ export class UpdateOperation {
       // SET — D4's "thread the new value"), so it reuses the same literal-parent create
       // leaf the child-held recursion uses. A referenced column resolvable only from the
       // located row (a planned FK), a compound key, or a non-literal rewrite routes to V1.
-      if (kind === "create" || kind === "createMany") {
+      if (entry.kind === "create" || entry.kind === "createMany") {
         this.interpretChildHeldCreate({
-          kind,
+          entry,
           relationName,
           fk,
-          parsedRelation,
           childScope,
           childName,
           input,
@@ -1611,10 +1603,9 @@ export class UpdateOperation {
         continue;
       }
       this.interpretToManyKind({
-        kind,
+        entry,
         relationName,
         relationInfo,
-        parsedRelation,
         childScope,
         childName,
         childPrimaryKey: childPrimaryKeys[0]!,
@@ -1637,19 +1628,20 @@ export class UpdateOperation {
    * comes from differs.
    */
   private interpretChildHeldCreate(args: {
-    kind: string;
+    entry: Extract<
+      RelationMutationEntry,
+      { kind: "create" | "createMany" }
+    >;
     relationName: string;
     fk: FkDirection;
-    parsedRelation: Record<string, unknown>;
     childScope: QueryScope;
     childName: string;
     input: Parameters<UpdateOperation["interpretRelation"]>[0];
   }): void {
     const {
-      kind,
+      entry,
       relationName,
       fk,
-      parsedRelation,
       childScope,
       childName,
       input,
@@ -1673,21 +1665,33 @@ export class UpdateOperation {
       fk,
       parentId,
     } as const;
-    if (kind === "create") {
-      const creates = normalizeItems(parsedRelation.create, relationName);
+    if (entry.kind === "create") {
       const txMode = this.mode === "transaction";
       target.push(
         ...(parentId.kind === "literal"
-          ? buildLiteralParentCreatePart({ ...leaf, txMode, creates })
-          : buildPlannedParentCreatePart({ ...leaf, txMode, creates }))
+          ? buildLiteralParentCreatePart({
+              ...leaf,
+              txMode,
+              creates: entry.items,
+            })
+          : buildPlannedParentCreatePart({
+              ...leaf,
+              txMode,
+              creates: entry.items,
+            }))
       );
       return;
     }
-    const createManyInput = parsedRelation.createMany;
     target.push(
       parentId.kind === "literal"
-        ? buildLiteralParentCreateManyPart({ ...leaf, createManyInput })
-        : buildPlannedParentCreateManyPart({ ...leaf, createManyInput })
+        ? buildLiteralParentCreateManyPart({
+            ...leaf,
+            createManyEntry: entry,
+          })
+        : buildPlannedParentCreateManyPart({
+            ...leaf,
+            createManyEntry: entry,
+          })
     );
   }
 
@@ -1953,10 +1957,9 @@ export class UpdateOperation {
   }
 
   private interpretToManyKind(args: {
-    kind: string;
+    entry: RelationMutationEntry;
     relationName: string;
     relationInfo: RelationInfo;
-    parsedRelation: Record<string, unknown>;
     childScope: QueryScope;
     childName: string;
     childPrimaryKey: string;
@@ -1974,10 +1977,9 @@ export class UpdateOperation {
     adopt?: PostTransitionAdopt;
   }): void {
     const {
-      kind,
+      entry,
       relationName,
       relationInfo,
-      parsedRelation,
       childScope,
       childName,
       childPrimaryKey,
@@ -1995,8 +1997,8 @@ export class UpdateOperation {
     const pushAdopt = (parts: readonly Part[]) =>
       (adopt?.target ?? input.childParts).push(...parts);
 
-    switch (kind) {
-      case "upsert":
+    switch (entry.kind) {
+      case "upsert": {
         pushAdopt(
           buildToManyUpsertParts(
             input.scope,
@@ -2004,13 +2006,14 @@ export class UpdateOperation {
             this.engine,
             relationName,
             relationInfo,
-            normalizeItems(parsedRelation.upsert, relationName),
+            entry.items,
             { correlation: "correlated", parentId: adoptParentId },
             input.txMode,
             this.armSeam
           )
         );
         return;
+      }
       case "connectOrCreate":
         // Still a GLOBAL lookup-and-adopt under update (found → reparent, absent
         // → create), never correlated (PLAN P−1.2) — composed like the upsert part.
@@ -2021,7 +2024,7 @@ export class UpdateOperation {
             this.engine,
             relationName,
             relationInfo,
-            normalizeItems(parsedRelation.connectOrCreate, relationName),
+            entry.items,
             adoptParentId,
             input.txMode,
             this.armSeam
@@ -2030,7 +2033,7 @@ export class UpdateOperation {
         return;
       case "connect":
       case "disconnect": {
-        if (kind === "disconnect") {
+        if (entry.kind === "disconnect") {
           // A required child FK cannot be nulled — V1's verbatim typed rejection.
           assertRelationCanDisconnect(
             relationInfo,
@@ -2041,7 +2044,7 @@ export class UpdateOperation {
         // releases rows that carry the parent's CURRENT value and its probe correlates
         // on the located row in SQL, so it keeps the planned source and its place among
         // the ordinary child parts.
-        const isAdopt = kind === "connect";
+        const isAdopt = entry.kind === "connect";
         const parts = buildToManyLinkParts(
           input.scope,
           this.engine,
@@ -2052,10 +2055,7 @@ export class UpdateOperation {
           fkFields,
           referencedFields,
           childPrimaryKey,
-          kind,
-          kind === "connect"
-            ? parsedRelation.connect
-            : parsedRelation.disconnect,
+          entry,
           isAdopt ? adoptParentId : input.parentIdSource,
           input.txMode
         );
@@ -2064,7 +2064,7 @@ export class UpdateOperation {
         return;
       }
       case "update":
-        push(buildToManyUpdateParts(writeBase, parsedRelation.update));
+        push(buildToManyUpdateParts(writeBase, entry));
         return;
       case "updateMany":
         // CLASS V (T4c): a relation-carrying updateMany is rejected by the legality
@@ -2072,16 +2072,16 @@ export class UpdateOperation {
         // upsert branch). Skip building the Part so its construction does not throw
         // ahead of that runtime-branch-gated verdict (an untaken upsert update arm
         // whose invalid updateMany never runs must not reject the whole tree).
-        if (updateManyCarriesRelations(childScope, parsedRelation.updateMany)) {
+        if (updateManyCarriesRelations(childScope, entry.items)) {
           return;
         }
-        push(buildToManyUpdateManyParts(writeBase, parsedRelation.updateMany));
+        push(buildToManyUpdateManyParts(writeBase, entry));
         return;
       case "delete":
-        push(buildToManyDeleteParts(writeBase, parsedRelation.delete));
+        push(buildToManyDeleteParts(writeBase, entry));
         return;
       case "deleteMany":
-        push(buildToManyDeleteManyParts(writeBase, parsedRelation.deleteMany));
+        push(buildToManyDeleteManyParts(writeBase, entry));
         return;
       case "set":
         // `set` is BOTH halves at once: it reparents its targets (the adopt half —
@@ -2091,7 +2091,7 @@ export class UpdateOperation {
         pushAdopt([
           buildToManySetPart(
             adopt ? { ...writeBase, parentId: adopt.parentId } : writeBase,
-            parsedRelation.set,
+            entry,
             adopt?.correlationParentId
           ),
         ]);
@@ -2104,7 +2104,7 @@ export class UpdateOperation {
         // `toManyUpdateFactory`'s key set. Measured: all ELEVEN to-many keys construct on
         // this path, so nothing falls through here. An engine invariant, not a route.
         throw new QueryEngineError(
-          `query-engine-v2 internal: kind '${kind}' reached the child-held update dispatch on relation '${relationName}'; the parse boundary admits only the eleven to-many kinds, all of which are handled above.`
+          `query-engine-v2 internal: unsupported entry reached the child-held update dispatch on relation '${relationName}'; the parse boundary admits only the eleven to-many kinds, all of which are handled above.`
         );
     }
   }
@@ -2131,11 +2131,10 @@ export class UpdateOperation {
    * invariant, not a route.
    */
   private interpretInverseToOneKind(args: {
-    kind: string;
+    entry: RelationMutationEntry;
     relationName: string;
     relationInfo: RelationInfo;
     fk: FkDirection;
-    parsedRelation: Record<string, unknown>;
     childScope: QueryScope;
     childName: string;
     childPrimaryKey: string;
@@ -2150,11 +2149,10 @@ export class UpdateOperation {
     adopt?: PostTransitionAdopt;
   }): void {
     const {
-      kind,
+      entry,
       relationName,
       relationInfo,
       fk,
-      parsedRelation,
       childScope,
       childName,
       childPrimaryKey,
@@ -2171,7 +2169,7 @@ export class UpdateOperation {
     const pushAdopt = (parts: readonly Part[]) =>
       (adopt?.target ?? input.childParts).push(...parts);
 
-    switch (kind) {
+    switch (entry.kind) {
       case "create":
         // N2-U1 — the mainstream Prisma shape,
         // `user.update({ where, data: { profile: { create: { bio } } } })`.
@@ -2180,7 +2178,7 @@ export class UpdateOperation {
         // column — a construction literal when the unique `where` pins that column, N1's
         // located-parent Ref when it does not. `interpretChildHeldCreate` is entered
         // unchanged; the to-one payload is a bare object where the to-many spelling is
-        // single-or-array, and `normalizeItems` already reads both.
+        // single-or-array; the mutation program already normalized both spellings.
         //
         // THE OCCUPIED SLOT (Prisma's documented behavior: a related row already there is
         // an error). The 1:1 foreign key carries a UNIQUE constraint — `serializer.ts`
@@ -2198,10 +2196,9 @@ export class UpdateOperation {
         // correct verdict — an occupied slot is a genuine conflict the caller must see,
         // not a lost create-branch race worth retrying.
         this.interpretChildHeldCreate({
-          kind,
+          entry,
           relationName,
           fk,
-          parsedRelation,
           childScope,
           childName,
           input,
@@ -2223,8 +2220,7 @@ export class UpdateOperation {
             fkFields,
             referencedFields,
             childPrimaryKey,
-            "connect",
-            parsedRelation.connect,
+            entry,
             adoptParentId,
             input.txMode
           )
@@ -2238,7 +2234,7 @@ export class UpdateOperation {
             this.engine,
             relationName,
             relationInfo,
-            normalizeItems(parsedRelation.connectOrCreate, relationName),
+            entry.items,
             adoptParentId,
             input.txMode,
             this.armSeam
@@ -2252,7 +2248,7 @@ export class UpdateOperation {
         // relation schema, as its canonical envelope; the filter narrows that
         // locator. See `splitToOneUpdateTarget`.
         input.childParts.push(
-          buildToOneUpdatePart(writeBase, parsedRelation.update)
+          buildToOneUpdatePart(writeBase, entry)
         );
         return;
       case "upsert":
@@ -2266,6 +2262,12 @@ export class UpdateOperation {
         // empty-slot accept-shape reroutes the CREATE arm to a POST-transition-FK leaf
         // ordered after the root UPDATE (the update arm is unreachable: occupied rejects,
         // empty creates). A cascade / no-op / non-transition keeps the ordinary part.
+        const item = entry.items[0];
+        if (!item) {
+          throw new QueryEngineError(
+            `query-engine-v2 internal: inverse to-one upsert on relation '${relationName}' has no item.`
+          );
+        }
         if (keyTransition.regime === "guarded") {
           this.rerouteTransitionedUpsertCreateArm({
             input,
@@ -2273,13 +2275,13 @@ export class UpdateOperation {
             fk,
             childScope,
             childName,
-            upsertInput: parsedRelation.upsert,
+            upsertInput: item,
             after: keyTransition.after,
           });
           return;
         }
         input.childParts.push(
-          buildInverseToOneUpsertPart(writeBase, parsedRelation.upsert)
+          buildInverseToOneUpsertPart(writeBase, item)
         );
         return;
       case "disconnect": {
@@ -2299,8 +2301,7 @@ export class UpdateOperation {
             fkFields,
             referencedFields,
             childPrimaryKey,
-            "disconnect",
-            true,
+            entry,
             input.parentIdSource,
             input.txMode
           )
@@ -2312,7 +2313,12 @@ export class UpdateOperation {
         // (V1's `RelationRemovals.delete` input===true, child-held arm). `true` is the
         // arm's only reachable value: the parse boundary types it `v.boolean()` and
         // `false` is Prisma's no-op, dropped from the kind list (N7-U-B).
-        push(buildToManyDeleteManyParts(writeBase, {}));
+        push(
+          buildToManyDeleteManyParts(writeBase, {
+            kind: "deleteMany",
+            filters: [{}],
+          })
+        );
         return;
       default:
         // Unreachable: the seven keys the to-one relation schema can deliver each have a
@@ -2323,7 +2329,7 @@ export class UpdateOperation {
         // precedent for a branch made unreachable by construction). Fail closed rather
         // than fall through and silently drop the mutation.
         throw new QueryEngineError(
-          `query-engine-v2 update reached an unknown nested kind '${kind}' on the inverse-side to-one relation '${relationName}'.`
+          `query-engine-v2 update reached an unknown nested entry on the inverse-side to-one relation '${relationName}'.`
         );
     }
   }
@@ -2476,7 +2482,7 @@ export class UpdateOperation {
     fk: FkDirection;
     childScope: QueryScope;
     childName: string;
-    upsertInput: unknown;
+    upsertInput: NormalizedRelationUpsert;
     after: unknown;
   }): void {
     const {
@@ -2488,11 +2494,7 @@ export class UpdateOperation {
       upsertInput,
       after,
     } = args;
-    const spec = normalizeSingle(upsertInput, relationName, "upsert");
-    const createData = requireRecord(
-      spec.create,
-      `${relationName}.upsert.create`
-    );
+    const createData = upsertInput.create;
     input.afterRootParts.push(
       ...buildLiteralParentCreatePart({
         scope: input.scope,
@@ -2503,7 +2505,7 @@ export class UpdateOperation {
         fk,
         parentId: literalParentId(after),
         txMode: this.mode === "transaction",
-        creates: normalizeItems(createData, relationName),
+        creates: [createData],
       })
     );
   }
@@ -2522,9 +2524,9 @@ export class UpdateOperation {
     relationName: string,
     relationInfo: RelationInfo,
     fk: FkDirection,
-    kind: string
+    entry: RelationMutationEntry
   ): void {
-    switch (kind) {
+    switch (entry.kind) {
       case "connect":
       case "disconnect":
         input.toOneLinks.push(
@@ -2533,14 +2535,19 @@ export class UpdateOperation {
             relationName,
             relationInfo,
             fk,
-            kind,
-            input.parsedRelation
+            entry
           )
         );
         return;
       case "create":
         input.parentHeldTargets.push(
-          this.interpretParentHeldCreate(input, relationName, relationInfo, fk)
+          this.interpretParentHeldCreate(
+            input,
+            relationName,
+            relationInfo,
+            fk,
+            entry
+          )
         );
         return;
       case "connectOrCreate":
@@ -2549,7 +2556,8 @@ export class UpdateOperation {
             input,
             relationName,
             relationInfo,
-            fk
+            fk,
+            entry
           )
         );
         return;
@@ -2561,9 +2569,16 @@ export class UpdateOperation {
         // wrapper's `where` is a NON-unique filter on the currently connected record;
         // it rides the locate, never the write. The bare form yields no filter and is
         // byte-identical to pre-W4-U3.
-        const target = splitToOneUpdateTarget(
-          normalizeSingle(input.parsedRelation.update, relationName, "update")
-        );
+        const item = entry.items[0];
+        if (!(item && item.target.kind === "correlated")) {
+          throw new QueryEngineError(
+            `query-engine-v2 internal: parent-held to-one update on relation '${relationName}' requires one correlated target.`
+          );
+        }
+        const target: ToOneUpdateTarget = {
+          data: item.data,
+          ...(item.target.filter ? { filter: item.target.filter } : {}),
+        };
         // X1c: a parent-held to-one UPDATE target whose own data carries the
         // located-target projection of mechanism 1/2 (a deeper parent-held to-one —
         // child-SET folding on the referenced row — or a D4 edge) delegates its WHOLE
@@ -2598,7 +2613,13 @@ export class UpdateOperation {
         return;
       case "upsert":
         input.parentHeldTargets.push(
-          this.interpretParentHeldUpsert(input, relationName, relationInfo, fk)
+          this.interpretParentHeldUpsert(
+            input,
+            relationName,
+            relationInfo,
+            fk,
+            entry
+          )
         );
         return;
       default:
@@ -2609,7 +2630,7 @@ export class UpdateOperation {
         // to-many-only key such as `set` / `createMany` / `updateMany` / `deleteMany` is
         // answered by the parse boundary first (`ValidationError: Unknown key: <kind>`).
         throw new QueryEngineError(
-          `query-engine-v2 internal: kind '${kind}' reached the parent-held to-one update dispatch on relation '${relationName}'; the parse boundary admits no such key there.`
+          `query-engine-v2 internal: an unsupported entry reached the parent-held to-one update dispatch on relation '${relationName}'; the parse boundary admits no such key there.`
         );
     }
   }
@@ -2826,7 +2847,10 @@ export class UpdateOperation {
     childParts: readonly Part[];
     reorderAfterChildren: boolean;
   } {
-    const { scalarData, relations } = separateData(childScope, data);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childScope,
+      data
+    );
     assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
       data: scalarData,
     });
@@ -2888,7 +2912,8 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
-    fk: FkDirection
+    fk: FkDirection,
+    entry: Extract<RelationMutationEntry, { kind: "upsert" }>
   ): ParentHeldTarget {
     this.assertNotSharedPk(relationName, fk, "upsert");
     const childScope = createQueryScope(
@@ -2902,15 +2927,13 @@ export class UpdateOperation {
       childScope,
       "upsert"
     );
-    const spec = normalizeSingle(
-      input.parsedRelation.upsert,
-      relationName,
-      "upsert"
-    );
-    const updatePayload = requireRecord(
-      spec.update,
-      `${relationName}.upsert.update`
-    );
+    const spec = entry.items[0];
+    if (!(spec && spec.target.kind === "correlated")) {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: parent-held to-one upsert on relation '${relationName}' requires one correlated target.`
+      );
+    }
+    const updatePayload = spec.update;
     // E1 U4 — an arm that carries relations delegates its WHOLE arm (its SET and
     // its relations together) to an UpdateOperation nested-target sub-op, the X1c
     // seam the `update` arm already uses. A scalar-only arm keeps the in-place fold
@@ -2935,7 +2958,7 @@ export class UpdateOperation {
     }
     const before = this.buildBeforeTarget(
       childScope,
-      requireRecord(spec.create, `${relationName}.upsert.create`)
+      spec.create
     );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const probeId = input.scope.allocate(`${childName}.find`);
@@ -3105,17 +3128,21 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
-    fk: FkDirection
+    fk: FkDirection,
+    entry: Extract<RelationMutationEntry, { kind: "create" }>
   ): ParentHeldTarget {
     this.assertNotSharedPk(relationName, fk, "create");
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const before = this.buildBeforeTarget(
-      childScope,
-      normalizeSingle(input.parsedRelation.create, relationName, "create")
-    );
+    const createData = entry.items[0];
+    if (!createData) {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: parent-held to-one create on relation '${relationName}' has no item.`
+      );
+    }
+    const before = this.buildBeforeTarget(childScope, createData);
     return {
       kind: "create",
       relationName,
@@ -3132,22 +3159,17 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
-    fk: FkDirection
+    fk: FkDirection,
+    entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
   ): ParentHeldTarget {
     this.assertNotSharedPk(relationName, fk, "connectOrCreate");
-    const spec = normalizeSingle(
-      input.parsedRelation.connectOrCreate,
-      relationName,
-      "connectOrCreate"
-    );
-    const where = requireRecord(
-      spec.where,
-      `${relationName}.connectOrCreate.where`
-    );
-    const createData = requireRecord(
-      spec.create,
-      `${relationName}.connectOrCreate.create`
-    );
+    const spec = entry.items[0];
+    if (!spec) {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: parent-held to-one connectOrCreate on relation '${relationName}' has no item.`
+      );
+    }
+    const { where, create: createData } = spec;
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
@@ -3754,10 +3776,12 @@ export class UpdateOperation {
     relationName: string,
     relationInfo: RelationInfo,
     fk: FkDirection,
-    kind: string,
-    parsedRelation: Record<string, unknown>
+    entry: Extract<
+      RelationMutationEntry,
+      { kind: "connect" | "disconnect" }
+    >
   ): ToOneLink {
-    if (kind === "disconnect") {
+    if (entry.kind === "disconnect") {
       // V1-verbatim rejection when a required FK cannot be nulled.
       assertRelationCanDisconnect(relationInfo, fk);
       return {
@@ -3768,21 +3792,12 @@ export class UpdateOperation {
         ),
       };
     }
-    if (kind !== "connect") {
-      // Unreachable by construction (N7-U-A, the X1c disposition): the only two callers
-      // reach `interpretToOneLink` on the `connect` / `disconnect` arms, and `disconnect`
-      // returned above. The remaining to-one keys (create / connectOrCreate / update /
-      // upsert / delete) dispatch elsewhere, and a key outside the factory's set is
-      // answered by the parse boundary first (`ValidationError: Unknown key: <kind>`).
+    const connect = entry.targets[0];
+    if (!connect) {
       throw new QueryEngineError(
-        `query-engine-v2 internal: kind '${kind}' reached the to-one link builder on relation '${relationName}'; only connect and disconnect are routed here.`
+        `query-engine-v2 internal: parent-held to-one connect on relation '${relationName}' has no target.`
       );
     }
-    const connect = normalizeSingle(
-      parsedRelation.connect,
-      relationName,
-      "connect"
-    );
     // A directly-referenced unique folds its literal; a non-referenced one folds the
     // lookup subquery ({@link UpdateOperation.toOneFkAssign}, E1 U1).
     const assignment = this.toOneFkAssign(relationInfo, fk, connect);
@@ -4239,29 +4254,12 @@ function isVacateThenSupply(kinds: readonly string[]): boolean {
  *  ({@link UpdateOperation.assertUpdateManyRelationLegality}). */
 function updateManyCarriesRelations(
   childScope: QueryScope,
-  input: unknown
+  inputs: readonly NestedUpdateManyInput[]
 ): boolean {
-  const inputs = Array.isArray(input) ? input : [input];
   return inputs.some((item) => {
-    if (!(isRecord(item) && isRecord(item.data))) return false;
     return (
       Object.keys(separateData(childScope, item.data).relations).length > 0
     );
-  });
-}
-
-function normalizeItems(
-  value: unknown,
-  relation: string
-): Record<string, unknown>[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!isRecord(item)) {
-      throw new QueryEngineError(
-        `Relation '${relation}' upsert item must be an object.`
-      );
-    }
-    return item;
   });
 }
 
@@ -4275,30 +4273,6 @@ function isConstructionLiteral(value: unknown): boolean {
   return t === "string" || t === "number" || t === "bigint" || t === "boolean";
 }
 
-/** An `unknown -> Record` narrowing, NOT a shape check (N7-U-A). Every caller reads a
- *  dynamically-keyed slot of an ALREADY-PARSED payload, and every to-ONE arm of
- *  `toOneUpdateFactory` is a single object — never a `singleOrArray`, unlike the to-many
- *  factory. So an array answers at the parse boundary (`ValidationError: Expected object`,
- *  or `Expected boolean` for `disconnect`) and so does a non-record. Both branches are
- *  engine invariants, not routes — the X1c disposition. */
-function normalizeSingle(
-  value: unknown,
-  relation: string,
-  kind: string
-): Record<string, unknown> {
-  if (Array.isArray(value) && value.length !== 1) {
-    throw new QueryEngineError(
-      `query-engine-v2 internal: the to-one ${kind} for relation '${relation}' carried multiple targets after the parse boundary validated it as a single object.`
-    );
-  }
-  const item = Array.isArray(value) ? value[0] : value;
-  if (!isRecord(item)) {
-    throw new QueryEngineError(
-      `query-engine-v2 internal: the to-one ${kind} for relation '${relation}' reached its builder without the single unique where the parse boundary validated.`
-    );
-  }
-  return item;
-}
 
 function defaultSelect(model: Model<any>): Record<string, unknown> {
   // V1's default projection is every scalar EXCEPT `.omit()`-ed fields — the raw
@@ -4308,8 +4282,8 @@ function defaultSelect(model: Model<any>): Record<string, unknown> {
   );
 }
 
-/** As {@link normalizeSingle}: an `unknown -> Record` narrowing behind the whole-args
- *  update parse, converted by N7-U-A. `update.where` / `update.data` are validated by
+/** An `unknown -> Record` narrowing behind the whole-args update parse. `update.where`
+ *  / `update.data` are validated by
  *  `parseValidated(parentSchemas.args.update)` before this runs, and a nested target's
  *  `where` / `data` come from the ENCLOSING parse's output. */
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
