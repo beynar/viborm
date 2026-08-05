@@ -117,9 +117,9 @@ The problem is compile-time amnesia at the boundaries:
 | Boundary today                                                                    | Current type                                                 | Information lost                                                                                                                               |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`normalizeDriverError`](../../src/drivers/error-mapping.ts#L63)                  | `Error`                                                      | The function constructs precise constraint, transaction, nested-write, and query subclasses, but its return type erases the union immediately. |
-| V2 [`ExecutableOperation`](../../src/query-engine-v2/OperationExecutor.ts#L48)    | `planning()`, `compile()`, and `parse()` declare values only | Validation/user failures and invariant failures are indistinguishable in the signature.                                                        |
-| [`OperationExecutor.execute`](../../src/query-engine-v2/OperationExecutor.ts#L96) | `Promise<T>`                                                 | Expected provider failure, parser defect, and cancellation all become rejection.                                                               |
-| [`executeRoutedOperation`](../../src/query-engine-v2/routing.ts#L136)             | `try/catch unknown`                                          | The exact once-only race policy is enforced only by a runtime classifier.                                                                      |
+| V2 [`ExecutableOperation`](../../src/query-engine/write-engine/OperationExecutor.ts#L48)    | `planning()`, `compile()`, and `parse()` declare values only | Validation/user failures and invariant failures are indistinguishable in the signature.                                                        |
+| [`OperationExecutor.execute`](../../src/query-engine/write-engine/OperationExecutor.ts#L96) | `Promise<T>`                                                 | Expected provider failure, parser defect, and cancellation all become rejection.                                                               |
+| [`executeRoutedOperation`](../../src/query-engine/write-engine/routing.ts#L136)             | `try/catch unknown`                                          | The exact once-only race policy is enforced only by a runtime classifier.                                                                      |
 | [`runTransactionLifecycle`](../../src/drivers/shared/transactions.ts#L197)        | `Promise<T>` plus `AggregateError`                           | Multiple failures are retained at runtime but absent from the caller's static contract.                                                        |
 | [`PendingOperation<T>`](../../src/query-engine/pending-operation.ts#L48)          | `PromiseLike<T>`                                             | Its `.then` and `.catch` rejection parameter is explicitly `unknown`.                                                                          |
 | Public [`$transaction`](../../src/client/client.ts#L186) and query methods        | `Promise<T>` / `PendingOperation<T>`                         | Client types communicate results but no failure set.                                                                                           |
@@ -233,7 +233,7 @@ The useful v4 recovery operations are not cosmetic:
 
 For VibORM, Effect should express retry mechanics, while VibORM remains the
 authority on **whether** retry is safe. The once-only race retry in
-[`routing.ts`](../../src/query-engine-v2/routing.ts#L127) is tied to race pins
+[`routing.ts`](../../src/query-engine/write-engine/routing.ts#L127) is tied to race pins
 and `meta.raceable`; it must not become a generic retry of all constraint or
 transaction failures. Retry the complete idempotent read or complete
 transaction attempt, never an arbitrary statement after partial mutation.
@@ -339,7 +339,7 @@ typed model proxy
   → parse result
 ```
 
-V2's [`OperationFragment`](../../src/query-engine-v2/OperationFragment.ts)
+V2's [`OperationFragment`](../../src/query-engine/write-engine/OperationFragment.ts)
 already acts as a domain-specific operation algebra: ordered statements,
 references, outputs, guards, postconditions, race pins, and unique-conflict
 behavior. Effect is a complementary **execution algebra**, not a replacement

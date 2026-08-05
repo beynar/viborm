@@ -502,8 +502,8 @@ which is what makes the X1c nested-target delegation, which re-parses an already
 subtree, meaning-preserving". Both halves are now wrong. The delegation no longer re-parses
 anything: re-parsing a parse OUTPUT is not a no-op, and doing it persisted the ORM's own
 `{ set: … }` JSON envelope as the user's data (fixed in `Parse the delegated update
-target's data once, not twice`; recorded in [ATOM §X1c](../../src/query-engine-v2/ATOM.md)
-and [PLAN §X1c](../../src/query-engine-v2/PLAN.md)). And idempotence at the ENVELOPE level
+target's data once, not twice`; recorded in [ATOM §X1c](../../src/query-engine/write-engine/ATOM.md)
+and [PLAN §X1c](../../src/query-engine/write-engine/PLAN.md)). And idempotence at the ENVELOPE level
 never protected what was inside it — which is exactly why the JSON write broke through it.
 What keeps the two witnesses green is that the form is decided ONCE, at the parse boundary,
 from the user's payload; nothing re-derives it downstream.
@@ -910,7 +910,7 @@ delegated arms are forwarded the DESUGARED select whenever the caller projected
 at all, so both arms of an omit-carrying upsert answer the same columns.
 
 **Bulk writes: `omit` is a projection, so it returns rows.** `returnsRows`
-([query-engine-v2/routing.ts](../../src/query-engine-v2/routing.ts)) now reads
+([query-engine-v2/routing.ts](../../src/query-engine/write-engine/routing.ts)) now reads
 `select !== undefined || omit !== undefined`, and `BulkWriteResult` discriminates
 on the same pair with the same three-case honesty (`undefined` → `{count}`,
 definite → rows, maybe-`undefined` → the union). Accepting a projection on the
@@ -1327,7 +1327,7 @@ string form take `_executeRaw` and stay driver-native.
 decimal is *stored and compared through the dialect's exact-decimal path*, and
 it held for every column the caller names — except the one column the caller
 never names. A relation-correlated foreign key is lowered by `referenceSql`
-(`src/query-engine-v2/fragment-builders.ts`), which bound the value with
+(`src/query-engine/write-engine/fragment-builders.ts`), which bound the value with
 `literals.value` under `getScalarCastType`. That function answered `"numeric"`
 for a decimal. So the PARENT key and the CHILD foreign key holding *the same
 logical value* were bound two different ways inside one statement pair:

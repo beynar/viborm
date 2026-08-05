@@ -45,7 +45,7 @@ The audits agree. The engine emits a correct number of statements for reads and 
 - Each phase must keep the full test estate green: `pnpm test:types`, `pnpm test`, `pnpm test:gates`.
 - The final gate must run the Docker legs for MySQL (port 3307) and PostgreSQL (port 5434).
 - A change must not remove an error message, an error attribution, or a race protection. A reviewer must attack each of these.
-- The step vocabulary in `src/query-engine-v2/OperationFragment.ts` is frozen. No phase may grow it.
+- The step vocabulary in `src/query-engine/write-engine/OperationFragment.ts` is frozen. No phase may grow it.
 - If a phase changes pinned SQL in `tests/query-engine/sql-generation.test.ts`, the phase must update the pins deliberately, with a comment.
 
 ---
@@ -344,9 +344,9 @@ A delete by primary key sends five round trips: BEGIN, a locate SELECT, a snapsh
 
 ### Context and code locations
 
-- The current sequence: the planning locate at [`DeleteOperation.ts:132-147`](../../src/query-engine-v2/DeleteOperation.ts), the captured-PK write path at `:169-174`, the snapshot SELECT at `:175-190`, the DELETE at `:191-206`.
-- The fold pattern exists twice in sibling files: `CreateOperation.foldStep` at [`CreateOperation.ts:344-370`](../../src/query-engine-v2/CreateOperation.ts) and `UpdateOperation.directWrite` with its `canFold` gate at [`UpdateOperation.ts:656-704, 664-672`](../../src/query-engine-v2/UpdateOperation.ts).
-- The statement-atomic execution path with JS postconditions: [`OperationExecutor.ts:138-141, 295-340`](../../src/query-engine-v2/OperationExecutor.ts). The `affectedRows(1, notFound)` postcondition produces the byte-identical `NotFoundError`.
+- The current sequence: the planning locate at [`DeleteOperation.ts:132-147`](../../src/query-engine/write-engine/DeleteOperation.ts), the captured-PK write path at `:169-174`, the snapshot SELECT at `:175-190`, the DELETE at `:191-206`.
+- The fold pattern exists twice in sibling files: `CreateOperation.foldStep` at [`CreateOperation.ts:344-370`](../../src/query-engine/write-engine/CreateOperation.ts) and `UpdateOperation.directWrite` with its `canFold` gate at [`UpdateOperation.ts:656-704, 664-672`](../../src/query-engine/write-engine/UpdateOperation.ts).
+- The statement-atomic execution path with JS postconditions: [`OperationExecutor.ts:138-141, 295-340`](../../src/query-engine/write-engine/OperationExecutor.ts). The `affectedRows(1, notFound)` postcondition produces the byte-identical `NotFoundError`.
 
 ### Correction
 
@@ -366,7 +366,7 @@ Emit `DELETE FROM t WHERE <unique where> RETURNING <scalar select>` as one state
 
 #### What shipped
 
-One gate and one step in [`src/query-engine-v2/DeleteOperation.ts`](../../src/query-engine-v2/DeleteOperation.ts), mirroring `UpdateOperation`'s `canFold` and `CreateOperation.foldStep`. A delete folds when all four hold: transaction mode, a RETURNING driver, a scalar-only projection (see the `_count` correction below), and no `include`. The folded operation has EMPTY planning and one write step, so `OperationExecutor.statementAtomicPlan` runs it directly on the base driver — no transaction envelope — with `affectedRows(1, notFound)` enforced in JS afterwards.
+One gate and one step in [`src/query-engine/write-engine/DeleteOperation.ts`](../../src/query-engine/write-engine/DeleteOperation.ts), mirroring `UpdateOperation`'s `canFold` and `CreateOperation.foldStep`. A delete folds when all four hold: transaction mode, a RETURNING driver, a scalar-only projection (see the `_count` correction below), and no `include`. The folded operation has EMPTY planning and one write step, so `OperationExecutor.statementAtomicPlan` runs it directly on the base driver — no transaction envelope — with `affectedRows(1, notFound)` enforced in JS afterwards.
 
 The DELETE already carried a RETURNING clause whose rows were discarded; the snapshot SELECT re-read exactly what the write was handing back. The fold is that clause put to use.
 
@@ -455,10 +455,10 @@ The operations `connect`, `disconnect`, and `set` with N targets send two statem
 
 ### Context and code locations
 
-- To-many links: `buildToManyLinkParts` at [`RelationLinkPart.ts:363-397`](../../src/query-engine-v2/RelationLinkPart.ts) makes one Part per target. Each Part plans its own `FOR UPDATE` probe (`:108-146`) and emits one single-row UPDATE (`:167-177, 208-218`). The missing-target error is thrown in compile-time JS from the probe rows (`:234-250`). The writes carry `outputs: {}` — no affected-count contract exists in tx mode.
-- M2M: the per-target junction INSERT for `connect` at [`RelationJunctionPart.ts:387-405`](../../src/query-engine-v2/RelationJunctionPart.ts); the per-target delete at `:448-470`; the probes at `:318-352`. The consolidated precedents are in the same file: `junctionInsertMany` for `set` at `:436-443` and the IN-list deletes for `deleteMany` at `:473-496`.
-- Batch-mode guards are free (in-batch assertions, [`OperationExecutor.ts:477-484`](../../src/query-engine-v2/OperationExecutor.ts)). Keep them per-target in batch mode.
-- The `set` orphan guard at [`RelationWritePart.ts:910-947`](../../src/query-engine-v2/RelationWritePart.ts) must stay unchanged.
+- To-many links: `buildToManyLinkParts` at [`RelationLinkPart.ts:363-397`](../../src/query-engine/write-engine/RelationLinkPart.ts) makes one Part per target. Each Part plans its own `FOR UPDATE` probe (`:108-146`) and emits one single-row UPDATE (`:167-177, 208-218`). The missing-target error is thrown in compile-time JS from the probe rows (`:234-250`). The writes carry `outputs: {}` — no affected-count contract exists in tx mode.
+- M2M: the per-target junction INSERT for `connect` at [`RelationJunctionPart.ts:387-405`](../../src/query-engine/write-engine/RelationJunctionPart.ts); the per-target delete at `:448-470`; the probes at `:318-352`. The consolidated precedents are in the same file: `junctionInsertMany` for `set` at `:436-443` and the IN-list deletes for `deleteMany` at `:473-496`.
+- Batch-mode guards are free (in-batch assertions, [`OperationExecutor.ts:477-484`](../../src/query-engine/write-engine/OperationExecutor.ts)). Keep them per-target in batch mode.
+- The `set` orphan guard at [`RelationWritePart.ts:910-947`](../../src/query-engine/write-engine/RelationWritePart.ts) must stay unchanged.
 
 ### Correction
 
@@ -477,7 +477,7 @@ Group the targets by unique key. For each group, send one probe (`SELECT pk, key
 
 **What shipped, and what did not.** The child-held-FK `connect` and `disconnect` families fold **probe and write**. `set` and the M2M `connect` fold their **write only** — their probes stay per target, for one reason stated at the end of this record. M2M `disconnect` does not fold at all.
 
-`src/query-engine-v2/link-target-groups.ts` is the grouped-probe fold's one home: `groupLinkTargets` splits a relation's targets into key-shape GROUPS, `linkGroupSelector` builds a group's one `WHERE`, `countDistinctTargets` says how many rows that `WHERE` can name. Two call sites read it — `RelationLinkPart` (the update family's connect/disconnect) and `ChildConnectPart` in `CreateOperation.ts` (the create tree's own child-held connect, which is a separate Part and would otherwise have kept the per-target shape).
+`src/query-engine/write-engine/link-target-groups.ts` is the grouped-probe fold's one home: `groupLinkTargets` splits a relation's targets into key-shape GROUPS, `linkGroupSelector` builds a group's one `WHERE`, `countDistinctTargets` says how many rows that `WHERE` can name. Two call sites read it — `RelationLinkPart` (the update family's connect/disconnect) and `ChildConnectPart` in `CreateOperation.ts` (the create tree's own child-held connect, which is a separate Part and would otherwise have kept the per-target shape).
 
 **Measured — PGlite, three targets, statements counted at the driver's `execute`/`executeRaw` seam (which sees both substrates).**
 
@@ -711,12 +711,12 @@ No error message, no error attribution and no race protection was removed anywhe
 
 ### Problem
 
-The compiled writes ride one atomic batch. The planning reads do not: each planning read is one sequential HTTP round trip ([`OperationExecutor.ts:391-407`](../../src/query-engine-v2/OperationExecutor.ts) calls the linear executor). Also, the fold gates require transaction mode, so a scalar update on these drivers uses two round trips where one is possible.
+The compiled writes ride one atomic batch. The planning reads do not: each planning read is one sequential HTTP round trip ([`OperationExecutor.ts:391-407`](../../src/query-engine/write-engine/OperationExecutor.ts) calls the linear executor). Also, the fold gates require transaction mode, so a scalar update on these drivers uses two round trips where one is possible.
 
 ### Context and code locations
 
 - The batch compiled path: `OperationExecutor.ts:543-582`; the native batch overrides: [`d1/index.ts:233`](../../src/drivers/d1/index.ts), [`neon-http/index.ts:253`](../../src/drivers/neon-http/index.ts).
-- The fold gates: `UpdateOperation.canFold` requires tx mode at [`UpdateOperation.ts:664-672`](../../src/query-engine-v2/UpdateOperation.ts); the upsert update-arm gate at [`UpsertOperation.ts:319`](../../src/query-engine-v2/UpsertOperation.ts). The statement-atomic path with JS postconditions runs on any driver ([`OperationExecutor.ts:138-141, 295-309`](../../src/query-engine-v2/OperationExecutor.ts)).
+- The fold gates: `UpdateOperation.canFold` requires tx mode at [`UpdateOperation.ts:664-672`](../../src/query-engine/write-engine/UpdateOperation.ts); the upsert update-arm gate at [`UpsertOperation.ts:319`](../../src/query-engine/write-engine/UpsertOperation.ts). The statement-atomic path with JS postconditions runs on any driver ([`OperationExecutor.ts:138-141, 295-309`](../../src/query-engine/write-engine/OperationExecutor.ts)).
 - The planning dependency structure: only technique-#1 refs order the planning steps (a probe refs the locate row, example at `RelationLinkPart.ts:125-146`). Level 0 = steps with no refs; level 1 = steps that ref level-0 outputs.
 - The test stand-in: `BatchOnlyPGliteDriver` at `tests/drivers/pglite.test.ts:37`.
 
@@ -1023,7 +1023,7 @@ units shipped on 2026-08-03; the numbers above are the starting line, not the ti
 
 ### Standing rules
 
-`src/query-engine-v2/OperationFragment.ts` is byte-identical to `1e67bab` — the frozen step
+`src/query-engine/write-engine/OperationFragment.ts` is byte-identical to `1e67bab` — the frozen step
 vocabulary did not grow. No pinned SQL changed: `tests/query-engine/sql-generation.test.ts`
 is not in the wave's diff at all, and the arity-1 link spelling did not move, which is what
 keeps every existing single-target pin unmoved. No error message and no error attribution was
@@ -1047,7 +1047,7 @@ These items need a written disposition. They are choices, not defects.
 
 ### Decision 7.1 — The scalar-upsert ON CONFLICT door
 
-ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level scalar upsert with an expressible conflict target ([`ATOM.md:243-262`](../../src/query-engine-v2/ATOM.md), the "legal, but observably divergent" note at `:250-254`). The current sequence is at [`UpsertOperation.ts:342-351, 446-492`](../../src/query-engine-v2/UpsertOperation.ts). This changes four or five round trips into one on PostgreSQL and SQLite. MySQL stays on the probe path: its `ON DUPLICATE KEY` fires on any unique collision ([`mysql-adapter.ts:408-414`](../../src/adapters/databases/mysql/mysql-adapter.ts)), which breaks the documented unrelated-collision behavior. The disposition must state the accepted observable divergence against the oracle.
+ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level scalar upsert with an expressible conflict target ([`ATOM.md:243-262`](../../src/query-engine/write-engine/ATOM.md), the "legal, but observably divergent" note at `:250-254`). The current sequence is at [`UpsertOperation.ts:342-351, 446-492`](../../src/query-engine/write-engine/UpsertOperation.ts). This changes four or five round trips into one on PostgreSQL and SQLite. MySQL stays on the probe path: its `ON DUPLICATE KEY` fires on any unique collision ([`mysql-adapter.ts:408-414`](../../src/adapters/databases/mysql/mysql-adapter.ts)), which breaks the documented unrelated-collision behavior. The disposition must state the accepted observable divergence against the oracle.
 
 #### DISPOSITION — TAKE the door. Delivered 2026-08-03, branch `nested-write-boundaries`.
 
@@ -1126,7 +1126,7 @@ The gate is in `UpsertOperation.buildOnConflictFold`. It has **seven** conjuncts
 
 ### Decision 7.2 — Multi-row `INSERT … RETURNING` for `createMany` with select
 
-The per-row emission exists for an exact input ordinal ([`create.ts:116-119`](../../src/query-engine/operations/create.ts); [`ManyAndReturnOperation.ts:451-467`](../../src/query-engine-v2/ManyAndReturnOperation.ts)). One multi-row statement replaces N statements. PostgreSQL does not contractually guarantee the RETURNING row order. The choice: accept the implementation guarantee (Prisma does), or match the returned rows by key.
+The per-row emission exists for an exact input ordinal ([`create.ts:116-119`](../../src/query-engine/operations/create.ts); [`ManyAndReturnOperation.ts:451-467`](../../src/query-engine/write-engine/ManyAndReturnOperation.ts)). One multi-row statement replaces N statements. PostgreSQL does not contractually guarantee the RETURNING row order. The choice: accept the implementation guarantee (Prisma does), or match the returned rows by key.
 
 #### DISPOSITION — TAKEN. Accept the implementation order (2026-08-03)
 
@@ -1369,7 +1369,7 @@ and its estimate tracks the data at every width while `LEFT(...)` stays flat at 
 
 ### Standing rules
 
-`src/query-engine-v2/OperationFragment.ts` is byte-identical to `d28c339` — the frozen step
+`src/query-engine/write-engine/OperationFragment.ts` is byte-identical to `d28c339` — the frozen step
 vocabulary did not grow; the file is not in the wave's diff at all. `tests/query-engine/sql-
 generation.test.ts` is not in the diff either, so no pin in it moved; the pins 7.3 updated
 deliberately live in its own `starts-with-prefix-sql.test.ts`, and the one baseline 7.1 moved
@@ -1398,9 +1398,9 @@ Each mutation with an include sends a separate terminal SELECT. A nested-create 
 
 ### Context and code locations
 
-- The terminal reads: [`UpdateOperation.ts:951`](../../src/query-engine-v2/UpdateOperation.ts), [`CreateOperation.ts:399-401`](../../src/query-engine-v2/CreateOperation.ts).
+- The terminal reads: [`UpdateOperation.ts:951`](../../src/query-engine/write-engine/UpdateOperation.ts), [`CreateOperation.ts:399-401`](../../src/query-engine/write-engine/CreateOperation.ts).
 - The capability flag `supportsCteWithMutations` is declared at [`adapter-capabilities.ts:6`](../../src/adapters/adapter-capabilities.ts), true on PostgreSQL (`postgres-adapter.ts:393`) and true on SQLite (`sqlite-adapter.ts:502`). **The SQLite value is false in fact:** SQLite CTEs cannot contain DML. Correct the flag in this phase (or in Phase 10 if this phase runs later).
-- The guard-free fresh-parent ladder that makes the fold legal: [`ATOM.md:886-899`](../../src/query-engine-v2/ATOM.md) (fresh-parent elision) and the Pin Rule class 2 note at [`OperationFragment.ts:128-134`](../../src/query-engine-v2/OperationFragment.ts).
+- The guard-free fresh-parent ladder that makes the fold legal: [`ATOM.md:886-899`](../../src/query-engine/write-engine/ATOM.md) (fresh-parent elision) and the Pin Rule class 2 note at [`OperationFragment.ts:128-134`](../../src/query-engine/write-engine/OperationFragment.ts).
 - The select builder needs the RETURNING columns as its alias root (study [`select-builder.ts:158-185`](../../src/query-engine/builders/select-builder.ts)).
 
 ### Correction (PostgreSQL only)
@@ -1548,7 +1548,7 @@ The plan's other two constraints hold as written, and are witnessed declining: a
 scalar-only root projection (an `include` of the relation the tree just populated
 would report the empty pre-statement truth), and no adopt-family member. The
 second is spelled as **empty planning** rather than as a kind list, because that
-is what the fresh-parent elision ladder ([`ATOM.md` §4](../../src/query-engine-v2/ATOM.md))
+is what the fresh-parent elision ladder ([`ATOM.md` §4](../../src/query-engine/write-engine/ATOM.md))
 actually says — a tree that asks the database nothing before it writes — and it
 is also what keeps the folded operation statement-atomic: one round trip, no
 envelope. A child-held `connect` under a fresh root has no correlated probe
@@ -1941,7 +1941,7 @@ POOL makes the canonicalization's connection pinning a real claim).
 
 ### Standing rules held
 
-`src/query-engine-v2/OperationFragment.ts` is **not in the diff at all** — the frozen step
+`src/query-engine/write-engine/OperationFragment.ts` is **not in the diff at all** — the frozen step
 vocabulary did not grow, and this wave does not reach the nested-write engine.
 
 **No error message, error attribution or race protection was removed.** The `src` diff

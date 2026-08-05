@@ -13,7 +13,7 @@
 
 ## N1 — The located-parent Ref (keystone; runs ALONE — Pin Rule blast radius)
 
-Today, `update({ where, data: { <child writes> } })` demands the referenced parent column be a compile-time literal: pinned by the unique `where` or rewritten by the root SET. That is why `where: { email }` + `posts: { create }` refuses while `where: { id }` works ([UpdateOperation.ts:1422](../../src/query-engine-v2/UpdateOperation.ts:1422)).
+Today, `update({ where, data: { <child writes> } })` demands the referenced parent column be a compile-time literal: pinned by the unique `where` or rewritten by the root SET. That is why `where: { email }` + `posts: { create }` refuses while `where: { id }` works ([UpdateOperation.ts:1422](../../src/query-engine/write-engine/UpdateOperation.ts:1422)).
 
 | Unit | What |
 |---|---|
@@ -271,7 +271,7 @@ Docker MySQL 3307 and Postgres 5434 were already up (21h) and were not restarted
 
 ## N2 — Inverse-side to-one family (the mainstream Prisma shape)
 
-`user.update({ where, data: { profile: { create: { bio } } } })` still refuses ([UpdateOperation.ts:1720](../../src/query-engine-v2/UpdateOperation.ts:1720)); `createMany`/`deleteMany` on the inverse side likewise.
+`user.update({ where, data: { profile: { create: { bio } } } })` still refuses ([UpdateOperation.ts:1720](../../src/query-engine/write-engine/UpdateOperation.ts:1720)); `createMany`/`deleteMany` on the inverse side likewise.
 
 | Unit | What |
 |---|---|
@@ -1646,7 +1646,7 @@ blockquotes above, and the rows below carry their revised dispositions.
 
 The census counts what its own tripwire counts and nothing else: occurrences of the string
 `new UnsupportedOperationError(` in the `.ts` files **directly inside**
-`src/query-engine-v2/` (no recursion into subdirectories). Re-run here by hand: 68, spread
+`src/query-engine/write-engine/` (no recursion into subdirectories). Re-run here by hand: 68, spread
 over ten files — `UpdateOperation.ts` 25, `CreateOperation.ts` 12, `RelationUpsertPart.ts`
 9, `RelationJunctionPart.ts` 6, `RelationWritePart.ts` 5, `nested-target-parts.ts` 4,
 `UpsertOperation.ts` 4, and one each in `ReadOperation.ts`,
