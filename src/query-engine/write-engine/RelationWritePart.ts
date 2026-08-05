@@ -37,6 +37,7 @@ import {
   type FinalReferenceSource,
   foreignKeyCorrelationValue,
   foreignKeyWriteValue,
+  pairForeignKeyMembers,
   planningSourceFromFinal,
 } from "./foreign-key-reference";
 import {
@@ -1743,7 +1744,12 @@ export function buildInverseToOneUpsertPart(
       ? base.freshArm({
           childScope: base.childScope,
           data: createData,
-          rootFkInject: (known) => upsertArmFkInject(base, known),
+          incomingForeignKey: pairForeignKeyMembers(
+            base.fkFields,
+            base.referencedFields,
+            base.referencedFields.map(() => base.parentId)
+          ),
+          relationName: base.relationName,
         })
       : undefined;
   return new RelationWritePart(base.scope, {
@@ -1752,35 +1758,6 @@ export function buildInverseToOneUpsertPart(
     upsertCreateData: createData,
     ...(subtree ? { upsertCreateSubtree: subtree } : {}),
   });
-}
-
-/** `fk_i = <parent_i>` for an inverse-side to-one upsert arm — the referenced parent
- *  column inlined at compile, the one expression both the scalar create leaf and the
- *  create SUBTREE's root INSERT fold. */
-function upsertArmFkInject(
-  base: WritePartBase,
-  known: PlanningKnown
-): Record<string, unknown> {
-  const data: Record<string, unknown> = {};
-  for (let index = 0; index < base.fkFields.length; index += 1) {
-    const fkField = base.fkFields[index]!;
-    data[fkField] = referenceSql(
-      base.engine,
-      base.childScope.model,
-      fkField,
-      foreignKeyWriteValue(
-        {
-          foreignField: fkField,
-          referencedField: base.referencedFields[index]!,
-          writeSource: base.parentId,
-        },
-        known,
-        base.relationName,
-        "upsert"
-      )
-    );
-  }
-  return data;
 }
 
 /** `updateMany`: one bulk correlated part per `{ where?, data }` item. */

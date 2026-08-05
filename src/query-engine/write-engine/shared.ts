@@ -10,7 +10,10 @@ import {
 import type { QueryEngine } from "../query-engine";
 import { getForeignKeyTargetFields } from "../TargetConstraint";
 import type { QueryScope } from "../types";
-import type { FinalReferenceSource } from "./foreign-key-reference";
+import type {
+  FinalReferenceSource,
+  ForeignKeyMember,
+} from "./foreign-key-reference";
 import type { TargetConstraintPin } from "./OperationFragment";
 import type { StepScope } from "./StepScope";
 
@@ -100,18 +103,16 @@ export interface SubOperationOptions {
    * (`data` — the enclosing operation's whole-args parse validated the whole tree, so this
    * subtree does NOT re-parse; re-parsing a schema's transformed output is non-idempotent,
    * X2). It emits NO terminal read (the enclosing operation owns the result), and it folds
-   * the located parent's foreign key into its ROOT record's INSERT via `rootFkInject`,
-   * resolved at COMPILE (a `literal` parent id yields a constant; a `planned` parent id
-   * reads the located row from `known`). Every mechanism the create ROOT already
+   * field-bound incoming foreign-key members into its ROOT record's INSERT. Every
+   * mechanism the create ROOT already
    * supports — a database-generated / compound PK (backward `Ref` / per-field identity),
    * a parent-held-FK to-one grandchild (before-parent create), the fresh-parent adopt
    * family and M2M — falls out unchanged, one architecture, at any depth.
    */
   readonly nestedFresh?: {
     readonly data: Record<string, unknown>;
-    readonly rootFkInject: (
-      known: Readonly<Record<string, unknown>>
-    ) => Record<string, unknown>;
+    readonly incomingForeignKey: readonly ForeignKeyMember[];
+    readonly relationName: string;
     /**
      * N4-U2 — the raceable missing-premise pin of an enclosing adopt arm. A nested
      * `upsert`/`connectOrCreate` whose probe found nothing takes its CREATE arm, and

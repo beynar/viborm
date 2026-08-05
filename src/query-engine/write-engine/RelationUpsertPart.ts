@@ -632,7 +632,7 @@ export class RelationUpsertPart implements Part {
  * consume them identically. One entry per compound-key field (ATOM §1).
  *
  * One home, two askers (N4-U2): the part's own arms, and — when the create arm is a
- * fresh SUBTREE — the `rootFkInject` that subtree's root INSERT folds. A second copy
+ * fresh SUBTREE — the incoming members that subtree's root INSERT folds. A second copy
  * is how a create arm and an update arm would come to disagree about which parent a
  * row belongs to.
  */
@@ -1021,7 +1021,7 @@ function buildOneUpsertPart(
   // here, so the engine's fold stays the single provenance everywhere downstream — the
   // create arm's scalar data, the update arm's SET, the primary-key stability check, and
   // the fresh create SUBTREE, which is handed this same `create` object and whose root
-  // INSERT folds the parent key through `rootFkInject`. A kept key would meet that fold
+  // INSERT folds the parent key through its incoming members. A kept key would meet that fold
   // there and write the column twice.
   const ownedFk = { members, relationName };
   const create = withoutAgreeingOwnedFk(
@@ -1104,11 +1104,8 @@ function buildOneUpsertPart(
       ? seam.freshArm({
           childScope: child,
           data: create,
-          rootFkInject: (known) =>
-            fkAssignData(engine, child, members, {
-              relationName,
-              known,
-            }),
+          incomingForeignKey: members,
+          relationName,
           racePin: childRacePin(child, where),
         })
       : undefined;

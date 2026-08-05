@@ -1710,7 +1710,7 @@ at depth is a create SUBTREE, so it delegates to the create-ROOT machinery
 (`CreateOperation`'s new `nestedFresh` mode — a shared `StepScope`, no whole-args re-parse (the
 enclosing op validated the tree; a schema's transformed output is non-idempotent under re-parse),
 no terminal read (the enclosing op owns the result), the located parent's FK folded into the
-subtree's ROOT `INSERT` via `rootFkInject` resolved at compile — a `literal` parent id a constant,
+subtree's ROOT `INSERT` via field-bound incoming members resolved at compile — a `literal` parent id a constant,
 a `planned` one read from `known`).** Every mechanism the create root already carried falls out at
 any depth, in ONE home: **(2) a database-generated / compound-PK fresh child** — its produced id
 threads to its grandchildren as a backward `Ref` (insertId in batch, `INSERT … RETURNING` in tx) /

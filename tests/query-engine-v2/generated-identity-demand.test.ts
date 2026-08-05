@@ -50,7 +50,8 @@ function createNestedSquad(
       skipOwnWrite: true,
       nestedFresh: {
         data,
-        rootFkInject: () => ({}),
+        incomingForeignKey: [],
+        relationName: "",
       },
     }
   );

@@ -264,7 +264,8 @@ export function buildNestedTargetFreshCreatePart(input: {
       skipOwnWrite: true,
       nestedFresh: {
         data: input.data,
-        rootFkInject: () => ({}),
+        incomingForeignKey: [],
+        relationName: "",
         ...(input.racePin ? { rootRacePin: input.racePin } : {}),
       },
     }
@@ -305,7 +306,8 @@ export function buildBeforeRootTargetSubtree(input: {
       skipOwnWrite: true,
       nestedFresh: {
         data: input.data,
-        rootFkInject: () => ({}),
+        incomingForeignKey: [],
+        relationName: "",
         ...(input.rootRacePin ? { rootRacePin: input.rootRacePin } : {}),
       },
     }
@@ -820,8 +822,7 @@ export function buildLiteralParentCreatePart(input: {
  * sharing the enclosing operation's scope (no step-id collision), skipping the
  * whole-args re-parse (the enclosing operation already validated the tree) and the
  * terminal read (the enclosing operation owns the result), and folding the located
- * parent's FK into its root INSERT (`rootFkInject`, resolved at compile: a `literal`
- * parent id is a constant, a `planned` one reads the located row from `known`).
+ * parent's field-bound FK members into its root INSERT.
  *
  * Every mechanism the create root already supports falls out unchanged at any depth:
  * a parent-held-FK to-one grandchild (a before-parent create whose id the fresh
@@ -863,7 +864,8 @@ class NestedFreshCreatePart implements Part {
 export type FreshArmBuilder = (input: {
   readonly childScope: QueryScope;
   readonly data: Record<string, unknown>;
-  readonly rootFkInject: (known: PlanningKnown) => Record<string, unknown>;
+  readonly incomingForeignKey: readonly ForeignKeyMember[];
+  readonly relationName: string;
   readonly racePin?: TargetConstraintPin;
 }) => Part;
 
@@ -884,7 +886,8 @@ export function buildFreshArmPart(
         skipOwnWrite: true,
         nestedFresh: {
           data: input.data,
-          rootFkInject: input.rootFkInject,
+          incomingForeignKey: input.incomingForeignKey,
+          relationName: input.relationName,
           ...(input.racePin ? { rootRacePin: input.racePin } : {}),
         },
       }
@@ -901,10 +904,6 @@ function buildNestedFreshCreateParts(input: {
   create: Record<string, unknown>;
 }): readonly Part[] {
   const { scope, engine, childScope, relationName, members, create } = input;
-  const rootFkInject = (
-    known: Readonly<Record<string, unknown>>
-  ): Record<string, unknown> =>
-    foreignKeyInject(engine, childScope, relationName, members, known);
   const op = new CreateOperation(
     engine,
     childScope.model,
@@ -912,7 +911,11 @@ function buildNestedFreshCreateParts(input: {
     {
       scope,
       skipOwnWrite: true,
-      nestedFresh: { data: create, rootFkInject },
+      nestedFresh: {
+        data: create,
+        incomingForeignKey: members,
+        relationName,
+      },
     }
   );
   return [new NestedFreshCreatePart(op)];

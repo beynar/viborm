@@ -322,9 +322,8 @@ export class CreateOperation {
   /** X1b — a nested fresh subtree emits no terminal read (the enclosing op owns
    *  the result) and injects the located parent's FK into its root INSERT. */
   private readonly suppressTerminal: boolean;
-  private readonly rootFkInject:
-    | ((known: Readonly<Record<string, unknown>>) => Record<string, unknown>)
-    | undefined;
+  private readonly incomingForeignKey: readonly ForeignKeyMember[];
+  private readonly incomingRelationName: string;
   /** N4-U2 — the enclosing adopt arm's raceable missing-premise pin, carried by this
    *  subtree's ROOT record INSERT (the statement that was the arm's own create leaf
    *  before the arm became a subtree). */
@@ -371,7 +370,8 @@ export class CreateOperation {
     // INSERT at compile.
     const nestedFresh = options.nestedFresh;
     this.suppressTerminal = nestedFresh !== undefined;
-    this.rootFkInject = nestedFresh?.rootFkInject;
+    this.incomingForeignKey = nestedFresh?.incomingForeignKey ?? [];
+    this.incomingRelationName = nestedFresh?.relationName ?? "";
     this.rootRacePin = nestedFresh?.rootRacePin;
 
     let data: Record<string, unknown>;
@@ -537,7 +537,7 @@ export class CreateOperation {
     const writes: OperationStep[] = [];
     // X1b — the located parent's FK is folded into the root record's INSERT
     // (resolved here at compile: a literal constant, or a planned locate-row value).
-    const rootInject = this.rootFkInject ? this.rootFkInject(known) : {};
+    const rootInject = this.resolveIncomingForeignKey(known);
     const rootInsertData = this.emitRecord(
       this.root,
       rootInject,
@@ -1999,6 +1999,21 @@ export class CreateOperation {
       this.generatedIdentityConsumers.add(record.writeStepId);
     }
     return freshReferenced(record, referencedField);
+  }
+
+  private resolveIncomingForeignKey(
+    known: Readonly<Record<string, unknown>>
+  ): Record<string, unknown> {
+    const assignments: Record<string, unknown> = {};
+    for (const member of this.incomingForeignKey) {
+      assignments[member.foreignField] = referenceSql(
+        this.engine,
+        this.model,
+        member.foreignField,
+        foreignKeyWriteValue(member, known, this.incomingRelationName, "create")
+      );
+    }
+    return assignments;
   }
 
   /**
