@@ -16,10 +16,7 @@ import {
   getDefaultScalarFieldNames,
   getTableName,
 } from "../context/query-scope";
-import {
-  assertCreateOwnWriteSafety,
-  assertUpdateOwnWriteSafety,
-} from "../OwnWriteAnalyzer";
+import { assertCreateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import {
   buildCreate,
   buildFind,
@@ -190,10 +187,6 @@ export class UpsertOperation {
   // terminal read. `undefined` keeps the probe-first sequence byte-identical.
   // See {@link UpsertOperation.buildOnConflictFold} for every conjunct.
   private readonly onConflictFold: StatementStep | undefined;
-  // The FULL update record (scalar ∪ relations), retained so the found branch can
-  // run V1's own-write barrier at compile (deferred per-arm — the whenTrue branch).
-  private readonly rawUpdate: Record<string, unknown>;
-
   constructor(
     engine: QueryEngine,
     model: Model<any>,
@@ -219,7 +212,6 @@ export class UpsertOperation {
     const create = envelopeRecord(args.create, "create");
     const update = envelopeRecord(args.update, "update");
     this.rawCreate = create;
-    this.rawUpdate = update;
     const parent = createQueryScope(engine.adapter, model);
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
@@ -686,11 +678,6 @@ export class UpsertOperation {
     // whether it later updates or skips (the D6 own-write witness; the relation-key /
     // PK-portability legality the sub-op deferred at construction).
     if (this.updateArmOp) {
-      assertUpdateOwnWriteSafety(
-        createQueryScope(this.engine.adapter, this.model),
-        this.rawUpdate,
-        this.parentWhere
-      );
       this.updateArmOp.assertArmLegality();
     }
     const unmatched = this.conditionals.find(

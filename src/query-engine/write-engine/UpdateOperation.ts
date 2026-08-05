@@ -556,7 +556,12 @@ export class UpdateOperation {
     if (deferLegality) {
       // Retained for the caller's per-arm invocation (the upsert's whenTrue branch).
       this.armLegalityChecks = () => {
-        parseValidated(parentSchemas.args.update, args, "update", "");
+        const parsedArgs = parseValidated(
+          parentSchemas.args.update,
+          args,
+          "update",
+          ""
+        );
         assertPortablePrimaryKeyUpdateInput(model, "update", args);
         assertRelationKeyUpdatesAreCompilable(
           parent,
@@ -564,6 +569,11 @@ export class UpdateOperation {
           separated.relations
         );
         this.assertUpdateManyRelationLegality(separated.relations);
+        new OwnWritePreflight().assertUpdate(
+          parent,
+          requireRecord(parsedArgs.data, "update.data"),
+          where
+        );
       };
     } else {
       assertRelationKeyUpdatesAreCompilable(
