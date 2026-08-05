@@ -1878,9 +1878,18 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     wrote EVERY foreign-key column from the arm's ONE parent value (the located
   //     child's primary key) — measured: silent wrong-row corruption against a decoy
   //     holding the cross-matched tuple, a silent orphan, and a raw ForeignKeyError.
-  //     Refused at construction until E4's per-field parent source exists. Witnesses:
-  //     `upsert-arm-referenced-edge.test.ts` (refusals with empty statement logs +
-  //     working single-column control).
+  //     Refused at construction. Witnesses: `upsert-arm-referenced-edge.test.ts`
+  //     (refusals with empty statement logs + working single-column control).
+  //     CORRECTED BY THE FINAL RE-AUDIT (TH/RA): this entry said "until E4's per-field
+  //     parent source exists". E4 DELIVERED that source and this site did NOT lift,
+  //     because the source E4 built is the CREATE root's — `childEdgeParentSource` keys
+  //     whole-value sources by referenced-column NAME over a FRESH record's identity. The
+  //     arm's parent value is a `planned` read of its OWN probe, whose projection
+  //     (`identitySelect`) carries the child's primary key and the child's own foreign-key
+  //     columns and nothing else. What this seam still owes is therefore a DIFFERENT
+  //     build: widen `identitySelect` with the deeper edge's referenced columns and hand
+  //     `perFieldParentId` a `plannedParentId` per column. Both halves exist post-E; the
+  //     site is re-filed (c-ii) with that mechanism named, not as an impossibility.
   //   · **+1, the foreign key the relation already spoke for** (M12 —
   //     `RelationWritePart`, `assertOwnedFkAbsentFromUpdateData`, one throw site, three
   //     call positions). The relation-owned FK spelled in nested UPDATE data was silently
@@ -2084,6 +2093,36 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     duplicate). The recorded reason corrects from 'inexpressible' to: inexpressible
   //     as ONE statement — expressible when the writes are observed. Witnesses:
   //     e69-skip-select-capture(-behavior|.test|-docker.test).ts.
+  // 30 -> 30 (TH + THE FINAL CENSUS RE-AUDIT — the count is FLAT, deliberately, and the
+  // entry is here because the plan's closing rule is that inherited justifications are
+  // REJECTED: every survivor was re-argued from scratch against the whole post-E mechanism
+  // inventory. The table is in the plan doc, section "The floor — final census disposition
+  // (post-E)". Three things came out of it, and none of them is a route change:
+  //   · **TH shipped ONE narrowing, and it is not a census site.** The measured
+  //     type-narrowable surface is EMPTY: every kind-level refusal here is served by a
+  //     generated input type that also serves positions with the OPPOSITE runtime
+  //     disposition (the to-one two-kinds family is refused parent-held and ABSORBED
+  //     child-held since E6.5, so one `V.Object` cannot state both), and the write `data`
+  //     clause refuses no extra key at all (the estate's measured TS2589 pin in
+  //     `tests/client/contextual-typing-gate.test.ts`), so a narrowing that works by
+  //     removing a key is not expressible as a refusal. What WAS shipped is D5's recorded
+  //     type-surface debt: the two type twins of the inverse scanner now demote the
+  //     relation-name check to a disambiguator, as the runtime does. See
+  //     `inverse-scanner-alignment.test.ts`.
+  //   · **Nine sites did NOT survive their own re-argument** and are re-filed (c-ii) with
+  //     a post-E mechanism named — reported, NOT absorbed in that lane. The compound-CHILD
+  //     -PK family (`UpdateOperation` :1456/:2671, `nested-target-parts` :424,
+  //     `RelationUpsertPart` :1109) rides E6.4's two-firstRowField-output prototype, which
+  //     is pinned green; `RelationUpsertPart` :1432 and :1384 and `RelationWritePart` :828
+  //     ride the per-field planned source and E6.7's transitioned `ParentIdSource`;
+  //     `RelationUpsertPart` :1331 rides E6.1's optional publication; `UpdateOperation`
+  //     :3184 rides the arm-identity SET that `beforeTargetFkAssign` already writes.
+  //   · **Two recorded reasons were STALE** and are corrected: the M11 entry above (E4
+  //     delivered and did not lift it — different seam), and `RelationWritePart:828`'s
+  //     "no `ParentIdSource` applies the SET's operand to a planned value at compile",
+  //     which enumerates a three-member union that E6.7 made four (`transitioned`).
+  // The pin therefore stays at 30: nothing was demoted, nothing was absorbed, and the two
+  // corrections are to prose. Moving it needs a delivered absorption, as always.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
