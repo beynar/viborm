@@ -64,6 +64,7 @@ import {
   type FreshArmBuilder,
 } from "./nested-target-parts";
 import {
+  bucketOperationSteps,
   isOperationValueReference,
   type OperationFragment,
   type OperationStep,
@@ -1790,9 +1791,7 @@ export class CreateOperation {
       for (const step of group.steps) writes.push(step);
     }
     for (const part of plan.afterParts) {
-      for (const step of part.compile(this.scope, known)) {
-        (step.kind === "guard" ? guards : writes).push(step);
-      }
+      bucketOperationSteps(part.compile(this.scope, known), guards, writes);
     }
     return insertData;
   }

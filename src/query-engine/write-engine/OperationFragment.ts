@@ -140,6 +140,16 @@ export interface PlanningFragment {
   readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
 }
 
+export function bucketOperationSteps(
+  steps: readonly OperationStep[],
+  guards: OperationStep[],
+  statements: OperationStep[]
+): void {
+  for (const step of steps) {
+    (step.kind === "guard" ? guards : statements).push(step);
+  }
+}
+
 export function ref(step: string, output: string): OperationValueReference {
   return { kind: OPERATION_VALUE_REFERENCE, step, output };
 }

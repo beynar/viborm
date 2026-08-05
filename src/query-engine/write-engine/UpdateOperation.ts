@@ -93,6 +93,7 @@ import {
   targetNeedsFullUpdate,
 } from "./nested-target-parts";
 import {
+  bucketOperationSteps,
   type GuardStep,
   type OperationFragment,
   type OperationStep,
@@ -1136,9 +1137,7 @@ export class UpdateOperation {
       writes
     );
     for (const part of this.childParts) {
-      for (const step of part.compile(this.scope, known)) {
-        (step.kind === "guard" ? guards : writes).push(step);
-      }
+      bucketOperationSteps(part.compile(this.scope, known), guards, writes);
     }
     // The post-transition Parts (T4b create leaves + N5-U1's guarded adopt family).
     // Their GUARDS join every other guard at the front — a batch pins its premises
@@ -1148,9 +1147,11 @@ export class UpdateOperation {
     // WRITES are held back and appended after the root UPDATE below.
     const afterRootWrites: OperationStep[] = [];
     for (const part of this.afterRootParts) {
-      for (const step of part.compile(this.scope, known)) {
-        (step.kind === "guard" ? guards : afterRootWrites).push(step);
-      }
+      bucketOperationSteps(
+        part.compile(this.scope, known),
+        guards,
+        afterRootWrites
+      );
     }
     const steps: OperationStep[] = [...guards, ...beforeRootWrites];
     const rootUpdate = this.needsRootUpdate
@@ -3428,9 +3429,11 @@ export class UpdateOperation {
     guards: OperationStep[],
     beforeRootWrites: OperationStep[]
   ): void {
-    for (const step of before.subtree.compile(known).steps) {
-      (step.kind === "guard" ? guards : beforeRootWrites).push(step);
-    }
+    bucketOperationSteps(
+      before.subtree.compile(known).steps,
+      guards,
+      beforeRootWrites
+    );
   }
 
   /**
@@ -3589,9 +3592,7 @@ export class UpdateOperation {
         : undefined;
     const childSteps: OperationStep[] = [];
     for (const part of target.childParts) {
-      for (const step of part.compile(this.scope, known)) {
-        (step.kind === "guard" ? guards : childSteps).push(step);
-      }
+      bucketOperationSteps(part.compile(this.scope, known), guards, childSteps);
     }
     if (selfUpdate && !target.reorderAfterChildren) writes.push(selfUpdate);
     writes.push(...childSteps);
@@ -3680,9 +3681,11 @@ export class UpdateOperation {
     // guard, whose failure wording is this family's `upsertPremiseChanged`). Emitted
     // ONLY here, in the found arm, so the create arm writes nothing from it.
     if (target.delegated) {
-      for (const step of target.delegated.compile(this.scope, known)) {
-        (step.kind === "guard" ? guards : writes).push(step);
-      }
+      bucketOperationSteps(
+        target.delegated.compile(this.scope, known),
+        guards,
+        writes
+      );
       return;
     }
     // Found + an update arm that asks for nothing: Prisma's no-op (the same rule
