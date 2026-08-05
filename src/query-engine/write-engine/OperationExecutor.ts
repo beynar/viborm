@@ -98,10 +98,44 @@ interface AtomicPlan {
   readonly values: RuntimeValues;
 }
 
-/** A single-statement operation's compiled plan (PLAN P5 item 2b seam). */
-export interface SingleStatementPlan {
+/** One validated statement candidate before a caller-specific policy is applied. */
+export interface SingleStatementCandidate {
   readonly fragment: OperationFragment;
   readonly step: StatementStep;
+}
+
+function compileSingleStatementCandidate(
+  operation: ExecutableOperation
+): SingleStatementCandidate | undefined {
+  if (operation.planning().steps.length > 0) return undefined;
+  const fragment = operation.compile({});
+  if (fragment.steps.length !== 1) return undefined;
+  const [step] = fragment.steps;
+  if (!step || step.kind === "guard") return undefined;
+  if (!isSql(step.statement)) return undefined;
+  validateFragment(fragment);
+  return { fragment, step };
+}
+
+function canExecuteDirectly(candidate: SingleStatementCandidate): boolean {
+  const { step } = candidate;
+  return (
+    !(step.kind === "write" && step.onUniqueConflict) &&
+    !step.statement.values.some(isOperationValueReference) &&
+    !stepUsesInsertIdScratch(step)
+  );
+}
+
+function canPrepareSingle(candidate: SingleStatementCandidate): boolean {
+  return canExecuteDirectly(candidate) && candidate.step.expects === undefined;
+}
+
+function canBuildStatement(candidate: SingleStatementCandidate): boolean {
+  const { step } = candidate;
+  return (
+    !(step.kind === "write" && step.onUniqueConflict) &&
+    !step.statement.values.some(isOperationValueReference)
+  );
 }
 
 export class OperationExecutor {
@@ -138,9 +172,14 @@ export class OperationExecutor {
     // never the payload's kind. The plan is computed once here and executed
     // directly (no re-plan/compile/validate/materialize round), so the fast path
     // adds no per-call overhead beyond the single statement it runs.
-    const atomicPlan = this.statementAtomicPlan(operation);
-    if (atomicPlan) {
-      return this.runStatementAtomic<T>(atomicPlan, operation, driver, context);
+    const directCandidate = compileSingleStatementCandidate(operation);
+    if (directCandidate && canExecuteDirectly(directCandidate)) {
+      return this.runStatementAtomic<T>(
+        directCandidate,
+        operation,
+        driver,
+        context
+      );
     }
     // A driver with neither an atomic transaction nor an atomic batch cannot run
     // a MULTI-statement operation — fail closed with V1's byte-identical error.
@@ -283,43 +322,14 @@ export class OperationExecutor {
   }
 
   /**
-   * A statement-atomic operation runs directly on the base driver with no atomic
-   * envelope (V1's `atomicity: "statement"`). It is one plain read/write step:
-   * empty planning, exactly one non-guard step whose SQL carries no unresolved
-   * reference, insert-id scratch, or savepoint skip effect. Unlike
-   * {@link singleStatementPlan} it PERMITS a postcondition — enforced in JS by
-   * `enforcePostcondition` after the single round-trip, with no partial state to
-   * roll back (a `… RETURNING` mutation either affected its one row or none). The
-   * skip effect is excluded because it needs a savepoint scope the bare path has
-   * no envelope for. Returns the compiled plan (already validated) so the caller
-   * runs it without a second plan/compile/validate pass — `undefined` means the
-   * operation is multi-statement and takes the atomic-envelope path.
-   */
-  private statementAtomicPlan(
-    operation: ExecutableOperation
-  ): SingleStatementPlan | undefined {
-    if (operation.planning().steps.length > 0) return undefined;
-    const fragment = operation.compile({});
-    if (fragment.steps.length !== 1) return undefined;
-    const [step] = fragment.steps;
-    if (!step || step.kind === "guard") return undefined;
-    if (step.kind === "write" && step.onUniqueConflict) return undefined;
-    if (!isSql(step.statement)) return undefined;
-    if (step.statement.values.some(isOperationValueReference)) return undefined;
-    if (stepUsesInsertIdScratch(step)) return undefined;
-    validateFragment(fragment);
-    return { fragment, step };
-  }
-
-  /**
    * Execute one already-compiled statement-atomic plan directly: a single
    * round-trip on the base driver, its JS postcondition enforced after (no
    * partial state to roll back), the fragment's outputs assembled and parsed. The
    * statement carries no unresolved reference (checked in {@link
-   * statementAtomicPlan}), so it runs as-is with no materialization pass.
+   * canExecuteDirectly}), so it runs as-is with no materialization pass.
    */
   private async runStatementAtomic<T>(
-    plan: SingleStatementPlan,
+    plan: SingleStatementCandidate,
     operation: ExecutableOperation,
     driver: AnyDriver,
     context: QueryExecutionContext
@@ -352,28 +362,21 @@ export class OperationExecutor {
    */
   singleStatementPlan(
     operation: ExecutableOperation
-  ): SingleStatementPlan | undefined {
-    if (operation.planning().steps.length > 0) return undefined;
-    const fragment = operation.compile({});
-    if (fragment.steps.length !== 1) return undefined;
-    const [step] = fragment.steps;
-    if (!step || step.kind === "guard") return undefined;
-    if (
-      step.expects ||
-      (step.kind === "write" && step.onUniqueConflict)
-    ) {
-      return undefined;
-    }
-    if (!isSql(step.statement)) return undefined;
-    if (step.statement.values.some(isOperationValueReference)) return undefined;
-    if (stepUsesInsertIdScratch(step)) return undefined;
-    validateFragment(fragment);
-    return { fragment, step };
+  ): SingleStatementCandidate | undefined {
+    const candidate = compileSingleStatementCandidate(operation);
+    return candidate && canPrepareSingle(candidate) ? candidate : undefined;
+  }
+
+  buildStatement(operation: ExecutableOperation): Sql | undefined {
+    const candidate = compileSingleStatementCandidate(operation);
+    return candidate && canBuildStatement(candidate)
+      ? candidate.step.statement
+      : undefined;
   }
 
   /** Prepare the single statement's driver query with the operation's context. */
   prepareSingleStatement(
-    plan: SingleStatementPlan,
+    plan: SingleStatementCandidate,
     driver: AnyDriver,
     context: QueryExecutionContext
   ): PreparedQuery {
@@ -383,7 +386,7 @@ export class OperationExecutor {
   /** Parse one statement's raw result into the operation's public shape. */
   parseSingleStatement<T>(
     operation: ExecutableOperation,
-    plan: SingleStatementPlan,
+    plan: SingleStatementCandidate,
     raw: { rows: unknown[]; rowCount: number }
   ): T {
     const result: QueryResult<unknown> = {

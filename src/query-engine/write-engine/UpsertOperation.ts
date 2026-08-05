@@ -405,7 +405,7 @@ export class UpsertOperation {
   planning(): PlanningFragment {
     // The folded upsert asks the database nothing before it writes: `ON CONFLICT`
     // IS the create-vs-update decision. Empty planning is also what routes the
-    // operation through `OperationExecutor.statementAtomicPlan` — one round trip,
+    // operation through the direct single-statement policy — one round trip,
     // no transaction envelope.
     if (this.onConflictFold) return { steps: [], outputs: {} };
     const steps: StatementStep[] = [this.locate];

@@ -527,7 +527,7 @@ by convergence (no vocabulary growth; freeze held; V2 oracle 337/337; gates 22/2
   (V1's `compileDirect`) — statement-atomic, no envelope. `upsert`'s update arm
   folds its terminal refetch into `UPDATE … RETURNING` too, keeping the
   probe-first locate (ATOM §4 keeps `ON CONFLICT` off the table). The executor
-  runs a statement-atomic op directly (`statementAtomicPlan`/`runStatementAtomic`).
+  runs a statement-atomic candidate directly (`runStatementAtomic`).
   **Reads and `updateMany` are now at ±10% parity** (the P5 report's read
   regression was single-run noise); **`scalar update` (≈1.2×) and `upsert`
   (≈1.4×) still miss ±10%** — the statement-count gap is closed, the residual is

@@ -509,7 +509,7 @@ describe("the delete fold — the plan shape, without a database", () => {
       { where: { id: 1 } }
     );
 
-    // EMPTY planning is the whole point: `OperationExecutor.statementAtomicPlan`
+    // EMPTY planning is the whole point: the direct single-statement policy
     // takes an operation with no planning steps and exactly one non-guard step
     // and runs it directly on the base driver — no BEGIN, no COMMIT. A planning
     // step here would put the operation back inside a transaction envelope even
