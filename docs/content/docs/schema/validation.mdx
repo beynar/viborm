@@ -1,7 +1,7 @@
 ---
 title: Schema Validation
 description: Schema validation runs automatically on push and migrate — call it manually for early startup checks
-icon: ShieldCheck
+icon: shield-check
 ---
 
 Schema validation checks your models for structural errors — missing IDs, broken foreign keys, invalid referential actions, database-specific constraints — before anything touches the database. It runs automatically on `viborm push` and `viborm migrate`; you only call it yourself if you want errors surfaced at application startup.

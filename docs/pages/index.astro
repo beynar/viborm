@@ -1,0 +1,46 @@
+---
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import data from "blume:data";
+import CallToAction from "./_home/CallToAction.astro";
+import Capabilities from "./_home/Capabilities.astro";
+import DatabaseIsomorphisms from "./_home/DatabaseIsomorphisms.astro";
+import DatabaseSupport from "./_home/DatabaseSupport.astro";
+import Features from "./_home/Features.astro";
+import Footer from "./_home/Footer.astro";
+import Hero from "./_home/Hero.astro";
+import ProductPreview from "./_home/ProductPreview.astro";
+
+const { config } = data;
+const pageTitle = "VibORM — type-safe TypeScript ORM without code generation";
+const pageDescription =
+  "Define your schema once and get a fully typed Prisma-inspired client for PostgreSQL, MySQL, and SQLite—without a generation step.";
+---
+
+<PageLayout
+  analytics={config.analytics}
+  banner={config.banner}
+  favicon={config.favicon}
+  fontCssVars={data.fontCssVars}
+  logo={config.logo}
+  navigation={data.navigation}
+  ogEnabled={config.og.enabled}
+  page={{ description: pageDescription, route: "/", title: pageTitle }}
+  searchEnabled={config.search.enabled}
+  site={{ description: config.description, title: config.title }}
+  siteUrl={config.site}
+  themeMode={config.theme.mode}
+  x={config.x}
+>
+  <div
+    class="mx-auto grid max-w-[1400px] gap-20 px-6 py-20 sm:py-24 lg:gap-28 xl:gap-32"
+  >
+    <Hero />
+    <ProductPreview />
+    <Features />
+    <Capabilities />
+    <DatabaseSupport />
+    <DatabaseIsomorphisms />
+    <CallToAction />
+  </div>
+  <Footer slot="footer" />
+</PageLayout>

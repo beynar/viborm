@@ -1,7 +1,7 @@
 ---
 title: PostgreSQL Driver
 description: Full PostgreSQL migration support including native enums, arrays, and advanced index types
-icon: Server
+icon: server
 ---
 
 ## Capabilities
@@ -94,9 +94,9 @@ CREATE TABLE "users" (
 ALTER TYPE "users_status_enum" ADD VALUE 'suspended';
 ```
 
-<Callout type="warn" title="Transaction Limitation">
+:::warning[Transaction Limitation]
 `ALTER TYPE ... ADD VALUE` cannot run inside a transaction block. VibORM handles this by executing enum additions outside the main transaction.
-</Callout>
+:::
 
 **Remove value:** Requires enum recreation (handled automatically).
 
@@ -145,7 +145,7 @@ This ensures only one migration process runs at a time, even across multiple app
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="SQLite Driver"
     description="SQLite-specific features"
@@ -156,4 +156,4 @@ This ensures only one migration process runs at a time, even across multiple app
     description="Driver overview"
     href="/docs/migration/drivers"
   />
-</Cards>
+</CardGroup>

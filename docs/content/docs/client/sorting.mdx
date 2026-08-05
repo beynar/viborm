@@ -1,7 +1,7 @@
 ---
 title: Sorting
 description: Order query results using orderBy
-icon: ArrowUpDown
+icon: arrow-up-down
 ---
 
 ## Basic Sorting
@@ -60,9 +60,9 @@ const users = await client.user.findMany({
 });
 ```
 
-<Callout type="info">
-  `nulls: "first" | "last"` controls where null values land in the order, and works the same on every database.
-</Callout>
+:::info
+`nulls: "first" | "last"` controls where null values land in the order, and works the same on every database.
+:::
 
 ## Vector Distance Sorting
 
@@ -128,9 +128,9 @@ const results = await client.document.findMany({
 results[0]?._distance; // number | undefined
 ```
 
-<Callout type="warning">
-  Vector distance sorting requires a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the `to` vector length must match the scalar dimension.
-</Callout>
+:::warning
+Vector distance sorting requires a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the `to` vector length must match the scalar dimension.
+:::
 
 ## Relation Sorting
 
@@ -163,12 +163,12 @@ const posts = await client.post.findMany({
 });
 ```
 
-<Callout type="info">
-  Relation sorting follows to-one relations up to eight relation hops; a
+:::info
+Relation sorting follows to-one relations up to eight relation hops; a
   ninth is rejected before SQL generation. To-many relations in the middle of
   a sort path are rejected too; use `_count` aggregate sorting for to-many
   relations instead.
-</Callout>
+:::
 
 ## Aggregate Sorting
 

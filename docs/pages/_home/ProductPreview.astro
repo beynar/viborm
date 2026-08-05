@@ -1,0 +1,115 @@
+---
+import CodeBlock from "blume/components/content/CodeBlock.astro";
+import Icon from "blume/components/Icon.astro";
+
+const schemaCode = `import { s } from "viborm";
+
+export const user = s.model({
+  id: s.string().id().ulid(),
+  email: s.string().unique(),
+  posts: s.oneToMany(() => post),
+});
+
+export const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  published: s.boolean().default(false),
+  authorId: s.string(),
+  author: s.manyToOne(() => user)
+    .fields("authorId")
+    .references("id"),
+});`;
+
+const queryCode = `const authors = await client.user.findMany({
+  where: {
+    email: { contains: "@company.com" },
+  },
+  include: {
+    posts: {
+      where: { published: true },
+      orderBy: { title: "asc" },
+    },
+  },
+});`;
+
+const navigation = [
+  { icon: "zap", label: "Quick Start" },
+  { icon: "boxes", label: "Schema" },
+  { icon: "database", label: "Client API" },
+  { icon: "git-branch", label: "Relations" },
+  { icon: "arrow-up-down", label: "Migrations" },
+];
+---
+
+<section>
+  <div class="overflow-hidden rounded-[2rem] bg-muted/50 px-3 pt-3 sm:px-8 sm:pt-8 lg:px-12 lg:pt-12">
+    <div class="overflow-hidden rounded-t-blume border border-border border-b-0 bg-background shadow-2xl shadow-foreground/10">
+      <div class="flex h-14 items-center justify-between border-border border-b px-4 sm:px-5">
+        <div class="flex items-center gap-2 font-medium">
+          <span class="inline-flex size-7 items-center justify-center rounded-lg bg-foreground text-background">
+            <Icon name="braces" size={15} />
+          </span>
+          VibORM
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="hidden h-8 items-center gap-2 rounded-full border border-border px-3 text-muted-foreground text-xs sm:flex">
+            <Icon name="search" size={14} />
+            Search documentation
+            <kbd class="ml-2 font-mono text-[10px]">⌘K</kbd>
+          </span>
+          <span class="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground">
+            <Icon name="sun" size={16} />
+          </span>
+        </div>
+      </div>
+
+      <div class="grid min-h-[570px] sm:grid-cols-[190px_1fr] lg:grid-cols-[220px_1fr]">
+        <aside class="hidden border-border border-r p-5 sm:block">
+          <p class="mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Documentation</p>
+          <nav class="space-y-1">
+            {
+              navigation.map((item, index) => (
+                <span
+                  class:list={[
+                    "flex items-center gap-2 rounded-lg px-3 py-2 text-sm",
+                    index === 0
+                      ? "bg-muted font-medium text-foreground"
+                      : "text-muted-foreground",
+                  ]}
+                >
+                  <Icon name={item.icon} size={15} />
+                  {item.label}
+                </span>
+              ))
+            }
+          </nav>
+        </aside>
+
+        <div class="min-w-0 p-5 sm:p-8 lg:p-10">
+          <div class="flex items-center gap-2 text-accent text-sm">
+            <Icon name="zap" size={15} />
+            Quick Start
+          </div>
+          <h2 class="mt-4 max-w-2xl text-balance font-medium text-3xl tracking-tight sm:text-4xl">
+            From schema to typed query in one file.
+          </h2>
+          <p class="mt-4 max-w-2xl text-muted-foreground leading-relaxed">
+            Your schema is the type source. Every filter, relation, selection,
+            and result is inferred directly from it.
+          </p>
+
+          <div class="mt-8 grid gap-5 xl:grid-cols-2 [&_pre]:my-0! [&_pre]:h-full">
+            <CodeBlock code={schemaCode} icons lang="ts" title="schema.ts" />
+            <CodeBlock code={queryCode} icons lang="ts" title="query.ts" />
+          </div>
+
+          <div class="mt-6 flex flex-wrap gap-x-6 gap-y-3 text-muted-foreground text-xs">
+            <span class="inline-flex items-center gap-2"><Icon name="circle-check" size={14} /> Typed filters</span>
+            <span class="inline-flex items-center gap-2"><Icon name="circle-check" size={14} /> Typed relations</span>
+            <span class="inline-flex items-center gap-2"><Icon name="circle-check" size={14} /> Typed results</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

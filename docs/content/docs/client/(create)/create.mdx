@@ -1,0 +1,99 @@
+---
+title: create
+description: Create new records in your database
+icon: plus
+---
+
+`create` inserts a single record and returns it.
+
+```ts
+const user = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    name: "Alice",
+  },
+});
+```
+
+## With Relations
+
+You can create, connect, and connect-or-create related records in the same call:
+
+```ts
+const user = await client.user.create({
+  data: {
+    email: "alice@example.com",
+    name: "Alice",
+    posts: {
+      create: [
+        { title: "First Post" },
+        { title: "Second Post" },
+      ],
+    },
+    profile: {
+      create: { bio: "Hello!" },
+    },
+  },
+  include: { posts: true, profile: true },
+});
+```
+
+See [Nested writes](/docs/client/nested-writes) for `connect`, `connectOrCreate`, and the full set of relation operations.
+
+## Options
+
+```ts
+await client.user.create({
+  data: { ... },        // Required: record data
+  select: { ... },      // Optional: fields to return
+  include: { ... },     // Optional: relations to include
+});
+```
+
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
+
+## Examples
+
+### User Registration
+
+```ts
+async function registerUser(email: string, password: string, name: string) {
+  const passwordHash = await hashPassword(password);
+
+  return client.user.create({
+    data: {
+      email,
+      name,
+      passwordHash,
+      profile: {
+        create: { bio: "" },
+      },
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+    },
+  });
+}
+```
+
+### Create Post with Tags
+
+```ts
+async function createPost(authorId: string, title: string, tagNames: string[]) {
+  return client.post.create({
+    data: {
+      title,
+      authorId,
+      tags: {
+        connectOrCreate: tagNames.map(name => ({
+          where: { name },
+          create: { name },
+        })),
+      },
+    },
+    include: { tags: true },
+  });
+}
+```

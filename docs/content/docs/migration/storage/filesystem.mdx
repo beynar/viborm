@@ -1,7 +1,7 @@
 ---
 title: Filesystem Storage
 description: Store migrations as files on the local filesystem (default storage driver)
-icon: FolderOpen
+icon: folder-open
 ---
 
 ## Quick Start
@@ -17,9 +17,9 @@ const migrations = createMigrationClient(client, {
 });
 ```
 
-<Callout type="info" title="Tree-Shaking">
+:::info[Tree-Shaking]
 The filesystem storage driver is imported separately from `viborm/migrations/storage/fs` to enable tree-shaking. This allows edge environments (like Cloudflare Workers) to use `push()` without bundling `node:fs`.
-</Callout>
+:::
 
 ## Configuration
 
@@ -155,7 +155,7 @@ try {
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Storage Drivers"
     description="Learn about other storage options"
@@ -166,4 +166,4 @@ try {
     description="Push and migrate workflows"
     href="/docs/migration"
   />
-</Cards>
+</CardGroup>

@@ -1,7 +1,7 @@
 ---
 title: Installation
 description: Get started with VibORM in your project
-icon: Download
+icon: download
 ---
 
 ## Prerequisites
@@ -28,18 +28,18 @@ bun add viborm
 
 Install the driver for your database:
 
-<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
-  <Tab value="PostgreSQL">
+<Tabs>
+  <Tab title="PostgreSQL">
 ```bash
 npm install pg
 ```
   </Tab>
-  <Tab value="MySQL">
+  <Tab title="MySQL">
 ```bash
 npm install mysql2
 ```
   </Tab>
-  <Tab value="SQLite">
+  <Tab title="SQLite">
 ```bash
 npm install better-sqlite3
 ```
@@ -76,7 +76,7 @@ src/
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Compare Drivers"
     description="Choose the right driver for your database and runtime"
@@ -87,4 +87,4 @@ src/
     description="Build a schema, create its tables, and run your first query"
     href="/docs/getting-started/quick-start"
   />
-</Cards>
+</CardGroup>

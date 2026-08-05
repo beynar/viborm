@@ -1,0 +1,116 @@
+---
+title: delete
+description: Remove records from your database
+icon: trash2
+---
+
+`delete` removes a single record matched by a unique identifier and returns it. It throws if the record doesn't exist.
+
+```ts
+const user = await client.user.delete({
+  where: { id: "user_123" },
+});
+// Result: the deleted record
+```
+
+## Options
+
+```ts
+await client.user.delete({
+  where: { ... },       // Required: unique identifier
+  select: { ... },      // Optional: fields to return
+  include: { ... },     // Optional: relations to include
+});
+```
+
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
+
+## Conditional Deletes
+
+The `where` may narrow the unique lookup with non-unique scalar filters and
+`AND` / `OR` / `NOT`:
+
+```ts
+// delete this token, but only if it has already expired
+await client.token.delete({
+  where: { id: "tok_1", expiresAt: { lt: new Date() } },
+});
+```
+
+If the unique key matches but the filter excludes the row, the delete is a
+`NotFoundError` and the row survives. See
+[Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup)
+for the full `where` shape.
+
+## Cascading Deletes
+
+When a record is deleted, related records are handled based on `onDelete`:
+
+```ts
+const post = s.model({
+  authorId: s.string(),
+  author: s
+    .manyToOne(() => user)
+    .fields("authorId")
+    .references("id")
+    .onDelete("cascade"), // Delete posts when user is deleted
+});
+```
+
+| Action | Behavior |
+|--------|----------|
+| `cascade` | Delete related records |
+| `setNull` | Set FK to null |
+| `restrict` | Prevent deletion |
+| `noAction` | Database default |
+
+## Soft Delete Pattern
+
+Instead of deleting, mark records as deleted:
+
+```ts
+const user = s.model({
+  id: s.string().id(),
+  deleted: s.boolean().default(false),
+  deletedAt: s.dateTime().nullable(),
+});
+
+// Soft delete
+async function softDeleteUser(id: string) {
+  return client.user.update({
+    where: { id },
+    data: {
+      deleted: true,
+      deletedAt: new Date(),
+    },
+  });
+}
+
+// Query only active records
+async function getActiveUsers() {
+  return client.user.findMany({
+    where: { deleted: false },
+  });
+}
+```
+
+## Examples
+
+### Delete User Account
+
+```ts
+async function deleteAccount(userId: string) {
+  // Delete in correct order due to FK constraints
+  await client.post.deleteMany({
+    where: { authorId: userId },
+  });
+
+  await client.profile.delete({
+    where: { userId },
+  }).catch(() => {}); // Ignore if no profile
+
+  return client.user.delete({
+    where: { id: userId },
+  });
+}
+```

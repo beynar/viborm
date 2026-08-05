@@ -1,0 +1,113 @@
+---
+title: deleteMany
+description: Delete every record matching a filter
+icon: trash2
+---
+
+Delete every record matching the filter, in one call:
+
+```ts
+const result = await client.post.deleteMany({
+  where: { published: false },
+});
+// Result: { count: 15 }
+```
+
+`deleteMany` returns a `{ count }`.
+
+## Delete all
+
+```ts
+// Delete every record (use with care!)
+await client.post.deleteMany({});
+// or
+await client.post.deleteMany();
+```
+
+## Examples
+
+```ts
+// Delete old drafts
+await client.post.deleteMany({
+  where: {
+    published: false,
+    createdAt: { lt: new Date("2023-01-01") },
+  },
+});
+
+// Delete by relation
+await client.post.deleteMany({
+  where: {
+    author: { is: { status: "BANNED" } },
+  },
+});
+
+// Delete inactive non-admin users
+await client.user.deleteMany({
+  where: {
+    lastLogin: { lt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) },
+    role: { not: "ADMIN" },
+  },
+});
+```
+
+## Getting the deleted rows back
+
+Add a `select` and `deleteMany` returns the rows it removed instead of a count:
+
+```ts
+const removed = await client.post.deleteMany({
+  where: { published: false },
+  select: { id: true, title: true },
+});
+// Type: { id: string; title: string }[]
+```
+
+The rows are captured and deleted inside one atomic scope, so what you get back
+is exactly what is now gone — no read-then-delete window where another writer can
+change the set in between.
+
+:::info
+Prisma has no returning `deleteMany` at all; this is an extension, spelled the
+  same way as [`createMany`](/docs/client/create-many) and
+  [`updateMany`](/docs/client/update-many) — and restricted the same way: the
+  `select` takes **scalar fields only**, and a relation key inside it, `_count`,
+  or an `include` is refused with a typed error before anything is deleted.
+:::
+
+## Capping how many rows are deleted
+
+`limit` caps the number of rows the delete removes. The count you get back is
+`min(matching, limit)`:
+
+```ts
+// Trim the audit log in bounded chunks instead of one huge delete
+const result = await client.auditEntry.deleteMany({
+  where: { createdAt: { lt: cutoff } },
+  limit: 1000,
+});
+// Result: { count: 1000 } if at least 1000 matched, fewer otherwise
+```
+
+`limit: 0` is legal and means "delete nothing": you get `{ count: 0 }` and no
+write statement is sent at all. A negative or fractional `limit` is a validation
+error. `limit` caps the returning form too — with `select` you get back exactly
+the rows that were removed.
+
+:::warning
+`limit` says **how many**, not **which** — see
+  [`updateMany`](/docs/client/update-many#capping-how-many-rows-are-updated) for
+  the full explanation. A bulk write takes no `orderBy`, so the selection is
+  unspecified and differs between databases.
+:::
+
+## Options
+
+```ts
+await client.user.deleteMany({
+  where: { ... },       // Optional: filter (all rows if empty)
+  limit: 1000,          // Optional: cap on how many rows are deleted
+  select: { ... },      // Optional (scalar fields only): return the deleted rows
+                        // instead of { count }
+});
+```

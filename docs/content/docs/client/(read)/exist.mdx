@@ -1,0 +1,34 @@
+---
+title: exist
+description: Check whether any record matches a filter, returning a boolean
+icon: circle-check
+---
+
+`exist` returns `true` if at least one record matches the filter, and `false` otherwise. It's a cheaper, clearer alternative to `count` or `findFirst` when all you need to know is whether something is there.
+
+## Basic Usage
+
+```ts
+// Is there an admin?
+const hasAdmin = await client.user.exist({
+  where: { role: "ADMIN" },
+});
+
+// Does this email already exist?
+const taken = await client.user.exist({
+  where: { email: "alice@example.com" },
+});
+
+// Any record at all?
+const anyUsers = await client.user.exist();
+```
+
+`where` is optional — with no filter, `exist` reports whether the table has any rows.
+
+## Returns
+
+A `boolean`. `exist` never throws for "not found" — it simply returns `false`.
+
+:::info
+The operation is `exist`, not `exists`. It's a VibORM convenience with no direct Prisma equivalent.
+:::

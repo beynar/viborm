@@ -1,11 +1,9 @@
 ---
 title: Enum
 description: Enum scalar type that restricts values to a predefined set of options
-icon: List
+icon: list
 ---
 
-import { Tabs, Tab } from "fumadocs-ui/components/tabs";
-import { Callout } from "fumadocs-ui/components/callout";
 
 ## Basic Usage
 
@@ -45,9 +43,9 @@ Without `.name()`, each column would create its own enum type:
 
 With `.name("status")`, both columns share the same `status` enum type.
 
-<Callout type="info" title="Migration Behavior">
+:::info[Migration Behavior]
 Named enums are tracked as a single type. When you modify the enum values, VibORM generates one `ALTER TYPE` instead of multiple.
-</Callout>
+:::
 
 ## Type Inference
 
@@ -63,8 +61,8 @@ const status = s.enum(["draft", "published", "archived"]).nullable();
 
 ## Database Behavior
 
-<Tabs items={["PostgreSQL", "MySQL", "SQLite"]}>
-  <Tab value="PostgreSQL">
+<Tabs>
+  <Tab title="PostgreSQL">
 PostgreSQL creates a native `ENUM` type, named `<table>_<column>_enum` unless overridden with `.name()`:
 
 ```sql
@@ -75,7 +73,7 @@ CREATE TABLE users (
 ```
 
   </Tab>
-  <Tab value="MySQL">
+  <Tab title="MySQL">
 MySQL uses inline `ENUM`:
 
 ```sql
@@ -85,7 +83,7 @@ CREATE TABLE users (
 ```
 
   </Tab>
-  <Tab value="SQLite">
+  <Tab title="SQLite">
 SQLite stores as `TEXT` with check constraint:
 
 ```sql

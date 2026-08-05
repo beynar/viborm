@@ -36,7 +36,7 @@ const post = s.model({
     .manyToOne(() => user)
     .fields("authorId")
     .references("id"),
-});
+})
 
 const schema = { user, post };
 const id = s.string().id();
@@ -46,11 +46,12 @@ const client = createClient({
   schema,
   instrumentation: {
     logging: true,
+    
   },
-  cache: new MemoryCache(),
+  cache: new MemoryCache(), 
 });
 
-client.user.create({
+const res2 = await client.user.create({
   data: {
     email: "eze@example.com",
     pets: [
@@ -60,14 +61,19 @@ client.user.create({
         type: "cat",
       },
     ],
-    status: "inactive",
+    status: "deleted",
+    name:"eza", 
   },
+  omit:{
+    status:true
+  }
 });
+
 
 client.$transaction(async (tx) => {
   await tx.user.exist({
     where: {
-      id: "2",
+      id: "2",      
     },
   });
 });

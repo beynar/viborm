@@ -1,4 +1,0 @@
-{
-  "title": "Schema",
-  "pages": ["index", "model", "scalars", "relations", "native-types", "validation"]
-}

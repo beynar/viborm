@@ -1,14 +1,14 @@
 ---
 title: Introduction
 description: Prisma-inspired TypeScript ORM without code generation or WASM query-engine deployment issues
-icon: Database
+icon: database
 ---
 
 VibORM is a **Prisma-inspired TypeScript ORM with zero code generation**: types are inferred from your schema the moment you save, and there is no WASM query engine, so it runs anywhere TypeScript runs — including edge runtimes like Cloudflare Workers.
 
-<Callout type="warn" title="Early Alpha">
+:::warning[Early Alpha]
 VibORM is in early alpha and **not ready for production use**. APIs may change, features are incomplete, and there will be bugs. Use it for experimentation and side projects, not critical systems.
-</Callout>
+:::
 
 ## What It Looks Like
 
@@ -63,7 +63,7 @@ Some features are still in progress: transactions (partial) and migration edge c
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Install and Choose a Driver"
     description="Install VibORM and select the right database client"
@@ -79,7 +79,7 @@ Some features are still in progress: transactions (partial) and migration edge c
     description="Check supported operations and database differences"
     href="/docs/client/compatibility"
   />
-</Cards>
+</CardGroup>
 
 ## Why VibORM?
 

@@ -1,5 +1,0 @@
-{
-  "title": "SQLite",
-  "defaultOpen": false,
-  "pages": ["sqlite3", "libsql", "bun-sqlite", "d1"]
-}

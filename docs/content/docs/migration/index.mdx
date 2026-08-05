@@ -1,7 +1,7 @@
 ---
 title: Migrations
 description: Manage database schema changes with VibORM migrations
-icon: Database
+icon: database
 ---
 
 VibORM provides two approaches for managing database schema changes:
@@ -72,9 +72,9 @@ await migrations.push({
 });
 ```
 
-<Callout type="info" title="Storage Driver Required">
+:::info[Storage Driver Required]
 File-based operations (`generate`, `apply`, `status`, `reset`, `rollback`) require a storage driver. The `push()` method works without a storage driver since it doesn't use migration files.
-</Callout>
+:::
 
 ### Migration Client Options
 
@@ -123,7 +123,7 @@ options.
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Push"
     description="Direct schema synchronization for development"
@@ -144,4 +144,4 @@ options.
     description="Database-specific DDL generation"
     href="/docs/migration/drivers"
   />
-</Cards>
+</CardGroup>

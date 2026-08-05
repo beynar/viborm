@@ -1,7 +1,7 @@
 ---
 title: Migrate
 description: File-based migrations with version control for production — each migration stored as a SQL file committable to git
-icon: GitBranch
+icon: git-branch
 ---
 
 ## When to Use Migrate
@@ -24,8 +24,8 @@ icon: GitBranch
 
 Generate a new migration by comparing your current models against the previous snapshot:
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # Generate a migration with auto-generated name
 npx viborm migrate generate
@@ -37,7 +37,7 @@ npx viborm migrate generate --name add-users-table
 npx viborm migrate generate --dry-run
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 import { createMigrationClient } from "viborm/migrations";
 import { createFsStorageDriver } from "viborm/migrations/storage/fs";
@@ -80,8 +80,8 @@ const preview = await migrations.preview();
 
 View which migrations have been applied:
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # Show migration status
 npx viborm migrate status
@@ -95,7 +95,7 @@ Migration Status:
   [ ] 0002_add-posts.sql (pending)
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 const statuses = await migrations.status();
 
@@ -123,8 +123,8 @@ console.log(`${pending.length} migrations pending`);
 
 Apply pending migrations to the database:
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # Apply all pending migrations
 npx viborm migrate apply
@@ -136,7 +136,7 @@ npx viborm migrate apply --to 5
 npx viborm migrate apply --dry-run
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 // Apply all pending
 const result = await migrations.apply();
@@ -168,8 +168,8 @@ Every generated migration includes a down migration (stored in
 tables or columns) are annotated with warnings in the down file — the
 structure is restored, but not the data.
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # Roll back the last migration
 npx viborm migrate down
@@ -184,7 +184,7 @@ npx viborm migrate down --to add-users
 npx viborm migrate down --dry-run
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 // Roll back the last migration
 const result = await migrations.down({ steps: 1 });
@@ -214,8 +214,8 @@ await migrations.down({ steps: 1, dryRun: true });
 
 `migrate drop` removes the last N migrations (default: 1) from the tracking table. It does **not** revert any database changes — to undo schema changes, use `migrate down` instead:
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # Remove the last migration from tracking
 npx viborm migrate drop
@@ -224,7 +224,7 @@ npx viborm migrate drop
 npx viborm migrate drop --count 3
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 // Removes from tracking only (doesn't touch tables or data)
 await migrations.rollback({ count: 1 });
@@ -250,9 +250,9 @@ await migrations.rollback({ count: 1 });
 await migrations.reset();
 ```
 
-<Callout type="warn" title="Destructive Operation">
+:::warning[Destructive Operation]
 `reset()` drops ALL tables and data, then re-applies all migrations from scratch. Use with extreme caution and never in production.
-</Callout>
+:::
 
 ## Squash Migrations
 
@@ -426,7 +426,7 @@ if (pending.length > 0) {
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Push"
     description="Direct schema sync for development"
@@ -442,4 +442,4 @@ if (pending.length > 0) {
     description="Database-specific DDL generation"
     href="/docs/migration/drivers"
   />
-</Cards>
+</CardGroup>

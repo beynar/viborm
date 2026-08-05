@@ -1,12 +1,12 @@
 ---
 title: Vector
 description: Vector scalar type for AI/ML embeddings and similarity search (PostgreSQL pgvector)
-icon: Sparkles
+icon: sparkles
 ---
 
-<Callout type="info">
-  Vector scalars require PostgreSQL with the `pgvector` extension. On MySQL and SQLite the values are stored as JSON and similarity search is unavailable.
-</Callout>
+:::info
+Vector scalars require PostgreSQL with the `pgvector` extension. On MySQL and SQLite the values are stored as JSON and similarity search is unavailable.
+:::
 
 ## Basic Usage
 
@@ -94,9 +94,9 @@ const scored = await client.document.findMany({
 scored[0]?._distance; // number | undefined
 ```
 
-<Callout type="warning">
-  Distance ordering and selection require a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the query vector length must match `.dimension(...)` when a dimension is declared.
-</Callout>
+:::warning
+Distance ordering and selection require a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the query vector length must match `.dimension(...)` when a dimension is declared.
+:::
 
 ## Vector Dimensions
 

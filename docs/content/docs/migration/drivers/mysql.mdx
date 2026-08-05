@@ -1,7 +1,7 @@
 ---
 title: MySQL Driver
 description: MySQL migration support with inline ENUM columns, btree/fulltext/spatial indexes, and InnoDB-aware type handling
-icon: Server
+icon: server
 ---
 
 ## Capabilities
@@ -92,9 +92,9 @@ CREATE TABLE `users` (
 
 Changing an enum's values therefore issues a `MODIFY COLUMN` for every column using it.
 
-<Callout type="warn" title="Transaction Limitation">
+:::warning[Transaction Limitation]
 `MODIFY COLUMN` is DDL and causes an implicit commit, so enum changes (like MySQL DDL in general) can't be rolled back if a later statement in the migration fails.
-</Callout>
+:::
 
 ## Index Types
 
@@ -118,7 +118,7 @@ MySQL doesn't allow `DEFAULT` values on `TEXT`, `BLOB`, `JSON`, or spatial colum
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="PostgreSQL Driver"
     description="PostgreSQL-specific features"
@@ -129,4 +129,4 @@ MySQL doesn't allow `DEFAULT` values on `TEXT`, `BLOB`, `JSON`, or spatial colum
     description="SQLite-specific features and limitations"
     href="/docs/migration/drivers/sqlite"
   />
-</Cards>
+</CardGroup>

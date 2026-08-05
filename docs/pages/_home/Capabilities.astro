@@ -1,0 +1,162 @@
+---
+import Icon from "blume/components/Icon.astro";
+
+const capabilities = [
+  {
+    description: "Typed create, read, update, delete, and upsert operations",
+    href: "/docs/client",
+    icon: "braces",
+    title: "Type-safe CRUD",
+  },
+  {
+    description: "Typed filters, selections, sorting, pagination, and distinct",
+    href: "/docs/client/filtering",
+    icon: "list-filter",
+    title: "Composable queries",
+  },
+  {
+    description: "Load nested relations in one roundtrip without N+1 queries",
+    href: "/docs/client/selecting",
+    icon: "network",
+    title: "Single-query relations",
+  },
+  {
+    description: "Filter through typed to-one and to-many relations",
+    href: "/docs/client/filtering/relations",
+    icon: "git-branch",
+    title: "Relation filters",
+  },
+  {
+    description: "Count, sum, average, min, max, and grouped results",
+    href: "/docs/client/group-by",
+    icon: "table-2",
+    title: "Aggregates & groupBy",
+  },
+  {
+    description: "Compare columns from the same row or use SQL expressions",
+    href: "/docs/client/filtering/field-references",
+    icon: "arrow-up-down",
+    title: "Field references",
+  },
+  {
+    description: "Create, connect, update, and disconnect related records",
+    href: "/docs/client/nested-writes",
+    icon: "network",
+    title: "Nested writes",
+  },
+  {
+    description: "Interactive transactions and atomic batch execution",
+    href: "/docs/client/transactions",
+    icon: "arrow-up-down",
+    title: "Transactions",
+  },
+  {
+    description: "Automatic junction tables with typed reads and writes",
+    href: "/docs/schema/relations/many-to-many",
+    icon: "git-branch",
+    title: "Implicit many-to-many",
+  },
+  {
+    description: "Typed JSON values and portable scalar-list storage",
+    href: "/docs/schema/scalars/json",
+    icon: "binary",
+    title: "JSON & scalar lists",
+  },
+  {
+    description: "pgvector embeddings, distance selection, and ordering",
+    href: "/docs/schema/scalars/vector",
+    icon: "sparkles",
+    title: "Vector similarity",
+  },
+  {
+    description: "PostgreSQL point, PostGIS geometry, and geography types",
+    href: "/docs/schema/native-types#point-postgresql-only",
+    icon: "route",
+    title: "Geospatial types",
+  },
+  {
+    description: "Parameterized tagged templates and SQL composition helpers",
+    href: "/docs/client/raw-sql",
+    icon: "terminal",
+    title: "Raw SQL",
+  },
+  {
+    description: "Reusable operation schemas with JSON Schema export",
+    href: "/docs/internals/validation/standard-schema",
+    icon: "shield-check",
+    title: "Standard Schema V1",
+  },
+  {
+    description: "TTL, stale-while-revalidate, and automatic invalidation",
+    href: "/docs/cache",
+    icon: "database-zap",
+    title: "Query cache",
+  },
+  {
+    description: "Schema push and versioned migration workflows",
+    href: "/docs/migration",
+    icon: "file-stack",
+    title: "Migrations",
+  },
+  {
+    description: "OpenTelemetry tracing and structured query logging",
+    href: "/docs/instrumentation",
+    icon: "activity",
+    title: "Observability",
+  },
+  {
+    description: "PostgreSQL, MySQL, SQLite, serverless, and edge runtimes",
+    href: "/docs/drivers",
+    icon: "plug",
+    title: "Runtime drivers",
+  },
+];
+---
+
+<section>
+  <div class="mx-auto max-w-2xl text-center">
+    <h2 class="text-balance font-medium text-3xl tracking-tight sm:text-5xl">
+      Everything from CRUD to vectors.
+    </h2>
+    <p class="mx-auto mt-4 max-w-xl text-balance text-muted-foreground">
+      A typed relational core, database extensions, and production tooling in
+      one ORM.
+    </p>
+  </div>
+
+  <ul
+    class="mx-auto mt-12 grid max-w-6xl list-none gap-x-12 gap-y-7 sm:grid-cols-2 lg:grid-cols-3"
+  >
+    {
+      capabilities.map((capability) => (
+        <li>
+          <a class="group flex items-start gap-3" href={capability.href}>
+            <Icon
+              class="mt-0.5 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-accent"
+              name={capability.icon}
+              size={18}
+            />
+            <span class="min-w-0">
+              <span class="block font-medium text-sm transition-colors group-hover:text-accent">
+                {capability.title}
+              </span>
+              <span class="mt-1 block text-muted-foreground text-xs leading-relaxed">
+                {capability.description}
+              </span>
+            </span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+
+  <div class="mt-10 text-center">
+    <a
+      class="inline-flex h-10 items-center gap-2 rounded-full border border-border bg-background px-5 font-medium text-sm transition-colors hover:bg-muted"
+      href="/docs"
+    >
+      Explore all features
+      <Icon name="arrow-right" size={15} />
+    </a>
+  </div>
+</section>

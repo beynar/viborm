@@ -1,7 +1,7 @@
 ---
 title: Filtering
 description: Filter operators for the where clause, varying by scalar type
-icon: Filter
+icon: filter
 ---
 
 ## Basic Filtering
@@ -38,9 +38,9 @@ where: {
 }
 ```
 
-<Callout type="info">
-  An explicit `undefined` value is treated as if the key were absent, matching Prisma. `where: { role: role ?? undefined }` behaves the same as omitting `role` entirely — useful for building filters conditionally without stripping keys yourself.
-</Callout>
+:::info
+An explicit `undefined` value is treated as if the key were absent, matching Prisma. `where: { role: role ?? undefined }` behaves the same as omitting `role` entirely — useful for building filters conditionally without stripping keys yourself.
+:::
 
 ## Logical Operators
 
@@ -90,7 +90,7 @@ where: {
 
 ## Filter by Type
 
-<Cards>
+<CardGroup>
   <Card
     title="String Filters"
     description="contains, startsWith, endsWith, mode"
@@ -126,5 +126,5 @@ where: {
     description="Compare a column against another column of the same row, or against SQL you write"
     href="/docs/client/filtering/field-references"
   />
-</Cards>
+</CardGroup>
 

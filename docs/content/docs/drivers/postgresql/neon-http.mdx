@@ -86,9 +86,9 @@ await client.$transaction(async (tx) => {
 });
 ```
 
-<Callout type="warn">
+:::warning
 For Neon HTTP, use batch mode (`$transaction([...])`) for operations that can be planned up front. Nested writes are supported inside a batch, but sibling operations cannot read each other's results.
-</Callout>
+:::
 
 ### Migrations
 
