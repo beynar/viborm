@@ -1,6 +1,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { buildParsedRelationPrograms } from "@query-engine/builders/relation-mutation-parser";
 import { createQueryScope } from "@query-engine/context/query-scope";
-import { separateData } from "@query-engine/builders/relation-data-builder";
 import {
   analyzeOwnWriteTree,
   assertNoRelationsOwnWriteDependencies,
@@ -10,10 +10,6 @@ import {
   getRelationMembershipEndpoints,
 } from "@query-engine/OwnWriteLedger";
 import { getRelationMembershipScope } from "@query-engine/RelationMembership";
-import {
-  planRelationMutationSteps,
-  type RelationMutationStep,
-} from "@query-engine/RelationMutationPlan";
 import { selectorConstraint } from "@query-engine/TargetConstraint";
 import { hydrateSchemaNames, s } from "@schema";
 import { describe, expect, test } from "vitest";
@@ -63,7 +59,9 @@ function relationMutation(
 ) {
   hydrateSchemaNames(schema);
   const ctx = createQueryScope(new PostgresAdapter(), parentModel);
-  const relations = separateData(ctx, { targets: input }).relations;
+  const relations = buildParsedRelationPrograms(ctx, {
+    targets: input,
+  }).relations;
   if (!relations.targets) throw new Error("Expected targets relation mutation");
   return { ctx, relations };
 }
@@ -75,7 +73,7 @@ function selfRelationMutation(input: Record<string, unknown>) {
   const selfSchema = { node: selfNode };
   hydrateSchemaNames(selfSchema);
   const ctx = createQueryScope(new PostgresAdapter(), selfNode);
-  return { ctx, ...separateData(ctx, input) };
+  return { ctx, ...buildParsedRelationPrograms(ctx, input) };
 }
 
 function summarizeSelfChildrenStep(
@@ -85,12 +83,7 @@ function summarizeSelfChildrenStep(
   const plan = selfRelationMutation({ children: input });
   const relation = plan.relations.children;
   if (!relation) throw new Error("Expected children relation mutation");
-  const step = planRelationMutationSteps("children", relation, "after").find(
-    (
-      candidate
-    ): candidate is Extract<RelationMutationStep, { kind: typeof kind }> =>
-      candidate.kind === kind
-  );
+  const step = relation.entries.find((candidate) => candidate.kind === kind);
   if (!step) throw new Error(`Expected ${kind} step`);
 
   const ledger = analyzeOwnWriteTree(plan.ctx, plan.relations, {

@@ -1,6 +1,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { createQueryScope } from "@query-engine/context/query-scope";
 import { separateData } from "@query-engine/builders/relation-data-builder";
+import { createQueryScope } from "@query-engine/context/query-scope";
 import { planRelationMutationSteps } from "@query-engine/RelationMutationPlan";
 import {
   classifyTargetConstraintOverlap,
@@ -52,7 +52,7 @@ function plannedConnectOrCreateInputs(
   }).relations.targets;
   if (!mutation) throw new Error("Expected targets relation mutation");
 
-  const step = planRelationMutationSteps("targets", mutation, "after").find(
+  const step = planRelationMutationSteps("targets", mutation).find(
     (candidate) => candidate.kind === "connectOrCreate"
   );
   if (!step || step.kind !== "connectOrCreate") {

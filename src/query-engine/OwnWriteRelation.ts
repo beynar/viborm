@@ -1,10 +1,10 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import type { Model } from "@schema/model";
-import {
-  getFkDirection,
-  type NestedUpsertInput,
-  type RelationMutation,
-} from "./builders/relation-data-builder";
+import { getFkDirection } from "./builders/relation-data-builder";
+import type {
+  NormalizedRelationUpsert,
+  RelationMutationProgram,
+} from "./builders/relation-mutation-parser";
 import { createChildScope } from "./context";
 import type { OwnWriteNode } from "./OwnWriteAnalyzer";
 import {
@@ -21,7 +21,6 @@ import {
   getRelationMembershipScope,
   type RelationMembershipScope,
 } from "./RelationMembership";
-import { planRelationMutationSteps } from "./RelationMutationPlan";
 import type { PredicateFieldSet, TargetConstraint } from "./TargetConstraint";
 import {
   createIdentityConstraint,
@@ -45,7 +44,7 @@ export interface OwnWriteCreateSummary {
 
 export class OwnWriteRelation {
   readonly node: OwnWriteNode;
-  readonly mutation: RelationMutation;
+  readonly program: RelationMutationProgram;
   readonly ledger: OwnWriteLedger;
   readonly membershipLedger: OwnWriteLedger | undefined;
   readonly relationName: string;
@@ -58,24 +57,24 @@ export class OwnWriteRelation {
 
   private constructor(
     node: OwnWriteNode,
-    mutation: RelationMutation,
+    program: RelationMutationProgram,
     ledger: OwnWriteLedger,
     membershipLedger: OwnWriteLedger | undefined
   ) {
     this.node = node;
-    this.mutation = mutation;
+    this.program = program;
     this.ledger = ledger;
     this.membershipLedger = membershipLedger;
-    this.relationName = mutation.relationInfo.name;
-    this.relationInfo = mutation.relationInfo;
-    this.target = mutation.relationInfo.targetModel;
+    this.relationName = program.relationInfo.name;
+    this.relationInfo = program.relationInfo;
+    this.target = program.relationInfo.targetModel;
     this.membershipScope = getRelationMembershipScope(
       node.ctx,
-      mutation.relationInfo
+      program.relationInfo
     );
     this.membershipOrientation = getMembershipReadOrientation(
       node.ctx,
-      mutation.relationInfo
+      program.relationInfo
     );
     this.checkpoint = ledger.checkpoint();
     this.steps = new OwnWriteSteps(this);
@@ -83,22 +82,22 @@ export class OwnWriteRelation {
 
   static create(
     node: OwnWriteNode,
-    mutation: RelationMutation,
+    program: RelationMutationProgram,
     rootMembershipFootprints: readonly RootMembershipFootprint[],
     membershipLedger: OwnWriteLedger | undefined
   ): OwnWriteRelation {
     const ledger = node.ledger.fork();
     const membershipScope = getRelationMembershipScope(
       node.ctx,
-      mutation.relationInfo
+      program.relationInfo
     );
     for (const footprint of rootMembershipFootprints) {
-      if (footprint.relationInfo !== mutation.relationInfo) continue;
+      if (footprint.relationInfo !== program.relationInfo) continue;
       ledger.appendMembership(
         node.rootOperation,
         getRelationMembershipEndpoints(
           node.ctx,
-          mutation.relationInfo,
+          program.relationInfo,
           membershipScope,
           node.currentConstraint,
           footprint.constraint
@@ -109,16 +108,12 @@ export class OwnWriteRelation {
       );
     }
     node.appendTransitiveMembershipWrites(ledger);
-    return new OwnWriteRelation(node, mutation, ledger, membershipLedger);
+    return new OwnWriteRelation(node, program, ledger, membershipLedger);
   }
 
   analyze(): void {
-    for (const step of planRelationMutationSteps(
-      this.relationName,
-      this.mutation,
-      "after"
-    )) {
-      this.steps.processTree(step);
+    for (const entry of this.program.entries) {
+      this.steps.processTree(entry);
     }
 
     this.node.ledger.mergeDeltas(
@@ -138,14 +133,10 @@ export class OwnWriteRelation {
   ): OwnWriteRelation {
     return new OwnWriteRelation(
       this.node,
-      this.mutation,
+      this.program,
       ledger,
       membershipLedger
     );
-  }
-
-  get propagateMembership(): boolean {
-    return this.node.analyzer.recurseDeterministic;
   }
 
   createChildScope(): QueryScope {
@@ -228,10 +219,10 @@ export class OwnWriteRelation {
   }
 
   appendUpsertUpdateSummary(
-    input: NestedUpsertInput,
+    input: NormalizedRelationUpsert,
     decision: TargetConstraint
   ): void {
-    if (this.relationInfo.isToOne || !input.where) {
+    if (input.target.kind === "correlated") {
       this.appendTarget("upsert", decision);
       return;
     }
@@ -239,7 +230,7 @@ export class OwnWriteRelation {
       this.target,
       decision,
       input.update,
-      input.where
+      input.target.where
     );
     if (resultConstraints.length === 0) {
       this.ledger.appendRelationTarget("upsert", decision);
@@ -294,7 +285,7 @@ export class OwnWriteRelation {
       this.membershipEndpoints(constraint),
       this.membershipScope,
       "physical",
-      this.propagateMembership ? "operation" : "node"
+      "operation"
     );
   }
 

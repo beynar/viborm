@@ -14,7 +14,10 @@ import {
   type RelationMutation,
   separateData,
 } from "../builders/relation-data-builder";
-import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
+import {
+  buildParsedRelationPrograms,
+  getRelationMutationKinds,
+} from "../builders/relation-mutation-parser";
 import { buildInsert, buildValueGroups } from "../builders/values-builder";
 import {
   createQueryScope,
@@ -334,6 +337,7 @@ export class CreateOperation {
    *  subtree's ROOT record INSERT (the statement that was the arm's own create leaf
    *  before the arm became a subtree). */
   private readonly rootRacePin: TargetConstraintPin | undefined;
+  private readonly armLegalityChecks: (() => void) | undefined;
   /** N4-U2 — the adopt family's fresh-arm seam, bound to this operation's scope and
    *  engine (an arrow field, so `this` survives being passed as a callback). */
   private readonly buildFreshArm: FreshArmBuilder = (input) =>
@@ -427,8 +431,19 @@ export class CreateOperation {
     // the whole enclosing tree, so it is skipped here (V1 checks it inside the
     // whenFalse branch only; a nested subtree's own-write is covered by the
     // enclosing operation's whole-tree walk).
-    if (!options.skipOwnWrite) {
-      new OwnWritePreflight().assertCreate(parent, data);
+    const ownWrite = buildParsedRelationPrograms(parent, data);
+    const assertOwnWrite = () => {
+      new OwnWritePreflight().assertCreate(
+        parent,
+        ownWrite.scalarData,
+        ownWrite.relations
+      );
+    };
+    if (options.skipOwnWrite) {
+      this.armLegalityChecks = nestedFresh ? undefined : assertOwnWrite;
+    } else {
+      this.armLegalityChecks = undefined;
+      assertOwnWrite();
     }
 
     this.terminalId = this.suppressTerminal
@@ -511,6 +526,10 @@ export class CreateOperation {
       steps: this.planningSteps,
       outputs: planningOutputs(this.planningSteps),
     };
+  }
+
+  assertArmLegality(): void {
+    this.armLegalityChecks?.();
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {

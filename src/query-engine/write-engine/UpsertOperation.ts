@@ -16,7 +16,6 @@ import {
   getDefaultScalarFieldNames,
   getTableName,
 } from "../context/query-scope";
-import { assertCreateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import {
   buildCreate,
   buildFind,
@@ -178,9 +177,6 @@ export class UpsertOperation {
   // CreateOperation sub-op (mechanism 2). `undefined` for a scalar create arm
   // (the inline INSERT path stays).
   private readonly createArmOp?: CreateOperation;
-  // The FULL create record (scalar ∪ relations), retained so the create arm can run
-  // V1's own-write barrier at compile (deferred per-arm — the whenFalse branch).
-  private readonly rawCreate: Record<string, unknown>;
   // T3c — the update arm carries nested relation writes: delegate to an
   // UpdateOperation sub-op (mechanism 1). `undefined` for a scalar update arm.
   private readonly updateArmOp?: UpdateOperation;
@@ -214,7 +210,6 @@ export class UpsertOperation {
     const where = envelopeRecord(args.where, "where");
     const create = envelopeRecord(args.create, "create");
     const update = envelopeRecord(args.update, "update");
-    this.rawCreate = create;
     const parent = createQueryScope(engine.adapter, model);
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
@@ -601,10 +596,7 @@ export class UpsertOperation {
       // is taken. Run it here, per-arm; a `NestedWriteError` is V1's byte-identical
       // reject — a real parity failure that propagates, distinct from V2's typed
       // UnsupportedOperationError decline (both propagate post-P6; neither has a fallback).
-      assertCreateOwnWriteSafety(
-        createQueryScope(this.engine.adapter, this.model),
-        this.rawCreate
-      );
+      this.createArmOp.assertArmLegality();
       const fragment = this.createArmOp.compile(known);
       // The create root's INSERT carries no racePin; the upsert's missing premise
       // IS raceable (a concurrent create loser retries into the update arm), so

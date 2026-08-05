@@ -1,21 +1,20 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import type { Model } from "@schema/model";
-import {
-  getFkDirection,
-  type RelationMutation,
-} from "./builders/relation-data-builder";
+import { getFkDirection } from "./builders/relation-data-builder";
+import type {
+  RelationMutationEntry,
+  RelationMutationProgram,
+} from "./builders/relation-mutation-parser";
 import type { OwnWriteFootprint } from "./OwnWriteLedger";
 import type { OwnWriteRelation } from "./OwnWriteRelation";
 import {
-  normalizeRecordArray,
-  type RelationMutationStep,
-} from "./RelationMutationPlan";
-import {
   classifyRelationKeyScalarUpdate,
+  classifyTargetConstraintOverlap,
   getFilterPredicateFields,
   getFilterTargetConstraint,
   getTargetIdentityFields,
   normalizeTargetConstraint,
+  normalizeWhereUniqueTargetConstraint,
   selectorConstraint,
   type TargetConstraint,
   unknownConstraint,
@@ -30,14 +29,9 @@ export class OwnWriteSteps {
     this.relation = relation;
   }
 
-  processTree(step: RelationMutationStep): void {
-    if (!this.relation.propagateMembership) {
-      this.process(step);
-      return;
-    }
-
-    if (step.kind === "create") {
-      for (const createData of step.inputs) {
+  processTree(entry: RelationMutationEntry): void {
+    if (entry.kind === "create") {
+      for (const createData of entry.items) {
         const insertSummary = this.relation.getInsertSummary(
           "create",
           createData
@@ -52,32 +46,35 @@ export class OwnWriteSteps {
       return;
     }
 
-    if (step.kind === "update") {
-      this.processNestedUpdate(step);
+    if (entry.kind === "update") {
+      this.processNestedUpdate(entry);
       return;
     }
 
-    if (processOwnWriteBranchStep(this.relation, step)) return;
-    this.process(step);
+    if (processOwnWriteBranchEntry(this.relation, entry)) return;
+    this.process(entry);
   }
 
-  process(step: RelationMutationStep): void {
-    switch (step.kind) {
+  process(entry: RelationMutationEntry): void {
+    switch (entry.kind) {
       case "create":
-        for (const data of step.inputs) {
+        for (const data of entry.items) {
           this.relation.appendCreateSummary("create", data);
         }
         return;
       case "createMany":
-        for (const data of step.input.data) {
+        for (const data of entry.rows) {
           this.relation.appendCreateSummary("createMany", data);
         }
         return;
       case "connect":
-        this.processConnect(step);
+        this.processConnect(entry);
         return;
       case "connectOrCreate":
-        for (const input of step.inputs) {
+        for (const input of dedupeConnectOrCreateItems(
+          this.relation,
+          entry.items
+        )) {
           const selector = this.relation.assertConnectOrCreateDecision(
             input.where
           );
@@ -86,20 +83,22 @@ export class OwnWriteSteps {
         }
         return;
       case "disconnect":
-        this.processDisconnect(step);
+        this.processDisconnect(entry);
         return;
       case "delete":
-        this.processDelete(step);
+        this.processDelete(entry);
         return;
       case "set":
-        this.processSet(step);
+        this.processSet(entry);
         return;
       case "update":
-        this.processUpdate(step);
+        this.processUpdate(entry);
         return;
       case "upsert":
-        for (const input of step.inputs) {
-          const decision = this.relation.assertUpsertDecision(input.where);
+        for (const input of entry.items) {
+          const decision = this.relation.assertUpsertDecision(
+            input.target.kind === "unique" ? input.target.where : undefined
+          );
           this.relation.appendUpsertUpdateSummary(input, decision);
           this.relation.appendCreateSummary("upsert", input.create);
           this.relation.appendMembership("upsert", decision);
@@ -112,10 +111,10 @@ export class OwnWriteSteps {
         return;
       }
       case "deleteMany":
-        this.processDeleteMany(step);
+        this.processDeleteMany(entry);
         return;
       default: {
-        const exhaustive: never = step;
+        const exhaustive: never = entry;
         throw new TypeError(
           `Unsupported own-write step: ${String(exhaustive)}`
         );
@@ -124,23 +123,26 @@ export class OwnWriteSteps {
   }
 
   private processNestedUpdate(
-    step: Extract<RelationMutationStep, { kind: "update" }>
+    entry: Extract<RelationMutationEntry, { kind: "update" }>
   ): void {
-    this.process(step);
-    for (const input of step.inputs) {
-      this.relation.analyzeUpdate(input.data, input.selector);
+    this.process(entry);
+    for (const input of entry.items) {
+      this.relation.analyzeUpdate(
+        input.data,
+        input.target.kind === "unique" ? input.target.where : undefined
+      );
     }
   }
 
   private processConnect(
-    step: Extract<RelationMutationStep, { kind: "connect" }>
+    entry: Extract<RelationMutationEntry, { kind: "connect" }>
   ): void {
-    for (const where of step.inputs) {
+    for (const where of entry.targets) {
       const selector = selectorConstraint(this.relation.target, where);
       if (
         this.relation.family.kind === "update" &&
-        step.context.relationInfo.type !== "manyToMany" &&
-        getFkDirection(this.relation.ctx, step.context.relationInfo).holdsFK
+        this.relation.relationInfo.type !== "manyToMany" &&
+        getFkDirection(this.relation.ctx, this.relation.relationInfo).holdsFK
       ) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -153,22 +155,19 @@ export class OwnWriteSteps {
   }
 
   private processDisconnect(
-    step: Extract<RelationMutationStep, { kind: "disconnect" }>
+    entry: Extract<RelationMutationEntry, { kind: "disconnect" }>
   ): void {
-    if (step.input === false) return;
-    const explicit =
-      step.input === true ? [] : normalizeRecordArray(step.input);
-    const constraints = explicit.map((where) =>
-      selectorConstraint(this.relation.target, where)
-    );
+    const constraints = (
+      entry.target.kind === "selectors" ? entry.target.targets : []
+    ).map((where) => selectorConstraint(this.relation.target, where));
 
-    if (step.context.relationInfo.type !== "manyToMany") {
+    if (this.relation.relationInfo.type !== "manyToMany") {
       for (const constraint of constraints) {
         this.relation.assertTargetAndMembershipRead("disconnect", constraint);
       }
     }
 
-    if (step.input === true) {
+    if (entry.target.kind === "current") {
       this.relation.appendMembership(
         "disconnect",
         unknownConstraint(this.relation.target)
@@ -181,20 +180,19 @@ export class OwnWriteSteps {
   }
 
   private processDelete(
-    step: Extract<RelationMutationStep, { kind: "delete" }>
+    entry: Extract<RelationMutationEntry, { kind: "delete" }>
   ): void {
-    if (step.input === false) return;
-    if (step.input === true) {
+    if (entry.target.kind === "current") {
       const unknown = unknownConstraint(this.relation.target);
       this.relation.appendMembership("delete", unknown);
       this.relation.appendTarget("delete", unknown);
       return;
     }
 
-    const constraints = normalizeRecordArray(step.input).map((where) =>
+    const constraints = entry.target.targets.map((where) =>
       selectorConstraint(this.relation.target, where)
     );
-    if (step.context.relationInfo.type === "manyToMany") {
+    if (this.relation.relationInfo.type === "manyToMany") {
       for (const constraint of constraints) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -217,16 +215,16 @@ export class OwnWriteSteps {
   }
 
   private processSet(
-    step: Extract<RelationMutationStep, { kind: "set" }>
+    entry: Extract<RelationMutationEntry, { kind: "set" }>
   ): void {
-    for (const where of step.input) {
+    for (const where of entry.targets) {
       const constraint = selectorConstraint(this.relation.target, where);
       this.relation.ledger.assertTargetRead(
         this.relation.relationName,
         "set",
         constraint
       );
-      if (step.context.relationInfo.type !== "manyToMany") {
+      if (this.relation.relationInfo.type !== "manyToMany") {
         this.relation.assertMembershipRead("set", constraint);
       }
     }
@@ -237,28 +235,28 @@ export class OwnWriteSteps {
   }
 
   private processUpdate(
-    step: Extract<RelationMutationStep, { kind: "update" }>
+    entry: Extract<RelationMutationEntry, { kind: "update" }>
   ): void {
-    if (step.context.relationInfo.isToOne) {
-      const [input] = step.inputs;
+    if (this.relation.relationInfo.isToOne) {
+      const [input] = entry.items;
       if (!input) return;
       const footprint = buildToOneUpdateFootprint(
         this.relation.ctx,
-        { relationInfo: step.context.relationInfo },
+        this.relation.relationInfo,
         input.data,
         this.relation.family.kind === "update"
           ? this.relation.family.scalarData
           : undefined
       );
-      if (input.filter) {
+      if (input.target.kind === "correlated" && input.target.filter) {
         const filterConstraint = getFilterTargetConstraint(
           this.relation.target,
-          input.filter
+          input.target.filter
         );
         this.relation.assertTargetAndMembershipRead(
           "update",
           filterConstraint,
-          getFilterPredicateFields(this.relation.target, input.filter)
+          getFilterPredicateFields(this.relation.target, input.target.filter)
         );
       } else {
         this.relation.assertMembershipRead("update", footprint.readConstraint);
@@ -277,15 +275,18 @@ export class OwnWriteSteps {
       return;
     }
 
-    for (const input of step.inputs) {
-      if (!input.selector) continue;
-      const selector = selectorConstraint(this.relation.target, input.selector);
+    for (const input of entry.items) {
+      if (input.target.kind !== "unique") continue;
+      const selector = selectorConstraint(
+        this.relation.target,
+        input.target.where
+      );
       this.relation.assertTargetAndMembershipRead("update", selector);
       const resultConstraints = updateResultConstraints(
         this.relation.target,
         selector,
         input.data,
-        input.selector
+        input.target.where
       );
       if (resultConstraints.length === 0) {
         this.relation.ledger.appendRelationTarget("update", selector);
@@ -297,11 +298,11 @@ export class OwnWriteSteps {
   }
 
   private processDeleteMany(
-    step: Extract<RelationMutationStep, { kind: "deleteMany" }>
+    entry: Extract<RelationMutationEntry, { kind: "deleteMany" }>
   ): void {
     const unknown = unknownConstraint(this.relation.target);
-    if (step.context.relationInfo.type === "manyToMany") {
-      for (const filter of step.inputs) {
+    if (this.relation.relationInfo.type === "manyToMany") {
+      for (const filter of entry.filters) {
         const constraint = getFilterTargetConstraint(
           this.relation.target,
           filter
@@ -321,16 +322,16 @@ export class OwnWriteSteps {
   }
 }
 
-function processOwnWriteBranchStep(
+function processOwnWriteBranchEntry(
   relation: OwnWriteRelation,
-  step: RelationMutationStep
+  entry: RelationMutationEntry
 ): boolean {
-  if (step.kind === "connectOrCreate") {
-    processConnectOrCreateBranches(relation, step);
+  if (entry.kind === "connectOrCreate") {
+    processConnectOrCreateBranches(relation, entry);
     return true;
   }
-  if (step.kind === "upsert") {
-    processUpsertBranches(relation, step);
+  if (entry.kind === "upsert") {
+    processUpsertBranches(relation, entry);
     return true;
   }
   return false;
@@ -338,9 +339,9 @@ function processOwnWriteBranchStep(
 
 function processConnectOrCreateBranches(
   relation: OwnWriteRelation,
-  step: Extract<RelationMutationStep, { kind: "connectOrCreate" }>
+  entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
 ): void {
-  for (const input of step.inputs) {
+  for (const input of dedupeConnectOrCreateItems(relation, entry.items)) {
     const selector = relation.assertConnectOrCreateDecision(input.where);
     analyzeAlternativeBranches(relation, [
       (createBranch) => {
@@ -368,13 +369,15 @@ function processConnectOrCreateBranches(
 
 function processUpsertBranches(
   relation: OwnWriteRelation,
-  step: Extract<RelationMutationStep, { kind: "upsert" }>
+  entry: Extract<RelationMutationEntry, { kind: "upsert" }>
 ): void {
-  for (const input of step.inputs) {
-    const decision = relation.assertUpsertDecision(input.where);
+  for (const input of entry.items) {
+    const selector =
+      input.target.kind === "unique" ? input.target.where : undefined;
+    const decision = relation.assertUpsertDecision(selector);
     analyzeAlternativeBranches(relation, [
       (updateBranch) => {
-        updateBranch.analyzeUpdate(input.update, input.where, "upsert");
+        updateBranch.analyzeUpdate(input.update, selector, "upsert");
       },
       (createBranch) => {
         const insertSummary = createBranch.getInsertSummary(
@@ -435,14 +438,12 @@ interface ToOneUpdateFootprint {
 
 function buildToOneUpdateFootprint(
   ctx: QueryScope,
-  // The footprint reads the relation's METADATA only — the caller synthesizes this
-  // from a step's context, not from a parsed payload, so it asks for exactly that.
-  mutation: Pick<RelationMutation, "relationInfo">,
+  relationInfo: RelationMutationProgram["relationInfo"],
   updateData: Readonly<Record<string, unknown>>,
   rootScalarData: Readonly<Record<string, unknown>> | undefined
 ): ToOneUpdateFootprint {
-  const target = mutation.relationInfo.targetModel;
-  const direction = getFkDirection(ctx, mutation.relationInfo);
+  const target = relationInfo.targetModel;
+  const direction = getFkDirection(ctx, relationInfo);
   const scalarData = getScalarData(target, updateData);
   const changedFields = new Set(Object.keys(scalarData));
   const readConstraint =
@@ -477,6 +478,35 @@ function buildToOneUpdateFootprint(
       changedFields.has(field)
     ),
   };
+}
+
+/**
+ * Duplicate connectOrCreate selectors are one OwnWrite decision. The source program
+ * remains lossless; this analysis-local view preserves first-create-wins without
+ * changing what emitters receive.
+ */
+function dedupeConnectOrCreateItems(
+  relation: OwnWriteRelation,
+  items: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>["items"]
+): Extract<RelationMutationEntry, { kind: "connectOrCreate" }>["items"] {
+  if (items.length <= 1) return items;
+
+  const uniqueItems: (typeof items)[number][] = [];
+  const seenTargets: TargetConstraint[] = [];
+  for (const item of items) {
+    const target = normalizeWhereUniqueTargetConstraint(
+      relation.target,
+      item.where
+    );
+    const isDuplicate = seenTargets.some(
+      (seenTarget) =>
+        classifyTargetConstraintOverlap(seenTarget, target) === "equal"
+    );
+    if (isDuplicate) continue;
+    uniqueItems.push(item);
+    seenTargets.push(target);
+  }
+  return uniqueItems;
 }
 
 function buildReboundTargetConstraint(

@@ -2,8 +2,10 @@ import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { describe, expect, test } from "vitest";
-import { RELATION_MUTATION_KEYS } from "../../src/query-engine/builders/relation-mutation-parser";
-import { planRelationMutationSteps } from "../../src/query-engine/RelationMutationPlan";
+import {
+  buildRelationMutationProgram,
+  RELATION_MUTATION_KEYS,
+} from "../../src/query-engine/builders/relation-mutation-parser";
 import type { RelationInfo } from "../../src/query-engine/types";
 import {
   linearizationSchema,
@@ -77,13 +79,11 @@ describe("N6-U3 — one order, one derivation (ATOM §4.1)", () => {
       isToMany: true,
       type: "oneToMany",
     };
-    const steps = planRelationMutationSteps(
-      "notes",
+    const program = buildRelationMutationProgram(
+      // The program reads relation METADATA only, so a structural stand-in is enough
+      // here; building a real `RelationInfo` would add nothing this test asserts.
+      relationInfo as unknown as RelationInfo,
       {
-        // The plan reads relation METADATA only, so a structural stand-in is enough
-        // here; building a real `RelationInfo` would add nothing this test asserts.
-        relationInfo: relationInfo as unknown as RelationInfo,
-        payload: {},
         disconnect: [{ id: 1 }],
         delete: [{ id: 2 }],
         update: [{ where: { id: 3 }, data: { body: "u" } }],
@@ -95,9 +95,10 @@ describe("N6-U3 — one order, one derivation (ATOM §4.1)", () => {
         connect: [{ id: 9 }],
         create: [{ id: 10, body: "c" }],
         createMany: { data: [{ id: 11, body: "cm" }] },
-      },
-      "after"
+      }
     );
-    expect(steps.map((step) => step.kind)).toEqual([...RELATION_MUTATION_KEYS]);
+    expect(program?.entries.map((entry) => entry.kind)).toEqual([
+      ...RELATION_MUTATION_KEYS,
+    ]);
   });
 });

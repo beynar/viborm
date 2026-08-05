@@ -18,12 +18,9 @@ import {
 } from "./TargetConstraint";
 import { NestedWriteError, type QueryScope, type RelationInfo } from "./types";
 
-export type RelationMutationTiming = "before" | "after";
-
 export interface RelationPlanContext {
   relationName: string;
   relationInfo: RelationInfo;
-  timing: RelationMutationTiming;
 }
 
 export type RelationMutationGuard =
@@ -164,13 +161,11 @@ export function splitRelationMutationsByFk(
  */
 export function planRelationMutationSteps(
   relationName: string,
-  mutation: RelationMutation,
-  timing: RelationMutationTiming
+  mutation: RelationMutation
 ): RelationMutationStep[] {
   const context: RelationPlanContext = {
     relationName,
     relationInfo: mutation.relationInfo,
-    timing,
   };
   const steps: RelationMutationStep[] = [];
 

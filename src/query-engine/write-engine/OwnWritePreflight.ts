@@ -1,4 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: OwnWritePreflight is the architecture name.
+
+import type { RelationMutationProgram } from "../builders/relation-mutation-parser";
 import {
   assertCreateOwnWriteSafety,
   assertUpdateOwnWriteSafety,
@@ -24,16 +26,21 @@ import type { QueryScope } from "../types";
  */
 export class OwnWritePreflight {
   /** Reject any create payload whose nested decision reads depend on its own writes. */
-  assertCreate(scope: QueryScope, data: Record<string, unknown>): void {
-    assertCreateOwnWriteSafety(scope, data);
+  assertCreate(
+    scope: QueryScope,
+    scalarData: Record<string, unknown>,
+    relations: Record<string, RelationMutationProgram>
+  ): void {
+    assertCreateOwnWriteSafety(scope, scalarData, relations);
   }
 
   /** Reject any update payload whose nested decision reads depend on its own writes. */
   assertUpdate(
     scope: QueryScope,
-    data: Record<string, unknown>,
+    scalarData: Record<string, unknown>,
+    relations: Record<string, RelationMutationProgram>,
     selector: Record<string, unknown> | undefined
   ): void {
-    assertUpdateOwnWriteSafety(scope, data, selector);
+    assertUpdateOwnWriteSafety(scope, scalarData, relations, selector);
   }
 }

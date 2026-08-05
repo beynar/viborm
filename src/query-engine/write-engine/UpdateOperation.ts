@@ -17,7 +17,10 @@ import {
   type RelationMutation,
   separateData,
 } from "../builders/relation-data-builder";
-import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
+import {
+  buildParsedRelationPrograms,
+  getRelationMutationKinds,
+} from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
   createQueryScope,
@@ -90,7 +93,6 @@ import {
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
-import { assertRelationCanDisconnect } from "./relation-nullability";
 import {
   referencedFieldCorrelation,
   referencedFieldValue,
@@ -116,6 +118,7 @@ import {
   buildToManyUpdateParts,
   buildToOneUpdatePart,
 } from "./RelationWritePart";
+import { assertRelationCanDisconnect } from "./relation-nullability";
 import { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -572,9 +575,14 @@ export class UpdateOperation {
           separated.relations
         );
         this.assertUpdateManyRelationLegality(separated.relations);
+        const ownWrite = buildParsedRelationPrograms(
+          parent,
+          requireRecord(parsedArgs.data, "update.data")
+        );
         new OwnWritePreflight().assertUpdate(
           parent,
-          requireRecord(parsedArgs.data, "update.data"),
+          ownWrite.scalarData,
+          ownWrite.relations,
           where
         );
       };
@@ -640,7 +648,13 @@ export class UpdateOperation {
       const parsedData = validatedArgs
         ? requireRecord(validatedArgs.data, "update.data")
         : data;
-      new OwnWritePreflight().assertUpdate(parent, parsedData, where);
+      const ownWrite = buildParsedRelationPrograms(parent, parsedData);
+      new OwnWritePreflight().assertUpdate(
+        parent,
+        ownWrite.scalarData,
+        ownWrite.relations,
+        where
+      );
     }
 
     const parentName = getStepModelName(model, "parent");

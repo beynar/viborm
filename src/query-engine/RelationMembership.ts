@@ -1,10 +1,8 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner RelationMembership.
 import type { Model } from "@schema/model";
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
-import {
-  getFkDirection,
-  type RelationMutation,
-} from "./builders/relation-data-builder";
+import { getFkDirection } from "./builders/relation-data-builder";
+import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
 import { getRelationInfo, getRelationNames } from "./context";
 import {
   buildScalarUpdatePredicateFootprints,
@@ -104,7 +102,7 @@ export interface RootMembershipFootprint {
 
 export function buildRootUpdateMembershipFootprints(
   ctx: QueryScope,
-  relations: Readonly<Record<string, RelationMutation>>,
+  relations: Readonly<Record<string, RelationMutationProgram>>,
   scalarData: Readonly<Record<string, unknown>>,
   selector: Readonly<Record<string, unknown>> | undefined
 ): RootMembershipFootprint[] {

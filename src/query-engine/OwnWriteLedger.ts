@@ -1,11 +1,11 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner OwnWriteLedger.
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
 import { getFkDirection } from "./builders/relation-data-builder";
+import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import {
   type RelationMembershipScope,
   relationMembershipScopesEqual,
 } from "./RelationMembership";
-import type { RelationMutationStep } from "./RelationMutationPlan";
 import {
   classifyTargetConstraintOverlap,
   getTargetConstraintPredicateFields,
@@ -16,7 +16,7 @@ import {
 } from "./TargetConstraint";
 import { NestedWriteError, type QueryScope, type RelationInfo } from "./types";
 
-export type DependencyOperation = RelationMutationStep["kind"];
+export type DependencyOperation = RelationMutationEntry["kind"];
 export type TargetWriteDimension = "targetExistence" | "targetPredicate";
 export type MembershipReadOrientation = "direct" | "inverse" | "manyToMany";
 export type MembershipVisibility = "physical" | "inverseTarget";
