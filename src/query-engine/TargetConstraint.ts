@@ -2,7 +2,6 @@
 import type { Model } from "@schema/model";
 import type { ScalarType } from "@schema/scalars/common";
 import { isSql } from "@sql";
-import { isBatchValueRef } from "./builders/values-builder";
 import { getWhereUniqueEntries } from "./builders/where-unique-builder";
 
 type ExactTargetValue =
@@ -439,7 +438,7 @@ export function classifyRelationKeyScalarUpdate(
   value: unknown
 ): { resolved: true; value: unknown } | { resolved: false } {
   if (value === null) return { resolved: true, value: null };
-  if (isSql(value) || Array.isArray(value) || isBatchValueRef(value)) {
+  if (isSql(value) || Array.isArray(value)) {
     return { resolved: false };
   }
   if (!isPlainRecord(value)) return { resolved: true, value };

@@ -260,7 +260,7 @@ export type FreshReferenced =
  * family runs GLOBAL (connectOrCreate/upsert adopt any matched row), and a nested
  * `create` is an unconditional INSERT (no probe, no `notExists` guard — its unique
  * violation is a genuine error, never a raceable create-branch signal, because it
- * is not a probe's missing arm). racePins still ride the adopt family's create
+ * is not a probe's missing arm). Race pins still ride the adopt family's create
  * arms (RelationUpsertPart) per the Pin Rule.
  *
  * Supported (constructs on V2):

@@ -1,7 +1,6 @@
 import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import { isSql } from "@sql";
-import { isBatchValueRef } from "../builders/values-builder";
 import { partitionWhereUnique } from "../builders/where-unique-builder";
 import {
   createChildScope,
@@ -430,7 +429,7 @@ export function sameScalarValue(before: unknown, after: unknown): boolean {
  */
 function isAddressableLiteral(value: unknown): boolean {
   if (value === undefined || value === null) return false;
-  if (isSql(value) || isBatchValueRef(value) || Array.isArray(value)) {
+  if (isSql(value) || Array.isArray(value)) {
     return false;
   }
   if (typeof value !== "object") return true;

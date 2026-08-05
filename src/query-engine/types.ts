@@ -72,14 +72,7 @@ export interface PreparedBatchOperation<T = unknown> {
   setupQueries?: PreparedQuery[];
   cleanupQueries?: PreparedQuery[];
   guards?: PreparedBatchGuard[];
-  /** Exact selected create steps that may lose their probed unique race. */
-  racePins?: PreparedBatchRacePin[];
   parseResult: (results: QueryResult<unknown>[]) => T;
-}
-
-export interface PreparedBatchRacePin {
-  readonly queryIndex: number;
-  readonly pin: import("./operation-program").UniqueConflictPin;
 }
 
 /** Declarative ownership for one assertion query in a prepared operation. */

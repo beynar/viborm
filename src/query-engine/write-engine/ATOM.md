@@ -18,8 +18,8 @@ read-only: E6.9 skip-duplicate capture performs preparation writes during
 planning. Nested `Part.planning()` currently contributes reads. `Probe` has one
 structural use, in `RelationUpsertPart`; `validateProbe` validates that
 declaration only and does not enforce how its consumer applies a selected-arm
-guard or race pin. `BatchValueRef` and the `operation-program.ts` interpreter
-vocabulary are obsolete and scheduled for deletion.
+guard or race pin. The `operation-program.ts` interpreter vocabulary is
+obsolete and scheduled for deletion.
 
 Clause building does not change. Traverse-the-payload-and-build-SQL is correct
 and survives untouched *within one statement*. It fails at exactly one place:
@@ -1032,7 +1032,7 @@ were falsified once (child-held: disabling the guard lets the create resolve wit
 an orphaned edge instead of failing closed; parent-held: disabling it yields a raw
 FK error instead of V1's `Cannot connect relation … target record was not found`
 — the FK constraint is a fail-closed backstop, the guard is the V1 message). The
-racePins still ride the adopt family's create arms (`RelationUpsertPart`) per the
+race pins still ride the adopt family's create arms (`RelationUpsertPart`) per the
 Pin Rule; a nested `create`'s INSERT carries none. The census rows are exercised
 by a live consumer: `ProducedValue` (the child FK is `ref(parent.create, id)`),
 grouped multi-statement `createMany`, the adopt-family pins.
@@ -1521,9 +1521,9 @@ larger subsystems (III batch PK-dataflow; IV+V referential-action legality) rema
 top-level `update` (or upsert update branch) that TRANSITIONS its primary key (literal rename,
 `{ set }`, or portable int·bigint arithmetic) while a nested `create`/`createMany` references
 that PK. The fresh row must carry the POST-transition value. The reconciliation with the plan
-doc (`docs/architecture/batch-primary-key-dataflow-plan.md` §T4b): on V2 the updated PK is NOT
-a runtime-deferred `BatchValueRef` and needs NO adapter batch-ref STORE — it is **compile-
-derived** from the where-pinned pre-transition value by V1's exact `getUpdatedPrimaryKeyValue`
+doc (`docs/architecture/batch-primary-key-dataflow-plan.md` §T4b): on V2 the updated PK is not
+runtime-deferred and needs no adapter batch-ref store — it is **compile-derived**
+from the where-pinned pre-transition value by V1's exact `getUpdatedPrimaryKeyValue`
 arithmetic (the SAME derivation `buildTerminal` already trusts to address the post-update row;
 `assertPortablePrimaryKeyUpdateInput` guarantees JS==SQL by rejecting non-portable float/decimal
 ops), so the child FK lowers to a construction **literal**. The one new mechanism is ORDERING:

@@ -4,7 +4,6 @@ import {
   decimalLiteral,
   getScalarCastType,
   getScalarType,
-  isBatchValueRef,
 } from "../builders/values-builder";
 import { getWhereUniqueFilters } from "../builders/where-unique-builder";
 import type { QueryEngine } from "../query-engine";
@@ -91,8 +90,7 @@ function isConcreteFkValue(value: unknown): boolean {
     value !== null &&
     value !== undefined &&
     !isSql(value) &&
-    !isOperationValueReference(value) &&
-    !isBatchValueRef(value)
+    !isOperationValueReference(value)
   );
 }
 

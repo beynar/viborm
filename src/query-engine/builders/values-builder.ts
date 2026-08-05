@@ -5,11 +5,7 @@
  * Handles scalar fields, defaults, and auto-generated values.
  */
 
-import type {
-  BatchReferenceSqlAdapter,
-  CastType,
-  DatabaseAdapter,
-} from "@adapters/database-adapter";
+import type { CastType, DatabaseAdapter } from "@adapters/database-adapter";
 import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
@@ -26,83 +22,6 @@ export interface ValuesResult {
 
 export interface ValuesGroup extends ValuesResult {
   inputIndexes: number[];
-}
-
-/**
- * The Axis-A value carrier (§0.1, §3.1). A single nested-write value threads
- * through statement boundaries as one of three things: a literal known now, a
- * pre-built `Sql` fragment (a connect target-PK subquery), or a `BatchValueRef`
- * — a symbol the planned substrate defers through the scratch table
- * (`batchRefs.store`/`read`). `buildScalarSqlValue` is the one leaf that lowers
- * all three, so the carrier lives here beside it rather than in a mode file:
- * operation programs and the shared FK/condition builders speak it, while the
- * SQL lowering remains adapter-owned.
- */
-export interface BatchValueRef {
-  readonly kind: "batchValueRef";
-  readonly batchId: string;
-  readonly key: string;
-}
-
-/** A value that flows through a relation write: a literal, a pre-built `Sql`
- *  fragment, or a deferred `BatchValueRef` lowered by atomic-batch runtime. */
-export type BatchResolvableValue = unknown | Sql | BatchValueRef;
-
-export function isBatchValueRef(value: unknown): value is BatchValueRef {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    (value as { kind?: unknown }).kind === "batchValueRef" &&
-    typeof (value as { batchId?: unknown }).batchId === "string" &&
-    typeof (value as { key?: unknown }).key === "string"
-  );
-}
-
-/**
- * Lower a carrier value for a consuming statement: a `BatchValueRef` becomes the
- * adapter's `batchRefs.read` subquery (the planned substrate's deferred read);
- * anything else passes through unchanged. `buildScalarSqlValue` applies the
- * mandatory TEXT round-trip cast-back on top of the read result.
- */
-export function lowerBatchResolvableValue(
-  adapter: unknown,
-  value: BatchResolvableValue
-): unknown | Sql {
-  if (!isBatchValueRef(value)) {
-    return value;
-  }
-
-  const batchRefs = getBatchReferenceSqlAdapter(adapter);
-  if (!batchRefs) {
-    throw new QueryEngineError(
-      "Batch reference SQL support is not available for this adapter."
-    );
-  }
-  return batchRefs.read(value.batchId, value.key);
-}
-
-function getBatchReferenceSqlAdapter(
-  adapter: unknown
-): BatchReferenceSqlAdapter | undefined {
-  if (
-    adapter !== null &&
-    typeof adapter === "object" &&
-    isBatchReferenceSqlAdapter((adapter as { batchRefs?: unknown }).batchRefs)
-  ) {
-    return (adapter as { batchRefs: BatchReferenceSqlAdapter }).batchRefs;
-  }
-  return undefined;
-}
-
-function isBatchReferenceSqlAdapter(
-  value: unknown
-): value is BatchReferenceSqlAdapter {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as { read?: unknown }).read === "function" &&
-    typeof (value as { store?: unknown }).store === "function"
-  );
 }
 
 /**
@@ -238,14 +157,9 @@ export function buildScalarSqlValue(
     return jsonNullWriteValue(ctx, fieldName, sentinel);
   }
 
-  const loweredValue = lowerBatchResolvableValue(ctx.adapter, value);
-  if (isBatchValueRef(value)) {
-    return castBatchRefValue(ctx, model, fieldName, loweredValue as Sql);
-  }
-
-  if (isSql(loweredValue)) {
+  if (isSql(value)) {
     // Pass through Sql values directly (e.g., subqueries from connect)
-    return loweredValue;
+    return value;
   }
 
   // Get scalar type if available
@@ -255,26 +169,26 @@ export function buildScalarSqlValue(
 
   // List scalars take the whole array in the dialect's storage format
   // (native array on PG, JSON on MySQL/SQLite)
-  if (scalarState?.array && Array.isArray(loweredValue)) {
-    return ctx.adapter.arrays.value(loweredValue);
+  if (scalarState?.array && Array.isArray(value)) {
+    return ctx.adapter.arrays.value(value);
   }
 
   // JSON scalars always store serialized JSON — primitives included — so every
   // dialect receives valid JSON text (a bare 'hello' is not valid JSON on PG)
   if (scalarType === "json") {
-    return ctx.adapter.literals.json(loweredValue);
+    return ctx.adapter.literals.json(value);
   }
 
   // Datetime ISO strings need dialect-specific serialization (MySQL rejects 'Z')
-  if (scalarType === "datetime" && typeof loweredValue === "string") {
-    return ctx.adapter.literals.dateTime(loweredValue);
+  if (scalarType === "datetime" && typeof value === "string") {
+    return ctx.adapter.literals.dateTime(value);
   }
 
   if (scalarType === "decimal") {
-    return decimalLiteral(ctx.adapter, fieldName, loweredValue);
+    return decimalLiteral(ctx.adapter, fieldName, value);
   }
 
-  return ctx.adapter.literals.value(loweredValue);
+  return ctx.adapter.literals.value(value);
 }
 
 /**
@@ -338,16 +252,6 @@ export function scalarValueLiteral(
     return decimalLiteral(ctx.adapter, fieldName, value);
   }
   return ctx.adapter.literals.value(value);
-}
-
-function castBatchRefValue(
-  ctx: QueryScope,
-  model: Model<any>,
-  fieldName: string,
-  value: Sql
-): Sql {
-  const castType = getScalarCastType(model, fieldName);
-  return castType ? ctx.adapter.expressions.cast(value, castType) : value;
 }
 
 /** The declared scalar type of a model field, or `undefined` when the model does

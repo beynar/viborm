@@ -145,7 +145,7 @@ describe("planned m2m delete parent-PK dataflow", () => {
     await expect(client.tag.findMany()).resolves.toEqual([]);
   });
 
-  test("explicit m2m delete resolves an arithmetic parent-PK BatchValueRef", async () => {
+  test("explicit m2m delete resolves an arithmetic parent-PK transition", async () => {
     await seedConnection(100, 3, "arithmetic");
 
     await expect(
