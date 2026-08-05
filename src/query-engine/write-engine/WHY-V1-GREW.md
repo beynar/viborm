@@ -83,16 +83,16 @@ dataflow out of. It cannot say:
 The instant nested writes needed that sentence, the builders were the wrong
 shape, and V1 could not compose them.
 
-V1 did invent the symbolic-value primitive — it lives in `operation-program.ts`
-as `ProducedValue`, `DerivedValue`, `FallbackValue`, `CapturedMutationStatement`,
-plus the batch runtime's scratch-reference flavor. The primitive is not missing.
+V1 did invent several symbolic-value carriers, including produced, derived,
+fallback, and captured-statement values, plus the batch runtime's scratch flavor.
+The primitive was not missing.
 **It is just not the atom.** Because builders still return `Sql`, symbolic
 values cannot ride *inside* the one value channel `Sql` already has — so they
 live *above* the builders, and each axis carries its own factory and its own
 flavor of "a value that isn't known yet":
 
 - the old relation value and capture modules — the relation axis's factories for
-  `ProducedValue`/`DerivedValue`/`FallbackValue`;
+  produced, derived, and fallback values;
 - the batch runtime — its own scratch-ref lowering of the same idea;
 - `OwnWriteLedger` + `OwnWriteAnalyzer`/`OwnWriteInsertBarrier` — the sibling
   problem, ordering: dependency families and unique-constraint-overlap

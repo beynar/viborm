@@ -1261,7 +1261,7 @@ rejection is V1's own message, and the remaining adopt/`pastSurface` transitions
 
 V1's operation/execution root is deleted; there is one runtime. The plan held:
 keep what V2 consumes (builders, `result/`, `context/`, `operations/`,
-`operation-program` vocabulary, `TargetConstraint`, `mutation-identity`, the
+`TargetConstraint`, `mutation-identity`, the
 own-write preflight, `RelationMutationPlan`, and `ManyToManyStatements`), extract the five pure leaves V2 called through V1 hosts,
 retire the routing seam + fallback harness + the oracle's V1 arm (the oracle
 survives as V2's tx-vs-batch conformance suite), and gate the absence with the

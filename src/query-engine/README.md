@@ -40,34 +40,31 @@ client call
   → QueryEngine.prepare(...)
   → PendingOperation (still unvalidated and unexecuted)
   → validation
-  → OperationCompiler
-  → OperationProgram
-  → OperationRuntime
+  → planning fragment
+  → final OperationFragment
+  → OperationExecutor
        ├── one statement
        ├── one interactive transaction
        └── one atomic driver batch
-  → OperationResults
   → typed public value
 ```
 
-Every operation compiles to a program. A simple read or write is a one-step
-program; relation writes, non-`RETURNING` emulation, deep returns, produced
-keys, and dynamic branches use the same step vocabulary.
+Every operation compiles to a fragment. A simple read or write is a one-step
+fragment; relation writes, non-`RETURNING` emulation, deep returns, produced
+keys, and compile-time decisions use the same step vocabulary.
 
-## Program Vocabulary
+## Fragment Vocabulary
 
-`operation-program.ts` defines a deliberately small declarative program, not a
-second SQL AST:
+`write-engine/OperationFragment.ts` defines a deliberately small execution
+fragment, not a second SQL AST:
 
 - `read` and `write` execute adapter-built `Sql` fragments;
 - `guard` asserts a database premise and fails closed when it changes;
-- `branch` selects one declared step sequence from a prior read;
-- `failure` represents an explicit typed failure;
 - produced values reference prior step outputs as data.
 
-Programs contain no callbacks, execution closures, relation objects, adapter
-implementations, or driver instances. Relation semantics remain in the
-compiler; runtime modules consume only program data.
+Fragments contain adapter-built statements and declared result sources.
+Relation semantics stay in operations and parts; the executor consumes only
+the compiled fragment.
 
 ## SQL Construction
 

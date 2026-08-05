@@ -18,8 +18,7 @@ read-only: E6.9 skip-duplicate capture performs preparation writes during
 planning. Nested `Part.planning()` currently contributes reads. `Probe` has one
 structural use, in `RelationUpsertPart`; `validateProbe` validates that
 declaration only and does not enforce how its consumer applies a selected-arm
-guard or race pin. The `operation-program.ts` interpreter vocabulary is
-obsolete and scheduled for deletion.
+guard or race pin. The legacy interpreter vocabulary has been deleted.
 
 Clause building does not change. Traverse-the-payload-and-build-SQL is correct
 and survives untouched *within one statement*. It fails at exactly one place:
@@ -487,7 +486,7 @@ note lifts it.
 ## 8. Vocabulary census — every V1 program primitive, dispositioned
 
 The freeze (PLAN P1) is legal only when this table has no `TBD`. Each row is a
-V1 `operation-program.ts` concept and where it lives in V2:
+legacy program concept and where it lives in V2:
 
 | V1 primitive | V2 disposition |
 | --- | --- |
@@ -524,23 +523,6 @@ a parent reference (WHY §4.2). Create-arm nested writes (a fresh child, ATOM
 family and land in P2 — so a nested relation mutation inside an upsert's
 `create` payload is a typed rejection in P1, and depth composes only on the
 found arm, which the depth-gate dual-run oracle certifies at three levels.
-
-| V1 primitive | P1 status |
-| --- | --- |
-| `ProducedValue` | **live** — the create slice's child FK is `ref(user.create, id)` |
-| `ProducedRows` (multi-row capture) | inert — single-row probes only; multi-row inlining arrives P2c (`createMany`) |
-| `DerivedValue` (PK arithmetic) | inert — no PK arithmetic in P1; arrives P4 (`*AndReturn` refetch) |
-| `FallbackValue` | **gone** — `compile(known)` constructs the taken arm (build-don't-select); no pre-frozen pair |
-| `CapturedRead` / planning statements | **live** — the update slice plans a locate read + a widened probe; the depth gate plans one read per level (locate + two probes). Their cross-read dependency is realized at the compile-data boundary (`known`). Technique #1's SQL-level planning→planning `Ref` is **inert** (no positive witness in P1) — see design note **(a)**: the upsert family structurally cannot construct one; it arrives with a hard-correlation nested read (P2a) |
-| `BranchStep` + `whenTrue/whenFalse` | **gone** — the three-way (correlated / uncorrelated / absent) is `compile(known)` JS |
-| legacy branch pins | **live replacement** — `Probe.pin` (found: exists guard `raceable:false` / batch, lock / tx) + `Step.racePin` (missing arm) |
-| `expectedCardinality` / `affectedRows` | **live in tx** (executor result check: update-arm `affectedRows(1, notFound)`, terminal `exactlyOneRow`). Batch-mode adapter assertion arrives P2a. See design note **(b)**: P1's missing-root notFound is decided at compile from the locate read on both substrates, so batch parity holds without the assertion |
-| legacy failure kind | **live replacement** — `Failure.kind`: `nestedWrite` (V7001, verbatim), `notFound`, `query` |
-| `failure.raceable` | **live** — Pin-Rule values (found `false`, missing arm enforced by constraint) |
-| `onUniqueConflict: "skip"` | inert — arrives P2c (`createMany` skipDuplicates, savepoint effect) |
-| own-write independence | **live** — `OwnWritePreflight` wraps V1's `assert{Create,Update}OwnWriteSafety` verbatim; the same-child-unique upsert pair rejects typed |
-| `requiresAtomicResolution` refusal | inert — arrives P4 (non-returning `*AndReturn`) |
-| multi-statement results (ordered source lists) | type live; consumer arrives P2c/P4 |
 
 **Design note (a) — technique #1 (SQL planning→planning `Ref`) is inert in P1,
 and the upsert family cannot witness it.** PLAN P1.1(b) *designed* the parity
