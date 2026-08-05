@@ -3,14 +3,15 @@
 import type { AnyModel } from "@schema/model";
 import type {
   GetInverseRelationMap,
+  IsSingleMember,
   RelationState,
 } from "@schema/relation/types";
-import { type V, v } from "../primitives/v";
 import type { ScalarSchemas } from "../model";
 import {
   getNestedScalarCreateWithOmittedRequiredKeys,
   type NestedScalarCreateWithOmittedRequiredKeys,
 } from "../model/core/create";
+import { type V, v } from "../primitives/v";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 
 // =============================================================================
@@ -53,7 +54,36 @@ type ScalarsForRelationKey<
     : never
   : never;
 
-type ScannedInverseRelationMap<
+/**
+ * The scan that resolves which columns a nested create/createMany must NOT ask the
+ * caller for, because the enclosing relation owns them.
+ *
+ * TH — the relation name DISAMBIGUATES; it does not reject. This is the rule the runtime
+ * `getInverseRelationMap` and the engine's `findInverseRelationState` both apply, and
+ * this twin used to apply it the rejecting way: on a schema whose SOLE back-reference
+ * does not echo the source relation's `.name()`, the scan answered `never`, so
+ * {@link CreateManyDataSchema} kept the foreign key REQUIRED while the runtime schema had
+ * made it optional and the engine derives it. Measured at 620a171 through the public
+ * client: `Property 'orgId' is missing in type '{ id: number; handle: string; }' but
+ * required` on a call the runtime accepts.
+ *
+ * Candidates are counted by their RELATION KEY, never by the field names they carry — two
+ * relations can name the same column, and counting names would fuse two candidates into
+ * one and take the single-candidate branch for a genuinely ambiguous edge.
+ */
+type ScannedCandidateKeys<S extends RelationState, Source extends AnyModel> = {
+  [K in KnownKeys<
+    TargetModel<S>["~"]["state"]["relations"]
+  >]: TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends {
+    type: "manyToOne" | "oneToOne";
+    getter: () => Source;
+    fields: readonly string[];
+  }
+    ? K
+    : never;
+}[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];
+
+type NamedScannedCandidateKeys<
   S extends RelationState,
   Source extends AnyModel,
 > = {
@@ -63,16 +93,33 @@ type ScannedInverseRelationMap<
     ? InverseState extends {
         type: "manyToOne" | "oneToOne";
         getter: () => Source;
-        fields: readonly (infer ScalarKey extends string)[];
+        fields: readonly string[];
       }
       ? S extends { name: infer RelationName extends string }
         ? InverseState extends { name: RelationName }
-          ? ScalarKey
+          ? K
           : never
-        : ScalarKey
+        : K
       : never
     : never;
 }[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];
+
+type ScannedFieldsAt<S extends RelationState, K> = K extends KnownKeys<
+  TargetModel<S>["~"]["state"]["relations"]
+>
+  ? TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends {
+      fields: readonly (infer ScalarKey extends string)[];
+    }
+    ? ScalarKey
+    : never
+  : never;
+
+type ScannedInverseRelationMap<
+  S extends RelationState,
+  Source extends AnyModel,
+> = IsSingleMember<ScannedCandidateKeys<S, Source>> extends true
+  ? ScannedFieldsAt<S, ScannedCandidateKeys<S, Source>>
+  : ScannedFieldsAt<S, NamedScannedCandidateKeys<S, Source>>;
 
 type KnownKeys<T> = {
   [K in keyof T]: string extends K ? never : number extends K ? never : K;

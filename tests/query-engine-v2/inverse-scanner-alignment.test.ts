@@ -4,7 +4,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { ValidationError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { beforeAll, expect, test } from "vitest";
+import { getInverseRelationMap } from "@schema/relation/types";
+import { beforeAll, expect, expectTypeOf, test } from "vitest";
 
 /**
  * M8(b) — **the two inverse scanners must answer the same question the same way.**
@@ -127,6 +128,85 @@ const draft = s
   })
   .map("m8b_drafts");
 
+// =============================================================================
+// THE TYPE TWINS (TH) — the same divergence, on the axis where it is OBSERVABLE
+// =============================================================================
+
+/**
+ * TH — D5 aligned the two RUNTIME scanners and recorded a residual: the two TYPE
+ * twins (`ExtractInverseFieldsRaw` in `schema/relation/types.ts` and
+ * `ScannedInverseRelationMap` in `validation/relations/create.ts`) still applied the
+ * name check as a REJECTION. The residual was recorded as harmless. It was not.
+ *
+ * The pair below is the divergent schema with the one property that makes the twins
+ * observable through the public client: a **NON-NULLABLE** foreign key. `author.books`
+ * above carries a nullable `authorId`, so nothing demands it either way; here `orgId` is
+ * required, so whether the scan resolves the edge decides whether the CALLER must spell a
+ * column the ENGINE owns.
+ *
+ * Measured at 620a171, before the alignment:
+ * `Property 'orgId' is missing in type '{ id: number; handle: string; }' but required` —
+ * a compile error on a call the runtime accepts and executes. The type demanded what the
+ * parse had already made optional. The gap was in the UNSAFE direction for a caller: a
+ * legal shape was unwritable.
+ *
+ * The `data` clause itself is unguarded against EXTRA keys (a measured estate-wide limit,
+ * TS2589 — see `tests/client/contextual-typing-gate.test.ts`), so the twins can only ever
+ * be seen through REQUIRED-ness. That is the axis these probes use.
+ */
+const org = s
+  .model({
+    id: s.int().id(),
+    members: s.oneToMany(() => member).name("staff"),
+  })
+  .map("m8b_orgs");
+
+const member = s
+  .model({
+    id: s.int().id(),
+    handle: s.string(),
+    orgId: s.int(),
+    org: s
+      .manyToOne(() => org)
+      .fields("orgId")
+      .references("id"),
+  })
+  .map("m8b_members");
+
+/**
+ * The multi-candidate control on the SAME observable axis: two competing
+ * back-references, both names matched, and both foreign keys REQUIRED. This is
+ * what the alignment must not break — the name still picks, so each relation omits
+ * only its own column and leaves the sibling's demanded. (`editor`/`draft` above
+ * cannot show it: both of its foreign keys are nullable, so nothing is demanded
+ * either way.)
+ */
+const hub = s
+  .model({
+    id: s.int().id(),
+    primaries: s.oneToMany(() => spoke).name("primary"),
+    secondaries: s.oneToMany(() => spoke).name("secondary"),
+  })
+  .map("m8b_hubs");
+
+const spoke = s
+  .model({
+    id: s.int().id(),
+    primaryId: s.int(),
+    secondaryId: s.int(),
+    primary: s
+      .manyToOne(() => hub)
+      .fields("primaryId")
+      .references("id")
+      .name("primary"),
+    secondary: s
+      .manyToOne(() => hub)
+      .fields("secondaryId")
+      .references("id")
+      .name("secondary"),
+  })
+  .map("m8b_spokes");
+
 const schema = {
   author,
   book,
@@ -134,6 +214,10 @@ const schema = {
   work,
   editor,
   draft,
+  org,
+  member,
+  hub,
+  spoke,
 };
 
 const client = createClient({
@@ -238,4 +322,126 @@ test("with several back-references the name still picks the foreign key", async 
       },
     })
   ).rejects.toThrow("Unknown key: drafterId");
+});
+
+// =============================================================================
+// TH — THE TYPE TWINS NOW READ THE EDGE THE WAY THE RUNTIME DOES
+// =============================================================================
+//
+// Contextual probes through the PUBLIC client, spelled exactly as a caller spells
+// them. Nothing here is executed; the assertions live in the presence or absence
+// of `@ts-expect-error`, and `pnpm test:types` is what enforces them (a directive
+// that stops being an error is itself an error, TS2578 — so re-introducing the
+// rejecting name check turns the type-check red on the two probes below that
+// carry no directive).
+
+/** The gap that was measured open: a nested `createMany` row on the divergent edge
+ *  no longer demands the foreign key the engine derives. */
+const _divergentCreateManyOmitsFk = () =>
+  client.org.create({
+    data: {
+      id: 100,
+      members: { createMany: { data: [{ id: 1000, handle: "h" }] } },
+    },
+  });
+
+/** Its `create` sibling, through the other twin (`GetInverseRelationMap`). */
+const _divergentCreateOmitsFk = () =>
+  client.org.create({
+    data: { id: 101, members: { create: { id: 1001, handle: "h" } } },
+  });
+
+/** The omission is PER KEY, not a collapse of the nested input: a required
+ *  NON-foreign-key scalar is still demanded. Without this the two probes above
+ *  would pass on a surface that had simply stopped requiring anything. */
+const _divergentStillDemandsNonFk = () =>
+  client.org.create({
+    data: {
+      id: 102,
+      // @ts-expect-error - `handle` is a required scalar of `member`
+      members: { createMany: { data: [{ id: 1002 }] } },
+    },
+  });
+
+/** The half the alignment must PRESERVE: with two back-references competing, the
+ *  name still picks, so each relation omits only ITS OWN foreign key. */
+const _multiCandidateOmitsItsOwnFk = () =>
+  client.hub.create({
+    data: {
+      id: 103,
+      primaries: { createMany: { data: [{ id: 1003, secondaryId: 9 }] } },
+    },
+  });
+
+/** …and leaves the SIBLING's demanded. A name check dropped outright (rather than
+ *  demoted to a disambiguator) would omit both columns and this directive would go
+ *  unused — which is how this file catches the over-correction. */
+const _multiCandidateStillDemandsSibling = () =>
+  client.hub.create({
+    data: {
+      id: 104,
+      // @ts-expect-error - `secondaryId` belongs to the OTHER relation
+      primaries: { createMany: { data: [{ id: 1004 }] } },
+    },
+  });
+
+test("the type twins resolve the name-mismatched sole back-reference (probes compile)", () => {
+  expectTypeOf(_divergentCreateManyOmitsFk).toBeFunction();
+  expectTypeOf(_divergentCreateOmitsFk).toBeFunction();
+  expectTypeOf(_divergentStillDemandsNonFk).toBeFunction();
+  expectTypeOf(_multiCandidateOmitsItsOwnFk).toBeFunction();
+  expectTypeOf(_multiCandidateStillDemandsSibling).toBeFunction();
+});
+
+test("the scan's DECLARED return type is what the scan returns", () => {
+  // The second twin's own witness, and the honest scope of it. Measured: only
+  // `ScannedInverseRelationMap` (the `createMany` path above) is visible through
+  // the client — reverting THIS twin alone leaves every probe above green, because
+  // `V.Omit<create, never>` and `V.Omit<create, ["orgId"]>` produce the same
+  // required-key set. What it was still doing was lying about a shipped function:
+  // `GetInverseRelationMap` annotates `getInverseRelationMap`'s return, the runtime
+  // answered `["orgId"]` on this edge, and the type said `undefined` — which is why
+  // the function ends in a cast. This pins the two together.
+  const state = org["~"].state.relations.members["~"].state;
+  const resolved = getInverseRelationMap(state, org);
+  expect(resolved).toEqual(["orgId"]);
+  expectTypeOf(resolved).not.toBeUndefined();
+  expectTypeOf(resolved).toEqualTypeOf<["orgId"]>();
+
+  // The multi-candidate half, same two levels: the name picks, and the type agrees.
+  const primaries = hub["~"].state.relations.primaries["~"].state;
+  const picked = getInverseRelationMap(primaries, hub);
+  expect(picked).toEqual(["primaryId"]);
+  expectTypeOf(picked).toEqualTypeOf<["primaryId"]>();
+});
+
+test("the engine still owns the foreign key an untyped caller cannot see", async () => {
+  // The runtime witness the type probes cannot give: with the key omitted (the
+  // spelling the aligned type now permits), the engine derives it from the row its
+  // own INSERT made — through `create` and through `createMany` alike.
+  await client.org.create({
+    data: {
+      id: 7,
+      members: {
+        create: { id: 70, handle: "a" },
+        createMany: { data: [{ id: 71, handle: "b" }] },
+      },
+    },
+  });
+  await expect(
+    client.member.findMany({ where: { orgId: 7 }, orderBy: { id: "asc" } })
+  ).resolves.toMatchObject([
+    { id: 70, orgId: 7 },
+    { id: 71, orgId: 7 },
+  ]);
+
+  // And the refusal an UNTYPED caller still meets on the `create` arm: the parse
+  // omits the column, so spelling it is an unknown key — unchanged by the type
+  // work, which is what makes this alignment a type change and not a route change.
+  const rejected = client.org.create({
+    data: { id: 8, members: { create: { id: 80, handle: "c", orgId: 999 } } },
+  });
+  await expect(rejected).rejects.toBeInstanceOf(ValidationError);
+  await expect(rejected).rejects.toThrow("Unknown key: orgId");
+  await expect(client.org.findUnique({ where: { id: 8 } })).resolves.toBeNull();
 });
