@@ -1,7 +1,3 @@
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { separateData } from "@query-engine/builders/relation-data-builder";
-import { createQueryScope } from "@query-engine/context/query-scope";
-import { planRelationMutationSteps } from "@query-engine/RelationMutationPlan";
 import {
   classifyTargetConstraintOverlap,
   normalizeTargetConstraint,
@@ -30,35 +26,8 @@ const target = s
   })
   .unique(["tenantId", "sequence"], { name: "tenant_sequence" });
 
-const owner = s.model({
-  id: s.int().id(),
-  targets: s.manyToMany(() => target),
-});
-
-const ownerCtx = createQueryScope(new PostgresAdapter(), owner);
-
 function whereConstraint(where: Record<string, unknown>) {
   return normalizeWhereUniqueTargetConstraint(target, where);
-}
-
-function plannedConnectOrCreateInputs(
-  inputs: Array<{
-    where: Record<string, unknown>;
-    create: Record<string, unknown>;
-  }>
-) {
-  const mutation = separateData(ownerCtx, {
-    targets: { connectOrCreate: inputs },
-  }).relations.targets;
-  if (!mutation) throw new Error("Expected targets relation mutation");
-
-  const step = planRelationMutationSteps("targets", mutation).find(
-    (candidate) => candidate.kind === "connectOrCreate"
-  );
-  if (!step || step.kind !== "connectOrCreate") {
-    throw new Error("Expected connectOrCreate plan step");
-  }
-  return step.inputs;
 }
 
 describe("target constraint normalization", () => {
@@ -203,42 +172,5 @@ describe("target constraint normalization", () => {
     expect(envelope.certainty).toBe("unknown");
     expect(fragment.certainty).toBe("unknown");
     expect(filter.certainty).toBe("unknown");
-  });
-});
-
-describe("connectOrCreate exact-target dedupe", () => {
-  test("keeps first create for identical compound and bigint selectors", () => {
-    const inputs = plannedConnectOrCreateInputs([
-      {
-        where: { tenant_sequence: { tenantId: 1, sequence: 2 } },
-        create: { code: "first" },
-      },
-      {
-        where: { tenant_sequence: { sequence: 2, tenantId: 1 } },
-        create: { code: "second" },
-      },
-      { where: { externalId: 9n }, create: { code: "bigint-first" } },
-      { where: { externalId: 9n }, create: { code: "bigint-second" } },
-      { where: { code: "same" }, create: { code: "string-first" } },
-      { where: { code: "same" }, create: { code: "string-second" } },
-    ]);
-
-    expect(inputs).toHaveLength(3);
-    expect(inputs.map((input) => input.create.code)).toEqual([
-      "first",
-      "bigint-first",
-      "string-first",
-    ]);
-  });
-
-  test("does not dedupe alternate unique aliases or unequal strings", () => {
-    const inputs = plannedConnectOrCreateInputs([
-      { where: { id: 1 }, create: { code: "by-id" } },
-      { where: { code: "1" }, create: { code: "by-code" } },
-      { where: { code: "Résumé" }, create: { code: "accented" } },
-      { where: { code: "resume" }, create: { code: "plain" } },
-    ]);
-
-    expect(inputs).toHaveLength(4);
   });
 });

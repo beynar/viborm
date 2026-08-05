@@ -2513,7 +2513,7 @@ export function buildJunctionParts(input: {
         break;
       }
       default: {
-        // Every `RelationMutationKind` now has a junction arm (N3-U1 closed the last
+        // Every relation mutation entry now has a junction arm (N3-U1 closed the last
         // one, `createMany`), so this is an internal exhaustiveness check, not a
         // capability boundary: no user payload reaches it. It was an
         // `UnsupportedOperationError` refusal until N3-U1 — census 77 -> 76.

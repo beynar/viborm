@@ -11,12 +11,11 @@ import {
   buildConnectSubqueryForField,
   type FkDirection,
   getFkDirection,
-  type NestedUpdateManyInput,
-  separateData,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   buildRelationMutationProgram,
+  type NestedUpdateManyInput,
   type NormalizedRelationUpsert,
   partitionModelData,
   type RelationMutationEntry,
@@ -490,7 +489,7 @@ export class UpdateOperation {
     // unknown nested key surfaces V1's byte-identical ValidationError with no
     // pre-validate key gate shadowing it into a coarser UnsupportedOperationError.
     // V2's per-field parse path reaches
-    // `separateData`'s relation-mutation parser first, so an unknown nested
+    // relation payload partition first, so an unknown nested
     // key — a `deleteMany` on a to-one relation — surfaced V2's "Nested operation …
     // is not supported for to-one relation" where V1 rejects "Unknown key:
     // deleteMany" at schema validation, before the parent mutation. Run V1's
@@ -1318,7 +1317,7 @@ export class UpdateOperation {
     if (kinds.length === 0) {
       // A relation payload that asks for nothing: `{}`, or one whose only arms were
       // Prisma's boolean no-op (`disconnect: false` / `delete: false`, stripped by
-      // `getRelationMutationKinds`). Prisma 7.9.1, measured: `data: { profile: {} }` and
+      // canonical program construction). Prisma 7.9.1, measured: `data: { profile: {} }` and
       // `data: { posts: {} }` both return the parent unchanged. Nothing to build, and in
       // particular NOT the "one mutation kind" refusal below, whose subject is a payload
       // naming two conflicting intents.
@@ -2918,7 +2917,10 @@ export class UpdateOperation {
     // its relations together) to an UpdateOperation nested-target sub-op, the X1c
     // seam the `update` arm already uses. A scalar-only arm keeps the in-place fold
     // byte-identically, so the found+empty no-op the estate pins stays where it was.
-    const { scalarData, relations } = separateData(childScope, updatePayload);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childScope,
+      updatePayload
+    );
     const delegated =
       Object.keys(relations).length > 0
         ? this.delegateParentHeldUpsertArm(
@@ -4231,7 +4233,8 @@ function updateManyCarriesRelations(
 ): boolean {
   return inputs.some((item) => {
     return (
-      Object.keys(separateData(childScope, item.data).relations).length > 0
+      Object.keys(buildParsedRelationPrograms(childScope, item.data).relations)
+        .length > 0
     );
   });
 }

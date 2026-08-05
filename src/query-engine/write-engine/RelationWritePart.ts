@@ -5,14 +5,16 @@ import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
   type FkDirection,
   getFkDirection,
-  separateData,
 } from "../builders/relation-data-builder";
 import type {
   NormalizedRelationUpsert,
   RelationMutationEntry,
   RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import { buildParsedRelationPrograms } from "../builders/relation-mutation-parser";
+import {
+  buildParsedRelationPrograms,
+  partitionModelData,
+} from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
@@ -448,7 +450,7 @@ export class RelationWritePart implements Part {
         `query-engine-v2 upsert for relation '${this.config.relationName}' requires create data.`
       );
     }
-    const { scalarData, relations } = separateData(
+    const { scalarData, relations } = buildParsedRelationPrograms(
       this.config.childScope,
       createData
     );
@@ -1557,10 +1559,10 @@ interface WritePartBase {
  *
  * ONE check covers BOTH spellings, by construction rather than by a second branch: the
  * parse boundary coerces a bare literal into the `{ set: … }` envelope
- * (`validation/primitives/shorthand.ts`), and `separateData` files the value under the
+ * (`validation/primitives/shorthand.ts`), and the model-data partition files it under the
  * FIELD NAME whichever envelope it wears — so keying on the key is spelling-blind, and an
  * unwrap here would be a check with no coverage of its own to name. `undefined` is
- * absence (`separateData` drops it), matching Prisma and the adopt-family seam.
+ * absence (the partition drops it), matching Prisma and the adopt-family seam.
  *
  * The three nested UPDATE positions call this; the nested CREATE positions do not need
  * it (`v.omit(core.create, fkFields)` answers them at the parse boundary — see
@@ -1571,7 +1573,7 @@ function assertOwnedFkAbsentFromUpdateData(
   base: WritePartBase,
   data: Record<string, unknown>
 ): void {
-  const { scalarData } = separateData(base.childScope, data);
+  const { scalarData } = partitionModelData(base.childScope, data);
   if (base.fkFields.some((fkField) => Object.hasOwn(scalarData, fkField))) {
     throw new UnsupportedOperationError(
       relationOwnsForeignKey(base.relationName, base.fkFields)
@@ -1712,7 +1714,10 @@ export function buildInverseToOneUpsertPart(
   // the to-many adopt family's create arm takes. The arm's foreign key is injected into
   // the subtree's root INSERT by the identical expression the scalar arm writes, so the
   // two spellings land the same row under the same parent.
-  const { relations } = separateData(base.childScope, createData);
+  const { relations } = buildParsedRelationPrograms(
+    base.childScope,
+    createData
+  );
   const subtree =
     Object.keys(relations).length > 0
       ? base.freshArm({

@@ -596,7 +596,7 @@ The four fixes (each falsified):
   earlier create (idempotent reparent, no found guard) instead of re-inserting its
   PK (`RelationUpsertPart.duplicateOfEarlier`).
 - **`deleteMany`-on-to-one ordering/message — DONE.** `UpdateOperation` now runs
-  V1's whole-args `args.update` validation BEFORE `separateData`'s relation
+  V1's whole-args `args.update` validation BEFORE relation payload partitioning
   parser, so an unknown nested key rejects "Unknown key: deleteMany" (V1's
   message, before the parent mutation) instead of V2's later "not supported for
   to-one relation".
@@ -1262,7 +1262,7 @@ rejection is V1's own message, and the remaining adopt/`pastSurface` transitions
 V1's operation/execution root is deleted; there is one runtime. The plan held:
 keep what V2 consumes (builders, `result/`, `context/`, `operations/`,
 `TargetConstraint`, `mutation-identity`, the
-own-write preflight, `RelationMutationPlan`, and `ManyToManyStatements`), extract the five pure leaves V2 called through V1 hosts,
+own-write preflight, the canonical mutation program, and `ManyToManyStatements`), extract the five pure leaves V2 called through V1 hosts,
 retire the routing seam + fallback harness + the oracle's V1 arm (the oracle
 survives as V2's tx-vs-batch conformance suite), and gate the absence with the
 dead-symbol check.
@@ -1272,7 +1272,7 @@ dead-symbol check.
 | | files | lines (raw) | code (comments stripped) |
 |---|---|---|---|
 | **Deleted** — V1's write engine (Stage 3) | 15 | 5 831 | ~4 400 |
-| **Kept-as-earned** — the WHY §6 irreducibles V2 consumes: `TargetConstraint`, the `OwnWrite*` preflight, `mutation-identity`, `RelationMutationPlan`, `ManyToManyStatements`, `RelationMembership`, builders + `result/` | — | — | (unchanged, shared by both engines from day one) |
+| **Kept-as-earned** — the WHY §6 irreducibles V2 consumes: `TargetConstraint`, the `OwnWrite*` preflight, `mutation-identity`, the canonical mutation program, `ManyToManyStatements`, `RelationMembership`, builders + `result/` | — | — | (shared by the runtime) |
 | **Extracted leaves** — the pure functions V2 reached through V1 hosts: `relation-key-legality`, `unique-conflict-target`, `skippable-write`, and `batch-error-attribution` | +4 | — | — |
 | **V2 engine** (`query-engine-v2/*.ts`) — the single runtime | 26 | 13 984 | 10 623 |
 | **`query-engine/` (kept)** — facade + shared builders/context/operations/result + preflight cluster | 79 | 16 069 | 12 947 |
@@ -1561,7 +1561,7 @@ also killed the W4-U4 JSON null sentinels with a misattributed `Expected JSON-co
 document.
 
 Fixed structurally, not with a JSON special case: the nested-target entry consumes the parsed tree
-directly (`separateData`'s parser now exposes the relation payload it already narrowed, so nothing
+directly (the partition now exposes the relation payload it already narrowed, so nothing
 narrows `unknown` twice and the X2 shape-check ceiling is unchanged). The standalone and upsert-arm
 paths are byte-identical — they hold RAW data, so their per-field parse remains their one and only
 transform, the same parse-once rule c5ee344 set when it reverted a re-parse on upsert args. Cleared

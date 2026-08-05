@@ -2,10 +2,7 @@ import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { describe, expect, test } from "vitest";
-import {
-  buildRelationMutationProgram,
-  RELATION_MUTATION_KEYS,
-} from "../../src/query-engine/builders/relation-mutation-parser";
+import { buildRelationMutationProgram } from "../../src/query-engine/builders/relation-mutation-parser";
 import type { RelationInfo } from "../../src/query-engine/types";
 import {
   linearizationSchema,
@@ -49,29 +46,7 @@ describe("N6-U3 — own-write linearization (PGlite)", () => {
 });
 
 describe("N6-U3 — one order, one derivation (ATOM §4.1)", () => {
-  test("the linearization order is the documented sequence", () => {
-    // The order is doctrine (ATOM §4.1), so it is pinned rather than merely used.
-    // Changing it is a doctrine change and must fail here first.
-    expect([...RELATION_MUTATION_KEYS]).toEqual([
-      "disconnect",
-      "delete",
-      "update",
-      "upsert",
-      "connectOrCreate",
-      "set",
-      "updateMany",
-      "deleteMany",
-      "connect",
-      "create",
-      "createMany",
-    ]);
-  });
-
-  test("the legality derivation walks the SAME order the parts are emitted in", () => {
-    // The tripwire for the fork this unit deleted. `planRelationMutationSteps` used to
-    // carry its own if-chain order, which disagreed with `RELATION_MUTATION_KEYS` on
-    // `deleteMany` vs `upsert`; a shape's soundness was therefore derived against a
-    // sequence the engine never executed. Reintroducing any second order fails here.
+  test("the mutation program carries the documented execution order", () => {
     const relationInfo = {
       name: "notes",
       targetModel: linearizationSchema.note,
@@ -98,7 +73,17 @@ describe("N6-U3 — one order, one derivation (ATOM §4.1)", () => {
       }
     );
     expect(program?.entries.map((entry) => entry.kind)).toEqual([
-      ...RELATION_MUTATION_KEYS,
+      "disconnect",
+      "delete",
+      "update",
+      "upsert",
+      "connectOrCreate",
+      "set",
+      "updateMany",
+      "deleteMany",
+      "connect",
+      "create",
+      "createMany",
     ]);
   });
 });

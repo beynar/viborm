@@ -442,7 +442,7 @@ by re-deciding:
 - **`update`** — the correlated targeted arm (`RelationUpdates.compileRelation`'s
   `updateStep` loop): locate the child by `filter: correlatedWhere(fk, parentValues)`
   with **no** unique selector (`normalizeUpdateInputs` yields `{ data }` for a
-  to-one — `RelationMutationPlan`), capture-or-fail with "target record was not
+  to-one in the canonical mutation program), capture-or-fail with "target record was not
   found for this parent", then `compileLocatedUpdate`. V2 maps this to
   `RelationWritePart` with an **absent `where`** (correlation is the whole locator).
 - **`disconnect: true` / `delete: true`** — `RelationRemovals` `input === true`:

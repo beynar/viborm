@@ -8,7 +8,7 @@ import { NestedWriteError, type QueryScope } from "./types";
  * V1's updateMany-data relation legality (P6 pure-leaf extraction, consumed by
  * V2): a nested relation write inside `updateMany` data is inexpressible, rejected
  * before any effect with the byte-identical typed message. `relations` is the
- * `separateData` relation split of one updateMany input's `data`.
+ * canonical relation-program split of one updateMany input's `data`.
  */
 export function assertUpdateManyRelationsAreCompilable(
   relationName: string,

@@ -313,11 +313,10 @@ statement, where probe-first loses its INSERT and pays a full retry to converge.
 The guardian above says "*earlier* same-operation write". It never said **in which
 order** — and for as long as it did not, the engine answered the question twice.
 
-**The fork, measured.** Two fixed orders existed. `RELATION_MUTATION_KEYS`
-(`builders/relation-mutation-parser.ts`) ordered the parts the engine EMITS, at four
-call sites through `getRelationMutationKinds`. `planRelationMutationSteps`
-(`RelationMutationPlan.ts`) ordered the footprints the legality walk DERIVES, in its
-own if-chain. They agreed on nine kinds and disagreed on the tenth pair: emission ran
+**The fork, measured.** Two fixed orders existed. The emitter's relation-key reader
+ordered the parts the engine emitted, while a separate legality planner ordered the
+footprints the legality walk derived in its own if-chain. They agreed on nine kinds and
+disagreed on the tenth pair: emission ran
 `upsert` before `deleteMany`, derivation ran `deleteMany` before `upsert`. So the
 soundness precondition of a shape was checked against a sequence the engine never
 executed — over-refusing where derivation put a write first, and (on a many-to-many,
@@ -971,7 +970,7 @@ change, no vocabulary growth).**
   runtime `created` set) makes a duplicate adopt the earlier create, never
   re-insert its PK.
 - **`deleteMany`-on-to-one** — V1's whole-args `args.update` validation runs
-  before `separateData`, so "Unknown key: deleteMany" precedes the parent mutation
+  before model-data partitioning, so "Unknown key: deleteMany" precedes the parent mutation
   (V1's ordering + message).
 - **empty batch `createMany`** — a batch-preparation-only hook throws V1's
   "No data to insert for createMany." when an empty `createMany` is lowered into a
@@ -1621,7 +1620,7 @@ blast-radius/fallback-off harness), and V1's 15-file write engine are gone (−5
 V2 reached through V1 hosts were extracted standalone (`relation-key-legality`,
 `unique-conflict-target`, `skippable-write`,
 `batch-error-attribution`); the WHY §6 irreducibles V2 shares (`TargetConstraint`,
-`OwnWrite*`, `mutation-identity`, `RelationMutationPlan`,
+`OwnWrite*`, `mutation-identity`, the canonical mutation program,
 `ManyToManyStatements`, builders, `result/`) stay. A dead-symbol gate (in `test:gates`,
 falsified) proves the 15 deleted names appear in no `src` code. `OperationFragment.ts` and
 `architecture-gates.test.ts` were untouched throughout — the freeze held. The former
@@ -1813,7 +1812,7 @@ again — the ORM's envelope persisted as the user's data, on both substrates, a
 at depth 2/3, on a delegated to-many target, and through the `data`-column escape `nested-writes.mdx`
 documents. The W4-U4 sentinels died on the same pass (`{ set: JsonNull }` is neither a sentinel nor a
 JSON document). The nested-target entry now consumes the parsed tree directly — the structural fix,
-not a JSON patch, since ANY non-idempotent transform must survive delegation; `separateData` exposes
+not a JSON patch, since ANY non-idempotent transform must survive delegation; the partition exposes
 the relation payload it already narrowed so the X2 shape-check ceiling is unchanged. The standalone
 and upsert-arm paths keep their per-field parse: they hold RAW data, so it is their ONE transform.
 The rule, stated once: **a payload is parsed by exactly one parse, and delegation hands over the
@@ -2284,7 +2283,7 @@ argument for measuring behavior rather than counting throws, and it cost this en
 silent data-loss paths to make.
 
 The fix is a rule about the vocabulary, not a fifth check: **a kind that asks for nothing is
-not a kind.** `getRelationMutationKinds` is the ONE derivation of the kind list — every V2
+not a kind.** Canonical program construction is the ONE derivation of the entry list — every
 dispatch and the own-write legality walk of §4 read it — so dropping a `false` arm there
 means no arm is built, no legality footprint is derived, and no downstream site re-asks.
 `UpdateOperation.interpretRelation` returns early on an empty list, which is also what makes

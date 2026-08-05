@@ -2,12 +2,10 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
-import {
-  getFkDirection,
-  type ConnectOrCreateInput,
-} from "../builders/relation-data-builder";
+import { getFkDirection } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
+  type ConnectOrCreateInput,
   type NormalizedRelationUpsert,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
@@ -1265,7 +1263,7 @@ function buildOneUpsertPart(
  * injected seam, because `nested-target-parts` imports this module). So the arm no
  * longer dispatches kinds at all — it delegates the whole relation map, and the per-kind
  * loop that answers it is that builder's own `for (const kind of
- * getRelationMutationKinds(mutation))`. Depth below the arm is that builder's recursion,
+ * the program's ordered entries). Depth below the arm is that builder's recursion,
  * not a second copy of it.
  *
  * Two properties of THIS arm are not properties of a nested `update` target, so they are

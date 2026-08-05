@@ -11,12 +11,7 @@ import type { Model } from "@schema/model";
 import type { ReferentialAction } from "@schema/relation";
 import { type Sql, sql } from "@sql";
 import { createChildScope, getColumnName, getTableName } from "../context";
-import {
-  NestedWriteError,
-  QueryEngineError,
-  type QueryScope,
-  type RelationInfo,
-} from "../types";
+import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import {
   findInverseRelationState,
   getPrimaryKeyFields,
@@ -27,102 +22,9 @@ import {
 } from "./mutation-target-subquery";
 import { buildWhereUnique } from "./where-unique-builder";
 
-export { separateData } from "./relation-mutation-parser";
-
 // ============================================================
 // TYPES
 // ============================================================
-
-/**
- * Separated scalar and relation data from input
- */
-export interface SeparatedData {
-  /** Scalar data to INSERT/UPDATE directly */
-  scalarData: Record<string, unknown>;
-  /** Relation mutations to process */
-  relations: Record<string, RelationMutation>;
-}
-
-/**
- * CreateMany input shape
- */
-export interface CreateManyInput {
-  data: Record<string, unknown>[];
-  skipDuplicates?: boolean;
-}
-
-/**
- * Targeted nested update input for to-many relations
- */
-export interface NestedUpdateInput {
-  where: Record<string, unknown>;
-  data: Record<string, unknown>;
-}
-
-/**
- * Set-based nested update input for to-many relations
- */
-export interface NestedUpdateManyInput {
-  where?: Record<string, unknown>;
-  data: Record<string, unknown>;
-}
-
-/**
- * Nested upsert input. To-one upserts do not use where; to-many upserts do.
- */
-export interface NestedUpsertInput {
-  where?: Record<string, unknown>;
-  create: Record<string, unknown>;
-  update: Record<string, unknown>;
-}
-
-/**
- * A single relation mutation operation
- */
-export interface RelationMutation {
-  /** Relation metadata */
-  relationInfo: RelationInfo;
-  /**
-   * The relation's OWN mutation payload — the `data[relationName]` record this
-   * mutation was read from, narrowed once by `separateData`'s parser. The per-kind
-   * fields below are that record's entries after this parser's own normalization
-   * (a to-one `update` envelope, a to-many `{ where, data }` list); `payload` is the
-   * record itself, so a reader that must hand the WHOLE payload on — a validation
-   * schema, or a sub-operation that already holds it validated — does not narrow
-   * `unknown` a second time.
-   */
-  payload: Record<string, unknown>;
-  /** Connect to existing record(s) */
-  connect?: Record<string, unknown> | Record<string, unknown>[];
-  /** Disconnect from related record(s) */
-  disconnect?: boolean | Record<string, unknown> | Record<string, unknown>[];
-  /** Create new related record(s) */
-  create?: Record<string, unknown> | Record<string, unknown>[];
-  /** Create many new related records */
-  createMany?: CreateManyInput;
-  /** Connect if exists, otherwise create */
-  connectOrCreate?: ConnectOrCreateInput | ConnectOrCreateInput[];
-  /** Delete related record(s) */
-  delete?: boolean | Record<string, unknown> | Record<string, unknown>[];
-  /** Set (replace) related records - only for to-many */
-  set?: Record<string, unknown>[];
-  /** Update related record(s) */
-  update?: Record<string, unknown> | NestedUpdateInput | NestedUpdateInput[];
-  /** Update many related records */
-  updateMany?: NestedUpdateManyInput | NestedUpdateManyInput[];
-  /** Upsert related record(s). */
-  upsert?: NestedUpsertInput | NestedUpsertInput[];
-  /** Delete many related records */
-  deleteMany?: Record<string, unknown> | Record<string, unknown>[];
-}
-
-/**
- * ConnectOrCreate input shape
- */
-export interface ConnectOrCreateInput {
-  where: Record<string, unknown>;
-  create: Record<string, unknown>;
-}
 
 /**
  * Information about FK direction for a relation
