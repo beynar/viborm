@@ -458,7 +458,7 @@ describe("query-engine-v2 to-one create family: T1 pin falsifications", () => {
     });
 
     // The found-arm connects to user id=1; if it vanishes before commit the batch
-    // must fail closed (FK backstop / presence guard), never write a dangling post.
+    // must surface V1's replacement-race failure, never write a dangling post.
     await expect(
       (routed.client as any).post.create({
         data: {
@@ -470,7 +470,9 @@ describe("query-engine-v2 to-one create family: T1 pin falsifications", () => {
           },
         },
       })
-    ).rejects.toThrow();
+    ).rejects.toThrow(
+      "Record was replaced by another transaction during nested connectOrCreate"
+    );
     const posts = await (base as any).post.findMany({ where: { id: 40 } });
     expect(posts).toHaveLength(0);
     await (base as any).$disconnect();

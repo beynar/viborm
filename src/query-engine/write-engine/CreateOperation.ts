@@ -48,7 +48,7 @@ import {
   groupLinkTargets,
   linkGroupSelector,
 } from "./link-target-groups";
-import { relationTargetNotFound } from "./messages";
+import { nestedReplacement, relationTargetNotFound } from "./messages";
 import {
   buildFreshArmPart,
   buildNestedTargetChildParts,
@@ -1797,11 +1797,14 @@ export class CreateOperation {
           Object.assign(insertData, arm.foundFkAssign);
           if (this.mode === "batch") {
             guards.push(
-              this.connectGuard(
+              presenceGuard(
                 arm.guardId,
                 arm.guardProbe,
-                arm.relationInfo,
-                arm.relationName
+                nestedWriteFailure(
+                  nestedReplacement("connectOrCreate"),
+                  arm.relationName,
+                  false
+                )
               )
             );
           }
