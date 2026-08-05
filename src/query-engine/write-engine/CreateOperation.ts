@@ -8,9 +8,12 @@ import {
 } from "../builders/correlation-utils";
 import { isMissingGeneratedIncrement } from "../builders/generated-scalar";
 import {
+  type BoundRelation,
+  bindRelation,
   buildConnectSubqueryForField,
-  type FkDirection,
-  getFkDirection,
+  type ChildHeldToMany,
+  type ChildHeldToOne,
+  type ParentHeldToOne,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -37,7 +40,7 @@ import { assertPortableCreateManySkip } from "../operations/create-many-portabil
 import { planNestedCreateIdentity } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import { ResultParser } from "../result/ResultParser";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope } from "../types";
 import {
   type FinalReferenceSource,
   type ForeignKeyMember,
@@ -97,6 +100,7 @@ import {
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
+type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
 
 /**
  * A parent-held-FK to-one arm folded into a record's INSERT (WHY §4.2, TO-ONE.md
@@ -125,8 +129,7 @@ type ParentHeldArm =
     }
   | {
       readonly kind: "connect-probe";
-      readonly relationName: string;
-      readonly relationInfo: RelationInfo;
+      readonly relation: ParentHeldToOne;
       readonly guardId: string;
       readonly probeId: string;
       readonly guardProbe: Sql;
@@ -140,8 +143,7 @@ type ParentHeldArm =
     }
   | {
       readonly kind: "connectOrCreate";
-      readonly relationName: string;
-      readonly relationInfo: RelationInfo;
+      readonly relation: ParentHeldToOne;
       readonly probeId: string;
       readonly guardId: string;
       readonly guardProbe: Sql;
@@ -749,7 +751,7 @@ export class CreateOperation {
         childScope,
         self,
         sharedPkWriteStepId: sharedPk.producedBy.get(relationName),
-        relationName,
+        relation: bindRelation(childScope, program.relationInfo),
         program,
         txMode,
         coverage,
@@ -839,14 +841,12 @@ export class CreateOperation {
     const identity: Record<string, unknown> = {};
     const producedBy = new Map<string, string>();
     for (const [relationName, program] of Object.entries(relations)) {
-      const relationInfo = program.relationInfo;
-      if (relationInfo.type === "manyToMany") continue;
-      const fk = getFkDirection(childScope, relationInfo);
-      if (!fk.holdsFK) continue;
-      const sharedFkFields = fk.fkFields.filter((fkField) =>
-        recordPk.includes(fkField)
+      const relation = bindRelation(childScope, program.relationInfo);
+      if (relation.kind !== "parentHeldToOne") continue;
+      const sharedForeignFields = relation.foreignFields.filter(
+        (foreignField) => recordPk.includes(foreignField)
       );
-      if (sharedFkFields.length === 0) continue;
+      if (sharedForeignFields.length === 0) continue;
       const entries = program.entries;
       // A multi-kind to-one payload is `interpretParentHeld`'s own arity refusal,
       // which is more specific than this one and must reach the caller first.
@@ -871,13 +871,13 @@ export class CreateOperation {
       // here. It is deliberately asked about an EMPTY map, not the accumulated one: a
       // sibling edge that already resolved the same column must not answer for this one.
       if (!source) {
-        assertSharedPkResolved(childScope, relationName, entry.kind, fk, {});
+        assertSharedPkResolved(childScope, entry.kind, relation, {});
         continue;
       }
-      for (let index = 0; index < fk.fkFields.length; index += 1) {
-        const fkField = fk.fkFields[index]!;
-        const referenced = fk.pkFields[index]!;
-        if (!recordPk.includes(fkField)) continue;
+      for (let index = 0; index < relation.foreignFields.length; index += 1) {
+        const foreignField = relation.foreignFields[index]!;
+        const referenced = relation.referencedFields[index]!;
+        if (!recordPk.includes(foreignField)) continue;
         // The literal the fold SPELLS. `isMissingGeneratedIncrement` is the same
         // question `planNestedCreateIdentity` asks one line later: a create payload
         // carries the target's auto-increment key as an ABSENT value, so the key is
@@ -893,11 +893,11 @@ export class CreateOperation {
           armsAgree &&
           spelled !== undefined &&
           !isMissingGeneratedIncrement(
-            relationInfo.targetModel["~"].state.scalars[referenced],
+            relation.relationInfo.targetModel["~"].state.scalars[referenced],
             spelled
           )
         ) {
-          identity[fkField] = spelled;
+          identity[foreignField] = spelled;
           continue;
         }
         // N4-U4: the target's key is the one its own INSERT will generate. Pre-allocate
@@ -905,24 +905,21 @@ export class CreateOperation {
         // arms fold — one id, one producing statement, one value.
         if (
           entry.kind === "create" &&
-          targetGeneratesReferencedKey(relationInfo.targetModel, referenced)
+          targetGeneratesReferencedKey(
+            relation.relationInfo.targetModel,
+            referenced
+          )
         ) {
           const producedStep =
             producedBy.get(relationName) ??
             this.scope.allocate(
-              `${getStepModelName(relationInfo.targetModel, "record")}.create`
+              `${getStepModelName(relation.relationInfo.targetModel, "record")}.create`
             );
           producedBy.set(relationName, producedStep);
-          identity[fkField] = ref(producedStep, "id");
+          identity[foreignField] = ref(producedStep, "id");
         }
       }
-      assertSharedPkResolved(
-        childScope,
-        relationName,
-        entry.kind,
-        fk,
-        identity
-      );
+      assertSharedPkResolved(childScope, entry.kind, relation, identity);
     }
     return { identity, producedBy };
   }
@@ -942,10 +939,8 @@ export class CreateOperation {
   ): CreatedTarget[] {
     const targets: CreatedTarget[] = [];
     for (const program of Object.values(relations)) {
-      const relationInfo = program.relationInfo;
-      if (relationInfo.type === "manyToMany") continue;
-      const fk = getFkDirection(childScope, relationInfo);
-      if (!fk.holdsFK) continue;
+      const relation = bindRelation(childScope, program.relationInfo);
+      if (relation.kind !== "parentHeldToOne") continue;
       const createEntry = program.entries.find(
         (entry) => entry.kind === "create"
       );
@@ -956,13 +951,15 @@ export class CreateOperation {
       if (!createData) continue;
       const key: Record<string, unknown> = {};
       let hasAny = false;
-      for (const referenced of fk.pkFields) {
+      for (const referenced of relation.referencedFields) {
         if (Object.hasOwn(createData, referenced)) {
           key[referenced] = createData[referenced];
           hasAny = true;
         }
       }
-      if (hasAny) targets.push({ model: relationInfo.targetModel, key });
+      if (hasAny) {
+        targets.push({ model: relation.relationInfo.targetModel, key });
+      }
     }
     return targets;
   }
@@ -992,7 +989,7 @@ export class CreateOperation {
     /** N4-U4 — the write-step id the shared-primary-key identity `Ref`s, when this
      *  relation's before-parent `create` is what produces this record's primary key. */
     sharedPkWriteStepId?: string;
-    relationName: string;
+    relation: BoundRelation;
     program: RelationMutationProgram;
     txMode: boolean;
     coverage: readonly CreatedTarget[];
@@ -1001,11 +998,12 @@ export class CreateOperation {
     createManyGroups: CreateManyGroup[];
     afterParts: Part[];
   }): void {
-    const { relationName, program, txMode } = input;
-    const relationInfo = program.relationInfo;
+    const { relation, program, txMode } = input;
+    const { relationInfo } = relation;
+    const relationName = relationInfo.name;
     const entries = program.entries;
 
-    if (relationInfo.type === "manyToMany") {
+    if (relation.kind === "junction") {
       // M2M is not special (WHY §4.3): the junction composes as ordinary Parts. A
       // fresh parent has no existing memberships, so every kind the parse boundary
       // admits here — create/createMany/connect/connectOrCreate/upsert — only ADDS
@@ -1030,8 +1028,7 @@ export class CreateOperation {
           scope,
           engine,
           parentScope: input.childScope,
-          relationName,
-          relationInfo,
+          relation,
           program,
           parentId: this.edgeParentId(
             input.self,
@@ -1066,9 +1063,8 @@ export class CreateOperation {
       return;
     }
 
-    const fk = getFkDirection(input.childScope, relationInfo);
-    if (fk.holdsFK) {
-      this.interpretParentHeld(input, relationInfo, fk, entries);
+    if (relation.kind === "parentHeldToOne") {
+      this.interpretParentHeld(input, relation, entries);
       return;
     }
     // A child-held relation this record is the referenced side of: to-many
@@ -1084,7 +1080,7 @@ export class CreateOperation {
     // type-name predicate (`oneToMany || oneToOne`). N7-U-A measured that refusal: a
     // `manyToOne` declared without `.fields()` (the inverse side spelled with the
     // many-side helper, its FK resolved from the target's own back-reference) has
-    // `holdsFK === false` and `type === "manyToOne"`, so it landed here and was refused,
+    // a child-held position and `type === "manyToOne"`, so it landed here and was refused,
     // while the SAME relation on the SAME schema constructed under `update` —
     // `UpdateOperation`'s sibling gate asks `isToOne || type === "oneToMany"` and routes
     // it down this very path. It was a create-root capability gap with a narrower
@@ -1092,20 +1088,20 @@ export class CreateOperation {
     //
     // The predicate is deleted rather than extended by one member, because the union it
     // tested is closed and every other member left before this line: `manyToMany`
-    // returned at the top, `holdsFK` returned just above, and an edge with NO inverse to
-    // resolve never arrives — `getFkDirection` raises its own typed "Cannot determine FK
-    // fields for relation" before a direction exists. What remains is one mechanism, not
-    // three names: the child INSERTs after the parent with `fk = parent`, and all three
+    // returned at the top, the parent-held position returned just above, and an edge with
+    // NO inverse to resolve never arrives — `bindRelation` raises its typed "Cannot
+    // determine FK fields for relation" before a position exists. What remains is one
+    // mechanism, not three names: the child INSERTs after the parent with `fk = parent`, and all three
     // create-root kinds the parse admits (`create` / `connect` / `connectOrCreate`) have
     // a child-held arm below. The to-one slot's own contradiction — two kinds naming one
     // slot — is answered inside `interpretChildHeld` by D5's arity twin, which reads
-    // `relationInfo.isToOne` and so covers the fields-less spelling by construction.
+    // the bound to-one kind and so covers the fields-less spelling by construction.
     //
     // No occupied-slot decision belongs here either: this parent is FRESH, so its to-one
     // slot starts empty and each admitted kind is a pure add against it (the same
     // fresh-parent elision the m2m branch above cites). The occupied question is the
     // UPDATE root's, where the slot may already hold a row (M10).
-    this.interpretChildHeld(input, relationInfo, fk, entries);
+    this.interpretChildHeld(input, relation, entries);
   }
 
   /**
@@ -1115,11 +1111,11 @@ export class CreateOperation {
    */
   private interpretParentHeld(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relationInfo: RelationInfo,
-    fk: FkDirection,
+    relation: ParentHeldToOne,
     entries: readonly RelationMutationEntry[]
   ): void {
-    const { relationName } = input;
+    const { relationInfo } = relation;
+    const relationName = relationInfo.name;
     if (entries.length !== 1) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ") || "none"}.`
@@ -1139,22 +1135,15 @@ export class CreateOperation {
     if (!entry) return;
     switch (entry.kind) {
       case "connect":
-        this.interpretParentHeldConnect(
-          input,
-          relationInfo,
-          fk,
-          childScope,
-          entry
-        );
+        this.interpretParentHeldConnect(input, relation, childScope, entry);
         return;
       case "create":
-        this.interpretParentHeldCreate(input, fk, childScope, entry);
+        this.interpretParentHeldCreate(input, relation, childScope, entry);
         return;
       case "connectOrCreate":
         this.interpretParentHeldConnectOrCreate(
           input,
-          relationInfo,
-          fk,
+          relation,
           childScope,
           entry
         );
@@ -1175,31 +1164,25 @@ export class CreateOperation {
    *  assign, no probe) or an uncovered global existence probe + pin. */
   private interpretParentHeldConnect(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relationInfo: RelationInfo,
-    fk: FkDirection,
+    relation: ParentHeldToOne,
     childScope: QueryScope,
     entry: Extract<RelationMutationEntry, { kind: "connect" }>
   ): void {
-    const { relationName } = input;
+    const { relationInfo } = relation;
+    const relationName = relationInfo.name;
     const where = entry.targets[0];
     if (!where) {
       throw new QueryEngineError(
         `query-engine-v2 internal: parent-held connect on relation '${relationName}' has no target.`
       );
     }
-    const fkAssign = this.toOneFkAssign(
-      input.self.model,
-      relationInfo,
-      fk,
-      where,
-      relationName
-    );
+    const fkAssign = this.toOneFkAssign(input.self.model, relation, where);
     if (
       this.connectIsCovered(
         input.coverage,
         relationInfo.targetModel,
         where,
-        fk.pkFields
+        relation.referencedFields
       )
     ) {
       // The incident's create-then-connect: a sibling before-parent create writes
@@ -1211,7 +1194,9 @@ export class CreateOperation {
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
-    const pkSelect = Object.fromEntries(fk.pkFields.map((f) => [f, true]));
+    const pkSelect = Object.fromEntries(
+      relation.referencedFields.map((field) => [field, true])
+    );
     const probe: ReadStep = {
       id: probeId,
       kind: "read",
@@ -1224,8 +1209,7 @@ export class CreateOperation {
     };
     input.parentHeldArms.push({
       kind: "connect-probe",
-      relationName,
-      relationInfo,
+      relation,
       guardId,
       probeId,
       guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
@@ -1238,14 +1222,14 @@ export class CreateOperation {
    *  referencing the target's (possibly generated) identity by a backward `Ref`. */
   private interpretParentHeldCreate(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    fk: FkDirection,
+    relation: ParentHeldToOne,
     childScope: QueryScope,
     entry: Extract<RelationMutationEntry, { kind: "create" }>
   ): void {
     const createData = entry.items[0];
     if (!createData) {
       throw new QueryEngineError(
-        `query-engine-v2 internal: parent-held create on relation '${input.relationName}' has no item.`
+        `query-engine-v2 internal: parent-held create on relation '${relation.relationInfo.name}' has no item.`
       );
     }
     // N4-U4: when this record's own primary key IS the foreign key this arm resolves,
@@ -1261,12 +1245,7 @@ export class CreateOperation {
     input.parentHeldArms.push({
       kind: "create",
       before,
-      fkAssign: this.beforeParentFkAssign(
-        input.self.model,
-        fk,
-        before,
-        input.relationName
-      ),
+      fkAssign: this.beforeParentFkAssign(input.self.model, relation, before),
     });
   }
 
@@ -1274,12 +1253,12 @@ export class CreateOperation {
    *  missing (create the target before the parent, `racePin`ned). */
   private interpretParentHeldConnectOrCreate(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relationInfo: RelationInfo,
-    fk: FkDirection,
+    relation: ParentHeldToOne,
     childScope: QueryScope,
     entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
   ): void {
-    const { relationName } = input;
+    const { relationInfo } = relation;
+    const relationName = relationInfo.name;
     const spec = entry.items[0];
     if (!spec) {
       throw new QueryEngineError(
@@ -1288,22 +1267,17 @@ export class CreateOperation {
     }
     const where = spec.where;
     const createData = spec.create;
-    const foundFkAssign = this.toOneFkAssign(
-      input.self.model,
-      relationInfo,
-      fk,
-      where,
-      relationName
-    );
+    const foundFkAssign = this.toOneFkAssign(input.self.model, relation, where);
     const before = this.buildRecord(childScope, createData, input.txMode);
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
-    const pkSelect = Object.fromEntries(fk.pkFields.map((f) => [f, true]));
+    const pkSelect = Object.fromEntries(
+      relation.referencedFields.map((field) => [field, true])
+    );
     input.parentHeldArms.push({
       kind: "connectOrCreate",
-      relationName,
-      relationInfo,
+      relation,
       probeId,
       guardId,
       guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
@@ -1311,9 +1285,8 @@ export class CreateOperation {
       before,
       missingFkAssign: this.beforeParentFkAssign(
         input.self.model,
-        fk,
-        before,
-        relationName
+        relation,
+        before
       ),
       racePin: childRacePin(childScope, where),
     });
@@ -1342,18 +1315,18 @@ export class CreateOperation {
    */
   private toOneFkAssign(
     recordModel: Model<any>,
-    relationInfo: RelationInfo,
-    fk: FkDirection,
-    where: Record<string, unknown>,
-    relationName: string
+    relation: ParentHeldToOne,
+    where: Record<string, unknown>
   ): Record<string, unknown> {
+    const { relationInfo } = relation;
+    const relationName = relationInfo.name;
     const recordScope = createQueryScope(this.engine.adapter, recordModel);
     const fkAssign: Record<string, unknown> = {};
-    for (let index = 0; index < fk.fkFields.length; index += 1) {
-      const referenced = fk.pkFields[index]!;
-      const fkField = fk.fkFields[index]!;
+    for (let index = 0; index < relation.foreignFields.length; index += 1) {
+      const referenced = relation.referencedFields[index]!;
+      const foreignField = relation.foreignFields[index]!;
       const member: ForeignKeyMember = {
-        foreignField: fkField,
+        foreignField,
         referencedField: referenced,
         writeSource: Object.hasOwn(where, referenced)
           ? { kind: "literal", value: where[referenced] }
@@ -1367,10 +1340,10 @@ export class CreateOperation {
               ),
             },
       };
-      fkAssign[fkField] = referenceSql(
+      fkAssign[foreignField] = referenceSql(
         this.engine,
         recordModel,
-        fkField,
+        foreignField,
         foreignKeyWriteValue(member, undefined, relationName, "connect")
       );
     }
@@ -1381,20 +1354,21 @@ export class CreateOperation {
    *  (a `Ref` to a captured generated id, or a known literal). */
   private beforeParentFkAssign(
     recordModel: Model<any>,
-    fk: FkDirection,
-    target: RecordPlan,
-    relationName: string
+    relation: ParentHeldToOne,
+    target: RecordPlan
   ): Record<string, unknown> {
+    const relationName = relation.relationInfo.name;
     const fkAssign: Record<string, unknown> = {};
-    for (let index = 0; index < fk.fkFields.length; index += 1) {
-      fkAssign[fk.fkFields[index]!] = referenceSql(
+    for (let index = 0; index < relation.foreignFields.length; index += 1) {
+      const foreignField = relation.foreignFields[index]!;
+      fkAssign[foreignField] = referenceSql(
         this.engine,
         recordModel,
-        fk.fkFields[index]!,
+        foreignField,
         this.targetReferencedValue(
           target,
-          fk.fkFields[index]!,
-          fk.pkFields[index]!,
+          foreignField,
+          relation.referencedFields[index]!,
           relationName
         )
       );
@@ -1427,11 +1401,12 @@ export class CreateOperation {
   /** A child-held-FK to-many relation: create/createMany/connect/adopt (after). */
   private interpretChildHeld(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relationInfo: RelationInfo,
-    fk: FkDirection,
+    relation: ChildHeldRelation,
     entries: readonly RelationMutationEntry[]
   ): void {
-    const { txMode, relationName } = input;
+    const { txMode } = input;
+    const { relationInfo } = relation;
+    const relationName = relationInfo.name;
     // A to-one slot holds ONE row, so two kinds on it name two intents for one slot —
     // the contradiction `interpretParentHeld` refuses above, refused here on the dispatch
     // that reaches the OTHER direction. THAT is this guard's unique coverage: the
@@ -1446,7 +1421,7 @@ export class CreateOperation {
     // `> 1`, not `!== 1`: a payload naming NO kind (`{ card: {} }`) asks for nothing and
     // is Prisma's no-op, which this loop already answers by building nothing — the same
     // reading `UpdateOperation.interpretRelation` spells out for its empty payload.
-    if (relationInfo.isToOne && entries.length > 1) {
+    if (relation.kind === "childHeldToOne" && entries.length > 1) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
       );
@@ -1458,10 +1433,10 @@ export class CreateOperation {
     for (const entry of entries) {
       switch (entry.kind) {
         case "create":
-          this.foldChildCreates(input, childScope, fk, entry.items);
+          this.foldChildCreates(input, childScope, relation, entry.items);
           break;
         case "createMany":
-          this.foldCreateMany(input, childScope, fk, entry);
+          this.foldCreateMany(input, childScope, relation, entry);
           break;
         case "connect":
           input.afterParts.push(
@@ -1476,14 +1451,12 @@ export class CreateOperation {
                     relationInfo.targetModel,
                     relationName
                   ),
-                  relationName,
-                  relationInfo,
+                  relation,
                   wheres,
                   fkAssign: this.childFkAssign(
                     input.self,
-                    fk,
-                    childScope.model,
-                    relationName
+                    relation,
+                    childScope.model
                   ),
                   txMode,
                 })
@@ -1494,17 +1467,10 @@ export class CreateOperation {
           input.afterParts.push(
             ...buildConnectOrCreateParts(
               this.scope,
-              input.childScope,
               this.engine,
-              relationName,
-              relationInfo,
+              relation,
               entry.items,
-              this.childEdgeMembers(
-                input.self,
-                fk.fkFields,
-                fk.pkFields,
-                relationName
-              ),
+              this.childEdgeMembers(input.self, relation),
               txMode,
               this.armSeam
             )
@@ -1514,17 +1480,10 @@ export class CreateOperation {
           input.afterParts.push(
             ...buildToManyUpsertParts(
               this.scope,
-              input.childScope,
               this.engine,
-              relationName,
-              relationInfo,
+              relation,
               entry.items,
-              this.childEdgeMembers(
-                input.self,
-                fk.fkFields,
-                fk.pkFields,
-                relationName
-              ),
+              this.childEdgeMembers(input.self, relation),
               undefined,
               txMode,
               this.armSeam
@@ -1549,15 +1508,10 @@ export class CreateOperation {
   private foldChildCreates(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     childScope: QueryScope,
-    fk: FkDirection,
+    relation: ChildHeldRelation,
     items: readonly Record<string, unknown>[]
   ): void {
-    const inject = this.childFkAssign(
-      input.self,
-      fk,
-      childScope.model,
-      input.relationName
-    );
+    const inject = this.childFkAssign(input.self, relation, childScope.model);
     for (const item of items) {
       input.childCreates.push({
         record: this.buildRecord(childScope, item, input.txMode),
@@ -1570,7 +1524,7 @@ export class CreateOperation {
   private foldCreateMany(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     childScope: QueryScope,
-    fk: FkDirection,
+    relation: ChildHeldRelation,
     entry: Extract<RelationMutationEntry, { kind: "createMany" }>
   ): void {
     const skipDuplicates = entry.skipDuplicates === true;
@@ -1592,12 +1546,7 @@ export class CreateOperation {
         groups.some((group) => group.columns.length === 0)
       );
     }
-    const inject = this.childFkAssign(
-      input.self,
-      fk,
-      childScope.model,
-      input.relationName
-    );
+    const inject = this.childFkAssign(input.self, relation, childScope.model);
     const rows = userRows.map((row) => ({ ...row, ...inject }));
     if (rows.length === 0) return;
     // Lower to grouped INSERTs (buildCreateManyPlan): one statement per same-shape
@@ -1618,7 +1567,7 @@ export class CreateOperation {
       skipDuplicates &&
       this.engine.adapter.mutations.skipDuplicatesStrategy ===
         "recoverableUniqueError";
-    const base = getStepModelName(childScope.model, input.relationName);
+    const base = getStepModelName(childScope.model, relation.relationInfo.name);
     input.createManyGroups.push({
       steps: plan.statements.map((statement) => ({
         id: this.scope.allocate(`${base}.createMany`),
@@ -1646,20 +1595,21 @@ export class CreateOperation {
   /** The FK columns a child edge writes ← its referenced parent columns. */
   private childFkAssign(
     self: RecordIdentity,
-    fk: FkDirection,
-    childModel: Model<any>,
-    relationName: string
+    relation: ChildHeldRelation,
+    childModel: Model<any>
   ): Record<string, unknown> {
+    const relationName = relation.relationInfo.name;
     const assign: Record<string, unknown> = {};
-    for (let index = 0; index < fk.fkFields.length; index += 1) {
-      assign[fk.fkFields[index]!] = referenceSql(
+    for (let index = 0; index < relation.foreignFields.length; index += 1) {
+      const foreignField = relation.foreignFields[index]!;
+      assign[foreignField] = referenceSql(
         this.engine,
         childModel,
-        fk.fkFields[index]!,
+        foreignField,
         this.referencedValue(
           self,
-          fk.fkFields[index]!,
-          fk.pkFields[index]!,
+          foreignField,
+          relation.referencedFields[index]!,
           relationName
         )
       );
@@ -1740,14 +1690,17 @@ export class CreateOperation {
    */
   private childEdgeMembers(
     self: RecordIdentity,
-    foreignFields: readonly string[],
-    referencedFields: readonly string[],
-    relationName: string
+    relation: ChildHeldRelation
   ): ForeignKeyMember[] {
-    const sources = referencedFields.map((referenced) =>
+    const relationName = relation.relationInfo.name;
+    const sources = relation.referencedFields.map((referenced) =>
       this.referencedParentSource(self, referenced, relationName)
     );
-    return pairForeignKeyMembers(foreignFields, referencedFields, sources);
+    return pairForeignKeyMembers(
+      relation.foreignFields,
+      relation.referencedFields,
+      sources
+    );
   }
 
   /** One referenced column of this fresh record, as a whole-value parent source. */
@@ -1820,21 +1773,11 @@ export class CreateOperation {
         Object.assign(insertData, arm.fkAssign);
         return;
       case "connect-probe":
-        this.requireConnectFound(
-          arm.probeId,
-          arm.relationName,
-          arm.relationInfo,
-          known
-        );
+        this.requireConnectFound(arm.probeId, arm.relation, known);
         Object.assign(insertData, arm.fkAssign);
         if (this.mode === "batch") {
           guards.push(
-            this.connectGuard(
-              arm.guardId,
-              arm.guardProbe,
-              arm.relationInfo,
-              arm.relationName
-            )
+            this.connectGuard(arm.guardId, arm.guardProbe, arm.relation)
           );
         }
         return;
@@ -1843,6 +1786,7 @@ export class CreateOperation {
         Object.assign(insertData, arm.fkAssign);
         return;
       case "connectOrCreate": {
+        const relationName = arm.relation.relationInfo.name;
         const rows = known[planningKey(arm.probeId, "rows")];
         const found = Array.isArray(rows) && rows.length > 0;
         if (found) {
@@ -1854,7 +1798,7 @@ export class CreateOperation {
                 arm.guardProbe,
                 nestedWriteFailure(
                   nestedReplacement("connectOrCreate"),
-                  arm.relationName,
+                  relationName,
                   false
                 )
               )
@@ -1901,14 +1845,14 @@ export class CreateOperation {
   private connectGuard(
     guardId: string,
     guardProbe: Sql,
-    relationInfo: RelationInfo,
-    relationName: string
+    relation: ParentHeldToOne
   ): OperationStep {
+    const relationName = relation.relationInfo.name;
     return presenceGuard(
       guardId,
       guardProbe,
       nestedWriteFailure(
-        relationTargetNotFound(relationInfo, "connect"),
+        relationTargetNotFound(relation.relationInfo, "connect"),
         relationName,
         false
       )
@@ -1917,10 +1861,10 @@ export class CreateOperation {
 
   private requireConnectFound(
     probeId: string,
-    relationName: string,
-    relationInfo: RelationInfo,
+    relation: ParentHeldToOne,
     known: Readonly<Record<string, unknown>>
   ): void {
+    const relationName = relation.relationInfo.name;
     const rows = known[planningKey(probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -1930,7 +1874,7 @@ export class CreateOperation {
     }
     if (rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(relationInfo, "connect"),
+        relationTargetNotFound(relation.relationInfo, "connect"),
         relationName
       );
     }
@@ -2289,16 +2233,20 @@ function insertTakesDatabaseAssignedValue(
  */
 function assertSharedPkResolved(
   childScope: QueryScope,
-  relationName: string,
   kind: string | undefined,
-  fk: FkDirection,
+  relation: ParentHeldToOne,
   identity: Record<string, unknown>
 ): void {
+  const relationName = relation.relationInfo.name;
   const recordPk = getPrimaryKeyFields(childScope.model);
-  const shared = fk.fkFields.filter((fkField) => recordPk.includes(fkField));
-  if (shared.every((fkField) => Object.hasOwn(identity, fkField))) return;
+  const shared = relation.foreignFields.filter((foreignField) =>
+    recordPk.includes(foreignField)
+  );
+  if (shared.every((foreignField) => Object.hasOwn(identity, foreignField))) {
+    return;
+  }
   throw new UnsupportedOperationError(
-    `query-engine-v2 create does not support a shared-primary-key ${kind} on relation '${relationName}' whose foreign key '${fk.fkFields.join(", ")}' (this record's primary key) is not a compile-time literal.`
+    `query-engine-v2 create does not support a shared-primary-key ${kind} on relation '${relationName}' whose foreign key '${relation.foreignFields.join(", ")}' (this record's primary key) is not a compile-time literal.`
   );
 }
 
@@ -2338,8 +2286,7 @@ interface ChildConnectConfig {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relationName: string;
-  readonly relationInfo: RelationInfo;
+  readonly relation: ChildHeldRelation;
   /** One key-shape group of connect targets, in input order. */
   readonly wheres: readonly Record<string, unknown>[];
   readonly fkAssign: Record<string, unknown>;
@@ -2353,6 +2300,10 @@ class ChildConnectPart implements Part {
   private readonly guardIds: readonly string[];
   private readonly distinctTargets: number;
   private readonly probe: ReadStep;
+
+  private get relationName(): string {
+    return this.config.relation.relationInfo.name;
+  }
 
   constructor(scope: StepScope, config: ChildConnectConfig) {
     this.config = config;
@@ -2395,8 +2346,8 @@ class ChildConnectPart implements Part {
     // the named targets is absent. Same message, same attribution, same phase.
     if (!Array.isArray(rows) || rows.length < this.distinctTargets) {
       throw new NestedWriteError(
-        relationTargetNotFound(this.config.relationInfo, "connect"),
-        this.config.relationName
+        relationTargetNotFound(this.config.relation.relationInfo, "connect"),
+        this.relationName
       );
     }
     const steps: OperationStep[] = [];
@@ -2410,8 +2361,11 @@ class ChildConnectPart implements Part {
               select: this.pkSelect(),
             }),
             nestedWriteFailure(
-              relationTargetNotFound(this.config.relationInfo, "connect"),
-              this.config.relationName,
+              relationTargetNotFound(
+                this.config.relation.relationInfo,
+                "connect"
+              ),
+              this.relationName,
               false
             )
           )

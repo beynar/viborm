@@ -4,6 +4,7 @@ import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import { getManyToManyJoinInfo } from "../builders/many-to-many-utils";
+import type { JunctionRelation } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type RelationMutationProgram,
@@ -25,7 +26,7 @@ import {
   buildUpdate,
 } from "../operations";
 import type { QueryEngine } from "../query-engine";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope } from "../types";
 import {
   type CorrelatedForeignKeyMember,
   type FinalReferenceSource,
@@ -122,8 +123,7 @@ export type JunctionKind =
 export interface RelationJunctionConfig {
   readonly engine: QueryEngine;
   readonly parentScope: QueryScope;
-  readonly relationName: string;
-  readonly relationInfo: RelationInfo;
+  readonly relation: JunctionRelation;
   readonly childName: string;
   readonly kind: JunctionKind;
   /** The located parent id (a planning value; a literal at compile, a Ref at planning). */
@@ -400,15 +400,26 @@ export class RelationJunctionPart implements Part {
   private readonly setClearId: string;
   private readonly setInsertId: string;
 
+  private get relationInfo() {
+    return this.config.relation.relationInfo;
+  }
+
+  private get relationName(): string {
+    return this.relationInfo.name;
+  }
+
   constructor(scope: StepScope, config: RelationJunctionConfig) {
     this.config = config;
-    const join = getManyToManyJoinInfo(config.parentScope, config.relationInfo);
+    const join = getManyToManyJoinInfo(
+      config.parentScope,
+      config.relation.relationInfo
+    );
     this.targetPkField = join.targetPkField;
     this.sourcePkField = join.sourcePkField;
     this.sourceFieldName = join.sourceFieldName;
     this.childScope = createQueryScope(
       config.engine.adapter,
-      config.relationInfo.targetModel
+      config.relation.relationInfo.targetModel
     );
     this.statements = new ManyToManyStatements(
       config.parentScope,
@@ -730,7 +741,7 @@ export class RelationJunctionPart implements Part {
         id: slot.writeId,
         kind: "write",
         statement: this.statements.materialize(
-          this.config.relationInfo,
+          this.relationInfo,
           "membershipUpdateMany",
           {
             parentValue: parent,
@@ -921,8 +932,8 @@ export class RelationJunctionPart implements Part {
         // Exists globally but is not a member of this parent — the correlated
         // upsert cannot adopt a foreign row: V1's verbatim V7001 (ATOM §4).
         throw new NestedWriteError(
-          upsertTargetNotFoundForParent(this.config.relationName),
-          this.config.relationName
+          upsertTargetNotFoundForParent(this.relationName),
+          this.relationName
         );
       }
       steps.push(...this.upsertCreateArm(scope, slot, parent, known));
@@ -1077,8 +1088,8 @@ export class RelationJunctionPart implements Part {
         ? {
             expects: exactlyOneRow(
               nestedWriteFailure(
-                relationTargetNotFound(this.config.relationInfo, "update"),
-                this.config.relationName,
+                relationTargetNotFound(this.relationInfo, "update"),
+                this.relationName,
                 false
               )
             ),
@@ -1320,20 +1331,16 @@ export class RelationJunctionPart implements Part {
     whereUnique?: Record<string, unknown>;
     take?: number;
   }) {
-    return this.statements.materialize(
-      this.config.relationInfo,
-      "membershipRead",
-      {
-        parentValue: args.parentValue,
-        ...(args.whereUnique ? { whereUnique: args.whereUnique } : {}),
-        ...(args.where && Object.keys(args.where).length > 0
-          ? { where: args.where }
-          : {}),
-        select: { [this.targetPkField]: true },
-        ...(args.take !== undefined ? { take: args.take } : {}),
-        lock: "transaction",
-      }
-    );
+    return this.statements.materialize(this.relationInfo, "membershipRead", {
+      parentValue: args.parentValue,
+      ...(args.whereUnique ? { whereUnique: args.whereUnique } : {}),
+      ...(args.where && Object.keys(args.where).length > 0
+        ? { where: args.where }
+        : {}),
+      select: { [this.targetPkField]: true },
+      ...(args.take !== undefined ? { take: args.take } : {}),
+      lock: "transaction",
+    });
   }
 
   private junctionWrite(
@@ -1345,7 +1352,7 @@ export class RelationJunctionPart implements Part {
       id,
       kind: "write",
       statement: this.statements.materialize(
-        this.config.relationInfo,
+        this.relationInfo,
         operation,
         args
       ),
@@ -1481,7 +1488,7 @@ export class RelationJunctionPart implements Part {
       // can find it. Same sentence, now for that case alone.
       if (this.config.skipDuplicates) {
         throw new UnsupportedOperationError(
-          `query-engine-v2 createMany-through-junction for relation '${this.config.relationName}' cannot use 'skipDuplicates' when the target primary key '${this.targetPkField}' is database-generated: a skipped row produces no identity for its join row. Supply '${this.targetPkField}' in the createMany data, or drop 'skipDuplicates'.`
+          `query-engine-v2 createMany-through-junction for relation '${this.relationName}' cannot use 'skipDuplicates' when the target primary key '${this.targetPkField}' is database-generated: a skipped row produces no identity for its join row. Supply '${this.targetPkField}' in the createMany data, or drop 'skipDuplicates'.`
         );
       }
       return {
@@ -1504,7 +1511,7 @@ export class RelationJunctionPart implements Part {
     // (`ValidationError: Expected integer`); and `increment` takes the produced-identity
     // branch above. No payload arrives with an absent or null target PK.
     throw new QueryEngineError(
-      `query-engine-v2 internal: the create-through-junction arm for relation '${this.config.relationName}' reached identity resolution with no value for the target primary key '${this.targetPkField}'.`
+      `query-engine-v2 internal: the create-through-junction arm for relation '${this.relationName}' reached identity resolution with no value for the target primary key '${this.targetPkField}'.`
     );
   }
 
@@ -1528,7 +1535,7 @@ export class RelationJunctionPart implements Part {
         nestedReplacement(
           this.config.kind === "upsert" ? "upsert" : "connectOrCreate"
         ),
-        this.config.relationName,
+        this.relationName,
         false
       )
     );
@@ -1586,7 +1593,7 @@ export class RelationJunctionPart implements Part {
       },
       failure: nestedWriteFailure(
         nestedReplacement("upsert"),
-        this.config.relationName,
+        this.relationName,
         false
       ),
     };
@@ -1629,7 +1636,7 @@ export class RelationJunctionPart implements Part {
       premise: {
         kind: "notExists",
         statement: this.statements.materialize(
-          this.config.relationInfo,
+          this.relationInfo,
           "membershipDifference",
           {
             parentValue: parent,
@@ -1642,8 +1649,8 @@ export class RelationJunctionPart implements Part {
         ),
       },
       failure: nestedWriteFailure(
-        m2mMembershipRace(this.config.relationName, "deleteMany"),
-        this.config.relationName,
+        m2mMembershipRace(this.relationName, "deleteMany"),
+        this.relationName,
         true
       ),
     };
@@ -1660,8 +1667,8 @@ export class RelationJunctionPart implements Part {
       // selector, so `set`/`connect` cannot adopt a replacement that inherited it.
       this.capturedSelectorRead(target.where, capturedPk),
       nestedWriteFailure(
-        relationTargetNotFound(this.config.relationInfo, op),
-        this.config.relationName,
+        relationTargetNotFound(this.relationInfo, op),
+        this.relationName,
         false
       )
     );
@@ -1690,8 +1697,8 @@ export class RelationJunctionPart implements Part {
         }),
       },
       failure: nestedWriteFailure(
-        relationTargetNotFound(this.config.relationInfo, op),
-        this.config.relationName,
+        relationTargetNotFound(this.relationInfo, op),
+        this.relationName,
         false
       ),
     };
@@ -1708,8 +1715,8 @@ export class RelationJunctionPart implements Part {
     const rows = known[planningKey(target.probeId, "rows")];
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(this.config.relationInfo, op),
-        this.config.relationName
+        relationTargetNotFound(this.relationInfo, op),
+        this.relationName
       );
     }
     return this.pkOf(rows[0]);
@@ -1719,8 +1726,8 @@ export class RelationJunctionPart implements Part {
     const rows = known[planningKey(bulk.readId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 deleteMany for relation '${this.config.relationName}' did not expose its membership set.`,
-        this.config.relationName
+        `query-engine-v2 deleteMany for relation '${this.relationName}' did not expose its membership set.`,
+        this.relationName
       );
     }
     return rows.map((row) => this.pkOf(row));
@@ -1729,8 +1736,8 @@ export class RelationJunctionPart implements Part {
   private pkOf(row: unknown): unknown {
     if (!(row && typeof row === "object")) {
       throw new NestedWriteError(
-        `query-engine-v2 junction membership for relation '${this.config.relationName}' returned a malformed row.`,
-        this.config.relationName
+        `query-engine-v2 junction membership for relation '${this.relationName}' returned a malformed row.`,
+        this.relationName
       );
     }
     return (row as Record<string, unknown>)[this.targetPkField];
@@ -1765,7 +1772,7 @@ export class RelationJunctionPart implements Part {
     return foreignKeyWriteValueWith(
       member,
       known,
-      this.config.relationName,
+      this.relationName,
       "junction",
       (reference) =>
         referenceSql(
@@ -1798,7 +1805,7 @@ export class RelationJunctionPart implements Part {
     return foreignKeyResolvedReadValue(
       this.membershipMember(),
       known,
-      this.config.relationName,
+      this.relationName,
       "junction"
     );
   }
@@ -1817,7 +1824,7 @@ export class RelationJunctionPart implements Part {
       ...this.parentWriteMember(),
       readSource: planningSourceFromFinal(
         readSource,
-        this.config.relationName,
+        this.relationName,
         "junction"
       ),
       writeSource: this.config.parentId,
@@ -1841,8 +1848,7 @@ export function buildJunctionParts(input: {
   scope: StepScope;
   engine: QueryEngine;
   parentScope: QueryScope;
-  relationName: string;
-  relationInfo: RelationInfo;
+  relation: JunctionRelation;
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
   /** E2-U3: the membership-READ parent value when it differs from the written one —
@@ -1860,16 +1866,10 @@ export function buildJunctionParts(input: {
    *  mandatory so no caller can silently fall back to a scalar-only boundary. */
   nestedBuilder: NestedChildBuilder;
 }): RelationJunctionPart[] {
-  const {
-    scope,
-    engine,
-    parentScope,
-    relationName,
-    relationInfo,
-    program,
-    parentId,
-    txMode,
-  } = input;
+  const { scope, engine, parentScope, relation, program, parentId, txMode } =
+    input;
+  const { relationInfo } = relation;
+  const relationName = relationInfo.name;
   const childName = getStepModelName(relationInfo.targetModel, relationName);
   const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
   const targetPkField = getManyToManyJoinInfo(
@@ -1879,8 +1879,7 @@ export function buildJunctionParts(input: {
   const base = {
     engine,
     parentScope,
-    relationName,
-    relationInfo,
+    relation,
     childName,
     parentId,
     membershipReadSource: input.membershipReadSource,

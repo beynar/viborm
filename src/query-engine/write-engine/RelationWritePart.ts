@@ -3,8 +3,9 @@ import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
-  type FkDirection,
-  getFkDirection,
+  bindRelation,
+  type ChildHeldToMany,
+  type ChildHeldToOne,
 } from "../builders/relation-data-builder";
 import type {
   NormalizedRelationUpsert,
@@ -31,7 +32,7 @@ import {
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope } from "../types";
 import {
   type FinalReferenceSource,
   foreignKeyCorrelationValue,
@@ -106,20 +107,19 @@ export type RelationWriteKind =
   | "update"
   | "updateMany";
 
+type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
+
 export interface RelationWriteConfig {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relationName: string;
-  readonly relationInfo: RelationInfo;
+  readonly relation: ChildHeldRelation;
   readonly kind: RelationWriteKind;
   /**
    * The child-held foreign-key columns and the parent columns they reference,
    * index-aligned (compound keys are per-field, ATOM §1's multi-field produces).
    * A single-column edge is the length-1 case; nothing else changes.
    */
-  readonly fkFields: readonly string[];
-  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   /** The located parent id (a planning value, inlined as a literal at compile). */
   readonly parentId: FinalReferenceSource;
@@ -193,6 +193,18 @@ export class RelationWritePart implements Part {
   // this Part emits NO step — not the probe, not the presence guard, not an empty-SET
   // UPDATE — and in particular does not require the target to exist.
   private readonly isNoOpUpdate: boolean = false;
+
+  private get relationName(): string {
+    return this.config.relation.relationInfo.name;
+  }
+
+  private get foreignFields(): readonly string[] {
+    return this.config.relation.foreignFields;
+  }
+
+  private get referencedFields(): readonly string[] {
+    return this.config.relation.referencedFields;
+  }
 
   constructor(scope: StepScope, config: RelationWriteConfig) {
     this.config = config;
@@ -332,7 +344,7 @@ export class RelationWritePart implements Part {
       const createSubtree = this.config.upsertCreateSubtree;
       if (!createSubtree) {
         throw new QueryEngineError(
-          `query-engine-v2 upsert for relation '${this.config.relationName}' requires a create subtree.`
+          `query-engine-v2 upsert for relation '${this.relationName}' requires a create subtree.`
         );
       }
       return createSubtree.compile(scope, known);
@@ -340,8 +352,8 @@ export class RelationWritePart implements Part {
     const first = rows[0];
     if (!(first && typeof first === "object")) {
       throw new NestedWriteError(
-        `query-engine-v2 upsert probe for relation '${this.config.relationName}' captured no row shape.`,
-        this.config.relationName
+        `query-engine-v2 upsert probe for relation '${this.relationName}' captured no row shape.`,
+        this.relationName
       );
     }
     // Found + an update arm that asks for nothing: Prisma's no-op (the same rule
@@ -360,8 +372,8 @@ export class RelationWritePart implements Part {
           this.guardId,
           this.correlatedProbeStatement(known, false, capturedPk),
           nestedWriteFailure(
-            upsertPremiseChanged(this.config.relationName),
-            this.config.relationName,
+            upsertPremiseChanged(this.relationName),
+            this.relationName,
             false
           )
         )
@@ -377,8 +389,8 @@ export class RelationWritePart implements Part {
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 upsert probe for relation '${this.config.relationName}' did not expose rows.`,
-        this.config.relationName
+        `query-engine-v2 upsert probe for relation '${this.relationName}' did not expose rows.`,
+        this.relationName
       );
     }
     return rows;
@@ -402,8 +414,8 @@ export class RelationWritePart implements Part {
       ...step,
       expects: affectedRows(1, {
         kind: "notFound",
-        message: upsertTargetVanished(this.config.relationName),
-        relation: this.config.relationName,
+        message: upsertTargetVanished(this.relationName),
+        relation: this.relationName,
         raceable: false,
       }),
     };
@@ -526,7 +538,7 @@ export class RelationWritePart implements Part {
   /** `WHERE fk = <parentLiteral> [AND filter]` for a bulk write. */
   private correlatedFilter(known: PlanningKnown): Record<string, unknown> {
     const correlation =
-      this.config.fkFields.length === 1
+      this.foreignFields.length === 1
         ? this.correlationFilters(known, false)[0]!
         : { AND: this.correlationFilters(known, false) };
     const filter = this.config.filter;
@@ -545,8 +557,8 @@ export class RelationWritePart implements Part {
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
-    return this.config.fkFields.map((fkField, index) => {
-      const referencedField = this.config.referencedFields[index]!;
+    return this.foreignFields.map((fkField, index) => {
+      const referencedField = this.referencedFields[index]!;
       const member = {
         foreignField: fkField,
         referencedField,
@@ -559,14 +571,14 @@ export class RelationWritePart implements Part {
                 ...member,
                 readSource: planningSourceFromFinal(
                   this.config.parentId,
-                  this.config.relationName,
+                  this.relationName,
                   this.config.kind
                 ),
               })
             : foreignKeyWriteValue(
                 member,
                 known,
-                this.config.relationName,
+                this.relationName,
                 this.config.kind
               ),
         },
@@ -591,7 +603,8 @@ export class RelationWritePart implements Part {
     scalarData: Record<string, unknown>;
     parentIsLocatedPk: boolean;
   } {
-    const { data, childScope, relationName, kind } = this.config;
+    const { data, childScope, kind } = this.config;
+    const relationName = this.relationName;
     if (!data) {
       throw new QueryEngineError(
         `query-engine-v2 ${kind} for relation '${relationName}' requires data.`
@@ -816,7 +829,7 @@ export class RelationWritePart implements Part {
   private requireUpdateScalarData(): Record<string, unknown> {
     if (!this.updateScalarData) {
       throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' has no scalar data.`
+        `query-engine-v2 ${this.config.kind} for relation '${this.relationName}' has no scalar data.`
       );
     }
     return this.updateScalarData;
@@ -831,21 +844,24 @@ export class RelationWritePart implements Part {
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 ${this.config.kind} probe for relation '${this.config.relationName}' did not expose rows.`,
-        this.config.relationName
+        `query-engine-v2 ${this.config.kind} probe for relation '${this.relationName}' did not expose rows.`,
+        this.relationName
       );
     }
     if (rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(this.config.relationInfo, this.targetedOp()),
-        this.config.relationName
+        relationTargetNotFound(
+          this.config.relation.relationInfo,
+          this.targetedOp()
+        ),
+        this.relationName
       );
     }
     const first = rows[0];
     if (!(first && typeof first === "object")) {
       throw new NestedWriteError(
-        `query-engine-v2 ${this.config.kind} probe for relation '${this.config.relationName}' captured no row shape.`,
-        this.config.relationName
+        `query-engine-v2 ${this.config.kind} probe for relation '${this.relationName}' captured no row shape.`,
+        this.relationName
       );
     }
     return (first as Record<string, unknown>)[this.config.childPrimaryKey];
@@ -853,8 +869,11 @@ export class RelationWritePart implements Part {
 
   private targetFailure() {
     return nestedWriteFailure(
-      relationTargetNotFound(this.config.relationInfo, this.targetedOp()),
-      this.config.relationName,
+      relationTargetNotFound(
+        this.config.relation.relationInfo,
+        this.targetedOp()
+      ),
+      this.relationName,
       false
     );
   }
@@ -913,8 +932,8 @@ export class RelationWritePart implements Part {
  *   the edge written against the old id is stranded when the PK moves (a ForeignKeyError
  *   V1 never raises — V1 orders the edge against the POST-transition id). Route to V1.
  *
- * All non-m2m relations reaching here already survived the child-Part builder, so their
- * FK is child-held (`holdsFK: false`) and `pkFields` are the target's referenced fields.
+ * All non-junction relations reaching here already survived the child-Part builder, so
+ * their bound referenced fields are the target's referenced fields.
  */
 function pkTransitionCascadeSafe(
   targetScope: QueryScope,
@@ -922,11 +941,13 @@ function pkTransitionCascadeSafe(
   transitioningPk: string
 ): boolean {
   for (const mutation of Object.values(relations)) {
-    const info = mutation.relationInfo;
-    // getFkDirection throws for m2m; a junction FK cascades on update by default.
-    if (info.type === "manyToMany") continue;
-    const fk = getFkDirection(targetScope, info);
-    if (fk.pkFields.includes(transitioningPk) && fk.onUpdate !== "cascade") {
+    const relation = bindRelation(targetScope, mutation.relationInfo);
+    // A junction FK cascades on update by default.
+    if (relation.kind === "junction") continue;
+    if (
+      relation.referencedFields.includes(transitioningPk) &&
+      relation.onUpdate !== "cascade"
+    ) {
       return false;
     }
   }
@@ -963,12 +984,12 @@ function buildPkTransitionOccupiedGuards(args: {
   const guards: RelationKeyOccupiedPart[] = [];
   for (const [relationName, mutation] of Object.entries(relations)) {
     const info = mutation.relationInfo;
-    if (info.type === "manyToMany") continue;
-    const fk = getFkDirection(childScope, info);
+    const relation = bindRelation(childScope, info);
     if (
-      fk.holdsFK ||
-      fk.onUpdate === "cascade" ||
-      !fk.pkFields.includes(transitioningPk)
+      relation.kind === "junction" ||
+      relation.kind === "parentHeldToOne" ||
+      relation.onUpdate === "cascade" ||
+      !relation.referencedFields.includes(transitioningPk)
     ) {
       continue;
     }
@@ -978,8 +999,11 @@ function buildPkTransitionOccupiedGuards(args: {
         deeperScope,
         deeperName: getStepModelName(info.targetModel, relationName),
         relationName,
-        action: fk.onUpdate ?? "restrict",
-        fkField: fk.fkFields[fk.pkFields.indexOf(transitioningPk)]!,
+        action: relation.onUpdate ?? "restrict",
+        fkField:
+          relation.foreignFields[
+            relation.referencedFields.indexOf(transitioningPk)
+          ]!,
         before,
         txMode,
       })
@@ -1068,11 +1092,7 @@ export interface RelationSetConfig {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relationName: string;
-  readonly relationInfo: RelationInfo;
-  /** Child FK columns and their index-aligned referenced parent columns (ATOM §1). */
-  readonly fkFields: readonly string[];
-  readonly referencedFields: readonly string[];
+  readonly relation: ChildHeldRelation;
   readonly childPrimaryKey: string;
   readonly requiredFk: boolean;
   readonly requiredFields: readonly string[];
@@ -1120,6 +1140,18 @@ export class RelationSetPart implements Part {
   private readonly departingGuardId: string;
   private readonly orphanNullId: string;
   private readonly departingRead?: ReadStep;
+
+  private get relationName(): string {
+    return this.config.relation.relationInfo.name;
+  }
+
+  private get foreignFields(): readonly string[] {
+    return this.config.relation.foreignFields;
+  }
+
+  private get referencedFields(): readonly string[] {
+    return this.config.relation.referencedFields;
+  }
 
   constructor(scope: StepScope, config: RelationSetConfig) {
     this.config = config;
@@ -1214,8 +1246,8 @@ export class RelationSetPart implements Part {
               { limit: 1 }
             ),
             nestedWriteFailure(
-              relationTargetNotFound(this.config.relationInfo, "set"),
-              this.config.relationName,
+              relationTargetNotFound(this.config.relation.relationInfo, "set"),
+              this.relationName,
               false
             )
           )
@@ -1252,11 +1284,8 @@ export class RelationSetPart implements Part {
       const rows = this.departingRows(known);
       if (rows.length > 0) {
         throw new NestedWriteError(
-          setRequiredOrphan(
-            this.config.relationName,
-            this.config.requiredFields
-          ),
-          this.config.relationName
+          setRequiredOrphan(this.relationName, this.config.requiredFields),
+          this.relationName
         );
       }
       if (!this.config.txMode) {
@@ -1268,11 +1297,8 @@ export class RelationSetPart implements Part {
             statement: this.departingStatement(known, false),
           },
           failure: nestedWriteFailure(
-            setRequiredOrphan(
-              this.config.relationName,
-              this.config.requiredFields
-            ),
-            this.config.relationName,
+            setRequiredOrphan(this.relationName, this.config.requiredFields),
+            this.relationName,
             true
           ),
         });
@@ -1294,8 +1320,8 @@ export class RelationSetPart implements Part {
     const rows = known[planningKey(this.departingId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 set for relation '${this.config.relationName}' did not expose departing rows.`,
-        this.config.relationName
+        `query-engine-v2 set for relation '${this.relationName}' did not expose departing rows.`,
+        this.relationName
       );
     }
     return rows;
@@ -1342,21 +1368,21 @@ export class RelationSetPart implements Part {
     const rows = known[planningKey(target.existId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 set for relation '${this.config.relationName}' did not expose its target rows.`,
-        this.config.relationName
+        `query-engine-v2 set for relation '${this.relationName}' did not expose its target rows.`,
+        this.relationName
       );
     }
     if (rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(this.config.relationInfo, "set"),
-        this.config.relationName
+        relationTargetNotFound(this.config.relation.relationInfo, "set"),
+        this.relationName
       );
     }
     const first = rows[0];
     if (!(first && typeof first === "object")) {
       throw new NestedWriteError(
-        `query-engine-v2 set for relation '${this.config.relationName}' captured no target row shape.`,
-        this.config.relationName
+        `query-engine-v2 set for relation '${this.relationName}' captured no target row shape.`,
+        this.relationName
       );
     }
     return (first as Record<string, unknown>)[this.config.childPrimaryKey];
@@ -1366,8 +1392,8 @@ export class RelationSetPart implements Part {
    *  column value (one entry per compound-key field, ATOM §1). */
   private fkAssignData(known: PlanningKnown): Record<string, unknown> {
     const data: Record<string, unknown> = {};
-    for (let index = 0; index < this.config.fkFields.length; index += 1) {
-      const fkField = this.config.fkFields[index]!;
+    for (let index = 0; index < this.foreignFields.length; index += 1) {
+      const fkField = this.foreignFields[index]!;
       data[fkField] = referenceSql(
         this.config.engine,
         this.config.childScope.model,
@@ -1375,11 +1401,11 @@ export class RelationSetPart implements Part {
         foreignKeyWriteValue(
           {
             foreignField: fkField,
-            referencedField: this.config.referencedFields[index]!,
+            referencedField: this.referencedFields[index]!,
             writeSource: this.config.parentId,
           },
           known,
-          this.config.relationName,
+          this.relationName,
           "set"
         )
       );
@@ -1390,7 +1416,7 @@ export class RelationSetPart implements Part {
   /** The departing-null write's FK assignment: null every FK column. */
   private fkNullData(): Record<string, unknown> {
     const data: Record<string, unknown> = {};
-    for (const fkField of this.config.fkFields) data[fkField] = { set: null };
+    for (const fkField of this.foreignFields) data[fkField] = { set: null };
     return data;
   }
 
@@ -1403,10 +1429,10 @@ export class RelationSetPart implements Part {
     useRef: boolean
   ): Record<string, unknown>[] {
     const source = this.config.membershipReadSource ?? this.config.parentId;
-    return this.config.fkFields.map((fkField, index) => {
+    return this.foreignFields.map((fkField, index) => {
       const member = {
         foreignField: fkField,
-        referencedField: this.config.referencedFields[index]!,
+        referencedField: this.referencedFields[index]!,
         writeSource: source,
       };
       return {
@@ -1416,16 +1442,11 @@ export class RelationSetPart implements Part {
                 ...member,
                 readSource: planningSourceFromFinal(
                   source,
-                  this.config.relationName,
+                  this.relationName,
                   "set"
                 ),
               })
-            : foreignKeyWriteValue(
-                member,
-                known,
-                this.config.relationName,
-                "set"
-              ),
+            : foreignKeyWriteValue(member, known, this.relationName, "set"),
         },
       };
     });
@@ -1448,13 +1469,9 @@ export class RelationSetPart implements Part {
 interface WritePartBase {
   readonly scope: StepScope;
   readonly engine: QueryEngine;
-  readonly relationName: string;
-  readonly relationInfo: RelationInfo;
-  readonly fk: FkDirection;
+  readonly relation: ChildHeldRelation;
   readonly childName: string;
   readonly childScope: QueryScope;
-  readonly fkFields: readonly string[];
-  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
@@ -1496,9 +1513,16 @@ function assertOwnedFkAbsentFromUpdateData(
   data: Record<string, unknown>
 ): void {
   const { scalarData } = partitionModelData(base.childScope, data);
-  if (base.fkFields.some((fkField) => Object.hasOwn(scalarData, fkField))) {
+  if (
+    base.relation.foreignFields.some((foreignField) =>
+      Object.hasOwn(scalarData, foreignField)
+    )
+  ) {
     throw new UnsupportedOperationError(
-      relationOwnsForeignKey(base.relationName, base.fkFields)
+      relationOwnsForeignKey(
+        base.relation.relationInfo.name,
+        base.relation.foreignFields
+      )
     );
   }
 }
@@ -1512,10 +1536,11 @@ export function buildToManyUpdateParts(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "update" }>
 ): Part[] {
+  const relationName = base.relation.relationInfo.name;
   return entry.items.map((item) => {
     if (item.target.kind !== "unique") {
       throw new QueryEngineError(
-        `query-engine-v2 internal: to-many update for relation '${base.relationName}' requires a unique target.`
+        `query-engine-v2 internal: to-many update for relation '${relationName}' requires a unique target.`
       );
     }
     // M12 position 1 — the to-many `update` arm's data (`posts: { update: { where,
@@ -1532,11 +1557,11 @@ export function buildToManyUpdateParts(
           locate: {
             where: item.target.where,
             parentId: base.parentId,
-            childFields: base.fkFields,
-            parentFields: base.referencedFields,
-            relationName: base.relationName,
+            childFields: base.relation.foreignFields,
+            parentFields: base.relation.referencedFields,
+            relationName,
             notFoundMessage: relationTargetNotFound(
-              base.relationInfo,
+              base.relation.relationInfo,
               "update"
             ),
           },
@@ -1568,10 +1593,11 @@ export function buildToOneUpdatePart(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "update" }>
 ): Part {
+  const relationName = base.relation.relationInfo.name;
   const target = entry.items[0];
   if (!target || target.target.kind !== "correlated") {
     throw new QueryEngineError(
-      `query-engine-v2 internal: to-one update for relation '${base.relationName}' requires one correlated target.`
+      `query-engine-v2 internal: to-one update for relation '${relationName}' requires one correlated target.`
     );
   }
   // M12 position 2 — the inverse-side to-one `update` arm's data (`profile: { update:
@@ -1592,11 +1618,14 @@ export function buildToOneUpdatePart(
       data: target.data,
       locate: {
         parentId: base.parentId,
-        childFields: base.fkFields,
-        parentFields: base.referencedFields,
+        childFields: base.relation.foreignFields,
+        parentFields: base.relation.referencedFields,
         ...(target.target.filter ? { filter: target.target.filter } : {}),
-        relationName: base.relationName,
-        notFoundMessage: relationTargetNotFound(base.relationInfo, "update"),
+        relationName,
+        notFoundMessage: relationTargetNotFound(
+          base.relation.relationInfo,
+          "update"
+        ),
       },
     });
   }
@@ -1619,9 +1648,10 @@ export function buildInverseToOneUpsertPart(
   base: WritePartBase,
   input: NormalizedRelationUpsert
 ): RelationWritePart {
+  const relationName = base.relation.relationInfo.name;
   if (input.target.kind !== "correlated") {
     throw new QueryEngineError(
-      `query-engine-v2 internal: to-one upsert for relation '${base.relationName}' requires a correlated target.`
+      `query-engine-v2 internal: to-one upsert for relation '${relationName}' requires a correlated target.`
     );
   }
   const createData = input.create;
@@ -1640,11 +1670,11 @@ export function buildInverseToOneUpsertPart(
     childScope: base.childScope,
     data: createData,
     incomingForeignKey: pairForeignKeyMembers(
-      base.fkFields,
-      base.referencedFields,
-      base.referencedFields.map(() => base.parentId)
+      base.relation.foreignFields,
+      base.relation.referencedFields,
+      base.relation.referencedFields.map(() => base.parentId)
     ),
-    relationName: base.relationName,
+    relationName,
   });
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
@@ -1673,9 +1703,10 @@ export function buildToManyDeleteParts(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "delete" }>
 ): RelationWritePart[] {
+  const relationName = base.relation.relationInfo.name;
   if (entry.target.kind !== "selectors") {
     throw new QueryEngineError(
-      `query-engine-v2 internal: to-many delete for relation '${base.relationName}' requires selector targets.`
+      `query-engine-v2 internal: to-many delete for relation '${relationName}' requires selector targets.`
     );
   }
   return entry.target.targets.map(
@@ -1709,16 +1740,13 @@ export function buildToManySetPart(
   entry: Extract<RelationMutationEntry, { kind: "set" }>,
   membershipReadSource?: FinalReferenceSource
 ): RelationSetPart {
-  const requiredFields = requiredForeignKeyFields(base.fk);
+  const requiredFields = requiredForeignKeyFields(base.relation);
   return new RelationSetPart(base.scope, {
     membershipReadSource,
     engine: base.engine,
     childScope: base.childScope,
     childName: base.childName,
-    relationName: base.relationName,
-    relationInfo: base.relationInfo,
-    fkFields: base.fkFields,
-    referencedFields: base.referencedFields,
+    relation: base.relation,
     childPrimaryKey: base.childPrimaryKey,
     requiredFk: requiredFields.length > 0,
     requiredFields,
@@ -1736,11 +1764,8 @@ function partConfig(
     engine: base.engine,
     childScope: base.childScope,
     childName: base.childName,
-    relationName: base.relationName,
-    relationInfo: base.relationInfo,
+    relation: base.relation,
     kind,
-    fkFields: base.fkFields,
-    referencedFields: base.referencedFields,
     childPrimaryKey: base.childPrimaryKey,
     parentId: base.parentId,
     txMode: base.txMode,

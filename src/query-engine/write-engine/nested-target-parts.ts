@@ -1,7 +1,11 @@
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
-import { getFkDirection } from "../builders/relation-data-builder";
+import {
+  bindRelation,
+  type ChildHeldToMany,
+  type ChildHeldToOne,
+} from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type RelationMutationEntry,
@@ -117,12 +121,11 @@ export function buildNestedTargetChildParts(
   membershipReadSource?: FinalReferenceSource
 ): readonly Part[] {
   const parts: Part[] = [];
-  for (const [relationName, program] of Object.entries(relations)) {
+  for (const program of Object.values(relations)) {
     foldOneNestedRelation({
       scope,
       engine,
       targetScope,
-      relationName,
       program,
       parentId,
       membershipReadSource,
@@ -151,16 +154,13 @@ export function targetNeedsFullUpdate(
   const { relations } = buildParsedRelationPrograms(targetScope, data);
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
   for (const mutation of Object.values(relations)) {
-    const relationInfo = mutation.relationInfo;
-    // Many-to-many is never parent-held and is folded through the junction, not the
-    // located-target update root — it never needs the full-update delegation.
-    if (relationInfo.type === "manyToMany") continue;
-    const fk = getFkDirection(targetScope, relationInfo);
-    if (fk.holdsFK) return true;
+    const relation = bindRelation(targetScope, mutation.relationInfo);
+    if (relation.kind === "junction") continue;
+    if (relation.kind === "parentHeldToOne") return true;
     const referencesTargetPk =
       targetPrimaryKeys.length === 1 &&
-      fk.pkFields.length === 1 &&
-      fk.pkFields[0] === targetPrimaryKeys[0];
+      relation.referencedFields.length === 1 &&
+      relation.referencedFields[0] === targetPrimaryKeys[0];
     if (!referencesTargetPk) return true;
   }
   return false;
@@ -318,7 +318,6 @@ function foldOneNestedRelation(input: {
   scope: StepScope;
   engine: QueryEngine;
   targetScope: QueryScope;
-  relationName: string;
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
   /** The junction-only READ source under a post-transition ordering (E2-U3); see
@@ -327,16 +326,10 @@ function foldOneNestedRelation(input: {
   txMode: boolean;
   parts: Part[];
 }): void {
-  const {
-    scope,
-    engine,
-    targetScope,
-    relationName,
-    program,
-    parentId,
-    txMode,
-  } = input;
+  const { scope, engine, targetScope, program, parentId, txMode } = input;
   const relationInfo = program.relationInfo;
+  const relationName = relationInfo.name;
+  const relation = bindRelation(targetScope, relationInfo);
 
   // The recursion seam threaded to every kind that may carry its own relations one
   // level deeper (the m2m junction here; the child-held write/link/adopt families
@@ -359,7 +352,7 @@ function foldOneNestedRelation(input: {
       deeperCorrelationParentId
     );
 
-  if (relationInfo.type === "manyToMany") {
+  if (relation.kind === "junction") {
     // Many-to-many is not special (WHY §4.3): junction as ordinary Parts, correlated
     // to the located target's literal PK (its membership reads inline the literal —
     // RelationJunctionPart.parentRef). A junction create/update/upsert target whose
@@ -370,8 +363,7 @@ function foldOneNestedRelation(input: {
         scope,
         engine,
         parentScope: targetScope,
-        relationName,
-        relationInfo,
+        relation,
         program,
         parentId,
         membershipReadSource: input.membershipReadSource,
@@ -382,8 +374,7 @@ function foldOneNestedRelation(input: {
     return;
   }
 
-  const fk = getFkDirection(targetScope, relationInfo);
-  if (fk.holdsFK) {
+  if (relation.kind === "parentHeldToOne") {
     // X1c LIFTED (the located-target parent-held-to-one, child-SET folding). A located
     // target that holds this FK — a deeper parent-held to-one whose identity folds into
     // the target's OWN update SET — no longer reaches this in-place child-Part builder:
@@ -394,18 +385,6 @@ function foldOneNestedRelation(input: {
     // unreachable by construction — a fail-closed internal invariant, not a route.
     throw new QueryEngineError(
       `query-engine-v2 internal: a parent-held to-one on relation '${relationName}' reached the in-place child-Part builder; it must delegate to the update root (targetNeedsFullUpdate).`
-    );
-  }
-
-  const isInverseToOne = relationInfo.isToOne;
-  if (!(isInverseToOne || relationInfo.type === "oneToMany")) {
-    // Unreachable by construction (N7-U-A, the X1c disposition), exactly as its root twin
-    // `UpdateOperation.interpretChildHeld`: `RelationInfo.type` is a four-value union,
-    // `manyToMany` is dispatched above, the parent-held direction is the
-    // `QueryEngineError` invariant right above this, and `oneToOne` / `manyToOne` both
-    // carry `isToOne`. The predicate is false for every member that can arrive.
-    throw new QueryEngineError(
-      `query-engine-v2 internal: relation '${relationName}' reached the deeper child-Part builder as '${relationInfo.type}', which is neither to-one nor one-to-many.`
     );
   }
 
@@ -421,8 +400,8 @@ function foldOneNestedRelation(input: {
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
   const referencesTargetPk =
     targetPrimaryKeys.length === 1 &&
-    fk.pkFields.length === 1 &&
-    fk.pkFields[0] === targetPrimaryKeys[0];
+    relation.referencedFields.length === 1 &&
+    relation.referencedFields[0] === targetPrimaryKeys[0];
   if (!referencesTargetPk) {
     throw new QueryEngineError(
       `query-engine-v2 internal: a non-primary-key referenced edge on relation '${relationName}' reached the in-place child-Part builder; it must delegate to the update root (targetNeedsFullUpdate).`
@@ -440,13 +419,9 @@ function foldOneNestedRelation(input: {
   const writeBase = {
     scope,
     engine,
-    relationName,
-    relationInfo,
-    fk,
+    relation,
     childName,
     childScope,
-    fkFields: fk.fkFields,
-    referencedFields: fk.pkFields,
     childPrimaryKey: childPrimaryKeys[0]!,
     parentId,
     txMode,
@@ -470,16 +445,12 @@ function foldOneNestedRelation(input: {
     foldOneChildHeldKind({
       entry,
       armSeam,
-      isInverseToOne,
-      relationName,
-      relationInfo,
       childScope,
       childName,
-      fk,
+      relation,
       writeBase,
       scope,
       engine,
-      targetScope,
       parentId,
       txMode,
       parts: input.parts,
@@ -490,16 +461,12 @@ function foldOneNestedRelation(input: {
 function foldOneChildHeldKind(args: {
   entry: RelationMutationEntry;
   armSeam: ArmSeam;
-  isInverseToOne: boolean;
-  relationName: string;
-  relationInfo: RelationMutationProgram["relationInfo"];
   childScope: QueryScope;
   childName: string;
-  fk: ReturnType<typeof getFkDirection>;
+  relation: ChildHeldToOne | ChildHeldToMany;
   writeBase: Parameters<typeof buildToManyUpdateParts>[0];
   scope: StepScope;
   engine: QueryEngine;
-  targetScope: QueryScope;
   parentId: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
@@ -507,20 +474,18 @@ function foldOneChildHeldKind(args: {
   const {
     entry,
     armSeam,
-    isInverseToOne,
-    relationName,
-    relationInfo,
     childScope,
     childName,
-    fk,
+    relation,
     writeBase,
     scope,
     engine,
-    targetScope,
     parentId,
     txMode,
     parts,
   } = args;
+  const isInverseToOne = relation.kind === "childHeldToOne";
+  const relationName = relation.relationInfo.name;
   const push = (built: readonly Part[]) => parts.push(...built);
 
   switch (entry.kind) {
@@ -530,12 +495,9 @@ function foldOneChildHeldKind(args: {
         buildToManyLinkParts(
           scope,
           engine,
-          relationName,
-          relationInfo,
+          relation,
           childName,
           childScope,
-          fk.fkFields,
-          fk.pkFields,
           writeBase.childPrimaryKey,
           entry,
           parentId,
@@ -547,15 +509,13 @@ function foldOneChildHeldKind(args: {
       push(
         buildConnectOrCreateParts(
           scope,
-          targetScope,
           engine,
-          relationName,
-          relationInfo,
+          relation,
           entry.items,
           pairForeignKeyMembers(
-            fk.fkFields,
-            fk.pkFields,
-            fk.pkFields.map(() => parentId)
+            relation.foreignFields,
+            relation.referencedFields,
+            relation.referencedFields.map(() => parentId)
           ),
           txMode,
           armSeam
@@ -574,20 +534,18 @@ function foldOneChildHeldKind(args: {
         return;
       }
       const members = pairCorrelatedForeignKeyMembers(
-        fk.fkFields,
-        fk.pkFields,
-        fk.pkFields.map(() =>
+        relation.foreignFields,
+        relation.referencedFields,
+        relation.referencedFields.map(() =>
           planningSourceFromFinal(parentId, relationName, "upsert")
         ),
-        fk.pkFields.map(() => parentId)
+        relation.referencedFields.map(() => parentId)
       );
       push(
         buildToManyUpsertParts(
           scope,
-          targetScope,
           engine,
-          relationName,
-          relationInfo,
+          relation,
           entry.items,
           members,
           members,
@@ -632,9 +590,9 @@ function foldOneChildHeldKind(args: {
       // Every non-bulk fresh record is a CreateOperation subtree. Its field-bound
       // incoming members resolve literal and planned parents through the same compiler.
       const members = pairForeignKeyMembers(
-        fk.fkFields,
-        fk.pkFields,
-        fk.pkFields.map(() => parentId)
+        relation.foreignFields,
+        relation.referencedFields,
+        relation.referencedFields.map(() => parentId)
       );
       parts.push(
         ...buildFreshRecordParts({
@@ -662,9 +620,9 @@ function foldOneChildHeldKind(args: {
       // builder, and the skip disposition is a function of the dialect and the rows,
       // not of where the foreign key's value comes from.
       const members = pairForeignKeyMembers(
-        fk.fkFields,
-        fk.pkFields,
-        fk.pkFields.map(() => parentId)
+        relation.foreignFields,
+        relation.referencedFields,
+        relation.referencedFields.map(() => parentId)
       );
       parts.push(
         literalReferenceSource(parentId)

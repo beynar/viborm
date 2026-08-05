@@ -1,6 +1,10 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationLinkPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
+import type {
+  ChildHeldToMany,
+  ChildHeldToOne,
+} from "../builders/relation-data-builder";
 import type { RelationMutationEntry } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
@@ -10,7 +14,7 @@ import {
   buildUpdateMany,
 } from "../operations";
 import type { QueryEngine } from "../query-engine";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope } from "../types";
 import {
   type FinalReferenceSource,
   foreignKeyCorrelationValue,
@@ -34,13 +38,13 @@ import { planningKey } from "./Part";
 import type { StepScope } from "./StepScope";
 
 export type LinkKind = "connect" | "disconnect";
+type LinkedRelation = ChildHeldToOne | ChildHeldToMany;
 
 export interface RelationLinkConfig {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relationName: string;
-  readonly relationInfo: RelationInfo;
+  readonly relation: LinkedRelation;
   readonly kind: LinkKind;
   /**
    * The child unique locators this Part links — one **key-shape group** (P4), in
@@ -52,13 +56,6 @@ export interface RelationLinkConfig {
   readonly wheres?: readonly Record<string, unknown>[];
   /** `disconnect: true` — null every child currently connected to the parent. */
   readonly disconnectAll?: boolean;
-  /**
-   * The child-held foreign-key columns and the parent columns they reference,
-   * index-aligned (compound keys are per-field, ATOM §1's multi-field produces).
-   * A single-column edge is the length-1 case; nothing else changes.
-   */
-  readonly fkFields: readonly string[];
-  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   /**
    * Where the parent id the child FK points at comes from. In the update family
@@ -324,35 +321,39 @@ export class RelationLinkPart implements Part {
    * can compare exactly.
    */
   private requireProbeFoundAll(known: PlanningKnown, kind: LinkKind): void {
+    const { relationInfo } = this.config.relation;
+    const relationName = relationInfo.name;
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 ${kind} probe for relation '${this.config.relationName}' did not expose rows.`,
-        this.config.relationName
+        `query-engine-v2 ${kind} probe for relation '${relationName}' did not expose rows.`,
+        relationName
       );
     }
     if (rows.length < this.distinctTargets) {
       throw new NestedWriteError(
         kind === "connect"
-          ? relationTargetNotFound(this.config.relationInfo, "connect")
-          : relationTargetNotFound(this.config.relationInfo, "disconnect"),
-        this.config.relationName
+          ? relationTargetNotFound(relationInfo, "connect")
+          : relationTargetNotFound(relationInfo, "disconnect"),
+        relationName
       );
     }
   }
 
   private connectFailure() {
+    const { relationInfo } = this.config.relation;
     return nestedWriteFailure(
-      relationTargetNotFound(this.config.relationInfo, "connect"),
-      this.config.relationName,
+      relationTargetNotFound(relationInfo, "connect"),
+      relationInfo.name,
       false
     );
   }
 
   private disconnectFailure() {
+    const { relationInfo } = this.config.relation;
     return nestedWriteFailure(
-      relationTargetNotFound(this.config.relationInfo, "disconnect"),
-      this.config.relationName,
+      relationTargetNotFound(relationInfo, "disconnect"),
+      relationInfo.name,
       false
     );
   }
@@ -361,8 +362,12 @@ export class RelationLinkPart implements Part {
    *  column value (one entry per compound-key field, ATOM §1). */
   private fkAssignData(known: PlanningKnown): Record<string, unknown> {
     const data: Record<string, unknown> = {};
-    for (let index = 0; index < this.config.fkFields.length; index += 1) {
-      const fkField = this.config.fkFields[index]!;
+    for (
+      let index = 0;
+      index < this.config.relation.foreignFields.length;
+      index += 1
+    ) {
+      const fkField = this.config.relation.foreignFields[index]!;
       data[fkField] = referenceSql(
         this.config.engine,
         this.config.childScope.model,
@@ -376,7 +381,9 @@ export class RelationLinkPart implements Part {
   /** The disconnect write's FK assignment: null every FK column. */
   private fkNullData(): Record<string, unknown> {
     const data: Record<string, unknown> = {};
-    for (const fkField of this.config.fkFields) data[fkField] = { set: null };
+    for (const foreignField of this.config.relation.foreignFields) {
+      data[foreignField] = { set: null };
+    }
     return data;
   }
 
@@ -386,17 +393,19 @@ export class RelationLinkPart implements Part {
    *  own primary key), that parent's compile-time constant inlined. One home for both
    *  provenances through one field-bound member. */
   private correlationFilters(): Record<string, unknown>[] {
-    return this.config.fkFields.map((fkField, index) => {
-      const referencedField = this.config.referencedFields[index]!;
+    const { relationInfo, foreignFields, referencedFields } =
+      this.config.relation;
+    return foreignFields.map((foreignField, index) => {
+      const referencedField = referencedFields[index]!;
       return {
-        [fkField]: {
+        [foreignField]: {
           equals: foreignKeyCorrelationValue({
-            foreignField: fkField,
+            foreignField,
             referencedField,
             writeSource: this.config.parentId,
             readSource: planningSourceFromFinal(
               this.config.parentId,
-              this.config.relationName,
+              relationInfo.name,
               "disconnect"
             ),
           }),
@@ -409,22 +418,24 @@ export class RelationLinkPart implements Part {
   private guardCorrelationFilters(
     known: PlanningKnown
   ): Record<string, unknown>[] {
-    return this.config.fkFields.map((fkField, index) => ({
-      [fkField]: { equals: this.parentReferenced(known, index) },
+    return this.config.relation.foreignFields.map((foreignField, index) => ({
+      [foreignField]: { equals: this.parentReferenced(known, index) },
     }));
   }
 
   /** The concrete value of the parent column the FK field `index` references
    *  (never a Ref — inlined at compile). */
   private parentReferenced(known: PlanningKnown, index: number): unknown {
+    const { relationInfo, foreignFields, referencedFields } =
+      this.config.relation;
     return foreignKeyWriteValue(
       {
-        foreignField: this.config.fkFields[index]!,
-        referencedField: this.config.referencedFields[index]!,
+        foreignField: foreignFields[index]!,
+        referencedField: referencedFields[index]!,
         writeSource: this.config.parentId,
       },
       known,
-      this.config.relationName,
+      relationInfo.name,
       this.config.kind
     );
   }
@@ -441,7 +452,7 @@ export class RelationLinkPart implements Part {
     const wheres = this.config.wheres;
     if (!wheres || wheres.length === 0) {
       throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' requires a unique where.`
+        `query-engine-v2 ${this.config.kind} for relation '${this.config.relation.relationInfo.name}' requires a unique where.`
       );
     }
     return wheres;
@@ -457,12 +468,9 @@ export class RelationLinkPart implements Part {
 export function buildToManyLinkParts(
   scope: StepScope,
   engine: QueryEngine,
-  relationName: string,
-  relationInfo: RelationInfo,
+  relation: LinkedRelation,
   childName: string,
   childScope: QueryScope,
-  fkFields: readonly string[],
-  referencedFields: readonly string[],
   childPrimaryKey: string,
   entry: Extract<RelationMutationEntry, { kind: "connect" | "disconnect" }>,
   parentId: FinalReferenceSource,
@@ -472,11 +480,8 @@ export function buildToManyLinkParts(
     engine,
     childScope,
     childName,
-    relationName,
-    relationInfo,
+    relation,
     kind: entry.kind,
-    fkFields,
-    referencedFields,
     childPrimaryKey,
     parentId,
     txMode,

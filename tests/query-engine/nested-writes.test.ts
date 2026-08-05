@@ -1,5 +1,5 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { getFkDirection } from "@query-engine/builders/relation-data-builder";
+import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { partitionModelData } from "@query-engine/builders/relation-mutation-parser";
 import { createQueryScope } from "@query-engine/context/query-scope";
 import { s } from "@schema";
@@ -48,11 +48,19 @@ describe("named inverse relations", () => {
       );
     }
 
-    expect(getFkDirection(ctx, posts.relationInfo).fkFields).toEqual([
-      "authorId",
-    ]);
-    expect(getFkDirection(ctx, coAuthoredPosts.relationInfo).fkFields).toEqual([
-      "coAuthorId",
-    ]);
+    const postsRelation = bindRelation(ctx, posts.relationInfo);
+    const coAuthoredPostsRelation = bindRelation(
+      ctx,
+      coAuthoredPosts.relationInfo
+    );
+    if (
+      postsRelation.kind === "junction" ||
+      coAuthoredPostsRelation.kind === "junction"
+    ) {
+      throw new Error("Expected foreign-key relations");
+    }
+
+    expect(postsRelation.foreignFields).toEqual(["authorId"]);
+    expect(coAuthoredPostsRelation.foreignFields).toEqual(["coAuthorId"]);
   });
 });
