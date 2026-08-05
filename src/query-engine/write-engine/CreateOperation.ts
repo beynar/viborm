@@ -316,6 +316,7 @@ export class CreateOperation {
   private readonly terminalId: string;
   private readonly planningSteps: StatementStep[] = [];
   private readonly registeredParts = new Set<Part>();
+  private readonly generatedIdentityConsumers = new Set<string>();
   /** The single-step `INSERT … RETURNING select` fold, when eligible. */
   private readonly foldStep: WriteStep | undefined;
   /** X1b — a nested fresh subtree emits no terminal read (the enclosing op owns
@@ -510,7 +511,7 @@ export class CreateOperation {
   freshRootReferenced(
     referencedField: string
   ): FinalReferenceSource | undefined {
-    return freshReferenced(this.root, referencedField);
+    return this.recordReferenced(this.root, referencedField);
   }
 
   planning(): PlanningFragment {
@@ -1409,7 +1410,7 @@ export class CreateOperation {
     referencedField: string,
     relationName: string
   ): unknown {
-    const resolved = freshReferenced(target, referencedField);
+    const resolved = this.recordReferenced(target, referencedField);
     if (resolved === undefined) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create cannot resolve referenced field '${referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
@@ -1674,7 +1675,7 @@ export class CreateOperation {
     referencedField: string,
     relationName: string
   ): unknown {
-    const resolved = freshReferenced(self, referencedField);
+    const resolved = this.recordReferenced(self, referencedField);
     if (resolved === undefined) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create cannot resolve referenced field '${referencedField}' for relation '${relationName}': it is neither this record's primary key nor a knowable value in its own create data.`
@@ -1755,7 +1756,7 @@ export class CreateOperation {
     referenced: string,
     relationName: string
   ): FinalReferenceSource {
-    const resolved = freshReferenced(self, referenced);
+    const resolved = this.recordReferenced(self, referenced);
     if (resolved === undefined) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create cannot resolve the parent id for relation '${relationName}': referenced field '${referenced}' is neither this record's primary key nor a knowable value in its own create data.`
@@ -1949,7 +1950,11 @@ export class CreateOperation {
       this.rootRacePin && writeStepId === this.root.writeStepId
         ? { racePin: this.rootRacePin }
         : {};
-    if (!generatedField) {
+    const capturesGeneratedIdentity =
+      generatedField !== undefined &&
+      (this.generatedIdentityConsumers.has(writeStepId) ||
+        (!this.suppressTerminal && writeStepId === this.root.writeStepId));
+    if (!capturesGeneratedIdentity) {
       return {
         id: writeStepId,
         kind: "write",
@@ -1984,6 +1989,16 @@ export class CreateOperation {
       },
       ...racePin,
     };
+  }
+
+  private recordReferenced(
+    record: RecordIdentity,
+    referencedField: string
+  ): FinalReferenceSource | undefined {
+    if (record.generatedField === referencedField) {
+      this.generatedIdentityConsumers.add(record.writeStepId);
+    }
+    return freshReferenced(record, referencedField);
   }
 
   /**
