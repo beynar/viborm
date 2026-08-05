@@ -103,6 +103,37 @@ Many-to-many membership uses the same split: membership reads and batch guards
 use the old source, while assignments use the final source. Junction SQL remains
 owned by `ManyToManyStatements`.
 
+## Record compilation and relation position
+
+`bindRelation` classifies a relation at its first topology decision:
+
+```ts
+type BoundRelation =
+  | ParentHeldToOne
+  | ChildHeldToOne
+  | ChildHeldToMany
+  | JunctionRelation;
+```
+
+The bound relation stores ordered foreign and referenced fields for an FK edge.
+It does not store scopes, identities, value sources, transition state, junction
+metadata, SQL, or execution policy. `RelationMutationProgram` remains separate:
+it describes the request, while `BoundRelation` describes the edge position.
+
+`CreateOperation` is the one compiler for a non-bulk fresh record subtree.
+Nested callers provide parsed data, field-bound incoming FK members, and an
+optional root race pin. The fresh-record Part publishes its planning and final
+steps, root write ID, and root referenced values. Relation Parts still own
+membership and found/missing decisions. `createMany` remains specialized.
+
+A prototype selected-record compiler was removed after falsification. Existing
+paths do not share one target-read contract: scalar target updates reuse an
+outer rows-only probe, deep updates perform a second locate with stricter
+cardinality, and empty updates currently allocate suppressed IDs that preserve
+later sibling suffixes. A universal compiler either changed those observable
+plans or required position policy that exceeded the deletion gate. The current
+depth-specific update compiler therefore remains live.
+
 ## Branch premises
 
 Branch sites explicitly compile the selected arm:
@@ -139,6 +170,7 @@ failed the negative-line gate. The previous declaration-only `Probe` and
 - `ManyToManyStatements`
 - E6.9 planning preparation writes
 - adapter-owned SQL, casts, assertions, conflict syntax, and locking
+- explicit junction-create attachment order
 
 Do not add a universal operation program, generic mutation DSL, payload walker,
 strategy framework, branch-step IR, or shared utility landfill.

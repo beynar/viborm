@@ -32,6 +32,54 @@ The provisional structural adopt helper was rejected. It needed arm callbacks an
 
 The remaining local compression was measured after the main migration. Only guard/write bucketing still had three or more semantically identical instances, so it received one owner. Correlation builders, generated-identity constructors, and recursive where walkers still have different invariants or fewer than three live instances and remain separate.
 
+## Follow-on record-compiler experiment
+
+The follow-on work started at `d4bcdde` and ended at `66ae57b`. It tested two
+proposals: one compiler for each single record, and one bound relation-position
+atom. The retained production change adds 992 TypeScript lines and deletes
+1,449: **net −457 lines** in `src/query-engine`.
+
+The fresh-record proposal passed. `CreateOperation` now compiles every non-bulk
+fresh record subtree. Nested callers pass parsed data and field-bound incoming
+foreign-key members. Literal-parent and planned-parent scalar INSERT builders,
+their callback injection seam, and the scalar-only create-arm paths were
+deleted. This part removed 274 production lines. `createMany` remains
+specialized.
+
+The relation-position proposal also passed. `BoundRelation` now distinguishes
+`parentHeldToOne`, `childHeldToOne`, `childHeldToMany`, and `junction` at the
+first topology decision. It replaced `FkDirection`, `getFkDirection`, and the
+repeated relation metadata carried by write Parts. This part removed 185
+production lines. It stores topology only; field-value provenance remains in
+`foreign-key-reference.ts`, and junction SQL remains in
+`ManyToManyStatements`.
+
+The selected-record compiler failed its keep gate and was removed. Three live
+contracts prevented an exact common core:
+
+- A scalar targeted update uses one outer rows-only probe. A deep target update
+  performs another locate and adds `firstRowField` and `exactlyOneRow` behavior.
+- Upsert scalar found arms reuse the decision probe. Relation-bearing found arms
+  intentionally perform the second optional locate.
+- Empty nested updates allocate suppressed step IDs today. Returning before ID
+  allocation changes later same-model sibling suffixes.
+
+The prototype could preserve the current plans only by adding position and
+payload policy, or it could remove that policy only by changing SQL, reads,
+guards, or step IDs. Both choices violate this plan. Its final production delta
+is zero. The junction-create absorption experiment was not retained because its
+required predecessor did not pass and the explicit junction insertion between
+the target INSERT and descendants still needs an attachment policy. No lifecycle
+hook, strategy object, or placement boolean was added.
+
+The follow-on target of 800 removed production lines and 8–12 removed concepts
+was therefore not met. The retained work removed these eight named surfaces:
+`FkDirection`, `getFkDirection`, `rootFkInject`,
+`buildLiteralParentCreatePart`, `buildPlannedParentCreatePart`,
+`buildNestedFreshCreateParts`, `buildCreateArm`, and
+`buildUpsertCreateArm`. The smaller result is intentional: the failed units were
+deleted instead of hiding their positional differences behind policy.
+
 ## The question, answered first
 
 The engine grew 30,820 → 33,119 → 38,927 lines across PRs #16 and #20 (+26%), with V1's write runtime deleted in the middle. **Was the growth avoidable by smarter abstractions?** Mostly no — and the audit can show it, not just say it:

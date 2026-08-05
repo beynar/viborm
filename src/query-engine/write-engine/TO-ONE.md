@@ -57,12 +57,13 @@ together.
 
 ---
 
-## 1. The FK-direction taxonomy (a) — which dataflow each implies
+## 1. The bound relation-position taxonomy (a) — which dataflow each implies
 
 A to-one relation is one FK edge. Which side physically holds the FK column
-decides the write order. `getFkDirection(scope, relationInfo)` reports it.
+decides the write order. `bindRelation(scope, relationInfo)` reports the
+position.
 
-### 1.1 Parent-held to-one — the record holds the FK (`holdsFK: true`)
+### 1.1 Parent-held to-one — the record holds the FK
 
 `manyToOne`, or the FK-owning leg of a `oneToOne`. The record points **to** the
 target. The target's referenced value must be in hand *before* the record's own
@@ -329,7 +330,7 @@ record.create({
 
 Construction:
 - separate relations: `primary` (parent-held, create), `secondary` (parent-held,
-  connect). Both `holdsFK` → before-parent phase.
+  connect). Both enter the before-parent phase.
 - coverage ledger from before-parent creates: `{ (account, id, 2) }`.
 - `secondary` connect: referenced value `2` is **covered** → pure FK assign
   `secondaryId = 2`, no probe, no guard.
@@ -383,7 +384,7 @@ and they are the whole of T2's design:
    Under `create` that value was folded into the record's own INSERT. Under
    `update` the parent row is already written, so the FK is set by the **root
    parent UPDATE** — V1's `updateParentForeignKey` (`RelationUpdates.compileRelation`,
-   the `if (fk.holdsFK)` arms of `create`/`connect`/`connectOrCreate`). The
+   the parent-held arms of `create`/`connect`/`connectOrCreate`). The
    before-parent target write is still emitted first (INSERT the target, capture
    its identity), and its identity flows **backward** into the parent UPDATE's SET
    — the same "refs point backward" shape, with the record INSERT replaced by a
@@ -454,9 +455,9 @@ by re-deciding:
 
 The **FK-holder-side** (parent-held) `update`/`delete` — mutating the row the
 parent's own FK points at — mutate committed state correlated by the parent's FK
-value (`correlatedWhere(fk, parentValues)` for `holdsFK` is `child.referenced =
-parent.fkValue`); `delete` additionally nulls the parent FK first (`RelationRemovals.
-delete`, the `fk.holdsFK` arm). These are the "FK-holder-side" arms; where a shape
+value (`child.referenced = parent.fkValue`); `delete` additionally nulls the
+parent FK first (`RelationRemovals.delete`, the parent-held arm). These are the
+"FK-holder-side" arms; where a shape
 needs V1's staged `compileLocatedUpdate` recursion the whole tree routes to V1.
 
 > **T3 amendment (this was NOT a durable "documented boundary").** T2 called the
@@ -475,7 +476,7 @@ needs V1's staged `compileLocatedUpdate` recursion the whole tree routes to V1.
 > `UpdateOperation`:
 > - **`update`** — locate the referenced target by the parent's **FINAL** FK value
 >   (`child.<referenced> = parent.<fk>`, where a same-root scalar rebind of the FK
->   column moves the target, since V1 correlates `holdsFK` on the post-update
+>   column moves the target, since V1 correlates parent-held edges on the post-update
 >   `parentValues`; a rebound column resolves to its construction literal, an
 >   untouched one to the located parent row via a SQL `Ref`), then `UPDATE` it by
 >   the captured PK. An empty capture is V1's verbatim "Cannot update relation …:
@@ -483,12 +484,12 @@ needs V1's staged `compileLocatedUpdate` recursion the whole tree routes to V1.
 >   nothing). The batch split-witness `exists` guard pins the correlation.
 > - **`delete: true`** — `NULL` the parent FK first (V1's nullability gate;
 >   a required FK is its verbatim reject), then correlated bulk-delete the referenced
->   target by its (pre-null) FK value — V1's `RelationRemovals.delete` `holdsFK` arm.
+>   target by its (pre-null) FK value — V1's parent-held removal arm.
 > - **`upsert`** — the correlated probe decides at compile: found → `UPDATE` the
 >   located target (the parent FK already equals the located value; V1's no-op
 >   re-write is elided); absent → `INSERT` the target before the root and rebind the
 >   parent FK to its created identity — V1's `RelationBranches.compileOneUpsert`
->   `holdsFK` arm + `updateParentForeignKey`.
+>   parent-held arm + `updateParentForeignKey`.
 >
 > The parent's own FK columns are held in a **separate** locate-field set so a
 > same-root FK rebind (e.g. a self-relation `partnerId`) does not spuriously trigger

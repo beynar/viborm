@@ -1161,7 +1161,7 @@ write is a **root parent UPDATE**, not an INSERT fold.
   (connectOrCreate-found) — the same "refs point backward" shape as T1, with the
   record INSERT replaced by the record UPDATE. `UpdateOperation` gains one
   `beforeRootWrites` phase between the guards and the root UPDATE; the SET absorbs
-  the resolved FK fold. This is V1's `updateParentForeignKey` (the `fk.holdsFK` arms
+  the resolved FK fold. This is V1's `updateParentForeignKey` (the parent-held arms
   of `RelationUpdates.compileRelation` / `RelationBranches.compileConnectOrCreate`).
 
 - **The coverage ledger does NOT generalize, and is NOT ported.** V1 gives `update`
@@ -2142,7 +2142,7 @@ TWO of the 25 failed re-verification, which is why the number is 45 rather than 
 each was caught a different way.
 
 `CreateOperation`'s create-root relation-type guard called itself "a schema impossibility";
-it is reachable. A `manyToOne` declared without `.fields()` has `holdsFK === false` and
+it is reachable. A `manyToOne` declared without `.fields()` binds as child-held and
 `type === "manyToOne"`, lands on it, and is refused — while the SAME relation on the SAME
 schema constructs under `update`, whose gate asks `isToOne || type === "oneToMany"` and
 routes it down the very child-held path the create root withholds. Two sibling predicates
