@@ -1,7 +1,14 @@
-import { resolve } from "path";
+import { realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  server: {
+    fs: {
+      allow: [resolve(__dirname), realpathSync(tmpdir())],
+    },
+  },
   test: {
     globals: true,
     include: ["tests/**/*.test.ts"],
