@@ -505,6 +505,10 @@ export class ManyAndReturnOperation {
       );
     }
     if (data.length === 0) return { inserts: [], wheres: [] };
+    // `Array.isArray` on the unknown args narrows to `any[]`; the parse boundary has
+    // already validated each element as a record, so this alias states the element
+    // type once instead of casting per use.
+    const rows: readonly Record<string, unknown>[] = data;
 
     const ctx = this.ctx();
     const name = this.modelName();
@@ -538,7 +542,7 @@ export class ManyAndReturnOperation {
           "query-engine-v2 createMany with 'select' and 'skipDuplicates' expected one input per statement, in input order."
         );
       }
-      const row = data[inputIndex] as Record<string, unknown>;
+      const row = rows[inputIndex]!;
       // Raises the same "final primary key cannot be determined atomically" refusal the
       // non-skip arm raises, at construction, before any write.
       const where = getCreatedRowWhere(ctx, row, name);

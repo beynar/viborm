@@ -264,7 +264,12 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
     ];
   });
 
-  test("exactly one tracked write shape still routes to V1", () => {
+  // RETARGETED BY E6.9 (authorized test change): the maintainer authorized wiring the
+  // tx-mode savepoint mechanism, and the census's one deliberate refusal is ABSORBED —
+  // the shape constructs and executes (per-row skippable writes + captured-identity
+  // refetch; witnesses in e69-skip-select-capture-behavior.ts). ZERO tracked write
+  // shapes refuse at construction; REMAINING_ROUTE survives as the corpus label only.
+  test("no tracked write shape refuses at construction any more", () => {
     const routed: string[] = [];
     for (const c of cases) {
       try {
@@ -277,7 +282,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
         }
       }
     }
-    expect(routed).toEqual([REMAINING_ROUTE]);
+    expect(routed).toEqual([]);
   });
 
   // The corpus above exercises the *tracked* shapes; this tripwire catches the
@@ -2052,6 +2057,33 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     resolveCreateParent refusals lift, one narrower refusal names the non-derivable
   //     operands. Falsified three ways (vacated-key bind, corrupt locate, concurrency
   //     abort). Witness: e67-compile-transition.test.ts.
+  // 31 -> 30 (E6.8 + E6.9, THE TWO AUTHORIZED UNITS — the census's LAST deliberate
+  // refusal is absorbed, and ZERO tracked write shapes now route to a refusal).
+  //   · **E6.8 (count flat, refusal narrowed):** adopt-equivalence now DEFINES skip for
+  //     generated-key junction createMany rows, per the maintainer's explicit
+  //     authorization. skipDuplicatesDisposition decides at ONE site: no conflictable
+  //     unique at all -> the flag is vacuous, dropped; exactly one complete nameable
+  //     unique per row -> rewritten as the connectOrCreate adopt (probe, adoptFoundGuard,
+  //     first-create-wins, childRacePin, produced identity). THE AUTHORIZED DIVERGENCE
+  //     is pinned as a test: a conflict on a unique no selector can name is now a typed
+  //     UniqueConstraintError where the old leaf silently skipped. Multi-unique rows and
+  //     NULL-membered compound uniques stay refused (wrong-row re-proven by
+  //     falsification: widening the gate joins the shelf to a row the constraint may not
+  //     have fired on). Unique INDEXES count as conflictable (falsified: ignoring them
+  //     half-writes). Witnesses: e68-junction-skip-adopt(.test|-docker.test).ts.
+  //   · **E6.9 (-1): the ONE maintainer-authorized refusal, absorbed as authorized.**
+  //     Per-row skippable INSERTs behind V1's executeSkippableWrite savepoints (reused,
+  //     not re-derived), each declaring its own rowCount/insertId outputs; the refetch
+  //     addresses each NON-raising row by the id ITS OWN insert produced (the session
+  //     LAST_INSERT_ID sentinel replaced — the N3-U1 stale-id hazard falsified live:
+  //     without the substitution the same row returns twice and a pre-existing row
+  //     poses as created). Result rides the frozen ordered reference-list vocabulary.
+  //     Transaction substrate only: the atomic batch keeps its ATOM section 7 refusal
+  //     (witnessed), and the capture fragment carries no reads, so the linearization
+  //     invariant is untouched. Cost documented at the site (2N-1 round trips for one
+  //     duplicate). The recorded reason corrects from 'inexpressible' to: inexpressible
+  //     as ONE statement — expressible when the writes are observed. Witnesses:
+  //     e69-skip-select-capture(-behavior|.test|-docker.test).ts.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -2065,7 +2097,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(31);
+    expect(sites).toBe(30);
   });
 });
 
