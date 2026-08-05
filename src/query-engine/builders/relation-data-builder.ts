@@ -44,6 +44,39 @@ export interface FkDirection {
   onUpdate: ReferentialAction | undefined;
 }
 
+interface BoundRelationBase {
+  readonly relationInfo: RelationInfo;
+  readonly sourceModel: Model<any>;
+}
+
+interface BoundForeignKeyRelation extends BoundRelationBase {
+  readonly foreignFields: readonly string[];
+  readonly referencedFields: readonly string[];
+  readonly onUpdate: ReferentialAction | undefined;
+}
+
+export interface ParentHeldToOne extends BoundForeignKeyRelation {
+  readonly kind: "parentHeldToOne";
+}
+
+export interface ChildHeldToOne extends BoundForeignKeyRelation {
+  readonly kind: "childHeldToOne";
+}
+
+export interface ChildHeldToMany extends BoundForeignKeyRelation {
+  readonly kind: "childHeldToMany";
+}
+
+export interface JunctionRelation extends BoundRelationBase {
+  readonly kind: "junction";
+}
+
+export type BoundRelation =
+  | ParentHeldToOne
+  | ChildHeldToOne
+  | ChildHeldToMany
+  | JunctionRelation;
+
 // ============================================================
 // FK DIRECTION
 // ============================================================
@@ -113,6 +146,37 @@ export function getFkDirection(
     referenced: ctx.model,
     onUpdate: inverse.onUpdate,
   };
+}
+
+/** Bind one relation to its structural position relative to the current model. */
+export function bindRelation(
+  ctx: QueryScope,
+  relationInfo: RelationInfo
+): BoundRelation {
+  if (relationInfo.type === "manyToMany") {
+    return {
+      kind: "junction",
+      relationInfo,
+      sourceModel: ctx.model,
+    };
+  }
+
+  const direction = getFkDirection(ctx, relationInfo);
+  const foreignKey = {
+    relationInfo,
+    sourceModel: ctx.model,
+    foreignFields: direction.fkFields,
+    referencedFields: direction.pkFields,
+    onUpdate: direction.onUpdate,
+  };
+
+  if (direction.holdsFK) {
+    return { kind: "parentHeldToOne", ...foreignKey };
+  }
+  if (relationInfo.isToOne) {
+    return { kind: "childHeldToOne", ...foreignKey };
+  }
+  return { kind: "childHeldToMany", ...foreignKey };
 }
 
 /**
