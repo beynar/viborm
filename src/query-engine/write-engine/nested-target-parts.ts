@@ -16,6 +16,7 @@ import type { QueryScope } from "../types";
 import { CreateOperation } from "./CreateOperation";
 import {
   type FinalReferenceSource,
+  type ForeignKeyMember,
   foreignKeyWriteValue,
   literalReferenceSource,
   pairCorrelatedForeignKeyMembers,
@@ -625,7 +626,7 @@ function foldOneChildHeldKind(args: {
     case "set":
       parts.push(buildToManySetPart(writeBase, entry));
       return;
-    case "create":
+    case "create": {
       // A child-held `create` leaf under a located target. A LITERAL parent id (a
       // child-held nested update located by its `where` PK) resolves its FK at
       // construction; a PLANNED parent id (a parent-held to-one `update` target,
@@ -633,6 +634,11 @@ function foldOneChildHeldKind(args: {
       // created row's FK carries the target's captured PK, inlined from the located
       // planning row exactly as the root's depth recursion threads a first-class
       // parent value (T4a CLASS VI, one step past the literal-parent reach).
+      const members = pairForeignKeyMembers(
+        fk.fkFields,
+        fk.pkFields,
+        fk.pkFields.map(() => parentId)
+      );
       parts.push(
         ...(literalReferenceSource(parentId)
           ? buildLiteralParentCreatePart({
@@ -641,8 +647,7 @@ function foldOneChildHeldKind(args: {
               childScope,
               childName,
               relationName,
-              fk,
-              parentId,
+              members,
               txMode,
               creates: entry.items,
             })
@@ -652,14 +657,14 @@ function foldOneChildHeldKind(args: {
               childScope,
               childName,
               relationName,
-              fk,
-              parentId,
+              members,
               txMode,
               creates: entry.items,
             }))
       );
       return;
-    case "createMany":
+    }
+    case "createMany": {
       // N4-U3 — the bulk arm of the same dispatch the single `create` above makes.
       // A LITERAL parent id (a child-held nested update located by its `where` PK)
       // resolves the injected foreign key at construction; a PLANNED one (a
@@ -672,6 +677,11 @@ function foldOneChildHeldKind(args: {
       // construction-time shape plan and the compile-time plan is ASSERTED inside that
       // builder, and the skip disposition is a function of the dialect and the rows,
       // not of where the foreign key's value comes from.
+      const members = pairForeignKeyMembers(
+        fk.fkFields,
+        fk.pkFields,
+        fk.pkFields.map(() => parentId)
+      );
       parts.push(
         literalReferenceSource(parentId)
           ? buildLiteralParentCreateManyPart({
@@ -680,8 +690,7 @@ function foldOneChildHeldKind(args: {
               childScope,
               childName,
               relationName,
-              fk,
-              parentId,
+              members,
               createManyEntry: entry,
             })
           : buildPlannedParentCreateManyPart({
@@ -690,12 +699,12 @@ function foldOneChildHeldKind(args: {
               childScope,
               childName,
               relationName,
-              fk,
-              parentId,
+              members,
               createManyEntry: entry,
             })
       );
       return;
+    }
     default:
       // Unreachable by construction (N7-U-A, the X1c disposition): measured, all ELEVEN
       // to-many keys have a case above (the two that answer differently — `set` and
@@ -727,34 +736,22 @@ class LiteralParentWriteParts implements Part {
   }
 }
 
-/** The child FK columns a LITERAL-parent create/createMany leaf writes, resolved at
- *  construction — the located target's own `where` PK is a compile-time constant, so
- *  the source owner returns it directly (no planning row needed). Other final sources
- *  use {@link plannedFkInject}. */
-function literalFkInject(
+/** Write one child FK column per field-bound member. Literal sources resolve at
+ *  construction; planning and transitioned sources resolve from `known` at compile. */
+function foreignKeyInject(
   engine: QueryEngine,
   childScope: QueryScope,
-  fk: ReturnType<typeof getFkDirection>,
   relationName: string,
-  parentId: FinalReferenceSource
+  members: readonly ForeignKeyMember[],
+  known?: PlanningKnown
 ): Record<string, unknown> {
   const inject: Record<string, unknown> = {};
-  for (let index = 0; index < fk.fkFields.length; index += 1) {
-    const fkField = fk.fkFields[index]!;
-    inject[fkField] = referenceSql(
+  for (const member of members) {
+    inject[member.foreignField] = referenceSql(
       engine,
       childScope.model,
-      fkField,
-      foreignKeyWriteValue(
-        {
-          foreignField: fkField,
-          referencedField: fk.pkFields[index]!,
-          writeSource: parentId,
-        },
-        undefined,
-        relationName,
-        "create"
-      )
+      member.foreignField,
+      foreignKeyWriteValue(member, known, relationName, "create")
     );
   }
   return inject;
@@ -766,20 +763,12 @@ export function buildLiteralParentCreatePart(input: {
   childScope: QueryScope;
   childName: string;
   relationName: string;
-  fk: ReturnType<typeof getFkDirection>;
-  parentId: FinalReferenceSource;
+  members: readonly ForeignKeyMember[];
   txMode: boolean;
   creates: readonly Record<string, unknown>[];
 }): readonly Part[] {
-  const { scope, engine, childScope, childName, relationName, fk, parentId } =
-    input;
-  const inject = literalFkInject(
-    engine,
-    childScope,
-    fk,
-    relationName,
-    parentId
-  );
+  const { scope, engine, childScope, childName, relationName, members } = input;
+  const inject = foreignKeyInject(engine, childScope, relationName, members);
   // A scalar-only fresh child is the pre-X1 leaf, byte-identical: one INSERT step
   // per item, in order, its FK inlined from the located parent's literal PK. A
   // relation-carrying fresh child is a create SUBTREE (X1b): the whole child —
@@ -810,8 +799,7 @@ export function buildLiteralParentCreatePart(input: {
           engine,
           childScope,
           relationName,
-          fk,
-          parentId,
+          members,
           create,
         })
       );
@@ -909,18 +897,14 @@ function buildNestedFreshCreateParts(input: {
   engine: QueryEngine;
   childScope: QueryScope;
   relationName: string;
-  fk: ReturnType<typeof getFkDirection>;
-  parentId: FinalReferenceSource;
+  members: readonly ForeignKeyMember[];
   create: Record<string, unknown>;
 }): readonly Part[] {
-  const { scope, engine, childScope, relationName, fk, parentId, create } =
-    input;
+  const { scope, engine, childScope, relationName, members, create } = input;
   const rootFkInject = (
     known: Readonly<Record<string, unknown>>
   ): Record<string, unknown> =>
-    literalReferenceSource(parentId)
-      ? literalFkInject(engine, childScope, fk, relationName, parentId)
-      : plannedFkInject(engine, childScope, fk, relationName, parentId, known);
+    foreignKeyInject(engine, childScope, relationName, members, known);
   const op = new CreateOperation(
     engine,
     childScope.model,
@@ -988,25 +972,17 @@ export function buildLiteralParentCreateManyPart(input: {
   childScope: QueryScope;
   childName: string;
   relationName: string;
-  fk: ReturnType<typeof getFkDirection>;
-  parentId: FinalReferenceSource;
+  members: readonly ForeignKeyMember[];
   createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
 }): Part {
-  const { scope, engine, childScope, childName, relationName, fk, parentId } =
-    input;
+  const { scope, engine, childScope, childName, relationName, members } = input;
   const { userRows, skipDuplicates, recoverUnique } = planNestedCreateMany({
     engine,
     childScope,
     relationName,
     createManyEntry: input.createManyEntry,
   });
-  const inject = literalFkInject(
-    engine,
-    childScope,
-    fk,
-    relationName,
-    parentId
-  );
+  const inject = foreignKeyInject(engine, childScope, relationName, members);
   const rows = userRows.map((row) => ({ ...row, ...inject }));
   if (rows.length === 0) return new LiteralParentWriteParts([]);
   const plan = buildCreateManyPlan(
@@ -1027,7 +1003,7 @@ export function buildLiteralParentCreateManyPart(input: {
 /**
  * N1-U1 — the PLANNED-parent `createMany` leaf: the same bulk plan the literal leaf
  * builds, with the located parent's referenced column(s) resolved at COMPILE from the
- * planning row ({@link plannedFkInject}) instead of at construction. This is the
+ * planning row ({@link foreignKeyInject}) instead of at construction. This is the
  * located-parent Ref applied to the bulk arm — `update({ where: { email }, data: {
  * posts: { createMany } } })` compiles to the SAME statements as the `where: { id }`
  * spelling, differing only in where the foreign key's value comes from.
@@ -1047,12 +1023,10 @@ export function buildPlannedParentCreateManyPart(input: {
   childScope: QueryScope;
   childName: string;
   relationName: string;
-  fk: ReturnType<typeof getFkDirection>;
-  parentId: FinalReferenceSource;
+  members: readonly ForeignKeyMember[];
   createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
 }): Part {
-  const { scope, engine, childScope, childName, relationName, fk, parentId } =
-    input;
+  const { scope, engine, childScope, childName, relationName, members } = input;
   const { userRows, skipDuplicates, recoverUnique } = planNestedCreateMany({
     engine,
     childScope,
@@ -1061,9 +1035,9 @@ export function buildPlannedParentCreateManyPart(input: {
   });
   if (userRows.length === 0) return new LiteralParentWriteParts([]);
   const shapeInject = Object.fromEntries(
-    fk.fkFields.map((fkField) => [
-      fkField,
-      referenceSql(engine, childScope.model, fkField, null),
+    members.map((member) => [
+      member.foreignField,
+      referenceSql(engine, childScope.model, member.foreignField, null),
     ])
   );
   const stepIds = buildCreateManyPlan(
@@ -1075,12 +1049,11 @@ export function buildPlannedParentCreateManyPart(input: {
     false
   ).statements.map(() => scope.allocate(`${childName}.createMany`));
   return new PlannedParentCreatePart((known) => {
-    const inject = plannedFkInject(
+    const inject = foreignKeyInject(
       engine,
       childScope,
-      fk,
       relationName,
-      parentId,
+      members,
       known
     );
     const plan = buildCreateManyPlan(
@@ -1133,52 +1106,18 @@ class PlannedParentCreatePart implements Part {
   }
 }
 
-/** The child FK columns a planned-parent create leaf writes, resolved at COMPILE: the
- *  located target's referenced PK value is read from `known` and inlined as a literal.
- *  One entry per (single-field, here) FK column. */
-function plannedFkInject(
-  engine: QueryEngine,
-  childScope: QueryScope,
-  fk: ReturnType<typeof getFkDirection>,
-  relationName: string,
-  parentId: FinalReferenceSource,
-  known: PlanningKnown
-): Record<string, unknown> {
-  const inject: Record<string, unknown> = {};
-  for (let index = 0; index < fk.fkFields.length; index += 1) {
-    const fkField = fk.fkFields[index]!;
-    inject[fkField] = referenceSql(
-      engine,
-      childScope.model,
-      fkField,
-      foreignKeyWriteValue(
-        {
-          foreignField: fkField,
-          referencedField: fk.pkFields[index]!,
-          writeSource: parentId,
-        },
-        known,
-        relationName,
-        "create"
-      )
-    );
-  }
-  return inject;
-}
-
+/** The planned-parent create leaf resolves each member's source from `known` at compile. */
 export function buildPlannedParentCreatePart(input: {
   scope: StepScope;
   engine: QueryEngine;
   childScope: QueryScope;
   childName: string;
   relationName: string;
-  fk: ReturnType<typeof getFkDirection>;
-  parentId: FinalReferenceSource;
+  members: readonly ForeignKeyMember[];
   txMode: boolean;
   creates: readonly Record<string, unknown>[];
 }): readonly Part[] {
-  const { scope, engine, childScope, childName, relationName, fk, parentId } =
-    input;
+  const { scope, engine, childScope, childName, relationName, members } = input;
   // A scalar-only fresh child resolves its FK from the located planning row at
   // compile (the pre-X1 leaf, byte-identical). A relation-carrying fresh child is a
   // create SUBTREE delegated to the create-root machinery (X1b), whose own root FK
@@ -1203,8 +1142,7 @@ export function buildPlannedParentCreatePart(input: {
           engine,
           childScope,
           relationName,
-          fk,
-          parentId,
+          members,
           create,
         })
       );
@@ -1214,12 +1152,11 @@ export function buildPlannedParentCreatePart(input: {
   if (scalarItems.length > 0) {
     parts.push(
       new PlannedParentCreatePart((known) => {
-        const inject = plannedFkInject(
+        const inject = foreignKeyInject(
           engine,
           childScope,
-          fk,
           relationName,
-          parentId,
+          members,
           known
         );
         return scalarItems.map((item) => ({

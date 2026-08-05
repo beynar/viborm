@@ -1637,10 +1637,13 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0];
   }): void {
     const { entry, relationName, fk, childScope, childName, input } = args;
-    const { parentId, afterRoot } = this.resolveCreateParent(
+    const { members, afterRoot } = this.resolveCreateParent(
       input,
       fk,
       relationName
+    );
+    const isLiteralParent = members.every((member) =>
+      literalReferenceSource(member.writeSource)
     );
     // A transitioned-PK parent (T4b CLASS III) orders its fresh INSERT AFTER the root
     // UPDATE; every other create — literal or located-parent Ref — rides the normal
@@ -1653,13 +1656,12 @@ export class UpdateOperation {
       childScope,
       childName,
       relationName,
-      fk,
-      parentId,
+      members,
     } as const;
     if (entry.kind === "create") {
       const txMode = this.mode === "transaction";
       target.push(
-        ...(literalReferenceSource(parentId)
+        ...(isLiteralParent
           ? buildLiteralParentCreatePart({
               ...leaf,
               txMode,
@@ -1674,7 +1676,7 @@ export class UpdateOperation {
       return;
     }
     target.push(
-      literalReferenceSource(parentId)
+      isLiteralParent
         ? buildLiteralParentCreateManyPart({
             ...leaf,
             createManyEntry: entry,
@@ -1722,13 +1724,13 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     fk: FkDirection,
     relationName: string
-  ): { parentId: FinalReferenceSource; afterRoot: boolean } {
+  ): { members: ForeignKeyMember[]; afterRoot: boolean } {
     const referencedFields = fk.pkFields;
     const rewritten = referencedFields.filter((field) =>
       Object.hasOwn(input.rootScalarData, field)
     );
     if (rewritten.length === 0) {
-      return this.locatedCreateParent(input, referencedFields);
+      return this.locatedCreateParent(input, fk);
     }
     // N5-U2 — a rewritten reference on an `ON UPDATE CASCADE` edge needs NO
     // post-transition derivation at all, whatever its arity and wherever its
@@ -1740,7 +1742,7 @@ export class UpdateOperation {
     // pinned-value branches below, because both of those exist only to derive a
     // POST-transition value, and a cascading edge never needs one.
     if (fk.onUpdate === "cascade") {
-      return this.locatedCreateParent(input, referencedFields);
+      return this.locatedCreateParent(input, fk);
     }
     if (referencedFields.length !== 1) {
       // E6.7 — a NON-cascade COMPOUND reference the root SET rewrites. The located row
@@ -1751,11 +1753,7 @@ export class UpdateOperation {
       // {@link transitionedParentId} names, and building it is this branch's whole work.
       // A member the SET leaves alone comes back verbatim, so a partially rewritten tuple
       // needs no second source.
-      return this.transitionedCreateParent(
-        input,
-        referencedFields,
-        relationName
-      );
+      return this.transitionedCreateParent(input, fk, relationName);
     }
     const referencedField = referencedFields[0]!;
     // A rewritten PRIMARY KEY is a transition: the fresh child references the new PK.
@@ -1776,13 +1774,10 @@ export class UpdateOperation {
         // NO-ACTION foreign key needs is the POST-transition value, and
         // `getUpdatedPrimaryKeyValue(before, operand)` can only run once `before` is
         // known, i.e. at COMPILE. That is the one thing every construction-fixed source
-        // could not do, and {@link transitionedParentId} is it — the SAME source the
-        // compound branch above takes, which is why one mechanism closed both.
-        return this.transitionedCreateParent(
-          input,
-          referencedFields,
-          relationName
-        );
+        // could not do, and {@link transitionedParentId} is it — the SAME per-member
+        // source mechanism the compound branch above takes, which is why one mechanism
+        // closed both.
+        return this.transitionedCreateParent(input, fk, relationName);
       }
       const transitioned = getUpdatedPrimaryKeyValue(
         this.model,
@@ -1791,7 +1786,12 @@ export class UpdateOperation {
         input.rootScalarData[referencedField],
         getStepModelName(this.model, "record")
       );
-      return { parentId: literalParentId(transitioned), afterRoot: true };
+      return {
+        members: pairForeignKeyMembers(fk.fkFields, referencedFields, [
+          literalParentId(transitioned),
+        ]),
+        afterRoot: true,
+      };
     }
     // N7-U-B — `{ set: v }` is the SAME assignment as the bare `v`, spelled with the
     // envelope Prisma's scalar update input allows. `classifyRelationKeyScalarUpdate`
@@ -1819,7 +1819,12 @@ export class UpdateOperation {
         `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${referencedField}'.`
       );
     }
-    return { parentId: literalParentId(literal), afterRoot: false };
+    return {
+      members: pairForeignKeyMembers(fk.fkFields, referencedFields, [
+        literalParentId(literal),
+      ]),
+      afterRoot: false,
+    };
   }
 
   /**
@@ -1860,9 +1865,10 @@ export class UpdateOperation {
    */
   private transitionedCreateParent(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
-    referencedFields: readonly string[],
+    fk: FkDirection,
     relationName: string
-  ): { parentId: FinalReferenceSource; afterRoot: boolean } {
+  ): { members: ForeignKeyMember[]; afterRoot: boolean } {
+    const referencedFields = fk.pkFields;
     for (const field of referencedFields) {
       input.parentFkLocateFields.add(field);
     }
@@ -1870,32 +1876,34 @@ export class UpdateOperation {
     const rootScalarData = input.rootScalarData;
     const stepModelName = getStepModelName(model, "record");
     return {
-      parentId: transitionedParentId(
-        this.locateId,
-        referencedFields[0]!,
-        (before, field) => {
-          // A member the SET leaves alone is not in transition: the located value IS
-          // the value the fresh row must reference.
-          if (!Object.hasOwn(rootScalarData, field)) return before;
-          const operand = classifyRelationKeyScalarUpdate(
-            rootScalarData[field]
-          );
-          const literal = operand.resolved
-            ? operand.value
-            : rootScalarData[field];
-          if (literal === null || isSql(literal)) {
-            throw new UnsupportedOperationError(
-              `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${field}'.`
+      members: pairForeignKeyMembers(
+        fk.fkFields,
+        referencedFields,
+        referencedFields.map((field) =>
+          transitionedParentId(this.locateId, field, (before, boundField) => {
+            // A member the SET leaves alone is not in transition: the located value IS
+            // the value the fresh row must reference.
+            if (!Object.hasOwn(rootScalarData, boundField)) return before;
+            const operand = classifyRelationKeyScalarUpdate(
+              rootScalarData[boundField]
             );
-          }
-          return getUpdatedPrimaryKeyValue(
-            model,
-            field,
-            before,
-            rootScalarData[field],
-            stepModelName
-          );
-        }
+            const literal = operand.resolved
+              ? operand.value
+              : rootScalarData[boundField];
+            if (literal === null || isSql(literal)) {
+              throw new UnsupportedOperationError(
+                `query-engine-v2 update nested create on relation '${relationName}' references a non-literal rewritten column '${boundField}'.`
+              );
+            }
+            return getUpdatedPrimaryKeyValue(
+              model,
+              boundField,
+              before,
+              rootScalarData[boundField],
+              stepModelName
+            );
+          })
+        )
       ),
       afterRoot: true,
     };
@@ -1921,8 +1929,9 @@ export class UpdateOperation {
    */
   private locatedCreateParent(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
-    referencedFields: readonly string[]
-  ): { parentId: FinalReferenceSource; afterRoot: boolean } {
+    fk: FkDirection
+  ): { members: ForeignKeyMember[]; afterRoot: boolean } {
+    const referencedFields = fk.pkFields;
     // The shortcut asks the CALLER'S unique `where` whether it pins this column to a
     // literal. A nested target located by correlation alone has no such `where` (`{}`
     // — see `parentWhere`), so there is no asker and nothing to pin; reached through
@@ -1937,12 +1946,21 @@ export class UpdateOperation {
         (entry) => entry.fieldName === referencedFields[0]
       );
       if (pinned) {
-        return { parentId: literalParentId(pinned.value), afterRoot: false };
+        return {
+          members: pairForeignKeyMembers(fk.fkFields, referencedFields, [
+            literalParentId(pinned.value),
+          ]),
+          afterRoot: false,
+        };
       }
     }
     for (const field of referencedFields) input.locateFields.add(field);
     return {
-      parentId: plannedParentId(this.locateId),
+      members: pairForeignKeyMembers(
+        fk.fkFields,
+        referencedFields,
+        referencedFields.map(() => plannedParentId(this.locateId))
+      ),
       afterRoot: false,
     };
   }
@@ -2502,6 +2520,11 @@ export class UpdateOperation {
       after,
     } = args;
     const createData = upsertInput.create;
+    const members = pairForeignKeyMembers(
+      fk.fkFields,
+      fk.pkFields,
+      fk.pkFields.map(() => literalParentId(after))
+    );
     input.afterRootParts.push(
       ...buildLiteralParentCreatePart({
         scope: input.scope,
@@ -2509,8 +2532,7 @@ export class UpdateOperation {
         childScope,
         childName,
         relationName,
-        fk,
-        parentId: literalParentId(after),
+        members,
         txMode: this.mode === "transaction",
         creates: [createData],
       })
