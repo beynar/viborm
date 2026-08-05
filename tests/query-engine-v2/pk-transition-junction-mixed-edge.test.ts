@@ -64,6 +64,7 @@ const mixedEdgeSchema = (() => {
       // The non-cascade edge: a child-held foreign key defaults to NO ACTION, which is
       // what makes this target's transition take the post-transition ordering.
       comments: s.oneToMany(() => comment),
+      notes: s.oneToMany(() => note),
       // The junction edge: an implicit m2m foreign key is ON UPDATE CASCADE.
       tags: s.manyToMany(() => tag),
     })
@@ -79,6 +80,18 @@ const mixedEdgeSchema = (() => {
         .references("id"),
     })
     .map("e2u3_comments");
+  const note = s
+    .model({
+      id: s.string().id(),
+      body: s.string(),
+      postId: s.string().nullable(),
+      post: s
+        .manyToOne(() => post)
+        .fields("postId")
+        .references("id")
+        .onUpdate("cascade"),
+    })
+    .map("e2u3_notes");
   const tag = s
     .model({
       id: s.string().id(),
@@ -86,7 +99,7 @@ const mixedEdgeSchema = (() => {
       posts: s.manyToMany(() => post),
     })
     .map("e2u3_tags");
-  return { author, post, comment, tag };
+  return { author, post, comment, note, tag };
 })();
 
 hydrateSchemaNames(mixedEdgeSchema);
@@ -256,6 +269,51 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         await expect(
           client.comment.findUnique({ where: { id: "c1" } })
         ).resolves.toMatchObject({ postId: "p9" });
+      } finally {
+        await client.$disconnect();
+      }
+    }, 30_000);
+
+    test("a nested child-held set reads the old key and writes the transitioned key", async () => {
+      const client = await setup(makeDriver());
+      try {
+        await client.note.create({
+          data: { id: "n-old", body: "departing", postId: "p1" },
+        });
+        await client.note.create({
+          data: { id: "n-target", body: "incoming", postId: null },
+        });
+        await client.note.create({
+          data: { id: "n-decoy", body: "decoy", postId: "p-decoy" },
+        });
+
+        await client.author.update({
+          where: { id: "a1" },
+          data: {
+            posts: {
+              update: {
+                where: { id: "p1" },
+                data: {
+                  id: "p9",
+                  comments: { create: { id: "c1", body: "fresh" } },
+                  notes: { set: { id: "n-target" } },
+                },
+              },
+            },
+          },
+        });
+
+        await expect(
+          client.note.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: "n-decoy", body: "decoy", postId: "p-decoy" },
+          { id: "n-old", body: "departing", postId: null },
+          { id: "n-target", body: "incoming", postId: "p9" },
+        ]);
+        await expect(
+          client.comment.findUnique({ where: { id: "c1" } })
+        ).resolves.toMatchObject({ postId: "p9" });
+        await expect(tagsOf(client, "p-decoy")).resolves.toEqual(["t1"]);
       } finally {
         await client.$disconnect();
       }
