@@ -12,8 +12,10 @@ import { getRelationMutationKinds } from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
-import { ManyToManyStatements } from "../ManyToManyStatements";
-import { manyToManyStatement } from "../many-to-many-statement";
+import {
+  type ManyToManyOperation,
+  ManyToManyStatements,
+} from "../ManyToManyStatements";
 import {
   buildCreate,
   buildCreateMany,
@@ -719,18 +721,15 @@ export class RelationJunctionPart implements Part {
         id: slot.writeId,
         kind: "write",
         statement: this.statements.materialize(
-          manyToManyStatement(
-            this.config.parentScope,
-            this.config.relationInfo,
-            "membershipUpdateMany",
-            {
-              parentValue: parent,
-              ...(Object.keys(slot.where).length > 0
-                ? { where: slot.where }
-                : {}),
-              data,
-            }
-          )
+          this.config.relationInfo,
+          "membershipUpdateMany",
+          {
+            parentValue: parent,
+            ...(Object.keys(slot.where).length > 0
+              ? { where: slot.where }
+              : {}),
+            data,
+          }
         ),
         outputs: {},
       });
@@ -1313,39 +1312,33 @@ export class RelationJunctionPart implements Part {
     take?: number;
   }) {
     return this.statements.materialize(
-      manyToManyStatement(
-        this.config.parentScope,
-        this.config.relationInfo,
-        "membershipRead",
-        {
-          parentValue: args.parentValue,
-          ...(args.whereUnique ? { whereUnique: args.whereUnique } : {}),
-          ...(args.where && Object.keys(args.where).length > 0
-            ? { where: args.where }
-            : {}),
-          select: { [this.targetPkField]: true },
-          ...(args.take !== undefined ? { take: args.take } : {}),
-          lock: "transaction",
-        }
-      )
+      this.config.relationInfo,
+      "membershipRead",
+      {
+        parentValue: args.parentValue,
+        ...(args.whereUnique ? { whereUnique: args.whereUnique } : {}),
+        ...(args.where && Object.keys(args.where).length > 0
+          ? { where: args.where }
+          : {}),
+        select: { [this.targetPkField]: true },
+        ...(args.take !== undefined ? { take: args.take } : {}),
+        lock: "transaction",
+      }
     );
   }
 
   private junctionWrite(
     id: string,
-    operation: Parameters<typeof manyToManyStatement>[2],
+    operation: ManyToManyOperation,
     args: Record<string, unknown>
   ): StatementStep {
     return {
       id,
       kind: "write",
       statement: this.statements.materialize(
-        manyToManyStatement(
-          this.config.parentScope,
-          this.config.relationInfo,
-          operation,
-          args
-        )
+        this.config.relationInfo,
+        operation,
+        args
       ),
       outputs: {},
     };
@@ -1540,7 +1533,7 @@ export class RelationJunctionPart implements Part {
    *
    * N6-U1: "the user selector" is the WHOLE extended selector, filter half included
    * ({@link uniqueSelectorConjuncts}). The membership read that located the row
-   * already compiles both halves (`buildWhereUnique` under `manyToManyStatement`), so
+   * already compiles both halves (`buildWhereUnique` in the membership read), so
    * anything less here would re-assert a weaker premise than the one the probe made.
    */
   private capturedSelectorRead(
@@ -1627,19 +1620,16 @@ export class RelationJunctionPart implements Part {
       premise: {
         kind: "notExists",
         statement: this.statements.materialize(
-          manyToManyStatement(
-            this.config.parentScope,
-            this.config.relationInfo,
-            "membershipDifference",
-            {
-              parentValue: parent,
-              ...(Object.keys(bulk.filter).length > 0
-                ? { where: bulk.filter }
-                : {}),
-              targetValues: [...targetPks],
-              difference,
-            }
-          )
+          this.config.relationInfo,
+          "membershipDifference",
+          {
+            parentValue: parent,
+            ...(Object.keys(bulk.filter).length > 0
+              ? { where: bulk.filter }
+              : {}),
+            targetValues: [...targetPks],
+            difference,
+          }
         ),
       },
       failure: nestedWriteFailure(

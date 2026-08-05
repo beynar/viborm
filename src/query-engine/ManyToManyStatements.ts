@@ -17,10 +17,18 @@ import { buildSet } from "./builders/set-builder";
 import { buildScalarSqlValue } from "./builders/values-builder";
 import { buildWhere } from "./builders/where-builder";
 import { buildWhereUnique } from "./builders/where-unique-builder";
-import { createChildScope, getRelationInfo } from "./context";
-import type { RelationStatement } from "./operation-program";
+import { createChildScope } from "./context";
 import type { QueryScope, RelationInfo } from "./types";
 import { QueryEngineError } from "./types";
+
+export type ManyToManyOperation =
+  | "junctionDelete"
+  | "junctionDeleteTargets"
+  | "junctionInsert"
+  | "junctionInsertMany"
+  | "membershipDifference"
+  | "membershipRead"
+  | "membershipUpdateMany";
 
 /** Materializes declarative junction and membership statements for the compiler. */
 export class ManyToManyStatements {
@@ -32,10 +40,17 @@ export class ManyToManyStatements {
     this.lockReads = lockReads;
   }
 
-  materialize(statement: RelationStatement): Sql {
-    const relation = this.requireRelation(statement.relation);
+  materialize(
+    relation: RelationInfo,
+    operation: ManyToManyOperation,
+    args: Record<string, unknown>
+  ): Sql {
+    if (relation.type !== "manyToMany") {
+      throw new QueryEngineError(
+        `Relation statement references unknown many-to-many relation '${relation.name}'.`
+      );
+    }
     const join = getManyToManyJoinInfo(this.ctx, relation);
-    const args = statement.args;
     const parentValue = buildJunctionParentValue(
       this.ctx,
       join,
@@ -43,7 +58,7 @@ export class ManyToManyStatements {
       relation.name
     );
 
-    switch (statement.operation) {
+    switch (operation) {
       case "junctionInsert": {
         const targetValue = this.targetValue(relation, args);
         return buildJunctionInsert(this.ctx, join, parentValue, targetValue);
@@ -103,7 +118,7 @@ export class ManyToManyStatements {
       case "membershipUpdateMany":
         return this.membershipUpdateMany(relation, parentValue, args);
       default: {
-        const exhaustive: never = statement.operation;
+        const exhaustive: never = operation;
         throw new QueryEngineError(
           `Unknown relation statement operation '${exhaustive}'.`
         );
@@ -296,13 +311,6 @@ export class ManyToManyStatements {
     );
   }
 
-  private requireRelation(name: string): RelationInfo {
-    const relation = getRelationInfo(this.ctx, name);
-    if (relation?.type === "manyToMany") return relation;
-    throw new QueryEngineError(
-      `Relation statement references unknown many-to-many relation '${name}'.`
-    );
-  }
 }
 
 function requireArray(value: unknown, field: string): unknown[] {

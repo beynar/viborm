@@ -1637,7 +1637,7 @@ corruption.**
 blast-radius/fallback-off harness), and V1's 15-file write engine are gone (−5 831 lines);
 `PendingOperation` is V2-only and `engine.build()` runs the V2 read path. Five pure leaves
 V2 reached through V1 hosts were extracted standalone (`relation-key-legality`,
-`unique-conflict-target`, `many-to-many-statement`, `skippable-write`,
+`unique-conflict-target`, `skippable-write`,
 `batch-error-attribution`); the WHY §6 irreducibles V2 shares (`TargetConstraint`,
 `OwnWrite*`, `mutation-identity`, `RelationMutationPlan`,
 `ManyToManyStatements`, builders, `result/`) stay. A dead-symbol gate (in `test:gates`,
