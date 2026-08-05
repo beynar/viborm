@@ -45,8 +45,10 @@ import {
   isOperationValueReference,
   type OperationFragment,
   type OperationStep,
+  type PlanningFragment,
   type ReadStep,
   ref,
+  type StatementStep,
   type WriteStep,
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
@@ -400,13 +402,13 @@ export class UpsertOperation {
     this.onConflictFold = this.buildOnConflictFold(parent);
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     // The folded upsert asks the database nothing before it writes: `ON CONFLICT`
     // IS the create-vs-update decision. Empty planning is also what routes the
     // operation through `OperationExecutor.statementAtomicPlan` — one round trip,
     // no transaction envelope.
     if (this.onConflictFold) return { steps: [], outputs: {} };
-    const steps: OperationStep[] = [this.locate];
+    const steps: StatementStep[] = [this.locate];
     for (const conditional of this.conditionals) steps.push(conditional.probe);
     // The delegated arms plan their whole superset one level in (ATOM §3 technique
     // 2): both arms' probes run before any write regardless of which the locate

@@ -21,6 +21,7 @@ import {
 import {
   type OperationFragment,
   type OperationStep,
+  type PlanningFragment,
   type ReadStep,
   ref,
   type WriteStep,
@@ -240,7 +241,7 @@ export class DeleteOperation {
       canFold && !txMode ? this.buildRootPresenceGuard() : undefined;
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     // The RETURNING fold is a single self-contained statement — it consumes no
     // planning value, and empty planning is what makes it statement-atomic.
     if (this.foldStep) return { steps: [], outputs: {} };

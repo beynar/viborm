@@ -2,6 +2,7 @@
 import {
   type FragmentOutputSource,
   type OperationStep,
+  type StatementStep,
   ref,
 } from "./OperationFragment";
 import type { StepScope } from "./StepScope";
@@ -33,7 +34,7 @@ export type PlanningKnown = Readonly<Record<string, unknown>>;
  * repeatedly with different `known` is safe (the existing slice suite does it).
  */
 export interface Part {
-  planning(scope: StepScope): readonly OperationStep[];
+  planning(scope: StepScope): readonly StatementStep[];
   compile(scope: StepScope, known: PlanningKnown): readonly OperationStep[];
 }
 
@@ -50,11 +51,10 @@ export function planningKey(step: string, output: string): string {
  * decision (ATOM §3 technique 1) across any number of same-model children.
  */
 export function planningOutputs(
-  steps: readonly OperationStep[]
+  steps: readonly StatementStep[]
 ): Record<string, FragmentOutputSource> {
   const outputs: Record<string, FragmentOutputSource> = {};
   for (const step of steps) {
-    if (step.kind === "guard") continue;
     for (const name of Object.keys(step.outputs)) {
       outputs[planningKey(step.id, name)] = ref(step.id, name);
     }

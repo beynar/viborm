@@ -11,7 +11,10 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import type { ExecutableOperation } from "../../src/query-engine/write-engine/OperationExecutor";
 import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
-import type { OperationFragment } from "../../src/query-engine/write-engine/OperationFragment";
+import type {
+  OperationFragment,
+  PlanningFragment,
+} from "../../src/query-engine/write-engine/OperationFragment";
 import {
   planningKey,
   planningOutputs,
@@ -110,7 +113,7 @@ function compoundLocateOperation(
   } as const;
   return {
     mode,
-    planning(): OperationFragment {
+    planning(): PlanningFragment {
       return {
         steps: [locateStep],
         outputs: planningOutputs([locateStep]),

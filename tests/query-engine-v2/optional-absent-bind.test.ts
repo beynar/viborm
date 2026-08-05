@@ -13,6 +13,7 @@ import {
 } from "../../src/query-engine/write-engine/OperationExecutor";
 import {
   type OperationFragment,
+  type PlanningFragment,
   ref,
 } from "../../src/query-engine/write-engine/OperationFragment";
 import {
@@ -111,7 +112,7 @@ function absentFieldOperation(optional: boolean): ExecutableOperation {
   } as const;
   return {
     mode: "transaction",
-    planning: (): OperationFragment => ({
+    planning: (): PlanningFragment => ({
       steps: [probe, consumer],
       outputs: { rows: ref("consumer", "rows") },
     }),

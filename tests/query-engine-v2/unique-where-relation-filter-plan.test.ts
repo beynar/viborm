@@ -7,7 +7,7 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import type { StatementStep } from "../../src/query-engine/write-engine/OperationFragment";
+import type { WriteStep } from "../../src/query-engine/write-engine/OperationFragment";
 import { constructRoutedOperation } from "../../src/query-engine/write-engine/routing";
 
 /**
@@ -226,7 +226,7 @@ describe("the write that actually carries the filter on a non-returning driver",
       [`${routed.planning().steps[0]?.id}.rows`]: [{ id: 1 }],
     });
     const write = fragment.steps.find(
-      (step): step is StatementStep => step.kind === "write"
+      (step): step is WriteStep => step.kind === "write"
     );
     if (!write) throw new Error("the update arm compiled no write");
     const text = write.statement.toStatement("$n");
@@ -276,9 +276,9 @@ describe("N6-U1 × N6-U2: a NESTED target selector's relation filter", () => {
       known[`${step.id}.rows`] = [{ id: 1 }];
     }
     const fragment = routed.compile(known);
-    const reads: string[] = planning.steps
-      .filter((step): step is StatementStep => step.kind !== "guard")
-      .map((step) => step.statement.toStatement("$n"));
+    const reads: string[] = planning.steps.map((step) =>
+      step.statement.toStatement("$n")
+    );
     const writes: string[] = [];
     for (const step of fragment.steps) {
       if (step.kind === "guard") {

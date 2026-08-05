@@ -33,6 +33,7 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type PlanningFragment,
   type ReadStep,
   type StatementOutputSource,
   type StatementStep,
@@ -50,7 +51,7 @@ type RuntimeValues = Map<string, Map<string, unknown>>;
  */
 export interface ExecutableOperation {
   readonly mode: "transaction" | "batch";
-  planning(): OperationFragment;
+  planning(): PlanningFragment;
   compile(known: Readonly<Record<string, unknown>>): OperationFragment;
   parse<T>(outputs: Readonly<Record<string, unknown>>): T;
   /**
@@ -438,7 +439,7 @@ export class OperationExecutor {
    * atomic batch see ONE snapshot where several `_execute` calls saw several.
    */
   private async executePlanningLevels(
-    fragment: OperationFragment,
+    fragment: PlanningFragment,
     driver: AnyDriver,
     context: QueryExecutionContext
   ): Promise<Readonly<Record<string, unknown>>> {

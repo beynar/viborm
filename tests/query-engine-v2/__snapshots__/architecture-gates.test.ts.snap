@@ -13,6 +13,8 @@ export type OperationStep = StatementStep | GuardStep;
 
 export interface OperationValueReference { readonly kind: typeof OPERATION_VALUE_REFERENCE; readonly step: string; readonly output: string; }
 
+export interface PlanningFragment { readonly steps: readonly StatementStep[]; readonly outputs: Readonly<Record<string, FragmentOutputSource>>; }
+
 export type Postcondition = | { readonly kind: "exactlyOneRow"; readonly failure: Failure } | { readonly kind: "affectedRows"; readonly expected: number | { readonly min: number }; readonly failure: Failure; };
 
 export interface Probe { readonly read: ReadStep; readonly pin: { readonly whenFound: GuardStep | "none"; readonly whenMissing: GuardStep | "constraint" | "none"; }; }

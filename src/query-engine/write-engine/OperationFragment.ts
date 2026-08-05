@@ -158,6 +158,11 @@ export interface OperationFragment {
   readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
 }
 
+export interface PlanningFragment {
+  readonly steps: readonly StatementStep[];
+  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
+}
+
 export function ref(step: string, output: string): OperationValueReference {
   return { kind: OPERATION_VALUE_REFERENCE, step, output };
 }

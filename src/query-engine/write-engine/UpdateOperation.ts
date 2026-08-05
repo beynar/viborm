@@ -80,8 +80,10 @@ import {
   type GuardStep,
   type OperationFragment,
   type OperationStep,
+  type PlanningFragment,
   type ReadStep,
   ref,
+  type StatementStep,
   type TargetConstraintPin,
   type WriteStep,
 } from "./OperationFragment";
@@ -993,12 +995,12 @@ export class UpdateOperation {
     };
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     // The RETURNING fold is a single self-contained statement — no planning read
     // (the located id it would carry is unused; the RETURNING clause returns the
     // mutated row directly). Empty planning is what makes it statement-atomic.
     if (this.directWrite) return { steps: [], outputs: {} };
-    const steps: OperationStep[] = [this.locate];
+    const steps: StatementStep[] = [this.locate];
     // CLASS IV (T4c): the occupied-guard probes read the OLD slot (correlated on the
     // pre-transition parent value), locked in tx mode so the compile-time occupancy
     // verdict is pinned by the same lock the locate holds.

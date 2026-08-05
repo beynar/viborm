@@ -59,8 +59,10 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type PlanningFragment,
   type ReadStep,
   ref,
+  type StatementStep,
   type TargetConstraintPin,
   type WriteStep,
 } from "./OperationFragment";
@@ -318,7 +320,7 @@ export class CreateOperation {
   private readonly parsedSelect: Record<string, unknown> | undefined;
   private readonly parsedInclude: Record<string, unknown> | undefined;
   private readonly terminalId: string;
-  private readonly planningSteps: OperationStep[] = [];
+  private readonly planningSteps: StatementStep[] = [];
   private readonly registeredParts = new Set<Part>();
   /** The single-step `INSERT … RETURNING select` fold, when eligible. */
   private readonly foldStep: WriteStep | undefined;
@@ -503,7 +505,7 @@ export class CreateOperation {
     return freshReferenced(this.root, referencedField);
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     if (this.foldStep) return { steps: [], outputs: {} };
     return {
       steps: this.planningSteps,
@@ -2307,7 +2309,7 @@ class ChildConnectPart implements Part {
     };
   }
 
-  planning(): readonly OperationStep[] {
+  planning(): readonly ReadStep[] {
     return [this.probe];
   }
 

@@ -16,6 +16,7 @@ import type { Operation } from "../types";
 import { validate } from "../validator";
 import {
   type OperationFragment,
+  type PlanningFragment,
   ref,
   type ReadStep,
 } from "./OperationFragment";
@@ -116,7 +117,7 @@ export class ReadOperation {
     };
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     // A read makes no decision — planning is empty (PLAN P4 item 1).
     return { steps: [], outputs: {} };
   }

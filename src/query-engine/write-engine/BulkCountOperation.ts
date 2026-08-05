@@ -10,6 +10,7 @@ import type { Operation } from "../types";
 import { validate } from "../validator";
 import {
   type OperationFragment,
+  type PlanningFragment,
   ref,
   type WriteStep,
 } from "./OperationFragment";
@@ -79,7 +80,7 @@ export class BulkCountOperation {
           };
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     return { steps: [], outputs: {} };
   }
 

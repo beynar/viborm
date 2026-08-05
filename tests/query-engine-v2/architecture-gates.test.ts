@@ -29,6 +29,7 @@ const FRAGMENT_TYPE_NAMES = [
   "OperationFragment",
   "OperationStep",
   "OperationValueReference",
+  "PlanningFragment",
   "Postcondition",
   "Probe",
   "ReadStep",

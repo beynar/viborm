@@ -15,7 +15,11 @@ import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
 import { CreateOperation, type FreshReferenced } from "./CreateOperation";
 import { referenceSql } from "./fragment-builders";
-import type { OperationStep, TargetConstraintPin } from "./OperationFragment";
+import type {
+  OperationStep,
+  StatementStep,
+  TargetConstraintPin,
+} from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { referencedFieldValue } from "./parent-reference";
 import { buildJunctionParts } from "./RelationJunctionPart";
@@ -174,7 +178,7 @@ class NestedTargetUpdatePart implements Part {
   constructor(op: UpdateOperation) {
     this.op = op;
   }
-  planning(): readonly OperationStep[] {
+  planning(): readonly StatementStep[] {
     return this.op.planning().steps;
   }
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
@@ -697,7 +701,7 @@ class LiteralParentWriteParts implements Part {
   constructor(steps: readonly OperationStep[]) {
     this.steps = steps;
   }
-  planning(): readonly OperationStep[] {
+  planning(): readonly StatementStep[] {
     return [];
   }
   compile(_scope: StepScope, _known: PlanningKnown): readonly OperationStep[] {
@@ -822,7 +826,7 @@ class NestedFreshCreatePart implements Part {
   constructor(op: CreateOperation) {
     this.op = op;
   }
-  planning(): readonly OperationStep[] {
+  planning(): readonly StatementStep[] {
     return this.op.planning().steps;
   }
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
@@ -1101,7 +1105,7 @@ class PlannedParentCreatePart implements Part {
   constructor(build: (known: PlanningKnown) => readonly OperationStep[]) {
     this.build = build;
   }
-  planning(): readonly OperationStep[] {
+  planning(): readonly StatementStep[] {
     return [];
   }
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {

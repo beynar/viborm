@@ -31,6 +31,7 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type PlanningFragment,
   type ReadStep,
   ref,
   type WriteStep,
@@ -283,7 +284,7 @@ export class ManyAndReturnOperation {
     };
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     if (this.skipInserts) {
       // E6.9: the capture is the WRITES, and what crosses into `compile` is each one's own
       // outcome — see {@link buildCreateManySkipCapture} for why that is this phase.

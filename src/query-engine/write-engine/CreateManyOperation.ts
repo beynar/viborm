@@ -7,6 +7,7 @@ import type { QueryEngine } from "../query-engine";
 import {
   type FragmentOutputSource,
   type OperationFragment,
+  type PlanningFragment,
   type OperationValueReference,
   ref,
   type WriteStep,
@@ -115,7 +116,7 @@ export class CreateManyOperation {
     }
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     // No decision, no planning read — createMany is a straight write.
     return { steps: [], outputs: {} };
   }

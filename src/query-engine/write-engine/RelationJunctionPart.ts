@@ -52,6 +52,7 @@ import {
   type OperationStep,
   type ReadStep,
   ref,
+  type StatementStep,
   type TargetConstraintPin,
   type WriteStep,
 } from "./OperationFragment";
@@ -449,8 +450,8 @@ export class RelationJunctionPart implements Part {
       kind === "set" ? scope.allocate(`${config.childName}.set.insert`) : "";
   }
 
-  planning(scope: StepScope): readonly OperationStep[] {
-    const steps: OperationStep[] = [];
+  planning(scope: StepScope): readonly StatementStep[] {
+    const steps: StatementStep[] = [];
     for (const target of this.targets) {
       steps.push(target.probe);
       // Depth (T3b-2): the located update target's own child Parts plan their probes

@@ -53,6 +53,7 @@ import {
 import type {
   OperationStep,
   ReadStep,
+  StatementStep,
   WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
@@ -240,9 +241,9 @@ export class RelationWritePart implements Part {
       this.isTargeted() && !this.isNoOpUpdate ? this.buildProbe() : undefined;
   }
 
-  planning(scope: StepScope): readonly OperationStep[] {
+  planning(scope: StepScope): readonly StatementStep[] {
     if (this.isNoOpUpdate) return [];
-    const steps: OperationStep[] = this.probe ? [this.probe] : [];
+    const steps: StatementStep[] = this.probe ? [this.probe] : [];
     // Depth (T3b mechanism 1): the located target's own child Parts plan their
     // probes here, one level deeper — the same unconditional planning superset the
     // root and the upsert-arm recursion already use (ATOM §3 technique 2). The
@@ -1103,7 +1104,7 @@ class RelationKeyOccupiedPart implements Part {
     );
   }
 
-  planning(): readonly OperationStep[] {
+  planning(): readonly StatementStep[] {
     return [
       {
         id: this.probeId,
@@ -1238,8 +1239,8 @@ export class RelationSetPart implements Part {
       : undefined;
   }
 
-  planning(): readonly OperationStep[] {
-    const steps: OperationStep[] = this.targets.map((target) => target.exist);
+  planning(): readonly StatementStep[] {
+    const steps: StatementStep[] = this.targets.map((target) => target.exist);
     if (this.departingRead) steps.push(this.departingRead);
     return steps;
   }

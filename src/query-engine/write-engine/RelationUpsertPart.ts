@@ -42,6 +42,7 @@ import type {
   OperationValueReference,
   Probe,
   ReadStep,
+  StatementStep,
   WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
@@ -385,13 +386,13 @@ export class RelationUpsertPart implements Part {
     return planningKey(this.probeId, "rows");
   }
 
-  planning(scope: StepScope): readonly OperationStep[] {
+  planning(scope: StepScope): readonly StatementStep[] {
     // Planning is unconditional: this part's probe plus every arm's child probes
     // run before any write, so `compile` has all three-way inputs in `known`
     // regardless of which arm each level later takes. Both the update-arm and
     // the create-arm children plan here (technique #2's widened superset); only
     // the taken arm's children later compile.
-    const steps: OperationStep[] = [this.find];
+    const steps: StatementStep[] = [this.find];
     for (const child of this.updateChildParts) {
       const childSteps = child.planning(scope);
       assertArmPlanningAssertsNothing(childSteps, this.config.relationName);

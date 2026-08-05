@@ -131,7 +131,7 @@ export class RelationLinkPart implements Part {
     this.probe = this.buildProbe();
   }
 
-  planning(): readonly OperationStep[] {
+  planning(): readonly ReadStep[] {
     return this.probe ? [this.probe] : [];
   }
 
