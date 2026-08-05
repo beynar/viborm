@@ -9,9 +9,8 @@ import {
   type NormalizedRelationUpsert,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import { buildInsert } from "../builders/values-builder";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
-import { createQueryScope, getTableName } from "../context/query-scope";
+import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique, buildUpdate } from "../operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
@@ -163,7 +162,6 @@ interface RelationUpsertConfigCore {
   readonly publishesLocatedPk?: boolean;
   readonly relationName: string;
   readonly where: Record<string, unknown>;
-  readonly createData: Readonly<Record<string, unknown>>;
   readonly updateData: Readonly<Record<string, unknown>>;
   /**
    * The child-held foreign-key columns and the parent columns they reference,
@@ -194,17 +192,15 @@ interface RelationUpsertConfigCore {
    */
   readonly updateChildParts?: readonly Part[];
   /**
-   * N4-U2 — depth on the CREATE arm. The absent → CREATE arm inserts a FRESH row,
-   * which is exactly what a `create` root builds, so when the arm's payload carries
-   * relations the WHOLE arm is a create SUBTREE ({@link FreshArmBuilder}) rather than
-   * this part's own one-statement leaf plus a hand-rolled list of deeper writes. It
+   * N4-U2 — the absent → CREATE arm inserts a FRESH row, which is exactly what a
+   * `create` root builds. The whole arm is therefore a create subtree for scalar and
+   * relation-bearing payloads alike. It
    * owns the arm's INSERT (carrying this part's raceable missing-premise pin as its
    * root record's `racePin`), its own identity — a spelled primary key OR one the
    * database generates and its grandchildren `Ref` — and every relation below at any
-   * depth. Absent when the create payload is scalar-only; then {@link buildCreateArm}
-   * emits the single INSERT it always did, byte-identically.
+   * depth.
    */
-  readonly createSubtree?: Part;
+  readonly createSubtree: Part;
 }
 
 export type RelationUpsertConfig = RelationUpsertConfigCore &
@@ -240,13 +236,12 @@ export type RelationUpsertConfig = RelationUpsertConfigCore &
 export class RelationUpsertPart implements Part {
   private readonly config: RelationUpsertConfig;
   private readonly probeId: string;
-  private readonly createId: string;
   private readonly updateId: string;
   private readonly guardId: string;
   private readonly find: ReadStep;
   private readonly foundPin: GuardStep | undefined;
   private readonly updateChildParts: readonly Part[];
-  private readonly createSubtree: Part | undefined;
+  private readonly createSubtree: Part;
   private readonly family: UpsertFamily;
   private readonly duplicateOfEarlier: boolean;
 
@@ -258,7 +253,6 @@ export class RelationUpsertPart implements Part {
     this.duplicateOfEarlier = config.duplicateOfEarlier ?? false;
     const { childScope, childName, where, txMode, relationName } = config;
     this.probeId = config.probeId;
-    this.createId = scope.allocate(`${childName}.create`);
     this.updateId = scope.allocate(`${childName}.update`);
     this.guardId = scope.allocate(`${childName}.guard.exists`);
 
@@ -350,7 +344,7 @@ export class RelationUpsertPart implements Part {
       assertArmPlanningAssertsNothing(childSteps, this.config.relationName);
       steps.push(...childSteps);
     }
-    if (this.createSubtree) steps.push(...this.createSubtree.planning(scope));
+    steps.push(...this.createSubtree.planning(scope));
     return steps;
   }
 
@@ -387,9 +381,7 @@ export class RelationUpsertPart implements Part {
       // the subtree owns the INSERT (with this part's racePin on its root record), its
       // own identity, and every relation below, under the fresh-parent elision
       // (ATOM §4) that makes any correlation beneath it statically empty.
-      return this.createSubtree
-        ? this.createSubtree.compile(scope, known)
-        : [this.buildCreateArm(known)];
+      return this.createSubtree.compile(scope, known);
     }
     // Found: adopt-and-update (global) or update the correlated child. In batch
     // mode the found premise is pinned first by the exists guard, narrowed to the
@@ -552,22 +544,6 @@ export class RelationUpsertPart implements Part {
       upsertTargetNotFoundForParent(this.config.relationName),
       this.config.relationName
     );
-  }
-
-  private buildCreateArm(known: PlanningKnown): WriteStep {
-    const { childScope, where } = this.config;
-    return {
-      id: this.createId,
-      kind: "write",
-      statement: buildInsert(childScope, getTableName(childScope.model), {
-        ...this.config.createData,
-        ...this.fkAssignData(known),
-      }),
-      outputs: {},
-      // The missing premise is enforced by the child's unique constraint; its
-      // violation is the raceable signal, matched against this pinned target.
-      racePin: childRacePin(childScope, where),
-    };
   }
 
   /** The found/adopt arm. `address` is the row it writes: the located row's captured
@@ -1028,7 +1004,6 @@ function buildOneUpsertPart(
     requireRecord(item.create, `${relationName}.${family}.create`),
     ownedFk
   );
-  const childCreate = buildParsedRelationPrograms(child, create);
   // connectOrCreate has no update payload; its found arm is a pure connect.
   const update =
     family === "connectOrCreate"
@@ -1099,16 +1074,13 @@ function buildOneUpsertPart(
     txMode,
     seam
   );
-  const createSubtree =
-    Object.keys(childCreate.relations).length > 0
-      ? seam.freshArm({
-          childScope: child,
-          data: create,
-          incomingForeignKey: members,
-          relationName,
-          racePin: childRacePin(child, where),
-        })
-      : undefined;
+  const createSubtree = seam.freshArm({
+    childScope: child,
+    data: create,
+    incomingForeignKey: members,
+    relationName,
+    racePin: childRacePin(child, where),
+  });
 
   return new RelationUpsertPart(scope, {
     engine,
@@ -1119,7 +1091,6 @@ function buildOneUpsertPart(
       isPlanningFieldSource(updateArmParentId) && updateChildParts.length > 0,
     relationName,
     where,
-    createData: childCreate.scalarData,
     updateData: childUpdate.scalarData,
     childPrimaryKey,
     ...(correlationMembers
@@ -1129,7 +1100,7 @@ function buildOneUpsertPart(
     family,
     duplicateOfEarlier,
     updateChildParts,
-    ...(createSubtree ? { createSubtree } : {}),
+    createSubtree,
   });
 }
 

@@ -474,7 +474,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // 87 -> 87 (T4a CLASS VI, a swap that nets to zero): the three CLASS VI blast-radius
   // keys are absorbed (deep create-context grandchildren under a PLANNED / create-context
   // parent id). `nested-target-parts.ts` gained the planned-parent `create` leaf
-  // (`buildPlannedParentCreatePart`) whose FK inlines the located target's captured PK at
+  // (the shared fresh-record path) whose FK inlines the located target's captured PK at
   // compile — key 1; its dead `literalFkInject` non-literal throw was DELETED (both literal
   // leaves are dispatched only for a literal parent) and a `createMany` one step past that
   // leaf (still a documented finer boundary, measured-not-curated) throws at dispatch: net
@@ -1344,7 +1344,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     relation-carrying arm's too, which is the consistency this removes.
   //
   // CONVERTED to a `QueryEngineError` (1, the N2-U1 / X1c disposition for a branch
-  // unreachable by construction): `RelationWritePart.upsertCreateScalarData`'s "does not
+  // unreachable by construction): the removed scalar create arm's "does not
   // support nested relation writes in its create arm". The inverse-side to-one upsert's
   // create arm takes the same subtree, and its builder routes a relation-carrying payload
   // there before the part is constructed — so reaching this branch would mean an arm

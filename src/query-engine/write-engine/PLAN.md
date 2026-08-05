@@ -1181,7 +1181,7 @@ final subsystems is landed: **deep create-context grandchildren**, a nested `cre
 carries a captured parent id one step past `buildNestedTargetChildParts`' literal-parent reach
 (refs point backward — the ATOM depth-recursion mechanism). Three keys, one family: (1) a
 `create` under a PLANNED parent-held `update` target — its FK inlined at compile from the
-located planning row (`buildPlannedParentCreatePart`, nested-target-parts.ts); (2) a `create`
+located planning row (the shared fresh-record compiler); (2) a `create`
 on the UPDATE arm of a to-many upsert — correlated to the found row's literal PK
 (`RelationUpsertPart` accepts a child-held create on both arms); (3) a root-`create` nested
 `createMany skipDuplicates` — composing `buildCreateManyPlan`'s skip leaf / recoverable

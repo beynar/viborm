@@ -7,8 +7,8 @@ import {
   type RelationMutationEntry,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import { buildInsert, buildValueGroups } from "../builders/values-builder";
-import { createQueryScope, getTableName } from "../context/query-scope";
+import { buildValueGroups } from "../builders/values-builder";
+import { createQueryScope } from "../context/query-scope";
 import { buildCreateManyPlan } from "../operations/create";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import type { QueryEngine } from "../query-engine";
@@ -629,40 +629,22 @@ function foldOneChildHeldKind(args: {
       parts.push(buildToManySetPart(writeBase, entry));
       return;
     case "create": {
-      // A child-held `create` leaf under a located target. A LITERAL parent id (a
-      // child-held nested update located by its `where` PK) resolves its FK at
-      // construction; a PLANNED parent id (a parent-held to-one `update` target,
-      // located by this operation's planning read) resolves its FK at COMPILE — the
-      // created row's FK carries the target's captured PK, inlined from the located
-      // planning row exactly as the root's depth recursion threads a first-class
-      // parent value (T4a CLASS VI, one step past the literal-parent reach).
+      // Every non-bulk fresh record is a CreateOperation subtree. Its field-bound
+      // incoming members resolve literal and planned parents through the same compiler.
       const members = pairForeignKeyMembers(
         fk.fkFields,
         fk.pkFields,
         fk.pkFields.map(() => parentId)
       );
       parts.push(
-        ...(literalReferenceSource(parentId)
-          ? buildLiteralParentCreatePart({
-              scope,
-              engine,
-              childScope,
-              childName,
-              relationName,
-              members,
-              txMode,
-              creates: entry.items,
-            })
-          : buildPlannedParentCreatePart({
-              scope,
-              engine,
-              childScope,
-              childName,
-              relationName,
-              members,
-              txMode,
-              creates: entry.items,
-            }))
+        ...buildFreshRecordParts({
+          scope,
+          engine,
+          childScope,
+          relationName,
+          members,
+          creates: entry.items,
+        })
       );
       return;
     }
@@ -759,59 +741,17 @@ function foreignKeyInject(
   return inject;
 }
 
-export function buildLiteralParentCreatePart(input: {
+export function buildFreshRecordParts(input: {
   scope: StepScope;
   engine: QueryEngine;
   childScope: QueryScope;
-  childName: string;
   relationName: string;
   members: readonly ForeignKeyMember[];
-  txMode: boolean;
   creates: readonly Record<string, unknown>[];
 }): readonly Part[] {
-  const { scope, engine, childScope, childName, relationName, members } = input;
-  const inject = foreignKeyInject(engine, childScope, relationName, members);
-  // A scalar-only fresh child is the pre-X1 leaf, byte-identical: one INSERT step
-  // per item, in order, its FK inlined from the located parent's literal PK. A
-  // relation-carrying fresh child is a create SUBTREE (X1b): the whole child —
-  // INSERT plus its parent-held-FK / database-generated-PK / adopt-family / M2M /
-  // create-context grandchildren, at any depth — is delegated to the create-root
-  // machinery, one architecture, one vocabulary (see {@link buildNestedFreshCreateParts}).
-  const scalarSteps: OperationStep[] = [];
-  const subtreeParts: Part[] = [];
-  for (const create of input.creates) {
-    const { scalarData, relations } = buildParsedRelationPrograms(
-      childScope,
-      create
-    );
-    if (Object.keys(relations).length === 0) {
-      scalarSteps.push({
-        id: scope.allocate(`${childName}.create`),
-        kind: "write" as const,
-        statement: buildInsert(childScope, getTableName(childScope.model), {
-          ...scalarData,
-          ...inject,
-        }),
-        outputs: {},
-      } satisfies OperationStep);
-    } else {
-      subtreeParts.push(
-        ...buildNestedFreshCreateParts({
-          scope,
-          engine,
-          childScope,
-          relationName,
-          members,
-          create,
-        })
-      );
-    }
-  }
-  const parts: Part[] = [];
-  if (scalarSteps.length > 0)
-    parts.push(new LiteralParentWriteParts(scalarSteps));
-  parts.push(...subtreeParts);
-  return parts;
+  return input.creates.map((create) =>
+    buildFreshRecordPart({ ...input, create })
+  );
 }
 
 /**
@@ -895,14 +835,14 @@ export function buildFreshArmPart(
   );
 }
 
-function buildNestedFreshCreateParts(input: {
+function buildFreshRecordPart(input: {
   scope: StepScope;
   engine: QueryEngine;
   childScope: QueryScope;
   relationName: string;
   members: readonly ForeignKeyMember[];
   create: Record<string, unknown>;
-}): readonly Part[] {
+}): Part {
   const { scope, engine, childScope, relationName, members, create } = input;
   const op = new CreateOperation(
     engine,
@@ -918,7 +858,7 @@ function buildNestedFreshCreateParts(input: {
       },
     }
   );
-  return [new NestedFreshCreatePart(op)];
+  return new NestedFreshCreatePart(op);
 }
 
 /**
@@ -1107,73 +1047,4 @@ class PlannedParentCreatePart implements Part {
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     return this.build(known);
   }
-}
-
-/** The planned-parent create leaf resolves each member's source from `known` at compile. */
-export function buildPlannedParentCreatePart(input: {
-  scope: StepScope;
-  engine: QueryEngine;
-  childScope: QueryScope;
-  childName: string;
-  relationName: string;
-  members: readonly ForeignKeyMember[];
-  txMode: boolean;
-  creates: readonly Record<string, unknown>[];
-}): readonly Part[] {
-  const { scope, engine, childScope, childName, relationName, members } = input;
-  // A scalar-only fresh child resolves its FK from the located planning row at
-  // compile (the pre-X1 leaf, byte-identical). A relation-carrying fresh child is a
-  // create SUBTREE delegated to the create-root machinery (X1b), whose own root FK
-  // inject is likewise the compile-resolved planned parent id, one architecture at
-  // any depth (see {@link buildNestedFreshCreateParts}).
-  const scalarItems: { scalarData: Record<string, unknown>; id: string }[] = [];
-  const subtreeParts: Part[] = [];
-  for (const create of input.creates) {
-    const { scalarData, relations } = buildParsedRelationPrograms(
-      childScope,
-      create
-    );
-    if (Object.keys(relations).length === 0) {
-      scalarItems.push({
-        scalarData,
-        id: scope.allocate(`${childName}.create`),
-      });
-    } else {
-      subtreeParts.push(
-        ...buildNestedFreshCreateParts({
-          scope,
-          engine,
-          childScope,
-          relationName,
-          members,
-          create,
-        })
-      );
-    }
-  }
-  const parts: Part[] = [];
-  if (scalarItems.length > 0) {
-    parts.push(
-      new PlannedParentCreatePart((known) => {
-        const inject = foreignKeyInject(
-          engine,
-          childScope,
-          relationName,
-          members,
-          known
-        );
-        return scalarItems.map((item) => ({
-          id: item.id,
-          kind: "write" as const,
-          statement: buildInsert(childScope, getTableName(childScope.model), {
-            ...item.scalarData,
-            ...inject,
-          }),
-          outputs: {},
-        }));
-      })
-    );
-  }
-  parts.push(...subtreeParts);
-  return parts;
 }

@@ -364,7 +364,7 @@ export function runLocatedParentRefBehavior(options: {
         try {
           await seedAccounts(client);
           // X1b: the fresh note is a create SUBTREE (it carries its own `attachments`),
-          // delegated to the create root whose `rootFkInject` is the compile-resolved
+          // delegated to the create root whose incoming members are compile-resolved
           // located-parent value.
           await update("account", locatedParentRefSchema.account, {
             where: { email: "target@x" },

@@ -15,7 +15,7 @@ import { createV2RoutedClient } from "./v2-client-proxy";
  *             (`post.update → author.update → posts.create`). The target (the author) is
  *             read by this operation's own locate probe; the grandchild post's FK inlines
  *             the located author's captured PK at compile (ATOM §9 inv. 2 — a literal, not a
- *             SQL Ref). Absorbed by `buildPlannedParentCreatePart` (nested-target-parts.ts).
+ *             SQL Ref). Compiled by the shared fresh-record path.
  *   · KEY 2 — a `create` on the UPDATE arm of a to-many upsert, correlated to the found
  *             row's compile-time literal PK (`user.update → posts.upsert(update) →
  *             comments.create`). Absorbed by `RelationUpsertPart` accepting a child-held

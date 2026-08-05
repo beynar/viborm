@@ -1457,7 +1457,7 @@ mechanism family:
 - **Key 1 — a `create` under a PLANNED parent-held `update` target** (`post.update →
   author.update → posts.create`). The target (the author) is located by this operation's own
   parent-held probe (family A-remainder); the grandchild's FK is resolved at COMPILE from the
-  located planning row and inlined as a literal (`buildPlannedParentCreatePart`,
+  located planning row and inlined as a literal (the shared fresh-record compiler,
   nested-target-parts.ts) — ATOM §9 inv. 2 forbids a final-fragment step reffing a planning
   step, so a `planned` id is a compile-time literal, never a SQL `Ref`. An unconditional
   INSERT: no probe, guard, or racePin (leaf-never-axis). A relation-carrying grandchild, and a
@@ -1852,7 +1852,7 @@ puts it in the locate's SELECT **and** its `firstRowField` outputs — and handi
 a `plannedParentId`. The literal path REMAINS for the pinned single-field case: no extra
 locate column, no extra statement, byte-identical SQL, so the common spelling pays
 nothing. The leaf builders are the ones T4a already wrote
-(`buildPlannedParentCreatePart`, whose per-field `plannedFkInject` is inherently
+(the shared fresh-record compiler, whose field-bound incoming members are inherently
 compound-ready); N1 adds only `buildPlannedParentCreateManyPart`, the bulk arm, whose
 step ids are allocated at construction from a shape plan (a createMany plan's statement
 count is a function of which COLUMNS each row carries, never of their values) and whose

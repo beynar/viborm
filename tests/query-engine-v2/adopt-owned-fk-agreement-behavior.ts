@@ -27,7 +27,7 @@ import { describe, expect, test } from "vitest";
  *     key: ownerId` at the parse boundary, one layer above this seam. The agreement
  *     decision still covers that payload (it is taken once, on both objects, before
  *     `separateData`, so the fresh create SUBTREE is handed the same stripped object its
- *     `rootFkInject` folds into) — but no client payload exercises it.
+ *     incoming FK members fold into) — but no client payload exercises it.
  *  2. **Only a `literal` parent source is comparable at construction.** The UPDATE root
  *     hands its children a `planned` source (the located row, read at planning) and a
  *     create root with a DB-generated key hands a `ref` (produced by an INSERT that has
@@ -290,7 +290,7 @@ export function registerAdoptOwnedFkBehavior(
     test("AGREE beside a relation-carrying create arm (the freshArm subtree)", async () => {
       // The ABSENT arm is the create SUBTREE, and it is handed the same object the
       // agreement decision ran on. Its root INSERT folds the parent key through
-      // `rootFkInject`; nothing in the payload competes with it.
+      // incoming FK members; nothing in the payload competes with them.
       const client = await connect();
       await reset(client);
 

@@ -916,7 +916,7 @@ The first and smallest of T3d's three residual subsystems is landed. **The to-on
 CLASS VI is key 1: a `create` under a **parent-held to-one `update` target located by a
 PLANNED id** (`post.update → author.update → posts.create`). The author is read by this
 operation's own locate probe (family A-remainder, §7.7.1); its captured PK is exposed as a
-`firstRowField`, and the new **`buildPlannedParentCreatePart`** (`nested-target-parts.ts`)
+`firstRowField`, and the shared fresh-record compiler
 resolves the grandchild's FK at COMPILE by inlining that located row's referenced value as a
 literal — a `planned` source is never a SQL `Ref` (ATOM §9 inv. 2: a final-fragment step may
 not ref a planning step). This is the create-arm sibling of §7.7.1's located-update recursion:

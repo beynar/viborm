@@ -80,12 +80,11 @@ import {
 import {
   buildBeforeRootTargetSubtree,
   buildFreshArmPart,
+  buildFreshRecordParts,
   buildLiteralParentCreateManyPart,
-  buildLiteralParentCreatePart,
   buildNestedTargetChildParts,
   buildNestedTargetUpdatePart,
   buildPlannedParentCreateManyPart,
-  buildPlannedParentCreatePart,
   type FreshArmBuilder,
   targetNeedsFullUpdate,
 } from "./nested-target-parts";
@@ -1659,19 +1658,15 @@ export class UpdateOperation {
       members,
     } as const;
     if (entry.kind === "create") {
-      const txMode = this.mode === "transaction";
       target.push(
-        ...(isLiteralParent
-          ? buildLiteralParentCreatePart({
-              ...leaf,
-              txMode,
-              creates: entry.items,
-            })
-          : buildPlannedParentCreatePart({
-              ...leaf,
-              txMode,
-              creates: entry.items,
-            }))
+        ...buildFreshRecordParts({
+          scope: leaf.scope,
+          engine: leaf.engine,
+          childScope: leaf.childScope,
+          relationName: leaf.relationName,
+          members: leaf.members,
+          creates: entry.items,
+        })
       );
       return;
     }
@@ -2300,7 +2295,6 @@ export class UpdateOperation {
             relationName,
             fk,
             childScope,
-            childName,
             upsertInput: item,
             after: keyTransition.after,
           });
@@ -2395,7 +2389,6 @@ export class UpdateOperation {
     relationName: string;
     fk: FkDirection;
     childScope: QueryScope;
-    childName: string;
   }):
     | { regime: "none" }
     | { regime: "guarded"; after: unknown }
@@ -2510,15 +2503,7 @@ export class UpdateOperation {
     upsertInput: NormalizedRelationUpsert;
     after: unknown;
   }): void {
-    const {
-      input,
-      relationName,
-      fk,
-      childScope,
-      childName,
-      upsertInput,
-      after,
-    } = args;
+    const { input, relationName, fk, childScope, upsertInput, after } = args;
     const createData = upsertInput.create;
     const members = pairForeignKeyMembers(
       fk.fkFields,
@@ -2526,14 +2511,12 @@ export class UpdateOperation {
       fk.pkFields.map(() => literalParentId(after))
     );
     input.afterRootParts.push(
-      ...buildLiteralParentCreatePart({
+      ...buildFreshRecordParts({
         scope: input.scope,
         engine: this.engine,
         childScope,
-        childName,
         relationName,
         members,
-        txMode: this.mode === "transaction",
         creates: [createData],
       })
     );
