@@ -5,6 +5,7 @@ import {
   TransactionError,
 } from "@errors";
 import type { Model } from "@schema/model";
+import { isSql } from "@sql";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import { createQueryScope } from "../context/query-scope";
 import {
@@ -35,11 +36,7 @@ import {
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
-import {
-  isRecord,
-  selectExecutionMode,
-  UnsupportedOperationError,
-} from "./shared";
+import { isRecord, selectExecutionMode } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 /**
@@ -110,6 +107,17 @@ export class ManyAndReturnOperation {
   /** The updateManyAndReturn non-returning capture (built in `planning`). */
   private readonly captureRead: StatementStep | undefined;
   private readonly updateData: Record<string, unknown> | undefined;
+  /**
+   * E6.9 — the non-returning `createMany` + `select` + `skipDuplicates` capture: one
+   * skippable INSERT per input row, in input order. They are the operation's WRITES, and
+   * they run in the CAPTURE fragment because their own outcome is what the final fragment
+   * is built from — which row was inserted, and what id it got. See
+   * {@link buildCreateManySkipCapture}.
+   */
+  private readonly skipInserts?: readonly StatementStep[];
+  /** Per input row, the created-row identity `getCreatedRowWhere` answers (the session
+   *  `lastInsertId()` sentinel included — `compile` replaces it with the captured id). */
+  private readonly skipWheres?: readonly Record<string, unknown>[];
   private readonly scope: StepScope;
 
   constructor(
@@ -149,6 +157,16 @@ export class ManyAndReturnOperation {
     }
 
     if (kind === "createManyAndReturn") {
+      const skipCapture = this.buildCreateManySkipCapture(supportsReturning);
+      if (skipCapture) {
+        this.skipInserts = skipCapture.inserts;
+        this.skipWheres = skipCapture.wheres;
+        this.staticSteps = undefined;
+        this.staticOutput = undefined;
+        this.captureRead = undefined;
+        this.updateData = undefined;
+        return;
+      }
       const built = this.buildCreateManyReturn(supportsReturning);
       this.staticSteps = built.steps;
       this.staticOutput = built.output;
@@ -265,6 +283,12 @@ export class ManyAndReturnOperation {
   }
 
   planning(): OperationFragment {
+    if (this.skipInserts) {
+      // E6.9: the capture is the WRITES, and what crosses into `compile` is each one's own
+      // outcome — see {@link buildCreateManySkipCapture} for why that is this phase.
+      const steps = [...this.skipInserts];
+      return { steps, outputs: planningOutputs(steps) };
+    }
     if (this.captureRead) {
       const steps = [this.captureRead];
       return { steps, outputs: planningOutputs(steps) };
@@ -273,6 +297,7 @@ export class ManyAndReturnOperation {
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
+    if (this.skipInserts) return this.compileCapturedSkip(known);
     if (this.staticSteps) {
       if (this.staticSteps.length === 0 || this.staticOutput === undefined) {
         return { steps: [], outputs: {} };
@@ -410,6 +435,176 @@ export class ManyAndReturnOperation {
     };
   }
 
+  /**
+   * E6.9 — `createMany` + `select` + `skipDuplicates` on a driver with no `RETURNING`.
+   *
+   * MEASURED FIRST (Docker MySQL 8.4, HEAD e37c611): a typed `UnsupportedOperationError`
+   * (V8003), "createMany with 'select' does not support 'skipDuplicates' on a driver
+   * without RETURNING: the rows a skip actually inserted cannot be identified." The
+   * recorded reason was "inexpressible". The measured truth is narrower: it is
+   * inexpressible as ONE STATEMENT, and it was inexpressible as a fragment whose reads are
+   * decided before the writes run. It is expressible when the writes are OBSERVED.
+   *
+   * The maintainer authorized the mechanism (expressible-shapes-plan.md, Risks item 3):
+   * per-row savepoints, the id of each non-raising row, a refetch by the collected ids.
+   * That is what this builds, out of parts that already exist:
+   *
+   *  - **the savepoint** is the census `onUniqueConflict: "skip"` effect (ATOM §8), served
+   *    by `executeSkippableWrite` — the SAME executor effect the `{ count }` arm has used
+   *    on this dialect since P6. Nothing is re-derived here; the step just declares it.
+   *  - **the split into one INSERT per row** is `buildCreateManyPlan`'s own
+   *    `recoverDuplicateErrors` arm. A run cannot be absorbed row-wise, so it already
+   *    splits — this arm asks for the split it was going to get.
+   *  - **the identity** is `getCreatedRowWhere`, verbatim: a row that spells its own
+   *    primary key names itself; a generated key resolves to the session's
+   *    `lastInsertId()`. That sentinel is the ONE thing this arm cannot use, because the
+   *    reads happen after ALL the inserts and the session's last id belongs to the last of
+   *    them. `compile` substitutes the id THIS row's own INSERT produced (the step's
+   *    `insertId` output) — the row the step made, never a value re-derived from input.
+   *
+   * **Which phase the writes run in.** They are the capture fragment. That fragment is not
+   * "the reads" — it is what the operation must OBSERVE before the final fragment can be
+   * constructed (`Part.PlanningKnown`, the sanctioned crossing, ATOM §9 inv. 3), and here
+   * the thing to observe is a write's own outcome: no read can tell you whether an INSERT
+   * you have not run yet will be skipped. The linearization invariant (§4) is untouched —
+   * this arm makes no branch decision from a READ, so there is no decision read to order
+   * against a write; and the capture carries no read at all.
+   *
+   * **The stale-insertId hazard is structurally absent**, not guarded against: a skipped
+   * write's own `rowCount` is 0, `compile` emits no read for it, and its `insertId` output
+   * is never dereferenced. (The executor resolves that output to `undefined` for exactly
+   * this case — `extractOutputs` — so an absent id on a NON-skipped write still fails
+   * closed.) The witness that says so has a decoy: a duplicate whose insert fails must not
+   * hand back the row that was already there.
+   *
+   * **The cost, accepted.** N round trips for the inserts plus one per surviving row —
+   * 2N-1 for a payload with one duplicate, against 2N for the same payload without the
+   * flag. There is no folding: a fold is what makes a skip unobservable. This is the
+   * maintainer's accepted trade for the shape existing at all on this driver.
+   *
+   * **The atomic batch stays refused.** A forced-batch non-returning driver never reaches
+   * here: the constructor's ATOM §7 refusal answers first, and it names the substrate
+   * ("because public result parsing cannot be rolled back"). The skip effect's own wall
+   * (`OperationExecutor.compileToEntries`, "no atomic-batch lowering") stands behind it.
+   * Two reasons, one refusal — a second, skip-specific throw would be a redundant guard.
+   *
+   * Returns `undefined` when this arm does not apply (a returning driver, or no flag), so
+   * the caller falls through to the statically-built fragment.
+   */
+  private buildCreateManySkipCapture(supportsReturning: boolean):
+    | {
+        inserts: readonly StatementStep[];
+        wheres: readonly Record<string, unknown>[];
+      }
+    | undefined {
+    if (supportsReturning || this.args.skipDuplicates !== true) return;
+    const data = this.args.data;
+    if (!Array.isArray(data)) {
+      throw new QueryEngineError(
+        "query-engine-v2 createMany with 'select' requires a data array."
+      );
+    }
+    if (data.length === 0) return { inserts: [], wheres: [] };
+
+    const ctx = this.ctx();
+    const name = this.modelName();
+    const plan = buildCreateManyPlan(
+      ctx,
+      {
+        data,
+        skipDuplicates: true,
+        ...(this.select ? { select: this.select } : {}),
+      },
+      true
+    );
+    // A dialect whose skip IS a SQL leaf carries it in the statement and reports the skip
+    // as a zero row count; MySQL's is the savepoint effect. Both are read the same way
+    // below (`affected`), so this arm is not MySQL-specific — only the effect flag is.
+    const recoverUnique =
+      this.engine.adapter.mutations.skipDuplicatesStrategy ===
+      "recoverableUniqueError";
+    const inserts: StatementStep[] = [];
+    const wheres: Record<string, unknown>[] = [];
+    for (const [position, statement] of plan.statements.entries()) {
+      // THE ORDINAL CONTRACT, in its skippable form. The answer is the input order minus
+      // the skipped rows, so each statement must own exactly one input and they must
+      // arrive in input order — then `compile` preserves the order by construction and
+      // needs no second check. `recoverDuplicateErrors` splits every run into rows, so
+      // this holds today; asserting it is what keeps a future regrouping from silently
+      // addressing the answers to the wrong inputs.
+      const [inputIndex] = statement.inputIndexes;
+      if (statement.inputIndexes.length !== 1 || inputIndex !== position) {
+        throw new QueryEngineError(
+          "query-engine-v2 createMany with 'select' and 'skipDuplicates' expected one input per statement, in input order."
+        );
+      }
+      const row = data[inputIndex] as Record<string, unknown>;
+      // Raises the same "final primary key cannot be determined atomically" refusal the
+      // non-skip arm raises, at construction, before any write.
+      const where = getCreatedRowWhere(ctx, row, name);
+      const generated = Object.values(where).some(isSql);
+      wheres.push(where);
+      inserts.push({
+        id: this.scope.allocate(`${name}.createReturn.skip`),
+        kind: "write",
+        statement: statement.sql,
+        outputs: generated
+          ? { affected: { kind: "rowCount" }, id: { kind: "insertId" } }
+          : { affected: { kind: "rowCount" } },
+        ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
+      });
+    }
+    return { inserts, wheres };
+  }
+
+  /**
+   * The final fragment of {@link buildCreateManySkipCapture}: one refetch per row the
+   * capture actually inserted, in input order, riding the frozen ordered reference-list
+   * output (ATOM §1 — the sources concatenate). A skipped row contributes no read and no
+   * source, which is exactly "input order minus skipped".
+   */
+  private compileCapturedSkip(
+    known: Readonly<Record<string, unknown>>
+  ): OperationFragment {
+    const inserts = this.skipInserts ?? [];
+    const wheres = this.skipWheres ?? [];
+    const ctx = this.ctx();
+    const name = this.modelName();
+    const steps: OperationStep[] = [];
+    const output: OperationValueReference[] = [];
+    for (const [index, insert] of inserts.entries()) {
+      const affected = known[planningKey(insert.id, "affected")];
+      if (affected === 0) continue;
+      if (affected !== 1) {
+        throw new QueryEngineError(
+          `query-engine-v2 createMany with 'select' and 'skipDuplicates' got ${String(affected)} affected rows from a single-row insert.`
+        );
+      }
+      // The id THIS insert produced replaces the session sentinel. It is defined whenever
+      // the row count is 1: the executor resolves an `insertId` output to `undefined` only
+      // for a write the skip effect absorbed, and such a write reports zero rows.
+      const captured = known[planningKey(insert.id, "id")];
+      const where = Object.fromEntries(
+        Object.entries(wheres[index] ?? {}).map(([field, value]) =>
+          isSql(value) ? [field, captured] : [field, value]
+        )
+      );
+      const readId = this.scope.allocate(`${name}.createReturn.skip.read`);
+      steps.push({
+        id: readId,
+        kind: "read",
+        statement: buildFindUnique(ctx, {
+          where,
+          ...(this.select ? { select: this.select } : {}),
+        }),
+        outputs: { result: { kind: "rows" } },
+      });
+      output.push(ref(readId, "result"));
+    }
+    if (output.length === 0) return { steps: [], outputs: {} };
+    return { steps, outputs: { result: output } };
+  }
+
   private buildCreateManyReturn(supportsReturning: boolean): {
     steps: readonly OperationStep[];
     output: FragmentOutputSource | undefined;
@@ -423,19 +618,6 @@ export class ManyAndReturnOperation {
     if (data.length === 0) return { steps: [], output: undefined };
 
     const skipDuplicates = this.args.skipDuplicates === true;
-    // Non-returning `skipDuplicates` + `select` cannot be expressed as linear
-    // steps: a skipped INSERT still refetches into an unconditional read, which
-    // would hand back the PRE-EXISTING row as though it had just been created.
-    // There is no portable statement that reports which rows a skip actually
-    // inserted, so this is a typed V8003 refusal — never a silently wrong row set.
-    // (The `{ count }` arm of `createMany` supports `skipDuplicates` everywhere;
-    // only asking for the rows back is refused here.)
-    if (skipDuplicates && !supportsReturning) {
-      throw new UnsupportedOperationError(
-        "createMany with 'select' does not support 'skipDuplicates' on a driver without RETURNING: the rows a skip actually inserted cannot be identified. Drop 'select' to get { count }, or drop 'skipDuplicates'."
-      );
-    }
-
     const ctx = this.ctx();
     const plan = buildCreateManyPlan(
       ctx,

@@ -231,11 +231,22 @@ export function runCreateManyReturnFoldBehavior(options: {
         });
 
       if (!supportsReturning) {
-        // Unchanged refusal (route-inventory category ii): a driver without
-        // RETURNING cannot report which rows a skip actually inserted.
-        await expect(call()).rejects.toThrow(
-          "does not support 'skipDuplicates' on a driver without RETURNING"
-        );
+        // U-E6.9 (maintainer-authorized): no longer a refusal. This file is about the
+        // FOLD, which is a returning-driver property — one statement, `RETURNING`. A
+        // non-returning driver reaches the same ANSWER by the opposite arrangement (one
+        // skippable INSERT per row, then a refetch per surviving row), so what it owes
+        // here is the answer, not the statement count. Crucially the within-payload
+        // collision two lines up is skipped too: row 4 conflicts with the row row 3 just
+        // inserted, inside the same operation.
+        const perRow = await call();
+        expect(perRow).toEqual([{ id: 3, label: "inserted" }]);
+        const written = await client!.foldRow.findMany({
+          orderBy: { id: "asc" },
+        });
+        expect(written.map((row) => row.label)).toEqual([
+          "existing",
+          "inserted",
+        ]);
         return;
       }
 

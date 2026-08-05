@@ -846,7 +846,22 @@ function extractOutputs(
   result: QueryResult<unknown>
 ): Map<string, unknown> {
   const outputs = new Map<string, unknown>();
+  // A write whose skip effect (ATOM §8) ABSORBED a unique violation made no row, so it
+  // produced no insert id: `executeSkippableWrite` yields the zero-row result and the
+  // driver reports nothing to read. That absence is the skip itself, not a driver failure,
+  // so the declared output resolves to `undefined` and the consumer decides from the row
+  // count — the only thing that says the skip happened (E6.9). Every OTHER absent insert
+  // id still fails closed below, and no `Ref` can reach this value: it crosses into
+  // `compile` as data, where a zero row count is checked first.
+  const skipped =
+    step.kind === "write" &&
+    step.onUniqueConflict === "skip" &&
+    result.rowCount === 0;
   for (const [name, source] of Object.entries(step.outputs)) {
+    if (skipped && source.kind === "insertId") {
+      outputs.set(name, undefined);
+      continue;
+    }
     outputs.set(name, extractOutput(step.id, source, result));
   }
   return outputs;
