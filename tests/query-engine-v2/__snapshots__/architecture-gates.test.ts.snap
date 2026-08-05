@@ -15,11 +15,17 @@ export interface OperationValueReference { readonly kind: typeof OPERATION_VALUE
 
 export type Postcondition = | { readonly kind: "exactlyOneRow"; readonly failure: Failure } | { readonly kind: "affectedRows"; readonly expected: number | { readonly min: number }; readonly failure: Failure; };
 
-export interface Probe { readonly read: StatementStep; readonly pin: { readonly whenFound: GuardStep | "none"; readonly whenMissing: GuardStep | "constraint" | "none"; }; }
+export interface Probe { readonly read: ReadStep; readonly pin: { readonly whenFound: GuardStep | "none"; readonly whenMissing: GuardStep | "constraint" | "none"; }; }
+
+export interface ReadStep extends StatementStepBase { readonly kind: "read"; }
 
 export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kind: "rowCount" } | { readonly kind: "insertId" } | { readonly kind: "firstRowField"; readonly field: string; readonly optional?: boolean; };
 
-export interface StatementStep { readonly id: string; readonly kind: "read" | "write"; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; readonly racePin?: TargetConstraintPin; readonly onUniqueConflict?: "skip"; }
+export type StatementStep = ReadStep | WriteStep;
 
-export interface TargetConstraintPin { readonly fields: readonly string[]; readonly table: string; readonly columns: readonly string[]; readonly constraints: readonly string[]; }"
+export interface StatementStepBase { readonly id: string; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; }
+
+export interface TargetConstraintPin { readonly fields: readonly string[]; readonly table: string; readonly columns: readonly string[]; readonly constraints: readonly string[]; }
+
+export interface WriteStep extends StatementStepBase { readonly kind: "write"; readonly racePin?: TargetConstraintPin; readonly onUniqueConflict?: "skip"; }"
 `;

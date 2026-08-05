@@ -80,9 +80,10 @@ import {
   type GuardStep,
   type OperationFragment,
   type OperationStep,
+  type ReadStep,
   ref,
-  type StatementStep,
   type TargetConstraintPin,
+  type WriteStep,
 } from "./OperationFragment";
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
@@ -143,7 +144,7 @@ interface ToOneLink {
   readonly connect?: {
     readonly probeId: string;
     readonly guardId: string;
-    readonly probe: StatementStep;
+    readonly probe: ReadStep;
     readonly fk: FkDirection;
     readonly where: Record<string, unknown>;
   };
@@ -201,7 +202,7 @@ type ParentHeldTarget =
       readonly probeId: string;
       readonly guardId: string;
       readonly guardProbe: Sql;
-      readonly probe: StatementStep;
+      readonly probe: ReadStep;
       readonly foundFkAssign: Record<string, unknown>;
       /** The edge and the selector the found arm's fold was built from — the
        *  compile-time NULL check on a NON-referenced-unique lookup needs both
@@ -227,7 +228,7 @@ type ParentHeldTarget =
       readonly guardId: string;
       readonly writeId: string;
       readonly correlation: ParentHeldCorrelation;
-      readonly probe: StatementStep;
+      readonly probe: ReadStep;
       /** W4-U3 — the `update: { where, data }` wrapper's NON-unique filter on the
        *  currently connected record, ANDed into the locate probe AND the batch
        *  split-witness guard (never the write, which addresses the captured PK).
@@ -272,7 +273,7 @@ type ParentHeldTarget =
       readonly writeId: string;
       readonly parentSetId: string;
       readonly correlation: ParentHeldCorrelation;
-      readonly probe: StatementStep;
+      readonly probe: ReadStep;
       readonly updateData: Record<string, unknown>;
       /** E1 U4 — the relation-carrying UPDATE arm, delegated whole to a nested-target
        *  sub-op. Present INSTEAD of `updateData`, never beside it: the sub-op owns the
@@ -317,7 +318,7 @@ interface RelationKeyGuard {
   readonly action: string;
   readonly probeId: string;
   readonly guardId: string;
-  readonly probe: StatementStep;
+  readonly probe: ReadStep;
 }
 
 /**
@@ -407,7 +408,7 @@ export class UpdateOperation {
   // nested create whose referenced parent column no compile-time literal names threads
   // it as a `planned` parent id into that read (N1-U1).
   private readonly locateId: string;
-  private readonly locate: StatementStep;
+  private readonly locate: ReadStep;
   // Whether the non-fold path emits a parent-row UPDATE (a scalar SET ∪ to-one FK
   // folds). Built at compile so it can address the captured PK (V1's `WHERE id`);
   // `false` for a relation-only update (no parent row written) or the fold path.
@@ -429,7 +430,7 @@ export class UpdateOperation {
   // UpdateOperation.directGuard} — PLAN Phase 6.2, same one round trip.
   // `undefined` on non-returning drivers, a relation projection, or when nested
   // relations make the mutation genuinely multi-statement.
-  private readonly directWrite?: StatementStep;
+  private readonly directWrite?: WriteStep;
   // PLAN Phase 6.2 — the batch-mode half of the fold: the presence premise the
   // transaction fold enforces in JS, asserted INSIDE the atomic batch instead.
   // `undefined` in transaction mode (the postcondition carries it there) and
@@ -2740,7 +2741,7 @@ export class UpdateOperation {
     // missing-target check stays at compile, `parentHeldCapturedPk`), byte-identical to
     // pre-T3b.
     const hasChildParts = built.childParts.length > 0;
-    const probe: StatementStep = {
+    const probe: ReadStep = {
       id: probeId,
       kind: "read",
       statement: this.parentHeldProbeStatement(
@@ -3776,7 +3777,7 @@ export class UpdateOperation {
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const probeId = scope.allocate(`${childName}.find`);
     const guardId = scope.allocate(`${childName}.guard.exists`);
-    const probe: StatementStep = {
+    const probe: ReadStep = {
       id: probeId,
       kind: "read",
       statement: buildFindUnique(childScope, {
@@ -3833,7 +3834,7 @@ export class UpdateOperation {
   private buildRootUpdate(
     locatedRow: Record<string, unknown>,
     extraSet: Record<string, unknown> = {}
-  ): StatementStep {
+  ): WriteStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     const parentName = getStepModelName(this.model, "parent");
@@ -4110,7 +4111,7 @@ export class UpdateOperation {
     return Object.fromEntries(this.parentPrimaryKeys.map((pk) => [pk, true]));
   }
 
-  private buildTerminal(locatedRow: Record<string, unknown>): StatementStep {
+  private buildTerminal(locatedRow: Record<string, unknown>): ReadStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     return {

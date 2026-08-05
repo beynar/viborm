@@ -21,8 +21,9 @@ import {
 import {
   type OperationFragment,
   type OperationStep,
+  type ReadStep,
   ref,
-  type StatementStep,
+  type WriteStep,
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
@@ -60,11 +61,11 @@ export class DeleteOperation {
   private readonly parsedSelect: Record<string, unknown> | undefined;
   private readonly parsedInclude: Record<string, unknown> | undefined;
   private readonly parentPrimaryKeys: readonly string[];
-  private readonly locate: StatementStep;
+  private readonly locate: ReadStep;
   private readonly readId: string;
   private readonly deleteId: string;
   private readonly rootGuardId: string;
-  private readonly foldStep: StatementStep | undefined;
+  private readonly foldStep: WriteStep | undefined;
   /** THE projection predicate, in ONE spelling: does the result shape name no
    *  relation at all? Two sites need exactly this question — the Phase 3 fold gate
    *  and the terminal read's `FOR UPDATE` — so they ask it once. See
@@ -281,7 +282,7 @@ export class DeleteOperation {
     // could be concurrently rewritten). Transaction mode only — batch mode keeps
     // the original `where` so the write and its presence guard pin the same row.
     const where = this.writeWhere(locatedRow);
-    const readFull: StatementStep = {
+    const readFull: ReadStep = {
       id: this.readId,
       kind: "read",
       statement: buildFindUnique(parent, {
@@ -310,7 +311,7 @@ export class DeleteOperation {
       }),
       outputs: { result: { kind: "rows" } },
     };
-    const deleteRow: StatementStep = {
+    const deleteRow: WriteStep = {
       id: this.deleteId,
       kind: "write",
       statement: buildDelete(parent, { where }),

@@ -9,7 +9,7 @@ import {
   type OperationFragment,
   type OperationValueReference,
   ref,
-  type StatementStep,
+  type WriteStep,
 } from "./OperationFragment";
 import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
@@ -40,7 +40,7 @@ type ExecutionMode = "transaction" | "batch";
 export class CreateManyOperation {
   readonly mode: ExecutionMode;
 
-  private readonly writes: readonly StatementStep[];
+  private readonly writes: readonly WriteStep[];
   private readonly countOutput: FragmentOutputSource;
 
   constructor(

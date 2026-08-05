@@ -75,13 +75,20 @@ export interface TargetConstraintPin {
   readonly constraints: readonly string[];
 }
 
-export interface StatementStep {
+export interface StatementStepBase {
   readonly id: string;
-  readonly kind: "read" | "write";
   readonly statement: Sql;
   readonly outputs: Readonly<Record<string, StatementOutputSource>>;
   /** Statement postcondition — what constitutes success (README §6). */
   readonly expects?: Postcondition;
+}
+
+export interface ReadStep extends StatementStepBase {
+  readonly kind: "read";
+}
+
+export interface WriteStep extends StatementStepBase {
+  readonly kind: "write";
   /** Present on writes whose unique-constraint violation is the raceable signal. */
   readonly racePin?: TargetConstraintPin;
   /**
@@ -99,6 +106,8 @@ export interface StatementStep {
    */
   readonly onUniqueConflict?: "skip";
 }
+
+export type StatementStep = ReadStep | WriteStep;
 
 export interface GuardStep {
   readonly id: string;
@@ -121,7 +130,7 @@ export type OperationStep = StatementStep | GuardStep;
  */
 export interface Probe {
   /** The planning read (locked in transaction mode). */
-  readonly read: StatementStep;
+  readonly read: ReadStep;
   readonly pin: {
     /** Existing-row premise: pinned, `raceable: false`. */
     readonly whenFound: GuardStep | "none";

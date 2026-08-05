@@ -21,7 +21,11 @@ import {
   linkGroupSelector,
 } from "./link-target-groups";
 import { relationTargetNotFound } from "./messages";
-import type { OperationStep, StatementStep } from "./OperationFragment";
+import type {
+  OperationStep,
+  ReadStep,
+  WriteStep,
+} from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import { referencedFieldCorrelation } from "./parent-reference";
@@ -111,7 +115,7 @@ export class RelationLinkPart implements Part {
    * distinct keys that exist. See {@link countDistinctTargets}.
    */
   private readonly distinctTargets: number;
-  private readonly probe?: StatementStep;
+  private readonly probe?: ReadStep;
 
   constructor(scope: StepScope, config: RelationLinkConfig) {
     this.config = config;
@@ -137,7 +141,7 @@ export class RelationLinkPart implements Part {
   }
 
   /** The uncorrelated (connect) / correlated (disconnect) existence probe. */
-  private buildProbe(): StatementStep | undefined {
+  private buildProbe(): ReadStep | undefined {
     if (this.config.disconnectAll) return undefined;
     const { childScope, txMode, childPrimaryKey } = this.config;
     const wheres = this.requiredWheres();
@@ -289,7 +293,7 @@ export class RelationLinkPart implements Part {
     return [this.groupSelector()];
   }
 
-  private buildDisconnectAll(known: PlanningKnown): StatementStep {
+  private buildDisconnectAll(known: PlanningKnown): WriteStep {
     const { childScope } = this.config;
     return {
       id: this.writeId,

@@ -266,6 +266,7 @@ describe("query-engine-v2 fragment validator (ATOM §9)", () => {
     const probe: Probe = {
       read: {
         id: "write.step",
+        // @ts-expect-error - a probe head is structurally read-only
         kind: "write",
         statement: sqlWith(),
         outputs: {},

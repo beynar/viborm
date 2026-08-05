@@ -45,8 +45,9 @@ import {
   isOperationValueReference,
   type OperationFragment,
   type OperationStep,
+  type ReadStep,
   ref,
-  type StatementStep,
+  type WriteStep,
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
@@ -104,7 +105,7 @@ interface Conditional {
   readonly where: Record<string, unknown>;
   readonly probeId: string;
   readonly guardId: string;
-  readonly probe: StatementStep;
+  readonly probe: ReadStep;
 }
 
 /**
@@ -159,7 +160,7 @@ export class UpsertOperation {
   private readonly createData: Record<string, unknown>;
   private readonly updateData: Record<string, unknown>;
   private readonly conditionals: readonly Conditional[];
-  private readonly locate: StatementStep;
+  private readonly locate: ReadStep;
   private readonly createId: string;
   private readonly updateId: string;
   private readonly terminalId: string;
@@ -186,7 +187,7 @@ export class UpsertOperation {
   // statement and the operation has EMPTY planning: no locate, no arms, no
   // terminal read. `undefined` keeps the probe-first sequence byte-identical.
   // See {@link UpsertOperation.buildOnConflictFold} for every conjunct.
-  private readonly onConflictFold: StatementStep | undefined;
+  private readonly onConflictFold: WriteStep | undefined;
   constructor(
     engine: QueryEngine,
     model: Model<any>,
@@ -520,7 +521,7 @@ export class UpsertOperation {
    * gap-free on either dialect, and ATOM §4 names this burn as the divergence a
    * written disposition covers. See the plan doc's Decision 7.1 record.
    */
-  private buildOnConflictFold(parent: QueryScope): StatementStep | undefined {
+  private buildOnConflictFold(parent: QueryScope): WriteStep | undefined {
     const permitted =
       this.canFoldUpdateArm &&
       this.engine.adapter.capabilities.supportsTargetedUpsert &&
@@ -614,7 +615,7 @@ export class UpsertOperation {
     // statement is built, because a DB-generated identity changes the statement
     // itself (it has to capture the value the database produces).
     const identity = this.createArmIdentity();
-    const create: StatementStep = {
+    const create: WriteStep = {
       id: this.createId,
       kind: "write",
       ...this.createArmInsert(parent, identity),
@@ -767,7 +768,7 @@ export class UpsertOperation {
     // any PK the SET rewrote), so no terminal refetch is needed — one statement
     // fewer. Gated to a RETURNING driver + scalar-only projection.
     if (this.canFoldUpdateArm) {
-      const folded: StatementStep = {
+      const folded: WriteStep = {
         id: this.updateId,
         kind: "write",
         statement: buildUpdate(parent, {
@@ -780,7 +781,7 @@ export class UpsertOperation {
       };
       return { steps: [...guards, folded], resultId: this.updateId };
     }
-    const update: StatementStep = {
+    const update: WriteStep = {
       id: this.updateId,
       kind: "write",
       statement: buildUpdate(parent, {
@@ -824,7 +825,7 @@ export class UpsertOperation {
     );
   }
 
-  private buildTerminal(where: Record<string, unknown>): StatementStep {
+  private buildTerminal(where: Record<string, unknown>): ReadStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     return {
@@ -1004,7 +1005,7 @@ export class UpsertOperation {
   private createArmInsert(
     parent: QueryScope,
     identity: CreateArmIdentity
-  ): Pick<StatementStep, "statement" | "outputs"> {
+  ): Pick<WriteStep, "statement" | "outputs"> {
     if (identity.kind === "known") {
       return {
         statement: buildInsert(

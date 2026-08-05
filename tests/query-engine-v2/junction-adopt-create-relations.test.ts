@@ -9,7 +9,7 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import type {
   OperationStep,
-  StatementStep,
+  WriteStep,
 } from "../../src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 
@@ -456,10 +456,9 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
   });
 }
 
-/** The fragment's write statements — `racePin` is a property of a statement step, and a
- *  `filter` on `kind` does not narrow the union on its own. */
-function writeSteps(steps: readonly OperationStep[]): readonly StatementStep[] {
-  return steps.filter((step): step is StatementStep => step.kind === "write");
+/** The fragment's write statements, narrowed to the owner of `racePin`. */
+function writeSteps(steps: readonly OperationStep[]): readonly WriteStep[] {
+  return steps.filter((step): step is WriteStep => step.kind === "write");
 }
 
 describe("E2-U2 the missing-premise race pin survives the absorption", () => {

@@ -59,9 +59,10 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type ReadStep,
   ref,
-  type StatementStep,
   type TargetConstraintPin,
+  type WriteStep,
 } from "./OperationFragment";
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
@@ -177,7 +178,7 @@ interface ChildCreate {
  * created rows).
  */
 interface CreateManyGroup {
-  readonly steps: readonly StatementStep[];
+  readonly steps: readonly WriteStep[];
   /**
    * Per step, whether its INSERT leaves a value for the DATABASE to assign —
    * Phase 8.2's ordering conjunct reads it (see {@link CreateOperation.buildTreeFold}).
@@ -320,7 +321,7 @@ export class CreateOperation {
   private readonly planningSteps: OperationStep[] = [];
   private readonly registeredParts = new Set<Part>();
   /** The single-step `INSERT … RETURNING select` fold, when eligible. */
-  private readonly foldStep: StatementStep | undefined;
+  private readonly foldStep: WriteStep | undefined;
   /** X1b — a nested fresh subtree emits no terminal read (the enclosing op owns
    *  the result) and injects the located parent's FK into its root INSERT. */
   private readonly suppressTerminal: boolean;
@@ -605,8 +606,11 @@ export class CreateOperation {
     guards: readonly OperationStep[],
     writes: readonly OperationStep[],
     rootInsertData: Record<string, unknown>
-  ): StatementStep | undefined {
-    const [rootWrite, ...siblings] = writes;
+  ): WriteStep | undefined {
+    const statementWrites = writes.filter(
+      (step): step is WriteStep => step.kind === "write"
+    );
+    const [rootWrite, ...siblings] = statementWrites;
     // The arms this tree can classify (see `armsAreOrderInsensitive`), by step id.
     const assignments = new Map<string, boolean>();
     collectArmAssignments(this.root, assignments);
@@ -618,12 +622,12 @@ export class CreateOperation {
       this.planningSteps.length === 0 &&
       guards.length === 0 &&
       siblings.length > 0 &&
+      statementWrites.length === writes.length &&
       rootWrite?.id === this.root.writeStepId &&
       armsAreOrderInsensitive(writes, assignments) &&
       !foldWouldDropSkipSemantics(writes) &&
-      writes.every(
+      statementWrites.every(
         (step) =>
-          step.kind === "write" &&
           isSql(step.statement) &&
           !step.statement.values.some(isOperationValueReference) &&
           !(step.expects || step.onUniqueConflict)
@@ -635,7 +639,7 @@ export class CreateOperation {
       kind: "write",
       statement: buildMutationProjectionFold(parent, {
         mutation: buildInsertStatement(parent, rootInsertData),
-        siblings: siblings.map((step) => (step as StatementStep).statement),
+        siblings: siblings.map((step) => step.statement),
         ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
       }),
       outputs: { result: { kind: "rows" } },
@@ -1186,7 +1190,7 @@ export class CreateOperation {
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
     const pkSelect = Object.fromEntries(fk.pkFields.map((f) => [f, true]));
-    const probe: StatementStep = {
+    const probe: ReadStep = {
       id: probeId,
       kind: "read",
       statement: buildFindUnique(childScope, {
@@ -1887,7 +1891,7 @@ export class CreateOperation {
   private buildInsertStep(
     plan: RecordPlan,
     insertData: Record<string, unknown>
-  ): StatementStep {
+  ): WriteStep {
     const { childScope, generatedField, writeStepId } = plan;
     const txMode = this.mode === "transaction";
     // N4-U2: the enclosing adopt arm's missing-premise pin rides THIS record's INSERT
@@ -1954,7 +1958,7 @@ export class CreateOperation {
     return resolved;
   }
 
-  private buildTerminal(plan: RecordPlan): StatementStep {
+  private buildTerminal(plan: RecordPlan): ReadStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
     const where = plan.generatedField
@@ -2271,7 +2275,7 @@ class ChildConnectPart implements Part {
   private readonly writeId: string;
   private readonly guardIds: readonly string[];
   private readonly distinctTargets: number;
-  private readonly probe: StatementStep;
+  private readonly probe: ReadStep;
 
   constructor(scope: StepScope, config: ChildConnectConfig) {
     this.config = config;

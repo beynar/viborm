@@ -31,9 +31,12 @@ const FRAGMENT_TYPE_NAMES = [
   "OperationValueReference",
   "Postcondition",
   "Probe",
+  "ReadStep",
   "StatementOutputSource",
   "StatementStep",
+  "StatementStepBase",
   "TargetConstraintPin",
+  "WriteStep",
 ].sort();
 
 function listTypeScriptFiles(directory: string): string[] {
@@ -116,7 +119,8 @@ function stepKindLiterals(file: ts.SourceFile): string[] {
     if (!ts.isInterfaceDeclaration(statement)) continue;
     if (
       !(
-        statement.name.text === "StatementStep" ||
+        statement.name.text === "ReadStep" ||
+        statement.name.text === "WriteStep" ||
         statement.name.text === "GuardStep"
       )
     ) {

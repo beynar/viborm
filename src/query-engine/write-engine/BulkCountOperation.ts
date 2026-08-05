@@ -11,7 +11,7 @@ import { validate } from "../validator";
 import {
   type OperationFragment,
   ref,
-  type StatementStep,
+  type WriteStep,
 } from "./OperationFragment";
 import { isRecord, selectExecutionMode } from "./shared";
 
@@ -44,7 +44,7 @@ export class BulkCountOperation {
   private readonly kind: BulkCountKind;
   private readonly args: Record<string, unknown>;
   /** `undefined` only for `limit: 0` — the write that affects nothing. */
-  private readonly write: StatementStep | undefined;
+  private readonly write: WriteStep | undefined;
 
   constructor(
     engine: QueryEngine,

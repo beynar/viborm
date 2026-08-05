@@ -31,8 +31,9 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type ReadStep,
   ref,
-  type StatementStep,
+  type WriteStep,
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
 import { StepScope } from "./StepScope";
@@ -105,7 +106,7 @@ export class ManyAndReturnOperation {
   private readonly staticSteps: readonly OperationStep[] | undefined;
   private readonly staticOutput: FragmentOutputSource | undefined;
   /** The updateManyAndReturn non-returning capture (built in `planning`). */
-  private readonly captureRead: StatementStep | undefined;
+  private readonly captureRead: ReadStep | undefined;
   private readonly updateData: Record<string, unknown> | undefined;
   /**
    * E6.9 — the non-returning `createMany` + `select` + `skipDuplicates` capture: one
@@ -114,7 +115,7 @@ export class ManyAndReturnOperation {
    * is built from — which row was inserted, and what id it got. See
    * {@link buildCreateManySkipCapture}.
    */
-  private readonly skipInserts?: readonly StatementStep[];
+  private readonly skipInserts?: readonly WriteStep[];
   /** Per input row, the created-row identity `getCreatedRowWhere` answers (the session
    *  `lastInsertId()` sentinel included — `compile` replaces it with the captured id). */
   private readonly skipWheres?: readonly Record<string, unknown>[];
@@ -189,7 +190,7 @@ export class ManyAndReturnOperation {
     if (kind === "deleteManyAndReturn") {
       this.updateData = undefined;
       if (supportsReturning) {
-        const step: StatementStep = {
+        const step: WriteStep = {
           id: this.scope.allocate(`${this.modelName()}.deleteManyReturn`),
           kind: "write",
           statement: buildDeleteManyAndReturn(this.ctx(), {
@@ -214,7 +215,7 @@ export class ManyAndReturnOperation {
     // updateMany with select
     const data = requireRecord(this.args.data, "updateMany", "data");
     if (supportsReturning) {
-      const step: StatementStep = {
+      const step: WriteStep = {
         id: this.scope.allocate(`${this.modelName()}.updateManyReturn`),
         kind: "write",
         statement: buildUpdateManyAndReturn(this.ctx(), {
@@ -264,7 +265,7 @@ export class ManyAndReturnOperation {
    * dialect that takes this path (MySQL) never needs its native `UPDATE … LIMIT`
    * in this arm.
    */
-  private buildPkCapture(label: string): StatementStep {
+  private buildPkCapture(label: string): ReadStep {
     const limit = this.limit();
     return {
       id: this.scope.allocate(`${this.modelName()}.${label}.capture`),
@@ -370,7 +371,7 @@ export class ManyAndReturnOperation {
 
     const ctx = this.ctx();
     const targetWhere = this.capturedFilterWhere(ctx, rows);
-    const readStep: StatementStep = {
+    const readStep: ReadStep = {
       id: this.scope.allocate(`${this.modelName()}.deleteManyReturn.read`),
       kind: "read",
       statement: buildFind(ctx, {
@@ -379,7 +380,7 @@ export class ManyAndReturnOperation {
       }),
       outputs: { result: { kind: "rows" } },
     };
-    const writeStep: StatementStep = {
+    const writeStep: WriteStep = {
       id: this.scope.allocate(`${this.modelName()}.deleteManyReturn.write`),
       kind: "write",
       statement: buildDeleteMany(ctx, { where: targetWhere }),
@@ -411,7 +412,7 @@ export class ManyAndReturnOperation {
     // the captured rows are FOR-UPDATE-locked in the same transaction envelope
     // as this UPDATE, so the affected set cannot drift from the capture, and a
     // PK collision surfaces as the UPDATE's own constraint error.
-    const writeStep: StatementStep = {
+    const writeStep: WriteStep = {
       id: this.scope.allocate(`${this.modelName()}.updateManyReturn.write`),
       kind: "write",
       statement: buildUpdateMany(ctx, {
@@ -420,7 +421,7 @@ export class ManyAndReturnOperation {
       }),
       outputs: {},
     };
-    const readStep: StatementStep = {
+    const readStep: ReadStep = {
       id: this.scope.allocate(`${this.modelName()}.updateManyReturn.read`),
       kind: "read",
       statement: buildFind(ctx, {
@@ -493,7 +494,7 @@ export class ManyAndReturnOperation {
    */
   private buildCreateManySkipCapture(supportsReturning: boolean):
     | {
-        inserts: readonly StatementStep[];
+        inserts: readonly WriteStep[];
         wheres: readonly Record<string, unknown>[];
       }
     | undefined {
@@ -527,7 +528,7 @@ export class ManyAndReturnOperation {
     const recoverUnique =
       this.engine.adapter.mutations.skipDuplicatesStrategy ===
       "recoverableUniqueError";
-    const inserts: StatementStep[] = [];
+    const inserts: WriteStep[] = [];
     const wheres: Record<string, unknown>[] = [];
     for (const [position, statement] of plan.statements.entries()) {
       // THE ORDINAL CONTRACT, in its skippable form. The answer is the input order minus

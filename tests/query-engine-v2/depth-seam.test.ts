@@ -3,7 +3,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { describe, expect, test } from "vitest";
-import type { StatementStep } from "../../src/query-engine/write-engine/OperationFragment";
+import type { WriteStep } from "../../src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
@@ -840,7 +840,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
  *  the CHILD probe's emptiness selects the create arm. */
 function nestedUpsertCreateArmWrites(
   where: Record<string, unknown>
-): StatementStep[] {
+): WriteStep[] {
   const engine = makeSeamEngine(new PGliteDriver());
   const operation = new UpdateOperation(engine, depthSeamSchema.workspace, {
     where: { id: 2 },
@@ -861,7 +861,7 @@ function nestedUpsertCreateArmWrites(
   if (rootLocate) known[`${rootLocate.id}.rows`] = [{ id: 2 }];
   return operation
     .compile(known)
-    .steps.filter((step): step is StatementStep => step.kind === "write");
+    .steps.filter((step): step is WriteStep => step.kind === "write");
 }
 
 /** The same arm at the JUNCTION position. `RelationJunctionPart`'s upsert create arm
@@ -871,7 +871,7 @@ function nestedUpsertCreateArmWrites(
  *  and global probes are both driven empty here, which is the create arm. */
 function junctionUpsertCreateArmWrites(
   where: Record<string, unknown>
-): StatementStep[] {
+): WriteStep[] {
   const engine = makeSeamEngine(new PGliteDriver());
   const operation = new UpdateOperation(engine, depthSeamSchema.album, {
     where: { id: 1 },
@@ -892,7 +892,7 @@ function junctionUpsertCreateArmWrites(
   if (rootLocate) known[`${rootLocate.id}.rows`] = [{ id: 1 }];
   return operation
     .compile(known)
-    .steps.filter((step): step is StatementStep => step.kind === "write");
+    .steps.filter((step): step is WriteStep => step.kind === "write");
 }
 
 describe("N6-U1 nested create-arm racePin", () => {

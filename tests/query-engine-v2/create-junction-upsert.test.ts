@@ -9,7 +9,8 @@ import { describe, expect, test } from "vitest";
 import { CreateOperation } from "../../src/query-engine/write-engine/CreateOperation";
 import type {
   OperationStep,
-  StatementStep,
+  ReadStep,
+  WriteStep,
 } from "../../src/query-engine/write-engine/OperationFragment";
 import {
   createJunctionUpsertSchema,
@@ -61,8 +62,8 @@ for (const substrate of substrates) {
   });
 }
 
-function writeSteps(steps: readonly OperationStep[]): readonly StatementStep[] {
-  return steps.filter((step): step is StatementStep => step.kind === "write");
+function writeSteps(steps: readonly OperationStep[]): readonly WriteStep[] {
+  return steps.filter((step): step is WriteStep => step.kind === "write");
 }
 
 function sqlOf(step: { statement: { strings: readonly string[] } }): string {
@@ -99,11 +100,13 @@ const TARGET_INSERT = /INSERT INTO "e5u1_topics"/;
 describe("E5-U1 the fresh-parent upsert plans and compiles as an adopt", () => {
   test("planning reads the GLOBAL probe only — no membership read", () => {
     const planning = operationFor({ title: "x", ...ADOPT_UPSERT }).planning();
-    const reads = planning.steps.filter((step) => step.kind === "read");
+    const reads = planning.steps.filter(
+      (step): step is ReadStep => step.kind === "read"
+    );
     // One read, and it is the uncorrelated lookup by the arm's own unique. A membership
     // read would name the junction table and correlate on a parent that does not exist.
     expect(reads).toHaveLength(1);
-    const statement = sqlOf(reads[0] as StatementStep);
+    const statement = sqlOf(reads[0]!);
     expect(statement).toMatch(TARGET_SELECT);
     expect(statement).not.toMatch(JUNCTION_TABLE);
   });
@@ -157,7 +160,7 @@ describe("E5-U1 the fresh-parent upsert plans and compiles as an adopt", () => {
       table: "e5u1_topics",
       fields: ["name"],
     });
-    expect(sqlOf(pinned[0] as StatementStep)).toMatch(TARGET_INSERT);
+    expect(sqlOf(pinned[0]!)).toMatch(TARGET_INSERT);
   });
 
   test("the join row references the INSERT that made the target, not a re-derived key", () => {

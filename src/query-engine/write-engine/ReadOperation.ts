@@ -17,7 +17,7 @@ import { validate } from "../validator";
 import {
   type OperationFragment,
   ref,
-  type StatementStep,
+  type ReadStep,
 } from "./OperationFragment";
 import { isRecord, selectExecutionMode } from "./shared";
 
@@ -65,7 +65,7 @@ export class ReadOperation {
    * rather than private.
    */
   readonly validatedArgs: Record<string, unknown>;
-  private readonly read: StatementStep;
+  private readonly read: ReadStep;
 
   constructor(
     engine: QueryEngine,

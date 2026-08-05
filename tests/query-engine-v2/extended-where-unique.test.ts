@@ -10,7 +10,10 @@ import type { Model } from "@schema/model";
 import { isSql } from "@sql";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
-import type { StatementStep } from "../../src/query-engine/write-engine/OperationFragment";
+import type {
+  ReadStep,
+  WriteStep,
+} from "../../src/query-engine/write-engine/OperationFragment";
 import { UpsertOperation } from "../../src/query-engine/write-engine/UpsertOperation";
 import {
   extendedWhereUniqueSchema,
@@ -59,7 +62,7 @@ runExtendedWhereUniqueBehavior({
 // would pass for the wrong reason (a pin nobody ever attaches).
 // ---------------------------------------------------------------------------
 
-function buildUpsertSteps(where: Record<string, unknown>): StatementStep[] {
+function buildUpsertSteps(where: Record<string, unknown>): WriteStep[] {
   const schemas = createSchemaRegistry(extendedWhereUniqueSchema);
   const engine = new QueryEngine(
     new PGliteDriver(),
@@ -80,7 +83,7 @@ function buildUpsertSteps(where: Record<string, unknown>): StatementStep[] {
     [`${operation.planning().steps[0]!.id}.rows`]: [],
   });
   return fragment.steps.filter(
-    (step): step is StatementStep => step.kind === "write"
+    (step): step is WriteStep => step.kind === "write"
   );
 }
 
@@ -198,7 +201,7 @@ hydrateSchemaNames(identitySchema);
 function compileCreateArm(
   model: Model<any>,
   args: { where: Record<string, unknown>; create: Record<string, unknown> }
-): { write: StatementStep; terminal: StatementStep } {
+): { write: WriteStep; terminal: ReadStep } {
   const schemas = createSchemaRegistry(identitySchema);
   const engine = new QueryEngine(
     new PGliteDriver(),
@@ -212,11 +215,12 @@ function compileCreateArm(
   const fragment = operation.compile({
     [`${operation.planning().steps[0]!.id}.rows`]: [],
   });
-  const statements = fragment.steps.filter(
-    (step): step is StatementStep => step.kind !== "guard"
+  const write = fragment.steps.find(
+    (step): step is WriteStep => step.kind === "write"
   );
-  const write = statements.find((step) => step.kind === "write");
-  const terminal = statements.find((step) => step.kind === "read");
+  const terminal = fragment.steps.find(
+    (step): step is ReadStep => step.kind === "read"
+  );
   if (!(write && terminal)) {
     throw new Error(
       "create arm did not compile to a write plus a terminal read"
@@ -226,7 +230,7 @@ function compileCreateArm(
 }
 
 /** The SQL the terminal read runs, as text plus bound values. */
-function terminalSql(step: StatementStep): { text: string; values: unknown[] } {
+function terminalSql(step: ReadStep): { text: string; values: unknown[] } {
   const statement = step.statement;
   if (!isSql(statement)) throw new Error("terminal read is not one Sql");
   return { text: statement.toStatement("$n"), values: statement.values };

@@ -33,6 +33,7 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type ReadStep,
   type StatementOutputSource,
   type StatementStep,
 } from "./OperationFragment";
@@ -301,7 +302,7 @@ export class OperationExecutor {
     if (fragment.steps.length !== 1) return undefined;
     const [step] = fragment.steps;
     if (!step || step.kind === "guard") return undefined;
-    if (step.onUniqueConflict) return undefined;
+    if (step.kind === "write" && step.onUniqueConflict) return undefined;
     if (!isSql(step.statement)) return undefined;
     if (step.statement.values.some(isOperationValueReference)) return undefined;
     if (stepUsesInsertIdScratch(step)) return undefined;
@@ -356,7 +357,12 @@ export class OperationExecutor {
     if (fragment.steps.length !== 1) return undefined;
     const [step] = fragment.steps;
     if (!step || step.kind === "guard") return undefined;
-    if (step.expects || step.onUniqueConflict) return undefined;
+    if (
+      step.expects ||
+      (step.kind === "write" && step.onUniqueConflict)
+    ) {
+      return undefined;
+    }
     if (!isSql(step.statement)) return undefined;
     if (step.statement.values.some(isOperationValueReference)) return undefined;
     if (stepUsesInsertIdScratch(step)) return undefined;
@@ -436,7 +442,7 @@ export class OperationExecutor {
     driver: AnyDriver,
     context: QueryExecutionContext
   ): Promise<Readonly<Record<string, unknown>>> {
-    const reads: StatementStep[] = [];
+    const reads: ReadStep[] = [];
     for (const step of fragment.steps) {
       // Grouping is for planning READS. Anything else hands the WHOLE fragment
       // back to the linear executor rather than teaching this pass a second
@@ -468,7 +474,7 @@ export class OperationExecutor {
    * has nothing to undo.
    */
   private async runPlanningLevel(
-    level: readonly StatementStep[],
+    level: readonly ReadStep[],
     driver: AnyDriver,
     values: RuntimeValues,
     context: QueryExecutionContext
@@ -586,7 +592,7 @@ export class OperationExecutor {
         );
       }
 
-      if (step.onUniqueConflict === "skip") {
+      if (step.kind === "write" && step.onUniqueConflict === "skip") {
         // The savepoint-wrapped skip effect (ATOM §8) has no lowering to a plain
         // atomic batch — a batch is one indivisible unit, so a per-row rollback
         // is not expressible. Fail closed rather than silently propagate the
@@ -658,7 +664,8 @@ export class OperationExecutor {
       // against every racePin the plan carries (there is one per insert branch).
       if (error instanceof UniqueConstraintError) {
         for (const entry of entries) {
-          const pin = entry.step?.racePin;
+          const pin =
+            entry.step?.kind === "write" ? entry.step.racePin : undefined;
           if (pin && racePinMatches(error, pin)) {
             markRaceable(error);
             break;
@@ -707,10 +714,10 @@ function assembleOutputs(
  * producer at level N-1, so bucket N-1 exists before bucket N is created.
  */
 function planningLevels(
-  reads: readonly StatementStep[]
-): readonly (readonly StatementStep[])[] {
+  reads: readonly ReadStep[]
+): readonly (readonly ReadStep[])[] {
   const levelOf = new Map<string, number>();
-  const levels: StatementStep[][] = [];
+  const levels: ReadStep[][] = [];
   for (const step of reads) {
     const level = planningLevel(step, levelOf, levels.length);
     const bucket = levels[level];
@@ -722,7 +729,7 @@ function planningLevels(
 }
 
 function planningLevel(
-  step: StatementStep,
+  step: ReadStep,
   levelOf: ReadonlyMap<string, number>,
   unorderableLevel: number
 ): number {

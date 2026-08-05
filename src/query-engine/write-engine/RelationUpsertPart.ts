@@ -41,7 +41,8 @@ import type {
   OperationStep,
   OperationValueReference,
   Probe,
-  StatementStep,
+  ReadStep,
+  WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
@@ -288,7 +289,7 @@ export class RelationUpsertPart implements Part {
   private readonly createId: string;
   private readonly updateId: string;
   private readonly guardId: string;
-  private readonly find: StatementStep;
+  private readonly find: ReadStep;
   private readonly updateChildParts: readonly Part[];
   private readonly createSubtree: Part | undefined;
   private readonly family: UpsertFamily;
@@ -599,7 +600,7 @@ export class RelationUpsertPart implements Part {
     );
   }
 
-  private buildCreateArm(known: PlanningKnown): StatementStep {
+  private buildCreateArm(known: PlanningKnown): WriteStep {
     const { childScope, where } = this.config;
     return {
       id: this.createId,
@@ -621,9 +622,9 @@ export class RelationUpsertPart implements Part {
   private buildUpdateArm(
     known: PlanningKnown,
     address: Record<string, unknown>
-  ): StatementStep {
+  ): WriteStep {
     const { childScope, txMode, relationName } = this.config;
-    const step: StatementStep = {
+    const step: WriteStep = {
       id: this.updateId,
       kind: "write",
       statement: buildUpdate(childScope, {

@@ -50,7 +50,11 @@ import {
   type NestedChildBuilder,
   targetNeedsFullUpdate,
 } from "./nested-target-parts";
-import type { OperationStep, StatementStep } from "./OperationFragment";
+import type {
+  OperationStep,
+  ReadStep,
+  WriteStep,
+} from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import {
@@ -170,7 +174,7 @@ export class RelationWritePart implements Part {
   private readonly writeId: string;
   private readonly upsertCreateId?: string;
   private readonly guardId: string;
-  private readonly probe?: StatementStep;
+  private readonly probe?: ReadStep;
   // T3b mechanism 1 — the located target's own child Parts (built from its `data`
   // relations) and whether its self-UPDATE must land AFTER them (a PK transition it
   // rewrites, carried to the deeper FK by ON UPDATE CASCADE — the root's
@@ -390,8 +394,8 @@ export class RelationWritePart implements Part {
 
   /** Found arm of the inverse-side to-one upsert: UPDATE the captured child, pinned
    *  in tx by the upsert-vanished affected-rows expectation. */
-  private buildUpsertUpdateArm(where: Record<string, unknown>): StatementStep {
-    const step: StatementStep = {
+  private buildUpsertUpdateArm(where: Record<string, unknown>): WriteStep {
+    const step: WriteStep = {
       id: this.writeId,
       kind: "write",
       statement: buildUpdate(this.config.childScope, {
@@ -415,7 +419,7 @@ export class RelationWritePart implements Part {
 
   /** Absent arm of the inverse-side to-one upsert: INSERT the child with the FK set
    *  to the parent (V1's `childForeignKeys`), no `racePin`, no guard. */
-  private buildUpsertCreateArm(known: PlanningKnown): StatementStep {
+  private buildUpsertCreateArm(known: PlanningKnown): WriteStep {
     return {
       id: this.upsertCreateId ?? this.writeId,
       kind: "write",
@@ -494,7 +498,7 @@ export class RelationWritePart implements Part {
     return data;
   }
 
-  private buildUpdateOne(where: Record<string, unknown>): StatementStep {
+  private buildUpdateOne(where: Record<string, unknown>): WriteStep {
     return {
       id: this.writeId,
       kind: "write",
@@ -507,7 +511,7 @@ export class RelationWritePart implements Part {
     };
   }
 
-  private buildDeleteOne(where: Record<string, unknown>): StatementStep {
+  private buildDeleteOne(where: Record<string, unknown>): WriteStep {
     return {
       id: this.writeId,
       kind: "write",
@@ -516,7 +520,7 @@ export class RelationWritePart implements Part {
     };
   }
 
-  private buildUpdateMany(known: PlanningKnown): StatementStep {
+  private buildUpdateMany(known: PlanningKnown): WriteStep {
     return {
       id: this.writeId,
       kind: "write",
@@ -528,7 +532,7 @@ export class RelationWritePart implements Part {
     };
   }
 
-  private buildDeleteMany(known: PlanningKnown): StatementStep {
+  private buildDeleteMany(known: PlanningKnown): WriteStep {
     return {
       id: this.writeId,
       kind: "write",
@@ -544,8 +548,8 @@ export class RelationWritePart implements Part {
    * step, so it correlates by a SQL `Ref` to the located-parent read in BOTH
    * modes (technique #1) — the literal is not known until that read runs.
    */
-  private buildProbe(): StatementStep {
-    const step: StatementStep = {
+  private buildProbe(): ReadStep {
+    const step: ReadStep = {
       id: this.probeId,
       kind: "read",
       statement: this.correlatedProbeStatement(undefined, true),
@@ -1171,7 +1175,7 @@ interface SetTarget {
   readonly existId: string;
   readonly reparentId: string;
   readonly guardId: string;
-  readonly exist: StatementStep;
+  readonly exist: ReadStep;
 }
 
 /**
@@ -1193,7 +1197,7 @@ export class RelationSetPart implements Part {
   private readonly departingId: string;
   private readonly departingGuardId: string;
   private readonly orphanNullId: string;
-  private readonly departingRead?: StatementStep;
+  private readonly departingRead?: ReadStep;
 
   constructor(scope: StepScope, config: RelationSetConfig) {
     this.config = config;

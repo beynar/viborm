@@ -8,7 +8,7 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import type {
   OperationStep,
-  StatementStep,
+  WriteStep,
 } from "../../src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import {
@@ -64,10 +64,9 @@ for (const substrate of substrates) {
 /** The target table's INSERT, as the pinned statement must spell it. */
 const TARGET_INSERT = /INSERT INTO "e4u3_stamps"/;
 
-/** `racePin` is a property of a statement step; a `kind` filter does not narrow the
- *  union on its own. */
-function writeSteps(steps: readonly OperationStep[]): readonly StatementStep[] {
-  return steps.filter((step): step is StatementStep => step.kind === "write");
+/** The fragment's write statements, narrowed to the owner of `racePin`. */
+function writeSteps(steps: readonly OperationStep[]): readonly WriteStep[] {
+  return steps.filter((step): step is WriteStep => step.kind === "write");
 }
 
 function operationFor(data: Record<string, unknown>) {

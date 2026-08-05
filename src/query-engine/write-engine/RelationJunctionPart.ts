@@ -50,9 +50,10 @@ import {
 import {
   type GuardStep,
   type OperationStep,
+  type ReadStep,
   ref,
-  type StatementStep,
   type TargetConstraintPin,
+  type WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
@@ -269,7 +270,7 @@ interface TargetSlot {
   readonly guardId: string;
   readonly writeId: string;
   readonly childId: string;
-  readonly probe: StatementStep;
+  readonly probe: ReadStep;
   /** update (mechanism 1): the located target's own nested child Parts, folded one
    *  level deeper against its literal `where` PK. Empty for a scalar-only update. */
   readonly childParts: readonly Part[];
@@ -283,7 +284,7 @@ interface BulkSlot {
   readonly removedGuardId: string;
   readonly junctionId: string;
   readonly childId: string;
-  readonly read: StatementStep;
+  readonly read: ReadStep;
 }
 
 /** A probe-less slot (disconnect/updateMany) — a single write id per item. */
@@ -327,7 +328,7 @@ interface AdoptSlot {
   readonly guardId: string;
   readonly childId: string;
   readonly joinId: string;
-  readonly probe: StatementStep;
+  readonly probe: ReadStep;
   /** E2-U2 (mechanism 2): the fresh target's own nested child Parts, folded one level
    *  deeper against its explicit literal PK. Emitted on the CREATE branch only. */
   readonly childParts: readonly Part[];
@@ -362,8 +363,8 @@ interface UpsertSlot {
    * correlated three-way ({@link RelationJunctionPart.compileUpsert}) reads one
    * required field, not an optional one.
    */
-  readonly membershipProbe?: StatementStep;
-  readonly globalProbe: StatementStep;
+  readonly membershipProbe?: ReadStep;
+  readonly globalProbe: ReadStep;
   /** upsert arms (mechanism 2 / mechanism 1 reuse): the create-arm and update-arm
    *  nested child Parts, folded one level deeper against the target's literal PK
    *  (`create` PK / `where` PK). Emitted branch-specifically: create-arm on the absent
@@ -1051,7 +1052,7 @@ export class RelationJunctionPart implements Part {
     // `requireTarget`'s compile-time throw, moved one phase earlier (still before any
     // write, on both substrates).
     const publishesPk = this.config.targetPublishesPk?.[index] === true;
-    const probe: StatementStep = {
+    const probe: ReadStep = {
       id: probeId,
       kind: "read",
       statement,
@@ -1288,7 +1289,7 @@ export class RelationJunctionPart implements Part {
   private upsertArmProbeOutputs(
     index: number,
     probeId: string
-  ): StatementStep["outputs"] {
+  ): ReadStep["outputs"] {
     if (this.config.upsertArmProbeIds?.[index] !== probeId) {
       return { rows: { kind: "rows" } };
     }
@@ -1331,7 +1332,7 @@ export class RelationJunctionPart implements Part {
     id: string,
     operation: ManyToManyOperation,
     args: Record<string, unknown>
-  ): StatementStep {
+  ): WriteStep {
     return {
       id,
       kind: "write",
@@ -1352,7 +1353,7 @@ export class RelationJunctionPart implements Part {
     id: string,
     where: Record<string, unknown>,
     data: Record<string, unknown>
-  ): StatementStep {
+  ): WriteStep {
     return {
       id,
       kind: "write",
@@ -1385,7 +1386,7 @@ export class RelationJunctionPart implements Part {
     create: Record<string, unknown>,
     where?: Record<string, unknown>,
     generatedField?: string
-  ): StatementStep {
+  ): WriteStep {
     const returningTx =
       this.config.txMode &&
       this.config.engine.adapter.capabilities.supportsReturning;
@@ -1417,7 +1418,7 @@ export class RelationJunctionPart implements Part {
         create
       );
     }
-    const step: StatementStep = {
+    const step: WriteStep = {
       id,
       kind: "write",
       statement,
@@ -1583,7 +1584,7 @@ export class RelationJunctionPart implements Part {
     };
   }
 
-  private childDelete(id: string, targetPk: unknown): StatementStep {
+  private childDelete(id: string, targetPk: unknown): WriteStep {
     return {
       id,
       kind: "write",
@@ -1597,7 +1598,7 @@ export class RelationJunctionPart implements Part {
   private childDeleteMany(
     id: string,
     targetPks: readonly unknown[]
-  ): StatementStep {
+  ): WriteStep {
     return {
       id,
       kind: "write",
