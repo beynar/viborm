@@ -5,10 +5,11 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { describe, expect, test } from "vitest";
 import {
-  literalParentId,
-  perFieldParentId,
-  type UpsertParentBinding,
-} from "../../src/query-engine/write-engine/RelationUpsertPart";
+  type CorrelatedForeignKeyMember,
+  type ForeignKeyMember,
+  pairForeignKeyMembers,
+} from "../../src/query-engine/write-engine/foreign-key-reference";
+import { literalParentId } from "../../src/query-engine/write-engine/RelationUpsertPart";
 import {
   compoundAdoptSchema,
   registerCompoundAdoptBehavior,
@@ -24,7 +25,7 @@ import {
  * COMPILE, per column, and a source it could not read per column would have to be read
  * some other way — the "some other way" being exactly the collapse. The engine does not
  * defend against it at runtime; the type refuses to express it. See
- * {@link UpsertParentBinding}.
+ * The member types make that invalid composition unrepresentable.
  */
 
 class BatchOnlyPGliteDriver extends PGliteDriver {
@@ -95,20 +96,16 @@ describe("E4-U2 the boundary the per-field source did not move", () => {
     expect(junctionCalls).toBe(1);
   });
 
-  test("a correlated binding cannot be given a per-field source (type-level)", () => {
-    // THE STRUCTURAL PROOF. These two are the whole statement, and they are checked by
-    // `tsc --noEmit`, not by this assertion: the first must compile, the second must not.
-    const globalAdopt: UpsertParentBinding = {
-      correlation: "global-adopt",
-      parentId: perFieldParentId({ region: literalParentId("eu") }),
-    };
-    // @ts-expect-error a correlated part reads its parent per column at compile, so the
-    // binding offers it the whole-value kinds only; a per-field source is not one.
-    const correlated: UpsertParentBinding = {
-      correlation: "correlated",
-      parentId: perFieldParentId({ region: literalParentId("eu") }),
-    };
-    expect(globalAdopt.parentId.kind).toBe("per-field");
-    expect(correlated.correlation).toBe("correlated");
+  test("a write-only member cannot be used as a correlated member (type-level)", () => {
+    const writeMembers: readonly ForeignKeyMember[] = pairForeignKeyMembers(
+      ["regionId"],
+      ["region"],
+      [literalParentId("eu")]
+    );
+    // @ts-expect-error a correlated member must name its independent planning source.
+    const correlatedMembers: readonly CorrelatedForeignKeyMember[] =
+      writeMembers;
+    expect(writeMembers[0]?.referencedField).toBe("region");
+    expect(correlatedMembers).toHaveLength(1);
   });
 });

@@ -12,6 +12,11 @@ import {
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope, RelationInfo } from "../types";
 import {
+  type FinalReferenceSource,
+  referencedFieldCorrelation,
+  referencedFieldValue,
+} from "./foreign-key-reference";
+import {
   nestedWriteFailure,
   presenceGuard,
   referenceSql,
@@ -25,8 +30,6 @@ import { relationTargetNotFound } from "./messages";
 import type { OperationStep, ReadStep, WriteStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import { referencedFieldCorrelation } from "./parent-reference";
-import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 
 export type LinkKind = "connect" | "disconnect";
@@ -63,7 +66,7 @@ export interface RelationLinkConfig {
    * The disconnect probe, however, IS a planning step, so it correlates by a SQL
    * `Ref` to that same locate read — technique #1's positive witness (ATOM §3).
    */
-  readonly parentId: ParentIdSource;
+  readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
 }
 
@@ -406,24 +409,13 @@ export class RelationLinkPart implements Part {
   /** The concrete value of the parent column the FK field `index` references
    *  (never a Ref — inlined at compile). */
   private parentReferenced(known: PlanningKnown, index: number): unknown {
-    const source = this.config.parentId;
-    if (source.kind === "literal") return source.value;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' requires a planned parent id.`
-      );
-    }
-    const rows = known[planningKey(source.readStep, "rows")];
-    const row = Array.isArray(rows) ? rows[0] : undefined;
-    if (!(row && typeof row === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' could not resolve its parent id.`,
-        this.config.relationName
-      );
-    }
-    return (row as Record<string, unknown>)[
-      this.config.referencedFields[index]!
-    ];
+    return referencedFieldValue(
+      this.config.parentId,
+      this.config.referencedFields[index]!,
+      known,
+      this.config.relationName,
+      this.config.kind
+    );
   }
 
   private uniqueEqualityFilters(
@@ -462,7 +454,7 @@ export function buildToManyLinkParts(
   referencedFields: readonly string[],
   childPrimaryKey: string,
   entry: Extract<RelationMutationEntry, { kind: "connect" | "disconnect" }>,
-  parentId: ParentIdSource,
+  parentId: FinalReferenceSource,
   txMode: boolean
 ): RelationLinkPart[] {
   const base = {

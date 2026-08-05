@@ -50,6 +50,15 @@ import { classifyRelationKeyScalarUpdate } from "../TargetConstraint";
 import type { QueryScope, RelationInfo } from "../types";
 import type { CreateOperation } from "./CreateOperation";
 import {
+  type FinalReferenceSource,
+  finalReferenceValue,
+  pairCorrelatedForeignKeyMembers,
+  pairForeignKeyMembers,
+  planningSourceFromFinal,
+  referencedFieldCorrelation,
+  referencedFieldValue,
+} from "./foreign-key-reference";
+import {
   absenceGuard,
   affectedRows,
   childRacePin,
@@ -93,10 +102,6 @@ import {
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
-import {
-  referencedFieldCorrelation,
-  referencedFieldValue,
-} from "./parent-reference";
 import { parseValidated } from "./parse-boundary";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
@@ -105,7 +110,6 @@ import {
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
   literalParentId,
-  type ParentIdSource,
   plannedParentId,
   transitionedParentId,
 } from "./RelationUpsertPart";
@@ -341,7 +345,7 @@ interface RelationKeyGuard {
  */
 interface PostTransitionAdopt {
   /** The value an adopt edge WRITES — the parent's post-transition referenced column. */
-  readonly parentId: ParentIdSource;
+  readonly parentId: FinalReferenceSource;
   /** The value an adopt member READS existing children by — the located row's own. */
   readonly correlationParentId: ReturnType<typeof plannedParentId>;
   /** The list whose writes are emitted after the root UPDATE (`afterRootParts`). */
@@ -694,10 +698,7 @@ export class UpdateOperation {
     //    root-SET fold. The parent-id every child arm consumes is the located
     //    id — a planning value inlined at compile (the correlated disconnect
     //    probe additionally refs it in SQL: technique #1).
-    const parentIdSource = plannedParentId(
-      locateId,
-      this.parentPrimaryKeys[0]!
-    );
+    const parentIdSource = plannedParentId(locateId);
     this.parentIdSource = parentIdSource;
     const childParts: Part[] = [];
     // T4b CLASS III + N5-U1 — the post-transition Parts collect here (see the field
@@ -1541,10 +1542,10 @@ export class UpdateOperation {
       // this operation's scope + engine; depth adds list entries, never vocabulary.
       nestedBuilder: (
         targetScope: QueryScope,
-        parentId: ParentIdSource,
+        parentId: FinalReferenceSource,
         relations: Record<string, RelationMutationProgram>,
         txMode: boolean,
-        correlationParentId?: ParentIdSource
+        correlationParentId?: FinalReferenceSource
       ) =>
         buildNestedTargetChildParts(
           input.scope,
@@ -1719,7 +1720,7 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     fk: FkDirection,
     relationName: string
-  ): { parentId: ParentIdSource; afterRoot: boolean } {
+  ): { parentId: FinalReferenceSource; afterRoot: boolean } {
     const referencedFields = fk.pkFields;
     const rewritten = referencedFields.filter((field) =>
       Object.hasOwn(input.rootScalarData, field)
@@ -1859,7 +1860,7 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     referencedFields: readonly string[],
     relationName: string
-  ): { parentId: ParentIdSource; afterRoot: boolean } {
+  ): { parentId: FinalReferenceSource; afterRoot: boolean } {
     for (const field of referencedFields) {
       input.parentFkLocateFields.add(field);
     }
@@ -1919,7 +1920,7 @@ export class UpdateOperation {
   private locatedCreateParent(
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     referencedFields: readonly string[]
-  ): { parentId: ParentIdSource; afterRoot: boolean } {
+  ): { parentId: FinalReferenceSource; afterRoot: boolean } {
     // The shortcut asks the CALLER'S unique `where` whether it pins this column to a
     // literal. A nested target located by correlation alone has no such `where` (`{}`
     // — see `parentWhere`), so there is no asker and nothing to pin; reached through
@@ -1939,7 +1940,7 @@ export class UpdateOperation {
     }
     for (const field of referencedFields) input.locateFields.add(field);
     return {
-      parentId: plannedParentId(this.locateId, referencedFields[0]!),
+      parentId: plannedParentId(this.locateId),
       afterRoot: false,
     };
   }
@@ -1987,6 +1988,16 @@ export class UpdateOperation {
 
     switch (entry.kind) {
       case "upsert": {
+        const readSources = referencedFields.map(() =>
+          planningSourceFromFinal(input.parentIdSource, relationName, "upsert")
+        );
+        const writeSources = referencedFields.map(() => adoptParentId);
+        const members = pairCorrelatedForeignKeyMembers(
+          fkFields,
+          referencedFields,
+          readSources,
+          writeSources
+        );
         pushAdopt(
           buildToManyUpsertParts(
             input.scope,
@@ -1995,7 +2006,8 @@ export class UpdateOperation {
             relationName,
             relationInfo,
             entry.items,
-            { correlation: "correlated", parentId: adoptParentId },
+            members,
+            members,
             input.txMode,
             this.armSeam
           )
@@ -2013,7 +2025,11 @@ export class UpdateOperation {
             relationName,
             relationInfo,
             entry.items,
-            adoptParentId,
+            pairForeignKeyMembers(
+              fkFields,
+              referencedFields,
+              referencedFields.map(() => adoptParentId)
+            ),
             input.txMode,
             this.armSeam
           )
@@ -2223,7 +2239,11 @@ export class UpdateOperation {
             relationName,
             relationInfo,
             entry.items,
-            adoptParentId,
+            pairForeignKeyMembers(
+              fkFields,
+              referencedFields,
+              referencedFields.map(() => adoptParentId)
+            ),
             input.txMode,
             this.armSeam
           )
@@ -2841,7 +2861,7 @@ export class UpdateOperation {
       this.engine,
       childScope,
       relations,
-      plannedParentId(probeId, childPrimaryKey),
+      plannedParentId(probeId),
       input.txMode
     );
     const reorderAfterChildren =
@@ -3292,7 +3312,13 @@ export class UpdateOperation {
         `query-engine-v2 update cannot resolve referenced field '${referencedField}' for the before-root target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
       );
     }
-    return resolved.kind === "ref" ? resolved.ref : resolved.value;
+    return finalReferenceValue(
+      resolved,
+      referencedField,
+      undefined,
+      relationName,
+      "update"
+    );
   }
 
   /**
@@ -4085,7 +4111,7 @@ export class UpdateOperation {
   ): Record<string, unknown>[] {
     const nt = this.nestedTarget;
     if (!nt) return [];
-    const refable = useRef && nt.parentId.kind === "planned";
+    const refable = useRef && nt.parentId.kind === "planningField";
     return nt.childFields.map((childField, index) => {
       const parentField = nt.parentFields[index]!;
       const override = nt.parentFieldOverride;

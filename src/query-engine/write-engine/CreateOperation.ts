@@ -39,6 +39,12 @@ import type { QueryEngine } from "../query-engine";
 import { ResultParser } from "../result/ResultParser";
 import type { QueryScope, RelationInfo } from "../types";
 import {
+  type FinalReferenceSource,
+  type ForeignKeyMember,
+  finalReferenceValue,
+  pairForeignKeyMembers,
+} from "./foreign-key-reference";
+import {
   childRacePin,
   exactlyOneRow,
   nestedWriteFailure,
@@ -60,7 +66,6 @@ import {
   isOperationValueReference,
   type OperationFragment,
   type OperationStep,
-  type OperationValueReference,
   type PlanningFragment,
   type ReadStep,
   ref,
@@ -74,15 +79,10 @@ import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import {
-  type AdoptParentIdSource,
   type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
   fkEquals,
-  literalParentId,
-  type ParentIdSource,
-  perFieldParentId,
-  refParentId,
 } from "./RelationUpsertPart";
 import { StepScope } from "./StepScope";
 import {
@@ -242,15 +242,6 @@ interface SharedPkIdentity {
   /** relation name → the pre-allocated before-parent INSERT step id. */
   readonly producedBy: ReadonlyMap<string, string>;
 }
-
-/**
- * N4-U4 — one referenced value of a FRESH record, and where it comes from: the
- * record's own INSERT (a backward `Ref`, materialized when that statement runs) or a
- * value already knowable at construction.
- */
-export type FreshReferenced =
-  | { readonly kind: "ref"; readonly ref: OperationValueReference }
-  | { readonly kind: "literal"; readonly value: unknown };
 
 /**
  * The root `create` (PLAN P6-prerequisite — the create family, generalized far
@@ -515,7 +506,9 @@ export class CreateOperation {
    * the caller's typed refusal (an `Sql` operand, a null/absent value): both would
    * name a row that does not exist.
    */
-  freshRootReferenced(referencedField: string): FreshReferenced | undefined {
+  freshRootReferenced(
+    referencedField: string
+  ): FinalReferenceSource | undefined {
     return freshReferenced(this.root, referencedField);
   }
 
@@ -824,7 +817,7 @@ export class CreateOperation {
    * {@link freshReferenced} (sibling edges and junction parent sources), and by
    * {@link CreateOperation.freshRootReferenced} — a PUBLIC seam an enclosing
    * `UpdateOperation` reads while building its own SET, with no `known` at the call
-   * site and no deferral in the `FreshReferenced` union (`literal | ref`, where a `ref`
+   * site and no deferral in the final source union (`literal | finalRef`, where a ref
    * names an EMITTED step; ATOM §9 inv. 2 forbids a final-fragment step from
    * referencing a planning step). So the sub-shape stays refused, and the refusal is
    * raised HERE, where the shared key's source is manufactured: a record whose primary
@@ -1402,7 +1395,13 @@ export class CreateOperation {
         `query-engine-v2 create cannot resolve referenced field '${referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
       );
     }
-    return resolved.kind === "ref" ? resolved.ref : resolved.value;
+    return finalReferenceValue(
+      resolved,
+      referencedField,
+      undefined,
+      relationName,
+      "create"
+    );
   }
 
   /** A child-held-FK to-many relation: create/createMany/connect/adopt (after). */
@@ -1480,7 +1479,12 @@ export class CreateOperation {
               relationName,
               relationInfo,
               entry.items,
-              this.childEdgeParentSource(input.self, fk.pkFields, relationName),
+              this.childEdgeMembers(
+                input.self,
+                fk.fkFields,
+                fk.pkFields,
+                relationName
+              ),
               txMode,
               this.armSeam
             )
@@ -1495,14 +1499,13 @@ export class CreateOperation {
               relationName,
               relationInfo,
               entry.items,
-              {
-                correlation: "global-adopt",
-                parentId: this.childEdgeParentSource(
-                  input.self,
-                  fk.pkFields,
-                  relationName
-                ),
-              },
+              this.childEdgeMembers(
+                input.self,
+                fk.fkFields,
+                fk.pkFields,
+                relationName
+              ),
+              undefined,
               txMode,
               this.armSeam
             )
@@ -1652,7 +1655,13 @@ export class CreateOperation {
         `query-engine-v2 create cannot resolve referenced field '${referencedField}' for relation '${relationName}': it is neither this record's primary key nor a knowable value in its own create data.`
       );
     }
-    return resolved.kind === "ref" ? resolved.ref : resolved.value;
+    return finalReferenceValue(
+      resolved,
+      referencedField,
+      undefined,
+      relationName,
+      "create"
+    );
   }
 
   /**
@@ -1671,7 +1680,7 @@ export class CreateOperation {
     self: RecordIdentity,
     referencedFields: readonly string[],
     relationName: string
-  ): ParentIdSource {
+  ): FinalReferenceSource {
     if (referencedFields.length !== 1) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create does not support a compound child edge on relation '${relationName}'.`
@@ -1704,24 +1713,16 @@ export class CreateOperation {
    * row — it would make the adopt probe's correlated `WHERE` match nothing silently on a
    * nullable column, and raise a bare NOT NULL violation on a required one.
    */
-  private childEdgeParentSource(
+  private childEdgeMembers(
     self: RecordIdentity,
+    foreignFields: readonly string[],
     referencedFields: readonly string[],
     relationName: string
-  ): AdoptParentIdSource {
-    const first = referencedFields[0];
-    if (referencedFields.length === 1 && first !== undefined) {
-      return this.referencedParentSource(self, first, relationName);
-    }
-    const members: Record<string, ParentIdSource> = {};
-    for (const referenced of referencedFields) {
-      members[referenced] = this.referencedParentSource(
-        self,
-        referenced,
-        relationName
-      );
-    }
-    return perFieldParentId(members);
+  ): ForeignKeyMember[] {
+    const sources = referencedFields.map((referenced) =>
+      this.referencedParentSource(self, referenced, relationName)
+    );
+    return pairForeignKeyMembers(foreignFields, referencedFields, sources);
   }
 
   /** One referenced column of this fresh record, as a whole-value parent source. */
@@ -1729,16 +1730,14 @@ export class CreateOperation {
     self: RecordIdentity,
     referenced: string,
     relationName: string
-  ): ParentIdSource {
+  ): FinalReferenceSource {
     const resolved = freshReferenced(self, referenced);
     if (resolved === undefined) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create cannot resolve the parent id for relation '${relationName}': referenced field '${referenced}' is neither this record's primary key nor a knowable value in its own create data.`
       );
     }
-    return resolved.kind === "ref"
-      ? refParentId(resolved.ref)
-      : literalParentId(resolved.value);
+    return resolved;
   }
 
   // -------------------------------------------------------------------------
@@ -2091,14 +2090,14 @@ function freshReferenced(
     readonly scalarData: Record<string, unknown>;
   },
   referencedField: string
-): FreshReferenced | undefined {
+): FinalReferenceSource | undefined {
   if (record.generatedField === referencedField) {
-    return { kind: "ref", ref: ref(record.writeStepId, "id") };
+    return { kind: "finalRef", ref: ref(record.writeStepId, "id") };
   }
   if (Object.hasOwn(record.identity, referencedField)) {
     const value = record.identity[referencedField];
     return isOperationValueReference(value)
-      ? { kind: "ref", ref: value }
+      ? { kind: "finalRef", ref: value }
       : { kind: "literal", value };
   }
   const spelled = record.scalarData[referencedField];

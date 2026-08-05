@@ -27,6 +27,11 @@ import {
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope, RelationInfo } from "../types";
 import {
+  type FinalReferenceSource,
+  finalReferenceValueWith,
+  referencedFieldCorrelation,
+} from "./foreign-key-reference";
+import {
   childRacePin,
   exactlyOneRow,
   nestedWriteFailure,
@@ -57,11 +62,7 @@ import {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import {
-  literalParentId,
-  type ParentIdSource,
-  plannedParentId,
-} from "./RelationUpsertPart";
+import { literalParentId, plannedParentId } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -121,7 +122,7 @@ export interface RelationJunctionConfig {
   readonly childName: string;
   readonly kind: JunctionKind;
   /** The located parent id (a planning value; a literal at compile, a Ref at planning). */
-  readonly parentId: ParentIdSource;
+  readonly parentId: FinalReferenceSource;
   /**
    * E2-U3 — where this parent's membership ALREADY is, when that is not the key its
    * join rows must carry from now on. The two coincide everywhere except under a nested
@@ -133,7 +134,7 @@ export interface RelationJunctionConfig {
    * takes {@link parentId}, byte-identical to pre-E2-U3. The same split
    * `RelationSetConfig.correlationParentId` makes for `set`.
    */
-  readonly correlationParentId?: ParentIdSource;
+  readonly correlationParentId?: FinalReferenceSource;
   /**
    * E5-U1 — this parent is a row the enclosing operation is MAKING, so it can have no
    * membership yet (fresh-parent elision, ATOM §4). Only the `upsert` kind reads it,
@@ -1744,13 +1745,12 @@ export class RelationJunctionPart implements Part {
    */
   private parentRef(): unknown {
     const source = this.config.correlationParentId ?? this.config.parentId;
-    if (source.kind === "literal") return source.value;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 junction for relation '${this.config.relationName}' requires a planned or literal parent id to correlate its membership reads.`
-      );
-    }
-    return ref(source.readStep, source.field);
+    return referencedFieldCorrelation(
+      source,
+      this.sourcePkField,
+      this.config.relationName,
+      "junction"
+    );
   }
 
   /** The compile-time parent value the junction writes correlate on: a located
@@ -1787,25 +1787,24 @@ export class RelationJunctionPart implements Part {
     );
   }
 
-  private resolveParent(source: ParentIdSource, known: PlanningKnown): unknown {
-    if (source.kind === "literal") return source.value;
-    if (source.kind === "ref") {
-      return referenceSql(
-        this.config.engine,
-        this.config.parentScope.model,
-        this.sourcePkField,
-        source.ref
-      );
-    }
-    const rows = known[planningKey(source.readStep, "rows")];
-    const row = Array.isArray(rows) ? rows[0] : undefined;
-    if (!(row && typeof row === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 junction for relation '${this.config.relationName}' could not resolve its parent id.`,
-        this.config.relationName
-      );
-    }
-    return (row as Record<string, unknown>)[source.field];
+  private resolveParent(
+    source: FinalReferenceSource,
+    known: PlanningKnown
+  ): unknown {
+    return finalReferenceValueWith(
+      source,
+      this.sourcePkField,
+      known,
+      this.config.relationName,
+      "junction",
+      (reference) =>
+        referenceSql(
+          this.config.engine,
+          this.config.parentScope.model,
+          this.sourcePkField,
+          reference
+        )
+    );
   }
 }
 
@@ -1828,10 +1827,10 @@ export function buildJunctionParts(input: {
   relationName: string;
   relationInfo: RelationInfo;
   program: RelationMutationProgram;
-  parentId: ParentIdSource;
+  parentId: FinalReferenceSource;
   /** E2-U3: the membership-READ parent value when it differs from the written one —
    *  see {@link RelationJunctionConfig.correlationParentId}. */
-  correlationParentId?: ParentIdSource;
+  correlationParentId?: FinalReferenceSource;
   /** E5-U1 — see {@link RelationJunctionConfig.freshParent}. Threaded by the CREATE
    *  root, the one caller whose parent row does not exist yet. */
   freshParent?: boolean;
@@ -1879,7 +1878,7 @@ export function buildJunctionParts(input: {
   // caller can silently fall back to a scalar-only boundary.
   const foldTarget = (
     data: Record<string, unknown>,
-    resolveParentId: () => ParentIdSource
+    resolveParentId: () => FinalReferenceSource
   ): { scalar: Record<string, unknown>; childParts: readonly Part[] } => {
     const { scalarData, relations } = buildParsedRelationPrograms(
       childScope,
@@ -1923,12 +1922,12 @@ export function buildJunctionParts(input: {
   const updateTargetParentId = (
     where: Record<string, unknown>,
     probeId: string
-  ): ParentIdSource => {
+  ): FinalReferenceSource => {
     const entry = getWhereUniqueEntries(childScope, where).find(
       (candidate) => candidate.fieldName === targetPkField
     );
     if (entry !== undefined) return literalParentId(entry.value);
-    return plannedParentId(probeId, targetPkField);
+    return plannedParentId(probeId);
   };
   /**
    * E4-U3 — how a FRESH junction target and its own relations are written, in one
@@ -2025,22 +2024,26 @@ export function buildJunctionParts(input: {
         `query-engine-v2 create-through-junction for relation '${relationName}' requires the target primary key '${targetPkField}' in the create data (${foldKind}).`
       );
     }
+    let hasGeneratedIdentity = false;
+    const pk = finalReferenceValueWith(
+      produced,
+      targetPkField,
+      undefined,
+      relationName,
+      "create-through-junction",
+      (reference) => {
+        hasGeneratedIdentity = true;
+        return referenceSql(engine, childScope.model, targetPkField, reference);
+      }
+    );
     return {
       scalar: scalarData,
       childParts: [],
       delegated: subtree.part,
-      identity:
-        produced.kind === "ref"
-          ? {
-              pk: referenceSql(
-                engine,
-                childScope.model,
-                targetPkField,
-                produced.ref
-              ),
-              generatedField: targetPkField,
-            }
-          : { pk: produced.value },
+      identity: {
+        pk,
+        ...(hasGeneratedIdentity ? { generatedField: targetPkField } : {}),
+      },
     };
   };
   /**
@@ -2175,7 +2178,7 @@ export function buildJunctionParts(input: {
       let usesLocatedPk = false;
       const folded = foldTarget(data, () => {
         const source = updateTargetParentId(where, probeId);
-        usesLocatedPk = source.kind === "planned";
+        usesLocatedPk = source.kind === "planningField";
         return source;
       });
       return { ...folded, usesLocatedPk };
@@ -2190,7 +2193,7 @@ export function buildJunctionParts(input: {
           targetModel: relationInfo.targetModel,
           data,
           locate: {
-            parentId: plannedParentId(probeId, targetPkField),
+            parentId: plannedParentId(probeId),
             childFields: [targetPkField],
             parentFields: [targetPkField],
             relationName,

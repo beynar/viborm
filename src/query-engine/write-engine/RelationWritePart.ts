@@ -34,6 +34,11 @@ import type { QueryEngine } from "../query-engine";
 import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import type { QueryScope, RelationInfo } from "../types";
 import {
+  type FinalReferenceSource,
+  referencedFieldCorrelation,
+  referencedFieldValue,
+} from "./foreign-key-reference";
+import {
   absenceGuard,
   affectedRows,
   exactlyOneRow,
@@ -63,15 +68,7 @@ import type {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import {
-  referencedFieldCorrelation,
-  referencedFieldValue,
-} from "./parent-reference";
-import {
-  literalParentId,
-  type ParentIdSource,
-  plannedParentId,
-} from "./RelationUpsertPart";
+import { literalParentId, plannedParentId } from "./RelationUpsertPart";
 import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
 import {
@@ -124,7 +121,7 @@ export interface RelationWriteConfig {
   readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   /** The located parent id (a planning value, inlined as a literal at compile). */
-  readonly parentId: ParentIdSource;
+  readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
   /** Targeted (`update`/`delete`): the child's unique locator. */
   readonly where?: Record<string, unknown>;
@@ -641,7 +638,7 @@ export class RelationWritePart implements Part {
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
-    const refable = useRef && this.config.parentId.kind === "planned";
+    const refable = useRef && this.config.parentId.kind === "planningField";
     return this.config.fkFields.map((fkField, index) => ({
       [fkField]: {
         equals: refable
@@ -824,7 +821,7 @@ export class RelationWritePart implements Part {
       transitionsPk &&
       !pkTransitionCascadeSafe(childScope, relations, primaryKey);
     const childParts: Part[] = [];
-    let parentSource: ParentIdSource;
+    let parentSource: FinalReferenceSource;
     if (pkEntry === undefined) {
       if (postTransition) {
         // MERGE (N4 × N5) — the one shape neither lane's mechanism reaches, and it
@@ -845,7 +842,7 @@ export class RelationWritePart implements Part {
           `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${primaryKey}' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key.`
         );
       }
-      parentSource = plannedParentId(this.probeId, primaryKey);
+      parentSource = plannedParentId(this.probeId);
     } else {
       if (postTransition) {
         childParts.push(
@@ -1165,7 +1162,7 @@ export interface RelationSetConfig {
   readonly requiredFk: boolean;
   readonly requiredFields: readonly string[];
   readonly targets: readonly Record<string, unknown>[];
-  readonly parentId: ParentIdSource;
+  readonly parentId: FinalReferenceSource;
   /**
    * N5-U1 — where this parent's children ALREADY are, when that is not where the
    * reparented ones must GO. `set` is two halves against one parent value: the
@@ -1176,7 +1173,7 @@ export interface RelationSetConfig {
    * PRE-transition one. Absent → both halves read {@link parentId}, byte-identical
    * to pre-N5.
    */
-  readonly correlationParentId?: ParentIdSource;
+  readonly correlationParentId?: FinalReferenceSource;
   readonly txMode: boolean;
 }
 
@@ -1533,7 +1530,7 @@ interface WritePartBase {
   readonly fkFields: readonly string[];
   readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
-  readonly parentId: ParentIdSource;
+  readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
   /** T3b mechanism 1: the recursion seam a targeted `update` uses to fold nested
    *  relation writes in its `data` one level deeper. Absent for the leaf families
@@ -1814,7 +1811,7 @@ export function buildToManyDeleteManyParts(
 export function buildToManySetPart(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "set" }>,
-  correlationParentId?: ParentIdSource
+  correlationParentId?: FinalReferenceSource
 ): RelationSetPart {
   const requiredFields = requiredForeignKeyFields(base.fk);
   return new RelationSetPart(base.scope, {

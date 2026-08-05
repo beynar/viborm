@@ -105,7 +105,9 @@ const DELETED_KEY_GATES = [
 // 35 -> 18 (mutation-program migration): emitters now receive normalized entries instead
 // of reopening dynamically keyed relation payloads. The casts disappeared with the old
 // per-kind bag readers and their local array/single-item normalizers.
-const MAX_PAYLOAD_RECORD_CASTS = 18;
+// 18 -> 16 (field-bound source lowering): relation consumers no longer recast captured
+// planning rows to recover a field selected outside the source owner.
+const MAX_PAYLOAD_RECORD_CASTS = 16;
 // 22 -> 21 (N4-U2): the same removal. `foldParentHeldConnect`'s "requires a where object
 // one level deeper" was the shape-check message that went with that cast.
 // 21 -> 20 (E3): `RelationUpsertPart.normalizeUpsertItems` went with the upsert arm's

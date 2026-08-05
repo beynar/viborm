@@ -13,7 +13,14 @@ import { buildCreateManyPlan } from "../operations/create";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
-import { CreateOperation, type FreshReferenced } from "./CreateOperation";
+import { CreateOperation } from "./CreateOperation";
+import {
+  type FinalReferenceSource,
+  pairCorrelatedForeignKeyMembers,
+  pairForeignKeyMembers,
+  planningSourceFromFinal,
+  referencedFieldValue,
+} from "./foreign-key-reference";
 import { referenceSql } from "./fragment-builders";
 import type {
   OperationStep,
@@ -21,14 +28,12 @@ import type {
   TargetConstraintPin,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
-import { referencedFieldValue } from "./parent-reference";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
   type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
-  type ParentIdSource,
 } from "./RelationUpsertPart";
 import {
   buildInverseToOneUpsertPart,
@@ -88,10 +93,10 @@ import { UpdateOperation } from "./UpdateOperation";
  */
 export type NestedChildBuilder = (
   targetScope: QueryScope,
-  parentId: ParentIdSource,
+  parentId: FinalReferenceSource,
   relations: Record<string, RelationMutationProgram>,
   txMode: boolean,
-  correlationParentId?: ParentIdSource
+  correlationParentId?: FinalReferenceSource
 ) => readonly Part[];
 
 /**
@@ -105,9 +110,9 @@ export function buildNestedTargetChildParts(
   engine: QueryEngine,
   targetScope: QueryScope,
   relations: Record<string, RelationMutationProgram>,
-  parentId: ParentIdSource,
+  parentId: FinalReferenceSource,
   txMode: boolean,
-  correlationParentId?: ParentIdSource
+  correlationParentId?: FinalReferenceSource
 ): readonly Part[] {
   const parts: Part[] = [];
   for (const [relationName, program] of Object.entries(relations)) {
@@ -246,7 +251,7 @@ export function buildNestedTargetFreshCreatePart(input: {
    * spells it, `undefined` when it is neither (the caller's typed refusal). The join
    * row spends it, which is why the subtree has to hand it back rather than keep it.
    */
-  readonly rootReferenced: (field: string) => FreshReferenced | undefined;
+  readonly rootReferenced: (field: string) => FinalReferenceSource | undefined;
 } {
   const op = new CreateOperation(
     input.engine,
@@ -311,10 +316,10 @@ function foldOneNestedRelation(input: {
   targetScope: QueryScope;
   relationName: string;
   program: RelationMutationProgram;
-  parentId: ParentIdSource;
+  parentId: FinalReferenceSource;
   /** The junction-only READ source under a post-transition ordering (E2-U3); see
    *  {@link NestedChildBuilder}. */
-  correlationParentId?: ParentIdSource;
+  correlationParentId?: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -491,7 +496,7 @@ function foldOneChildHeldKind(args: {
   scope: StepScope;
   engine: QueryEngine;
   targetScope: QueryScope;
-  parentId: ParentIdSource;
+  parentId: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -543,7 +548,11 @@ function foldOneChildHeldKind(args: {
           relationName,
           relationInfo,
           entry.items,
-          parentId,
+          pairForeignKeyMembers(
+            fk.fkFields,
+            fk.pkFields,
+            fk.pkFields.map(() => parentId)
+          ),
           txMode,
           armSeam
         )
@@ -560,6 +569,14 @@ function foldOneChildHeldKind(args: {
         parts.push(buildInverseToOneUpsertPart(writeBase, item));
         return;
       }
+      const members = pairCorrelatedForeignKeyMembers(
+        fk.fkFields,
+        fk.pkFields,
+        fk.pkFields.map(() =>
+          planningSourceFromFinal(parentId, relationName, "upsert")
+        ),
+        fk.pkFields.map(() => parentId)
+      );
       push(
         buildToManyUpsertParts(
           scope,
@@ -568,7 +585,8 @@ function foldOneChildHeldKind(args: {
           relationName,
           relationInfo,
           entry.items,
-          { correlation: "correlated", parentId },
+          members,
+          members,
           txMode,
           armSeam
         )
@@ -717,7 +735,7 @@ function literalFkInject(
   childScope: QueryScope,
   fk: ReturnType<typeof getFkDirection>,
   relationName: string,
-  parentId: ParentIdSource
+  parentId: FinalReferenceSource
 ): Record<string, unknown> {
   const inject: Record<string, unknown> = {};
   for (let index = 0; index < fk.fkFields.length; index += 1) {
@@ -745,7 +763,7 @@ export function buildLiteralParentCreatePart(input: {
   childName: string;
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
-  parentId: ParentIdSource;
+  parentId: FinalReferenceSource;
   txMode: boolean;
   creates: readonly Record<string, unknown>[];
 }): readonly Part[] {
@@ -888,7 +906,7 @@ function buildNestedFreshCreateParts(input: {
   childScope: QueryScope;
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
-  parentId: ParentIdSource;
+  parentId: FinalReferenceSource;
   create: Record<string, unknown>;
 }): readonly Part[] {
   const { scope, engine, childScope, relationName, fk, parentId, create } =
@@ -934,7 +952,7 @@ function planNestedCreateMany(input: {
   skipDuplicates: boolean;
   recoverUnique: boolean;
 } {
-  const { engine, childScope, relationName } = input;
+  const { engine, childScope } = input;
   const skipDuplicates = input.createManyEntry.skipDuplicates === true;
   const userRows = input.createManyEntry.rows;
   if (skipDuplicates) {
@@ -967,7 +985,7 @@ export function buildLiteralParentCreateManyPart(input: {
   childName: string;
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
-  parentId: ParentIdSource;
+  parentId: FinalReferenceSource;
   createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
 }): Part {
   const { scope, engine, childScope, childName, relationName, fk, parentId } =
@@ -1026,7 +1044,7 @@ export function buildPlannedParentCreateManyPart(input: {
   childName: string;
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
-  parentId: ParentIdSource;
+  parentId: FinalReferenceSource;
   createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
 }): Part {
   const { scope, engine, childScope, childName, relationName, fk, parentId } =
@@ -1119,7 +1137,7 @@ function plannedFkInject(
   childScope: QueryScope,
   fk: ReturnType<typeof getFkDirection>,
   relationName: string,
-  parentId: ParentIdSource,
+  parentId: FinalReferenceSource,
   known: PlanningKnown
 ): Record<string, unknown> {
   const inject: Record<string, unknown> = {};
@@ -1148,7 +1166,7 @@ export function buildPlannedParentCreatePart(input: {
   childName: string;
   relationName: string;
   fk: ReturnType<typeof getFkDirection>;
-  parentId: ParentIdSource;
+  parentId: FinalReferenceSource;
   txMode: boolean;
   creates: readonly Record<string, unknown>[];
 }): readonly Part[] {

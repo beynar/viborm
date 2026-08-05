@@ -10,8 +10,8 @@ import {
 import type { QueryEngine } from "../query-engine";
 import { getForeignKeyTargetFields } from "../TargetConstraint";
 import type { QueryScope } from "../types";
+import type { FinalReferenceSource } from "./foreign-key-reference";
 import type { TargetConstraintPin } from "./OperationFragment";
-import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 
 /**
@@ -35,7 +35,7 @@ export interface NestedTargetLocate {
   readonly where?: Record<string, unknown>;
   /** The enclosing parent's id — a `planned` locate (a SQL `Ref`) or a compile-time
    *  literal (a depth-composed literal-parent target). */
-  readonly parentId: ParentIdSource;
+  readonly parentId: FinalReferenceSource;
   /** The target's correlation columns (child-held: its FK; parent-held: the columns
    *  the parent's FK references), index-aligned with {@link parentFields}. */
   readonly childFields: readonly string[];
