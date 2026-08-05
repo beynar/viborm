@@ -19,7 +19,6 @@ import {
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope, RelationInfo } from "../types";
-import { validateProbe } from "./FragmentValidator";
 import {
   type CorrelatedForeignKeyMember,
   type FinalReferenceSource,
@@ -50,7 +49,6 @@ import type {
 import type {
   GuardStep,
   OperationStep,
-  Probe,
   ReadStep,
   StatementStep,
   WriteStep,
@@ -240,13 +238,13 @@ export type RelationUpsertConfig = RelationUpsertConfigCore &
  * own children.
  */
 export class RelationUpsertPart implements Part {
-  readonly probe: Probe;
   private readonly config: RelationUpsertConfig;
   private readonly probeId: string;
   private readonly createId: string;
   private readonly updateId: string;
   private readonly guardId: string;
   private readonly find: ReadStep;
+  private readonly foundPin: GuardStep | undefined;
   private readonly updateChildParts: readonly Part[];
   private readonly createSubtree: Part | undefined;
   private readonly family: UpsertFamily;
@@ -319,11 +317,7 @@ export class RelationUpsertPart implements Part {
             this.foundGuardStatement(undefined, undefined),
             relationName
           );
-    this.probe = {
-      read: this.find,
-      pin: { whenFound: foundPin, whenMissing: "constraint" },
-    };
-    validateProbe(this.probe);
+    this.foundPin = foundPin === "none" ? undefined : foundPin;
   }
 
   /** The probe's (and the found pin's, and the update arm's) projection: this child's
@@ -413,10 +407,8 @@ export class RelationUpsertPart implements Part {
     // two different rows.
     const capturedPk = this.capturedPk(rows);
     const steps: OperationStep[] = [];
-    if (this.probe.pin.whenFound !== "none") {
-      steps.push(
-        this.pinLocatedRow(this.probe.pin.whenFound, capturedPk, known)
-      );
+    if (this.foundPin) {
+      steps.push(this.pinLocatedRow(this.foundPin, capturedPk, known));
     }
     steps.push(
       this.buildUpdateArm(known, { [this.config.childPrimaryKey]: capturedPk })

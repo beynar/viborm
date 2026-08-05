@@ -1,15 +1,10 @@
 import { Sql } from "@sql";
 import { describe, expect, test } from "vitest";
-import {
-  validateFragment,
-  validateProbe,
-} from "../../src/query-engine/write-engine/FragmentValidator";
+import { validateFragment } from "../../src/query-engine/write-engine/FragmentValidator";
 import {
   type OperationFragment,
   type OperationValueReference,
-  type Probe,
   ref,
-  type StatementStep,
 } from "../../src/query-engine/write-engine/OperationFragment";
 
 function sqlWith(...refs: OperationValueReference[]): Sql {
@@ -18,13 +13,6 @@ function sqlWith(...refs: OperationValueReference[]): Sql {
     refs
   );
 }
-
-const readProbe: StatementStep = {
-  id: "probe.read",
-  kind: "read",
-  statement: sqlWith(),
-  outputs: { rows: { kind: "rows" } },
-};
 
 describe("query-engine-v2 fragment validator (ATOM §9)", () => {
   test("invariant 1: rejects duplicate step ids", () => {
@@ -197,86 +185,7 @@ describe("query-engine-v2 fragment validator (ATOM §9)", () => {
     );
   });
 
-  test("probe: rejects a missing-pin notExists guard that is not raceable", () => {
-    const probe: Probe = {
-      read: readProbe,
-      pin: {
-        whenFound: "none",
-        whenMissing: {
-          id: "guard",
-          kind: "guard",
-          premise: { kind: "notExists", statement: sqlWith() },
-          failure: {
-            kind: "nestedWrite",
-            message: "m",
-            relation: "r",
-            raceable: false,
-          },
-        },
-      },
-    };
-    expect(() => validateProbe(probe)).toThrow(
-      "production-FATAL create-branch pin"
-    );
-  });
-
-  test("probe: rejects a raceable found-pin exists guard", () => {
-    const probe: Probe = {
-      read: readProbe,
-      pin: {
-        whenFound: {
-          id: "guard",
-          kind: "guard",
-          premise: { kind: "exists", statement: sqlWith() },
-          failure: {
-            kind: "nestedWrite",
-            message: "m",
-            relation: "r",
-            raceable: true,
-          },
-        },
-        whenMissing: "constraint",
-      },
-    };
-    expect(() => validateProbe(probe)).toThrow("raceable: false");
-  });
-
-  test("probe: rejects a found-pin that is not an exists guard", () => {
-    const probe: Probe = {
-      read: readProbe,
-      pin: {
-        whenFound: {
-          id: "guard",
-          kind: "guard",
-          premise: { kind: "notExists", statement: sqlWith() },
-          failure: {
-            kind: "nestedWrite",
-            message: "m",
-            relation: "r",
-            raceable: true,
-          },
-        },
-        whenMissing: "constraint",
-      },
-    };
-    expect(() => validateProbe(probe)).toThrow("exists guard");
-  });
-
-  test("probe: rejects a non-read probe head", () => {
-    const probe: Probe = {
-      read: {
-        id: "write.step",
-        // @ts-expect-error - a probe head is structurally read-only
-        kind: "write",
-        statement: sqlWith(),
-        outputs: {},
-      },
-      pin: { whenFound: "none", whenMissing: "constraint" },
-    };
-    expect(() => validateProbe(probe)).toThrow("must be a read step");
-  });
-
-  test("accepts a well-formed fragment, probe, and ordered output list", () => {
+  test("accepts a well-formed fragment and ordered output list", () => {
     const fragment: OperationFragment = {
       steps: [
         {
@@ -295,25 +204,6 @@ describe("query-engine-v2 fragment validator (ATOM §9)", () => {
       outputs: { result: ref("reader", "result") },
     };
     expect(() => validateFragment(fragment)).not.toThrow();
-
-    const probe: Probe = {
-      read: readProbe,
-      pin: {
-        whenFound: {
-          id: "guard",
-          kind: "guard",
-          premise: { kind: "exists", statement: sqlWith() },
-          failure: {
-            kind: "nestedWrite",
-            message: "m",
-            relation: "r",
-            raceable: false,
-          },
-        },
-        whenMissing: "constraint",
-      },
-    };
-    expect(() => validateProbe(probe)).not.toThrow();
 
     const listFragment: OperationFragment = {
       steps: [

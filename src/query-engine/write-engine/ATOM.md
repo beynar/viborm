@@ -15,10 +15,10 @@ The short version:
 
 **Current implementation facts.** Root planning is guard-free, but it is not
 read-only: E6.9 skip-duplicate capture performs preparation writes during
-planning. Nested `Part.planning()` currently contributes reads. `Probe` has one
-structural use, in `RelationUpsertPart`; `validateProbe` validates that
-declaration only and does not enforce how its consumer applies a selected-arm
-guard or race pin. The legacy interpreter vocabulary has been deleted.
+planning. Nested `Part.planning()` currently contributes reads. Branch sites own
+their selected-arm guards and race pins explicitly. The rejected `Probe`
+declaration was deleted because it validated declarations without enforcing
+consumption. The legacy interpreter vocabulary has been deleted.
 
 Clause building does not change. Traverse-the-payload-and-build-SQL is correct
 and survives untouched *within one statement*. It fails at exactly one place:
@@ -135,31 +135,20 @@ invariant is only: **refs point backward.**
 
 ---
 
-## 2. Probe declarations: partial structural coverage
+## 2. Branch premise ownership
 
-A **probe** declares a planning read *plus* the premise its decision creates:
+Each branch site owns the premise created by its planning read. A found arm emits
+its existing-row guard with `raceable: false` on the batch substrate; a locked
+transaction read needs no duplicate guard. A missing arm that inserts the same
+unique target uses the database constraint and attaches `racePin` to that selected
+write. Same-operation duplicates attach neither because an earlier write in the
+same fragment creates the row.
 
-```ts
-interface Probe {
-  readonly read: Step;                       // the planning read (locked in tx mode)
-  /** What pins the premise per outcome, decided at construction: */
-  readonly pin: {
-    readonly whenFound: GuardStep | "none";           // existing-row premises: pinned, raceable: false
-    readonly whenMissing: GuardStep | "constraint" | "none";
-    //  "constraint": the branch INSERTs into the same model under unique key K —
-    //  the DB constraint enforces the premise; its violation is the raceable
-    //  signal (racePin on the write step). Emitting a notExists guard here is
-    //  the production-FATAL class. NEVER pin these.
-  };
-}
-```
-
-This is not yet a universal structural boundary. Only `RelationUpsertPart`
-constructs the declaration. `validateProbe` checks the read and declared pin
-shapes, but it neither consumes the selected arm nor attaches the found guard or
-missing race pin. Other decision sites apply their pins explicitly. Therefore a
-valid `Probe` proves that its declaration is coherent; it does not prove that
-the declaration was consumed correctly.
+An `AdoptProbe` prototype was rejected. Covering all four adopt sites required arm
+compiler callbacks and a duplicate exception, which was a strategy abstraction
+with more production code than the explicit sites. The previous `Probe` was also
+deleted: it checked a declaration but could not prove that the selected arm
+consumed its found guard or missing pin.
 
 Retained `notExists` pins (the Pin Rule's own exceptions — do not "optimize"
 them away): the `targetWhere`/`setWhere` skip premise (no INSERT exists for a
@@ -2367,9 +2356,7 @@ An operation is valid iff:
    it happens *between* fragments, before the final fragment exists);
 4. every fragment output resolves to produced values at parse time (never a
    `Ref`, never `Sql`);
-5. every branch site obeys the Pin Rule. At the one structural `Probe` site,
-   `validateProbe` checks the declaration only; consumption remains a separate
-   site obligation. Existing-row premises are pinned `raceable: false`,
+5. every branch site obeys the Pin Rule. Existing-row premises are pinned `raceable: false`,
    same-model-INSERT missing premises use constraint + `racePin` rather than a
    guard, and materialized-set premises are pinned `raceable: true`;
 6. the preflight (§4) has proven every planning read independent of every

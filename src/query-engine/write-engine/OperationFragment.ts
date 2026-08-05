@@ -122,29 +122,6 @@ export interface GuardStep {
 export type OperationStep = StatementStep | GuardStep;
 
 /**
- * A probe pairs a planning read with the premise its decision creates (ATOM §2).
- * The pairing is structural, not conventional: it is how the Pin Rule stays
- * machine-checkable when a branch decision moves into opaque compile-time JS.
- * `compile(known)` consumes the probe and emits the taken branch through it, so
- * the branch contributes the correct pin (or none) automatically.
- */
-export interface Probe {
-  /** The planning read (locked in transaction mode). */
-  readonly read: ReadStep;
-  readonly pin: {
-    /** Existing-row premise: pinned, `raceable: false`. */
-    readonly whenFound: GuardStep | "none";
-    /**
-     * `"constraint"`: the branch INSERTs into the same model under the unique
-     * key — the database constraint enforces the premise and its violation is
-     * the raceable signal (`racePin` on the write). Emitting a `notExists`
-     * guard here is the production-FATAL class; these are NEVER pinned.
-     */
-    readonly whenMissing: GuardStep | "constraint" | "none";
-  };
-}
-
-/**
  * A fragment output names either a single produced value or an ordered list of
  * them, whose rows concatenate and whose counts sum (ATOM §1) — e.g.
  * `createManyAndReturn` on non-returning drivers and SQLite `createMany`.

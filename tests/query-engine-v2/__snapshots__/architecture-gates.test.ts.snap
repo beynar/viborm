@@ -17,8 +17,6 @@ export interface PlanningFragment { readonly steps: readonly StatementStep[]; re
 
 export type Postcondition = | { readonly kind: "exactlyOneRow"; readonly failure: Failure } | { readonly kind: "affectedRows"; readonly expected: number | { readonly min: number }; readonly failure: Failure; };
 
-export interface Probe { readonly read: ReadStep; readonly pin: { readonly whenFound: GuardStep | "none"; readonly whenMissing: GuardStep | "constraint" | "none"; }; }
-
 export interface ReadStep extends StatementStepBase { readonly kind: "read"; }
 
 export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kind: "rowCount" } | { readonly kind: "insertId" } | { readonly kind: "firstRowField"; readonly field: string; readonly optional?: boolean; };
