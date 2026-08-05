@@ -102,6 +102,11 @@ There is no generic runtime branch interpreter. When an operation needs a
 database-dependent decision, the concrete operation performs a planning read
 and creates the selected linear fragment before final execution.
 
+Planning is guard-free. Root operation planning usually contains reads, but
+E6.9 skip-duplicate capture intentionally performs preparation writes in this
+phase and passes their outcomes to final compilation. Nested `Part.planning()`
+currently contributes reads. Guards belong only to the final fragment.
+
 This keeps the executor small and makes the generated operation inspectable:
 
 ```text
@@ -164,8 +169,9 @@ remain destination-field-aware and adapter-owned.
 ### 5. Nested mutations should compose, not create another engine
 
 A nested write is not a separate runtime. It is operation semantics that
-contributes planning steps, mutation steps, dependencies, guards, and outputs
-to the same linear fragment.
+contributes planning reads, final mutation steps, dependencies, final guards,
+and outputs to the same operation lifecycle. Root planning additionally owns
+the E6.9 preparation-write exception described above.
 
 The current proof keeps one nested upsert inside `CreateOperation` so the seam
 is discovered from working code rather than invented in advance. If a future

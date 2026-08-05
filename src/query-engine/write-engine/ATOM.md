@@ -13,6 +13,14 @@ The short version:
 > *composition*. The bridge is that a `Ref` — a value that isn't known yet — is
 > just an ordinary entry in `Sql.values`.**
 
+**Current implementation facts.** Root planning is guard-free, but it is not
+read-only: E6.9 skip-duplicate capture performs preparation writes during
+planning. Nested `Part.planning()` currently contributes reads. `Probe` has one
+structural use, in `RelationUpsertPart`; `validateProbe` validates that
+declaration only and does not enforce how its consumer applies a selected-arm
+guard or race pin. `BatchValueRef` and the `operation-program.ts` interpreter
+vocabulary are obsolete and scheduled for deletion.
+
 Clause building does not change. Traverse-the-payload-and-build-SQL is correct
 and survives untouched *within one statement*. It fails at exactly one place:
 the **statement boundary**, where a value must flow from one statement's
@@ -128,12 +136,9 @@ invariant is only: **refs point backward.**
 
 ---
 
-## 2. Probes: a read structurally chained to its pin
+## 2. Probe declarations: partial structural coverage
 
-A **probe** is a planning read *plus* the premise its decision creates. This
-pairing is structural, not conventional — it is how the Pin Rule (unification
-design §5.5, the most expensive lesson in this repository) stays
-machine-checkable when branch decisions move into opaque compile-time JS:
+A **probe** declares a planning read *plus* the premise its decision creates:
 
 ```ts
 interface Probe {
@@ -150,10 +155,12 @@ interface Probe {
 }
 ```
 
-`compile(known)` consumes the probe's rows and emits the taken branch **through
-the probe**, which contributes the correct pin (or none) automatically. A
-decision made without a probe, or a probe whose pin was dropped, is a validator
-error — the Pin Rule as an invariant, not a code-review hope.
+This is not yet a universal structural boundary. Only `RelationUpsertPart`
+constructs the declaration. `validateProbe` checks the read and declared pin
+shapes, but it neither consumes the selected arm nor attaches the found guard or
+missing race pin. Other decision sites apply their pins explicitly. Therefore a
+valid `Probe` proves that its declaration is coherent; it does not prove that
+the declaration was consumed correctly.
 
 Retained `notExists` pins (the Pin Rule's own exceptions — do not "optimize"
 them away): the `targetWhere`/`setWhere` skip premise (no INSERT exists for a
@@ -2379,11 +2386,11 @@ An operation is valid iff:
    it happens *between* fragments, before the final fragment exists);
 4. every fragment output resolves to produced values at parse time (never a
    `Ref`, never `Sql`);
-5. every branch decision is consumed through a `Probe`, and every probe's pin
-   disposition obeys the Pin Rule: existing-row premises pinned
-   `raceable: false`; same-model-INSERT missing premises enforced by
-   constraint + `racePin`, never guarded; materialized-set premises pinned
-   `raceable: true`;
+5. every branch site obeys the Pin Rule. At the one structural `Probe` site,
+   `validateProbe` checks the declaration only; consumption remains a separate
+   site obligation. Existing-row premises are pinned `raceable: false`,
+   same-model-INSERT missing premises use constraint + `racePin` rather than a
+   guard, and materialized-set premises are pinned `raceable: true`;
 6. the preflight (§4) has proven every planning read independent of every
    same-operation write — or the operation was rejected with the typed error.
 

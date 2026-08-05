@@ -85,7 +85,11 @@ sql`WHERE ${column} = ${value}`
 
 ---
 
-## Nested-Write Interpreter (`operations/nested-writes/`)
+## Legacy Nested-Write Interpreter (`operations/nested-writes/`)
+
+This interpreter is obsolete. The live write engine is `write-engine/`. The
+legacy interpreter and its `BatchValueRef` carrier remain only as deletion
+work for the current compression audit; do not extend either surface.
 
 A nested write (`create`/`update`/`upsert` carrying relation mutations) is an
 ordered plan over uncertain state — DB-assigned ids a later statement needs,
@@ -155,11 +159,12 @@ Everything else the two modes differ on is a consequence of that bit.
 semantics is implementable without editing either mode file. If a change edits
 both mode files *and* encodes a rule about relations, the design is violated.
 
-The shared, substrate-agnostic pieces the interpreter reuses stay beside it:
+The obsolete substrate-agnostic pieces the interpreter reuses stay beside it:
 `semantic-plan.ts` (step/guard planning), `fk.ts` (FK condition builders),
 `record-access.ts` (select-one / not-found error), `assertions.ts`,
 `effect-lowering.ts`, and the value carrier `BatchValueRef` (defined in
-`builders/values-builder.ts`, lowered at `buildScalarSqlValue`).
+`builders/values-builder.ts`, lowered at `buildScalarSqlValue`). These are
+scheduled for deletion with the legacy interpreter, not reusable architecture.
 
 Full design: `docs/architecture/engine-unification/DESIGN.md`.
 
