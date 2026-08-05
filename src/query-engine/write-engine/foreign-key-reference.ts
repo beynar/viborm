@@ -58,7 +58,7 @@ export function pairCorrelatedForeignKeyMembers(
   }));
 }
 
-export function planningReferenceValue(
+function planningReferenceValue(
   source: PlanningReferenceSource,
   referencedField: string
 ): OperationValueReference | unknown {
@@ -67,7 +67,7 @@ export function planningReferenceValue(
     : ref(source.step, referencedField);
 }
 
-export function resolvedPlanningReferenceValue(
+function resolvedPlanningReferenceValue(
   source: PlanningReferenceSource,
   referencedField: string,
   known: PlanningKnown,
@@ -97,22 +97,11 @@ export function literalReferenceSource(
   return source.kind === "literal" ? { value: source.value } : undefined;
 }
 
-export function planningReferenceFromFinal(
-  source: FinalReferenceSource,
-  referencedField: string
-): { readonly value: OperationValueReference | unknown } | undefined {
-  if (source.kind === "literal") return { value: source.value };
-  if (source.kind === "planningField") {
-    return { value: ref(source.step, referencedField) };
-  }
-  return undefined;
-}
-
 export function isPlanningFieldSource(source: FinalReferenceSource): boolean {
   return source.kind === "planningField";
 }
 
-export function finalReferenceValue(
+function finalReferenceValue(
   source: FinalReferenceSource,
   referencedField: string,
   known: PlanningKnown | undefined,
@@ -142,7 +131,7 @@ export function finalReferenceValue(
     : before;
 }
 
-export function finalReferenceValueWith(
+function finalReferenceValueWith(
   source: FinalReferenceSource,
   referencedField: string,
   known: PlanningKnown | undefined,
@@ -167,6 +156,23 @@ export function foreignKeyWriteValue(
     known,
     relationName,
     kind
+  );
+}
+
+export function foreignKeyWriteValueWith(
+  member: ForeignKeyMember,
+  known: PlanningKnown | undefined,
+  relationName: string,
+  kind: string,
+  lowerFinalRef: (reference: OperationValueReference) => unknown
+): unknown {
+  return finalReferenceValueWith(
+    member.writeSource,
+    member.referencedField,
+    known,
+    relationName,
+    kind,
+    lowerFinalRef
   );
 }
 
@@ -204,20 +210,6 @@ export function planningSourceFromFinal(
     `query-engine-v2 ${kind} for relation '${relationName}' requires a planned or literal parent id to correlate its probe.`
   );
 }
-
-export function referencedFieldCorrelation(
-  source: FinalReferenceSource,
-  referencedField: string,
-  relationName: string,
-  kind: string
-): OperationValueReference | unknown {
-  return planningReferenceValue(
-    planningSourceFromFinal(source, relationName, kind),
-    referencedField
-  );
-}
-
-export const referencedFieldValue = finalReferenceValue;
 
 function assertEqualArity(
   foreignFields: readonly string[],

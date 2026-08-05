@@ -13,8 +13,9 @@ import type { QueryEngine } from "../query-engine";
 import type { QueryScope, RelationInfo } from "../types";
 import {
   type FinalReferenceSource,
-  referencedFieldCorrelation,
-  referencedFieldValue,
+  foreignKeyCorrelationValue,
+  foreignKeyWriteValue,
+  planningSourceFromFinal,
 } from "./foreign-key-reference";
 import {
   nestedWriteFailure,
@@ -383,18 +384,25 @@ export class RelationLinkPart implements Part {
    *  technique #1 markers, one per compound-key field — or, under a depth-composed
    *  LITERAL parent (a located-by-PK nested target, an upsert UPDATE arm named by its
    *  own primary key), that parent's compile-time constant inlined. One home for both
-   *  provenances: {@link referencedFieldCorrelation}. */
+   *  provenances through one field-bound member. */
   private correlationFilters(): Record<string, unknown>[] {
-    return this.config.fkFields.map((fkField, index) => ({
-      [fkField]: {
-        equals: referencedFieldCorrelation(
-          this.config.parentId,
-          this.config.referencedFields[index]!,
-          this.config.relationName,
-          "disconnect"
-        ),
-      },
-    }));
+    return this.config.fkFields.map((fkField, index) => {
+      const referencedField = this.config.referencedFields[index]!;
+      return {
+        [fkField]: {
+          equals: foreignKeyCorrelationValue({
+            foreignField: fkField,
+            referencedField,
+            writeSource: this.config.parentId,
+            readSource: planningSourceFromFinal(
+              this.config.parentId,
+              this.config.relationName,
+              "disconnect"
+            ),
+          }),
+        },
+      };
+    });
   }
 
   /** The batch disconnect guard's `fk_i = <literal referenced_i>` clauses. */
@@ -409,9 +417,12 @@ export class RelationLinkPart implements Part {
   /** The concrete value of the parent column the FK field `index` references
    *  (never a Ref — inlined at compile). */
   private parentReferenced(known: PlanningKnown, index: number): unknown {
-    return referencedFieldValue(
-      this.config.parentId,
-      this.config.referencedFields[index]!,
+    return foreignKeyWriteValue(
+      {
+        foreignField: this.config.fkFields[index]!,
+        referencedField: this.config.referencedFields[index]!,
+        writeSource: this.config.parentId,
+      },
       known,
       this.config.relationName,
       this.config.kind

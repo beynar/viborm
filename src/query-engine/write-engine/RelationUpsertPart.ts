@@ -23,8 +23,8 @@ import {
   type CorrelatedForeignKeyMember,
   type FinalReferenceSource,
   type ForeignKeyMember,
-  finalReferenceValueWith,
   foreignKeyResolvedReadValue,
+  foreignKeyWriteValueWith,
   isPlanningFieldSource,
   literalReferenceValue,
 } from "./foreign-key-reference";
@@ -652,9 +652,8 @@ function fkAssignData(
       engine,
       childScope.model,
       member.foreignField,
-      finalReferenceValueWith(
-        member.writeSource,
-        member.referencedField,
+      foreignKeyWriteValueWith(
+        member,
         known,
         relationName,
         "upsert",

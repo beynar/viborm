@@ -16,11 +16,11 @@ import type { QueryScope } from "../types";
 import { CreateOperation } from "./CreateOperation";
 import {
   type FinalReferenceSource,
+  foreignKeyWriteValue,
   literalReferenceSource,
   pairCorrelatedForeignKeyMembers,
   pairForeignKeyMembers,
   planningSourceFromFinal,
-  referencedFieldValue,
 } from "./foreign-key-reference";
 import { referenceSql } from "./fragment-builders";
 import type {
@@ -745,9 +745,12 @@ function literalFkInject(
       engine,
       childScope.model,
       fkField,
-      referencedFieldValue(
-        parentId,
-        fk.pkFields[index]!,
+      foreignKeyWriteValue(
+        {
+          foreignField: fkField,
+          referencedField: fk.pkFields[index]!,
+          writeSource: parentId,
+        },
         undefined,
         relationName,
         "create"
@@ -1148,9 +1151,12 @@ function plannedFkInject(
       engine,
       childScope.model,
       fkField,
-      referencedFieldValue(
-        parentId,
-        fk.pkFields[index]!,
+      foreignKeyWriteValue(
+        {
+          foreignField: fkField,
+          referencedField: fk.pkFields[index]!,
+          writeSource: parentId,
+        },
         known,
         relationName,
         "create"

@@ -41,7 +41,6 @@ import type { QueryScope, RelationInfo } from "../types";
 import {
   type FinalReferenceSource,
   type ForeignKeyMember,
-  finalReferenceValue,
   foreignKeyWriteValue,
   pairForeignKeyMembers,
 } from "./foreign-key-reference";
@@ -1391,7 +1390,12 @@ export class CreateOperation {
         this.engine,
         recordModel,
         fk.fkFields[index]!,
-        this.targetReferencedValue(target, fk.pkFields[index]!, relationName)
+        this.targetReferencedValue(
+          target,
+          fk.fkFields[index]!,
+          fk.pkFields[index]!,
+          relationName
+        )
       );
     }
     return fkAssign;
@@ -1401,6 +1405,7 @@ export class CreateOperation {
    *  its captured generated id, or a value knowable at construction (N4-U4). */
   private targetReferencedValue(
     target: RecordPlan,
+    foreignField: string,
     referencedField: string,
     relationName: string
   ): unknown {
@@ -1410,9 +1415,8 @@ export class CreateOperation {
         `query-engine-v2 create cannot resolve referenced field '${referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
       );
     }
-    return finalReferenceValue(
-      resolved,
-      referencedField,
+    return foreignKeyWriteValue(
+      { foreignField, referencedField, writeSource: resolved },
       undefined,
       relationName,
       "create"
@@ -1651,7 +1655,12 @@ export class CreateOperation {
         this.engine,
         childModel,
         fk.fkFields[index]!,
-        this.referencedValue(self, fk.pkFields[index]!, relationName)
+        this.referencedValue(
+          self,
+          fk.fkFields[index]!,
+          fk.pkFields[index]!,
+          relationName
+        )
       );
     }
     return assign;
@@ -1661,6 +1670,7 @@ export class CreateOperation {
    *  INSERT produces, or a value already knowable at construction (N4-U4). */
   private referencedValue(
     self: RecordIdentity,
+    foreignField: string,
     referencedField: string,
     relationName: string
   ): unknown {
@@ -1670,9 +1680,8 @@ export class CreateOperation {
         `query-engine-v2 create cannot resolve referenced field '${referencedField}' for relation '${relationName}': it is neither this record's primary key nor a knowable value in its own create data.`
       );
     }
-    return finalReferenceValue(
-      resolved,
-      referencedField,
+    return foreignKeyWriteValue(
+      { foreignField, referencedField, writeSource: resolved },
       undefined,
       relationName,
       "create"

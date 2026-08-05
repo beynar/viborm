@@ -52,15 +52,12 @@ import type { CreateOperation } from "./CreateOperation";
 import {
   type FinalReferenceSource,
   type ForeignKeyMember,
-  finalReferenceValue,
+  foreignKeyCorrelationValue,
   foreignKeyWriteValue,
   literalReferenceSource,
   pairCorrelatedForeignKeyMembers,
   pairForeignKeyMembers,
-  planningReferenceFromFinal,
   planningSourceFromFinal,
-  referencedFieldCorrelation,
-  referencedFieldValue,
 } from "./foreign-key-reference";
 import {
   absenceGuard,
@@ -3065,22 +3062,21 @@ export class UpdateOperation {
       if (Object.hasOwn(correlation.override, fkField)) {
         return { [childField]: { equals: correlation.override[fkField] } };
       }
+      const member = {
+        foreignField: childField,
+        referencedField: fkField,
+        writeSource: this.parentIdSource,
+        readSource: planningSourceFromFinal(
+          this.parentIdSource,
+          relationName,
+          kind
+        ),
+      };
       return {
         [childField]: {
           equals: useRef
-            ? referencedFieldCorrelation(
-                this.parentIdSource,
-                fkField,
-                relationName,
-                kind
-              )
-            : referencedFieldValue(
-                this.parentIdSource,
-                fkField,
-                known,
-                relationName,
-                kind
-              ),
+            ? foreignKeyCorrelationValue(member)
+            : foreignKeyWriteValue(member, known, relationName, kind),
         },
       };
     });
@@ -3286,6 +3282,7 @@ export class UpdateOperation {
         fk.fkFields[index]!,
         this.beforeTargetReferencedValue(
           before,
+          fk.fkFields[index]!,
           fk.pkFields[index]!,
           relationName
         )
@@ -3308,6 +3305,7 @@ export class UpdateOperation {
    */
   private beforeTargetReferencedValue(
     before: BeforeTarget,
+    foreignField: string,
     referencedField: string,
     relationName: string
   ): unknown {
@@ -3317,9 +3315,8 @@ export class UpdateOperation {
         `query-engine-v2 update cannot resolve referenced field '${referencedField}' for the before-root target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
       );
     }
-    return finalReferenceValue(
-      resolved,
-      referencedField,
+    return foreignKeyWriteValue(
+      { foreignField, referencedField, writeSource: resolved },
       undefined,
       relationName,
       "update"
@@ -4137,20 +4134,21 @@ export class UpdateOperation {
       if (override && Object.hasOwn(override, parentField)) {
         return { [childField]: { equals: override[parentField] } };
       }
-      const planningReference = useRef
-        ? planningReferenceFromFinal(nt.parentId, parentField)
-        : undefined;
+      const member = {
+        foreignField: childField,
+        referencedField: parentField,
+        writeSource: nt.parentId,
+        readSource: planningSourceFromFinal(
+          nt.parentId,
+          nt.relationName,
+          "update"
+        ),
+      };
       return {
         [childField]: {
-          equals:
-            planningReference?.value ??
-            referencedFieldValue(
-              nt.parentId,
-              parentField,
-              known,
-              nt.relationName,
-              "update"
-            ),
+          equals: useRef
+            ? foreignKeyCorrelationValue(member)
+            : foreignKeyWriteValue(member, known, nt.relationName, "update"),
         },
       };
     });

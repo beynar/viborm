@@ -30,9 +30,9 @@ import {
   type CorrelatedForeignKeyMember,
   type FinalReferenceSource,
   type ForeignKeyMember,
-  finalReferenceValueWith,
   foreignKeyCorrelationValue,
   foreignKeyResolvedReadValue,
+  foreignKeyWriteValueWith,
   isPlanningFieldSource,
   planningSourceFromFinal,
 } from "./foreign-key-reference";
@@ -1762,9 +1762,8 @@ export class RelationJunctionPart implements Part {
    *  executor in tx mode; scratch-threaded insertId in batch mode). */
   private parentLiteral(known: PlanningKnown): unknown {
     const member = this.parentWriteMember();
-    return finalReferenceValueWith(
-      member.writeSource,
-      member.referencedField,
+    return foreignKeyWriteValueWith(
+      member,
       known,
       this.config.relationName,
       "junction",
@@ -2043,9 +2042,12 @@ export function buildJunctionParts(input: {
       );
     }
     let hasGeneratedIdentity = false;
-    const pk = finalReferenceValueWith(
-      produced,
-      targetPkField,
+    const pk = foreignKeyWriteValueWith(
+      {
+        foreignField: targetPkField,
+        referencedField: targetPkField,
+        writeSource: produced,
+      },
       undefined,
       relationName,
       "create-through-junction",

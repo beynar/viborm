@@ -35,9 +35,9 @@ import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality"
 import type { QueryScope, RelationInfo } from "../types";
 import {
   type FinalReferenceSource,
-  planningReferenceFromFinal,
-  referencedFieldCorrelation,
-  referencedFieldValue,
+  foreignKeyCorrelationValue,
+  foreignKeyWriteValue,
+  planningSourceFromFinal,
 } from "./foreign-key-reference";
 import {
   absenceGuard,
@@ -491,9 +491,12 @@ export class RelationWritePart implements Part {
         this.config.engine,
         this.config.childScope.model,
         fkField,
-        referencedFieldValue(
-          this.config.parentId,
-          this.config.referencedFields[index]!,
+        foreignKeyWriteValue(
+          {
+            foreignField: fkField,
+            referencedField: this.config.referencedFields[index]!,
+            writeSource: this.config.parentId,
+          },
           known,
           this.config.relationName,
           "upsert"
@@ -641,20 +644,28 @@ export class RelationWritePart implements Part {
   ): Record<string, unknown>[] {
     return this.config.fkFields.map((fkField, index) => {
       const referencedField = this.config.referencedFields[index]!;
-      const planningReference = useRef
-        ? planningReferenceFromFinal(this.config.parentId, referencedField)
-        : undefined;
+      const member = {
+        foreignField: fkField,
+        referencedField,
+        writeSource: this.config.parentId,
+      };
       return {
         [fkField]: {
-          equals:
-            planningReference?.value ??
-            referencedFieldValue(
-              this.config.parentId,
-              referencedField,
-              known,
-              this.config.relationName,
-              this.config.kind
-            ),
+          equals: useRef
+            ? foreignKeyCorrelationValue({
+                ...member,
+                readSource: planningSourceFromFinal(
+                  this.config.parentId,
+                  this.config.relationName,
+                  this.config.kind
+                ),
+              })
+            : foreignKeyWriteValue(
+                member,
+                known,
+                this.config.relationName,
+                this.config.kind
+              ),
         },
       };
     });
@@ -1458,9 +1469,12 @@ export class RelationSetPart implements Part {
         this.config.engine,
         this.config.childScope.model,
         fkField,
-        referencedFieldValue(
-          this.config.parentId,
-          this.config.referencedFields[index]!,
+        foreignKeyWriteValue(
+          {
+            foreignField: fkField,
+            referencedField: this.config.referencedFields[index]!,
+            writeSource: this.config.parentId,
+          },
           known,
           this.config.relationName,
           "set"
@@ -1486,24 +1500,32 @@ export class RelationSetPart implements Part {
     useRef: boolean
   ): Record<string, unknown>[] {
     const source = this.config.membershipReadSource ?? this.config.parentId;
-    return this.config.fkFields.map((fkField, index) => ({
-      [fkField]: {
-        equals: useRef
-          ? referencedFieldCorrelation(
-              source,
-              this.config.referencedFields[index]!,
-              this.config.relationName,
-              "set"
-            )
-          : referencedFieldValue(
-              source,
-              this.config.referencedFields[index]!,
-              known,
-              this.config.relationName,
-              "set"
-            ),
-      },
-    }));
+    return this.config.fkFields.map((fkField, index) => {
+      const member = {
+        foreignField: fkField,
+        referencedField: this.config.referencedFields[index]!,
+        writeSource: source,
+      };
+      return {
+        [fkField]: {
+          equals: useRef
+            ? foreignKeyCorrelationValue({
+                ...member,
+                readSource: planningSourceFromFinal(
+                  source,
+                  this.config.relationName,
+                  "set"
+                ),
+              })
+            : foreignKeyWriteValue(
+                member,
+                known,
+                this.config.relationName,
+                "set"
+              ),
+        },
+      };
+    });
   }
 
   private uniqueEqualityFilters(
@@ -1746,9 +1768,12 @@ function upsertArmFkInject(
       base.engine,
       base.childScope.model,
       fkField,
-      referencedFieldValue(
-        base.parentId,
-        base.referencedFields[index]!,
+      foreignKeyWriteValue(
+        {
+          foreignField: fkField,
+          referencedField: base.referencedFields[index]!,
+          writeSource: base.parentId,
+        },
         known,
         base.relationName,
         "upsert"
