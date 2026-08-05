@@ -624,7 +624,10 @@ export class UpdateOperation {
     //    an upsert update arm the caller runs this per-arm at compile (V1 checks it
     //    inside the whenTrue branch only), so it is skipped here.
     if (!(options.skipOwnWrite || nestedTarget)) {
-      new OwnWritePreflight().assertUpdate(parent, data, where);
+      const parsedData = validatedArgs
+        ? requireRecord(validatedArgs.data, "update.data")
+        : data;
+      new OwnWritePreflight().assertUpdate(parent, parsedData, where);
     }
 
     const parentName = getStepModelName(model, "parent");

@@ -250,7 +250,19 @@ export class OwnWriteSteps {
           ? this.relation.family.scalarData
           : undefined
       );
-      this.relation.assertMembershipRead("update", footprint.readConstraint);
+      if (input.filter) {
+        const filterConstraint = getFilterTargetConstraint(
+          this.relation.target,
+          input.filter
+        );
+        this.relation.assertTargetAndMembershipRead(
+          "update",
+          filterConstraint,
+          getFilterPredicateFields(this.relation.target, input.filter)
+        );
+      } else {
+        this.relation.assertMembershipRead("update", footprint.readConstraint);
+      }
       for (const constraint of footprint.resultConstraints) {
         this.relation.ledger.appendTarget(
           "update",

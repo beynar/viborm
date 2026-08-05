@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner RelationMutationPlan.
 import type { Model } from "@schema/model";
+import { splitToOneUpdateTarget } from "@validation/relations/to-one-update-form";
 import {
   type ConnectOrCreateInput,
   type CreateManyInput,
@@ -43,6 +44,7 @@ export interface UniqueWithWhereGuard {
 export interface PlannedUpdateInput {
   readonly data: Record<string, unknown>;
   readonly selector?: Record<string, unknown>;
+  readonly filter?: Record<string, unknown>;
 }
 
 export type RelationMutationStep =
@@ -277,8 +279,13 @@ function normalizeUpdateInputs(
   mutation: RelationMutation
 ): PlannedUpdateInput[] {
   if (mutation.relationInfo.isToOne) {
-    if (isRecord(mutation.update)) return [{ data: mutation.update }];
-    throw new TypeError("To-one nested update data must be an object.");
+    const target = splitToOneUpdateTarget(mutation.update);
+    return [
+      {
+        data: target.data,
+        ...(target.filter ? { filter: target.filter } : {}),
+      },
+    ];
   }
 
   return normalizeArray(mutation.update).map((input) => {

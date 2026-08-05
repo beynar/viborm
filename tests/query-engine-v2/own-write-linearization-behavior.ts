@@ -47,6 +47,7 @@ const DELETE_TARGET_OWN_WRITE = /depends on an earlier 'delete' target write/;
 const CONNECT_OR_CREATE_TARGET_OWN_WRITE =
   /depends on an earlier 'connectOrCreate' target write/;
 const SET_MEMBERSHIP_OWN_WRITE = /depends on an earlier 'set' membership write/;
+const UPDATE_TARGET_OWN_WRITE = /depends on an earlier 'update' target write/;
 
 export const linearizationSchema = (() => {
   const author = s
@@ -244,6 +245,62 @@ export function runOwnWriteLinearizationBehavior(options: {
         expect(await noteState(client)).toEqual([
           "801:member-801:-",
           "802:updated-802:1",
+          "803:free-803:-",
+          "804:bulk-804:1",
+        ]);
+      } finally {
+        await dispose();
+      }
+    });
+
+    test("explicit to-one update envelope exposes deeper own writes", async () => {
+      const { client, run, dispose } = await setup();
+      try {
+        // The to-one author update contains two sibling writes to note 802. The
+        // optional non-unique filter is part of the canonical target envelope;
+        // OwnWrite must retain it, inspect `data`, and reject connectOrCreate after
+        // the earlier update of the same target.
+        await expect(
+          run.update("author", linearizationSchema.author, {
+            where: { id: 1 },
+            data: {
+              notes: {
+                update: [
+                  {
+                    where: { id: 801 },
+                    data: {
+                      body: "outer-update",
+                      author: {
+                        update: {
+                          where: { name: "one" },
+                          data: {
+                            notes: {
+                              update: [
+                                {
+                                  where: { id: 802 },
+                                  data: { body: "inner-update" },
+                                },
+                              ],
+                              connectOrCreate: [
+                                {
+                                  where: { id: 802 },
+                                  create: { id: 802, body: "must-not-create" },
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          })
+        ).rejects.toThrow(UPDATE_TARGET_OWN_WRITE);
+        expect(await noteState(client)).toEqual([
+          "801:member-801:1",
+          "802:member-802:1",
           "803:free-803:-",
           "804:bulk-804:1",
         ]);
