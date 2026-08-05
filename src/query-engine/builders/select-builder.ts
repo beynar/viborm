@@ -440,18 +440,6 @@ export function buildSelectWithAliases(
 }
 
 /**
- * Get all scalar field columns for a simple select all
- */
-export function buildSelectAll(ctx: QueryScope, alias: string): Sql {
-  const scalarFields = getScalarFieldNames(ctx.model);
-  const columns = scalarFields.map((fieldName) => {
-    const columnName = getColumnName(ctx.model, fieldName);
-    return ctx.adapter.identifiers.column(alias, columnName);
-  });
-  return sql.join(columns, ", ");
-}
-
-/**
  * Build count pairs for _count aggregation
  *
  * @param ctx - Query context

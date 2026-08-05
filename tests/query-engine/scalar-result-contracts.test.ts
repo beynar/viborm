@@ -4,7 +4,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
-import { parseResult, ResultParser } from "@query-engine";
+import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
 import { hydrateSchemaNames, s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type JsonValue, v } from "@validation";

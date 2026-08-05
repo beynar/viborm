@@ -25,22 +25,6 @@ export interface OrderByParts {
 }
 
 /**
- * Build ORDER BY clause
- *
- * @param ctx - Query context
- * @param orderBy - OrderBy input (object or array of objects)
- * @param alias - Current table alias
- * @returns SQL for ORDER BY or undefined if no ordering
- */
-export function buildOrderBy(
-  ctx: QueryScope,
-  orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
-  alias: string
-): Sql | undefined {
-  return buildOrderByInternal(ctx, orderBy, alias, false).orderBy;
-}
-
-/**
  * Build ORDER BY clause and relation joins for SELECT queries.
  */
 export function buildOrderByParts(

@@ -1,6 +1,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { QueryEngineError } from "@errors";
-import { parseResult, ResultParser } from "@query-engine";
+import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
 import { VECTOR_DISTANCE_RESULT_KEY } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";

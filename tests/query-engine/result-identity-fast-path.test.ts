@@ -1,5 +1,5 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { ResultParser } from "@query-engine";
+import { ResultParser } from "@query-engine/result/ResultParser";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 

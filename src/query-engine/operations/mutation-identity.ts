@@ -88,17 +88,6 @@ export function getCreatedRowWhere(
   return { [primaryKey]: ctx.adapter.lastInsertId() };
 }
 
-export function getPrimaryKeyWhereFromRecord(
-  model: Model<any>,
-  record: Record<string, unknown>,
-  modelName: string
-): Record<string, unknown> {
-  return buildPrimaryKeyWhereUnique(
-    model,
-    getPrimaryKeyValuesFromRecord(model, record, modelName)
-  );
-}
-
 export function getPrimaryKeyValuesFromRecord(
   model: Model<any>,
   record: Record<string, unknown>,

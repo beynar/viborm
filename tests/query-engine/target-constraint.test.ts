@@ -1,5 +1,5 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { createQueryScope } from "@query-engine";
+import { createQueryScope } from "@query-engine/context/query-scope";
 import { separateData } from "@query-engine/builders/relation-data-builder";
 import { planRelationMutationSteps } from "@query-engine/RelationMutationPlan";
 import {

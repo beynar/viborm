@@ -147,23 +147,6 @@ export function isBatchOperation(op: Operation): op is BatchOperation {
   return (BATCH_OPERATIONS as readonly string[]).includes(op);
 }
 
-/** Batch mutations that return the affected rows instead of a count */
-export type ManyAndReturnOperation =
-  | "createManyAndReturn"
-  | "updateManyAndReturn"
-  | "deleteManyAndReturn";
-
-/** Check if operation is a batch mutation returning rows */
-export function isManyAndReturnOperation(
-  op: Operation
-): op is ManyAndReturnOperation {
-  return (
-    op === "createManyAndReturn" ||
-    op === "updateManyAndReturn" ||
-    op === "deleteManyAndReturn"
-  );
-}
-
 /**
  * Model registry for accessing related models
  */

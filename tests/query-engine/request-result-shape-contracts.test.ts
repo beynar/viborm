@@ -4,14 +4,12 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers";
-import { QueryEngineError } from "@errors";
+import { QueryEngineError, ValidationError } from "@errors";
 import {
   createModelRegistry,
   QueryEngine,
-  ResultParser,
-  ValidationError,
-} from "@query-engine";
-import { parseResult } from "@query-engine/result";
+} from "@query-engine/query-engine";
+import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
 import {
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,

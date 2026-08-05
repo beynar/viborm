@@ -242,26 +242,10 @@ export function buildPrimaryKeyWhereUnique(
 }
 
 /**
- * Get primary key field name from a model.
- *
- * Checks for:
- * 1. Compound ID (first member field)
- * 2. Scalar marked as id (isId: true)
- * 3. Falls back to "id" as default
- *
- * @param model - Model to inspect
- * @returns Primary key field name
- */
-export function getPrimaryKeyField(model: Model<any>): string {
-  return getPrimaryKeyFields(model)[0]!;
-}
-
-/**
  * Get the single primary key field of a model, or throw.
  *
  * Junction tables key on one PK column per side, so many-to-many requires a
- * single-field PK on both models — unlike getPrimaryKeyField, which silently
- * returns the first compound-PK field or falls back to a literal "id".
+ * single-field PK on both models.
  */
 export function getRequiredSinglePrimaryKeyField(model: Model<any>): string {
   const modelName = getModelName(model);

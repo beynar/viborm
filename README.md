@@ -461,7 +461,7 @@ pnpm package:build      # Build distributable with tsdown
 import { ... } from "@schema";        // src/schema/
 import { ... } from "@client";        // src/client/
 import { ... } from "@validation";    // src/validation/
-import { ... } from "@query-engine";  // src/query-engine/
+import { ... } from "@query-engine/*"; // direct src/query-engine/ owner
 import { ... } from "@adapters";      // src/adapters/
 import { ... } from "@drivers";       // src/drivers/
 import { ... } from "@sql";           // src/sql/

@@ -432,29 +432,3 @@ export function buildInsert(
   }
   return ctx.adapter.mutations.insert(table, columns, values);
 }
-
-/**
- * Build INSERT for createMany
- */
-export function buildInsertMany(
-  ctx: QueryScope,
-  tableName: string,
-  data: Record<string, unknown>[]
-): Sql {
-  const { columns, values } = buildValues(ctx, data);
-
-  if (values.length === 0) {
-    throw new QueryEngineError("No data to insert");
-  }
-
-  const table = ctx.adapter.identifiers.escape(tableName);
-  if (columns.length === 0) {
-    if (values.length !== 1) {
-      throw new QueryEngineError(
-        "Multiple default-only rows require grouped execution."
-      );
-    }
-    return ctx.adapter.mutations.insertDefault(table);
-  }
-  return ctx.adapter.mutations.insert(table, columns, values);
-}

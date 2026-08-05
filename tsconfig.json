@@ -28,7 +28,6 @@
       "@validation/*": ["./src/validation/*"],
       "@validation": ["./src/validation/index.ts"],
       "@query-engine/*": ["./src/query-engine/*"],
-      "@query-engine": ["./src/query-engine/index.ts"],
       "@adapters/*": ["./src/adapters/*"],
       "@adapters": ["./src/adapters/index.ts"],
       "@drivers/*": ["./src/drivers/*"],

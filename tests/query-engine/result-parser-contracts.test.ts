@@ -3,7 +3,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { D1Driver } from "@drivers/d1";
 import { QueryEngineError } from "@errors";
-import { parseResult, ResultParser } from "@query-engine";
+import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
 import {
   getAggregateResultKey,
   RELATION_COUNTS_RESULT_KEY,

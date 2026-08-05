@@ -1813,7 +1813,7 @@ describe("Aggregates", () => {
 // ASSEMBLE INNER QUERY HELPER TESTS
 // =============================================================================
 
-import { assembleInnerQuery } from "../../src/query-engine/builders";
+import { assembleInnerQuery } from "../../src/query-engine/builders/include-query";
 import { sql } from "../../src/sql/sql";
 
 describe("assembleInnerQuery helper", () => {

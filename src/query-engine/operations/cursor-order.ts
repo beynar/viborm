@@ -163,7 +163,7 @@ function parseRequestedScalarOrder(
         return undefined;
       }
 
-      // This path REPLACES buildOrderBy whenever a window is present (`take`,
+      // This path replaces the ordinary order-by builder whenever a window is present (`take`,
       // `skip` with `take`, `cursor`, and every `findFirst`), so the decimal
       // gate that lives in the orderby-builder has to be repeated here or the
       // ordinary paginated spelling escapes it entirely.

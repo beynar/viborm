@@ -1,6 +1,6 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { D1Driver } from "@drivers/d1";
-import { parseResult, ResultParser } from "@query-engine";
+import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
 import { s } from "@schema";
 import { afterEach, describe, expect, test, vi } from "vitest";
 

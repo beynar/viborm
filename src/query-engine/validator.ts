@@ -104,18 +104,3 @@ export function validate<T>(
   assertPortablePrimaryKeyUpdateInput(model, operation, result.value);
   return result.value as T;
 }
-
-/**
- * Validate with optional - returns undefined instead of throwing for missing optional input
- */
-export function validateOptional<T>(
-  schemaRegistry: SchemaRegistryLookup,
-  model: Model<any>,
-  operation: Operation,
-  input: unknown
-): T | undefined {
-  if (input === undefined || input === null) {
-    return undefined;
-  }
-  return validate<T>(schemaRegistry, model, operation, input);
-}

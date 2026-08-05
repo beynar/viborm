@@ -3,8 +3,9 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
-import { createQueryScope, parseResult, ResultParser } from "@query-engine";
+import { createQueryScope } from "@query-engine/context/query-scope";
 import { buildCount } from "@query-engine/operations/count";
+import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
 import { hydrateSchemaNames, s } from "@schema";
 import { describe, expect, test } from "vitest";
 

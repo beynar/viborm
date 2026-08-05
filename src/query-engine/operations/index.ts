@@ -11,7 +11,6 @@ export { buildCount } from "./count";
 export {
   buildCreate,
   buildCreateMany,
-  buildCreateManyAndReturn,
   buildCreateManyPlan,
   buildInsertStatement,
   type CreateManyPlan,

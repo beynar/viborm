@@ -70,18 +70,6 @@ export function getRelationMutationKinds(
   );
 }
 
-export function assertSingleRelationInput(
-  relationInfo: RelationInfo,
-  operation: string,
-  inputs: readonly unknown[]
-): void {
-  if (!relationInfo.isToOne || inputs.length <= 1) return;
-  throw new NestedWriteError(
-    `Cannot use multiple '${operation}' inputs for to-one relation '${relationInfo.name}'.`,
-    relationInfo.name
-  );
-}
-
 export function separateData(
   ctx: QueryScope,
   data: Record<string, unknown>

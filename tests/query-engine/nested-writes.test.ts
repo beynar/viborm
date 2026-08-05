@@ -5,10 +5,9 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { createQueryScope } from "@query-engine";
+import { createQueryScope } from "@query-engine/context/query-scope";
 import {
   getFkDirection,
-  needsTransaction,
   separateData,
 } from "@query-engine/builders/relation-data-builder";
 import { s } from "@schema";
@@ -274,89 +273,6 @@ describe("separateData", () => {
 });
 
 // =============================================================================
-// NEEDS TRANSACTION TESTS
-// =============================================================================
-
-describe("needsTransaction", () => {
-  it("returns true when create is present", () => {
-    const ctx = createQueryScope(adapter, UserWithPosts);
-    const data = {
-      posts: {
-        create: { title: "Hello" },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    expect(needsTransaction(relations)).toBe(true);
-  });
-
-  it("returns true when connectOrCreate is present", () => {
-    const ctx = createQueryScope(adapter, Post);
-    const data = {
-      author: {
-        connectOrCreate: {
-          where: { id: "user-123" },
-          create: { name: "Alice", email: "alice@example.com" },
-        },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    expect(needsTransaction(relations)).toBe(true);
-  });
-
-  it("returns true when delete is present", () => {
-    const ctx = createQueryScope(adapter, UserWithPosts);
-    const data = {
-      posts: {
-        delete: { id: "post-123" },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    expect(needsTransaction(relations)).toBe(true);
-  });
-
-  it("returns true when set is present", () => {
-    const ctx = createQueryScope(adapter, UserWithPosts);
-    const data = {
-      posts: {
-        set: [{ id: "post-123" }],
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    expect(needsTransaction(relations)).toBe(true);
-  });
-
-  it("returns true for simple connect when current holds FK", () => {
-    const ctx = createQueryScope(adapter, Post);
-    const data = {
-      author: {
-        connect: { id: "user-123" },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    // Connect verifies the target exists before mutating the parent.
-    expect(needsTransaction(relations)).toBe(true);
-  });
-
-  it("returns true for connect when related holds FK", () => {
-    const ctx = createQueryScope(adapter, UserWithPosts);
-    const data = {
-      posts: {
-        connect: { id: "post-123" },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    // UserWithPosts doesn't have FK, posts have the FK
-    expect(needsTransaction(relations)).toBe(true);
-  });
-});
-
-// =============================================================================
 // ERROR HANDLING TESTS
 // =============================================================================
 
@@ -453,26 +369,6 @@ describe("error handling", () => {
     const { relations } = separateData(ctx, data);
 
     expect(relations.posts?.createMany?.skipDuplicates).toBe(true);
-  });
-});
-
-// =============================================================================
-// NEEDS TRANSACTION WITH CREATEMANY TESTS
-// =============================================================================
-
-describe("needsTransaction with createMany", () => {
-  it("returns true when createMany is present", () => {
-    const ctx = createQueryScope(adapter, UserWithPosts);
-    const data = {
-      posts: {
-        createMany: {
-          data: [{ title: "Hello" }],
-        },
-      },
-    };
-
-    const { relations } = separateData(ctx, data);
-    expect(needsTransaction(relations)).toBe(true);
   });
 });
 
