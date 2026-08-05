@@ -80,7 +80,7 @@ export interface PreparedBatchGuard {
   readonly queryIndex: number;
   readonly premise: "exists" | "notExists";
   readonly probe: import("@sql").Sql;
-  readonly failure: import("./operation-program").ProgramFailure;
+  readonly failure: import("./write-engine/OperationFragment").Failure;
   readonly model: string;
   readonly operation: Operation;
 }

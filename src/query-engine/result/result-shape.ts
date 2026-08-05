@@ -1,7 +1,6 @@
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import type { Model } from "@schema/model";
 import { getDefaultScalarFieldNames } from "../context";
-import type { ProgramReadOperation } from "../operation-program";
 import { getGroupByFields } from "../operations/groupby-fields";
 import {
   type AggregateResultName,
@@ -260,11 +259,6 @@ function buildCountShape(args: Record<string, unknown>): ExpectedResultShape {
   };
 }
 
-export function buildExpectedResultShape(
-  model: Model<any>,
-  operation: ProgramReadOperation,
-  args: Record<string, unknown>
-): ExpectedResultShape;
 export function buildExpectedResultShape(
   model: Model<any>,
   operation: Operation,

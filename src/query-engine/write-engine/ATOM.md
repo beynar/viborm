@@ -78,7 +78,7 @@ interface Step {
   readonly expects?: Postcondition;
   /** Write steps whose unique-constraint violation is the raceable signal
    *  carry their pinned target so retry classification can match the violated
-   *  constraint (V1's UniqueConflictPin, reusing TargetConstraint). */
+   *  constraint (the current TargetConstraintPin). */
   readonly racePin?: TargetConstraintPin;
 }
 
@@ -497,9 +497,9 @@ V1 `operation-program.ts` concept and where it lives in V2:
 | `FallbackValue` | dies — compile emits only the taken branch |
 | `CapturedRead` / planning statements | planning fragment steps (may ref each other) |
 | `BranchStep` + `whenTrue/whenFalse` | dies — decided in `compile(known)` JS via widened probes |
-| `BranchStep.pin` / `NoBranchPin` / `UniqueConflictPin` | `Probe.pin` (§2) + `Step.racePin` |
+| legacy branch pins | `Probe.pin` (§2) + `Step.racePin` |
 | `expectedCardinality` / `affectedRows` contracts | `Step.expects` postconditions (tx: result check; batch: adapter assertion) |
-| `ProgramFailure.kind` (`nestedWrite`/`notFound`/`query`) | `Failure.kind` — full set, day one |
+| legacy failure kind (`nestedWrite`/`notFound`/`query`) | `Failure.kind` — full set, day one |
 | `failure.raceable` | `Failure.raceable`, values per Pin Rule class |
 | `onUniqueConflict: "skip"` (createMany skipDuplicates) | an executor *effect* (savepoint-wrapped write in tx mode), not a plain SQL leaf — dialect leaf only where semantics match exactly |
 | own-write independence analysis (`OwnWriteLedger`) | the preflight (§4) — ported, not deleted |
@@ -533,9 +533,9 @@ found arm, which the depth-gate dual-run oracle certifies at three levels.
 | `FallbackValue` | **gone** — `compile(known)` constructs the taken arm (build-don't-select); no pre-frozen pair |
 | `CapturedRead` / planning statements | **live** — the update slice plans a locate read + a widened probe; the depth gate plans one read per level (locate + two probes). Their cross-read dependency is realized at the compile-data boundary (`known`). Technique #1's SQL-level planning→planning `Ref` is **inert** (no positive witness in P1) — see design note **(a)**: the upsert family structurally cannot construct one; it arrives with a hard-correlation nested read (P2a) |
 | `BranchStep` + `whenTrue/whenFalse` | **gone** — the three-way (correlated / uncorrelated / absent) is `compile(known)` JS |
-| `BranchStep.pin` / `UniqueConflictPin` | **live** — `Probe.pin` (found: exists guard `raceable:false` / batch, lock / tx) + `Step.racePin` (missing arm) |
+| legacy branch pins | **live replacement** — `Probe.pin` (found: exists guard `raceable:false` / batch, lock / tx) + `Step.racePin` (missing arm) |
 | `expectedCardinality` / `affectedRows` | **live in tx** (executor result check: update-arm `affectedRows(1, notFound)`, terminal `exactlyOneRow`). Batch-mode adapter assertion arrives P2a. See design note **(b)**: P1's missing-root notFound is decided at compile from the locate read on both substrates, so batch parity holds without the assertion |
-| `ProgramFailure.kind` | **live** — `nestedWrite` (V7001, verbatim), `notFound`, `query` |
+| legacy failure kind | **live replacement** — `Failure.kind`: `nestedWrite` (V7001, verbatim), `notFound`, `query` |
 | `failure.raceable` | **live** — Pin-Rule values (found `false`, missing arm enforced by constraint) |
 | `onUniqueConflict: "skip"` | inert — arrives P2c (`createMany` skipDuplicates, savepoint effect) |
 | own-write independence | **live** — `OwnWritePreflight` wraps V1's `assert{Create,Update}OwnWriteSafety` verbatim; the same-child-unique upsert pair rejects typed |

@@ -64,9 +64,9 @@ export type Postcondition =
 
 /**
  * A pinned unique-target annotation carried by a write whose unique-constraint
- * violation is the raceable signal (ATOM §1 `racePin`). Its shape is V1's
- * `UniqueConflictPin.target`; construct it by reusing the `TargetConstraint`
- * machinery (`uniqueConflictTarget`), never by reinventing target resolution.
+ * violation is the raceable signal (ATOM §1 `racePin`). Construct it by reusing
+ * the `TargetConstraint` machinery (`uniqueConflictTarget`), never by
+ * reinventing target resolution.
  */
 export interface TargetConstraintPin {
   readonly fields: readonly string[];

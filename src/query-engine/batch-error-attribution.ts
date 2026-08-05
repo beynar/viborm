@@ -9,8 +9,8 @@ import {
   TransactionError,
   VibORMErrorCode,
 } from "@errors";
-import type { ProgramFailure } from "./operation-program";
 import type { PreparedBatchGuard } from "./types";
+import type { Failure } from "./write-engine/OperationFragment";
 
 /**
  * Attribute a native-batch assertion failure to the guard that raised it (P6
@@ -56,7 +56,7 @@ export async function attributeOperationBatchError(
       (candidate) => candidate.queryIndex === statementIndex
     );
     if (guard) {
-      return createProgramFailureError(
+      return createFailureError(
         guard.failure,
         guard.model,
         guard.operation
@@ -70,7 +70,7 @@ export async function attributeOperationBatchError(
     });
     const exists = result.rows.length > 0;
     if (guard.premise === "exists" ? !exists : exists) {
-      return createProgramFailureError(
+      return createFailureError(
         guard.failure,
         guard.model,
         guard.operation
@@ -83,7 +83,7 @@ export async function attributeOperationBatchError(
       guards.every((guard) => sameAttribution(guard, candidate)) &&
       !carriesForeignAssertionSignature(statements, driver.dialect);
     return attributable
-      ? createProgramFailureError(
+      ? createFailureError(
           candidate.failure,
           candidate.model,
           candidate.operation
@@ -169,9 +169,9 @@ function sameAttribution(
   );
 }
 
-/** Reconstruct a program guard's declared failure as its typed error. */
-export function createProgramFailureError(
-  failure: ProgramFailure,
+/** Reconstruct a guard's declared failure as its typed error. */
+export function createFailureError(
+  failure: Failure,
   model: string,
   operation: PreparedBatchGuard["operation"]
 ): Error {
