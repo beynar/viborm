@@ -52,8 +52,10 @@ import type { CreateOperation } from "./CreateOperation";
 import {
   type FinalReferenceSource,
   finalReferenceValue,
+  literalReferenceSource,
   pairCorrelatedForeignKeyMembers,
   pairForeignKeyMembers,
+  planningReferenceFromFinal,
   planningSourceFromFinal,
   referencedFieldCorrelation,
   referencedFieldValue,
@@ -1657,7 +1659,7 @@ export class UpdateOperation {
     if (entry.kind === "create") {
       const txMode = this.mode === "transaction";
       target.push(
-        ...(parentId.kind === "literal"
+        ...(literalReferenceSource(parentId)
           ? buildLiteralParentCreatePart({
               ...leaf,
               txMode,
@@ -1672,7 +1674,7 @@ export class UpdateOperation {
       return;
     }
     target.push(
-      parentId.kind === "literal"
+      literalReferenceSource(parentId)
         ? buildLiteralParentCreateManyPart({
             ...leaf,
             createManyEntry: entry,
@@ -4111,29 +4113,26 @@ export class UpdateOperation {
   ): Record<string, unknown>[] {
     const nt = this.nestedTarget;
     if (!nt) return [];
-    const refable = useRef && nt.parentId.kind === "planningField";
     return nt.childFields.map((childField, index) => {
       const parentField = nt.parentFields[index]!;
       const override = nt.parentFieldOverride;
       if (override && Object.hasOwn(override, parentField)) {
         return { [childField]: { equals: override[parentField] } };
       }
+      const planningReference = useRef
+        ? planningReferenceFromFinal(nt.parentId, parentField)
+        : undefined;
       return {
         [childField]: {
-          equals: refable
-            ? referencedFieldCorrelation(
-                nt.parentId,
-                parentField,
-                nt.relationName,
-                "update"
-              )
-            : referencedFieldValue(
-                nt.parentId,
-                parentField,
-                known,
-                nt.relationName,
-                "update"
-              ),
+          equals:
+            planningReference?.value ??
+            referencedFieldValue(
+              nt.parentId,
+              parentField,
+              known,
+              nt.relationName,
+              "update"
+            ),
         },
       };
     });

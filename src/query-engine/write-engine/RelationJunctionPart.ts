@@ -29,6 +29,7 @@ import type { QueryScope, RelationInfo } from "../types";
 import {
   type FinalReferenceSource,
   finalReferenceValueWith,
+  isPlanningFieldSource,
   referencedFieldCorrelation,
 } from "./foreign-key-reference";
 import {
@@ -2178,7 +2179,7 @@ export function buildJunctionParts(input: {
       let usesLocatedPk = false;
       const folded = foldTarget(data, () => {
         const source = updateTargetParentId(where, probeId);
-        usesLocatedPk = source.kind === "planningField";
+        usesLocatedPk = isPlanningFieldSource(source);
         return source;
       });
       return { ...folded, usesLocatedPk };

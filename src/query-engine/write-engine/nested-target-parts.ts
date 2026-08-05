@@ -16,6 +16,7 @@ import type { QueryScope } from "../types";
 import { CreateOperation } from "./CreateOperation";
 import {
   type FinalReferenceSource,
+  literalReferenceSource,
   pairCorrelatedForeignKeyMembers,
   pairForeignKeyMembers,
   planningSourceFromFinal,
@@ -633,7 +634,7 @@ function foldOneChildHeldKind(args: {
       // planning row exactly as the root's depth recursion threads a first-class
       // parent value (T4a CLASS VI, one step past the literal-parent reach).
       parts.push(
-        ...(parentId.kind === "literal"
+        ...(literalReferenceSource(parentId)
           ? buildLiteralParentCreatePart({
               scope,
               engine,
@@ -672,7 +673,7 @@ function foldOneChildHeldKind(args: {
       // builder, and the skip disposition is a function of the dialect and the rows,
       // not of where the foreign key's value comes from.
       parts.push(
-        parentId.kind === "literal"
+        literalReferenceSource(parentId)
           ? buildLiteralParentCreateManyPart({
               scope,
               engine,
@@ -728,8 +729,8 @@ class LiteralParentWriteParts implements Part {
 
 /** The child FK columns a LITERAL-parent create/createMany leaf writes, resolved at
  *  construction — the located target's own `where` PK is a compile-time constant, so
- *  `referencedFieldValue` returns it directly (no planning row needed). Dispatched only
- *  for `parentId.kind === "literal"`; the planned case uses {@link plannedFkInject}. */
+ *  the source owner returns it directly (no planning row needed). Other final sources
+ *  use {@link plannedFkInject}. */
 function literalFkInject(
   engine: QueryEngine,
   childScope: QueryScope,
@@ -914,7 +915,7 @@ function buildNestedFreshCreateParts(input: {
   const rootFkInject = (
     known: Readonly<Record<string, unknown>>
   ): Record<string, unknown> =>
-    parentId.kind === "literal"
+    literalReferenceSource(parentId)
       ? literalFkInject(engine, childScope, fk, relationName, parentId)
       : plannedFkInject(engine, childScope, fk, relationName, parentId, known);
   const op = new CreateOperation(

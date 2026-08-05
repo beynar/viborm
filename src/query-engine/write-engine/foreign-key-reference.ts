@@ -91,6 +91,27 @@ export function literalReferenceValue(
   return source.kind === "literal" ? source.value : undefined;
 }
 
+export function literalReferenceSource(
+  source: FinalReferenceSource
+): { readonly value: unknown } | undefined {
+  return source.kind === "literal" ? { value: source.value } : undefined;
+}
+
+export function planningReferenceFromFinal(
+  source: FinalReferenceSource,
+  referencedField: string
+): { readonly value: OperationValueReference | unknown } | undefined {
+  if (source.kind === "literal") return { value: source.value };
+  if (source.kind === "planningField") {
+    return { value: ref(source.step, referencedField) };
+  }
+  return undefined;
+}
+
+export function isPlanningFieldSource(source: FinalReferenceSource): boolean {
+  return source.kind === "planningField";
+}
+
 export function finalReferenceValue(
   source: FinalReferenceSource,
   referencedField: string,
@@ -132,6 +153,42 @@ export function finalReferenceValueWith(
   return source.kind === "finalRef"
     ? lowerFinalRef(source.ref)
     : finalReferenceValue(source, referencedField, known, relationName, kind);
+}
+
+export function foreignKeyWriteValue(
+  member: ForeignKeyMember,
+  known: PlanningKnown | undefined,
+  relationName: string,
+  kind: string
+): unknown {
+  return finalReferenceValue(
+    member.writeSource,
+    member.referencedField,
+    known,
+    relationName,
+    kind
+  );
+}
+
+export function foreignKeyCorrelationValue(
+  member: CorrelatedForeignKeyMember
+): OperationValueReference | unknown {
+  return planningReferenceValue(member.readSource, member.referencedField);
+}
+
+export function foreignKeyResolvedReadValue(
+  member: CorrelatedForeignKeyMember,
+  known: PlanningKnown,
+  relationName: string,
+  kind: string
+): unknown {
+  return resolvedPlanningReferenceValue(
+    member.readSource,
+    member.referencedField,
+    known,
+    relationName,
+    kind
+  );
 }
 
 export function planningSourceFromFinal(

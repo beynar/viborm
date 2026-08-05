@@ -25,9 +25,9 @@ import {
   type FinalReferenceSource,
   type ForeignKeyMember,
   finalReferenceValueWith,
+  foreignKeyResolvedReadValue,
+  isPlanningFieldSource,
   literalReferenceValue,
-  planningReferenceValue,
-  resolvedPlanningReferenceValue,
 } from "./foreign-key-reference";
 import {
   affectedRows,
@@ -511,9 +511,11 @@ export class RelationUpsertPart implements Part {
             ...(known && config.correlation === "correlated"
               ? config.members.map((member) => ({
                   [member.foreignField]: {
-                    equals: planningReferenceValue(
-                      member.readSource,
-                      member.referencedField
+                    equals: foreignKeyResolvedReadValue(
+                      member,
+                      known,
+                      config.relationName,
+                      "upsert"
                     ),
                   },
                 }))
@@ -545,9 +547,8 @@ export class RelationUpsertPart implements Part {
     const correlated = config.members.every((member) =>
       fkEquals(
         record?.[member.foreignField],
-        resolvedPlanningReferenceValue(
-          member.readSource,
-          member.referencedField,
+        foreignKeyResolvedReadValue(
+          member,
           known,
           config.relationName,
           "upsert"
@@ -1127,7 +1128,7 @@ function buildOneUpsertPart(
     childName,
     probeId,
     publishesLocatedPk:
-      updateArmParentId.kind === "planningField" && updateChildParts.length > 0,
+      isPlanningFieldSource(updateArmParentId) && updateChildParts.length > 0,
     relationName,
     where,
     createData: childCreate.scalarData,

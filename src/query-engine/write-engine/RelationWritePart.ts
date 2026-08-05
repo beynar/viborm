@@ -35,6 +35,7 @@ import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality"
 import type { QueryScope, RelationInfo } from "../types";
 import {
   type FinalReferenceSource,
+  planningReferenceFromFinal,
   referencedFieldCorrelation,
   referencedFieldValue,
 } from "./foreign-key-reference";
@@ -638,25 +639,25 @@ export class RelationWritePart implements Part {
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
-    const refable = useRef && this.config.parentId.kind === "planningField";
-    return this.config.fkFields.map((fkField, index) => ({
-      [fkField]: {
-        equals: refable
-          ? referencedFieldCorrelation(
+    return this.config.fkFields.map((fkField, index) => {
+      const referencedField = this.config.referencedFields[index]!;
+      const planningReference = useRef
+        ? planningReferenceFromFinal(this.config.parentId, referencedField)
+        : undefined;
+      return {
+        [fkField]: {
+          equals:
+            planningReference?.value ??
+            referencedFieldValue(
               this.config.parentId,
-              this.config.referencedFields[index]!,
-              this.config.relationName,
-              this.config.kind
-            )
-          : referencedFieldValue(
-              this.config.parentId,
-              this.config.referencedFields[index]!,
+              referencedField,
               known,
               this.config.relationName,
               this.config.kind
             ),
-      },
-    }));
+        },
+      };
+    });
   }
 
   /**
