@@ -91,9 +91,8 @@ values cannot ride *inside* the one value channel `Sql` already has — so they
 live *above* the builders, and each axis carries its own factory and its own
 flavor of "a value that isn't known yet":
 
-- `RelationProgramValues`, `RelationCaptures` — the relation axis's factories
-  for `ProducedValue`/`DerivedValue`/`FallbackValue` (verify: both import them
-  from `operation-program`);
+- the old relation value and capture modules — the relation axis's factories for
+  `ProducedValue`/`DerivedValue`/`FallbackValue`;
 - the batch runtime — its own scratch-ref lowering of the same idea;
 - `OwnWriteLedger` + `OwnWriteAnalyzer`/`OwnWriteInsertBarrier` — the sibling
   problem, ordering: dependency families and unique-constraint-overlap

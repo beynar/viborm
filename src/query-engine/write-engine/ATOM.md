@@ -1639,7 +1639,7 @@ blast-radius/fallback-off harness), and V1's 15-file write engine are gone (−5
 V2 reached through V1 hosts were extracted standalone (`relation-key-legality`,
 `unique-conflict-target`, `many-to-many-statement`, `skippable-write`,
 `batch-error-attribution`); the WHY §6 irreducibles V2 shares (`TargetConstraint`,
-`OwnWrite*`, `mutation-identity`, `RelationMutationPlan`, `RelationProgramValues`,
+`OwnWrite*`, `mutation-identity`, `RelationMutationPlan`,
 `ManyToManyStatements`, builders, `result/`) stay. A dead-symbol gate (in `test:gates`,
 falsified) proves the 15 deleted names appear in no `src` code. `OperationFragment.ts` and
 `architecture-gates.test.ts` were untouched throughout — the freeze held. The former

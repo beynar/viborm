@@ -419,7 +419,7 @@ from §3 only where the parent's existence and the UPDATE-vs-INSERT fold enter.
 | parent-held `connectOrCreate` MISSING arm target INSERT | **constraint + `racePin`**, never a `notExists` guard | `true` | disable racePin → a concurrent create of the same key surfaces `UniqueConstraintError` instead of retry-and-adopt convergence |
 | inverse-side `connect` / `connectOrCreate` (child-held, global adopt) | reuses `RelationLinkPart` / `RelationUpsertPart` pins (existing-row `exists`, `false`; missing-arm constraint + `racePin`) | per part | already falsified for the to-many arity; the to-one arity rides the same pins |
 | inverse-side `update` (child-held, correlated) | **correlated** existing-row premise: tx probe `WHERE fk = Ref(locate)` found-at-compile; batch `presenceGuard` on `(fk = parent ∧ pk = capturedPk)` (the split-witness correlation, `RelationWritePart`) | `false` | disable → a concurrent reparent of the correlated child lets the update land on a stranger, instead of V1's "target record was not found for this parent" |
-| inverse-side `disconnect: true` / `delete: true` (child-held, correlated bulk) | **none** (bulk write, `WHERE fk = parent`; zero matched rows is V1's silent success) | — | the correlated `WHERE` is the whole pin; a required-FK disconnect is rejected at construction (`assertNullable`, V1-verbatim) |
+| inverse-side `disconnect: true` / `delete: true` (child-held, correlated bulk) | **none** (bulk write, `WHERE fk = parent`; zero matched rows is V1's silent success) | — | the correlated `WHERE` is the whole pin; a required-FK disconnect is rejected at construction (`assertRelationCanDisconnect`, V1-verbatim) |
 
 Fresh-parent elision (§4) recap: it applied ONLY to the create-root child-held
 direction. Under update it does not apply at all — every probe reads committed
@@ -450,7 +450,7 @@ by re-deciding:
   child WHERE fk = parent`. V2 maps `disconnect: true` to `RelationLinkPart`'s
   `disconnectAll` and `delete: true` to `RelationWritePart`'s `deleteMany` with an
   empty user filter. A required (non-nullable) FK disconnect is V1's typed
-  `assertNullable` rejection, reproduced verbatim.
+  `assertRelationCanDisconnect` rejection, reproduced verbatim.
 
 The **FK-holder-side** (parent-held) `update`/`delete` — mutating the row the
 parent's own FK points at — mutate committed state correlated by the parent's FK
@@ -481,7 +481,7 @@ needs V1's staged `compileLocatedUpdate` recursion the whole tree routes to V1.
 >   the captured PK. An empty capture is V1's verbatim "Cannot update relation …:
 >   target record was not found for this parent" (the parent's FK pointed at
 >   nothing). The batch split-witness `exists` guard pins the correlation.
-> - **`delete: true`** — `NULL` the parent FK first (V1's `assertNullable` gate;
+> - **`delete: true`** — `NULL` the parent FK first (V1's nullability gate;
 >   a required FK is its verbatim reject), then correlated bulk-delete the referenced
 >   target by its (pre-null) FK value — V1's `RelationRemovals.delete` `holdsFK` arm.
 > - **`upsert`** — the correlated probe decides at compile: found → `UPDATE` the

@@ -1262,8 +1262,7 @@ rejection is V1's own message, and the remaining adopt/`pastSurface` transitions
 V1's operation/execution root is deleted; there is one runtime. The plan held:
 keep what V2 consumes (builders, `result/`, `context/`, `operations/`,
 `operation-program` vocabulary, `TargetConstraint`, `mutation-identity`, the
-own-write preflight, `RelationMutationPlan`/`RelationProgramValues`/
-`ManyToManyStatements`), extract the five pure leaves V2 called through V1 hosts,
+own-write preflight, `RelationMutationPlan`, and `ManyToManyStatements`), extract the five pure leaves V2 called through V1 hosts,
 retire the routing seam + fallback harness + the oracle's V1 arm (the oracle
 survives as V2's tx-vs-batch conformance suite), and gate the absence with the
 dead-symbol check.
@@ -1273,7 +1272,7 @@ dead-symbol check.
 | | files | lines (raw) | code (comments stripped) |
 |---|---|---|---|
 | **Deleted** — V1's write engine (Stage 3) | 15 | 5 831 | ~4 400 |
-| **Kept-as-earned** — the WHY §6 irreducibles V2 consumes: `TargetConstraint`, the `OwnWrite*` preflight, `mutation-identity`, `RelationMutationPlan`, `RelationProgramValues`, `ManyToManyStatements`, `RelationMembership`, builders + `result/` | — | — | (unchanged, shared by both engines from day one) |
+| **Kept-as-earned** — the WHY §6 irreducibles V2 consumes: `TargetConstraint`, the `OwnWrite*` preflight, `mutation-identity`, `RelationMutationPlan`, `ManyToManyStatements`, `RelationMembership`, builders + `result/` | — | — | (unchanged, shared by both engines from day one) |
 | **Extracted leaves** — the 5 pure functions V2 reached through V1 hosts, now standalone: `relation-key-legality`, `unique-conflict-target`, `many-to-many-statement`, `skippable-write`, `batch-error-attribution` | +5 | 249 | ~200 |
 | **V2 engine** (`query-engine-v2/*.ts`) — the single runtime | 26 | 13 984 | 10 623 |
 | **`query-engine/` (kept)** — facade + shared builders/context/operations/result + preflight cluster | 79 | 16 069 | 12 947 |

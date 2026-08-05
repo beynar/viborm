@@ -38,7 +38,6 @@ import {
   getUpdatedPrimaryKeyWhere,
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
-import { assertNullable } from "../RelationProgramValues";
 import {
   assertRelationKeyUpdatesAreCompilable,
   assertUpdateManyRelationsAreCompilable,
@@ -88,6 +87,7 @@ import {
 import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
+import { assertRelationCanDisconnect } from "./relation-nullability";
 import {
   referencedFieldCorrelation,
   referencedFieldValue,
@@ -243,7 +243,7 @@ type ParentHeldTarget =
       readonly reorderAfterChildren: boolean;
     }
   // FK-holder-side (parent-held) to-one `delete: true` (TO-ONE.md §7.2, family A):
-  // NULL the parent's FK first (a parent UPDATE — V1's `assertNullable` gate), then
+  // NULL the parent's FK first (a parent UPDATE — V1's nullability gate), then
   // `deleteMany child WHERE <referenced> = <old fk>` (V1's `RelationRemovals.delete`
   // `holdsFK` arm). No probe: zero matched rows is V1's silent success.
   | {
@@ -1519,6 +1519,7 @@ export class UpdateOperation {
       engine,
       relationName,
       relationInfo,
+      fk,
       childName,
       childScope,
       fkFields: fk.fkFields,
@@ -2014,7 +2015,7 @@ export class UpdateOperation {
       case "disconnect": {
         if (kind === "disconnect") {
           // A required child FK cannot be nulled — V1's verbatim typed rejection.
-          assertNullable(
+          assertRelationCanDisconnect(
             relationInfo,
             getFkDirection(input.parent, relationInfo)
           );
@@ -2266,7 +2267,7 @@ export class UpdateOperation {
         return;
       case "disconnect": {
         // A required child FK cannot be nulled — V1's verbatim typed rejection.
-        assertNullable(relationInfo, fk);
+        assertRelationCanDisconnect(relationInfo, fk);
         // The arm's value is `true` by construction: the parse boundary types an
         // inverse-side to-one `disconnect` as `v.boolean()`, and `false` is Prisma's
         // no-op, dropped from the kind list (N7-U-B).
@@ -2839,7 +2840,7 @@ export class UpdateOperation {
     fk: FkDirection
   ): ParentHeldTarget {
     // A required (non-nullable) FK cannot be nulled — V1's verbatim typed rejection.
-    assertNullable(relationInfo, fk);
+    assertRelationCanDisconnect(relationInfo, fk);
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
@@ -3741,7 +3742,7 @@ export class UpdateOperation {
   ): ToOneLink {
     if (kind === "disconnect") {
       // V1-verbatim rejection when a required FK cannot be nulled.
-      assertNullable(relationInfo, fk);
+      assertRelationCanDisconnect(relationInfo, fk);
       return {
         relationName,
         relationInfo,

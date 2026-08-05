@@ -431,6 +431,7 @@ function foldOneNestedRelation(input: {
     engine,
     relationName,
     relationInfo,
+    fk,
     childName,
     childScope,
     fkFields: fk.fkFields,

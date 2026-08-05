@@ -4,6 +4,7 @@ import type { Sql } from "@sql";
 import { splitToOneUpdateTarget } from "@validation/relations/to-one-update-form";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
+  type FkDirection,
   getFkDirection,
   type RelationMutation,
   separateData,
@@ -42,6 +43,7 @@ import {
   upsertPremiseChanged,
   upsertTargetVanished,
 } from "./messages";
+import { requiredForeignKeyFields } from "./relation-nullability";
 import {
   buildNestedTargetUpdatePart,
   type FreshArmBuilder,
@@ -1511,6 +1513,7 @@ interface WritePartBase {
   readonly engine: QueryEngine;
   readonly relationName: string;
   readonly relationInfo: RelationInfo;
+  readonly fk: FkDirection;
   readonly childName: string;
   readonly childScope: QueryScope;
   readonly fkFields: readonly string[];
@@ -1791,7 +1794,7 @@ export function buildToManySetPart(
   input: unknown,
   correlationParentId?: ParentIdSource
 ): RelationSetPart {
-  const requiredFields = requiredFkFieldsFor(base);
+  const requiredFields = requiredForeignKeyFields(base.fk);
   return new RelationSetPart(base.scope, {
     correlationParentId,
     engine: base.engine,
@@ -1828,14 +1831,6 @@ function partConfig(
     txMode: base.txMode,
     nestedBuilder: base.nestedBuilder,
   };
-}
-
-/** Which of the child's FK fields are required (non-nullable) — V1's rule. */
-function requiredFkFieldsFor(base: WritePartBase): string[] {
-  const scalars = base.childScope.model["~"].state.scalars;
-  return base.fkFields.filter(
-    (field) => scalars[field]?.["~"].state.nullable !== true
-  );
 }
 
 function normalizeWheres(
