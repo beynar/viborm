@@ -7,7 +7,7 @@
 
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
-import type { ColumnDef, TableDef } from "../../types";
+import type { ColumnDef, DiffOperation, TableDef } from "../../types";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -34,6 +34,77 @@ import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { introspect } from "./introspect";
 
+/** Every operation that names the table it acts on. */
+type TableScopedOperation = Extract<DiffOperation, { tableName: string }>;
+
+/**
+ * One preceding operation of the batch, applied to the table definition a later
+ * recreation will rebuild. `SQLite3MigrationDriver.getCurrentTable` explains
+ * why the introspected definition alone is not enough, and what each list costs
+ * when it is left behind.
+ */
+function applyToTable(table: TableDef, op: TableScopedOperation): TableDef {
+  switch (op.type) {
+    case "addColumn":
+      return { ...table, columns: [...table.columns, op.column] };
+    case "dropColumn":
+      return {
+        ...table,
+        columns: table.columns.filter(
+          (column) => column.name !== op.columnName
+        ),
+      };
+    case "renameColumn":
+      return {
+        ...table,
+        columns: table.columns.map((column) =>
+          column.name === op.from ? { ...column, name: op.to } : column
+        ),
+      };
+    case "alterColumn":
+      return {
+        ...table,
+        columns: table.columns.map((column) =>
+          column.name === op.columnName ? op.to : column
+        ),
+      };
+    case "createIndex":
+      return { ...table, indexes: [...table.indexes, op.index] };
+    case "dropIndex":
+      return {
+        ...table,
+        indexes: table.indexes.filter((index) => index.name !== op.indexName),
+      };
+    case "addForeignKey":
+      return { ...table, foreignKeys: [...table.foreignKeys, op.fk] };
+    case "dropForeignKey":
+      return {
+        ...table,
+        foreignKeys: table.foreignKeys.filter((fk) => fk.name !== op.fkName),
+      };
+    case "addUniqueConstraint":
+      return {
+        ...table,
+        uniqueConstraints: [...table.uniqueConstraints, op.constraint],
+      };
+    case "dropUniqueConstraint":
+      return {
+        ...table,
+        uniqueConstraints: table.uniqueConstraints.filter(
+          (constraint) => constraint.name !== op.constraintName
+        ),
+      };
+    case "addPrimaryKey":
+      return { ...table, primaryKey: op.primaryKey };
+    case "dropPrimaryKey":
+      return { ...table, primaryKey: undefined };
+    default:
+      // `dropTable` is the only other operation that names a table, and nothing
+      // rebuilds a table the same batch dropped.
+      return table;
+  }
+}
+
 /**
  * SQLite3 Migration Driver
  *
@@ -57,6 +128,10 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     // No `ALTER TABLE ADD FOREIGN KEY`: FKs stay inline in CREATE TABLE and
     // rely on SQLite's lazy reference resolution (forward refs are fine).
     supportsAddForeignKeyViaAlter: false,
+    // `PRAGMA foreign_key_list` has no name column, and an inline
+    // `CONSTRAINT x UNIQUE (...)` is only ever reported as
+    // `sqlite_autoindex_<table>_<n>`. Neither name survives a round trip.
+    introspectionReadsConstraintNames: false,
   };
 
   // ===========================================================================
@@ -313,13 +388,68 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   }
 
   /**
-   * Gets the current table definition from the schema context.
+   * The table definition a recreation has to rebuild — the introspected one,
+   * moved on by every preceding operation of the same batch.
+   *
+   * `currentSchema` is read once, before the first statement runs, so on its own
+   * it describes the table as it was. A recreation drops the table and rebuilds
+   * whatever this definition names, so read raw it destroys everything the same
+   * batch created earlier and resurrects everything the same batch dropped. Each
+   * list is a measured hazard, not a hypothetical:
+   *
+   * - INDEXES. `createIndex` runs at priority 15 and `addForeignKey` at 16, and
+   *   SQLite recreates the table for every foreign-key change — so on a database
+   *   that predates the FK index each `manyToOne` push created the index and
+   *   then threw it away, forever.
+   *
+   * - FOREIGN KEYS. `dropForeignKey` runs at 2 and `addForeignKey` at 16, and
+   *   the differ plans that pair for every changed key. With the pre-batch list
+   *   the add rebuilt the table around the constraint the drop had just removed
+   *   AND its replacement: measured on better-sqlite3, `zz_posts` held 1, then
+   *   2, then 3 identical foreign keys after three idempotent pushes.
+   *
+   * - COLUMNS. `addColumn` runs at 10 and `alterColumn` at 12, and `alterColumn`
+   *   is a recreation on SQLite. Measured: pushing a model that both widens one
+   *   column's type and adds another emitted the `ALTER TABLE ... ADD COLUMN`,
+   *   then rebuilt the table from the pre-batch column list — and the new column
+   *   was gone. The push reported success, and the next one added and lost it
+   *   again. Two `alterColumn`s in one batch reverted each other the same way.
+   *
+   * - UNIQUE CONSTRAINTS. `dropUniqueConstraint` runs at 4 and
+   *   `addUniqueConstraint` at 14, and both ARE recreations here — the
+   *   constraint is inline in `CREATE TABLE` (see
+   *   `generateAddUniqueConstraint`). So the pair a changed constraint plans
+   *   reads its own predecessor, and a later recreation at 16 has to rebuild
+   *   around the constraint the add put there rather than the one the drop
+   *   removed.
+   *
+   * - PRIMARY KEY. `dropPrimaryKey` runs at 5 and `addPrimaryKey` at 13, both
+   *   ahead of `addForeignKey`, so a later recreation would rebuild around the
+   *   key that was just replaced.
+   *
+   * These are all the operations that move any of those five out of `TableDef`,
+   * so replaying the preceding ones gives what the database actually holds when
+   * the recreation runs.
    */
   protected getCurrentTable(
     tableName: string,
     context?: DDLContext
   ): TableDef | undefined {
-    return context?.currentSchema?.tables.find((t) => t.name === tableName);
+    const table = context?.currentSchema?.tables.find(
+      (t) => t.name === tableName
+    );
+    if (!table) {
+      return undefined;
+    }
+
+    let replayed = table;
+    for (const op of context?.precedingOperations ?? []) {
+      if ("tableName" in op && op.tableName === tableName) {
+        replayed = applyToTable(replayed, op);
+      }
+    }
+
+    return replayed;
   }
 
   // ===========================================================================
@@ -409,8 +539,13 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
     const unique = index.unique ? "UNIQUE " : "";
     const cols = index.columns.map((c) => this.escapeIdentifier(c)).join(", ");
+    // SQLite has supported partial indexes since 3.8.0. Dropping the predicate
+    // silently would build a different index from the declared one, and the
+    // differ would re-create it on every push forever, because introspection
+    // reads the predicate back.
+    const where = index.where ? ` WHERE ${index.where}` : "";
     // SQLite doesn't support USING clause - it only has btree indexes
-    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})`;
+    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})${where}`;
   }
 
   generateDropIndex(op: DropIndexOperation): string {
@@ -467,16 +602,84 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // DDL GENERATION - Unique Constraint Operations
   // ===========================================================================
 
-  generateAddUniqueConstraint(op: AddUniqueConstraintOperation): string {
-    const { tableName, constraint } = op;
-    const cols = constraint.columns
-      .map((c) => this.escapeIdentifier(c))
-      .join(", ");
-    return `CREATE UNIQUE INDEX ${this.escapeIdentifier(constraint.name)} ON ${this.escapeIdentifier(tableName)} (${cols})`;
+  /**
+   * A unique constraint is INLINE in `CREATE TABLE` on SQLite, so both halves
+   * of the diff go through a table recreation. There is no other spelling that
+   * round-trips.
+   *
+   * SQLite has two ways to spell "these columns are unique" and only one of
+   * them survives introspection as a constraint. An inline
+   * `CONSTRAINT x UNIQUE (...)` is reported by `PRAGMA index_list` with
+   * `origin = "u"`, which `introspect` files under `uniqueConstraints` —
+   * matched by shape against the declared one (see
+   * `introspectionReadsConstraintNames`), so an unchanged schema plans nothing.
+   * A standalone `CREATE UNIQUE INDEX` is reported with `origin = "c"` and
+   * filed under `indexes` instead, where no declared unique constraint will
+   * ever match it.
+   *
+   * Measured on better-sqlite3 at `f78fa83`, with the add as a standalone
+   * index: push #2 of a model that gained `.unique(["slug", "tenant"])`
+   * planned `addUniqueConstraint` and created the index; push #3 read that
+   * index back under the wrong bucket and planned `addUniqueConstraint` again
+   * beside `dropIndex` on the same name — and since `addUniqueConstraint` (14)
+   * runs ahead of a superseded index drop (15.5), the push died on
+   * `index "…_slug_tenant_key" already exists`. Every later push died the same
+   * way. Before the shape matching landed the FK churn rebuilt the table on
+   * every push and destroyed the index before push #3 could collide with it,
+   * so the same schema pushed green forever and the unique was never enforced.
+   *
+   * The drop had no working spelling at all: every `dropUniqueConstraint` the
+   * differ plans here names a constraint read out of `PRAGMA index_list` with
+   * `origin = "u"`, i.e. `sqlite_autoindex_<table>_<n>`, and SQLite refuses
+   * `DROP INDEX` on an index it created itself.
+   *
+   * A database written by the old add still holds the standalone index. It
+   * heals on the next push: the recreation rebuilds the table with the
+   * constraint inline, and the stale index — dropped with the old table and
+   * re-created by step 6 of the recreation, because it is still in the
+   * introspected definition — is removed by the `dropIndex` the same batch
+   * plans for it.
+   */
+  generateAddUniqueConstraint(
+    op: AddUniqueConstraintOperation,
+    context?: DDLContext
+  ): string {
+    const currentTable = this.getCurrentTable(op.tableName, context);
+    if (!currentTable) {
+      throw new Error(
+        `Cannot add unique constraint: table "${op.tableName}" not found in current schema. ` +
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+      );
+    }
+
+    const newTable: TableDef = {
+      ...currentTable,
+      uniqueConstraints: [...currentTable.uniqueConstraints, op.constraint],
+    };
+
+    return this.generateTableRecreation(op.tableName, newTable, currentTable);
   }
 
-  generateDropUniqueConstraint(op: DropUniqueConstraintOperation): string {
-    return `DROP INDEX ${this.escapeIdentifier(op.constraintName)}`;
+  generateDropUniqueConstraint(
+    op: DropUniqueConstraintOperation,
+    context?: DDLContext
+  ): string {
+    const currentTable = this.getCurrentTable(op.tableName, context);
+    if (!currentTable) {
+      throw new Error(
+        `Cannot drop unique constraint: table "${op.tableName}" not found in current schema. ` +
+          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+      );
+    }
+
+    const newTable: TableDef = {
+      ...currentTable,
+      uniqueConstraints: currentTable.uniqueConstraints.filter(
+        (constraint) => constraint.name !== op.constraintName
+      ),
+    };
+
+    return this.generateTableRecreation(op.tableName, newTable, currentTable);
   }
 
   // ===========================================================================

@@ -9,11 +9,12 @@ import { s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
 import {
   constructRoutedOperation,
   executeRoutedOperation,
-} from "../../src/query-engine-v2/routing";
+} from "../../src/query-engine/write-engine/routing";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
@@ -600,8 +601,13 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const hook = this.hook;
-    this.hook = undefined; // fire once (the retry runs clean)
-    if (hook) await hook();
+    // Fire once (the retry runs clean), before the operation's compiled ATOMIC
+    // UNIT — planning reads ride a batch too once grouped by level (PLAN
+    // Phase 6.1).
+    if (hook && batchIsAtomicUnit(queries)) {
+      this.hook = undefined;
+      await hook();
+    }
     return super.executeBatch<T>(client, queries);
   }
 }

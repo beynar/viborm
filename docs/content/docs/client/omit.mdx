@@ -1,7 +1,7 @@
 ---
 title: Omitting Fields
 description: Hide scalar fields from results with omit — per query, per client, or once in the schema
-icon: EyeOff
+icon: eye-off
 ---
 
 `omit` is the inverse of [`select`](/docs/client/selecting): it returns every
@@ -200,11 +200,11 @@ await client.user.findMany({ select: { id: true, passwordHash: true } });
 // { id: string; passwordHash: string }[]
 ```
 
-<Callout type="info">
-  A client-level `omit` never changes a **return shape**. A bulk write with no
+:::info
+A client-level `omit` never changes a **return shape**. A bulk write with no
   projection of its own still answers `{ count }` — only a projection the caller
   wrote turns it into rows.
-</Callout>
+:::
 
 The flags are `true` only. A `false` here would be a key that does nothing —
 the client default is the thing being *set*, and per-field re-inclusion belongs

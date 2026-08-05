@@ -7,6 +7,11 @@
 
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { MigrationContext } from "../context";
+import {
+  assertForeignKeysIntact,
+  liftForeignKeyPragmas,
+  withForeignKeysLifted,
+} from "../foreign-keys";
 import { parseStatements } from "../generate/file-writer";
 import type { MigrationClient } from "../push";
 import {
@@ -139,12 +144,21 @@ export async function apply(
     // Parse statements
     const statements = parseStatements(content);
 
+    // A migration file records the same DDL `push` executes, table recreations
+    // included, and `PRAGMA foreign_keys` inside a transaction is a no-op — so
+    // the pragma has to bracket `ctx.transaction`, not sit inside it.
+    // See `src/migrations/foreign-keys.ts`.
+    const lifted = liftForeignKeyPragmas(ctx.driver, statements);
+
     try {
       // Execute migration in a transaction
-      await ctx.transaction(async (txCtx) => {
-        await txCtx.executeMigrationStatements(statements);
-        await txCtx.markMigrationApplied(entry);
-      });
+      await withForeignKeysLifted(ctx.driver, lifted.bracket, () =>
+        ctx.transaction(async (txCtx) => {
+          await txCtx.executeMigrationStatements(lifted.statements);
+          await txCtx.markMigrationApplied(entry);
+          await assertForeignKeysIntact(txCtx.driver, lifted.bracket);
+        })
+      );
 
       applied.push(entry);
     } catch (err) {

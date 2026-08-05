@@ -39,6 +39,17 @@ import type {
 // REFERENTIAL ACTION MAPPING
 // =============================================================================
 
+/**
+ * A partial index holds only the rows its predicate keeps. It cannot answer a
+ * lookup for an excluded row, and its UNIQUE cannot constrain one — so it is
+ * neither coverage for the foreign-key index nor uniqueness for a 1:1 relation.
+ * Truthiness, because that is what the emitters use to decide whether to write
+ * the WHERE at all (`postgres/index.ts`, `sqlite/index.ts`).
+ */
+function isTotalIndex(index: { where?: string | undefined }): boolean {
+  return !index.where;
+}
+
 function mapReferentialAction(
   action: "cascade" | "setNull" | "restrict" | "noAction" | undefined,
   fallback: ReferentialAction
@@ -198,17 +209,57 @@ export function serializeModels(
     }
 
     // Process indexes from model state
+    const declaredIndexColumns: string[][] = [];
     for (const indexDef of modelState.indexes) {
       const indexName =
         indexDef.options.name ||
         `${tableName}_${indexDef.fields.join("_")}_idx`;
-      indexes.push({
+      // `.map()` renames the column, so the DDL has to name the column and not
+      // the TypeScript field — the same resolution the compound uniques and the
+      // FK columns already do. One resolution serves both readers: the CREATE
+      // INDEX below, and the foreign-key index's coverage decision, which has
+      // to compare the same names or it emits a duplicate index.
+      const columns = indexDef.fields.map(
+        (field) => model["~"].getFieldName(field).sql
+      );
+      const declared: IndexDef = {
         name: indexName,
-        columns: indexDef.fields,
+        columns,
         unique: indexDef.options.unique,
         type: indexDef.options.type,
         where: indexDef.options.where,
-      });
+      };
+      indexes.push(declared);
+      if (isTotalIndex(declared)) {
+        declaredIndexColumns.push(columns);
+      }
+    }
+
+    // A `oneToOne` foreign key gets a unique constraint at the bottom of the
+    // relation loop, and that constraint is an index — so it covers the
+    // foreign-key index exactly as a declared unique does. It is collected HERE,
+    // before the loop, because `uniqueConstraints` grows INSIDE it: one model may
+    // name the same columns from a `manyToOne` and from a `oneToOne` (legal, and
+    // measured through `serializeModels`), and reading the half-built list made
+    // the answer depend on which relation the schema happened to spell first —
+    // `many` before `one` emitted the redundant index, `one` before `many` did
+    // not. The condition mirrors the branch that pushes the constraint, target
+    // model included, so this claims coverage only where the constraint follows.
+    const oneToOneFkColumns: string[][] = [];
+    for (const relation of Object.values(modelState.relations)) {
+      const oneToOneState = (relation as AnyRelation)["~"].state;
+      if (
+        oneToOneState.type === "oneToOne" &&
+        oneToOneState.fields &&
+        oneToOneState.references &&
+        oneToOneState.getter()?.["~"]
+      ) {
+        oneToOneFkColumns.push(
+          oneToOneState.fields.map(
+            (field: string) => model["~"].getFieldName(field).sql
+          )
+        );
+      }
     }
 
     // Process relations to generate foreign keys
@@ -266,6 +317,58 @@ export function serializeModels(
             onUpdate: mapReferentialAction(relationState.onUpdate, "noAction"),
           });
 
+          // The inverse of a manyToOne is to-many: every include, relation
+          // filter and nested-write locate reads this table through the FK
+          // columns. MySQL/InnoDB indexes an FK constraint by itself;
+          // PostgreSQL and SQLite do not, so serialize the index on every
+          // dialect — one snapshot shape for the differ, and on MySQL the
+          // explicit index takes the place of the implicit one. A oneToOne FK
+          // needs nothing here: the unique constraint below is its index.
+          if (relationState.type === "manyToOne") {
+            // The primary key, every unique constraint and every declared index
+            // is backed by an index on all three dialects, and an index serves
+            // any prefix of its columns — so a FK index over such a prefix
+            // would only duplicate one the database already has.
+            const coveringColumns = [
+              pkColumns,
+              ...uniqueConstraints.map((unique) => unique.columns),
+              ...oneToOneFkColumns,
+              ...declaredIndexColumns,
+            ];
+            const alreadyIndexed = coveringColumns.some((columns) =>
+              fkColumns.every(
+                (column, position) => columns[position] === column
+              )
+            );
+            if (!alreadyIndexed) {
+              // An index the schema declares over exactly these columns but
+              // does not cover them — a partial index — auto-names itself the
+              // way this one does, and a database keeps one index per name. So
+              // the automatic index falls back on the name of the constraint it
+              // serves. Only a schema that has no foreign-key index today can
+              // take the fallback, so no database that already holds the index
+              // is renamed into a drop and a create.
+              //
+              // A schema may of course have spent BOTH names on indexes of its
+              // own — `.index([...], { name: "<table>_<cols>_fkey_idx" })` is
+              // legal. Then this index has no name left to take, and pushing it
+              // anyway put two entries under one name into the snapshot: the
+              // differ emitted two `CREATE INDEX` and the second failed the
+              // whole push (measured on better-sqlite3: `index
+              // zz_fb_kid_ownerId_fkey_idx already exists`). The index is a read
+              // optimization, not a correctness requirement, so it yields to the
+              // names the schema declared.
+              const declaredNames = new Set(indexes.map((index) => index.name));
+              const preferredName = `${tableName}_${fkColumns.join("_")}_idx`;
+              const name = declaredNames.has(preferredName)
+                ? `${tableName}_${fkColumns.join("_")}_fkey_idx`
+                : preferredName;
+              if (!declaredNames.has(name)) {
+                indexes.push({ name, columns: fkColumns, unique: false });
+              }
+            }
+          }
+
           // 1:1 FK must be unique at the DB level, or it degrades to N:1
           if (relationState.type === "oneToOne") {
             const fkKey = [...fkColumns].sort().join(",");
@@ -275,7 +378,10 @@ export function serializeModels(
                 (u) => [...u.columns].sort().join(",") === fkKey
               ) ||
               indexes.some(
-                (i) => i.unique && [...i.columns].sort().join(",") === fkKey
+                (i) =>
+                  i.unique &&
+                  isTotalIndex(i) &&
+                  [...i.columns].sort().join(",") === fkKey
               );
             if (!alreadyUnique) {
               uniqueConstraints.push({

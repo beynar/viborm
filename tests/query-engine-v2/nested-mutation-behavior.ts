@@ -7,8 +7,8 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 
 /**
@@ -69,7 +69,7 @@ export function runNestedMutationBehavior(options: {
       "delete + deleteMany stay parent-correlated",
       { timeout: 30_000 },
       async () => {
-        const { driver, client, dispose, update } = await setup();
+        const { client, dispose, update } = await setup();
         try {
           await client.user.create({
             data: {
@@ -102,7 +102,6 @@ export function runNestedMutationBehavior(options: {
           expect(
             await client.post.findMany({ orderBy: { id: "asc" } })
           ).toMatchObject([{ id: "po3", title: "Remove many", userId: "u2" }]);
-          void driver;
         } finally {
           await dispose();
         }

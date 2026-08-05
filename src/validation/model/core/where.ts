@@ -1,7 +1,6 @@
 import type { AnyModel } from "@schema/model";
 import { scopeOperands } from "@validation/primitives/operand";
 import v, { type V } from "../../primitives/v";
-import type { VibSchema } from "../../types";
 import type { ScalarSchemas } from "../index";
 import {
   type CompoundConstraintFilterSchema,
@@ -132,99 +131,59 @@ export const getWhereUniqueSchema = <
 // =============================================================================
 
 /**
- * The message a relation key gets inside an extended unique `where`.
- *
- * Prisma's extended `whereUnique` also admits relation filters; viborm's does
- * not, deliberately (W4-U1). The filter portion of a unique `where` compiles
- * into the **write** statement too (batch mode addresses the row by the original
- * `where`, so the guard and the write pin the same row), and there the target
- * table carries no alias — a relation filter's correlated `EXISTS` subquery
- * would have to correlate against unqualified columns, and MySQL rejects a
- * subquery reading the table being mutated (error 1093) unless it is wrapped.
- * Rather than answer differently per dialect, the key is refused by name and the
- * caller is pointed at the operations that do answer it identically everywhere.
+ * The merged entry set: the ordinary `where` MINUS the names the discriminators
+ * take back, PLUS the discriminators. Named once so the local that builds it can
+ * be annotated with the same type `WhereUniqueExtendedSchema` declares.
  */
-const extendedWhereUniqueRelationRefusal = (key: string): string =>
-  `Relation filter '${key}' is not supported inside a unique 'where'. An extended unique 'where' accepts non-unique scalar filters and AND/OR/NOT only — use findFirst / updateMany / deleteMany to filter by a relation.`;
-
-type RefusedRelationEntries<M extends AnyModel, F extends ScalarSchemas<M>> = {
-  [K in keyof F["relations"]]: VibSchema<never, never>;
-};
-
-const getRefusedRelationEntries = <
+type WhereUniqueExtendedEntries<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
->(
-  fieldSchemas: F
-): RefusedRelationEntries<M, F> => {
-  const entries: Record<string, unknown> = {};
-  for (const key of Object.keys(fieldSchemas.relations as object)) {
-    entries[key] = v.refused(extendedWhereUniqueRelationRefusal(key));
-  }
-  return entries as RefusedRelationEntries<M, F>;
-};
-
-type ScalarWhereEntries<M extends AnyModel, F extends ScalarSchemas<M>> = {
-  AND: () => V.Optional<
-    V.Union<
-      readonly [ScalarWhereSchema<M, F>, V.Array<ScalarWhereSchema<M, F>>]
-    >
-  >;
-  OR: () => V.Optional<V.Array<ScalarWhereSchema<M, F>>>;
-  NOT: () => V.Optional<
-    V.Union<
-      readonly [ScalarWhereSchema<M, F>, V.Array<ScalarWhereSchema<M, F>>]
-    >
-  >;
-} & V.FromObject<F["scalars"], "filter">["entries"] &
-  RefusedRelationEntries<M, F>;
-
-/**
- * The scalar-only `where` reachable from inside an extended unique `where`'s
- * `AND` / `OR` / `NOT`. Same recursion as {@link WhereSchema}, minus relation
- * filters (refused by name, see above).
- */
-export type ScalarWhereSchema<
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
-> = V.Object<ScalarWhereEntries<M, F>>;
-
-export const getScalarWhereSchema = <
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
->(
-  model: M,
-  fieldSchemas: F
-): ScalarWhereSchema<M, F> => {
-  const scalarFilter = v.fromObject<F["scalars"], "filter">(
-    fieldSchemas.scalars,
-    "filter"
-  );
-  const scalarWhere = v
-    .object({
-      AND: () => v.optional(v.union([scalarWhere, v.array(scalarWhere)])),
-      OR: () => v.optional(v.array(scalarWhere)),
-      NOT: () => v.optional(v.union([scalarWhere, v.array(scalarWhere)])),
-    })
-    .extend(scalarFilter.entries)
-    .extend(getRefusedRelationEntries<M, F>(fieldSchemas));
-
-  return scopeOperands(scalarWhere, model);
-};
+> = Omit<WhereSchema<M, F>["entries"], keyof WhereUniqueEntries<M, F>> &
+  WhereUniqueEntries<M, F>;
 
 /**
  * Build the EXTENDED whereUnique schema — Prisma >= 4.5's `AtLeast<…>` shape:
- * the unique discriminators (single field or complete compound) PLUS ordinary
- * non-unique scalar filters and `AND` / `OR` / `NOT`, with **at least one**
- * discriminator still required (`requiresOneOf`, which the type level applies as
- * a union of "this key is required" shapes — Prisma's `AtLeast`, for free).
+ * the unique discriminators (single field or complete compound) PLUS the model's
+ * ordinary `where` — non-unique scalar filters, RELATION filters, and `AND` /
+ * `OR` / `NOT` — with **at least one** discriminator still required
+ * (`requiresOneOf`, which the type level applies as a union of "this key is
+ * required" shapes — Prisma's `AtLeast`, for free).
  *
- * SCOPE (deliberate, W4-U1): this schema is the `where` of the TOP-LEVEL
- * `findUnique` / `findUniqueOrThrow` / `update` / `delete` / `upsert` only.
- * Nested relation-write target selectors and `cursor` keep the strict
- * {@link getWhereUniqueSchema}: a nested target is located by PK boundaries the
- * extra filters would collide with, and a cursor's meaning is an exact row
- * address. See `docs/content/docs/client/*`.
+ * SCOPE. This schema is the `where` of the TOP-LEVEL `findUnique` /
+ * `findUniqueOrThrow` / `update` / `delete` / `upsert`, and — since N6-U1
+ * (decision D-N1) — of the NESTED `update` / `upsert` / `delete` TARGET selectors
+ * too. W4-U1 kept those nested positions strict for a stated reason: "a nested
+ * target is located by PK boundaries the extra filters would collide with". N1 and
+ * N4-U1 removed that collision by making a nested locate RETURN its primary key
+ * however the row was named, so the scoping had outlived its cause and the three
+ * target positions now take this schema. Prisma's nested selectors are unique-only
+ * there, which makes this a deliberate SUPERSET (capability matrix, §write).
+ *
+ * Still strict, and for reasons that are their own, not leftovers:
+ *  · `connect` / `disconnect` / `set` / `connectOrCreate.where` — these NAME a row
+ *    to link, they do not locate one to mutate. Prisma parity, and nothing in the
+ *    engine reads a filter half there.
+ *  · `cursor` — its meaning is an exact row address in an ordering, not a predicate.
+ *
+ * The filter half stays inert to everything compile-time wherever this schema is
+ * used: `getWhereUniqueEntries` returns the discriminator alone, so pins, `racePin`
+ * attribution and identity cannot see it by construction. See
+ * `query-engine-v2/shared.ts` `uniqueSelectorConjuncts` for the one place the two
+ * halves are recombined, and `docs/content/docs/client/*`.
+ *
+ * RELATION FILTERS (N6-U2). They were refused here until the write half learned
+ * to name its own table. A unique `where`'s filter half compiles into the
+ * UPDATE/DELETE as well as the locate (batch mode addresses the row by the
+ * original `where`, so guard and write pin one row), and there the target
+ * carries no alias: a correlated `EXISTS` built against bare column names binds
+ * the OUTER column to the RELATED table whenever both models carry that name —
+ * silently, on every dialect. `buildUpdate` / `buildDelete` now qualify the
+ * unique `where` by the target's table name and declare it as the
+ * `mutationTable`, which is exactly what `buildUpdateMany` / `buildDeleteMany`
+ * have always done: the correlation is unambiguous, and MySQL's refusal to read
+ * the mutated table in a subquery (error 1093) is answered by the same
+ * derived-table wrapper, engaged only where the relation actually reads that
+ * table (a self-relation, or a self-M2M's target side).
  *
  * A unique field keeps its BARE-VALUE schema at the top level (Prisma spells
  * `{ email: "a@b" }`, never `{ email: { equals: … } }`, in the unique position),
@@ -235,11 +194,7 @@ export const getScalarWhereSchema = <
 export type WhereUniqueExtendedSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
-> = V.Object<
-  Omit<ScalarWhereEntries<M, F>, keyof WhereUniqueEntries<M, F>> &
-    WhereUniqueEntries<M, F>,
-  WhereUniqueOptions<M, F>
->;
+> = V.Object<WhereUniqueExtendedEntries<M, F>, WhereUniqueOptions<M, F>>;
 
 export const getWhereUniqueExtendedSchema = <
   M extends AnyModel,
@@ -250,22 +205,26 @@ export const getWhereUniqueExtendedSchema = <
 ): WhereUniqueExtendedSchema<M, F> => {
   const uniqueFilter = getUniqueFilter(model, fieldSchemas);
   const compoundConstraintFilter = getCompoundConstraintFilter(model);
-  const scalarWhere = getScalarWhereSchema<M, F>(model, fieldSchemas);
+  const where = getWhereSchema<M, F>(model, fieldSchemas);
 
   const discriminators: WhereUniqueEntries<M, F> = {
     ...uniqueFilter.entries,
     ...compoundConstraintFilter.entries,
   };
   const keys = Object.keys(discriminators) as WhereUniqueKey<M, F>[];
-  const entries = {
-    ...scalarWhere.entries,
+  // Annotated, not asserted, like `discriminators` above and the sibling
+  // `getWhereUniqueSchema`: the annotation checks the FILTER half of the merge
+  // (dropping `...where.entries` is a compile error; under an `as` it was not).
+  // It cannot check the discriminator half — those entries are optional in the
+  // ordinary `where` they overwrite, so their absence is assignable either way.
+  const entries: WhereUniqueExtendedEntries<M, F> = {
+    ...where.entries,
     ...discriminators,
-  } as Omit<ScalarWhereEntries<M, F>, keyof WhereUniqueEntries<M, F>> &
-    WhereUniqueEntries<M, F>;
+  };
 
-  // The filter portion of an extended unique `where` is an ordinary scalar
-  // filter, so it opens the same operand callbacks and needs the same scope.
-  // (The discriminator entries are BARE values — no operand position there.)
+  // The filter portion of an extended unique `where` is an ordinary filter, so
+  // it opens the same operand callbacks and needs the same scope. (The
+  // discriminator entries are BARE values — no operand position there.)
   return scopeOperands(
     v.object(entries, {
       nonEmpty: true,

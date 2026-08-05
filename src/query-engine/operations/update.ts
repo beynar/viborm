@@ -105,7 +105,17 @@ function processRelationOperations(
  * @param args - Update arguments
  * @returns SQL statement (UPDATE with optional RETURNING)
  */
-export function buildUpdate(ctx: QueryScope, args: UpdateArgs): Sql {
+/**
+ * The bare `UPDATE … SET … WHERE …` for a unique target, with no `RETURNING`.
+ *
+ * Split out of {@link buildUpdate} so Phase 8.1's CTE fold can supply its own
+ * all-columns `RETURNING` (`mutation-projection-fold.ts`) — the two callers must
+ * write the same rows the same way, so the statement has one home.
+ */
+export function buildUpdateStatement(
+  ctx: QueryScope,
+  args: { where: Record<string, unknown>; data: Record<string, unknown> }
+): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
@@ -115,12 +125,26 @@ export function buildUpdate(ctx: QueryScope, args: UpdateArgs): Sql {
   // Build SET clause with processed data
   const setSql = buildSet(ctx, processedData);
 
-  // Build WHERE from unique input (no alias for UPDATE statements)
-  const whereSql = buildWhereUnique(ctx, args.where, "");
+  // Build WHERE qualified by table name — the same spelling `buildUpdateMany`
+  // uses, and for the same two reasons: the unaliased UPDATE target is
+  // addressable only by its name, so a relation filter's EXISTS subquery
+  // correlates against `tbl`.`col` instead of a bare `col` that would bind to
+  // the RELATED table whenever both carry that column; and `mutationTable` lets
+  // that subquery be wrapped in a derived table on dialects that reject reading
+  // the mutated table (MySQL error 1093).
+  const whereSql = buildWhereUnique(
+    { ...ctx, mutationTable: tableName },
+    args.where,
+    tableName
+  );
 
-  // Build UPDATE
   const table = adapter.identifiers.escape(tableName);
-  const updateSql = adapter.mutations.update(table, setSql, whereSql);
+  return adapter.mutations.update(table, setSql, whereSql);
+}
+
+export function buildUpdate(ctx: QueryScope, args: UpdateArgs): Sql {
+  const { adapter } = ctx;
+  const updateSql = buildUpdateStatement(ctx, args);
 
   // Build RETURNING clause if supported (no alias for UPDATE RETURNING)
   const returningCols = buildSelect(ctx, args.select, args.include, "");

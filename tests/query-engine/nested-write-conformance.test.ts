@@ -2094,9 +2094,14 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected({ tags: { t3: "tag-3" } }),
   },
   {
-    name: "m2m overlapping connect and deleteMany reject membership dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'connect' membership write",
+    // RETARGETED by N6-U3 (own-write linearization, ATOM §4.1), from a rejection to an
+    // accept-and-execute assertion on the SAME payload. `connect` reads nothing, so it
+    // is a stage-3 pure adder and now runs AFTER the junction's `deleteMany`, whose
+    // filter is therefore resolved against committed membership: t2 is not a member
+    // when the removal runs, so the removal leaves it alone and the sibling `connect`
+    // then attaches it. The old rejection was the ledger deriving legality over an
+    // order the engine did not execute.
+    name: "m2m connect after a deleteMany that cannot see it",
     seed: m2mBaselineSeed,
     act: async (client) => {
       await client.post.update({
@@ -2113,12 +2118,15 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
         },
       });
     },
-    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+    expected: m2mExpected({ membership: { p1: ["t1", "t2"] } }),
   },
   {
-    name: "m2m overlapping create and deleteMany reject target dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'create' target write",
+    // RETARGETED by N6-U3, same reason as the scenario above and the sharper half of
+    // it: a filtered removal never consumes a row the same call is about to add. The
+    // removal runs first and finds no t9; `create` then inserts it and joins it. Prisma
+    // with these keys in this order deletes the row it just created (measured on 7.9.1;
+    // prisma/prisma#16606). The fixed order makes that unreachable in either spelling.
+    name: "m2m create survives a deleteMany naming the same key",
     seed: m2mBaselineSeed,
     act: (client) =>
       client.post.update({
@@ -2130,7 +2138,10 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expected: m2mExpected(),
+    expected: m2mExpected({
+      membership: { p1: ["t9"] },
+      tags: { ...BASELINE_M2M_TAGS, t9: "tag-9" },
+    }),
   },
   {
     name: "m2m overlapping set and deleteMany reject membership dependency",
@@ -2324,9 +2335,15 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected({ membership: { p1: ["t1"] } }),
   },
   {
-    name: "m2m connect then overlapping upsert rejects before effects",
+    // RETARGETED by N6-U3: the shape still rejects and still writes nothing, but the
+    // rejection now comes from the row-level guard rather than the preflight. `upsert`
+    // is a stage-1 named reader and `connect` a stage-3 adder, so the upsert's probe is
+    // ordered FIRST and correctly reports what committed state says — t1 exists but is
+    // not a member of p1. Adding a preflight check for the same fact would be a second
+    // guard on one invariant (the AGENTS.md ban); the correlated probe already owns it.
+    name: "m2m connect then overlapping upsert: the upsert's probe decides first",
     expectReject: true,
-    expectedError: "depends on an earlier 'connect' membership write",
+    expectedError: "Cannot upsert relation 'tags': target record was not found",
     seed: m2mBaselineSeed,
     act: (client) =>
       client.post.update({
@@ -2345,9 +2362,17 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected(),
   },
   {
-    name: "m2m deleteMany then upsert rejects prior delete effects",
+    // RETARGETED by N6-U3 — and this pair is the FORK ITSELF, made visible. The old
+    // message blamed `deleteMany` for the `upsert`'s read; the new one blames `upsert`
+    // for the `deleteMany`'s read. Both cannot be right, and the old one was derived
+    // over `planRelationMutationSteps`' private order, which put `deleteMany` before
+    // `upsert` while the engine emitted `upsert` first. The attribution now names the
+    // sequence that actually runs. The shape still rejects (a junction `deleteMany`
+    // resolves its filter against a membership the sibling upsert rewrites — ATOM §4.1
+    // case ii, the class no ordering can fix) and still writes nothing.
+    name: "m2m upsert then deleteMany: the removal cannot read past the upsert",
     expectReject: true,
-    expectedError: "depends on an earlier 'deleteMany' target write",
+    expectedError: "depends on an earlier 'upsert' target write",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -3844,7 +3869,12 @@ const OWN_WRITE_ERROR = "depends on an earlier";
 
 const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
   {
-    name: "create then overlapping update rejects before effects",
+    // RETARGETED by N6-U3: still rejects, still writes nothing, different guard. The
+    // nested `update` is a stage-1 named reader and `create` a stage-3 adder, so the
+    // update's correlated probe runs first and truthfully reports that item 1 is not
+    // among owner 1's children. A payload that both creates a row and updates it is a
+    // row-level not-found here, not a planning-soundness failure.
+    name: "create then overlapping update: the update's probe runs first",
     seed: (client) => client.owner.create({ data: { id: 1, name: "Owner" } }),
     act: (client) =>
       client.owner.update({
@@ -3857,7 +3887,8 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: OWN_WRITE_ERROR,
+    expectedError:
+      "Cannot update relation 'items': target record was not found",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [],
@@ -3892,7 +3923,9 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
     },
   },
   {
-    name: "connect then overlapping update rejects",
+    // RETARGETED by N6-U3, same reading as the create/update pair above: the update's
+    // correlated probe is ordered before the adder that would make it a member.
+    name: "connect then overlapping update: the update's probe runs first",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
       await client.item.create({
@@ -3910,7 +3943,8 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: OWN_WRITE_ERROR,
+    expectedError:
+      "Cannot update relation 'items': target record was not found",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [{ id: 1, label: "free", ownerId: null }],
@@ -3918,7 +3952,10 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
     },
   },
   {
-    name: "connect then overlapping upsert rejects",
+    // RETARGETED by N6-U3: the upsert is a stage-1 named reader, so its correlated
+    // probe runs before the stage-3 `connect` that would make item 1 a member, and it
+    // reports what committed state says. Rejects, writes nothing, different guard.
+    name: "connect then overlapping upsert: the upsert's probe decides first",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
       await client.item.create({
@@ -3940,7 +3977,8 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: OWN_WRITE_ERROR,
+    expectedError:
+      "Cannot upsert relation 'items': target record was not found",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [{ id: 1, label: "free", ownerId: null }],
@@ -4180,7 +4218,12 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
     },
   },
   {
-    name: "updateMany then upsert rejects unknown prior writes",
+    // RETARGETED by N6-U3, from a rejection to an accept-and-execute assertion on the
+    // SAME payload. `upsert` is a stage-1 named reader and `updateMany` a stage-2
+    // unbounded writer, so the upsert's probe is ordered before the bulk write that
+    // used to invalidate it — the dependency is dissolved by the order, not excused.
+    // The targeted arm writes "updated", the sweep then writes "changed" over it.
+    name: "upsert then updateMany: the targeted arm runs before the sweep",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
       await client.item.create({
@@ -4201,16 +4244,19 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: "depends on an earlier 'updateMany' target write",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
-      items: [{ id: 1, label: "before", ownerId: 1 }],
+      items: [{ id: 1, label: "changed", ownerId: 1 }],
       profiles: [],
     },
   },
   {
-    name: "deleteMany then upsert rejects unknown prior writes",
+    // RETARGETED by N6-U3, same reading: the upsert's probe precedes the filtered
+    // removal, so the pair composes as written and the removal has the last word — the
+    // row is updated and then deleted. On a CHILD-HELD relation `deleteMany` reads
+    // nothing, which is why it can sit behind every reader; its many-to-many sibling
+    // must read membership and is the one case ordering cannot rescue (ATOM §4.1 ii).
+    name: "upsert then deleteMany: the removal has the last word",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
       await client.item.create({
@@ -4231,11 +4277,9 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: "depends on an earlier 'deleteMany' target write",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
-      items: [{ id: 1, label: "before", ownerId: 1 }],
+      items: [],
       profiles: [],
     },
   },
@@ -4261,7 +4305,12 @@ async function dumpCrossRelationTarget(
 
 const crossRelationTargetScenarios: Scenario<CrossRelationTargetSchema>[] = [
   {
-    name: "parent-holds create then connect on one relation rejects in update",
+    // RETARGETED by N6-U3: rejects, writes nothing, different guard. On a PARENT-HELD
+    // to-one the FK is one column of the parent row, so two kinds on it are two values
+    // for one column — V2 has always refused that arity outright, and now that the
+    // preflight no longer intercepts first (its `connect` read is ordered before the
+    // `create` write) that older, more specific refusal is the one the caller sees.
+    name: "parent-holds create then connect on one relation is a to-one arity refusal",
     seed: (client) =>
       client.record.create({
         data: { id: 1, primaryId: null, secondaryId: null },
@@ -4277,7 +4326,8 @@ const crossRelationTargetScenarios: Scenario<CrossRelationTargetSchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: "depends on an earlier 'create' target write",
+    expectedError:
+      "supports one mutation kind on the to-one relation 'primary'",
     expected: {
       accounts: [],
       records: [{ id: 1, primaryId: null, secondaryId: null }],
@@ -4432,9 +4482,15 @@ const CROSS_STEP_EMPTY: PersistedState = {
 
 const crossStepScenarios: Scenario<NestedWriteSchema>[] = [
   {
-    name: "cross-step: create then connectOrCreate the same key rejects uniformly",
-    expectedError:
-      "depends on an earlier 'create' target write in the same nested write",
+    // RETARGETED by N6-U3: rejects, writes nothing, and the guard is now the one that
+    // owns the invariant. `connectOrCreate` is a stage-1 named reader — it must read to
+    // choose its arm — so it is ordered before the stage-3 `create`. Its probe finds
+    // nothing, it takes its create arm, and the sibling `create` then inserts the same
+    // key: the unique constraint refuses, exactly as N2-U1 chose for the occupied 1:1
+    // slot. Adding a preflight check for a key the database already guards would be a
+    // second guard on one invariant (the AGENTS.md ban).
+    name: "cross-step: create then connectOrCreate the same key hits the unique constraint",
+    expectedError: "Unique constraint violation",
     seed: (client) => client.user.create({ data: { id: "u1", name: "Owner" } }),
     act: (client) =>
       client.user.update({
@@ -4605,7 +4661,23 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
       },
     },
     {
-      name: "connectOrCreate payload keeps its fresh local dependency gate",
+      // RETARGETED TWICE, both times by an absorption that moved the boundary this
+      // payload used to stop at, and both times WITHOUT changing what it persists.
+      //
+      // N6-U3 first: the inner `tags: { create, connectOrCreate }` is the same sibling
+      // pair as the top-level cross-step case, one level deeper — the linearization is
+      // ONE order and applies at every depth, so the preflight stopped intercepting it
+      // and what surfaced was the m2m connectOrCreate's refusal of nested relation
+      // writes in its data (the OUTER `projects.connectOrCreate` create arm carries
+      // `tags`, and `projects` is itself many-to-many here).
+      //
+      // E2-U2 now absorbs exactly that create arm, so the payload reaches the inner
+      // pair — and lands on the answer its `upsert` twin below has always given: the
+      // adopt arm's probe runs before the sibling `create`'s INSERT (ATOM §4.1), so the
+      // duplicate insert meets the unique constraint. Same class as the twin, same
+      // persisted state as before (rejects, writes nothing) — the assertion that
+      // carries the contract is unchanged.
+      name: "connectOrCreate payload's inner sibling pair hits the unique constraint",
       seed: (client) => client.workspace.create({ data: { id: 1 } }),
       act: (client) =>
         client.workspace.update({
@@ -4629,7 +4701,7 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
           },
         }),
       expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
+      expectedError: "Unique constraint violation",
       expected: {
         workspaces: [{ id: 1, projects: [], tags: [] }],
         projects: [],
@@ -4637,7 +4709,11 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
       },
     },
     {
-      name: "upsert alternatives keep their fresh local dependency gates",
+      // RETARGETED by N6-U3, same reading as the connectOrCreate scenario above: the
+      // inner `create` + `connectOrCreate` on one key linearizes with the adopt's probe
+      // first, so the duplicate insert is refused by the unique constraint rather than
+      // by the preflight. Rejects, writes nothing.
+      name: "upsert create alternative's inner sibling pair hits the unique constraint",
       seed: (client) => client.workspace.create({ data: { id: 1 } }),
       act: (client) =>
         client.workspace.update({
@@ -4662,7 +4738,7 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
           },
         }),
       expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
+      expectedError: "Unique constraint violation",
       expected: {
         workspaces: [{ id: 1, projects: [], tags: [] }],
         projects: [],
@@ -4806,7 +4882,8 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
       },
     },
     {
-      name: "an upsert update alternative keeps its own dependency gate",
+      // RETARGETED by N6-U3, same reading, on the upsert's UPDATE alternative.
+      name: "upsert update alternative's inner sibling pair hits the unique constraint",
       seed: (client) =>
         client.workspace.create({
           data: { id: 1, projects: { create: { id: 1 } } },
@@ -4833,7 +4910,7 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
           },
         }),
       expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
+      expectedError: "Unique constraint violation",
       expected: TRANSITIVE_TARGET_SEED,
     },
     {

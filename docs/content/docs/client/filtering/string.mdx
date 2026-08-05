@@ -1,7 +1,7 @@
 ---
 title: String Filters
 description: Filter operators for string scalars
-icon: Type
+icon: type
 ---
 
 ## Operators
@@ -44,9 +44,9 @@ where: { email: { endsWith: "@company.com" } }
 where: { email: { endsWith: "@company.com", mode: "insensitive" } }
 ```
 
-<Callout type="info">
-  `contains`, `startsWith`, and `endsWith` match the value as a literal substring. Wildcard characters (`%`, `_`, `\`) in the value are escaped automatically, so they are matched literally rather than acting as SQL `LIKE` wildcards.
-</Callout>
+:::info
+`contains`, `startsWith`, and `endsWith` match the value as a literal substring. Wildcard characters (`%`, `_`, `\`) in the value are escaped automatically, so they are matched literally rather than acting as SQL `LIKE` wildcards.
+:::
 
 ## mode (Case Sensitivity)
 

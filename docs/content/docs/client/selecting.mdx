@@ -1,7 +1,7 @@
 ---
 title: Selecting Fields
 description: Control which fields are returned from queries using select and include
-icon: CheckSquare
+icon: check-square
 ---
 
 ## select
@@ -56,9 +56,9 @@ client-level default and how the three layers of omission rank.
 | Relations | Must select | Add to base |
 | Default | Nothing selected | All scalars |
 
-<Callout type="warn">
-  An empty `select: {}`, or a `select` where every field is `false`/`undefined`, throws an error rather than returning all fields. `select` must include at least one truthy field.
-</Callout>
+:::warning
+An empty `select: {}`, or a `select` where every field is `false`/`undefined`, throws an error rather than returning all fields. `select` must include at least one truthy field.
+:::
 
 ## Nested Selection
 

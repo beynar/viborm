@@ -124,13 +124,6 @@ export function runImplicitReturningBehavior({
 }: ImplicitReturningBehaviorOptions) {
   describe(`${driverName} bulk-write implicit returning`, () => {
     let client: ImplicitReturningClient | undefined;
-    // `createMany` with BOTH `skipDuplicates` and `select` is the one documented
-    // deliberate refusal on a NON-returning driver (route-inventory category ii):
-    // there is no portable `ON CONFLICT DO NOTHING` that also reports which rows
-    // it inserted. The `{ count }` arm supports skipDuplicates everywhere.
-    const supportsReturning =
-      createDriver().adapter.capabilities.supportsReturning;
-
     beforeEach(async () => {
       const driver = createDriver();
       client = createClient({ schema, driver });
@@ -503,30 +496,22 @@ export function runImplicitReturningBehavior({
           select: { id: true, name: true },
         });
 
-      if (!supportsReturning) {
-        // The one documented deliberate refusal (route-inventory category ii): a
-        // non-returning driver cannot both skip duplicates and report the inserted
-        // rows. Maintainer-authorized; its absorption is post-P6 backlog.
-        await expect(call()).rejects.toThrow(
-          "does not support 'skipDuplicates' on a driver without RETURNING"
-        );
-        // The same payload WITHOUT `select` is the supported `{ count }` form —
-        // the refusal is scoped to asking for the rows back, not to skipping.
-        await expect(
-          client!.gadget.createMany({
-            data: [
-              { id: "g1", code: "c1", name: "Duplicate" },
-              { id: "g3", code: "c3", name: "Fresh" },
-            ],
-            skipDuplicates: true,
-          })
-        ).resolves.toEqual({ count: 1 });
-        return;
-      }
-
+      // U-E6.9 (maintainer-authorized) made this ONE assertion for both driver classes.
+      // It used to fork: a non-returning driver saw the deliberate refusal, because no
+      // single statement can report which rows a skip inserted. It still cannot — but the
+      // operation can, by observing each row's own write behind the savepoint effect and
+      // refetching by the ids it captured. The two mechanisms now answer identically, and
+      // saying so with ONE assertion is the point: the driver class is no longer part of
+      // this shape's semantics. (The mechanism-specific claims — the capture's structure,
+      // the stale-id decoy, the atomic-batch refusal — are in
+      // `tests/query-engine-v2/e69-skip-select-capture-*.ts`.)
       const rows = await call();
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ id: "g3", name: "Fresh" });
+      // The row already there is untouched, and the skipped input did not become one.
+      await expect(
+        client!.gadget.findUnique({ where: { id: "g1" } })
+      ).resolves.toMatchObject({ name: "Existing" });
     });
 
     test("skipDuplicates still surfaces unrelated foreign-key failures", async () => {

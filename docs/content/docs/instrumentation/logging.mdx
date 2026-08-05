@@ -1,7 +1,7 @@
 ---
 title: Logging
 description: Configure structured logging with pretty console output or custom callbacks
-icon: FileText
+icon: file-text
 ---
 
 ## Configuration
@@ -321,9 +321,9 @@ logging: {
 }
 ```
 
-<Callout type="warn">
+:::warning
 Never enable `includeParams` in production. Query parameters may contain passwords, personal information, or other sensitive data.
-</Callout>
+:::
 
 These options affect logging only — tracing and error diagnostics have
 [independent disclosure policies](/docs/instrumentation#privacy--security).

@@ -1,0 +1,2308 @@
+# Query Performance Plan
+
+**Date:** 2026-07-28
+**Language:** This document uses Simplified Technical English (ASD-STE100 style).
+**Status: CLOSED — every phase has reached its final state.** One line each; the delivery record and the wave gate named on each line carry the evidence.
+
+- **Phase 1 — delivered.** One index over the foreign-key columns of every `manyToOne` holder, on all three dialects, plus the two ordering corrections the live pushes forced (MySQL errno 1553, PostgreSQL/SQLite 42P07) and the SQLite rebuild fix without which the deliverable never landed on a pre-existing database. Measured 26× on PostgreSQL and 29× on SQLite at 100,000 rows.
+- **Phase 2 — delivered.** Both DDL defects: a declared index resolves its columns through `.map()`, and a partial index reaches SQLite with its `WHERE` and reads back. Two review corrections followed — a partial index is not coverage (`isTotalIndex`), and the fallback index name plus the foreign keys a SQLite rebuild resurrected. The PostgreSQL deparse mismatch this phase recorded rather than papered over became Decision 7.4.
+- **Phase 3 — delivered.** A scalar delete folds to one `DELETE … RETURNING` — 3 payload statements inside an envelope down to 1, no envelope. The `_count` correction that followed found the same defect in the three sibling folds and moved the gate to one home, `shared.selectProjectsRelation`.
+- **Phase 4 — delivered.** `connect`/`disconnect` fold probe and write (8 statements → 4); `set` and M2M `connect` fold the write only, and the split-witness guard that keeps their probes per target is stated with its two rejected weaker restatements. M2M `disconnect` is recorded as out of scope, with the reason.
+- **Phase 5 — delivered.** The null-placement prefix comes off every NOT NULL sort key — which is every windowed read's identity tie-breaker — and SQLite's emulated placement becomes native `NULLS FIRST/LAST`. Measured 615× and 670× on SQLite, 62× on an explicit non-default PostgreSQL placement. Certified with Phases 1–4 by the wave gate that follows Phase 5.
+- **Phase 6 — delivered.** It shipped its measurement first and pinned it as a baseline; both units then hit a blocker that was a decision rather than a defect, and both decisions were taken on 2026-08-03. 6.1's level-grouped planning reads (fan-out 6 → 3) and 6.2's batch-mode `[presence guard, write … RETURNING]` fold (2 → 1) shipped together, certified by the P6 completion gate at the end of the Phase 6 section.
+- **Phase 7 — delivered, 7.4 included.** 7.1 (the `ON CONFLICT` upsert fold), 7.2 (the multi-row `INSERT … RETURNING`) and 7.3 (the per-dialect index-usable prefix predicate) each carry the maintainer's disposition in their own section and are certified together by the Phase 7 wave gate. **7.4** — the 2026-08-03 disposition to canonicalize the declared partial-index predicate THROUGH the database before comparing — shipped in Phase 10's wave and closes the debt Phase 2 raised; its fourth witness was added afterwards, because review proved the fail-closed `catch` was unwitnessed.
+- **Phase 8 — delivered.** Both CTE folds, plus item 10.1 (the SQLite capability flag), whose value Phase 8 is the first reader of. See the Phase 8 delivery record.
+- **Phase 9 — parked on its own measurement, not abandoned.** The correction it proposed was measured to buy exactly nothing; the win it was after sits behind a deployment decision rather than a transport change. The numbers and the shut door are in the Phase 9 disposition, and node-postgres's missing pipeline mode is documented in the driver. Phases 8 and 9 are certified together by the Phase 8/9 wave gate, whose final subsection is the gate run on the tip after that wave's four review corrections.
+- **Phase 10 — delivered, and it closes the plan.** 10.1 had already landed in Phase 8 and is recorded as such rather than redone; 10.2's MySQL `BINARY` wrap was measured to cost an index lookup on every `equals`/`in` and became an accelerator conjunction on 7.3's pattern; 10.3/10.4 are documentation; 10.5's two schema-API gaps are RECORDED, with the reason each is not one line; 10.6 aligned the index-type union with the round trip the MySQL driver already had. See the Phase 10 delivery record and the Phase 10 wave gate.
+
+**Closing gate — 2026-08-04, main checkout, branch `nested-write-boundaries`, tip `c10eed0`.** `pnpm test:types` clean; full estate run alone (`--minWorkers=1 --maxWorkers=4`) **9459 passed, 81 failed, 2181 skipped** across 276 files, where the 81 are the four `tests/cli` files broken by the maintainer's uncommitted `pnpm-lock.yaml` (the vite 8 move) and everything outside `tests/cli` is at **zero**; `pnpm test:gates` **72 passed**, census pin unchanged; repo-pinned `npx biome check` (2.3.11) over every file in `git diff 72a12be..HEAD` reports **no new diagnostics** (the unused `dir` in `src/migrations/generate/index.ts` and the five `useTopLevelRegex` infos in the two migration test files are byte-for-byte the ones `72a12be` already had); Docker MySQL 8.4 on 3307 **1025 passed, 0 failed** with 10.2's eleven `BINARY` witnesses executed by name; Docker PostgreSQL on 5434 **1144 passed, 0 failed, 14 skipped** with 7.4's four partial-index-churn witnesses executed by name.
+
+## Deferred defects closed — 2026-08-04
+
+The plan is closed, but two defects its waves MEASURED and deliberately deferred are now fixed on `nested-write-boundaries` and fold into PR #20 rather than into a new branch. Both were pre-existing: neither was caused by a phase of this plan, and each is recorded in full where the wave that found it filed it.
+
+| Deferred defect | Where this plan filed it | Where the fix is recorded |
+| --- | --- | --- |
+| `delete({ where, select: { relation } })` raised PostgreSQL `0A000` — the shape-capturing read gated `FOR UPDATE` on `!parsedInclude`, a proxy that misses a relation reached through `select`. Surfaced by Phase 3's witnesses; left alone there because removing a lock wanted its own review. | Phase 3 record, "Found, not fixed here"; repeated in the Phase 5 wave gate's open list. | Phase 3 record, "Resolution — the deferred `0A000`, closed". One predicate, `shared.projectionNamesNoRelation`, now serves both the fold gate and the lock gate, and the three sibling operations that re-spelled the same conjunction call it too. |
+| SQLite introspection cannot read back the NAME of a foreign key or of an inline unique constraint, so an unchanged schema read as changed on every push and the differ planned constraint churn forever. Phases 1 and 2 repaired what the churn DESTROYED; the cause stayed. | Phase 1 record, "Still open, and pre-existing"; Phase 2's second review correction repaired the second consequence. | "Post-closure — the constraint name SQLite cannot read back", at the end of this document: identity by shape where the name is a synthesis, the completed `getCurrentTable` replay, SQLite's inline unique-constraint DDL, and the foreign-key pragma lifted outside the transaction that was ignoring it. |
+
+**Gate for the pair — 2026-08-04, main checkout, branch `nested-write-boundaries`, on top of `a50b0d0`.** `pnpm test:types` clean; full estate run alone (`--minWorkers=1 --maxWorkers=4`) **9510 passed, 81 failed, 2192 skipped** across 279 files, where the 81 are the same four `tests/cli` files the maintainer's uncommitted `pnpm-lock.yaml` breaks (`loadConfig` → `importModule`, `src/cli/utils.ts`) — 9 in `command-factory.test.ts`, 35 in `migrate.test.ts`, 22 in `push.test.ts`, 15 in `utils.test.ts` — and everything outside `tests/cli` is at **zero**; the baseline at `f33d16a` was 9459 passed with the same 81, so the two fixes add 51 passing witnesses and no failure. `pnpm test:gates` **72 passed**, census pin still 39. Repo-pinned `npx biome check` (2.3.11) per file over `git diff --name-only f33d16a..HEAD` reports **no new diagnostics**: the one `noExportedImports` in `src/migrations/drivers/types.ts:7:15` and the three `useTopLevelRegex` infos in `tests/migrations/ddl-drivers.test.ts` are the same rules at the same count that `f33d16a` already had (the three moved from lines 94/990/1011 to 94/1020/1041 because the file grew). Docker MySQL 8.4 on 3307 **1029 passed, 0 failed** (baseline 1025); Docker PostgreSQL on 5434, serial, **1151 passed, 0 failed, 14 skipped** (baseline 1144), with the `0A000` fix's two witnesses — *"a to-many relation inside `select` comes back, and the row is gone"* and *"a to-one relation inside `select` comes back, and the row is gone"* — executed BY NAME on both the `pg` and the `postgres.js` drivers, the dialect that raised the error.
+
+## Source of this plan
+
+Four audits examined the query engine and the generated schemas:
+
+1. A static audit read the statement emission code.
+2. An empirical audit counted the SQL statements for each operation on PGlite and SQLite.
+3. A static audit examined the generated indexes and the predicate spellings.
+4. An empirical audit ran EXPLAIN on the emitted SQL at a volume of 100,000 rows, with time measurements. Evidence files: `plan-audit-pglite.json`, `plan-audit-sqlite.json` in the session scratchpad.
+
+The audits agree. The engine emits a correct number of statements for reads and for bulk writes. The problems are in five statement shapes and in the generated schemas.
+
+## Rules for the work
+
+- Each phase uses the standard harness: one implementer, two adversarial reviewers, a maximum of two fix rounds.
+- Each phase must keep the full test estate green: `pnpm test:types`, `pnpm test`, `pnpm test:gates`.
+- The final gate must run the Docker legs for MySQL (port 3307) and PostgreSQL (port 5434).
+- A change must not remove an error message, an error attribution, or a race protection. A reviewer must attack each of these.
+- The step vocabulary in `src/query-engine/write-engine/OperationFragment.ts` is frozen. No phase may grow it.
+- If a phase changes pinned SQL in `tests/query-engine/sql-generation.test.ts`, the phase must update the pins deliberately, with a comment.
+
+---
+
+## Phase 1 — Make an index for each foreign-key column
+
+**This phase has the highest value in this plan.**
+
+### Problem
+
+The serializer makes a foreign-key constraint for each to-many relation. The serializer does not make an index for the foreign-key column. MySQL/InnoDB makes an index for each FK constraint automatically. PostgreSQL and SQLite do not. Each include operation, each relation filter, and each nested-write locate reads the child table through this column.
+
+### Context and code locations
+
+- The relation loop in [`src/migrations/serializer.ts:214-289`](../../src/migrations/serializer.ts) pushes only `foreignKeys.push({...})` (lines 257-267). No `indexes.push` exists for these columns.
+- The one-to-one case is already correct: a unique constraint is added at `serializer.ts:269-286`.
+- The junction case is already correct: the PK covers the first column (`serializer.ts:414`) and an explicit index covers the second column (`serializer.ts:417-423`).
+- The user-declared indexes are collected at `serializer.ts:201-212` (note: this block has the defect of Phase 2, Unit 2.1).
+- The index DDL emitters per dialect: `src/migrations/drivers/postgres/index.ts:289-299`, `src/migrations/drivers/sqlite/index.ts:404-414`, `src/migrations/drivers/mysql/index.ts:364-398`.
+- The consumers of the missing index: `buildCorrelation` in [`src/query-engine/builders/correlation-utils.ts:80-98`](../../src/query-engine/builders/correlation-utils.ts) emits `parent.col = related.col`; used by both include strategies ([`include-builder.ts:112-117, 178-183`](../../src/query-engine/builders/include-builder.ts)), by each relation filter ([`relation-filter-builder.ts:365`](../../src/query-engine/builders/relation-filter-builder.ts)), and by the nested-read window ([`nested-read-window.ts:43-58`](../../src/query-engine/builders/nested-read-window.ts)).
+
+### Measured effect at 100,000 rows
+
+| Operation | Without the index | With the index | Ratio |
+| --- | --- | --- | --- |
+| Include with 1000 parent rows (PostgreSQL) | 7,232 ms | 24.6 ms | 294× |
+| Include with 1000 parent rows (SQLite) | 8,378 ms | 23.2 ms | 361× |
+| Relation `every` filter (SQLite) | 43,308 ms | 13.6 ms | 3,185× |
+| findMany on the foreign-key column (PostgreSQL) | 7.1 ms | 0.33 ms | 21× |
+
+### Correction
+
+In the serializer relation loop, after the `foreignKeys.push`, add an index for each to-many holder column. Recommendation: emit the index on all dialects, for consistency and for a simple differ (on MySQL the explicit index replaces the implicit InnoDB index; this is harmless). Requirements:
+
+1. Skip the index when the column set is already the prefix of a user-declared index or a unique constraint (read the collected `indexes` and `uniqueConstraints` before the push).
+2. Resolve the column names with `model["~"].getFieldName(field).sql`, the same pattern as `serializer.ts:237-242`.
+3. Use a stable, deterministic index name (follow the junction index naming at `serializer.ts:417-423`).
+4. Compound FK: one composite index over the FK columns in FK order.
+
+### Test
+
+1. Push a schema with a to-many relation. Make sure that the index exists in the database on all three dialects (query `pg_indexes`, `sqlite_master`, `information_schema.statistics`).
+2. Run an include operation at volume. Make sure that the EXPLAIN plan shows an index scan, not a sequential scan.
+3. Push the same schema again. Make sure that the differ reports no change (idempotency).
+4. Declare `.index(["authorId"])` on the same column. Make sure that no duplicate index appears.
+5. Run the migration suites and the CLI push tests.
+
+### Ordering consequence, found after the phase landed
+
+The index this phase emits is the only index on the column, so MySQL/InnoDB binds the FK constraint to it. `sortOperations` in [`src/migrations/utils.ts`](../../src/migrations/utils.ts) ran every `dropIndex` before every `createIndex` and every `addUniqueConstraint`. The edit the docs recommend above — declare a wider index over the same fields — therefore planned `DROP INDEX` while the constraint had nothing else to bind to: MySQL errno 1553, `HY000`, and the whole transactional push aborted. A compound unique whose first column is the FK failed the same way. Reproduced on the Docker MySQL container; PostgreSQL and SQLite were unaffected.
+
+A `dropIndex` whose replacement is created in the same batch now runs between `createIndex` and `addForeignKey`. Two arrangements keep the early slot: a create that takes the same index *name*, because the name has to be free before it can be taken again; and any table that also drops a column, because the column drop takes that column's indexes with it. Witnesses: [`tests/migrations/superseded-index-ordering.test.ts`](../../tests/migrations/superseded-index-ordering.test.ts) for the order and the emitted DDL, and two live pushes in [`tests/drivers/fk-index-behavior.ts`](../../tests/drivers/fk-index-behavior.ts) wired on all five drivers.
+
+#### Correction from review — the name has to be matched on its own
+
+The same-name exclusion above was first keyed on the pair `(table, index name)`, which is how MySQL scopes an index name — but PostgreSQL and SQLite scope it to the schema. Moving a named index from one model to another therefore looked like an unrelated drop and an unrelated create, the drop was deferred past the create, and the create hit an occupied name: Postgres 42P07, SQLite the same, push aborted. Keying on the name alone can only move a drop earlier, never later, so it cannot reopen the 1553 case — there the created index carries a different name. Witness: `drops first when another table takes the same name`, plus the two live pushes at the bottom of the same file.
+
+### The upgrade path on SQLite, found after the phase landed
+
+SQLite has no `ALTER TABLE ADD FOREIGN KEY`, so every FK change rebuilds the table, and the rebuild read its index list from the snapshot introspected *before* the batch. Since `createIndex` is priority 15 and `addForeignKey` is 16, the rebuild threw away the index the same push had just created. This was not rare: SQLite introspection has no constraint names to read (`PRAGMA foreign_key_list` reports none), so the differ plans an FK drop and add on every push for every `manyToOne`. On any database created before this phase the FK index was created and destroyed in the same transaction, on every push, forever — this phase's deliverable never landed there and `push` never converged. `SQLite3MigrationDriver.getCurrentTable` now replays the batch's preceding `createIndex` / `dropIndex` operations onto the introspected list, so a rebuild carries the indexes the table holds at the moment it runs. Witnesses: [`tests/migrations/sqlite-recreation-indexes.test.ts`](../../tests/migrations/sqlite-recreation-indexes.test.ts) for the emitted DDL, and `runFkIndexUpgradeBehavior` in [`tests/drivers/fk-index-behavior.ts`](../../tests/drivers/fk-index-behavior.ts) wired on PGlite, SQLite3 and LibSQL.
+
+Still open, and pre-existing: the same rebuild reads its *columns*, unique constraints and foreign keys from that stale snapshot too, and SQLite's nameless FK introspection makes the differ plan an FK drop plus add on every push — which appends a duplicate constraint to the table each time. Measured on a schema that emits no FK index at all (the FK columns prefix the primary key), so it is not this phase's doing: three pushes leave `arc_posts` carrying `arc_posts_fk_0`, `arc_posts_fk_1` and `arc_posts_author_id_fkey`, all identical.
+
+### Phase 1 delivery record
+
+**Delivered:** 2026-08-02. Branch `nested-write-boundaries`, four commits from `d9f5c24` (the serializer change) through `e03307c` (the SQLite rebuild fix).
+
+#### What shipped
+
+| Commit | What it does |
+| --- | --- |
+| `d9f5c24` | The serializer emits one index over the FK columns of each `manyToOne` holder, on all three dialects. Column names resolve through `getFieldName(field).sql`; the index is skipped when a user-declared index or a unique constraint already prefixes the same column set; a compound FK gets one composite index in FK order. |
+| `260371d` | `sortOperations` runs a `dropIndex` whose replacement is created in the same batch after `createIndex`, so MySQL/InnoDB never loses the index its FK constraint is bound to (errno 1553). |
+| `f80c2c0` | The same-name exclusion is keyed on the index name alone, not on `(table, name)`, because PostgreSQL and SQLite scope index names to the schema (42P07). |
+| `e03307c` | `SQLite3MigrationDriver.getCurrentTable` replays the batch's preceding `createIndex`/`dropIndex` onto the introspected list, so an FK-driven table rebuild carries the index the same push created. Without this the deliverable never landed on any pre-existing SQLite database, and `push` never converged. |
+
+#### Measured effect — before and after, same statement, same data
+
+The measurement pushes the schema, seeds 1,000 parents and 100,000 children (100 children per parent), runs `ANALYZE`, then EXPLAINs and times the one statement the client emits for `findMany({ take: 1000, include: { posts: true } })`. It then drops only the FK index, re-`ANALYZE`s, and repeats. Nothing else differs between the two readings.
+
+**PostgreSQL 17 (Docker, port 5434), `pg` driver.**
+
+```text
+WITH the index (103.4 ms)                    WITHOUT the index (2683.0 ms)
+Limit  (cost=272.41..272204.66 rows=1000)    Limit  (cost=1886.78..1886575.54 rows=1000)
+  -> Nested Loop Left Join                     -> Nested Loop Left Join
+    -> Index Scan using m_plan_users_pkey        -> Index Scan using m_plan_users_pkey
+    -> Aggregate                                 -> Aggregate
+      -> Bitmap Heap Scan on m_plan_posts t1       -> Seq Scan on m_plan_posts t1
+         Recheck Cond: (t0.id = author_id)            Filter: (t0.id = author_id)
+        -> Bitmap Index Scan on
+           m_plan_posts_author_id_idx
+           Index Cond: (author_id = t0.id)
+```
+
+26× on the wall clock; the planner's own estimate moves from 1,886,575 to 272,205.
+
+**SQLite (`better-sqlite3`, in-memory).**
+
+```text
+WITH the index (88.7 ms)                     WITHOUT the index (2592.1 ms)
+SCAN t0                                      SCAN t0
+CORRELATED SCALAR SUBQUERY 2                 CORRELATED SCALAR SUBQUERY 2
+SEARCH t1 USING INDEX                        SCAN t1
+  m_plan_posts_author_id_idx (author_id=?)
+USE TEMP B-TREE FOR ORDER BY                 USE TEMP B-TREE FOR ORDER BY
+```
+
+29× on the wall clock. The child table moves from a full scan to an index search.
+
+These numbers are smaller than the audit table above (294× and 361×) because the audit read 1,000 parents out of a 100,000-row parent table; here the parent side is 1,000 rows, so the sequential scan that the index removes is repeated 1,000 times instead of over a larger table. The shape of the win is the same and the direction of the plan change is identical: sequential scan becomes an index lookup.
+
+#### Witnesses
+
+- [`tests/drivers/fk-index-behavior.ts`](../../tests/drivers/fk-index-behavior.ts) — three suites, wired on the live drivers:
+  - `runFkIndexBehavior` reads each database's own catalog (`pg_indexes`, `information_schema.STATISTICS`, `sqlite_master`) and proves the index arrives, that a second push is not a change, that a declared `.index()` on the same column is not duplicated, and that a wider index or a compound unique over the FK columns replaces it in one push. Wired on all five drivers.
+  - `runFkIndexUpgradeBehavior` proves a database created before this phase gains the index. Wired on PGlite, SQLite3 and LibSQL.
+  - `runFkIndexPlanBehavior` proves the planner uses it: it EXPLAINs the statement the client actually emitted and asserts the index name appears and that neither `Seq Scan on fk_plan_posts` nor `SCAN t1` does. On PostgreSQL it first sets `enable_seqscan = on` and asserts the setting took, so the assertion means the index won on cost. Wired on PGlite and SQLite3.
+- [`tests/migrations/superseded-index-ordering.test.ts`](../../tests/migrations/superseded-index-ordering.test.ts) — the operation order and the emitted DDL for the drop-after-create rule, including `drops first when another table takes the same name`.
+- [`tests/migrations/sqlite-recreation-indexes.test.ts`](../../tests/migrations/sqlite-recreation-indexes.test.ts) — the DDL a SQLite table rebuild emits when the same batch created an index.
+
+#### Gate
+
+| Leg | Result |
+| --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean |
+| full estate, `--minWorkers=1 --maxWorkers=4` | 9197 passed, 0 failed, 2102 skipped (261 files); baseline was 9152 |
+| `pnpm test:gates` | 72 passed; the census log is unchanged |
+| repo-pinned `npx biome check` per changed file | no new diagnostics; the two `useTopLevelRegex` infos in `src/migrations/utils.ts:87` and `tests/migrations/serializer.test.ts:337,359` are byte-identical to their `47b0847` versions |
+| Docker MySQL (3307) | 984 passed, 0 failed; baseline 979. The five `MySQL2 foreign-key index` witnesses executed |
+| Docker PostgreSQL (5434) | 1097 passed, 0 failed, 14 skipped; baseline 1092. The five `pg foreign-key index` witnesses executed |
+
+No error message, error attribution, or race protection was removed. The step vocabulary in `OperationFragment.ts` is untouched, and no pinned SQL in `tests/query-engine/sql-generation.test.ts` changed — this phase is a serializer and migration-ordering change and does not reach the query emitters.
+
+---
+
+## Phase 2 — Correct two DDL defects
+
+### Unit 2.1 — The index name for a mapped field
+
+**Problem.** `.index()` on a field with `.map()` writes the TypeScript field name into the DDL. The CREATE INDEX statement points to a column that does not exist.
+
+**Code locations.** The index collection at [`serializer.ts:201-212`](../../src/migrations/serializer.ts) pushes `columns: indexDef.fields` raw. The correct pattern exists twice in the same file: compound uniques resolve through `model["~"].getFieldName(field).sql` at `serializer.ts:190-197`, and FK columns at `serializer.ts:237-242`.
+
+**Correction.** Resolve each index field through `getFieldName(field).sql` before the push.
+
+**Test.** Push a schema with a mapped, indexed field. Make sure that the index exists on the mapped column name. Add the falsification: revert the resolution, and make sure the new test fails.
+
+### Unit 2.2 — The partial index on SQLite
+
+**Problem.** The SQLite driver does not write the WHERE clause of a partial index. The introspection does not read the partial state. The differ compares the declared `where` with the introspected value and sees a difference on each push. The index is re-created forever.
+
+**Code locations.** `generateCreateIndex` in [`src/migrations/drivers/sqlite/index.ts:404-414`](../../src/migrations/drivers/sqlite/index.ts) never reads `index.where`. The introspection at [`introspect.ts:78, 125`](../../src/migrations/drivers/sqlite/introspect.ts) uses `PRAGMA index_list` / `index_info` only (note: `PRAGMA index_list` returns a `partial` column, and `sqlite_master.sql` contains the full CREATE INDEX text with the WHERE clause — both are usable). The differ comparison is at [`differ.ts:72-80`](../../src/migrations/differ.ts). MySQL also ignores `where` silently ([`mysql/index.ts:364-398`](../../src/migrations/drivers/mysql/index.ts)); the loud-refusal precedent is `validateIndexType` at [`base.ts:446-460`](../../src/migrations/drivers/base.ts).
+
+**Correction.** Support the partial index on SQLite: emit the WHERE clause, and read it back from `sqlite_master.sql` in the introspection. On MySQL, refuse a partial index loudly with the `validateIndexType` pattern. Do not drop it silently on any dialect.
+
+**Test.** Declare a partial index on SQLite. Push two times. Make sure that the second push reports no change. Make sure that the index in the database has the WHERE clause. On MySQL, make sure the declaration gets a clear error.
+
+### Phase 2 delivery record
+
+**Delivered:** 2026-08-02. Branch `nested-write-boundaries`, on top of the Phase 1 record.
+
+#### What shipped
+
+| Change | What it does |
+| --- | --- |
+| `serializer.ts` index collection | Resolves each declared index field through `getFieldName(field).sql` before the push, so `.index()` on a `.map()`ed field names the column and not the TypeScript field. One resolution now serves both readers — the CREATE INDEX and the Phase 1 foreign-key index's coverage decision, which already resolved the names separately. |
+| `sqlite/index.ts` `generateCreateIndex` | Emits ` WHERE <predicate>` for a partial index. |
+| `sqlite/introspect.ts` | Reads the predicate back out of `sqlite_master.sql`, so the differ can see the declared and the stored index agree. |
+| `mysql/index.ts` `generateCreateIndex` | Refuses a partial index by name, quoting the predicate, instead of building a silently different index. MySQL has no partial index. |
+| `differ.ts` `normalizeIndexWhere` | `type`'s and `unique`'s third twin: the one place the two snapshots' predicate spellings are reconciled. |
+| `sqlite/introspect.ts` `int()` | Normalizes the pragmas' integer columns. See the LibSQL finding below. |
+
+#### Measured: what each catalog does with a predicate
+
+The plan's ordering note asked whether `indexesEqual` has to normalize a re-spelled predicate. Both catalogs were measured directly.
+
+**SQLite (better-sqlite3 3.51) stores the statement verbatim.** `CREATE INDEX i1 ON t ("title") WHERE  published = 1 ` comes back from `sqlite_master.sql` byte-identical — inner spacing, padding and all; only the statement terminator is dropped. So the round trip needs no spelling normalization, and the read-back is exact. The only gap is padding: the emitter writes ` WHERE ${where}`, and reading past `WHERE\s+` consumes the separating run, so a predicate declared with leading whitespace returns without it. That is what `normalizeIndexWhere` covers, and nothing else.
+
+**PostgreSQL re-spells the predicate, and this is still open.** `pg_get_expr(indpred, indrelid)` deparses: a declared `active = true` reads back as `(active = true)`, and `a = 1 AND b = 2` would read back as `((a = 1) AND (b = 2))`. Since `postgres/introspect.ts:302` already reads `filter_condition` into `where`, **a partial index on PostgreSQL is dropped and re-created on every push, today, and this phase does not fix it.** It is a different defect from the one this unit was scoped to: SQLite's was a silent drop, PostgreSQL's is a deparse mismatch, and no client-side text normalization closes it without failing open. Stripping all whitespace and parentheses would make `a AND (b OR c)` and `(a AND b) OR c` compare equal — a real predicate change that the differ would then miss — which this codebase's fail-closed doctrine forbids. The honest fixes are to canonicalize the declared predicate through the database (a round trip the differ has no access to today) or to compare `indpred` structurally. **Disposition: record, do not paper over.** Phase 7 is where a choice of this shape belongs.
+
+#### Found while testing: LibSQL read every pragma integer wrong
+
+The first test in this repo to push a **two-column** index on LibSQL crashed the introspection outright:
+
+```text
+TypeError: Cannot convert a BigInt value to a number
+  at LibSQLMigrationDriver.introspect (sqlite/introspect.ts, a.seqno - b.seqno)
+```
+
+The LibSQL driver runs with `intMode: "bigint"` (`src/drivers/libsql/index.ts:133`), so every pragma integer reaches the shared SQLite introspection as BigInt, while `sqlite/types.ts` declared them `number`. Raw, each read was wrong in its own way: `a.seqno - b.seqno` returns a BigInt that `Array#sort` refuses (the crash — invisible until now because every index the tests pushed had one column, and a one-element sort never calls its comparator); `idx.unique === 1` is false for `1n`, so a UNIQUE index introspected as non-unique; and `col.notnull === 0` is false for `0n`, so every NOT NULL column introspected as nullable. This is pre-existing and unrelated to the two units, but a new test cannot be shipped on top of a crash. One normalization at the read boundary — `int()` — fixes all three, because all three have one cause. The full LibSQL suite is green after it (1078 passed), so nothing depended on the old readings.
+
+#### Not changed, deliberately
+
+The **default index name** still spells the TypeScript field names (`${table}_${fields.join("_")}_idx`). The defect was that CREATE INDEX named a non-existent *column*; a name is arbitrary, and renaming it would plan a drop and a create on every existing database that has a mapped indexed field, for no gain. An explicit `.name()` is unaffected either way.
+
+#### Witnesses
+
+- [`tests/drivers/index-ddl-behavior.ts`](../../tests/drivers/index-ddl-behavior.ts) — three live suites:
+  - `runMappedIndexBehavior` pushes a compound index over two mapped columns (one of them the FK column) and reads the column list back from each database's own catalog. Wired on PGlite, pg, SQLite3, LibSQL and MySQL2.
+  - `runPartialIndexBehavior` proves the predicate reaches the database (`sqlite_master.sql` and `PRAGMA index_list`'s `partial`) and that a second push plans no index change — over a table holding a foreign key, so SQLite rebuilds it and re-emits the index from the introspected list. Wired on SQLite3 and LibSQL.
+  - `runPartialIndexRefusalBehavior` proves MySQL refuses the declaration, naming the index and quoting the predicate. Wired on MySQL2.
+- [`tests/migrations/serializer.test.ts`](../../tests/migrations/serializer.test.ts) — `declared index columns resolve through .map()`: single-field, compound in order, unmapped unchanged, and unique.
+- [`tests/migrations/ddl-drivers.test.ts`](../../tests/migrations/ddl-drivers.test.ts) — the SQLite `CREATE INDEX … WHERE` and `CREATE UNIQUE INDEX … WHERE` spellings, and the MySQL refusal message.
+- [`tests/migrations/differ.test.ts`](../../tests/migrations/differ.test.ts) — the padding is ignored; a changed predicate and a predicate that disappears are both still real changes.
+
+#### Falsification
+
+Each fix was reverted on its own and the witness that failed was recorded.
+
+| Reverted | What failed |
+| --- | --- |
+| the serializer resolution (`columns: indexDef.fields`) | 4 serializer unit tests + 3 live SQLite3 tests |
+| the SQLite ` WHERE` emission | 2 SQLite DDL unit tests + 2 live SQLite3 tests |
+| the introspection read-back only | the live convergence test only — the emission test still passed, so each half has its own witness |
+| `normalizeIndexWhere` | the differ padding test only |
+| the MySQL refusal | the MySQL DDL unit test only |
+
+#### Gate
+
+| Leg | Result |
+| --- | --- |
+| `npx tsc --noEmit` (5.9.3) | clean |
+| `tests/migrations` | 343 passed |
+| `tests/drivers/sqlite3` + `tests/drivers/pglite` | 1840 passed |
+| `tests/drivers/libsql` | 1078 passed |
+| `tests/cli` | 144 passed |
+| `pnpm test:gates` | 72 passed |
+| repo-pinned `npx biome check` per changed file | no new diagnostics; the 7 remaining are byte-identical to their `c45e2b5` versions |
+
+Docker MySQL (3307) and PostgreSQL (5434) are left to the gate agent; the MySQL refusal and the mapped-index witnesses are wired on both.
+
+No error message, error attribution, or race protection was removed. The step vocabulary in `OperationFragment.ts` is untouched, and no pinned SQL in `tests/query-engine/sql-generation.test.ts` changed — this phase is a serializer, DDL-emitter and introspection change and does not reach the query emitters.
+
+#### Correction from review — a partial index is not coverage
+
+Making the predicate real made two of the serializer's claims false. `serializer.ts` pushed **every** declared index into `declaredIndexColumns`, and two decisions read that list as total coverage: Phase 1's foreign-key index was skipped when a declared index covered the columns, and a 1:1 relation accepted a declared UNIQUE index as its uniqueness. A partial index holds only the rows its predicate keeps, so it answers neither question — but until the emitters wrote the `WHERE`, the index the database built really was total and both claims held by accident.
+
+Measured live on SQLite3 before the fix. A `manyToOne` on `authorId` plus `.index(["authorId"], { where: … })` left one index on the column, and it was partial: every include, relation filter and nested-write locate reading an excluded child was back to the sequential scan Phase 1 exists to remove. A `oneToOne` on `userId` plus `.index(["userId"], { unique: true, where: … })` serialized `uniqueConstraints: []`, and two profiles naming one user were both accepted — the exact degradation to N:1 that the branch's own comment forbids.
+
+One predicate, `isTotalIndex`, now answers both readers: an index carrying a `where` neither joins `declaredIndexColumns` nor satisfies the 1:1 scan. Fail-open in both places, and silent in both.
+
+The automatic index needed a name of its own as a consequence. A partial index over exactly the foreign-key columns auto-names itself `${table}_${fields}_idx` — the name Phase 1's index generates — and a database keeps one index per name, so the two would collide and the push would abort. The automatic index now falls back on the constraint's name, `${table}_${columns}_fkey_idx`, and only when the preferred one is taken. Nothing that has the index today is renamed: the fallback can only be reached by a schema that has no foreign-key index at all, which is precisely the schema this correction repairs. This keeps the naming decision recorded two sections above — a rename plans a drop and a create for no gain.
+
+PostgreSQL was silently wrong the same way before this wave (its emitter already carried `where` at `c45e2b5`), and MySQL cannot hold the declaration at all. Decision 7.4 is now the only open partial-index debt.
+
+Witnesses: `runPartialIndexCoverageBehavior` in [`tests/drivers/index-ddl-behavior.ts`](../../tests/drivers/index-ddl-behavior.ts) — the whole-column index exists and is not partial, a second push does not touch it, and two rows the predicate excludes cannot share the 1:1 key — wired on PGlite, SQLite3 and LibSQL, every dialect that builds a predicate. Four serializer unit tests carry the same claims plus the accepted case (a *total* declared UNIQUE index still is the 1:1 uniqueness) and the no-collision case (a mapped field spells the two names apart, so the preferred name stands).
+
+| Reverted | What failed |
+| --- | --- |
+| the `isTotalIndex` gate on `declaredIndexColumns` | 2 serializer unit tests + 2 live SQLite3 tests |
+
+#### Second correction from review (PR #20) — the fallback name, and the foreign keys the rebuild carried
+
+Two defects in the machinery the two sections above built, both found by reviewing this
+PR, both reproduced live before they were touched.
+
+**(1) The fallback name covered half its invariant.** The correction above gives the
+automatic index a second name when the preferred one is taken — but both names are
+ordinary strings a schema may declare, and `.index([...], { name: "<table>_<cols>_fkey_idx" })`
+is legal. With both spent, the index was pushed anyway and the snapshot carried two
+entries under one name; the differ emitted two `CREATE INDEX` for it and the second failed
+the whole push (`index post_authorId_fkey_idx already exists`, better-sqlite3). The index
+is a read optimization, not a correctness requirement, so it now yields: when the schema
+holds both candidate names, no foreign-key index is emitted. Witness:
+*"emits no FK index when the schema holds both candidate names"* in
+[`tests/migrations/serializer.test.ts`](../../tests/migrations/serializer.test.ts).
+
+**(2) A SQLite table rebuild resurrected the foreign key the same batch had dropped.**
+`getCurrentTable` replayed the batch's preceding `createIndex`/`dropIndex` so a recreation
+would not destroy the indexes the batch had just made — and did not replay the two
+operations that move a FOREIGN KEY. The differ plans `dropForeignKey` (priority 2) then
+`addForeignKey` (priority 16) for every changed key, which on SQLite is the pair every
+`manyToOne` push plans, forever, because `PRAGMA foreign_key_list` carries no constraint
+name and introspection has to synthesise one. The add rebuilt the table from the pre-batch
+list — which still held the key the drop had removed — and appended the replacement.
+Measured on better-sqlite3: an unchanged schema pushed three times left `zz_posts` holding
+**1, then 2, then 3** identical foreign keys, growing without bound, each separately
+enforced. `getCurrentTable` now replays all four operations. Witnesses, and the live count,
+in [`tests/migrations/sqlite-recreation-indexes.test.ts`](../../tests/migrations/sqlite-recreation-indexes.test.ts).
+
+| Reverted | What failed |
+| --- | --- |
+| the both-names-taken skip in `serializer.ts` | the new serializer unit test (the FK index reappears under the declared name) |
+| the `addForeignKey`/`dropForeignKey` replay in `getCurrentTable` | 3 tests — both rebuild witnesses, and the live push count reads `[1, 2, 3]` |
+| the `isTotalIndex` conjunct in the 1:1 unique scan | 1 serializer unit test + 1 live SQLite3 test |
+| the fallback index name | 2 serializer unit tests + 3 live tests (the push itself aborts on the duplicate name) |
+
+---
+
+## Phase 3 — Fold the delete operation into one statement
+
+### Problem
+
+A delete by primary key sends five round trips: BEGIN, a locate SELECT, a snapshot SELECT, the DELETE, COMMIT. The snapshot SELECT reads data that the `DELETE … RETURNING` statement returns again on RETURNING drivers.
+
+### Context and code locations
+
+- The current sequence: the planning locate at [`DeleteOperation.ts:132-147`](../../src/query-engine/write-engine/DeleteOperation.ts), the captured-PK write path at `:169-174`, the snapshot SELECT at `:175-190`, the DELETE at `:191-206`.
+- The fold pattern exists twice in sibling files: `CreateOperation.foldStep` at [`CreateOperation.ts:344-370`](../../src/query-engine/write-engine/CreateOperation.ts) and `UpdateOperation.directWrite` with its `canFold` gate at [`UpdateOperation.ts:656-704, 664-672`](../../src/query-engine/write-engine/UpdateOperation.ts).
+- The statement-atomic execution path with JS postconditions: [`OperationExecutor.ts:138-141, 295-340`](../../src/query-engine/write-engine/OperationExecutor.ts). The `affectedRows(1, notFound)` postcondition produces the byte-identical `NotFoundError`.
+
+### Correction
+
+Emit `DELETE FROM t WHERE <unique where> RETURNING <scalar select>` as one statement when: the driver supports RETURNING, the projection is scalar-only, and no nested relations participate. Keep the multi-statement path for a delete with relation `include`/`select` (the relations of the deleted row must be read before the delete). Mirror the `canFold` gate structure of the update fold.
+
+### Test
+
+1. Count one statement for a scalar delete (extend the statement-count probes).
+2. Make sure that the `NotFoundError` for a missing row is byte-identical.
+3. Make sure that a delete with `include` keeps the read-then-delete order and correct results.
+4. Make sure that MySQL keeps its documented multi-statement path.
+5. Update the delete SQL pin in `tests/query-engine/sql-generation.test.ts` (the pin was set at line ~656) deliberately.
+
+### Phase 3 delivery record
+
+**Delivered:** 2026-08-02. Branch `nested-write-boundaries`.
+
+#### What shipped
+
+One gate and one step in [`src/query-engine/write-engine/DeleteOperation.ts`](../../src/query-engine/write-engine/DeleteOperation.ts), mirroring `UpdateOperation`'s `canFold` and `CreateOperation.foldStep`. A delete folds when all four hold: transaction mode, a RETURNING driver, a scalar-only projection (see the `_count` correction below), and no `include`. The folded operation has EMPTY planning and one write step, so `OperationExecutor.statementAtomicPlan` runs it directly on the base driver — no transaction envelope — with `affectedRows(1, notFound)` enforced in JS afterwards.
+
+The DELETE already carried a RETURNING clause whose rows were discarded; the snapshot SELECT re-read exactly what the write was handing back. The fold is that clause put to use.
+
+#### Measured effect — PGlite, same payload, statements recorded at the driver seam
+
+| Payload | Before | After |
+| --- | --- | --- |
+| `delete({ where: { id } })` | 3 payload statements (locate `FOR UPDATE`, snapshot `FOR UPDATE`, DELETE) inside BEGIN/COMMIT — 5 round trips | **1** statement, no envelope — 1 round trip |
+| `delete({ where: { email }, select })` | 3 (locate by `email`, snapshot by captured PK, DELETE by captured PK) | **1** (`DELETE … WHERE email … RETURNING label`) |
+| `delete({ where, include })` | 3, read-then-delete | 3, unchanged |
+| batch substrate | 4 (locate, presence guard, read, DELETE) | 4, unchanged |
+
+#### What the fold does NOT change
+
+- **The race protection.** The multi-statement path located `FOR UPDATE` by the (possibly alternate) unique and then wrote `WHERE id`, because an alternate unique could be rewritten between the two statements. The fold has no such window — one statement matches, locks and removes one row — so the protection is preserved by construction. This is the identical argument the update fold already makes for `UPDATE … WHERE selector RETURNING`.
+- **The error.** `failureError` builds the public error from the execution context, not from the step that failed, so moving the assertion from a locate read's `exactlyOneRow` to a write's `affectedRows` cannot change what the caller sees. Witnessed equal across all three paths.
+- **The extended-whereUnique filter half.** The filter rides into the folded DELETE's WHERE. It is only wrapped in a derived table on dialects that reject reading the mutated table (MySQL 1093) — and MySQL never folds — so PostgreSQL and SQLite are unaffected. The whole `extended-where-unique` suite is green on both substrates, self-relation filters included.
+- **The batch substrate**, **MySQL**, and the frozen `OperationFragment.ts` vocabulary.
+
+#### The `_count` correction (review, 2026-08-03)
+
+**The first spelling of "scalar-only" let `_count` fold, and a folded delete answered a WRONG relation count.** `selectIsScalarOnly` asked `model["~"].relationSet.has(field)`, and `_count` is a relation-derived projection that is **not a member of that set** — while `getDeleteArgs` validates `select` against the full `core.select`, which does include it. So `delete({ where, select: { id: true, _count: { select: { posts: true } } } })` folded, and measured on PGlite (PG 17) and better-sqlite3 3.51 with an author owning three posts:
+
+| Path | Answer |
+| --- | --- |
+| `findUnique` (the control) | `{ id: 1, _count: { posts: 3 } }` |
+| `delete`, folded (transaction substrate) | `{ id: 1, _count: { posts: 0 } }` — **wrong** |
+| `delete`, unfolded (batch substrate) | `{ id: 1, _count: { posts: 3 } }` |
+
+One payload, two substrates, two different answers. **The cause is name capture, not a cascade and not a read-after-write** — reproduced with a nullable FK and no cascade, the children surviving the delete. A `DELETE` has no table alias, so the count correlation is emitted BARE: `… json_build_object($2, (SELECT COUNT(*) FROM "f_post" AS "t1" WHERE "id" = "t1"."authorId"))`. Inside a subquery whose `FROM` is the child table — which has its own `id` — the bare `"id"` binds to `"t1"."id"` and the predicate silently becomes `t1.id = t1.authorId`. The unfolded read emits `"t0"."id" = "t1"."authorId"` and is right. This is the identical defect `restrictToScalarProjection` ([`bulk-write-projection.ts`](../../src/validation/model/args/bulk-write-projection.ts)) already refuses outright on bulk writes, and its doc comment already said `_count` counts as a relation there.
+
+**Fix.** The predicate has one home now — `shared.selectProjectsRelation` — and it answers `_count` as a relation. The **three sibling folds carried the same defect and are corrected in the same commit**, because they read the same gate off the same helper: `update`'s `directWrite` and `upsert`'s `canFoldUpdateArm` also answered 0 where the read said 3, and `create`'s `foldStep` — whose truth is necessarily 0, since nothing can reference a row that did not exist — answered **1** whenever some child row's own `id` equalled its foreign key. All four now match `findUnique`.
+
+**Why nothing caught it.** The full estate was green, `pnpm test:gates` 72/72, `tests/query-engine` + `tests/query-engine-v2` exit 0. Nothing in the estate exercised a relation projection on a delete against a database: this phase's own `select`-with-relation witness is pinned at the PLAN level only, deliberately, because that path has a separate PostgreSQL 0A000 defect — and that deliberate narrowing is exactly what let the `_count` sibling through. The new witnesses are therefore stated as **read-equality**, not fold-equality: a delete's projection must equal what `findUnique` answers for the SAME projection on the SAME row, on BOTH substrates, so the property keeps biting whatever the gate decides.
+
+#### Witnesses
+
+[`tests/query-engine-v2/delete-fold.test.ts`](../../tests/query-engine-v2/delete-fold.test.ts) — nine, on a recording PGlite driver plus three plan-shape assertions that need no database; four more added by the `_count` correction (two live `_count` spellings against the read on both substrates, one live create/update/upsert oracle whose seed includes a child row whose own `id` equals its foreign key so a wrong answer is a wrong NUMBER rather than an empty one, and one plan-level decline for both `_count` spellings). Each of the four fails when the `_count` conjunct is removed: live, 0 (delete) and 1 (create/update/upsert) against a truth of 3; at the plan level, empty planning where one locate step is required. Every conjunct of the gate was falsified individually: removing the gate fails the two count witnesses and the plan shape; removing the `include` exclusion fails the include witness; removing the transaction-mode conjunct fails the batch witness; removing the RETURNING conjunct fails the non-returning plan witness.
+
+The delete pin in `tests/query-engine/sql-generation.test.ts` was updated deliberately, with the rationale in place: the old test asserted that `build()` REJECTS a root delete, which pinned the very round-trip count this phase removes. It is replaced by two tests — one folded statement on a RETURNING adapter, and the surviving refusal on MySQL.
+
+#### Gate
+
+| Leg | Result |
+| --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean |
+| `tests/query-engine-v2/` | 1026 passed, 0 failed (56 files) |
+| `tests/query-engine/` | 1183 passed, 0 failed (48 files) |
+| `tests/drivers/sqlite3.test.ts` | 1117 passed, 0 failed |
+| `tests/drivers/libsql.test.ts` + `pglite.test.ts` | 1788 passed, 0 failed |
+| `pnpm test:gates` | 72 passed |
+| repo-pinned `npx biome check` per changed file | clean |
+
+#### Found, not fixed here — a pre-existing defect this phase's witnesses surfaced (**since FIXED**, see below)
+
+`delete({ where, select: { …, someRelation: {…} } })` — a relation nested in `select` rather than in `include` — fails on PostgreSQL with `0A000`. The shape-capturing read gates its lock on `forUpdate: txMode && !this.parsedInclude`, and that proxy misses a relation reached through `select`, so `FOR UPDATE` is emitted over a lateral join. Reproduced on the PR tip with this phase reverted; SQLite is unaffected (it omits `FOR UPDATE` entirely). Nothing in the estate covers the shape. It is left alone here on purpose: removing that lock is a locking change on a path this phase deliberately keeps, and it wants its own review and its own witnesses. Filed separately.
+
+##### Resolution — the deferred `0A000`, closed
+
+Fixed on `nested-write-boundaries` after this plan closed, as the review this record asked for.
+
+**Reproduced first**, on PGlite in transaction mode, in BOTH directions — one defect, two PostgreSQL messages, because the two relation cardinalities compile to different lateral shapes:
+
+| projection | emitted | PostgreSQL says (`0A000`) |
+| --- | --- | --- |
+| `select: { id, notes: { select: { body } } }` (to-many) | `LEFT JOIN LATERAL (… json_agg …) … FOR UPDATE` | `FOR UPDATE is not allowed with aggregate functions` |
+| `select: { id, account: { select: { label } } }` (to-one) | `LEFT JOIN LATERAL (… json_build_object …) … FOR UPDATE` | `FOR UPDATE cannot be applied to the nullable side of an outer join` |
+
+**The fix is one predicate, not a second guard.** The correct question — *does the projection name no relation?* — already existed a few lines above as the Phase 3 fold gate. It now lives once, in `shared.projectionNamesNoRelation`, and both sites ask it. `!parsedInclude` was never the invariant; it was one of the invariant's two halves. `CreateOperation`, `UpdateOperation` and `UpsertOperation` were each re-spelling the same conjunction in their own fold gates and now call the shared predicate too, so there is no second spelling left to drift.
+
+**The locking claim carries, verified rather than assumed.** The site's comment asserted that the PK-only locate already holds the row lock in transaction mode. That is true for the `select`-relation case for the same structural reason it is true for `include`: the fold gate declines EVERY relation projection, so the locate is always planned; the locate is built unconditionally with `forUpdate: txMode`; and `OperationExecutor.runTransaction` runs the planning fragment and the compiled fragment on ONE `withTransaction` handle, so the lock the locate takes is still held when the DELETE runs.
+
+**The drop is not widened.** A scalar-only projection still takes `FOR UPDATE` on its shape-capturing read — pinned on the non-returning (MySQL2) plan, the only driver class where that read is reachable at all, since a RETURNING driver folds the same payload to one statement.
+
+**Siblings swept, measured not assumed.** `UpdateOperation.buildTerminal`, `UpsertOperation.buildTerminal` and `CreateOperation`'s terminal read are the only other reads that carry the caller's `select`/`include`, and none of them requests `forUpdate` at all — they never re-lock. Every other `forUpdate` read across the four operations (locates, probes, occupied guards) projects PK or FK scalars only. The defect was unique to `DeleteOperation`.
+
+**Witnesses.** Behavioural, in the shared `nested-write-behavior.ts` suite so the pg and mysql legs run them: to-many-in-`select`, to-one-in-`select`, and `include` alongside them (the half the old proxy did cover, so a fix cannot trade one spelling for the other). Structural, in `delete-fold.test.ts`: both spellings decline the fold, their locate keeps `FOR UPDATE`, their capture joins and does NOT; and the non-returning scalar capture does. **Falsified** by restoring `!this.parsedInclude`: the two `select` witnesses fail in transaction mode, `include` and both batch-mode variants still pass — the exact discrimination the defect had.
+
+---
+
+## Phase 4 — Fold the link operations with IN lists
+
+### Problem
+
+The operations `connect`, `disconnect`, and `set` with N targets send two statements for each target. The measured cost of `connect: [3]` is eight payload statements. The many-to-many code has the same defect, and the same file already contains the consolidated form.
+
+### Context and code locations
+
+- To-many links: `buildToManyLinkParts` at [`RelationLinkPart.ts:363-397`](../../src/query-engine/write-engine/RelationLinkPart.ts) makes one Part per target. Each Part plans its own `FOR UPDATE` probe (`:108-146`) and emits one single-row UPDATE (`:167-177, 208-218`). The missing-target error is thrown in compile-time JS from the probe rows (`:234-250`). The writes carry `outputs: {}` — no affected-count contract exists in tx mode.
+- M2M: the per-target junction INSERT for `connect` at [`RelationJunctionPart.ts:387-405`](../../src/query-engine/write-engine/RelationJunctionPart.ts); the per-target delete at `:448-470`; the probes at `:318-352`. The consolidated precedents are in the same file: `junctionInsertMany` for `set` at `:436-443` and the IN-list deletes for `deleteMany` at `:473-496`.
+- Batch-mode guards are free (in-batch assertions, [`OperationExecutor.ts:477-484`](../../src/query-engine/write-engine/OperationExecutor.ts)). Keep them per-target in batch mode.
+- The `set` orphan guard at [`RelationWritePart.ts:910-947`](../../src/query-engine/write-engine/RelationWritePart.ts) must stay unchanged.
+
+### Correction
+
+Group the targets by unique key. For each group, send one probe (`SELECT pk, key FROM child WHERE key IN (…) FOR UPDATE`) and one write (`UPDATE … WHERE pk IN (…)` or `junctionInsertMany` / IN-list delete). The probe rows identify each missing target, so the compile-time error text stays identical. Mixed unique keys produce one group per key.
+
+### Test
+
+1. Count two statements for `connect: [N]` with one key shape.
+2. Make sure that a missing target produces the same error text as before, and names the correct target.
+3. Run the full nested-write conformance suite and the M2M behavior suites, tx and batch.
+4. Falsify: remove the grouped probe, and make sure the missing-target witness fails.
+
+#### Phase 4 delivery record
+
+**Delivered:** 2026-08-03, branch `nested-write-boundaries`. Baseline for every number below is `1e67bab`.
+
+**What shipped, and what did not.** The child-held-FK `connect` and `disconnect` families fold **probe and write**. `set` and the M2M `connect` fold their **write only** — their probes stay per target, for one reason stated at the end of this record. M2M `disconnect` does not fold at all.
+
+`src/query-engine/write-engine/link-target-groups.ts` is the grouped-probe fold's one home: `groupLinkTargets` splits a relation's targets into key-shape GROUPS, `linkGroupSelector` builds a group's one `WHERE`, `countDistinctTargets` says how many rows that `WHERE` can name. Two call sites read it — `RelationLinkPart` (the update family's connect/disconnect) and `ChildConnectPart` in `CreateOperation.ts` (the create tree's own child-held connect, which is a separate Part and would otherwise have kept the per-target shape).
+
+**Measured — PGlite, three targets, statements counted at the driver's `execute`/`executeRaw` seam (which sees both substrates).**
+
+| Operation | Before | After |
+| --- | --- | --- |
+| `update` + `connect: [a,b,c]`, transaction | 8 | **4** |
+| `update` + `connect: [a,b,c]`, atomic batch | 12 | **8** |
+| `update` + `disconnect: [a,b,c]`, transaction | 8 | **4** |
+| `update` + `disconnect: [a,b,c]`, atomic batch | 12 | **8** |
+| `create` + `connect: [a,b,c]`, transaction | 8 | **4** |
+| `update` + `connect` over TWO key shapes (2 + 1) | 8 | **6** |
+| `update` + `set: [a,b,c]`, transaction | 9 | **7** |
+| `update` + `set: [a,b,c]`, atomic batch | 13 | **11** |
+| M2M `connect: [a,b,c]`, transaction | 8 | **6** |
+| M2M `disconnect: [a,b,c]`, transaction | 5 | unchanged |
+
+The link's own traffic is what moved: six statements became two. The other two in the transaction row are the root's locate and terminal read, which this phase does not touch. In batch mode the probe and the write fold and the three presence guards stay, which is the plan's own instruction and is why the batch row lands on eight rather than five.
+
+**A one-target group keeps the arity-1 statements verbatim.** `connect: [{ id: 10 }]` still emits `WHERE "id" = $1` and `UPDATE … WHERE "id" = $2 RETURNING`, not a one-element `IN`. That is deliberate: the single-target spelling is what the overwhelming majority of the estate and every existing plan exercises, and widening it would have made the fold's blast radius the whole engine rather than the list case. A witness pins it.
+
+**What decides a group.** Three clauses, all in `groupLinkTargets`, all of them the fold's PRECONDITION rather than a guard against observed input:
+
+1. *The same discriminator columns.* `{ id }` and `{ email }` are different IN lists.
+2. *No extra filter half.* An extended selector carries a predicate as well as an identity, and two targets' predicates need not agree.
+3. *Primitive key values only.* The missing-target verdict counts distinct keys, and that count must agree with what SQL calls one row.
+
+Clauses 2 and 3 are **not reachable through the client today**, and that was measured rather than assumed: nested `connect`/`disconnect` take the STRICT `core.whereUnique` at the parse boundary (`{ id, archived: false }` is rejected with `Unknown key: archived`), and no scalar that admits `.unique()` validates to an object — `blob` refuses `.unique()` outright, and a `dateTime` unique key arrives as a primitive, so it folds. They are kept because `partitionWhereUnique` is the shared extractor and the alternative to reading its `filters` half is *silently dropping* it; and because the count algorithm is simply wrong for object values, so the clause states what it needs rather than guarding against what it fears. Both are exercised directly on the rule (a unit test on `groupLinkTargets`), not left as an unfalsifiable branch.
+
+**The missing-target error keeps its text, its attribution and its phase.** It is decided by a COUNT, and the count is exact rather than approximate: a complete unique key names at most one row, so the grouped probe returns exactly as many rows as there are distinct keys that exist, and fewer means one of the named targets is absent. **Nothing compares a decoded column value against an input value** — which is why `connect: [{ id: 1 }, { id: 1 }]` (two entries, one row) still succeeds, and why clause 3 above exists. A witness takes the arity-1 path's message and byte-compares the grouped path's against it rather than against a literal copied from the source; another puts the absent target first, middle and last in the list; another puts a satisfiable relation beside an unsatisfiable one in the same update and asserts the message and `meta.relation` name the relation that actually failed.
+
+**The write addresses rows by the CALLER's key, not by the probe's primary keys.** The plan text above suggests `UPDATE … WHERE pk IN (…)`. In batch mode the probe runs before the atomic unit while the presence guard runs inside it, so a primary key read at planning time is older than the assertion that admits the write: a row deleted and re-inserted under the same unique key between the two would satisfy the guard and be missed by a pk-addressed write. The key columns are exactly what the guard re-asserts, so the write uses them. For the common `connect: [{ id }]` case the two spellings are the same statement.
+
+**The Pin Rule is untouched.** The probe is still a planning read whose rows `compile(known)` consumes; only its `WHERE` is wider. `OperationFragment.ts` is byte-identical to `1e67bab`, no error message or attribution was removed, and the `set` orphan guard was not touched.
+
+**A note on locking.** N separate `FOR UPDATE` probes acquired their locks in input order, so two transactions connecting `[10, 11]` and `[11, 10]` could deadlock. One IN-list `FOR UPDATE` lets the database choose a scan order, which is consistent across transactions. The fold reduces that exposure; it does not create any.
+
+**Witnesses.** [`tests/query-engine-v2/link-in-list-fold.test.ts`](../../tests/query-engine-v2/link-in-list-fold.test.ts) — 25 tests over three groups: the statement traffic (counts and the emitted `IN`/`OR`, tx and batch, update root and create root, compound unique, mixed shapes, `set`'s folded reparent, the M2M `junctionInsertMany` with its idempotence and its absent-target rejection), what may share a group (the rule exercised directly, plus the repeated-target and date-key readings), and the missing-target error. Five cases were added to [`tests/drivers/nested-write-behavior.ts`](../../tests/drivers/nested-write-behavior.ts), which is already wired on every driver, so the SQL the fold newly emits — an `IN` list inside a locked read and inside a bulk UPDATE — runs on all of them. MySQL matters most there: it is non-returning, so the folded write goes out as a plain `UPDATE … WHERE key IN (…)` with no RETURNING clause to confirm it.
+
+**Falsification — nine mutations, each applied alone, each caught.**
+
+| Mutation | What failed |
+| --- | --- |
+| The count check becomes `rows.length === 0` | all 5 missing-target witnesses |
+| The shape key stops distinguishing key shapes | the mixed-shape witness |
+| The grouped disconnect probe loses its correlation half | the disconnect count witness and the another-parent witness |
+| The batch guards collapse from per-target to one per group | the batch guard witness |
+| The distinct count stops deduplicating | the repeated-target witness and its unit test |
+| Clause 3 (primitive values) removed | the object-key unit test |
+| Clause 2 (filter half) removed | the predicate-half unit test |
+| `set`'s folded write addresses by SELECTOR, not captured PK | the two `set` witnesses — **and nothing else in the estate**, see the gap noted below |
+| M2M `connect` goes back to one INSERT per target | the M2M insert-count witness |
+
+**Gate.** `tsc` clean. Repo-pinned `npx biome check` (2.3.11) clean on all seven changed files. `pnpm test:gates` **72 passed**, census unchanged. Suites run in this worktree, 0 failures: `tests/query-engine-v2` + `tests/query-engine` + `tests/adapters` **2301**, `tests/drivers` **3393** (2124 skipped, and the three local legs — PGlite tx + batch, SQLite3, LibSQL — carry the five new behavior cases). No pinned SQL file changed — `sql-generation.test.ts` holds no connect/disconnect pin, and the arity-1 spelling did not move. The Docker MySQL (3307) and PostgreSQL (5434) legs belong to the gate agent.
+
+#### The probes that stay per target — `set` and the M2M junction
+
+Their WRITES fold; their PROBES do not, and the reason is one mechanism.
+
+Both families' batch guard is a **split-witness** guard: it pairs each selector with the primary key that selector's OWN probe captured (`RelationWritePart.ts` `RelationSetPart.compile`, `RelationJunctionPart.ts` `targetPresenceGuard` / `connectedPresenceGuard`). It exists so a concurrent write that moves a selector onto a replacement row is rejected rather than adopting the replacement. A grouped probe destroys the pairing: recovering which returned row answers which selector means comparing a DECODED column value against an input value — exactly the comparison this phase's missing-target verdict was built to avoid, because its failure mode is a false rejection of a legitimate operation. The two weaker group-wide restatements were considered and rejected: an `exists` over the group is satisfied by one row, and `notExists(group ∧ pk NOT IN captured)` accepts a concurrent swap between two members of the same group that the paired guards reject.
+
+The writes need no pairing, because both families **already address rows by the captured primary key** rather than by the caller's selector:
+
+- **`set`'s reparent** is one `UPDATE … SET fk = parent WHERE pk IN (all captured pks)` (`buildUpdateMany`), taking `set: [3]` from nine statements to seven in a transaction and from thirteen to eleven in a batch. The guards moved ahead of the single write, which changes nothing: inside an atomic unit a failed assertion aborts the whole unit, and in transaction mode there are no guards.
+- **M2M `connect`** is one `junctionInsertMany` — the consolidated form the `set` arm at `RelationJunctionPart.ts:436-443` already used. `buildJunctionInsert` IS `buildJunctionInsertMany` over a one-element list, so the duplicate-skip clause that makes `connect` idempotent is byte-identical; a witness re-connects an existing member alongside a new one and asserts no conflict. M2M `connect: [3]` goes from eight statements to six.
+
+**M2M `disconnect` was left alone.** Its N `junctionDelete` statements each build their own target subquery from one unique `where` (`ManyToManyStatements.materialize`, the `junctionDelete` arm through `buildTargetPkSubquery`). Folding needs that statement to take a LIST of unique wheres, which is a change to a query-engine builder shared beyond this phase — out of scope here, and recorded so the next reader does not have to rediscover it.
+
+**A coverage gap found while falsifying, and not closed here.** Forcing `set`'s folded write to address rows by the caller's SELECTOR instead of the captured primary key — which discards V1's mutation-identity and lets a concurrent selector move redirect the write — was caught by NOTHING in the estate except the two new SQL-shape assertions in the witness file. The property is pre-existing and the per-target spelling had exactly the same hole; a behavioral witness needs a second connection to commit the concurrent move, so it belongs with the Docker-gated driver tests beside `m2m-deletemany-staleness-behavior.ts`. Filed, not fixed.
+
+Phase 6's premise — that the tx-mode condition can come off some fold gates on batch-only drivers — is the natural place to revisit whether the split-witness guard can be restated so these probes fold as well.
+
+---
+
+## Phase 5 — Correct the ordering and the cursor spellings
+
+### Unit 5.1 — Remove the null-placement prefix for NOT NULL columns
+
+**Problem.** Each windowed query (take, cursor, findFirst, ordered includes) adds `(col IS NULL)` sort keys on MySQL and SQLite, also for NOT NULL columns and for the primary-key tie-breakers. A perfect index then cannot supply the order. Measured on SQLite with a correct composite index: 4.59 ms for each page with the prefix, 0.02 ms without it (230×).
+
+**Code locations.** `buildNormalizedOrderBy` forces a placement onto every key at [`cursor-order.ts:62-81, 96-107`](../../src/query-engine/operations/cursor-order.ts); the routing comment is at `:138-142`; the defaults are at `:185-189`. The emulation is emitted by [`standard-sql.ts:129-140`](../../src/adapters/shared/standard-sql.ts), wired at [`mysql-adapter.ts:327-330`](../../src/adapters/databases/mysql/mysql-adapter.ts) and [`sqlite-adapter.ts:337-341`](../../src/adapters/databases/sqlite/sqlite-adapter.ts). PostgreSQL renders native `NULLS FIRST/LAST` at [`postgres-adapter.ts:267-277`](../../src/adapters/databases/postgres/postgres-adapter.ts) and is not affected. Ordered includes route through the same normalization at [`nested-read-window.ts:71-76`](../../src/query-engine/builders/nested-read-window.ts). The nullability of each column is available in the model state (`model["~"].state.scalars[field]` carries `nullable`).
+
+**Correction.** Do not emit the placement key for a NOT NULL column when the requested placement equals the dialect's native placement for that direction. On SQLite 3.30 and later, emit the native `NULLS FIRST/LAST` syntax instead of the expression key.
+
+**Test.** EXPLAIN QUERY PLAN must show an index walk for `orderBy` + `take` on an indexed NOT NULL column on SQLite. The null-ordering behavior suites for nullable columns must stay green on all dialects.
+
+#### Unit 5.1 delivery record
+
+**Delivered:** 2026-08-02, branch `nested-write-boundaries`.
+
+**The rule that shipped, and why it is one rule.** A NOT NULL column has no null placement to state: `NULLS FIRST`, `NULLS LAST` and the bare direction all name the same order, because no row can sort into either position. `buildNormalizedOrderBy` now emits the bare direction for such a column and keeps the placement only where it is observable. The plan text above reads as an *and* — NOT NULL **and** the requested placement matches the dialect's native one — but that conjunction cannot hold: the engine's default placement for `asc` is `last` (the PostgreSQL default), SQLite and MySQL sort nulls first on `asc`, so `orderBy: { col: "asc" }` on a NOT NULL column never matches native on those two dialects and the measured case would have been skipped. Nullability alone decides it.
+
+This matters more widely than "a user asked for a placement". `normalizeCursorOrder` appends the identity tie-breakers to every windowed read, and those are NOT NULL by construction, so before this change the placement was forced onto the primary key of every `take`, `cursor`, `findFirst` and ordered include in the engine.
+
+**A second, separable defect in the same unit.** For a *nullable* column the placement is real, but on SQLite it was emulated as a leading `(col IS NULL)` sort key — and no index can supply an order whose first key is an expression. SQLite has parsed `NULLS FIRST/LAST` natively since 3.30 (2019), below this adapter's documented 3.35+ floor (`docs/content/docs/internals/adapters.mdx:87`); the shipped drivers measured 3.51.2 (better-sqlite3) and 3.45.1 (libsql). `SQLiteAdapter.orderBy` now emits the native syntax. MySQL keeps the emulation — it has no native spelling at any version.
+
+**Measured — 100,000 rows, an index over the sort columns, `ORDER BY … LIMIT 20`.**
+
+| Case | Before | After | Plan before → after |
+| --- | --- | --- | --- |
+| SQLite, NOT NULL column | 3.077 ms | 0.005 ms (615×) | `SCAN t` + `USE TEMP B-TREE FOR ORDER BY` → `SCAN t USING INDEX t_k_id` |
+| SQLite, nullable column | 3.356 ms | 0.005 ms (670×) | same → `SCAN t USING INDEX t_n_id` |
+| PostgreSQL, NOT NULL column, explicit non-default placement | 12.097 ms | 0.194 ms (62×) | `Seq Scan` + `Sort` → `Index Only Scan` |
+
+PostgreSQL's *default* placements already matched its btree order, so the common PostgreSQL path was never the slow one; the win there is confined to an explicitly requested non-default placement. Emitting `NULLS LAST` on a NOT NULL column is not free even on SQLite: it plans `USE TEMP B-TREE FOR LAST TERM OF ORDER BY`, which is why the bare direction — not the native syntax — is what a NOT NULL column gets.
+
+**Witnesses.** [`tests/drivers/ordering-plan-behavior.ts`](../../tests/drivers/ordering-plan-behavior.ts), wired on SQLite3 and PGlite. It EXPLAINs the statement the client actually emitted, with that statement's own parameters, and asserts both halves: the emitted SQL carries no placement for the NOT NULL column, and the plan walks the declared index with no sort. On PostgreSQL it first sets `enable_seqscan = on` and asserts the setting took, so the index in the plan means the index won on cost. A second test holds the nullable column to its placement and to correct null-first / null-last row order.
+
+**Falsification.** Removing the NOT NULL branch from `buildNormalizedOrderBy` fails the witness twice over, and each half was checked alone: the SQL assertion reports `ORDER BY "t0"."bucket" ASC NULLS LAST, "t0"."id" ASC NULLS LAST`, and with the SQL assertions disabled the EXPLAIN assertion still fails on `USE TEMP B-TREE`. The plan assertion had to be widened from `USE TEMP B-TREE FOR ORDER BY` to `USE TEMP B-TREE` to catch it — SQLite reports the narrower `FOR LAST TERM OF ORDER BY` for this shape, and the first spelling passed vacuously.
+
+**Pinned SQL.** `tests/query-engine/cursor-pagination-sql.test.ts` changed deliberately: `expectedOrder` moves SQLite from the emulated to the native branch, and a new `expectedNotNullOrder` states the bare-direction expectation for NOT NULL columns. Five assertions moved; nothing else in the file did.
+
+**Gate.** `tsc` clean; repo-pinned `npx biome check` clean on every changed file; sqlite3 1119, libsql 1073, PGlite + SQL pins 925 — 0 failures. No error message, attribution, or race protection was touched, and `OperationFragment.ts` is untouched.
+
+### Unit 5.2 — Use a tuple comparison for the cursor
+
+**Problem.** The cursor predicate is an OR of null-guarded AND chains. No database serves it with one index range scan. Measured: 44 ms for each page at 100,000 rows on SQLite, with or without an index.
+
+**Code locations.** The EXISTS wrapper at [`cursor-condition.ts:23-80`](../../src/query-engine/operations/cursor-condition.ts); the OR-of-ANDs at `:93-112`; the null-guarded equality at `:114-130`; the strict-after branches at `:132-163`. The cursor row locate at `:49-63` is already sargable.
+
+**Correction.** When every sort column is NOT NULL, emit a row-value comparison: `(a, b, id) > (x, y, z)`. PostgreSQL, MySQL 8, and SQLite (3.15+) all support row values, and all three can serve them with a composite index. Keep the current spelling for nullable sort columns.
+
+**Test.** The plan must show an index range scan for the NOT NULL case with a matching composite index. Page contents must be byte-identical to the current behavior in both spellings (parity test over a seeded data set with duplicates in the sort key).
+
+#### Unit 5.2 delivery record
+
+**Delivered:** 2026-08-02, branch `nested-write-boundaries`.
+
+**The diagnosis in the plan text above is wrong, and the measurement says so.** The unit proposed keeping the EXISTS wrapper at `cursor-condition.ts:23-80` and replacing only the OR-of-ANDs at `:93-163`. Measured at 100,000 rows with a composite index, paging from row 99,000, that change is worth 1.12× on SQLite (14.695 ms → 13.105 ms) and 1.28× on PostgreSQL (18.608 ms → 14.573 ms), and it changes **no plan shape at all** — both spellings still report `SCAN t USING INDEX` on SQLite and a `Nested Loop Semi Join` with a join filter over a full `Index Scan` on PostgreSQL. The stated acceptance test could not have passed.
+
+The blocker is the wrapper, not the predicate. The cursor row arrives as a correlated subquery in the `FROM` of an `EXISTS`, and a co-routine's column cannot be an index seek bound on any of the three engines. Comparing against a **row-valued scalar subquery** instead removes the wrapper and the planner takes the seek:
+
+| | Before | After | Plan after |
+| --- | --- | --- | --- |
+| PostgreSQL | 18.608 ms | 0.467 ms (40×) | `Index Cond: (ROW(k, id) >= ROW((InitPlan 1).col1, (InitPlan 1).col2))` |
+| SQLite | 14.695 ms | 0.004 ms (3,670×) | `SEARCH t USING INDEX t_k_id (k>?)` |
+
+This costs no extra round trip: the cursor row is still located inside the same statement, by its own unique key.
+
+**Two gates, both necessary, both falsified.**
+
+- *Every sort column NOT NULL.* A row value cannot order around SQL NULL — the comparison would be NULL rather than place the nulls.
+- *Every sort column the same direction.* `(a, b) > (x, y)` means `a > x OR (a = x AND b > y)`; a mixed order needs `b <` on the second key, which no row value spells.
+
+The second gate binds more often than it looks. `normalizeCursorOrder` appends the identity tie-breaker **ascending** whatever the requested direction, so `orderBy: { col: "desc" }` normalizes to `col DESC, id ASC` — mixed, and it keeps the general predicate. The row-value spelling therefore covers ascending pages, and descending pages reached through a negative `take` (which reverses every key, so an all-ascending order becomes all-descending and stays uniform). Widening it further would mean changing the tie-breaker's direction, which changes the total order and the page contents — a semantics change, not a spelling one, and out of scope here.
+
+**Portability, measured rather than assumed.** All three dialects were probed directly for the four shapes the gate can emit — `>=` and `<=` against a row subquery, the single-column degenerate form, and a cursor row that does not exist. PostgreSQL 17 (PGlite) and SQLite 3.51.2 (better-sqlite3) pass all four; MySQL 8.4.10 (the Docker container on 3307, probed read-only outside the test estate) passes all four and plans `type: index, key: k_id, Using where; Using index`. In particular the empty-window semantics survive on every dialect: a cursor matching no row makes the subquery NULL, the comparison NULL, and the window empty — which is what the EXISTS wrapper did and what Prisma specifies.
+
+**Witnesses** — [`tests/drivers/ordering-plan-behavior.ts`](../../tests/drivers/ordering-plan-behavior.ts), wired on SQLite3 and PGlite:
+
+- *seeks into the index* — EXPLAINs the emitted statement and asserts that the **outer relation, named by its alias `t0`**, is the thing that seeks: `Index Scan using order_plan_rows_bucket_id_idx on order_plan_rows t0` immediately followed by `Index Cond: (ROW(…` on PostgreSQL, `SEARCH t0 USING INDEX order_plan_rows_bucket_id_idx (…` on SQLite, plus no `Seq Scan` (PostgreSQL) and no `SCAN t0` (SQLite).
+
+  **Corrected after review; the first spelling of this witness was vacuous, exactly as 5.1's was.** It asserted a bare `Index Cond` / `SEARCH` and the absence of `Seq Scan` / `SCAN order_plan_rows`. Measured on the PR tip with the row-value spelling forced off (`const sargable = false && …`) and the two SQL-string assertions disabled, all four of those assertions **passed on both dialects** — because the cursor row's own primary-key lookup is a seek in BOTH spellings (it supplies the `Index Cond` and the `SEARCH`), and because SQLite prints the alias `SCAN t0` and never the table name, so `SCAN order_plan_rows` could not fail on any plan at all. The regressed plans that satisfied it: PostgreSQL `Nested Loop Semi Join` with the OR-of-ANDs in a `Join Filter` over a full `Index Scan … t0`; SQLite `SCAN t0 USING INDEX order_plan_rows_bucket_id_idx` with a `CO-ROUTINE`. The entire falsification power of the unit was therefore the SQL-string assertions, and nothing in the estate would have failed if the row-value spelling stopped seeking (a different adapter, a CTE-wrapping `subqueries.scalar`, another dialect). The corrected assertions were re-falsified the way that would have caught it: with the SQL half disabled and the mutation in place, the plan half now fails on **both** dialects.
+- *both cursor spellings page identically over duplicate sort keys* — the parity oracle. `bucket` (NOT NULL) and `mirror` (nullable, but holding the same values on every row and never null) carry identical data, so the two columns differ only in what the schema says. Paging both, five rows at a time through seven-row groups so no page edge aligns with a group boundary, must give the same 30 rows in the same order; the test also asserts that the two runs really did take the two different code paths, and that the result is the contiguous head of the total order rather than two matching mistakes.
+- *a descending cursor pages in the order an independent sort gives* — a JS sort of the same seed data as the oracle, so the direction gate is answerable in rows.
+- *a cursor over a column holding nulls pages through them* — every cursor row in this run has a null sort value, so the nullability gate is answerable in rows too.
+- *a cursor that matches no row leaves an empty window*.
+
+**Falsification.** Each of the three code paths was broken in turn and the witnesses caught all three: forcing the general spelling everywhere fails the seek witness and the parity path-divergence check on both dialects; removing the direction half of the gate returns wrong rows from the descending oracle on both dialects; removing the nullability half returns wrong rows from the null-paging oracle and breaks the parity check.
+
+**Pinned SQL.** `tests/query-engine/cursor-pagination-sql.test.ts` gains five deliberate pins across all three dialects for the new spelling and its three fallbacks. Two further pins moved for **Unit 5.1**, not this unit, and are recorded here because they were found late — running only the two SQL files rather than the whole `tests/query-engine` directory left them red at 5.1's commit: `tests/query-engine/operation-equivalence-oracles.test.ts` (frozen read SQL on all three dialects, `views`/`id` both NOT NULL) and `tests/query-engine-v2/located-parent-ref.test.ts` (a guard's `id` tie-breaker). Both are the same NOT NULL placement removal, and both now carry a comment saying so.
+
+**Gate.** `tsc` clean; repo-pinned `npx biome check` clean on every changed file; `pnpm test:gates` 72/72, census unchanged. Suites run in this worktree, 0 failures throughout: `tests/query-engine` 1201, `tests/query-engine-v2` + `tests/adapters` 1061, `tests/drivers` 3349 (2102 skipped), `tests/client` and the schema/model/relations/scalars/errors/cache/instrumentation set 2569, `tests/migrations` + `tests/cli` + `tests/validation` 1492. The Docker MySQL and PostgreSQL legs belong to the gate agent and were not run here; the MySQL row-value syntax and plan were probed directly instead, as recorded above.
+
+No error message, attribution, or race protection was touched, and `OperationFragment.ts` is untouched.
+
+---
+
+## Wave gate — Phases 2, 3 and 5 together
+
+**Run:** 2026-08-03, main checkout, branch `nested-write-boundaries`, tip `61fc227` (eleven commits from `484cc6c`, the serializer index-name resolution, through `61fc227`, the corrected cursor-seek witness). Baseline for every number below is `c45e2b5`, the Phase 1 tip.
+
+### The legs
+
+| Leg | Result | Baseline |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9279 passed, 0 failed**, 2109 skipped (262 files, 4 skipped) | 9197 / 0 |
+| `pnpm test:gates` | **72 passed** (5 files) | 72 |
+| repo-pinned `npx biome check` (2.3.11) per changed file | **no new diagnostics** — see below | — |
+| Docker MySQL 8, port 3307 | **988 passed, 0 failed** | 984 |
+| Docker PostgreSQL, port 5434 | **1100 passed, 0 failed**, 14 skipped | 1097 |
+
+**Biome.** Seven diagnostics survive across the 33 changed files, and all seven are the `c45e2b5` versions of the same lines: two in `src/migrations/drivers/sqlite/introspect.ts` (`noUselessSwitchCase`, `noUselessTernary` — at `44`/`97` before, `130`/`197` now), three `useTopLevelRegex` in `tests/migrations/ddl-drivers.test.ts` (`94`, `928`, `949` before; `94`, `970`, `991` now) and two in `tests/migrations/serializer.test.ts` (`337`, `359`, unmoved). The `c45e2b5` blobs were extracted and re-checked side by side to establish this; the kind and the count match exactly, only line numbers moved.
+
+**Witnesses executed by name on the Docker legs.** Phase 2: `MySQL2 declared index on a mapped field` — *push creates the index over the mapped column names*, *re-pushing the schema is not an index change*, *the declared index leaves the FK index nothing to add*; and `MySQL2 partial index refusal > push refuses the declaration by name`. Phase 3's MySQL path: the live non-returning delete (`MySQL2 upsert atomicity behavior > delete with include returns the relation payload`, wired on mysql2 at `mysql2.test.ts:360`), with the plan-level MySQL declines — *a NON-RETURNING driver keeps the locate, the read, and the delete* in `delete-fold.test.ts` and the surviving MySQL refusal pin in `sql-generation.test.ts:776` — carried by the estate leg.
+
+### Measured at the gate, not copied
+
+The delivery records above were written by the implementers. These readings were taken independently at the gate, on the tip, through the driver seam and the instrumentation seam.
+
+**Phase 3 — the delete costs one statement and no envelope.** Statements recorded at the PGlite `execute`/`executeRaw` seam, which sees both substrates:
+
+```text
+delete({ where: { id } })                  → 1 statement, no BEGIN/COMMIT
+  DELETE FROM "g_accounts" WHERE "g_accounts"."id" = $1
+    RETURNING "id" AS "id", "email" AS "email", "label" AS "label"
+
+delete({ where: { email }, select: { label } }) → 1 statement, no BEGIN/COMMIT
+  DELETE FROM "g_accounts" WHERE "g_accounts"."email" = $1
+    RETURNING "label" AS "label"
+```
+
+Five round trips (BEGIN, locate, snapshot, DELETE, COMMIT) became one. The alternate-unique form folds too: the selector rides into the DELETE rather than being resolved to a PK first.
+
+**Phase 5 — both spellings reach the index.** SQLite (better-sqlite3, 4,000 rows, `ANALYZE`d, one composite index `(bucket, id)`), EXPLAIN QUERY PLAN over the statement the client emitted, with that statement's own parameters:
+
+```text
+5.1  ORDER BY "t0"."bucket" ASC, "t0"."id" ASC LIMIT ?
+     SCAN t0 USING INDEX g_rows_bucket_id_idx
+
+5.2  WHERE ("t0"."bucket", "t0"."id") >= (SELECT "t1"."bucket", "t1"."id"
+            FROM "g_rows" AS "t1" WHERE "t1"."id" = ? LIMIT ?)
+     SEARCH t0 USING INDEX g_rows_bucket_id_idx (bucket>?)
+     SCALAR SUBQUERY 1
+       SEARCH t1 USING INDEX sqlite_autoindex_g_rows_1 (id=?)
+```
+
+`bucket` is NOT NULL, so 5.1 emits the bare direction — no `NULLS FIRST/LAST` anywhere in the ORDER BY — and the read walks the index with no `USE TEMP B-TREE`. 5.2 is the row-value comparison against a scalar subquery, and the outer relation `t0` **seeks** (`bucket>?`) rather than scanning under a filter; the cursor row is still located inside the same statement, by its own unique key.
+
+Phase 2 is a DDL change and has no statement count or plan to read; its evidence is the catalog read-back, taken live on all five drivers by `runMappedIndexBehavior`, `runPartialIndexBehavior`, `runPartialIndexRefusalBehavior` and `runPartialIndexCoverageBehavior`, every one of which executed in the legs above.
+
+### Standing rules
+
+No error message, no error attribution and no race protection was removed anywhere in the wave. The step vocabulary in `OperationFragment.ts` is byte-identical to `c45e2b5`. Three pinned-SQL files changed, each deliberately and each with its rationale in place: `sql-generation.test.ts` (Phase 3 — the old pin asserted the very refusal the fold removes), `cursor-pagination-sql.test.ts` (Units 5.1 and 5.2), and two further pins moved by 5.1 in `operation-equivalence-oracles.test.ts` and `located-parent-ref.test.ts`.
+
+**Open and recorded, not fixed here:** Decision 7.4 (the PostgreSQL partial-index predicate churn, raised by Phase 2), and the `0A000` on `delete({ select: { relation } })` on PostgreSQL that Phase 3's witnesses surfaced — both pre-existing, both filed above. (The `0A000` has since been fixed on `nested-write-boundaries`; see "Resolution — the deferred `0A000`, closed" under Phase 3.)
+
+---
+
+## Phase 6 — Reduce the round trips on batch-only drivers (D1, Neon HTTP)
+
+### Problem
+
+The compiled writes ride one atomic batch. The planning reads do not: each planning read is one sequential HTTP round trip ([`OperationExecutor.ts:391-407`](../../src/query-engine/write-engine/OperationExecutor.ts) calls the linear executor). Also, the fold gates require transaction mode, so a scalar update on these drivers uses two round trips where one is possible.
+
+### Context and code locations
+
+- The batch compiled path: `OperationExecutor.ts:543-582`; the native batch overrides: [`d1/index.ts:233`](../../src/drivers/d1/index.ts), [`neon-http/index.ts:253`](../../src/drivers/neon-http/index.ts).
+- The fold gates: `UpdateOperation.canFold` requires tx mode at [`UpdateOperation.ts:664-672`](../../src/query-engine/write-engine/UpdateOperation.ts); the upsert update-arm gate at [`UpsertOperation.ts:319`](../../src/query-engine/write-engine/UpsertOperation.ts). The statement-atomic path with JS postconditions runs on any driver ([`OperationExecutor.ts:138-141, 295-309`](../../src/query-engine/write-engine/OperationExecutor.ts)).
+- The planning dependency structure: only technique-#1 refs order the planning steps (a probe refs the locate row, example at `RelationLinkPart.ts:125-146`). Level 0 = steps with no refs; level 1 = steps that ref level-0 outputs.
+- The test stand-in: `BatchOnlyPGliteDriver` at `tests/drivers/pglite.test.ts:37`.
+
+### Correction
+
+1. Group the planning reads by dependency level. Send each level through `_executeBatch`. A tree then costs two or three round trips in total.
+2. Remove the transaction-mode condition from the fold gates on drivers with RETURNING support. The affected-count check moves to the JS postcondition, which the tx fold already uses.
+
+### Test
+
+1. Count the round trips with the batch-only PGlite driver (a counter subclass): a nested-write update must cost at most three; a scalar update must cost one.
+2. Make sure that staleness handling, guards, and error attribution stay identical (run the staleness-injection suite in batch mode).
+
+### Measured starting line, and the two blockers that were resolved
+
+**Both units are DELIVERED.** They were first implemented and measured against the
+starting line below, and each hit a blocker that was a decision rather than a defect; both
+decisions were then taken by the maintainer (2026-08-03) and both units shipped. The
+delivery record follows the starting line. The counts below are pinned by
+[`tests/query-engine-v2/batch-round-trip-baseline.test.ts`](../../tests/query-engine-v2/batch-round-trip-baseline.test.ts),
+which counts every call reaching a driver execution seam — on D1 and Neon HTTP that is
+one HTTP request each. It is a harness, not an endorsement: every number in it is a
+target this phase exists to lower, and a change that raises one is a regression.
+
+| Payload (batch-only driver) | Starting line | 6.1 | 6.2 | Shipped |
+| --- | --- | --- | --- | --- |
+| scalar `update` | 2 | 2 | **1** | **1** |
+| scalar `delete` | 2 | 2 | **1** | **1** |
+| `upsert` update-arm (7.1's door excludes it) | 2 | 2 | n/a — already folded | 2 |
+| nested update, one child target | 3 | 3 | — | 3 |
+| nested update, two sibling targets | 4 | **3** | — | **3** |
+| nested update, four sibling targets | 6 | **3** | — | **3** |
+| `update` with a nested `upsert` | 3 | **2** | — | **2** |
+
+6.1 behaves exactly as the plan predicts: only a technique-#1 reference orders planning
+steps, so grouping by level makes the planning cost one round trip per LEVEL rather than
+per READ, and the total stops growing with the fan-out. The falsification bites as
+specified — ignoring the references and sending every planning read in one batch fails
+with `Operation reference 'user.locate.id' is unresolved`, because the correlated probe's
+parameter is the locate's output.
+
+**Blocker 6.1 — the race-injection harness assumes the first batch is the write batch.**
+Nine test files carry the same one-shot `beforeBatch` driver hook, whose contract is
+stated as "runs between planning and the atomic batch — the deterministic staleness
+window". It is implemented as "fire on the first `executeBatch`". Once planning reads
+also travel by batch, that hook fires on a PLANNING batch and the injected concurrent
+mutation lands before planning instead of between planning and the write, so the window
+under test is never opened: **12 tests across 4 files go red**, every one of them a race
+premise (`staleness-injection`, `upsert-family`, `create-family`,
+`produced-identity-race-pin`). No guard, error or attribution changes — the compiled
+write unit and `compileToEntries` are untouched, and grouping READS under one batch makes
+planning see a single snapshot rather than several, which is a strengthening. The
+harness's timing assumption is what breaks. Making 6.1 shippable therefore means editing
+the race-protection net in nine files so this phase's own optimization goes green, which
+is the one thing this plan's rules single out for a reviewer's attack. **Disposition:
+RESOLVED — the maintainer authorized the hook rewrite (2026-08-03) as an implementation
+catch-up to the hook's own documented contract, on its own commit, ahead of the
+optimization. See "6.1 delivered" below.**
+
+**Blocker 6.2 — a JS postcondition cannot abort a batch that has already committed.**
+Removing the `txMode` conjunct from `UpdateOperation.canFold` does deliver the plan's
+number: a scalar update on a batch-only driver drops from 2 round trips to **1**, running
+through `statementAtomicPlan` with `affectedRows(1, notFound)` enforced in JS, exactly as
+the plan describes. But the folded fragment is then one step carrying a postcondition, and
+`$transaction([...])` on a batch-only driver reaches `prepareSharedBatch` →
+`compileToEntries`, which fails closed on precisely that:
+
+```text
+QueryEngineError: Step 'user.update' carries a postcondition
+that is not yet enforced in batch mode.
+```
+
+That refusal is correct and must stay. The array seam merges several operations into ONE
+driver batch, so a JS check that runs after the batch returns cannot un-commit the
+siblings; the presence assertion has to be IN the batch, which is what the unfolded path's
+guard already is. So `$transaction([client.user.update(…)])` — working today, and pinned
+by the baseline harness — would become a typed refusal. The fold is legal exactly where the
+operation is its OWN atomic unit and illegal where it is merged with siblings, and the
+operation is constructed before either seam is known. **Disposition: RESOLVED — the
+maintainer chose the recorded ALTERNATIVE (2026-08-03), not the falsified plan mechanism.**
+The shape that satisfies both is not the plan's ("move the check to the JS postcondition")
+but its batch-mode analogue: emit `[presence guard, UPDATE … RETURNING]` with no
+postcondition, which is also one round trip, keeps the array seam working, and reuses the
+existing `attributeGuardFailure` attribution unchanged. See "6.2 delivered" below.
+
+### 6.1 delivered — the hook first, then the grouping
+
+Two commits, in that order, because the first is behaviour-neutral and the second is the
+one that needs it.
+
+**`2a3268d` — the hook rewrite.** Ten test files carried the same one-shot concurrent-writer
+injection, every one of them documenting its window as "between planning and the atomic
+batch" and every one of them implementing it as "fire on the first `executeBatch`". Those
+were the same thing only while planning reads travelled one `_execute` at a time. The hook
+now asks the question its comment always asked — *is this batch the operation's compiled
+atomic unit?* — through one predicate,
+[`tests/fixtures/atomic-unit-batch.ts`](../../tests/fixtures/atomic-unit-batch.ts), that
+the ten drivers share. The unit is recognised by what only `compileToEntries` can put in a
+batch: a write, **or** a guard assertion (the `__viborm_assert__` alias every adapter
+emits). Both halves are load-bearing and neither is redundant with the other:
+
+- *Write alone is not enough, measured.* An upsert whose `targetWhere`/`setWhere`
+  conditional does not match compiles to a deliberate no-op unit — `[notExists guard,
+  terminal read]`, no write at all — and the skip-premise pin three `upsert-family` tests
+  attack lives in exactly that write-free batch. A "contains a write" test stops injecting
+  there, deleting race coverage rather than relocating it.
+- *The anchoring is the other half.* A locked planning probe is a `SELECT … FOR UPDATE`;
+  a substring test for `update` calls it the write batch and injects one batch early. The
+  predicate anchors the keyword at the start of the statement.
+
+[`staleness-window.test.ts`](../../tests/query-engine-v2/staleness-window.test.ts) pins all
+three edges directly, so an edit that widens or narrows the window fails there rather than
+quietly relocating a dozen race premises somewhere they no longer bite. No error message,
+no attribution and no race protection was removed: the twelve premises that would have gone
+dark are the ones this commit keeps alive.
+
+**`f690597` — the grouping.** `OperationExecutor.executePlanningLevels` splits the planning
+reads into dependency LEVELS (level 0 references nothing the fragment produces; level N
+references a level-(N-1) producer) and sends a multi-read level through `_executeBatch`.
+A level of ONE stays on the per-statement path — there is nothing to group, and routing the
+overwhelmingly common single-locate through the batch seam would change its call shape for
+no saving. A step whose reference this pass cannot place gets a level of its own, so it
+runs alone and materialization raises the same unresolved-reference error from the same
+place. Only the atomic-batch path plans this way; `runLinearOn` (transaction mode) keeps
+the sequential path, because its probes take a row lock on an open transaction handle and
+it is not the substrate whose round trips this phase exists to lower. Grouping reads is a
+strengthening: several reads in one atomic batch see ONE snapshot where several `_execute`
+calls saw several.
+
+### 6.2 delivered — the guard in the batch, not the check after it
+
+`a29374b`. `UpdateOperation.canFold` and `DeleteOperation`'s fold gate drop the `txMode`
+conjunct. In transaction mode nothing changes: the folded step keeps its
+`affectedRows(1, notFound)` postcondition and stays statement-atomic. In batch mode the
+folded step carries NO postcondition and rides one atomic batch behind a presence guard —
+`[presence guard, UPDATE … RETURNING]`, `[presence guard, DELETE … RETURNING]`.
+
+Three things this shape gets right that the plan's own correction did not:
+
+- **The `$transaction([...])` array seam keeps working.** Nothing is deferred past the
+  merge, so `compileToEntries`'s refusal ("carries a postcondition that is not yet enforced
+  in batch mode") is never reached — and that refusal stays, correct and untouched, for
+  anything that does defer. The seam's payload moved from two round trips to one *and* its
+  result is asserted unchanged.
+- **The guard is not the split-witness downgrade.** It names the CALLER's selector, not a
+  captured primary key, and there is no capture to be split from: the guard and the UPDATE
+  carry the same predicate inside one atomic unit, so there is no window between them and
+  no second row for a reassignment to walk onto. (The unfolded path locates by one
+  predicate and writes by another, which is why `buildRootPresenceGuard` answers for the
+  located row there.)
+- **Attribution is byte-identical.** The guard's failure is the same `notFound` the
+  transaction fold's postcondition carries, so `attributeGuardFailure` builds the same
+  `NotFoundError` — same class, same message, same `V6001`.
+
+**Where 6.2 does NOT extend, measured rather than asserted** — both pinned in the baseline
+harness so the claims stay measured:
+
+- *The upsert update-arm.* It ALREADY compiles to `[presence guard, UPDATE … RETURNING]`
+  with no postcondition (`enforceAffected` is a transaction-mode-only conjunct). There is
+  nothing to fold. Its remaining round trip is the planning locate, and that locate is what
+  DECIDES create-versus-update — an upsert with no locate has no arm. Decision 7.1's
+  `INSERT … ON CONFLICT DO UPDATE` door is the mechanism that removes it, and the payload
+  pinned here is the one that door excludes (conjunct 6).
+- *`create`.* A scalar create has no planning read at all — there is no premise about an
+  existing row to check — so it already costs one round trip on this substrate. Its
+  transaction-mode fold saves a STATEMENT, not a round trip, and this phase is about round
+  trips.
+
+### Re-measured at the P6 completion gate
+
+Taken independently at the tip through the batch-only stand-in's `_execute` /
+`_executeBatch` seams, on a throwaway harness written for this reading rather than by
+running the pinned file. Every number reproduces the delivery columns:
+
+```text
+scalar update                       1 round trip    [batch:2]
+scalar delete                       1 round trip    [batch:2]
+scalar create                       1 round trip    [batch:6]
+upsert update-arm (door excludes)   2 round trips   [execute:1 batch:2]
+nested update, 1 target             3 round trips   [execute:1 execute:1 batch:4]
+nested update, 2 targets            3 round trips   [execute:1 batch:2  batch:6]
+nested update, 4 targets            3 round trips   [execute:1 batch:4  batch:10]
+update with a nested upsert         2 round trips   [batch:2 batch:4]
+$transaction([ scalar update ])     1 round trip    [batch:2]
+```
+
+The batch WIDTHS are shown because they are what says the saving is real rather than a lost
+statement: the four-sibling row's planning batch carries four probes where the two-sibling
+row's carries two, and both cost one trip. "Nested update, 1 target" stays at three — two
+levels of one read each, both of which stay on the per-statement path by the rule above.
+
+**Gate legs.** `pnpm test:types` clean (tsc 5.9.3). Full estate, run alone,
+`npx vitest run --minWorkers=1 --maxWorkers=4`: **9489 passed, 0 failed**, 2163 skipped
+(270 files, 4 skipped) — baseline 9480/0. `pnpm test:gates`: **72 passed**, census pin 39
+unchanged. Repo-pinned `npx biome check` (2.3.11) over all twenty changed files: **zero
+diagnostics**. Docker MySQL 8 port 3307: **1016 passed, 0 failed** (baseline 1016). Docker
+PostgreSQL port 5434: **1135 passed, 0 failed**, 14 skipped (baseline 1135).
+
+**Standing rules held.** `OperationFragment.ts` is untouched — the frozen step vocabulary
+did not grow; the fold reuses `presenceGuard` and the existing `GuardStep`. No error
+message and no attribution literal was deleted anywhere in the `src` diff. No race
+protection was removed: the hook rewrite is the reason twelve race premises still bite, and
+`staleness-window.test.ts` is new coverage pinning the window's three edges. The pinned
+round-trip numbers that moved carry a `BASELINE UPDATED DELIBERATELY` comment naming the
+unit that moved them, and each moved count is pinned beside the round-trip KIND and the
+statement shape, so "one trip" cannot be satisfied by an operation that dropped its
+presence assertion.
+
+**Three PR-20 review comments dispositioned** (`b0d8712`), each checked against the tip
+rather than against the hunk it was written on: the `as NotFoundError` assertion in
+`delete-fold`'s `rejection` helper — **applied** (AGENTS.md forbids type assertions, and
+the assertion was masking the resolve case; the narrowed shape is what reported a real
+regression when the 6.2 guard was falsified out); the missing `120_000` timeout on the
+ordering-plan test — **applied**, measured (seven of the cohort's eight tests carry it and
+the eighth calls the same 4,000-row `connect()`); the markdown blank line before the
+Decision 7.4 rule — **rejected as already fixed**, verified by scanning the file for `---`
+rules preceded by a non-blank line and finding none. Nothing was posted to GitHub.
+
+---
+
+## Wave gate — Phases 4 and 6 together
+
+**Run:** 2026-08-03, main checkout, branch `nested-write-boundaries`, tip `f0450cc` (four
+commits from `1886518`, the grouped link probe and write, through `f0450cc`, the Phase 6
+round-trip harness). Baseline for every number below is `1e67bab`.
+
+### The legs
+
+| Leg | Result | Baseline |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9338 passed, 0 failed**, 2124 skipped (264 files, 4 skipped) | 9279 / 0 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin 39, unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11) per changed file | **clean — zero diagnostics on all eight** | — |
+| Docker MySQL 8, port 3307 | **993 passed, 0 failed** | 990 |
+| Docker PostgreSQL, port 5434 | **1110 passed, 0 failed**, 14 skipped | 1102 |
+
+**Biome.** The wave changed eight TypeScript files. Unlike the Phases 2/3/5 wave, none of
+them carries a surviving diagnostic: `npx biome check` reports nothing on any of the eight,
+so "no new diagnostics" holds by construction and needed no baseline comparison.
+
+**The Docker PostgreSQL leg has to run serially, and the gate proved why.** Run as
+`npx vitest run tests/drivers/pg.test.ts tests/drivers/postgres.test.ts` — without
+`--no-file-parallelism`, which `pnpm test:pg` supplies — the two files push the same schema
+into the same database concurrently and all ten Phase 4 witnesses fail in about 4 ms, before
+any statement of the operation under test runs. Re-run under the script's own flag they are
+green. This is a harness constraint, not a product finding, and it is recorded so the next
+gate does not read it as one.
+
+**Phase 4's grouped-link witnesses, executed by name.** The five cases added to
+`tests/drivers/nested-write-behavior.ts` ran green on all three gated legs:
+*connect with a list of targets reparents every one of them*, *a connect list with one
+absent target writes nothing*, *disconnect with a list nulls every one of them*, *a
+disconnect list naming ANOTHER parent's child nulls nothing*, and *a create tree's connect
+list reparents every one of them* — on `MySQL2 nested write behavior`, on
+`pg nested write behavior` and on `postgres.js nested write behavior`. MySQL is the leg
+that matters most: it is non-returning, so the folded write goes out as a plain
+`UPDATE … WHERE key IN (…)` with no RETURNING clause to confirm it.
+
+### Measured at the gate, not copied
+
+Taken independently at the tip through the PGlite `execute`/`executeRaw` seam (which sees
+both substrates) and through the batch-only stand-in's `_execute` / `_executeBatch` seams,
+on a schema written for this reading rather than on the witness files' own.
+
+**Phase 4 — statements for a three-target link.** Every "after" number in the delivery
+record reproduced exactly:
+
+```text
+update + connect: [a,b,c]     transaction      4 statements   (2 are the link)
+update + connect: [a,b,c]     atomic batch     8 statements   (5 are the link)
+update + disconnect: [a,b,c]  transaction      4 statements   (2 are the link)
+create + connect: [a,b,c]     transaction      4 statements   (2 are the link)
+update + set: [a,b,c]         transaction      7 statements
+M2M    connect: [a,b,c]       transaction      6 statements
+```
+
+Six link statements became two for `connect`/`disconnect`: one IN-list `FOR UPDATE` probe
+and one IN-list UPDATE. The remaining two in each transaction row are the root's own locate
+and terminal read, which this phase does not touch. The batch row keeps its three per-target
+presence guards, which is the plan's own instruction, and is why it lands on eight rather
+than five. `set` and the M2M junction fold their write only, for the split-witness reason
+recorded above.
+
+**Phase 6 — round trips on the batch-only driver, at the tip.** Phase 6 shipped the
+measurement and not the change, so the gate's job is to confirm the starting line still
+reads as the harness pins it:
+
+```text
+scalar update              2 round trips
+scalar delete              2 round trips
+nested update, 1 target    3 round trips
+nested update, 2 targets   4 round trips
+nested update, 4 targets   6 round trips
+```
+
+These are the "Today" column of the Phase 6 table, unchanged — which is the correct reading:
+6.1 and 6.2 were both measured and both parked on a blocker, and neither landed. Every number
+is a target the phase exists to lower.
+
+*(Superseded. This is a dated record of tip `f0450cc` and is left standing as one. Both
+units shipped on 2026-08-03; the numbers above are the starting line, not the tip — see
+"Re-measured at the P6 completion gate" in the Phase 6 section.)*
+
+### Standing rules
+
+`src/query-engine/write-engine/OperationFragment.ts` is byte-identical to `1e67bab` — the frozen step
+vocabulary did not grow. No pinned SQL changed: `tests/query-engine/sql-generation.test.ts`
+is not in the wave's diff at all, and the arity-1 link spelling did not move, which is what
+keeps every existing single-target pin unmoved. No error message and no error attribution was
+removed — no message literal is deleted anywhere in the wave's `src` diff. No race protection
+was removed: `presenceGuard` occurs the same number of times at the tip as at the baseline in
+each of the four Parts that carry one (`RelationLinkPart` 2, `RelationJunctionPart` 2,
+`RelationWritePart` 3, `CreateOperation` 2), and the `set` orphan guard was not touched — the
+only hunks in `RelationWritePart.ts` are inside `RelationSetPart.compile`.
+
+**Open and recorded, not fixed here:** both Phase 6 blockers (the race-injection harness's
+first-batch assumption, and the batch-seam decision a postcondition-carrying fold needs),
+M2M `disconnect`'s unfolded per-target deletes, and the `set` selector-addressing coverage
+gap Phase 4's falsification surfaced. All four are dispositions, not defects, and all four
+are stated above.
+
+---
+
+## Phase 7 — Four maintainer decisions
+
+These items need a written disposition. They are choices, not defects.
+
+### Decision 7.1 — The scalar-upsert ON CONFLICT door
+
+ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level scalar upsert with an expressible conflict target ([`ATOM.md:243-262`](../../src/query-engine/write-engine/ATOM.md), the "legal, but observably divergent" note at `:250-254`). The current sequence is at [`UpsertOperation.ts:342-351, 446-492`](../../src/query-engine/write-engine/UpsertOperation.ts). This changes four or five round trips into one on PostgreSQL and SQLite. MySQL stays on the probe path: its `ON DUPLICATE KEY` fires on any unique collision ([`mysql-adapter.ts:408-414`](../../src/adapters/databases/mysql/mysql-adapter.ts)), which breaks the documented unrelated-collision behavior. The disposition must state the accepted observable divergence against the oracle.
+
+#### DISPOSITION — TAKE the door. Delivered 2026-08-03, branch `nested-write-boundaries`.
+
+**The measured baseline** (PGlite, statements counted at the driver's `execute`/`executeRaw` seam, which sees both substrates):
+
+| Shape | Before | After |
+| --- | --- | --- |
+| `upsert` → create arm, transaction | 3 payload statements (locate `FOR UPDATE`, INSERT, terminal SELECT) inside BEGIN/COMMIT — 5 round trips | **1**, no envelope — 1 round trip |
+| `upsert` → update arm, transaction | 2 (locate `FOR UPDATE`, `UPDATE … RETURNING`) — 4 round trips | **1** |
+| `upsert` → create arm, atomic batch | 3 | **1** |
+| `upsert` → update arm, atomic batch | 3 (locate, presence guard, `UPDATE … RETURNING`) | **1** |
+
+The gate is in `UpsertOperation.buildOnConflictFold`. It has **seven** conjuncts, and every one of them has coverage no other has — each was removed on its own and the witness that failed is recorded below.
+
+1. `canFoldUpdateArm` — the update arm's existing fold gate, reused rather than restated, so `supportsReturning` is read in ONE place in the class. It carries a RETURNING driver, a scalar update arm, and a scalar-only projection with no `include`.
+2. `supportsTargetedUpsert` — a NEW adapter capability naming the arbiter property.
+3. no `targetWhere` / `setWhere`.
+4. a plain unique `where` (no extended-selector filter half).
+5. the `where`'s discriminator names exactly ONE constraint.
+6. the create data spells every conflict-target column with the `where`'s own value.
+7. a `set`-only update payload.
+
+**Conjunct 5 was MISSING at first delivery, and it was a regression** — recorded rather than quietly patched, because it is the shape of mistake this door invites. A `whereUnique` may name several independent single-field uniques at once (`where: { id: 1, email: 'a1@x' }`, legal since Prisma 4.5 and answered by `findUnique` and `update`), and `partitionWhereUnique` flattens the discriminator to one entry per constrained COLUMN with no bound of one. `buildConflictTarget` joins every entry, so that selector emitted `ON CONFLICT ("id", "email")` — a column pair with no unique index behind it. Measured on PGlite: `V2001` / `providerCode 42P10`, "there is no unique or exclusion constraint matching the ON CONFLICT specification", on BOTH arms, with SQLite3 rejecting the same shape; flipping `supportsTargetedUpsert` off made all of it succeed, so the probe path had always answered it. Neither conjunct 4 nor conjunct 6 covers it: two uniques are both DISCRIMINATORS, so there is no filter half to see, and the create data spelling both is the natural spelling. The fix counts the discriminator's own KEYS, not the flattened entries, so a compound (one key, several columns) still folds; the control test asserts `ON CONFLICT ("org", "slot")` on a compound-unique model and fails on the entries-counting spelling.
+
+**Why the arbiter is a capability and not an inference.** `ON DUPLICATE KEY UPDATE` carries no target and fires on ANY unique collision, so it would silently ADOPT a row the caller never named — a wrong answer, not a missing optimization. It reads `false` on exactly the same adapters as `supportsReturning` today; that is a coincidence of the three adapters shipped, not an implication (MariaDB has `RETURNING` on `INSERT` and still arbitrates on any key), and the capability's doc comment says so, so it is not "simplified" away later.
+
+**The ACCEPTED divergence against the oracle — one, and it is measured.**
+
+> **The update path burns one sequence value the probe path did not.** `INSERT … ON CONFLICT DO UPDATE` evaluates the INSERT's column defaults before it detects the conflict, so a database-generated identity the create data omits consumes a value even when the row already existed. Measured: PostgreSQL `last_value` **100 → 101**; SQLite `sqlite_sequence` **2 → 3**. Probe-first runs no INSERT on that path and consumes nothing. Sequences are documented as non-gap-free on both dialects, and ATOM §4 names this burn as the divergence a written disposition covers. **Pinned** as `DIVERGENCE 1` in [`tests/query-engine-v2/upsert-on-conflict-fold.test.ts`](../../tests/query-engine-v2/upsert-on-conflict-fold.test.ts), which asserts the probe path's delta is 1 and the folded path's is 2 — so the number stays measured rather than becoming prose.
+
+**What was FEARED and does NOT diverge — each checked by the dual-run oracle, not by argument.** The oracle runs the same payload twice from the same seeded state and compares the answer, the persisted rows, the thrown error's class/code/`meta`, and the statement count. The two paths are selected by flipping the gate's OWN arbiter conjunct, so "the old path" is literally the shipped probe-first sequence; a meta-test asserts the lever really does select two different paths.
+
+| Feared divergence | Measured verdict |
+| --- | --- |
+| unrelated-unique collision on the CREATE arm (`where` absent, create data collides on another unique) | **identical** — `UniqueConstraintError`, `V3001`, `providerCode 23505`, `constraint: <table>_email_key`, on both paths. The arbiter is `id`; the `email` index is not the arbiter, so its violation is raised as itself. |
+| unrelated collision produced by the UPDATE payload | **identical** — probe-first runs the same `UPDATE`, so both raise. |
+| a collision carried by the create half when the UPDATE arm is taken | **identical, neither raises** — probe-first never runs an INSERT; the fold's speculative insertion is rolled back into `DO UPDATE`. Measured, because this was the case most likely to differ. |
+| affected-count reporting | **identical** — `ON CONFLICT` affects exactly one row on both arms (`affectedRows: 1`, one RETURNING row). It cannot affect zero, so no postcondition was moved or dropped. |
+| the pinned-abort error class disappearing (ATOM §4's phrase) | **not observable.** The create arm's `racePin` only ever classified a violation so the routed layer could retry ONCE and converge. The folded statement converges without retrying, to the same answer. |
+
+**Race semantics: atomic where probe-first retried.** Structurally, the folded fragment has EMPTY planning and exactly one step carrying no `racePin` — there is no window between a decision and the write that acts on it. Behaviourally, a competitor on its **own connection** (a file-backed SQLite database, because an in-process PGlite cannot be raced against itself without deadlocking its own serialization queue) commits the contested key in the window between decision and write: probe-first loses its INSERT, the `racePin` classifies it, the routed retry re-plans into the update arm and converges — paying a second full round of statements. The folded statement takes its `DO UPDATE` arm and answers the same thing in one. **The race protection is not removed; it is discharged by the database**, which is what makes the absent `racePin` sound rather than a hole.
+
+**What the gate excludes, and why each exclusion is correctness rather than caution.**
+
+- **`targetWhere`/`setWhere`** — their contract is V1's silent no-op: no write, and the terminal read still answers with the UNCHANGED row. `DO UPDATE … WHERE <no match>` returns ZERO rows (measured on PG 17), so a folded upsert would answer nothing where the contract says it answers the row.
+- **an extended selector** — the filter half decides WHICH row the operation means and `ON CONFLICT` has nowhere to put it; the conflict would arbitrate on the unique half alone and adopt the very row the filter EXCLUDED. This is the same rule `childRacePin` already applies when it withholds the create arm's pin for an extended selector.
+- **a selector naming two independent uniques** — `ON CONFLICT` takes ONE arbiter index and the target is spelled from every column the discriminator constrains, so `{ id, email }` emits a column pair no index covers (`42P10`, measured, both arms). There is no folding it by electing one of the two either: the other unique is a second condition on the row the caller named, and arbitrating on `id` alone would adopt a row whose `email` the selector excluded — the extended-selector failure again, in a different spelling.
+- **`create` that does not satisfy `where`** — Prisma does not require it to, and `ON CONFLICT` arbitrates on the VALUES row rather than on the caller's `where` (measured: `where: { id: 10 }` with `create: { id: 20 }` conflicts on 20, inserting a second row where probe-first would have updated row 10).
+- **atomic arithmetic / `push` / `unshift` in the update payload** — `buildSet` spells these `col = <col> op x` with ONE column expression on both sides, and inside `DO UPDATE SET` PostgreSQL rejects every spelling it can produce: bare on both sides is `42702` ("column reference is ambiguous" — the proposed row and the existing row both offer the name), and qualifying the assignment target is `42703`. Only "bare target, qualified source" parses, and no emitter in this codebase writes that. **Recorded residual:** the common counter idiom `update: { count: { increment: 1 } }` therefore keeps the probe path. Closing it needs a SET emitter that qualifies only the source — a new adapter-surface spelling, deliberately out of this decision's scope.
+- **a relation projection or `include`** — carried by conjunct 1; `_count` off a RETURNING subquery binds by name, the defect Phase 3 already corrected once.
+
+**A conjunct that was written and then REMOVED.** An eighth conjunct, `!createHasRelations`, was in the first spelling. Falsification found **nothing in the estate that could tell it apart from conjunct 6**: `createData` is `{}` for a relation-bearing payload, so every conflict-target column reads `undefined` and the fold already declines. That is a check whose unique coverage cannot be named, which this codebase forbids, so it went — and the coupling it relied on is written down at conjunct 6 instead, together with the instruction to restore it in the same edit if `createData` ever holds the scalar half of a relation-bearing payload.
+
+**Falsification — twelve mutations, each applied alone.**
+
+| Mutation | What failed |
+| --- | --- |
+| the gate forced CLOSED (`permitted = false`) | 10 — every traffic witness, both divergence measurements, the oracle's lever meta-test, and both fold controls |
+| conjunct 1 removed (`canFoldUpdateArm`) | the `include` witness and the `_count` witness |
+| conjunct 2 removed **and** a target-ignoring arbiter substituted (the MySQL semantic, live) | 5 — including the unrelated-collision witness, which stops raising and adopts a row the caller never named |
+| MySQL declared `supportsTargetedUpsert: true` (the brief's literal falsification) | the arbiter witness |
+| conjunct 3 removed | both conditional witnesses |
+| conjunct 4 removed | the extended-selector witness |
+| conjunct 5 removed | all three two-independent-uniques witnesses (both PGlite arms and the SQLite one) — `42P10` returns |
+| conjunct 5 spelled on the FLATTENED entries (`entries.length === 1`) instead of the discriminator's keys | the compound-unique control — the fold silently stops applying to every compound `where` |
+| conjunct 6 removed | the create-does-not-satisfy-where witness **and** the relation-bearing create-arm witness |
+| conjunct 6 WEAKENED to "the key is present", dropping the value comparison | the create-does-not-satisfy-where witness |
+| conjunct 7 removed | the atomic-arithmetic witness |
+| `!createHasRelations` removed | **nothing** — which is why it is no longer there |
+
+**Witnesses.** [`tests/query-engine-v2/upsert-on-conflict-fold.test.ts`](../../tests/query-engine-v2/upsert-on-conflict-fold.test.ts) — 35 tests in four groups: the traffic (counts on both arms and both substrates, the alternate-unique conflict target, and the plan shape without a database), the dual-run oracle (ten payloads plus the lever meta-test), the accepted and rejected divergences, and one case per excluded shape. Four more in [`upsert-family-behavior.ts`](../../tests/query-engine-v2/upsert-family-behavior.ts), which is wired on **every** driver leg, so the folded shape's answer is certified on SQLite3, LibSQL, PGlite, Docker PostgreSQL **and Docker MySQL** — the dialect the door is closed to, where the same payloads must answer identically through the unchanged probe path.
+
+**One pinned baseline moved, deliberately.** `batch-round-trip-baseline.test.ts`'s *"a scalar upsert update-arm costs two"* was Phase 6's measurement of this exact shape. It now costs ONE, which is this decision's deliverable, so the number moves with it and the round-trip KIND is pinned alongside (one round trip would also be true of an operation that planned nothing and wrote nothing). A second test was added holding the OLD number for an upsert the door excludes, so Phase 6's baseline is still measured on a shape that still has it. No pinned SQL in `tests/query-engine/sql-generation.test.ts` changed — it holds no root-upsert pin.
+
+**Gate.** `npx tsc --noEmit` (5.9.3) clean. `pnpm test:gates` **72 passed**, census unchanged. Repo-pinned `npx biome check` clean on all changed files. Suites in this worktree, 0 failures: `tests/query-engine-v2` **1108** (59 files), `tests/query-engine` + `tests/adapters` **2339** (110 files), `tests/drivers/sqlite3` + `tests/drivers/libsql` **2240**, `tests/drivers/pglite` + `tests/drivers/libsql` **1833**. No error message, error attribution or race protection was removed. `OperationFragment.ts` is byte-identical. The Docker MySQL (3307) and PostgreSQL (5434) legs belong to the gate agent; the four cross-dialect cases are wired on both.
+
+### Decision 7.2 — Multi-row `INSERT … RETURNING` for `createMany` with select
+
+The per-row emission exists for an exact input ordinal ([`create.ts:116-119`](../../src/query-engine/operations/create.ts); [`ManyAndReturnOperation.ts:451-467`](../../src/query-engine/write-engine/ManyAndReturnOperation.ts)). One multi-row statement replaces N statements. PostgreSQL does not contractually guarantee the RETURNING row order. The choice: accept the implementation guarantee (Prisma does), or match the returned rows by key.
+
+#### DISPOSITION — TAKEN. Accept the implementation order (2026-08-03)
+
+**The decision.** Fold. `createMany` with a `select` now emits ONE multi-row `INSERT … VALUES (…),(…),(…) RETURNING …` per contiguous same-shape run of input rows, on every driver that has a RETURNING clause. The returned rows map to the run's input rows POSITIONALLY. The rows are not matched back by key.
+
+**The guarantee being trusted, and its bound.** Neither the SQL standard nor the PostgreSQL manual orders a `RETURNING` result. What is relied on is the implementation behaviour of a single `INSERT` over a literal `VALUES` list: the executor's ModifyTable node pulls rows from the VALUES scan in the order they are written and projects each row's RETURNING list as it inserts it, so the result rows arrive in VALUES order. **The bound is exactly that shape:** one `INSERT` whose source is a literal `VALUES` list; no `INSERT … SELECT` (whose source may be reordered by the planner), no parallel plan (PostgreSQL never parallelises the source of a data-modifying statement), no `ORDER BY`, no `ON CONFLICT DO UPDATE` re-processing. The emitter builds no other INSERT shape, so nothing in the engine can leave the bound without a source change. This is the same stance Prisma takes for `createManyAndReturn`. SQLite is inside the same bound for the same reason.
+
+**Measured, before and after, PGlite (PostgreSQL 17) and SQLite3.** `createMany({ data: [4 rows], select })`: four `INSERT … RETURNING` statements became ONE. The result is byte-identical. A payload whose input order disagrees with every storage order — descending primary keys `40,10,30,20` and non-monotonic unique values — comes back in input order on both dialects, from the folded statement and from a bare `INSERT … VALUES (90,'a'),(10,'b'),(50,'c'),(1,'d') RETURNING` probe alike.
+
+**`skipDuplicates` is IN the fold, and the contract it pins.** `INSERT … VALUES (…),(…) ON CONFLICT DO NOTHING RETURNING` was measured on PGlite and SQLite against a payload carrying both a collision with a pre-existing row and a collision BETWEEN two rows of the same statement. Both dialects skip both and return only the inserted row. That is exactly what the per-row path produced, statement for statement, because the operation's answer is a row LIST, not an input-indexed slot map: a skipped row is ABSENT from the result and does not shift the rows that survive. The `createMany … select` result has always been "the rows actually inserted, in input order" — the existing driver witness at [`implicit-returning-behavior.ts`](../../tests/drivers/implicit-returning-behavior.ts) already returned one row for two inputs. The fold keeps that contract and now spends one statement on it. The refusal for `skipDuplicates` + `select` on a NON-returning driver is untouched.
+
+**What did not change.** MySQL — no RETURNING clause — keeps its documented path byte-identically: one `INSERT` per input row, each interleaved with the refetch that reads the created identity back, because that refetch needs one INSERT to address. `buildCreateManyPlan` splits a run into rows for exactly two reasons now, both named in its doc comment: that non-returning refetch, and the `recoverableUniqueError` skip strategy (each row behind a savepoint). The `{ count }` arm never split in the first place and is unchanged.
+
+**The ordinal contract is guarded, not assumed.** `ManyAndReturnOperation.buildCreateManyReturn` checks that the statements' `inputIndexes` concatenate to `0 … N-1` in order before it returns the fragment. A regrouping that dropped, duplicated or reordered a row fails closed there instead of returning a plausible row list addressed to the wrong inputs.
+
+**One authorised test retarget.** `tests/query-engine/bulk-insert-row-shapes.test.ts` asserted that ANY multi-row return refuses on a driver with neither transactions nor atomic batch, because N statements cannot be made atomic. A folded same-shape payload is ONE statement and is atomic by itself, so it must not be refused. The test now asserts both halves: the same-shape payload runs, and a two-shape payload — still two statements — still gets the unchanged refusal message.
+
+**Witnesses.** [`tests/drivers/create-many-return-fold-behavior.ts`](../../tests/drivers/create-many-return-fold-behavior.ts), wired on all five driver legs (pg, PGlite, SQLite3, LibSQL, MySQL2): the statement COUNT, the input ORDER against a payload that disagrees with every storage order, the per-run split, the `skipDuplicates` contract, and MySQL's unchanged 2N interleaving. [`tests/query-engine-v2/create-many-return-fold.test.ts`](../../tests/query-engine-v2/create-many-return-fold.test.ts) pins the compiled plan shape without a database.
+
+**Falsified.** Forcing the returning arm back to per-row statements fails five witnesses on the COUNT. Reversing the VALUES rows inside the folded statement — count unchanged at one — fails the ORDER witnesses only. Reversing a statement's `inputIndexes` makes the ordinal guard throw on every folded shape.
+
+### Decision 7.3 — The `startsWith` spelling
+
+The current spellings can never use an index: `LEFT(col, LENGTH($1)) = $1` on PostgreSQL ([`postgres-adapter.ts:109-110`](../../src/adapters/databases/postgres/postgres-adapter.ts)), `LEFT(BINARY col, OCTET_LENGTH(?))` on MySQL (`mysql-adapter.ts:160-161`), `substr(col,1,length(?)) COLLATE BINARY` on SQLite (`sqlite-adapter.ts:171-172`). Measured price: 54× on PostgreSQL and approximately 300× on SQLite against an indexed `LIKE 'x%'` control. The spellings also blind the PostgreSQL row estimator, which changes plan shapes. A `LIKE` spelling with escaped `%`, `_`, and escape characters is portable and index-friendly, and keeps the literal-wildcard semantics that [`prisma-parity-behavior.ts:227`](../../tests/drivers/prisma-parity-behavior.ts) pins. The choice: keep the current spelling, or move to the escaped LIKE spelling (recommendation: move; the semantics are identical and the price is now known).
+
+**DISPOSITION (delivered): MOVE `startsWith`, per dialect. `endsWith` stays.** The maintainer's decision was to move both to "the escaped LIKE spelling". Measurement changed two things about that: the spelling is not portable, and `endsWith` has nothing to gain. What shipped is a new operator, `startsWithPrefix(column, value: string)`, taking the raw string so the adapter can escape it into its own pattern language and bind the finished pattern — a pattern assembled in SQL from the operand (`REPLACE(...) || '%'`) is non-constant and gives the range straight back. Only the default-mode, literal-string path routes to it ([`where-builder.ts`](../../src/query-engine/builders/where-builder.ts), `case "startsWith"`); a field-reference or SQL-fragment operand has no client-side string to escape and keeps `startsWithText`, losing nothing because its operand is a column.
+
+| dialect | shipped spelling | startsWith plan, 20k rows + plain index | why not plain escaped LIKE |
+| --- | --- | --- | --- |
+| PostgreSQL | `col LIKE $1 ESCAPE '\'` | **only on a C-collated database**: `LEFT(...)`: Seq Scan, 20000 → **Bitmap Index Scan, 111**. On a default-locale cluster both spellings Seq Scan and what improves instead is the row estimate — see the precondition below | it *is* the escaped LIKE; `LIKE` is case-sensitive natively |
+| SQLite | `col GLOB ?` | `substr(...)`: SCAN, 20000 → **index SEARCH, 111** | escaped LIKE is *also* a SCAN here, and answers case-insensitively |
+| MySQL | `(col LIKE ? ESCAPE '\\' AND LEFT(BINARY col, OCTET_LENGTH(?)) = BINARY ?)` | `LEFT(BINARY ...)`: full `index` scan, 20248 → **`range`, 111** | LIKE alone is collation-dependent, so it cannot carry the contract on a table viborm did not create |
+
+**The PostgreSQL row's precondition is the database collation, and the project's own PostgreSQL does not meet it.** The `Bitmap Index Scan` above was measured on PGlite, which reports `datcollate = 'C'`; under `C` a plain btree stores raw byte order, so `match_pattern_prefix` can hand the index `title >= 'name123' AND title < 'name124'`. Re-measured on `viborm-pg-test-2` (postgres:16, port 5434 — the leg [the Rules](#rules-for-the-work) make mandatory), `datcollate = en_US.utf8`, same 20k rows, same plain btree index:
+
+| statement | plan on `en_US.utf8` |
+| --- | --- |
+| `title LIKE 'name123%' ESCAPE '\'` (shipped) | `Seq Scan (cost=0.00..378.00 rows=202)` |
+| `LEFT(title, LENGTH('name123')) = 'name123'` (replaced) | `Seq Scan (cost=0.00..428.00 rows=100)` |
+| shipped, after `CREATE INDEX … (title text_pattern_ops)` | `Bitmap Index Scan`, `Index Cond: ((title ~>=~ 'name123') AND (title ~<~ 'name124'))` |
+
+viborm can never emit that third index: [`generateCreateIndex`](../../src/migrations/drivers/postgres/index.ts) writes `CREATE [UNIQUE] INDEX name ON table [USING type] (cols) [WHERE …]` and has no opclass in its vocabulary. So on any cluster `initdb`'d with a non-`C` locale — the default, and what this project's container uses — **7.3 buys PostgreSQL no index range at all.** The `54×` in the problem statement above is a ratio against an *indexed* `LIKE 'x%'` control and therefore carries the same precondition.
+
+**What survives without the collation, and why the spelling still stands.** The estimator half is real, and larger than the `202` against a true `111` suggests. Measured on the same `en_US.utf8` table, sweeping the prefix width:
+
+| prefix | true rows | `LIKE` estimate | `LEFT(...)` estimate |
+| --- | --- | --- | --- |
+| `name123%` | 111 | 202 | 100 |
+| `name12%` | 1111 | 1010 | 100 |
+| `name1%` | 11111 | 11111 | 100 |
+| `name%` | 20000 | 19998 | 100 |
+
+`LEFT(...)` is an opaque function call, so the planner falls back to a flat 0.5% guess at *every* width — off by 111× at `name1%` — and that estimate propagates: the same join reads `rows=11111` under the shipped spelling and `rows=100` under the one it replaced. **ACCEPTED as shipped:** the predicate is exact everywhere, ranges wherever the collation or an operator-class index allows, and on the measured non-`C` leg costs less than what it replaced (378 vs 428) while never planning worse. Nothing is reverted.
+
+**Recorded residual (open, not fixed here): a `text_pattern_ops` companion index would make the range unconditional.** It is deliberately out of 7.3's scope because it is a Phase-1 emitter change with its own costs and its own decision: it doubles the index count on every indexed string column (storage and write amplification on tables that never filter by prefix), and to stay fail-closed the differ would have to read the opclass back through [`postgres/introspect.ts`](../../src/migrations/drivers/postgres/introspect.ts) or re-create the companion on every push — the same shape as the churn Decision 7.4 is about. Whether to spend that belongs to the maintainer, not to a spelling decision.
+
+**Where the "portable escaped LIKE" premise failed — SQLite.** Both preconditions of SQLite's LIKE optimization are violated at once: an `ESCAPE` clause disqualifies it outright, and with `case_sensitive_like` off (the default, and connection-global, so not ours to set) it additionally wants a NOCASE-collated index while `push()` only ever emits BINARY ones. Measured on better-sqlite3: `col LIKE ? ESCAPE '\'` is a `SCAN` — no better than the `substr` spelling it would have replaced — *and* it answers case-insensitively, so it would have broken the pinned case-sensitivity contract for nothing. `GLOB` has neither problem: it compares bytes (case- and accent-sensitive by construction, which is what the dropped `COLLATE BINARY` bought) and it ranges on the ordinary BINARY index. Its wildcards are `*`/`?`/`[` and it has no `ESCAPE` clause, so they are quoted as one-character classes (`escapeGlobLiteral`).
+
+**MySQL is two conjuncts, and the second one's coverage is nameable.** No single MySQL predicate is both exact and index-usable, because the index stores the column's own collation's sort keys and any comparison forced to `BINARY` cannot range on it. So the collation-native `LIKE` leads as an index accelerator and the `BINARY` predicate — byte-identical to `startsWithText` — follows as the semantics. The accelerator can never drop a row the `BINARY` conjunct keeps (byte-equal strings compare equal under every collation), so it decides no row's membership, only how many rows the server examines. Its partner is not redundant either, and the reason is specific: viborm's own DDL declares `COLLATE=utf8mb4_0900_bin` ([`mysql/index.ts:298`](../../src/migrations/drivers/mysql/index.ts)), so on a `push()`-created table `LIKE` is already byte-exact and the conjunct changes no answer — but on a table viborm did not create, carrying MySQL's default `utf8mb4_0900_ai_ci`, it is the whole of the adapter header's promise that "portable string filters override the database collation explicitly". Witnessed live at [`mysql2.test.ts`](../../tests/drivers/mysql2.test.ts), "prefix predicate on a collation viborm did not choose": on an `ai_ci` column the accelerator alone returns 3 rows where the shipped conjunction returns 1.
+
+**`endsWith` did not move, and the plan's second argument for moving it did not survive.** No dialect can range an index on a suffix, so the spelling change buys nothing there. The "blinds the row estimator" claim is real for `startsWith` (PG estimates 202 against a true 111, versus a flat 100 for `LEFT`) but *inverts* for `endsWith`: against a true 2000, `RIGHT(col, LENGTH($1)) = $1` estimates 100 and `col LIKE '%…'` estimates 2 — the LIKE spelling is the worse estimate. Both seq-scan. Moving it would have been churn carrying real escaping risk, so `endsWith`, `contains`, insensitive mode, the JSON-path operand and the field-reference operand all keep their existing spellings unchanged.
+
+**One thing the falsification could not break, recorded rather than claimed.** Dropping the `ESCAPE '\'` clause from the PostgreSQL predicate fails no witness: backslash is already PostgreSQL's default `LIKE` escape character, so the clause restates the default. It is kept for uniformity with the sibling `like`/`notLike`/`ilike` operators, which all carry it, and because it pins the escape character against a server default rather than inheriting one — not because it is load-bearing here. What *is* load-bearing is the client-side escaper: neutering `escapeLikeLiteral` fails four witnesses on PostgreSQL, and neutering `escapeGlobLiteral` fails the GLOB-metacharacter witness on SQLite. On MySQL a neutered `escapeLikeLiteral` fails only the two backslash cases — the `%`/`_` cases are absorbed by the `BINARY` conjunct, since over-permissive wildcards leave the accelerator a superset while a mis-escaped backslash does not. Dropping the `BINARY` conjunct fails the `ai_ci` witness above.
+
+**Pinned SQL updated deliberately** in [`starts-with-prefix-sql.test.ts`](../../tests/query-engine/starts-with-prefix-sql.test.ts) (three dialects, plus the complements proving `startsWith` is the only operation that moved) and the index-range claim is re-run as a test in [`starts-with-prefix-plan.test.ts`](../../tests/query-engine/starts-with-prefix-plan.test.ts), which asserts both halves: the new spelling ranges and the old one scans. That file is split by substrate for the reason above — its PGlite describe now asserts `datcollate = 'C'` before claiming anything, so it can never silently certify the general case, and a second describe gated on `PG_TEST_CONNECTION_STRING` pins the `en_US.utf8` truth (neither spelling ranges; the estimate is what survives; only `text_pattern_ops` restores the range). The file is wired into `pnpm test:pg` so it runs on the mandated leg rather than only where the claim happens to hold. Adversarial values (`50%`, `a_b`, `x\`, escape-char-only, empty, `a%b_c\d`, plus `*`/`?`/`[`) run live on all four drivers in [`like-escape-behavior.ts`](../../tests/drivers/like-escape-behavior.ts).
+
+**Re-gated after the collation correction** (2026-08-03, main checkout, branch `nested-write-boundaries`, on top of `db9d975`). No production behavior changed — the correction is to the claim, the adapter comment, and the witness's substrate coverage. `tsc` 5.9.3 clean; full estate **9480 passed, 0 failed** (2163 skipped, 268 files) run alone; `pnpm test:gates` **72 passed**, census pin unchanged; `npx biome check` (2.3.11) clean on all three changed files; Docker MySQL 3307 **1016 passed, 0 failed**; Docker PostgreSQL 5434, now including the wired-in plan witness, **1135 passed, 0 failed**, 14 skipped. Each new assertion was falsified individually: pinning PGlite's expected collation to `en_US.utf8` fails the precondition test (so it reads the real value, not a constant); routing the tracking assertions at `LEFT(...)` fails the estimator test (so the claim is about the shipped spelling); and dropping `text_pattern_ops` from the companion index leaves a `Seq Scan` (so it is the operator class that restores the range, not merely a second index).
+
+### Decision 7.4 — The PostgreSQL partial-index predicate (raised by Phase 2)
+
+Phase 2 fixed the partial index on SQLite, where the catalog stores the statement verbatim. PostgreSQL does not: `pg_get_expr(indpred, indrelid)` deparses the predicate, so a declared `active = true` reads back as `(active = true)` and never compares equal to what the serializer holds ([`postgres/introspect.ts:302`](../../src/migrations/drivers/postgres/introspect.ts) into `indexesEqual`, [`differ.ts`](../../src/migrations/differ.ts)). Measured on PGlite (PostgreSQL 17). **Consequence: every push drops and re-creates every partial index on PostgreSQL.** No client-side text normalization closes this while staying fail-closed — flattening whitespace and parentheses makes `a AND (b OR c)` equal `(a AND b) OR c`, so a real predicate change would stop being seen. The choice: canonicalize the declared predicate through the database before comparing (the differ has no connection today, so this changes the differ's shape), compare `indpred` structurally, or accept the churn and document it. The disposition must state which.
+
+#### Disposition — canonicalize through the database (maintainer, 2026-08-03). DELIVERED.
+
+**The decision.** The differ canonicalizes the declared predicate through the database before comparing. PostgreSQL's own deparse is the authority: two texts are one predicate when the database spells them the same way, and nothing else counts.
+
+**The measurement that framed it**, re-taken at `72a12be` on PGlite (PostgreSQL 17) before any code moved:
+
+```text
+declared   published = true
+read back  (published = true)
+second push  [ { dropIndex m74_idx }, { createIndex m74_idx } ]     ← the churn, live
+```
+
+And the deparse is not a fixed transformation that a client could imitate:
+
+| declared | `pg_get_expr(indpred, indrelid)` |
+| --- | --- |
+| `published = true` | `(published = true)` |
+| `published = TRUE` | `(published = true)` |
+| `published = true AND views > 10` | `((published = true) AND (views > 10))` |
+| `(published AND views > 10) OR views > 100` | `((published AND (views > 10)) OR (views > 100))` |
+| `title <> ''` | `(title <> ''::text)` |
+
+The last row is the one that settles it: the deparse resolves the literal's *type*, which no text normalization has the information to do.
+
+**What shipped.**
+
+| Change | What it does |
+| --- | --- |
+| [`differ.ts`](../../src/migrations/differ.ts) `IndexPredicateCanonicalizer` + `DiffOptions` | `diff` takes an optional async hook and is now async. Two call sites: `planPush` passes one, `generate` does not — it diffs two serializer-written snapshots, where no deparsed spelling exists and no connection does either. **`diff` is exported from the `viborm/migrations` subpath, so this is a signature change on a public function** — deliberate, and the only shape that lets the comparison ask the database; a caller adds one `await`. |
+| `differ.ts` `canonicalizeChangedPredicates` | The pre-pass. Per table, collects the predicates of index names present on BOTH sides whose `normalizeIndexWhere` readings differ, and asks once. A schema with no partial index, or one already converged, spends no round trip. |
+| `differ.ts` `indexWhereEqual` | The comparison. Equal texts are equal; a predicate that appears or disappears is a change without asking; otherwise equal **only** when both canonical spellings came back and are identical. |
+| [`drivers/base.ts`](../../src/migrations/drivers/base.ts) `canonicalizeIndexPredicates?` | The optional driver hook. Its `executeRaw` is contracted to run on ONE pinned connection. |
+| [`postgres/canonicalize-index-predicate.ts`](../../src/migrations/drivers/postgres/canonicalize-index-predicate.ts) | The only implementation. |
+| [`push/planner.ts`](../../src/migrations/push/planner.ts) `buildIndexPredicateCanonicalizer` | Wires the push path's live connection in, inside one `withTransaction`. |
+
+**The vehicle, and why it is not a CHECK constraint or an index.** A predicate is parsed and deparsed by putting it through a session-local view — `CREATE OR REPLACE TEMP VIEW v AS SELECT 1 AS c FROM <table> WHERE <p>`, read back with `pg_get_viewdef`. It is the cheapest parse-and-store PostgreSQL offers: no table scan, no data read, ACCESS SHARE on the table only, invisible outside the session. A `CHECK … NOT VALID` constraint would parse the same expression but takes SHARE ROW EXCLUSIVE on a live table and mutates the real catalog; a real partial index would build the index this exists to avoid rebuilding. `EXPLAIN` was rejected outright: its output is the *planner's* expression, so it moves with the statistics, and a canonical form that drifts is a churn generator of its own.
+
+**Both sides go through the same transform**, so the answer never depends on `pg_get_viewdef` and `pg_get_expr` agreeing on parenthesization — only on each being a function of the parsed tree. That is also why the declared text is compared against the introspected text rather than against `pg_get_expr` directly.
+
+**Why one transaction.** Two reasons, both load-bearing. `pg` reaches PostgreSQL through a **Pool**, so consecutive `_executeRaw` calls land on different connections and a session-local view created by one is invisible to the next. And a view that references a table blocks dropping that table — so on any failure the scratch has to go, which a rollback does and a `catch` would not. The driver method therefore throws rather than reporting per-predicate failure; the planner catches.
+
+**Fail closed, three ways.** No canonicalizer (`generate`, SQLite, MySQL, and any driver without callback transactions — Neon HTTP) → raw text comparison, which plans drop+create, the pre-7.4 reading. A predicate the database will not parse → the transaction aborts, the planner answers nothing, same reading. One side spelled and the other not → not equal. **Nothing about this can make a push fail, and nothing about it can claim two predicates are the same.**
+
+**The dialects that skip it, and why that is not a gap.** SQLite (and LibSQL) store the CREATE INDEX statement verbatim — Phase 2 measured that byte-for-byte — so there is nothing to reconcile. MySQL refuses a partial index by name (Phase 2 again). PostgreSQL is the only dialect that both accepts the declaration and re-spells it.
+
+**Witnesses.** `runPartialIndexPredicateChurnBehavior` in [`tests/drivers/index-ddl-behavior.ts`](../../tests/drivers/index-ddl-behavior.ts), wired on PGlite and on the Docker `pg` leg — where the pool makes the connection pinning a real claim rather than an argument:
+
+- *re-pushing the same declaration is not an index change* — and it states the gap rather than assuming it, asserting that the catalog gives back `(published = true)` for a declared `published = true`.
+- *the same predicate in another spelling is not an index change* — `(published = TRUE)` against a database holding `published = true`. This is the half no normalization could reach.
+- *a real predicate change is still an index change* — `published = false` plans dropIndex+createIndex and the catalog ends at `(published = false)`.
+- *a canonicalization that fails answers nothing, and the change stands* — the failure half. The three above all take the success path, so what the `catch` in `buildIndexPredicateCanonicalizer` returns was never read by a test. This one declares `published = true AND`, which PostgreSQL will not parse: the scratch view fails, the transaction aborts, and the catch decides what the differ is told. Pushed with `dryRun` (the CREATE INDEX it plans is the one PostgreSQL refuses), it asserts both halves of that catch's promise — the push does not fail, and the drop+create still stands.
+
+Seven unit tests in [`tests/migrations/differ.test.ts`](../../tests/migrations/differ.test.ts) carry the hook's contract without a database: equal canonical spellings, unequal ones, an unanswered predicate, a half-answered pair, and the two cases the differ must settle *without* asking (texts that already read alike; one side with no predicate at all) — plus the case the canonical spelling must not swallow (an index whose columns changed).
+
+**Falsification.**
+
+| Reverted | What failed |
+| --- | --- |
+| the canonicalizer itself (`planPush` passes none) | the two *quiet* witnesses; the change-detection witness still passed |
+| the canonicalization made a constant | the *change-detection* witness only; the two quiet witnesses still passed |
+| the `catch` in `buildIndexPredicateCanonicalizer` returns a constant instead of `undefined` — i.e. the round trip's own failure is reported to the differ **as agreement** | the *failure* witness only, on both PGlite and the Docker `pg` leg: `expected [] to deeply equal [ 'dropIndex', 'createIndex' ]` |
+
+Each half fails alone, which is what says the three claims have separate coverage.
+
+The third row is a correction, not a record of the original work. Review found that mutation
+passed the whole estate — 362/362 `tests/migrations`, 755/755 `tests/drivers/pglite.test.ts`,
+the Docker `pg` churn leg 3/3 — because the first two rows both exercise the *success* path
+and the differ's own fail-closed guard (`leftCanonical !== undefined &&`) is witnessed only
+by the unit tests that hand it an already-`undefined` spelling. Nothing ran the code that
+produces that `undefined` on the failure path. The fourth witness above is what closes it,
+and the row is the mutation it kills.
+
+---
+
+## Wave gate — Phase 7 (Decisions 7.1, 7.2 and 7.3)
+
+**Run:** 2026-08-03, main checkout, branch `nested-write-boundaries`, tip `d523808` — nine
+commits from `7240208` (the per-dialect prefix predicate) through `d523808` (the collation
+correction). Baseline for every number below is `d28c339`, the Phases 4/6 wave-gate tip.
+
+### The legs
+
+| Leg | Result | Baseline |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9480 passed, 0 failed**, 2163 skipped (268 files, 4 skipped) | 9338 / 0 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin 39, unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11) per changed file | **clean — zero diagnostics** on all 14 TypeScript files in the diff | — |
+| Docker MySQL 8, port 3307 | **1016 passed, 0 failed** | 993 |
+| Docker PostgreSQL, port 5434 | **1135 passed, 0 failed**, 14 skipped | 1110 |
+
+The PostgreSQL leg is three files now, not two: 7.3 wired
+`tests/query-engine/starts-with-prefix-plan.test.ts` into `pnpm test:pg`, because its
+`en_US.utf8` claims can only be made on the container. That is the one `package.json` edit
+in the wave.
+
+**The named witnesses, executed by name at the gate.**
+
+- 7.1's *MySQL-unchanged* witnesses — `MySQL2 transaction upsert family` and
+  `MySQL2 atomic batch upsert family`, four each: *the create arm writes the row and answers
+  it*, *the update arm mutates the existing row and answers it*, *running it twice converges*,
+  *an UNRELATED unique collision is a constraint error on every dialect*. Eight passed, on the
+  dialect the door is CLOSED to, through the untouched probe path.
+- 7.3's *BINARY-preserving* witnesses — `MySQL2 Driver > prefix predicate on a collation
+  viborm did not choose`: *the accelerator alone would answer case-insensitively* and *the
+  shipped conjunction keeps the case-sensitivity contract*. Both passed on the `ai_ci` column.
+- 7.2's fold on the non-returning dialect — `MySQL2 createMany select fold`, three tests
+  including the unchanged interleaved refetch path.
+- 7.3's plan file, all 14 tests, including the `default-locale substrate` describe that only
+  runs when the container is present.
+
+### Measured at the gate, not copied
+
+Taken independently at the tip through the PGlite `execute`/`executeRaw` seam (which sees
+both substrates) and, for 7.3, straight through `pg` against the Docker container — on a
+schema written for this reading rather than on the witness files' own.
+
+**7.1 — statements for a top-level scalar upsert.** Every "after" number in the disposition
+reproduced exactly:
+
+```text
+upsert → create arm    transaction     1 statement    (ON CONFLICT … DO UPDATE … RETURNING)
+upsert → update arm    transaction     1 statement
+upsert → create arm    atomic batch    1 statement
+upsert → update arm    atomic batch    1 statement
+```
+
+**7.1 — the ACCEPTED divergence, re-measured.** One update-arm upsert against the same
+identity sequence, the path selected by the gate's own `supportsTargetedUpsert` lever:
+
+| path | `p7g_gauges_id_seq.last_value` delta |
+| --- | --- |
+| folded (`INSERT … ON CONFLICT DO UPDATE`) | **+1** |
+| probe-first (the shipped pre-7.1 sequence) | **+0** |
+
+That is DIVERGENCE 1 exactly as the disposition states it: the folded statement evaluates the
+INSERT's defaults before it detects the conflict, so an update that changes nothing about the
+identity column still burns one sequence value. Both dialects document their sequences as
+non-gap-free.
+
+**7.2 — statements for `createMany` with `select`.**
+
+```text
+4 same-shape rows        1 statement    rows answered in INPUT order (m1,m2,m3,m4)
+2 + 2 shapes (id given
+  on the last two)       2 statements   one per contiguous same-shape run
+```
+
+One reading worth recording, because it is not obvious from the disposition: a NULLABLE column
+that some rows omit does **not** split the run — the payload normalizes to one shape and folds
+into a single statement. What splits a run is a genuinely different column set, which here
+means naming the generated primary key on some rows and not others.
+
+**7.3 — the estimator table, re-measured on the mandated leg.** 20,000 rows, plain btree, on
+`viborm-pg-test-2`; the collation was read from the server (`en_US.utf8`) rather than assumed:
+
+| prefix | true rows | shipped `LIKE … ESCAPE` estimate | replaced `LEFT(...)` estimate |
+| --- | --- | --- | --- |
+| `name123%` | 111 | 202 | 100 |
+| `name12%` | 1111 | 1010 | 100 |
+| `name1%` | 11111 | **11111** | 100 |
+| `name%` | 20000 | 19998 | 100 |
+
+Both spellings seq-scan on this cluster, as 7.3's own correction says. The shipped spelling
+costs `0.00..378.00` against the replaced spelling's `0.00..428.00`, so it never plans worse,
+and its estimate tracks the data at every width while `LEFT(...)` stays flat at the planner's
+0.5 % guess. Every number in the disposition's table reproduced to the digit.
+
+### Standing rules
+
+`src/query-engine/write-engine/OperationFragment.ts` is byte-identical to `d28c339` — the frozen step
+vocabulary did not grow; the file is not in the wave's diff at all. `tests/query-engine/sql-
+generation.test.ts` is not in the diff either, so no pin in it moved; the pins 7.3 updated
+deliberately live in its own `starts-with-prefix-sql.test.ts`, and the one baseline 7.1 moved
+is named in its disposition. No error message and no error attribution was removed: the two
+`throw new QueryEngineError` hunks the `src` diff deletes are both RELOCATIONS inside
+`ManyAndReturnOperation` — the per-statement input check moved below the returning arm, and
+the ordinal check's message survives as *"…left an input row without a result in its input
+ordinal."* No race protection was removed: `racePin`/`presenceGuard` occurrences in
+`UpsertOperation.ts` number the same at the tip as at the baseline (17), and 7.1's absent
+`racePin` on the folded step is discharged by the database, which its disposition measures
+against a live competitor on its own connection.
+
+**Open and recorded, not fixed here:** Decision 7.4 (awaiting the maintainer at the time of
+this gate; dispositioned and delivered in the Phase 10 wave), 7.1's atomic-arithmetic residual (`{ count: { increment: 1 } }` keeps the
+probe path, because `DO UPDATE SET` cannot spell the emitter's `col = col op x`), and 7.3's
+`text_pattern_ops` companion index, which would make the PostgreSQL range unconditional and
+is a Phase-1 emitter decision with the same churn shape as 7.4.
+
+---
+
+## Phase 8 — PostgreSQL CTE folds (large)
+
+### Problem
+
+Each mutation with an include sends a separate terminal SELECT. A nested-create tree sends one INSERT for each node plus one re-read.
+
+### Context and code locations
+
+- The terminal reads: [`UpdateOperation.ts:951`](../../src/query-engine/write-engine/UpdateOperation.ts), [`CreateOperation.ts:399-401`](../../src/query-engine/write-engine/CreateOperation.ts).
+- The capability flag `supportsCteWithMutations` is declared at [`adapter-capabilities.ts:6`](../../src/adapters/adapter-capabilities.ts), true on PostgreSQL (`postgres-adapter.ts:393`) and true on SQLite (`sqlite-adapter.ts:502`). **The SQLite value is false in fact:** SQLite CTEs cannot contain DML. Correct the flag in this phase (or in Phase 10 if this phase runs later).
+- The guard-free fresh-parent ladder that makes the fold legal: [`ATOM.md:886-899`](../../src/query-engine/write-engine/ATOM.md) (fresh-parent elision) and the Pin Rule class 2 note at [`OperationFragment.ts:128-134`](../../src/query-engine/write-engine/OperationFragment.ts).
+- The select builder needs the RETURNING columns as its alias root (study [`select-builder.ts:158-185`](../../src/query-engine/builders/select-builder.ts)).
+
+### Correction (PostgreSQL only)
+
+1. Fold the terminal read: `WITH u AS (UPDATE … RETURNING <scalars>) SELECT u.*, <correlated relation subqueries> FROM u`. Legal because the relation subqueries read tables the statement does not change.
+2. Fold a guard-free nested-create tree: `WITH p AS (INSERT … RETURNING *), c AS (INSERT INTO child … SELECT p.id, … FROM p) SELECT <scalars> FROM p`. Constraints: a scalar-only root projection (sibling CTE effects are invisible in the same statement), no adopt-family members in the tree (probes need client-side rows).
+
+The fold is an emitter change. It produces one write step. It does not grow the frozen vocabulary.
+
+### Test
+
+Byte-identical results against the unfolded path (dual-run comparison). Failure attribution through constraint names. Statement-atomic postconditions. The census and the gates stay unchanged.
+
+### Delivered — 2026-08-03, branch `nested-write-boundaries`. Baseline `c9c06e5`.
+
+Both folds shipped, plus item 10.1, whose flag this phase is the first reader of.
+Two commits: the terminal-read fold and the flag correction, then the tree fold.
+Everything lives in one new builder,
+[`mutation-projection-fold.ts`](../../src/query-engine/operations/mutation-projection-fold.ts),
+and two gates in the operations that call it. The frozen vocabulary did not grow:
+each fold is one `write` step where there used to be several.
+
+**8.1 — the terminal read.** `WITH "__viborm_mutation" AS (UPDATE … RETURNING
+<every column>) SELECT <projection over the CTE> FROM "__viborm_mutation" AS
+"t0"`. Measured on PGlite:
+
+| shape | before | after |
+| --- | ---: | ---: |
+| `update` + `include`, transaction | 3 | **1** |
+| `update` + `include`, atomic batch | 4 | **2** |
+| `update` + `_count`, transaction | 3 | **1** |
+| `create` + `include`, transaction | 2 | **1** |
+
+The batch keeps its in-unit presence guard (Phase 6.2); the locate and the
+terminal read are what go away. The plan wrote `SELECT u.*, <correlated relation
+subqueries>`; what shipped projects through `buildSelectWithAliases` over an
+aliased `FROM`, which is the terminal read's own builder — so on PostgreSQL the
+include comes back as a LATERAL join rather than a subquery, exactly as the read
+path spells it. That is the point: it is the same projection, not a second
+implementation of it, and it is why the `_count` correlation defect that
+`delete-fold.test.ts` documents (a bare column reference captured by the inner
+table, because `RETURNING` has no alias) cannot recur here.
+
+The plan's legality note — "the relation subqueries read tables the statement
+does not change" — is enforced, not assumed, and it took **two** guards because
+there are two ways a statement changes a table the projection reads
+(`query-engine-v2/shared.ts`):
+
+- `projectionReadsMutatedModel` — the projection reaching the mutated model
+  itself. PostgreSQL gives every sub-statement of one command the same snapshot,
+  so a self-relation would answer with the mutated row's PRE-statement shape.
+  Removing this guard makes a self-managed row report its old label.
+- `setCanFireReferentialAction` — a `SET` that rewrites a column a foreign key
+  may point at, which cascades into a child table mid-statement. Removing this
+  guard makes a primary-key rewrite report its cascaded children as an empty
+  list. It over-approximates in one direction only (a unique column nothing
+  references declines a legal fold), which costs a statement and never an answer.
+
+**Correction from review — guard 1 was walking the wrong half of the payload.**
+As first shipped it recursed into each relation payload's `select` and `include`
+and nothing else. But a relation payload's `where` compiles to a correlated
+subquery that READS a table, and a filter that points back through the inverse
+relation reads the mutated one — so the folded answer was filtered on the
+PRE-statement value while the unfolded one filtered on the post-statement value.
+Measured on PGlite against the identical update with `supportsCteWithMutations`
+forced false, an `acct` 1-N `memo` schema, all accounts starting at tier `T`:
+
+| projection on `update({ where: { id: 3 }, data: { tier: "gold" } })` | folded | unfolded |
+| --- | --- | --- |
+| `include: { memos: { where: { acct: { tier: "gold" } } } }` | `[]` | `[10, 11]` |
+| the same filter on the OLD value, `tier: "T"` | `[10, 11]` | `[]` |
+| `_count: { select: { memos: { where: { acct: { tier: "gold" } } } } }` | `0` | `2` |
+
+Symmetric in both directions, which is what rules out coincidence: the folded arm
+was reading the pre-update `tier`. `orderBy` and `cursor` reach a table by the
+same mechanism. The estate was green over this because no case in the 8.1 oracle
+filtered a projection through a relation back to the mutated model — the oracle
+was sound, its case list was short.
+
+The correction is to complete the walk rather than to blanket-decline filtered
+projections: `payloadReachesTable` now walks EVERY key at every depth, moving the
+scope when a key names a relation and keeping it otherwise, so `where`,
+`orderBy`, `cursor`, `AND`/`OR`/`NOT`, `some`/`every`/`none` and array elements
+are all covered without enumerating them. A `where` over the CHILD's own columns
+still folds — witnessed, because "decline any payload carrying a filter" would
+have cost that common shape a statement. `_count` lost its special case in the
+same edit and the shorthand witness stayed green, which is what proved the case
+was redundant: the parse boundary coerces `_count: true` to the object form, and
+the projection builder emits a count only when `_count.select` is a record — the
+same builder on both paths, so an un-coerced `_count` reads nothing to guard.
+Six cases were added to the 8.1 oracle (five declining, one anti-vacuity);
+restoring the old `select`/`include`-only walk fails exactly the five, each on
+the ANSWER rather than on the route, and forcing the guard closed fails eleven.
+Re-gated on the corrected tree: `tsc` clean, full estate **9521 passed, 0
+failed** (the +6 over the wave gate's 9515 is these six cases and nothing else),
+`test:gates` 72/72 with the census pin still 39, V2 suite 1156, Biome clean.
+
+**Second correction from review — guard 2 was asking the narrower of two
+questions.** It asked `getTargetIdentityFields`, which enumerates `state.uniques`
+∪ `state.compoundId` ∪ `state.compoundUniques` — the column sets a `whereUnique`
+can ADDRESS. But the guard's own premise is about what a foreign key may
+REFERENCE, and those are not the same set: PostgreSQL accepts a unique INDEX as
+an FK target, and `.index([...], { unique: true })` is emitted by the migration
+driver as exactly that (`postgres/index.ts:295-299`). Measured on PGlite with a
+`host` whose `code` is a unique index and a `pet` whose `.references("code")`
+carries `onUpdate("cascade")` — the constraint is real, `pg_constraint` reports
+`confupdtype = 'c'` — `host.update({ where: { id: 1 }, data: { code: "NEW" },
+include: { pets: true } })` folded and answered `pets: []`, where the unfolded
+arm carried both cascaded children. The hole was in the QUESTION, not in the
+guard: the over-approximation it advertises ("a foreign key may only point at a
+UNIQUE column set") was enumerating unique constraints and calling them unique
+column sets.
+
+The correction is a second, deliberately WIDER function next to the first —
+`getForeignKeyTargetFields` (`TargetConstraint.ts`), which is
+`getTargetIdentityFields` ∪ every field of every unique index — and guard 2 is
+its one caller. Widening `getTargetIdentityFields` itself would have been wrong:
+addressability is what every other caller of it is asking about, and a unique
+index is not addressable. Two witnesses were added, the declining one asserting
+the ANSWER first (restoring the narrow question fails it on the cascaded
+children, not on the route) and an anti-vacuity one on the same model, which
+also carries a PLAIN `.index(["label"])` — so counting non-unique indexes too
+fails it, which is the coverage the `unique` filter has and nothing else does.
+
+**8.2 — the nested-create tree.** `WITH "__viborm_mutation" AS (INSERT …
+RETURNING <every column>), "__viborm_write_0" AS (INSERT …), … SELECT <scalars>
+FROM "__viborm_mutation"`. A root with two children went from **4 statements to
+1**; a nested `createMany` from 3 to 1.
+
+The plan wrote the child arm as `INSERT INTO child … SELECT p.id … FROM p`. That
+spelling is for a parent key the DATABASE generates, and it is exactly the case
+this fold DECLINES — a `WITH` arm reads the same snapshot as its siblings, so a
+value produced by one arm is not readable by another, and PostgreSQL's own
+`SELECT … FROM p` form would be reading the CTE's output rather than the table's,
+a different mechanism than the rest of the engine's `Ref` threading. What shipped
+folds the tree whose keys are all literals — supplied by the caller, or
+materialized by a `ulid`/`cuid`/`uuid` default at the parse boundary — and states
+the rule structurally: **no statement of the tree may read another statement's
+output**, checked as the executor checks it
+(`statement.values.some(isOperationValueReference)`). A generated parent key
+fails that check and keeps the multi-statement path. Widening to the produced-key
+case is a real door and it is left open, not closed.
+
+The plan's other two constraints hold as written, and are witnessed declining: a
+scalar-only root projection (an `include` of the relation the tree just populated
+would report the empty pre-statement truth), and no adopt-family member. The
+second is spelled as **empty planning** rather than as a kind list, because that
+is what the fresh-parent elision ladder ([`ATOM.md` §4](../../src/query-engine/write-engine/ATOM.md))
+actually says — a tree that asks the database nothing before it writes — and it
+is also what keeps the folded operation statement-atomic: one round trip, no
+envelope. A child-held `connect` under a fresh root has no correlated probe
+(elision) but does have to verify its target exists, so it has already spent the
+round trip and declines.
+
+**Correction from review — the fold was silently reordering the sibling arms.**
+The conjuncts above are all about what an arm READS. None of them was about the
+order the arms RUN in, and PostgreSQL does not specify that order for a
+data-modifying `WITH` arm whose output nothing reads: on PG 16.14 / PGlite it
+runs them LAST-TO-FIRST. Measured, `box.create({ data: { id: 1, items: { create:
+[t0, t1, t2, t3] } } })` over a `serial` child key, three consecutive runs each
+arm:
+
+| arm | ids 1..4 |
+| --- | --- |
+| unfolded (`supportsCteWithMutations` false) | `t0, t1, t2, t3` |
+| folded, as shipped | **`t3, t2, t1, t0`** |
+
+The emitter was not at fault — the arms are emitted in declaration order — and
+neither was the answer: the tree fold requires a scalar-only root projection, so
+the operation's own result cannot show it. The divergence was entirely in
+PERSISTED state, which is why no existing witness caught it. The existing
+no-cross-statement-value conjunct does not cover this: a database-generated
+CHILD key PRODUCES a value and consumes none, so only a generated PARENT key was
+declining.
+
+The correction is a fifth conjunct, `armsAreOrderInsensitive`, and it rests on a
+fact the codebase already enforces: `assertApplicationGeneratedValues`
+(`values-builder.ts`) materializes every `autoGenerate` other than `increment`
+application-side before a statement is built, so **an absent auto-increment
+column is the only value this engine ever leaves for the database to decide**.
+The conjunct is therefore "at most ONE arm takes a database-assigned value" —
+rows inside one statement take theirs in that statement's own `VALUES` order,
+which is defined; it is only across arms that the order is the planner's to
+choose. `create: [{…}, {…}]` on a serial-keyed child now declines and keeps the
+multi-statement path; the same children through `createMany` are one arm and
+still fold, which is witnessed as the anti-vacuity case (forcing the threshold to
+zero fails it).
+
+Classification is fail-closed and that has a MEASURED cost worth stating: the
+arms are classified by walking the record tree the operation planned, so a write
+that came from a `Part` rather than from a record or a `createMany` group is
+unclassified, and an unclassified arm declines. One shape reaches that branch —
+an M2M `create` under a fresh root with literal target keys, whose junction Part
+plans nothing — and it goes from **1 statement back to 6**, its pre-Phase-8
+count. That fold was never claimed, measured or witnessed by this phase; it
+folded because the gate happened to admit it. Reopening it means giving a `Part`
+a way to declare what its writes take from the database, which is a change to the
+two-method `Part` interface for one caller — a real door, left open, not closed.
+
+**10.1 landed here.** `supportsCteWithMutations` read `true` for SQLite and is
+false in fact. Measured on SQLite 3.51.2: each of `WITH x AS (UPDATE …/INSERT
+…/DELETE … RETURNING …) SELECT * FROM x` is `near "…": syntax error`. The flag is
+now `false` and is no longer dead — both folds read it, which is why it was
+corrected here rather than in Phase 10.
+
+**Pins changed deliberately.** Three, all in `tests/query-engine/`:
+`sql-generation.test.ts`'s two "create with nested create/createMany rejects the
+single-statement build API" assertions are now folded-statement assertions —
+`build()` has a statement to hand back, and saying so is the phase. The three
+shapes around them still reject, each for its own reason, which is what keeps
+them from reading as "creates are one statement now".
+`select-mode-capability-matrix.test.ts`'s `nestedCreate` sample gained an
+`include`: those tests choose a substrate for a multi-statement operation, and
+the bare tree is no longer one.
+
+**Gate.** V2 suite 1150/1150; `test:gates` 72/72; `tests/query-engine` 1247;
+client 443; local drivers (PGlite, better-sqlite3, libSQL) 3018; the remaining
+driver contracts 430; the non-driver estate 3088; CLI 587; Docker MySQL 1016/0;
+Docker pg 1135/0 (serial). TypeScript clean, Biome clean.
+
+**Falsified.** Closing the 8.1 update gate fails 8 witnesses; closing the 8.1
+create gate fails 2; stripping the correlation alias in the fold builder (the
+`RETURNING`-list defect, reproduced) fails 7 including the oracle; removing
+either 8.1 legality guard produces a WRONG ANSWER, not merely a wrong route;
+closing the 8.2 gate fails both count witnesses; and dropping 8.2's
+no-cross-statement-value conjunct makes the fragment validator reject the step
+for referencing itself.
+
+**Re-gated on the twice-corrected tree.** `tsc` clean, Biome clean, `test:gates`
+**72/72** with the census pin still 39, V2 suite **1160** (the +4 over 1156 is
+these four witnesses and nothing else), `tests/query-engine` + client **2845
+passed, 0 failed**, Docker PostgreSQL **1140 passed, 0 failed**, 14 skipped
+(serial) and Docker MySQL **1016 passed, 0 failed** — both identical to the wave
+gate, MySQL necessarily so, since no fold gate it could reach ever opens there.
+The full estate ran **9525** non-skipped
+(9521 + these four) and reports **81 failed, all of them in `tests/cli`**: the
+config loader cannot import a `.ts` file, `Failed to load … Make sure you're
+running with a TypeScript loader`. That is not this change. Reverting only the
+three source files of these two commits and re-running `tests/cli` reproduces the
+same **81 failed | 506 passed**, and the cause is visible in the working tree —
+an in-flight, uncommitted dependency change (`pnpm-lock.yaml`, +2286/−1525, plus
+`docs/package.json` and `docs/tsconfig.json`) that appeared mid-run and belongs
+to the docs site, not to the engine. Left alone deliberately: a lane fixing a
+fold gate does not touch someone else's install.
+
+**Falsified (the two review corrections).** Guard 2: asking
+`getTargetIdentityFields` again fails the unique-index witness on the ANSWER (the
+cascaded children come back as `[]`); counting non-unique indexes as FK targets
+fails its anti-vacuity partner, which is the coverage the `unique` filter has and
+nothing else does. 8.2's ordering conjunct: dropping it fails the
+declaration-order witness on the ANSWER (`t2, t1, t0` for `t0, t1, t2`); forcing
+its threshold from "at most one" to "none" fails the `createMany` anti-vacuity
+witness.
+
+---
+
+## Phase 9 — Transport: PostgreSQL pipelining (orthogonal)
+
+### Problem
+
+The transaction path executes statements one at a time in a sequential loop ([`driver-transaction-base.ts:478-529, 644-659`](../../src/drivers/driver-transaction-base.ts)). The PostgreSQL extended-protocol pipeline is unused. Pipelining reduces every transaction-mode round-trip count in this plan without a change to any fragment.
+
+### Context and code locations
+
+- The postgres.js driver ([`src/drivers/postgres/index.ts`](../../src/drivers/postgres/index.ts)): postgres.js pipelines statements inside `sql.begin` automatically when statements are issued without intermediate awaits. This is the realistic first target.
+- The pg driver ([`src/drivers/pg/index.ts`](../../src/drivers/pg/index.ts)): node-postgres has no true pipeline mode. Document this limit; do not force it.
+- The dependency structure decides what can pipeline: steps without refs to earlier step outputs can be issued together; a step that refs an earlier output must wait.
+
+### Correction
+
+Implement pipelining in the postgres.js driver for ref-free statement runs inside one transaction. Measure first, then adopt the measured winner. Statement order and error attribution must stay identical.
+
+### Test
+
+Count the wire round trips for a multi-statement transaction before and after. Run the full transaction-lifecycle and savepoint suites. Make sure that a mid-pipeline failure produces the same error, the same rollback, and the same AggregateError contract as before.
+
+### DISPOSITION (parked on a measurement): the premise above is false, and the win is behind a different door
+
+**The measurement ran first, and it killed the correction.** The instrument is a TCP proxy that counts wire round trips — a client→server burst that follows server→client data is one completed round trip, which is exactly one wait the client could not avoid. Eight ref-free parameterized `INSERT`s in one transaction, postgres.js 3.4.8, PostgreSQL 17 over loopback; the millisecond columns re-run the same arms through a proxy that delays every chunk by 10 ms, making one round trip cost 20 ms:
+
+| Arm | Round trips | ms (loopback) | ms (20 ms RTT) |
+| --- | --- | --- | --- |
+| A — the driver today, `_executeBatch`'s sequential loop | 18 | 11.1 | 426.9 |
+| B — **Phase 9's correction, verbatim: no intermediate awaits** | **18** | 10.7 | **426.4** |
+| C — prepared statements, warmed, sequential awaits | 10 | 9.0 | 236.5 |
+| D — prepared statements, warmed, no intermediate awaits | 3 | 5.1 | 73.6 |
+
+**B is A.** Not "close to", not "within noise" — the protocol traces of the two arms are message-for-message identical. The context section above says postgres.js "pipelines statements inside `sql.begin` automatically when statements are issued without intermediate awaits". It does not, for any statement this ORM can issue.
+
+**Why.** postgres.js really does pipeline, and gates it on `!q.describeFirst` ([`connection.js` `execute`](../../node_modules/postgres/src/connection.js)): when a query is already in flight the next one is written immediately *unless* it is `describeFirst`, in which case `execute` returns false and the caller's queue stalls until the current query resolves. And `describeFirst` is set for every parameterized query that is not already a cached prepared statement — postgres.js has to ask the server to describe the parameter types before it can bind them, which is also why arm A spends **two** round trips per statement (`Parse/Describe/Flush`, then `Bind/Execute/Sync`) rather than one. `sql.unsafe()` hard-sets `prepare: false`, and `unsafe()` is the only postgres.js entry point that accepts a generated SQL string, which is all this driver ever has. So no viborm statement is ever cached, `describeFirst` is always true, and the gate never opens.
+
+**The door that is shut, and why it stays shut here.** Arms C and D are the same statements with `prepare: true`: the describe round trip disappears once the statement is cached (18 → 10), and only then does the pipeline gate open (10 → 3). The win Phase 9 was after is real and large — 6× fewer round trips, 5.8× less wall clock at 20 ms RTT — but it is bought with named server-side prepared statements, not with an await pattern. That purchase has consequences this lane is not authorized to make on a user's behalf, and they are worth stating precisely rather than alarmingly, because this paragraph is what a later decision will rest on. PgBouncer in transaction mode is the case postgres.js's own README names when it documents turning prepared statements off — not an absolute incompatibility, since PgBouncer can carry protocol-level named statements when `max_prepared_statements` is configured, but a deployment that has to be configured for it rather than one that just works. And the per-connection statement cache has no per-statement eviction: it is bounded only by postgres.js recycling connections on a randomized `max_lifetime`, which caps the bloat without bounding the number of distinct statements a long-lived connection accumulates — and viborm generates a distinct SQL string per query shape, including one per `IN`-list arity. postgres.js's own default is the same judgement from the other side: `unsafe()` turns preparation off because it "assumes the query string is sufficiently dynamic that prepared statements do not make sense", which is exactly the position an ORM emitting generated SQL is in. **Disposition: park. Turning them on is a deployment decision of the same kind as Phase 7's — it wants a maintainer's read on the target deployments and on how many distinct statement shapes the schema really produces — not a transport change that rides along inside Phase 9.**
+
+**What the contracts said when probed anyway.** The lane's safety questions were answered rather than assumed, because a parked door should be documented as safe or unsafe, not as unexamined. Failing statement 2 of 3 mid-pipeline produces a byte-identical error surface to the sequential path — same `PostgresError`, same `23505`, same message, same `detail`, same constraint name, same `query` attribution, not an `AggregateError` in either case — and the same rollback, with statement 1 gone and the pre-existing row untouched. Statement order is preserved. So the door is shut on deployment grounds alone; nothing about error attribution or ordering argues against it.
+
+**The pg driver: nothing to do, as the context section predicted.** node-postgres has no pipeline mode and the reason is structural, not configurable: `Client._pulseQueryQueue` submits the next query only when `readyForQuery === true`, and that flag is cleared on submit and restored only by the server's `ReadyForQuery`. One query is active at a time by construction. The limit is now recorded in the driver's own doc comment; no code changed.
+
+**Pinned, so the park cannot rot.** [`tests/drivers/postgres-pipelining.test.ts`](../../tests/drivers/postgres-pipelining.test.ts) holds all of it: the 2N+2 baseline through the real `PostgresDriver`, the B = A equality, the gate opening only for cached statements, the mid-run failure parity, and statement order. Should a future postgres.js open the gate — or should someone turn on `prepare` — the equality assertion fails and sends the reader back to this section. Falsified three ways: forcing the "pipelined" failure arm to fall back makes its anti-vacuity round-trip guard fail (8 vs 6) while the error-surface comparison alone still passes, which is the reason that guard exists; letting the Phase 9 arm genuinely pipeline breaks the B = A pin (3 vs 18); and deafening the counter fails three of the five tests.
+
+---
+
+## The Phase 8 / Phase 9 wave gate
+
+Phases 8 and 9 were built in separate lanes off `c9c06e5` and landed together. Each lane gated its own tip; this gate is the one that matters, because it is the only one run on the **merged** tree — five commits, Phase 9 first (transport) and then Phase 8 (emitter).
+
+| Leg | Result | Baseline at `c9c06e5` |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, one run, `--minWorkers=1 --maxWorkers=4` | **9515 passed, 0 failed**, 2168 skipped (271 files) | 9489, 0 failed |
+| `pnpm test:gates` | **72 passed**; census pin unchanged at 39 | 72 |
+| Docker MySQL (3307) | **1016 passed, 0 failed** | 1016 |
+| Docker PostgreSQL (5434), serial | **1140 passed, 0 failed**, 14 skipped | 1135 |
+| repo-pinned `npx biome check` (2.3.11), all 15 changed files | clean | — |
+
+Both deltas are accounted for exactly, which is the point of writing them down: the estate's **+26** is Phase 8's witness file (`mutation-projection-cte-fold.test.ts`), and PostgreSQL's **+5** is Phase 9's (`postgres-pipelining.test.ts`, which is env-gated and therefore skips in the plain estate — it is wired into the serial `test:pg` script, and must stay there, because `postgres.test.ts` drops tables outside its own schema). MySQL does not move because neither phase reaches it: MySQL folds nothing (no RETURNING, read-only CTEs) and is not a PostgreSQL transport.
+
+**The two lanes are disjoint in code, and the merge did not have to reconcile any of it.** Phase 9 changed two driver doc comments, one test file and one `package.json` script — no executable line. Phase 8 changed the emitters. The one true conflict was the plan's own status sentence, which both lanes rewrote; it is resolved above to carry both dispositions.
+
+The wave's binding rules held: `OperationFragment.ts` is byte-identical to `c9c06e5` (neither phase grew the frozen vocabulary — each fold is one `write` step where there used to be several), no error message, error attribution or race protection was removed, and the pinned SQL that moved is the three assertions Phase 8 retargeted with the rationale recorded in its own delivery record.
+
+### The final wave gate, run on the tip after the four review corrections
+
+The gate above certified the merge. Four review-correction commits landed after it —
+`740f237` (guard 1 walks the whole payload), `aa414fa` (guard 2 asks what a foreign key
+may reference), `dcbf071` (the arms keep the caller's declaration order) and `2e813c2`
+(the certification of the twice-corrected fold). Each was re-gated in its own lane; the
+delivery record above carries those numbers piecemeal. This is the one gate run on the
+merged tip with all four in, at `2e813c2`, every leg in its own shell.
+
+| Leg | Result at `2e813c2` | Baseline at `c9c06e5` |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, one run, `--minWorkers=1 --maxWorkers=4` | **9444 passed, 81 failed**, 2168 skipped (276 files) — 9525 non-skipped; the 81 are `tests/cli` and are not this wave's, see below | 9489, 0 failed |
+| `pnpm test:gates` | **72 passed** | 72 |
+| census pin (`route-inventory.test.ts`) | **39**, and the file is byte-identical to `c9c06e5` | 39 |
+| Docker MySQL (3307) | **1016 passed, 0 failed** | 1016 |
+| Docker PostgreSQL (5434), serial | **1140 passed, 0 failed**, 14 skipped | 1135 |
+| repo-pinned `npx biome check` (2.3.11), each of the 16 changed files | zero diagnostics | — |
+
+**The 81 failures are the maintainer's in-flight dependency change, and that was measured
+rather than assumed.** All 81 are in `tests/cli`, all of them `loadConfig` cases, all with
+the same symptom: `Failed to load …/viborm.config.ts. Make sure you're running with a
+TypeScript loader`. That message is a mask — `importModule` (`src/cli/utils.ts`) catches
+the real error and replaces it for any `.ts` path. Unmasked, the real error is
+`Cannot find module …/viborm.config.ts` thrown by vite-node's `_fetchModule`: the temp
+config is never resolved at all, so **no viborm source is reached** and no file this wave
+changed is on the failing path. Confirmed by construction (the wave touches no CLI file)
+and then by experiment: a detached worktree at `c9c06e5`, sharing this repo's very
+`node_modules` by symlink, runs `tests/cli` to **exactly 81 failed | 506 passed** — the
+same count, at the baseline commit. The cause is visible in the working tree: an
+uncommitted `pnpm-lock.yaml` (+2311/−1550) belonging to the docs site moves it to
+vite 8 / `@tanstack` and leaves the root `vite` unresolvable (`require('vite/package.json')`
+throws `MODULE_NOT_FOUND`), which is what vite-node's file resolution rests on. Left
+alone deliberately, as the Phase 8 record already said: a lane certifying a fold does not
+touch someone else's install.
+
+Both non-skipped deltas still account exactly: the estate's **+36** over the baseline's
+9489 is the wave's two witness files and nothing else (+26 at the merge gate, +6 for
+guard 1's completed walk, +4 for the two review corrections' witnesses), and
+PostgreSQL's **+5** is `postgres-pipelining.test.ts`. MySQL does not move, and cannot:
+no fold gate it could reach ever opens there.
+
+**Phase 9's five witnesses were executed by name against the real server**, not PGlite —
+`pnpm test:pg` runs them through the actual `postgres.js` wire transport on 5434, which
+is the only place the claim means anything, since PGlite is not a wire transport at all:
+
+- `the driver's batch costs two round trips per parameterized statement`
+- `pipelining stays closed when statements are issued without intermediate awaits`
+- `the pipeline gate opens only for cached prepared statements`
+- `a mid-run failure reports the same error and rolls back the same way on both paths`
+- `statement order survives a run issued without intermediate awaits`
+
+**Phase 8's fold was measured at this gate on the real PostgreSQL 17 server**, through the
+`pg` driver, because the phase's own witness file runs on PGlite. `acct.update({ where:
+{ id: 1 }, data: { label: "z" }, include: { notes: true } })` emitted **one** statement at
+the driver seam and answered `{ id: 1, label: "z", notes: [{ id: 10, … }] }`:
+
+```sql
+WITH "__viborm_mutation" AS (
+  UPDATE "gp_acct" SET "label" = $1 WHERE "gp_acct"."id" = $2 RETURNING "id", "label"
+)
+SELECT "t0"."id" AS "id", "t0"."label" AS "label", "t2"."_result" AS "notes"
+FROM "__viborm_mutation" AS "t0"
+LEFT JOIN LATERAL (…json_agg over "gp_note" AS "t1" WHERE "t0"."id" = "t1"."acctId"…)
+  AS "t2" ON TRUE
+```
+
+That is the shipped shape as the delivery record describes it — the aliased `FROM` over
+the CTE, the include as a LATERAL join, and the correlation carrying `"t0"."id"` rather
+than a bare column. The unfolded path for the same payload is three statements.
+
+MySQL's non-movement has no P8 witness of its own by name, and should not be claimed to:
+the phase's non-PG parity witness is `SQLite keeps the unfolded path and the same answer`,
+which runs in the plain estate. MySQL's evidence is its whole 1016-test leg landing on
+the baseline number exactly.
+
+The binding rules still hold at this tip: `OperationFragment.ts` and
+`route-inventory.test.ts` are both byte-identical to `c9c06e5`, no error message,
+attribution or race protection was removed, and no pinned SQL moved beyond the three
+assertions Phase 8 retargeted with its recorded rationale.
+
+---
+
+## Phase 10 — Small corrections and documentation
+
+1. ~~**The false capability flag.**~~ **DONE in Phase 8** (see its delivery record). Set to `false` for SQLite after measuring it on 3.51.2, and kept rather than removed: Phase 8's two folds read it, so it is no longer the dead flag this item described.
+2. **The MySQL BINARY wrap.** `equals`, `in`, and `notIn` on string and enum columns wrap the column: `BINARY col = ?` ([`where-builder.ts:415-427`](../../src/query-engine/builders/where-builder.ts) with [`mysql-adapter.ts:189`](../../src/adapters/databases/mysql/mysql-adapter.ts)). The wrap prevents index use. Tables that viborm creates use the collation `utf8mb4_0900_bin` ([`mysql/index.ts:298`](../../src/migrations/drivers/mysql/index.ts)), which makes the wrap redundant there. The unique-locate path already bypasses the wrap ([`where-unique-builder.ts:224-236`](../../src/query-engine/builders/where-unique-builder.ts)). Remove the wrap for viborm-created tables, or document the cost and the manual collation requirement.
+3. **Documentation: composite indexes for ordered includes.** The lateral include shape needs `(foreignKey, orderColumn)` for an ordered, limited include. Add this to [`docs/content/docs/schema/model.mdx`](../../docs/content/docs/schema/model.mdx) near the `.index()` section (lines 46-64), and add an FK-index note to [`many-to-one.mdx`](../../docs/content/docs/schema/relations/many-to-one.mdx) (until Phase 1 ships).
+4. **Documentation: PGlite runs with `enable_seqscan=off` by default** (PostgreSQL 17 WASM). Users who benchmark on PGlite must know this. Add a note to the PGlite driver docs page.
+5. **Schema API gaps, record or implement.** Expression indexes are not declarable (`IndexDefinition.fields` is a plain name array, [`model.ts:75-81`](../../src/schema/model/model.ts)); this closes the only index escape for the insensitive-mode predicates. ANN vector indexes (ivfflat, hnsw) are not declarable while vector `orderBy` ships ([`vector-distance-builder.ts:97`](../../src/query-engine/builders/vector-distance-builder.ts)) — each vector similarity query is a full scan.
+6. **The index-type union.** The MySQL driver validates `fulltext` and `spatial` ([`mysql/index.ts:62`](../../src/migrations/drivers/mysql/index.ts)) but the type union `"btree" | "hash" | "gin" | "gist"` ([`model.ts:66`](../../src/schema/model/model.ts)) cannot spell them. Align the union or remove the driver validation.
+
+### Phase 10 delivery record
+
+**Delivered:** 2026-08-03. Branch `nested-write-boundaries`, on top of the Phase 8/9 wave. The same wave carries Decision 7.4, whose disposition is written into its own section above.
+
+#### 10.1 — the false capability flag: **already delivered, in Phase 8**
+
+Not redone here. `supportsCteWithMutations` was flipped to `false` for SQLite in the Phase 8 wave, because Phase 8's own folds are the first readers of it — see the Phase 8 delivery record, which measured SQLite 3.51 and records why the flag was corrected rather than removed. This item is closed by that work, not by this one.
+
+#### 10.2 — the MySQL `BINARY` wrap: an accelerator conjunction, on `equals` and `in` only
+
+**Measured first, on the Docker MySQL 8.4 container, 20,000 rows, before any code moved.** Two tables with the same data and the same index: one in `utf8mb4_0900_bin`, the collation viborm's own `CREATE TABLE` declares ([`mysql/index.ts:298`](../../src/migrations/drivers/mysql/index.ts)), one in MySQL's default `utf8mb4_0900_ai_ci`, which is what a table viborm did not create looks like.
+
+| predicate | plan on the `_bin` table | rows examined |
+| --- | --- | --- |
+| `name = ?` | `ref` on `name_idx` | **1** |
+| `BINARY name = ?` — *what viborm emitted* | `index` (full scan) | **20,455** |
+| `name IN (…)` | `range` on `name_idx` | **3** |
+| `BINARY name IN (…)` — *what viborm emitted* | `index` (full scan) | **20,455** |
+| `name = ? AND BINARY name = ?` | `ref` on `name_idx` | **1** |
+
+So the wrap really does cost the index, and it costs it on the tables viborm creates, where it changes no answer. **But it is not redundant in general**, which is the half that decides the disposition:
+
+| query on the `ai_ci` table | rows returned |
+| --- | --- |
+| `name = 'NAME12345'` | 1 — the wrong-case row, matched |
+| `BINARY name = 'NAME12345'` | 0 |
+| `name = 'NAME12345' AND BINARY name = 'NAME12345'` | 0 |
+| `name = 'name12345' AND BINARY name = 'name12345'` | 1 |
+
+**Disposition: ship the conjunction, do not remove the wrap.** Removal would need "viborm requires a binary collation on MySQL" as a documented precondition, and the adapter's own header promises the opposite — that portable string filters override the database collation explicitly. Decision 7.3 made exactly this call for `startsWithPrefix` one wave earlier, on the same measurement shape and against the same collation; this is that decision applied to the two predicates it did not cover.
+
+**Scoped to `equals` and `in`, deliberately, and the exclusions are measured too.**
+
+| form | plan, plain | plan, `BINARY` | verdict |
+| --- | --- | --- | --- |
+| `<>` | `range`, 12,829 rows | `index`, 20,442 | no point lookup to protect |
+| `NOT IN` | `index`, 20,442 rows | `index`, 20,442 | **identical** — nothing to win |
+
+And for the negated forms the accelerator would be **wrong**: on the `ai_ci` table `BINARY name NOT IN ('NAME12345')` keeps 20,000 rows while `name NOT IN ('NAME12345')` keeps 19,999, so a conjunct would REMOVE a row the contract keeps. The implication `BINARY-equal ⟹ collation-equal` only runs in the positive direction. A field-REFERENCE operand is excluded for the third reason: comparing two columns is not an index lookup, so a conjunct there would decide no row's membership and buy no plan — the same scoping `startsWithPrefix` already documents.
+
+**What shipped.** Two adapter operators, `exactTextEq` and `exactTextIn` ([`database-adapter.ts`](../../src/adapters/database-adapter.ts)), which receive the UNWRAPPED column and apply each dialect's own case-sensitive treatment. PostgreSQL and SQLite spell exactly what they spelled before — `caseSensitiveText` is the identity on one and a COLLATION rather than a function on the other, so both were already index-usable and both emissions are byte-identical. MySQL adds the conjunct. The where-builder routes `equals` through `exactEquals` (bound operand + text scalar) and `in` through `exactTextIn`; every other path is untouched.
+
+**One pinned SQL change, deliberate.** `tests/query-engine/field-reference-sql.test.ts`, *a literal operand leaves the column uncast and bound*: MySQL now reads `(t0.status = $1 AND BINARY t0.status = $2)` and binds the operand twice. The pin moved from a shared `exactText(column) = $1` to a per-dialect `exactLiteralEquals`, which is what makes the divergence visible rather than averaged away. PostgreSQL's and SQLite's rows are byte-identical to before. **The doubled parameter is the cost of the conjunction and is recorded as such**: an `IN` list of N values binds 2N placeholders on MySQL, so a list large enough to approach MySQL's 65,535-placeholder ceiling now reaches it at half the length it used to. Nothing in the codebase caps an `IN` list today — measured by looking, not assumed — so this changes no guard; it moves a limit that was already the server's, and it is written down here rather than discovered later.
+
+**Witnesses**, on the Docker MySQL leg, in [`tests/drivers/mysql2.test.ts`](../../tests/drivers/mysql2.test.ts):
+
+- *exact equality on a collation viborm did not choose* — four tests on a hand-made `utf8mb4_0900_ai_ci` table: the accelerator alone answers `equals` and `in` case-INSENSITIVELY (3 and 4 rows), the shipped conjunctions answer exactly (`['Alpha']`, `['Alpha','Beta']`). These state what the SPELLING must do, 7.3's shape exactly.
+- *exact equality keeps the index it used to lose* — MySQL's own `EXPLAIN` verdict, taken on **the statement the client emitted**, captured through the logging instrumentation the same way the Phase 5 plan witnesses take theirs: the emitted `equals` plans `ref`, the emitted `in` plans `range`. The third test keeps the regression on the record by EXPLAINing `BINARY name = ?` itself, which is the one spelling the emitter no longer produces.
+- *emitted equality on a collation viborm did not choose* — the contract half, also on the emitted predicate: the table is pushed (so `_bin`) and then `ALTER`ed to `utf8mb4_0900_ai_ci`, and a real `findMany` with `equals` / `in` must answer `['p1']` and `['p1','p4']` rather than fold the three `Alpha` spellings together.
+
+**That last suite exists because the falsification found it missing.** With only the two spelling-level suites, deleting the `BINARY` conjunct from the adapter failed **one SQL pin and no live test** — measured, not supposed. The spelling suites assert what a predicate does; they cannot assert that the emitter uses it. The `ALTER`-to-`ai_ci` suite closes that, and this gap is worth naming because 7.3's witnesses have the same shape and the same limit.
+
+**Falsification.**
+
+| Reverted | What failed |
+| --- | --- |
+| the accelerator conjunct (back to `BINARY col = ?`) | *the emitted equality plans a lookup* and *the emitted membership plans a range*; the contract witnesses still passed |
+| the `BINARY` conjunct (accelerator only) | *equals/in answers exactly* on the `ai_ci` column, plus the SQL pin; the plan witnesses still passed |
+
+Each conjunct fails on its own, which is what says the two are not one guard twice.
+
+7.3's own two witnesses (*the accelerator alone would answer case-insensitively*, *the shipped conjunction keeps the case-sensitivity contract*) are byte-identical — they are in the section above this one and nothing in the diff reaches `startsWithPrefix`.
+
+#### 10.3 / 10.4 — documentation
+
+| Page | What changed |
+| --- | --- |
+| [`schema/model.mdx`](../../docs/content/docs/schema/model.mdx) | A *Composite indexes for ordered includes* subsection: an `include` that both orders and limits reads each parent's children through a filter-sort-limit, so `(foreignKey, orderColumn)` — in that order — is the index that lets the database stop at N instead of sorting all of them. Says which includes do NOT need it. Plus a per-dialect table for `type` and `where`, replacing the `btree \| hash \| gin \| gist` comment, which was both incomplete after 10.6 and silent about the refusals. |
+| [`relations/many-to-one.mdx`](../../docs/content/docs/schema/relations/many-to-one.mdx) | A new *The foreign-key index* section. **The note flips**: Phase 1 shipped the automatic index, so this no longer says "declare it yourself" — it says you do not, and then says when to widen it, that the leading column must be the foreign key for the wider index to replace the automatic one rather than duplicate it, and that a PARTIAL index does not count (Phase 2's `isTotalIndex` correction, stated where a user would hit it). |
+| [`drivers/postgresql/pglite.mdx`](../../docs/content/docs/drivers/postgresql/pglite.mdx) | *Do not benchmark query plans on PGlite*. The value was read from the running instance rather than quoted from the plan: `pg_settings` reports `enable_seqscan = off` with **`source = "command line"`** on PGlite 17.4 — so it is the server's own startup flag, not something viborm sets, and it can be turned back on for a session. The page shows both the reading and the `SET`-and-verify pattern the repo's own plan witnesses use (`fk-index-behavior`, `ordering-plan-behavior`). |
+
+#### 10.5 — the schema-API gaps: RECORDED, not implemented
+
+Neither is one line, and both are recorded here and in the [capability matrix](capability-matrix-2026-07.md) §1.9 rather than half-built.
+
+**Expression indexes are not declarable.** `IndexDefinition.fields` is `Keys extends StringKeyOf<State["scalars"]>[]` ([`model.ts`](../../src/schema/model/model.ts)) — a list of field NAMES, checked against the model, resolved through `getFieldName().sql` by the serializer. There is no position in that shape for `lower(email)`. **What it closes:** `mode: "insensitive"` folds ASCII A–Z client-side into `REPLACE`/`TRANSLATE`/`lower` chains over the column, which no plain-column index can serve — an expression index over the identical fold is the only escape, and the schema cannot ask for one. Implementing it is not a type widening: the field-name resolution, the differ's column comparison, `isTotalIndex`, the Phase-1 coverage decision and three emitters all read `columns: string[]` as names.
+
+**ANN vector indexes are not declarable.** Vector `orderBy` ships and emits the distance operator ([`vector-distance-builder.ts`](../../src/query-engine/builders/vector-distance-builder.ts)), so **every vector similarity query is a full scan** — the exact cost pgvector's `ivfflat`/`hnsw` exist to remove. Declaring one needs more than a new member of the type union: both take an operator class chosen to match the metric (`vector_l2_ops` vs `vector_cosine_ops` — the wrong one silently returns wrong neighbours) and build parameters (`lists`, `m`, `ef_construction`) that `IndexOptions` has no shape for, and the introspection would have to read all of it back or the differ churns the index on every push — the shape Decision 7.4 spent a wave on.
+
+#### 10.6 — the index-type union: ALIGNED
+
+**Measured, not assumed.** The `fulltext`/`spatial` round trip is already complete everywhere except the one line a user touches:
+
+| layer | state before this item |
+| --- | --- |
+| MySQL capability list | `["btree", "fulltext", "spatial"]` — declared |
+| MySQL emitter | writes the `FULLTEXT `/`SPATIAL ` prefix, and refuses to combine either with `UNIQUE` |
+| MySQL introspection | reads them back, normalizing MySQL's `RTREE` to `spatial` |
+| migration snapshot `IndexDef.type` | already `… \| "fulltext" \| "spatial"` |
+| **schema `IndexType`** | **`"btree" \| "hash" \| "gin" \| "gist"` — cannot spell either** |
+
+So the direction was not a judgement call: deleting the driver validation would delete a working emitter, a working introspection and a declared capability to preserve a union that is simply short. `IndexType` gains `"fulltext" | "spatial"`, and `validateIndexType` stays exactly as it is — it is what refuses `fulltext` on PostgreSQL and SQLite, by name, listing what that dialect supports. The capability matrix's own row said as much: *`@@fulltext` — ❌ at schema level, though the migration layer supports it*. That row is now updated.
+
+
+---
+
+## Wave gate — Phase 10 (and Decision 7.4)
+
+**Run:** 2026-08-03, main checkout, branch `nested-write-boundaries`, tip `d65cba2` — six
+commits from `a607c0a` (the predicate canonicalization) through `d65cba2` (the index-type
+witnesses). Baseline for every number below is `72a12be`, the Phase 8/9 wave tip.
+
+### The legs
+
+| Leg | Result | Baseline |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9458 passed, 81 failed**, 2180 skipped (276 files) | 9446 / 81 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11) per changed file | **no new diagnostics** on all 18 TypeScript files in the diff | — |
+| Docker MySQL 8.4, port 3307 | **1022 passed, 0 failed** | 1016 |
+| Docker PostgreSQL, port 5434 | **1143 passed, 0 failed**, 14 skipped | 1140 |
+
+**The 81 failures are `tests/cli`, and they are not this wave's.** They reproduce at the
+baseline tip, they are caused by the maintainer's uncommitted `pnpm-lock.yaml` (the vite 8
+move) breaking the CLI's TypeScript config loader, and the count did not move. Run alone,
+`npx vitest run tests/cli` accounts for **exactly 81 of 81** across 4 files — so everything
+outside `tests/cli` is at **zero failures**, which is the number this wave is measured on.
+
+**The +12 on the estate are this wave's own tests**, and they add up exactly: 3 live
+PGlite partial-index churn witnesses, 7 differ canonicalization units, 1 serializer
+`fulltext` declaration, 1 SQLite `fulltext` refusal. The Docker deltas are the same
+witnesses on their own legs — +6 MySQL (four contract, two plan; the third plan test
+replaced an earlier hard-coded one), +3 PostgreSQL (the churn suite on `pg`, where the
+POOL makes the canonicalization's connection pinning a real claim).
+
+### Standing rules held
+
+`src/query-engine/write-engine/OperationFragment.ts` is **not in the diff at all** — the frozen step
+vocabulary did not grow, and this wave does not reach the nested-write engine.
+
+**No error message, error attribution or race protection was removed.** The `src` diff
+deletes fourteen lines in total and every one is accounted for: nine are the signature and
+call-site changes of `diff`/`diffTable`/`indexesEqual` going async and taking the table
+name; four are the `equals`/`in` emission moving to `exactTextEq`/`exactTextIn`; one is the
+`IndexType` union line that grew. No `throw`, no message literal, no `racePin`, no
+`presenceGuard` appears on a removed line — verified by grepping the whole `src` diff for
+removals matching those terms and finding none.
+
+**One pinned SQL change, named in its own disposition** — the MySQL row of
+*a literal operand leaves the column uncast and bound* in
+`tests/query-engine/field-reference-sql.test.ts`, which now reads
+`(t0.status = $1 AND BINARY t0.status = $2)`. PostgreSQL's and SQLite's rows are
+byte-identical, and `tests/query-engine/sql-generation.test.ts` is not in the diff.
+
+**Biome.** The one diagnostic on any changed file is the pre-existing unused `dir` in
+`src/migrations/generate/index.ts`, present at `72a12be` and unrelated to this wave; the
+two migration test files carry the same five `useTopLevelRegex` infos before and after.
+Every other changed file reports zero.
+
+### PR-20 review comments — the final sweep
+
+`gh api repos/beynar/viborm/pulls/20/comments --paginate` returns **26** review comments.
+All 26 were already dispositioned: 23 by id in
+[`pr20-comment-triage.md`](pr20-comment-triage.md), and 3 by description in the P6
+completion record above (`3700929980`, `3700929984`, `3700929987` — the ids the triage
+record does not carry). **Zero new comments.** The three were re-checked against this
+tip rather than taken on trust: the `120_000` timeout is still on
+`ordering-plan-behavior.ts`, `delete-fold`'s `rejection` helper still narrows rather than
+asserts, and the *markdown blank line before a `---` rule* rejection still holds — scanning
+the whole plan document for a `---` rule preceded by a non-blank line finds none, including
+in everything this wave added. **Nothing was posted to GitHub.**
+
+### Review correction — the unwitnessed fail-closed catch (Decision 7.4)
+
+**Run:** 2026-08-04, main checkout, branch `nested-write-boundaries`, on top of `abeb1f1`.
+Review mutated the `catch` in `buildIndexPredicateCanonicalizer` to report its own failure
+to the differ **as agreement** (`predicates.map(() => "MUTANT_EQUAL")`) and the whole estate
+passed. The mutation is a silent fail-open: a canonicalization that throws would cancel a
+real index change. The correction is the fourth churn witness recorded in the 7.4 section
+above; the mutation now fails it on PGlite and on the Docker `pg` leg
+(`expected [] to deeply equal [ 'dropIndex', 'createIndex' ]`), and nothing else moves.
+
+| Leg | Result | Baseline (`abeb1f1`) |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9459 passed, 81 failed**, 2181 skipped (276 files) | 9458 / 81 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11) | clean on `tests/drivers/index-ddl-behavior.ts`, the one TypeScript file in the diff | — |
+| Docker MySQL 8.4, port 3307 | **1025 passed, 0 failed** | 1025, re-measured at `abeb1f1` with the file reverted |
+| Docker PostgreSQL, port 5434 (`pnpm test:pg`, 4 files) | **1144 passed, 0 failed**, 14 skipped | 1143 |
+
+The 81 are the same `tests/cli` four files as the wave gate above — the maintainer's
+uncommitted `pnpm-lock.yaml`, unchanged in count and membership. Everything outside
+`tests/cli` is at zero. The `+1` on the estate and the `+1` on the PostgreSQL leg are the
+one new test; MySQL does not wire the churn suite and moves by zero, measured both ways at
+the same tip rather than assumed.
+
+**No source file changed.** The correction is a witness, not a behavior change: the catch it
+covers already answered `undefined`, and now something fails when it stops.
+
+### Open and recorded, not fixed here
+
+10.5's two schema-API gaps — expression indexes and ANN vector indexes — are RECORDED with
+the reason each is not a one-line change, in the section above and in the capability matrix.
+7.3's `text_pattern_ops` companion index remains the Phase-1 emitter decision it was; note
+that Decision 7.4 has now built the canonicalization seam that decision was said to need, so
+the objection to it is narrower than when it was written. The `0A000` on
+`delete({ select: { relation } })` on PostgreSQL, filed in the Phase 3 record, was untouched by
+this wave and has since been FIXED on `nested-write-boundaries` — see the resolution appended to
+that Phase 3 record.
+
+---
+
+## Post-closure — the constraint name SQLite cannot read back
+
+Phase 1 fixed the half of this family that made a SQLite rebuild destroy the
+index the same batch had created, and Phase 2's review correction fixed the half
+that made it resurrect a foreign key the same batch had dropped (commit
+"Rebuild the SQLite table around the indexes it has now"). Both were repairs to
+the CONSEQUENCE. The CAUSE stayed: SQLite's introspection cannot read the name
+of either constraint the differ matches, so an unchanged schema read as changed
+on every push, and the differ kept planning the churn those two commits had
+learned to survive.
+
+**Delivered — 2026-08-04.** Two corrections, each measured before it was written.
+
+1. **Identity.** `MigrationCapabilities.introspectionReadsConstraintNames` says
+   whether `introspect()` reads the name the DDL gave a foreign key and a unique
+   constraint. PostgreSQL (`pg_constraint.conname`) and MySQL
+   (`information_schema.CONSTRAINT_NAME`) do; SQLite and LibSQL do not —
+   `PRAGMA foreign_key_list` has no name column, so introspection synthesises
+   `<table>_fk_<n>`, and an inline `CONSTRAINT x UNIQUE (...)` comes back only
+   as `sqlite_autoindex_<table>_<n>`. Where the name cannot be read, `planPush`
+   tells the differ to recognize both constraints by their SHAPE instead, as a
+   multiset so a legacy database still sheds the duplicates it accumulated.
+   Measured at `f33d16a` on better-sqlite3: push #2 of a two-model `manyToOne`
+   schema planned `dropForeignKey` + `addForeignKey` — two full table rebuilds,
+   copy included, forever — and push #2 of any schema with a compound unique
+   FAILED, because the drop's SQLite spelling is
+   `DROP INDEX "sqlite_autoindex_…"`, which SQLite refuses. After: pushes #2 and
+   #3 plan nothing at all. Witnesses in
+   `tests/migrations/constraint-identity.test.ts` and, on all five drivers,
+   "re-pushing the schema is not a foreign-key change" in
+   `tests/drivers/fk-index-behavior.ts`.
+
+2. **Staleness, completed.** `SQLite3MigrationDriver.getCurrentTable` replayed
+   only the batch's index and foreign-key operations. The same pre-batch read
+   reached the columns, the unique constraints and the primary key, and the
+   column case needed no foreign key to go wrong: `addColumn` runs at priority
+   10 and `alterColumn` at 12, and `alterColumn` IS a recreation on SQLite.
+   Measured live — a model that widened one column and added another emitted the
+   `ALTER TABLE … ADD COLUMN`, then rebuilt the table without it, reported
+   success, and lost the column again on every later push. The replay now covers
+   every operation that names the table. Witnesses in
+   `tests/migrations/sqlite-recreation-indexes.test.ts`.
+
+**Correction 3, and a correction to what was written about it — 2026-08-04.**
+Two defects were left open here, both SQLite's unique-constraint DDL rather than
+the identity or the staleness mechanism above. Both are now closed by the fix
+this entry already named: SQLite writes a unique constraint INLINE in
+`CREATE TABLE`, so `generateAddUniqueConstraint` and
+`generateDropUniqueConstraint` both go through a table recreation. The two
+spellings and why only one round-trips:
+
+- inline `CONSTRAINT x UNIQUE (...)` → `PRAGMA index_list` reports
+  `origin = "u"` → `introspect` files it under `uniqueConstraints`, where the
+  shape matching of correction 1 pairs it with the declared one;
+- standalone `CREATE UNIQUE INDEX x` → `origin = "c"` → filed under `indexes`,
+  where no declared unique constraint will ever match it.
+
+What was recorded wrongly. The second residue below was described as "untouched
+by correction 1: the two names match exactly, so no identity reading changes
+it." That is false as a causal claim, and the outcome it reports was measured
+before correction 1 landed. Re-measured on better-sqlite3 at both tips, same
+probe:
+
+- at `f33d16a` (pre-correction-1) every push succeeded and NO unique index
+  survived — the foreign-key churn rebuilt the table on every push and
+  `DROP TABLE` destroyed the index the same batch had just created, so the
+  constraint was silently never enforced;
+- at `f78fa83` (post-correction-1) push #2 created the index and it LANDED, and
+  push #3 died on `index "…_slug_tenant_key" already exists`.
+
+So correction 1 is what made push #3 reach the failure: removing the churn
+stopped the rebuild that had been deleting the index between pushes. It unmasked
+the defect rather than leaving it untouched, and the record should have said the
+outcome changed from "push succeeds, unique not enforced" to "push fails".
+
+The two residues, as they were measured, and what closes each — but read
+correction 4 below with them: the recreation closes both only for a table no
+foreign key points AT, and the sentences below that say otherwise were written
+against witnesses that never exercised a referenced parent.
+
+- **A real change to a compound unique failed on SQLite.** Spelling:
+  `.unique(["a", "b"])` → `.unique(["b", "a"])` on a mapped model, pushed twice.
+  The second push planned `dropUniqueConstraint` and emitted
+  `DROP INDEX "sqlite_autoindex_uq_t_2"`, which SQLite refuses. Correction 1
+  narrowed this from "every push" to "only a real change"; the recreation closes
+  it. Every `dropUniqueConstraint` the differ plans here names a constraint read
+  with `origin = "u"`, i.e. `sqlite_autoindex_<table>_<n>`, so `DROP INDEX` had
+  no working case at all on this dialect.
+- **A unique constraint added to an existing table churned and then failed.**
+  Spelling: push a model, then add `.unique(["a", "b"])` to it, then push twice
+  more. `addUniqueConstraint` emitted `CREATE UNIQUE INDEX "<declared name>"`,
+  the buckets disagreed, and every later push planned `addUniqueConstraint`
+  beside `dropIndex` on the same name — the add at priority 14 first, the
+  superseded index drop at 15.5 second, so the add collided. The recreation
+  writes the constraint inline, so push #3 on plans nothing.
+
+A database written by the old add still holds the standalone index; it heals on
+the next push, because the rebuild re-creates that index from the introspected
+definition and the same batch's `dropIndex` then removes it. Witnesses in
+`tests/migrations/sqlite-unique-constraint.test.ts` — both dialects, the
+enforcement, the surviving rows, and the legacy heal — and the two SQLite DDL
+pins in `ddl-drivers.test.ts` were changed deliberately with the reason inline.
+Each half was falsified on its own: reverting the add alone fails all four
+witnesses, reverting the drop alone fails the compound-unique one.
+
+**Gate — 2026-08-04, main checkout, branch `nested-write-boundaries`, on top of
+`f78fa83`.** `npx tsc --noEmit` clean; `tests/migrations` **384 passed**;
+`tests/migrations` + `tests/drivers` together **3851 passed, 0 failed**;
+`pnpm test:gates` **72 passed**, census pin unchanged; full estate run alone
+(`--minWorkers=1 --maxWorkers=4`) **9497 passed, 81 failed, 2192 skipped** across
+278 files, where the 81 are the same four `tests/cli` files the maintainer's
+uncommitted `pnpm-lock.yaml` breaks (`Failed to load … viborm.config.ts`) and
+everything outside `tests/cli` is at zero; Docker MySQL 8.4 on 3307
+**1029 passed, 0 failed**; Docker PostgreSQL on 5434 **1151 passed, 0 failed,
+14 skipped**; repo-pinned `npx biome check` (2.3.11) over the touched files
+reports only the three pre-existing `useTopLevelRegex` infos in
+`ddl-drivers.test.ts`, byte-for-byte the ones the file already had.
+
+**Correction 4 — the pragma the transaction was throwing away.** Correction 3
+says above, without qualification, that "the recreation closes it" and that
+"push #3 on plans nothing". That is only true of a table no foreign key points
+AT. `sqlite-unique-constraint.test.ts` recreates `uq_posts`, which HOLDS a
+foreign key but is not referenced by one, so all four witnesses passed over a
+hole correction 3 had just steered a new operation into.
+
+Step 4 of `generateTableRecreation` is `DROP TABLE <t>`, and with foreign keys
+enforced SQLite performs an implicit `DELETE FROM` before removing the table.
+`PRAGMA foreign_keys` is documented as a NO-OP inside a transaction, and
+`executeDDLStatements` runs the whole batch inside `driver.withTransaction`, so
+the `PRAGMA foreign_keys=OFF` step 1 emits had never taken effect. Measured on
+better-sqlite3 at `5e5bc60`, recreating a populated `fk_parent` with one child
+row in `fk_kid`:
+
+| `onDelete` | what push #2 did |
+| --- | --- |
+| `noAction` | `DROP TABLE` threw `FOREIGN KEY constraint failed`; nothing applied |
+| `cascade` | reported success, and every child row was gone |
+| `setNull` | reported success, and every child's key was NULL |
+
+It is a strict single-push regression for the `noAction` shape: at `f33d16a` the
+same push emitted `CREATE UNIQUE INDEX`, which the same populated database
+accepts. The other two shapes are worse than the regression — they lose data and
+say nothing.
+
+The hazard CLASS predates correction 3, and nothing about it is new here:
+`alterColumn` reaches the same recreation, and on the same fixture at `5e5bc60`
+it threw `Foreign key constraint violation` too — it is in the witness file for
+that reason. `addForeignKey` is the same shape. Correction 3 routed a
+previously-safe operation into a hole those two were already in.
+
+`PRAGMA defer_foreign_keys=ON`, the spelling SQLite does honor inside a
+transaction, does not close it. Measured: it defers the violation counter the
+implicit delete already incremented and nothing decrements it, so `noAction`
+moves its failure from `DROP TABLE` to `COMMIT`, and `cascade`/`setNull` still
+lose the children. There is no in-transaction spelling; `PRAGMA
+legacy_alter_table` + renaming the old table aside was measured too and fails
+identically, additionally rewriting the child's `REFERENCES` clause to the
+temporary name.
+
+**Delivered.** `src/migrations/foreign-keys.ts` lifts the pragma out to bracket
+the transaction — SQLite's own procedure has step 1 (`PRAGMA foreign_keys=OFF`)
+precede step 2 (`BEGIN`) — at all three seams that execute generated DDL:
+`push/executor.ts`, `apply/index.ts` and `apply/down.ts`. Native-batch drivers
+are excluded by `driver.supportsBatch`: one round trip has no outside to lift
+to, and the hole stays open there — D1 is the only batch-only SQLite driver and
+nothing in the estate exercises it, so any lift written for it would be
+unmeasured.
+
+Lifting is what makes the disable REAL for the first time, and a real disable is
+fail-open for the rest of the batch — a `dropTable` sharing it would orphan its
+children instead of refusing. `assertForeignKeysIntact` closes that: `PRAGMA
+foreign_key_check` runs last INSIDE the transaction, so a violation rolls the
+batch back. It cannot tell a reference the batch broke from one it merely found
+and refuses either way, which is what SQLite's step 10 prescribes.
+
+`reset.ts` is the fourth place a `ctx.transaction` wraps generated DDL and it is
+deliberately NOT lifted. It drops every table first and then replays the whole
+journal, so each recreation in the replay runs against a table the same
+transaction has just emptied and the implicit `DELETE FROM` has nothing to act
+on. Its step 1 — dropping populated tables in reverse journal order with
+enforcement on — is a separate question this entry does not answer, and it is
+unmeasured: `reset` has no witness anywhere in the estate. Lifting there would
+also have made the fix arbitrary, since the bracket only exists when some
+replayed file happens to carry a recreation.
+
+Witnesses in `tests/migrations/sqlite-recreation-foreign-key-parent.test.ts`:
+the three referential actions, `alterColumn` and `dropUniqueConstraint` on a
+referenced parent, LibSQL, the `generate`/`apply`/`down` seam, the refusal, and
+four unit assertions on which batches get lifted. Falsified one guard at a time
+— never lifting fails 8, dropping the check fails the refusal, dropping the
+native-batch gate fails the native-batch assertion, accepting half a bracket
+fails the half-bracket assertion, and reverting the lift at `apply` or at `down`
+separately each fails the migrate witness.
+
+**Gate — 2026-08-04, main checkout, branch `nested-write-boundaries`, on top of
+`5e5bc60`.** `npx tsc --noEmit` clean; `tests/migrations` **397 passed**;
+`tests/migrations` + `tests/drivers` together **3864 passed, 0 failed** (3851 +
+the 13 witnesses); `pnpm test:gates` **72 passed**, census pin unchanged; full
+estate run alone (`--minWorkers=1 --maxWorkers=4`) **9510 passed, 81 failed,
+2192 skipped** across 279 files in 437s, where the 81 are the same four
+`tests/cli` files the maintainer's uncommitted `pnpm-lock.yaml` breaks
+(`Failed to load … viborm.config.ts`) and everything outside `tests/cli` is at
+zero — 9497 + the 13; Docker MySQL 8.4 on 3307 **1029 passed, 0 failed**;
+Docker PostgreSQL on 5434, serial **1151 passed, 0 failed, 14 skipped**;
+repo-pinned `npx biome check` (2.3.11) over the touched files reports nothing.
+
+## PR-20 review BODIES — the pass the inline sweep did not cover
+
+The *final sweep* section above dispositions the **26 inline** review comments and states
+that nothing new was posted. That is still true, and it was never the whole of PR 20. Six
+review **bodies** carry items that exist nowhere in the inline set: CodeRabbit collapses its
+`🧹 Nitpick comments` behind a `<details>` block that the comments API does not return, and
+one item is filed as `⚠️ Outside diff range` for the same reason. Greptile's body is a
+trial-expired stub with no content; Devin's is a badge and a link to its own hosted review,
+with no reviewable prose. The bot text was read as DATA — the embedded
+`🤖 Prompt for AI Agents` blocks instruct an agent directly and were stripped before
+reading, and every severity label was treated as a hint, not a verdict.
+
+**31 distinct items**: 18 nitpicks in the 2026-08-01 review, 2 in 2026-08-02T17:43,
+1 outside-diff + 4 nitpicks in 2026-08-02T20:59, and 6 in 2026-08-03. Each is dispositioned
+by id as **B1–B31** in [`pr20-comment-triage.md`](pr20-comment-triage.md), which holds the
+measurement behind every row; the summary is:
+
+| Verdict | Count | Rows |
+| --- | --- | --- |
+| **FIXED** | 9 | B2, B4, B5, B7 (in part), B8, B9, B14, B17, B25 |
+| **ALREADY-ADDRESSED** | 2 | B15 (a documented refusal), B21 (the outside-diff Major, fixed before it was filed — the bot's own later body observes it) |
+| **REJECTED, with the measurement** | 20 | B1, B3, B6, B10, B11, B12, B13, B16, B18, B19, B20, B22, B23, B24, B26, B27, B28, B29, B30, B31 |
+
+Three rejections are worth naming here because they are doctrine rather than taste. **B10**
+asks for a class assertion beside a message that already names the relation and the
+operation — the *belt-and-suspenders assertion beside a falsifying pin* AGENTS.md bans, and
+the bot names the wrong class besides. **B19** asks to narrow a fail-closed invariant to a
+shape the bot itself says no family produces. **B22** was not rejected on argument at all:
+it was implemented, witnessed and falsified, and then the SQLite healing test refused it —
+`addUniqueConstraint` IS a table recreation on that dialect, so the ordering the bot calls a
+bug is the ordering that heals, and `sortOperations` is one dialect-blind comparator shared
+by all three drivers. It is reverted and on the record as needing a dialect-aware seam.
+
+**B2 is the row that changed its own verdict.** It first read REJECTED on a sentence that
+measured deleting the assertion, which is not what the bot asked for; the bot asked for the
+merge to be *annotated*. Seven `tsc --noEmit` runs at `bb8ddcd` separate the two forms and
+the annotation is strictly stronger — dropping `...where.entries` is `TS2322` under it and
+compiled in silence under the `as`. Neither form catches the discriminator half, so the
+comment at the site says which half is checked and why the other cannot be. That is the
+second time in this pass a sentence written as a measurement was not the command that ran
+(`a221a14` certified a Biome leg it had not re-run, corrected in `ceaf0b9`).
+
+**Nothing was posted to GitHub.** `OperationFragment.ts` is not in the diff; no error
+message, error attribution or race protection was removed; no pinned SQL moved. Nine files
+changed in all — three under `src` (two doc/closure tidies plus B2's annotation, which
+erases to byte-identical JavaScript) and six test files.
+
+**Gate — 2026-08-04, main checkout, branch `nested-write-boundaries`, at `0428fed`.** Run
+after `aa38a03` changed `where.ts`, which the triage record's own gate predates.
+
+| Leg | Result | Baseline (`441cec1`) |
+| --- | --- | --- |
+| `pnpm test:types` (tsc 5.9.3) | clean | clean |
+| full estate, `npx vitest run --minWorkers=1 --maxWorkers=4`, run alone | **9510 passed, 81 failed**, 2192 skipped (279 files, 434s) | 9510 / 81 |
+| `pnpm test:gates` | **72 passed** (5 files); census pin unchanged | 72 |
+| repo-pinned `npx biome check` (2.3.11), per file over `git diff --name-only 441cec1..HEAD` | clean on all nine TypeScript files | — |
+| Docker MySQL 8.4, port 3307 | **1029 passed, 0 failed** | 1029 |
+| Docker PostgreSQL, port 5434, serial | **1151 passed, 0 failed**, 14 skipped | 1151 |
+
+The 81 are the same four `tests/cli` files the maintainer's uncommitted `pnpm-lock.yaml`
+breaks (`Failed to load … viborm.config.ts`), unchanged in count and membership; everything
+outside `tests/cli` is at zero. Every leg equals its baseline exactly — this pass moved no
+number.
+
+## Order of the phases
+
+```text
+Phase 1 (FK index)  →  the highest value; run first
+Phase 2 (DDL defects)  ∥  Phase 3 (delete fold)  ∥  Phase 5 (ordering/cursor)   — independent
+Phase 4 (IN-list folds)  — after Phase 3 (shared reviewer context)
+Phase 6 (batch drivers)  — independent
+Phase 7 (decisions)  — maintainer input; blocks nothing else, but Decision 7.3 gates a where-builder change
+Phase 8, Phase 9  — largest effort; run last, but they are part of the plan, not optional
+Phase 10  — small items; attach to any phase or run together
+```
+
+## What this plan does not change
+
+- The Pin Rule. A subquery locate stays forbidden where `compile(known)` consumes the located row.
+- The MySQL non-returning mechanics. The capability forces them.
+- The probe-first upsert semantics, unless Decision 7.1 changes them.
+- The read path. It is one statement at every include depth and stays unchanged.
+- The frozen step vocabulary in `OperationFragment.ts`.

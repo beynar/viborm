@@ -338,6 +338,26 @@ describe("SQLite3 DDL Generation", () => {
       );
     });
 
+    // Plan §10.6: `IndexType` now spells `fulltext`/`spatial` because MySQL's
+    // whole round trip already did. The per-dialect refusal is what keeps the
+    // widened union honest, and it is stated here rather than assumed.
+    it("refuses a fulltext index by name — SQLite has none", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "posts",
+        index: {
+          name: "idx_posts_body",
+          columns: ["body"],
+          unique: false,
+          type: "fulltext",
+        },
+      };
+
+      expect(() => generateDDL(op)).toThrow(
+        'Index "idx_posts_body" uses unsupported index type "fulltext". Supported types for sqlite: btree'
+      );
+    });
+
     it("should generate multi-column index", () => {
       const op: DiffOperation = {
         type: "createIndex",
@@ -353,6 +373,48 @@ describe("SQLite3 DDL Generation", () => {
 
       expect(ddl).toBe(
         'CREATE INDEX "idx_users_name_email" ON "users" ("name", "email")'
+      );
+    });
+
+    // Phase 2 Unit 2.2: SQLite has had partial indexes since 3.8.0, but the
+    // driver dropped the predicate silently. The index it built then indexed
+    // rows the schema excluded, and — because introspection now reads the
+    // predicate back — the differ would re-create it on every push forever.
+    it("should generate CREATE INDEX with WHERE clause (partial index)", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "users",
+        index: {
+          name: "idx_active_users",
+          columns: ["email"],
+          unique: false,
+          where: "active = 1",
+        },
+      };
+
+      const ddl = generateDDL(op);
+
+      expect(ddl).toBe(
+        'CREATE INDEX "idx_active_users" ON "users" ("email") WHERE active = 1'
+      );
+    });
+
+    it("should generate CREATE UNIQUE INDEX with WHERE clause", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "users",
+        index: {
+          name: "idx_one_active_email",
+          columns: ["email"],
+          unique: true,
+          where: "active = 1",
+        },
+      };
+
+      const ddl = generateDDL(op);
+
+      expect(ddl).toBe(
+        'CREATE UNIQUE INDEX "idx_one_active_email" ON "users" ("email") WHERE active = 1'
       );
     });
   });
@@ -371,33 +433,63 @@ describe("SQLite3 DDL Generation", () => {
     });
   });
 
+  // Both pins CHANGED DELIBERATELY: the add used to emit a standalone
+  // `CREATE UNIQUE INDEX`, which introspection reads back with `origin = "c"`
+  // and files under `indexes`, so the next push planned the add again beside a
+  // `dropIndex` on the same name and died on "index already exists"; the drop
+  // used to emit `DROP INDEX` on the `sqlite_autoindex_…` name every
+  // introspection reports, which SQLite refuses outright. A unique constraint
+  // is INLINE in `CREATE TABLE` on SQLite, so both halves go through a table
+  // recreation. Behaviour witnessed in `sqlite-unique-constraint.test.ts`.
+  const usersSchema: SchemaSnapshot = {
+    tables: [
+      {
+        name: "users",
+        columns: [
+          { name: "id", type: "INTEGER", nullable: false },
+          { name: "email", type: "TEXT", nullable: false },
+        ],
+        indexes: [],
+        foreignKeys: [],
+        uniqueConstraints: [{ name: "users_email_key", columns: ["email"] }],
+      },
+    ],
+  };
+
   describe("addUniqueConstraint", () => {
-    it("should generate CREATE UNIQUE INDEX", () => {
+    it("should recreate the table with the constraint inline", () => {
       const op: DiffOperation = {
         type: "addUniqueConstraint",
         tableName: "users",
         constraint: { name: "users_email_key", columns: ["email"] },
       };
 
-      const ddl = generateDDL(op);
+      const ddl = generateDDL(op, {
+        currentSchema: {
+          tables: [{ ...usersSchema.tables[0]!, uniqueConstraints: [] }],
+        },
+      });
 
-      expect(ddl).toBe(
-        'CREATE UNIQUE INDEX "users_email_key" ON "users" ("email")'
-      );
+      expect(ddl).toContain('CREATE TABLE "__new_users"');
+      expect(ddl).toContain('CONSTRAINT "users_email_key" UNIQUE ("email")');
+      expect(ddl).toContain('DROP TABLE "users"');
+      expect(ddl).not.toContain("CREATE UNIQUE INDEX");
     });
   });
 
   describe("dropUniqueConstraint", () => {
-    it("should generate DROP INDEX", () => {
+    it("should recreate the table without the constraint", () => {
       const op: DiffOperation = {
         type: "dropUniqueConstraint",
         tableName: "users",
         constraintName: "users_email_key",
       };
 
-      const ddl = generateDDL(op);
+      const ddl = generateDDL(op, { currentSchema: usersSchema });
 
-      expect(ddl).toBe('DROP INDEX "users_email_key"');
+      expect(ddl).toContain('CREATE TABLE "__new_users"');
+      expect(ddl).not.toContain('CONSTRAINT "users_email_key"');
+      expect(ddl).not.toContain("DROP INDEX");
     });
   });
 
@@ -1151,6 +1243,26 @@ describe("MySQL DDL Generation", () => {
 
       expect(() => generateDDL(op)).toThrow(
         "Cannot combine UNIQUE with SPATIAL"
+      );
+    });
+
+    // Phase 2 Unit 2.2: MySQL has no partial index. Emitting the index without
+    // its predicate would index rows the schema excluded, so the declaration is
+    // refused rather than silently reduced.
+    it("should throw error for a partial index (no MySQL equivalent)", () => {
+      const op: DiffOperation = {
+        type: "createIndex",
+        tableName: "users",
+        index: {
+          name: "idx_active_users",
+          columns: ["email"],
+          unique: false,
+          where: "active = 1",
+        },
+      };
+
+      expect(() => generateDDL(op)).toThrow(
+        'Index "idx_active_users" declares a partial index predicate (where: "active = 1"). MySQL does not support partial indexes.'
       );
     });
   });

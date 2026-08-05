@@ -9,6 +9,7 @@ import {
   type NestedUpsertInput,
   type RelationMutation,
 } from "./builders/relation-data-builder";
+import { getRelationMutationKinds } from "./builders/relation-mutation-parser";
 import {
   classifyTargetConstraintOverlap,
   normalizeWhereUniqueTargetConstraint,
@@ -150,6 +151,15 @@ export function splitRelationMutationsByFk(
   return { currentHoldsFk, relatedHoldsFk };
 }
 
+/**
+ * The legality derivation's step sequence. It walks
+ * {@link RELATION_MUTATION_KEYS} — **the same order the parts are emitted in** — so
+ * the own-write theorem is stated over exactly the sequence that runs (ATOM §4,
+ * N6-U3). Before that unification this function carried its OWN order, which
+ * disagreed with the emission order on `deleteMany` vs `upsert`; the legality of a
+ * shape was therefore derived against a sequence the engine never executed. One
+ * order, one derivation — never two.
+ */
 export function planRelationMutationSteps(
   relationName: string,
   mutation: RelationMutation,
@@ -162,79 +172,102 @@ export function planRelationMutationSteps(
   };
   const steps: RelationMutationStep[] = [];
 
-  if (mutation.create) {
-    steps.push({
-      kind: "create",
-      context,
-      inputs: normalizeRecordArray(mutation.create),
-    });
-  }
-
-  if (mutation.createMany) {
-    steps.push({ kind: "createMany", context, input: mutation.createMany });
-  }
-
-  if (mutation.connect) {
-    steps.push({
-      kind: "connect",
-      context,
-      inputs: normalizeRecordArray(mutation.connect),
-    });
-  }
-
-  if (mutation.connectOrCreate) {
-    steps.push({
-      kind: "connectOrCreate",
-      context,
-      inputs: dedupeConnectOrCreateInputs(
-        mutation.relationInfo.targetModel,
-        normalizeArray(mutation.connectOrCreate)
-      ),
-    });
-  }
-
-  if (mutation.disconnect) {
-    steps.push({ kind: "disconnect", context, input: mutation.disconnect });
-  }
-
-  if (mutation.delete) {
-    steps.push({ kind: "delete", context, input: mutation.delete });
-  }
-
-  if (mutation.set) {
-    steps.push({ kind: "set", context, input: mutation.set });
-  }
-
-  if (mutation.update) {
-    steps.push({
-      kind: "update",
-      context,
-      inputs: normalizeUpdateInputs(mutation),
-    });
-  }
-
-  if (mutation.updateMany) {
-    steps.push({
-      kind: "updateMany",
-      context,
-      inputs: normalizeArray(mutation.updateMany),
-    });
-  }
-
-  if (mutation.deleteMany) {
-    steps.push({
-      kind: "deleteMany",
-      context,
-      inputs: normalizeRecordArray(mutation.deleteMany),
-    });
-  }
-
-  if (mutation.upsert) {
-    steps.push({
-      kind: "upsert",
-      context,
-      inputs: normalizeArray(mutation.upsert),
-    });
+  // Each arm keeps the presence check the if-chain always had — it is the narrowing
+  // that types the payload, not an added guard. What moved is only WHERE the order
+  // comes from: the shared constant instead of the order these arms are written in.
+  for (const kind of getRelationMutationKinds(mutation)) {
+    switch (kind) {
+      case "create":
+        if (mutation.create) {
+          steps.push({
+            kind,
+            context,
+            inputs: normalizeRecordArray(mutation.create),
+          });
+        }
+        break;
+      case "createMany":
+        if (mutation.createMany) {
+          steps.push({ kind, context, input: mutation.createMany });
+        }
+        break;
+      case "connect":
+        if (mutation.connect) {
+          steps.push({
+            kind,
+            context,
+            inputs: normalizeRecordArray(mutation.connect),
+          });
+        }
+        break;
+      case "connectOrCreate":
+        if (mutation.connectOrCreate) {
+          steps.push({
+            kind,
+            context,
+            inputs: dedupeConnectOrCreateInputs(
+              mutation.relationInfo.targetModel,
+              normalizeArray(mutation.connectOrCreate)
+            ),
+          });
+        }
+        break;
+      case "disconnect":
+        if (mutation.disconnect) {
+          steps.push({ kind, context, input: mutation.disconnect });
+        }
+        break;
+      case "delete":
+        if (mutation.delete) {
+          steps.push({ kind, context, input: mutation.delete });
+        }
+        break;
+      case "set":
+        if (mutation.set) {
+          steps.push({ kind, context, input: mutation.set });
+        }
+        break;
+      case "update":
+        if (mutation.update) {
+          steps.push({
+            kind,
+            context,
+            inputs: normalizeUpdateInputs(mutation),
+          });
+        }
+        break;
+      case "updateMany":
+        if (mutation.updateMany) {
+          steps.push({
+            kind,
+            context,
+            inputs: normalizeArray(mutation.updateMany),
+          });
+        }
+        break;
+      case "deleteMany":
+        if (mutation.deleteMany) {
+          steps.push({
+            kind,
+            context,
+            inputs: normalizeRecordArray(mutation.deleteMany),
+          });
+        }
+        break;
+      case "upsert":
+        if (mutation.upsert) {
+          steps.push({
+            kind,
+            context,
+            inputs: normalizeArray(mutation.upsert),
+          });
+        }
+        break;
+      default: {
+        const exhaustive: never = kind;
+        throw new TypeError(`Unknown relation mutation kind: ${exhaustive}`);
+      }
+    }
   }
 
   return steps;

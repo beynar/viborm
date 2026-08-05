@@ -5,6 +5,7 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { describe, expect, test, vi } from "vitest";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 
 /**
@@ -42,7 +43,17 @@ type BehaviorSchema = typeof nestedWriteBehaviorSchema;
 const SAVEPOINT_PATTERN = /SAVEPOINT/i;
 
 // A batch-only PGlite driver forced down the atomic-batch (batch strategy) path,
-// recording how many batches it runs. Mirrors the conformance harness.
+// recording how many ATOMIC UNITS it runs. Mirrors the conformance harness.
+//
+// PIN NARROWED DELIBERATELY — PLAN Phase 6.1. This counted every `executeBatch`
+// call, which was the same number while planning reads travelled one `_execute`
+// at a time. Phase 6.1 sends a dependency LEVEL of independent planning reads
+// through the batch seam, so this tree (whose two `connect` probes share a
+// level) now makes two calls: one planning batch, then the atomic unit. The
+// invariant M4 states is about the ATOMIC SCOPE — the whole recursion commits
+// or rolls back as one indivisible unit, with no per-level scope — and a batch
+// of planning SELECTs is not one. Counting the unit rather than the call
+// measures M4 directly instead of by a proxy that a planning change can move.
 class BatchOnlyPGliteDriver extends PGliteDriver {
   override readonly supportsTransactions = false;
   override readonly supportsBatch = true;
@@ -52,7 +63,7 @@ class BatchOnlyPGliteDriver extends PGliteDriver {
     client: PGlite | Transaction,
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
-    this.batchCount++;
+    if (batchIsAtomicUnit(queries)) this.batchCount++;
     return this.transaction(client, async (tx) => {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {

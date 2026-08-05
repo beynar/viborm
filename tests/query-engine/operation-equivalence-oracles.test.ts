@@ -51,22 +51,27 @@ const dialects = [
   ["sqlite", new SQLiteAdapter(), "?"],
 ] as const;
 
+// Deliberate re-freeze, query-performance plan Phase 5 Unit 5.1: `views` and
+// `id` are both NOT NULL in this fixture, so no null placement is observable
+// on either key and none is emitted. Every dialect loses its placement here —
+// PostgreSQL its `NULLS FIRST/LAST` suffix, MySQL and SQLite their leading
+// `(col IS NULL)` sort key, which is what let the index supply the order.
 const expected = {
   postgresql: {
     read: {
-      sql: 'SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "posts" AS "t0" WHERE ("t0"."published" = $1 AND "t0"."views" >= $2) ORDER BY "t0"."views" DESC NULLS FIRST, "t0"."id" ASC NULLS LAST LIMIT $3',
+      sql: 'SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "posts" AS "t0" WHERE ("t0"."published" = $1 AND "t0"."views" >= $2) ORDER BY "t0"."views" DESC, "t0"."id" ASC LIMIT $3',
       params: [true, 10, 5],
     },
   },
   mysql: {
     read: {
-      sql: "SELECT `t0`.`id` AS `id`, `t0`.`title` AS `title` FROM `posts` AS `t0` WHERE (`t0`.`published` = ? AND `t0`.`views` >= ?) ORDER BY (`t0`.`views` IS NULL) DESC, `t0`.`views` DESC, (`t0`.`id` IS NULL) ASC, `t0`.`id` ASC LIMIT 5",
+      sql: "SELECT `t0`.`id` AS `id`, `t0`.`title` AS `title` FROM `posts` AS `t0` WHERE (`t0`.`published` = ? AND `t0`.`views` >= ?) ORDER BY `t0`.`views` DESC, `t0`.`id` ASC LIMIT 5",
       params: [true, 10],
     },
   },
   sqlite: {
     read: {
-      sql: 'SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "posts" AS "t0" WHERE ("t0"."published" = ? AND "t0"."views" >= ?) ORDER BY ("t0"."views" IS NULL) DESC, "t0"."views" DESC, ("t0"."id" IS NULL) ASC, "t0"."id" ASC LIMIT ?',
+      sql: 'SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "posts" AS "t0" WHERE ("t0"."published" = ? AND "t0"."views" >= ?) ORDER BY "t0"."views" DESC, "t0"."id" ASC LIMIT ?',
       params: [true, 10, 5],
     },
   },

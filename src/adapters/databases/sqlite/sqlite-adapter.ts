@@ -14,7 +14,6 @@ import {
   createCoreJoins,
   createCteBuilders,
   createDirectionOrderBy,
-  createEmulatedNullsOrderBy,
   createExistenceOperators,
   createIdentifierQuoter,
   createIdentifiers,
@@ -32,6 +31,7 @@ import {
   createStandardClauses,
   createStandardLiterals,
   createSubqueries,
+  escapeGlobLiteral,
   stringifyJson,
 } from "../../shared/standard-sql";
 
@@ -172,6 +172,34 @@ export class SQLiteAdapter implements DatabaseAdapter {
       sql`substr(${column}, 1, length(${value})) COLLATE BINARY = ${value}`,
     endsWithText: (column: Sql, value: Sql): Sql =>
       sql`CASE WHEN length(${value}) = 0 THEN 1 ELSE substr(${column}, -length(${value})) COLLATE BINARY = ${value} END`,
+    // GLOB, not LIKE — and this is the one place the "portable escaped LIKE"
+    // premise of Decision 7.3 does not survive contact with SQLite. Both of
+    // SQLite's LIKE-optimization preconditions fail here: an ESCAPE clause
+    // disqualifies the optimization outright, and with `case_sensitive_like`
+    // off (the default, and connection-global, so not ours to flip) the
+    // optimization additionally wants a NOCASE-collated index, while `push()`
+    // only ever creates BINARY ones. Measured on better-sqlite3, 20k rows,
+    // plain index: `col LIKE ? ESCAPE '\'` is a SCAN — exactly what the
+    // `substr` spelling above already costs — AND it answers case-insensitively,
+    // which would break the case-sensitivity contract this operator holds.
+    //
+    // GLOB has neither problem. It compares bytes, so it is case- and
+    // accent-sensitive by construction (that is what `COLLATE BINARY` buys
+    // above, so nothing is lost by dropping it), and it ranges on the ordinary
+    // BINARY index: the same probe plans this as a covering index SEARCH over
+    // 111 rows against a 20000-row SCAN. Its wildcards are `*`/`?`/`[`, and it
+    // has no ESCAPE clause, so `escapeGlobLiteral` quotes them as classes.
+    startsWithPrefix: (column: Sql, value: string): Sql =>
+      sql`${column} GLOB ${`${escapeGlobLiteral(value)}*`}`,
+
+    // `COLLATE BINARY` names a COLLATION, not a function of the column, and
+    // SQLite's ordinary index is a BINARY index — so the case-sensitive
+    // spelling is already the index-usable one and there is nothing to add.
+    // Byte-identical to what shipped before §10.2.
+    exactTextEq: (column: Sql, value: Sql): Sql =>
+      sql`${column} COLLATE BINARY = ${value}`,
+    exactTextIn: (column: Sql, values: Sql): Sql =>
+      sql`${column} COLLATE BINARY IN ${values}`,
 
     // Set membership
     ...createMembershipOperators(),
@@ -334,10 +362,24 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ORDER BY
   // ============================================================
 
+  // SQLite parses NULLS FIRST/LAST natively since 3.30 (2019-10-04), which is
+  // below this adapter's documented 3.35+ floor. The `(col IS NULL)` emulation
+  // this replaces was an extra leading sort key, and an index can never supply
+  // a sort key that is an expression: on a 100,000-row table with an index over
+  // the sort columns, the emulated spelling planned `SCAN t | USE TEMP B-TREE
+  // FOR ORDER BY` at 3.356 ms per page and the native one plans `SCAN t USING
+  // INDEX` at 0.005 ms. MySQL keeps the emulation — it has no native syntax at
+  // any version.
   orderBy = {
     ...createDirectionOrderBy(),
-    // SQLite doesn't support NULLS FIRST/LAST in this grammar position - emulated
-    ...createEmulatedNullsOrderBy(),
+    nullsFirst: (column: Sql, direction: "asc" | "desc"): Sql =>
+      direction === "desc"
+        ? sql`${column} DESC NULLS FIRST`
+        : sql`${column} ASC NULLS FIRST`,
+    nullsLast: (column: Sql, direction: "asc" | "desc"): Sql =>
+      direction === "desc"
+        ? sql`${column} DESC NULLS LAST`
+        : sql`${column} ASC NULLS LAST`,
   };
 
   // ============================================================
@@ -499,11 +541,19 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   capabilities = {
     supportsReturning: true, // SQLite 3.35+
-    supportsCteWithMutations: true,
+    // FALSE IN FACT, and it read `true` until the Phase 8 fold gave the flag its
+    // first reader (query-performance-plan Phase 10.1). SQLite's `WITH` grammar
+    // admits a SELECT and nothing else: measured on SQLite 3.51.2, each of
+    // `WITH x AS (UPDATE …/INSERT …/DELETE … RETURNING …) SELECT * FROM x` is a
+    // parse error (`near "UPDATE": syntax error`). Kept as a capability rather
+    // than deleted because Phase 8's `WITH u AS (UPDATE … RETURNING *) SELECT …`
+    // fold reads it to decide whether it may emit at all.
+    supportsCteWithMutations: false,
     supportsFullOuterJoin: false,
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
     supportsVector: false,
     supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
+    supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,
     // UPDATE/DELETE ... LIMIT needs SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which is
     // off in the builds this project targets (better-sqlite3, libSQL, D1).

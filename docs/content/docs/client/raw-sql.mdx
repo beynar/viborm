@@ -1,7 +1,7 @@
 ---
 title: Raw SQL
 description: Tagged-template $queryRaw/$executeRaw, the Unsafe variants, and the sql composition helpers
-icon: Terminal
+icon: terminal
 ---
 
 When the query builder cannot express what you need, drop to SQL. There are
@@ -39,10 +39,10 @@ const updated = await client.$executeRaw`
 // updated: number
 ```
 
-<Callout type="info">
-  `$queryRaw` returns the **rows**, `$executeRaw` returns the **affected
+:::info
+`$queryRaw` returns the **rows**, `$executeRaw` returns the **affected
   count** — Prisma's split. Neither returns a driver result envelope.
-</Callout>
+:::
 
 ## The Unsafe variants
 
@@ -62,10 +62,10 @@ const deleted = await client.$executeRawUnsafe(
 );
 ```
 
-<Callout type="warn">
-  Never build an Unsafe statement out of user input. If the value is data, use
+:::warning
+Never build an Unsafe statement out of user input. If the value is data, use
   a tagged template or a positional parameter instead.
-</Callout>
+:::
 
 ## Composing fragments
 

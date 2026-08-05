@@ -38,6 +38,7 @@ import {
   createStandardClauses,
   createStandardLiterals,
   createSubqueries,
+  escapeLikeLiteral,
   stringifyJson,
 } from "../../shared/standard-sql";
 
@@ -161,6 +162,53 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`LEFT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
     endsWithText: (column: Sql, value: Sql): Sql =>
       sql`RIGHT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value}`,
+    // Two conjuncts, because on MySQL no single predicate is both exact and
+    // index-usable. The index stores the column's own collation's sort keys —
+    // `utf8mb4_0900_ai_ci` on a default install, which is case- AND
+    // accent-insensitive — so any comparison forced to BINARY cannot range on
+    // it. Measured on MySQL 8 (Docker, 20k rows): `col LIKE 'x%'` is a `range`
+    // over 111 rows, while both `col LIKE BINARY 'x%'` and the
+    // `LEFT(BINARY col, …)` spelling above degrade to a full `index` scan of
+    // all 19731 entries.
+    //
+    // So the collation-native LIKE goes first as an index accelerator, and the
+    // BINARY predicate — byte-identical to `startsWithText` above — follows as
+    // the semantics. The accelerator can never drop a row the BINARY conjunct
+    // would keep: byte-equal strings compare equal under every collation, so a
+    // binary prefix match implies the collation-native one. It is not a second
+    // guard on the same invariant — it decides no row's membership, only which
+    // rows the server has to look at.
+    //
+    // Parenthesized because this fragment gets composed into AND/OR chains.
+    startsWithPrefix: (column: Sql, value: string): Sql =>
+      sql`(${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\\\' AND LEFT(BINARY ${column}, OCTET_LENGTH(${value})) = BINARY ${value})`,
+
+    // `startsWithPrefix`'s twin, for the same reason and in the same shape
+    // (plan §10.2). `BINARY col` is a FUNCTION of the column, so MySQL cannot
+    // range on it: measured on MySQL 8.4 over 20,000 rows in the collation
+    // viborm's own DDL declares, `BINARY name = ?` planned `index` over 20,455
+    // rows where `name = ?` planned `ref` over 1, and `BINARY name IN (…)`
+    // planned `index` over 20,455 where `name IN (…)` planned `range` over 3.
+    //
+    // The collation-native conjunct is the accelerator and decides no row's
+    // membership: byte-identical strings compare equal under every collation
+    // of the charset, so the BINARY comparison IMPLIES it. On the tables
+    // viborm creates (`utf8mb4_0900_bin`) the two conjuncts say the same
+    // thing; on a table viborm did not create the BINARY one is what keeps the
+    // case-sensitivity contract, and the same measurement shows the pair still
+    // plans `ref` over 1 row there.
+    //
+    // `notIn` and `not` deliberately have no such pair. Their implication runs
+    // the other way — `BINARY col NOT IN ('X')` KEEPS a row spelled `x` that
+    // `col NOT IN ('X')` drops on a case-insensitive column, measured at
+    // 20,000 rows against 19,999 — so a conjunct would remove rows. There is
+    // also nothing to win: both spellings of `NOT IN` scan all 20,442 rows.
+    //
+    // Parenthesized because this fragment gets composed into AND/OR chains.
+    exactTextEq: (column: Sql, value: Sql): Sql =>
+      sql`(${column} = ${value} AND BINARY ${column} = ${value})`,
+    exactTextIn: (column: Sql, values: Sql): Sql =>
+      sql`(${column} IN ${values} AND BINARY ${column} IN ${values})`,
 
     // Set membership
     ...createMembershipOperators(),
@@ -499,6 +547,10 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsLateralJoins: true, // MySQL 8.0.14+
     supportsVector: false,
     supportsUpsertWhere: false, // ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
+    // ON DUPLICATE KEY UPDATE carries no conflict target and fires on ANY unique
+    // collision — see the `onConflict` note above. A targeted upsert cannot be
+    // spelled here, so the ON CONFLICT fold never opens on MySQL.
+    supportsTargetedUpsert: false,
     // ERROR 1093: UPDATE/DELETE can't select from the mutated table in a
     // subquery. The engine wraps relation-filter subqueries in a derived
     // table when this is false (requires MySQL 8.0.14+ for outer references

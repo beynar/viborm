@@ -1,12 +1,9 @@
 ---
 title: Configuration
 description: Configure VibORM with viborm.config.ts for CLI commands like push and migrate
-icon: Settings
+icon: settings
 ---
 
-import { Tabs, Tab } from "fumadocs-ui/components/tabs";
-import { Callout } from "fumadocs-ui/components/callout";
-import { Cards, Card } from "fumadocs-ui/components/card";
 
 ## Config File
 
@@ -30,7 +27,7 @@ import * as schema from "./schema";
 export const client = createClient({ schema });
 ```
 
-<Callout type="info" title="File Names">
+:::info[File Names]
 VibORM automatically discovers config files in this order:
 - `viborm.config.ts`
 - `viborm.config.mts`
@@ -38,7 +35,7 @@ VibORM automatically discovers config files in this order:
 - `viborm.config.mjs`
 
 You can also specify a custom path with `--config ./path/to/config.ts`.
-</Callout>
+:::
 
 ## Configuration Options
 
@@ -66,11 +63,11 @@ interface VibORMConfig {
 | `migrations.tableName` | `string` | No | `"_viborm_migrations"` | Name of the migrations tracking table |
 | `migrations.storageDriver` | `MigrationStorageDriver` | No | Filesystem | Storage driver for migration files |
 
-<Callout type="info" title="CLI Override">
+:::info[CLI Override]
 All migration options can be overridden via CLI flags:
 - `--dir` overrides `migrations.dir`
 - `--table-name` overrides `migrations.tableName`
-</Callout>
+:::
 
 ## Database Drivers
 
@@ -97,13 +94,13 @@ export default defineConfig({
 });
 ```
 
-<Callout type="info" title="Storage Driver Priority">
+:::info[Storage Driver Priority]
 The CLI resolves storage in this order:
 1. `--dir` CLI flag (creates filesystem storage)
 2. `migrations.storageDriver` from config
 3. `migrations.dir` from config (creates filesystem storage)
 4. Default: `./migrations` with filesystem storage
-</Callout>
+:::
 
 ## Schema Export
 
@@ -146,9 +143,9 @@ export const client = createClient({
 });
 ```
 
-<Callout type="info" title="Model Extraction">
+:::info[Model Extraction]
 VibORM automatically extracts model definitions from your schema object. Non-model exports (like enums, utilities, or types) are filtered out.
-</Callout>
+:::
 
 ## Environment Variables
 
@@ -189,8 +186,8 @@ bun viborm push --config ./config/viborm.config.ts
 
 For different environments, you can use environment variables or multiple config files:
 
-<Tabs items={["Environment Variables", "Multiple Configs"]}>
-  <Tab value="Environment Variables">
+<Tabs>
+  <Tab title="Environment Variables">
 ```ts title="src/db.ts"
 import { createClient } from "viborm/pg";
 import * as schema from "./schema";
@@ -220,7 +217,7 @@ export default defineConfig({
 });
 ```
   </Tab>
-  <Tab value="Multiple Configs">
+  <Tab title="Multiple Configs">
 ```ts title="src/db.dev.ts"
 import { createClient } from "viborm/pglite";
 import * as schema from "./schema";
@@ -264,7 +261,7 @@ bun viborm push --config viborm.config.prod.ts
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Push"
     description="Sync your schema directly to the database"
@@ -280,4 +277,4 @@ bun viborm push --config viborm.config.prod.ts
     description="Learn how to define your schema"
     href="/docs/schema"
   />
-</Cards>
+</CardGroup>

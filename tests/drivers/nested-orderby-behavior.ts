@@ -391,11 +391,7 @@ export function runNestedOrderByBehavior({
 
     test("combines nested orderBy with take, skip, and scalar tiebreakers", async () => {
       const posts = await client.post.findMany({
-        orderBy: [
-          orderByCompanyNameAsc,
-          { title: "desc" },
-          { id: "asc" },
-        ],
+        orderBy: [orderByCompanyNameAsc, { title: "desc" }, { id: "asc" }],
         skip: 1,
         take: 3,
         select: { id: true },
@@ -413,11 +409,7 @@ export function runNestedOrderByBehavior({
         where: { id: "user-author" },
         include: {
           posts: {
-            orderBy: [
-              orderByCompanyNameAsc,
-              { title: "desc" },
-              { id: "asc" },
-            ],
+            orderBy: [orderByCompanyNameAsc, { title: "desc" }, { id: "asc" }],
             skip: 1,
             take: 3,
             select: { id: true },

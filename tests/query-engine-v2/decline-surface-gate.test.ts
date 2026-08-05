@@ -8,11 +8,13 @@ import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
+import { constructRoutedOperation } from "../../src/query-engine/write-engine/routing";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
+import { depthSeamSchema } from "./depth-seam-behavior";
+import { producedIdentitySchema } from "./produced-identity-depth-behavior";
 
 /**
  * The decline-surface gate (P6). With V1 deleted, the single engine either
@@ -30,11 +32,13 @@ import { operationFragmentSchema } from "./create-nested-upsert-behavior";
  *
  *  2. **A documented narrower boundary still declines (route-inventory category
  *     iii).** A shape one level deeper than an absorbed family's proven surface
- *     (here: a nested `createMany` under a parent-held `planned` target) is
- *     reached by no conformance scenario, so it declines with an
- *     `UnsupportedOperationError` at construction — a tripwire that a future
- *     regression silently changing its disposition would surface here. Its
- *     absorption is post-P6 backlog.
+ *     (here: an m2m `upsert` whose non-primary-key-unique target's update arm
+ *     carries deeper relation writes) is reached by no conformance scenario, so it
+ *     declines with an `UnsupportedOperationError` at construction — a tripwire that
+ *     a future regression silently changing its disposition would surface here. The
+ *     shape this slot held before N4 (a `createMany` under a parent-held `planned`
+ *     target) was absorbed by N4-U3 and now executes; see the retarget note on
+ *     {@link REPRESENTATIVE_CONSTRUCT_DECLINE}.
  */
 
 // A minimal engine, mirroring route-inventory.test.ts's `pgEngine`.
@@ -59,6 +63,8 @@ async function freshClient(schema: Record<string, Model<any>>) {
 const opf = operationFragmentSchema;
 const nb = nestedWriteBehaviorSchema;
 const m2m = manyToManySchema;
+const seam = depthSeamSchema;
+const pi = producedIdentitySchema;
 
 // Two parent-held to-one relations on one record, both referencing `account` —
 // the sibling-coupling witness the P6-prereq-2 incident lives in. Absorbed in T1
@@ -253,6 +259,36 @@ describe("decline-surface gate: absorbed create shapes execute on the one engine
     });
     const profiles = await c.profile.findMany();
     expect(profiles).toEqual([{ id: "pr1", bio: "new", userId: "u1" }]);
+    await c.$disconnect();
+  });
+
+  // N2-U1: the inverse-side (child-held) to-one `create` — the mainstream Prisma shape,
+  // `user.update({ where, data: { profile: { create } } })`. It was the last write shape
+  // on this relation that declined; it now executes on V2 with the fallback OFF, and the
+  // OCCUPIED SLOT (a related row already present) errors instead of writing a second one
+  // — the DB's 1:1 FK unique constraint, no pre-check probe. Restoring the
+  // `does not support nested 'create' on the inverse-side to-one relation` refusal makes
+  // the first half throw; removing the occupied-slot constraint makes the second half
+  // silently persist two profiles.
+  test("inverse-side to-one create executes on V2 — absorbed (N2-U1)", async () => {
+    const c = await freshClient(nb);
+    await c.user.create({ data: { id: "u1", name: "a" } });
+    await c.user.update({
+      where: { id: "u1" },
+      data: { profile: { create: { id: "pr1", bio: "made" } } },
+    });
+    expect(await c.profile.findMany()).toEqual([
+      { id: "pr1", bio: "made", userId: "u1" },
+    ]);
+    await expect(
+      c.user.update({
+        where: { id: "u1" },
+        data: { profile: { create: { id: "pr2", bio: "second" } } },
+      })
+    ).rejects.toThrow();
+    expect(await c.profile.findMany()).toEqual([
+      { id: "pr1", bio: "made", userId: "u1" },
+    ]);
     await c.$disconnect();
   });
 
@@ -616,6 +652,356 @@ describe("decline-surface gate: absorbed nested-relation-in-update shapes execut
 });
 
 // ---------------------------------------------------------------------------
+// N1 — the located-parent Ref joins the absorbed surface. A child-held nested
+// create under an update located by a NON-PK unique used to decline (no
+// compile-time literal held the referenced column); it now reads that column from
+// the located row. This is the gate's own side-1 witness for the family: FALSIFY
+// by restoring the literal-only requirement in `resolveCreateParent` — the update
+// then throws instead of persisting, and the second assertion (the wrong-row
+// decoy keeps nothing) is what catches a resolution that reads the value from
+// somewhere other than the located row.
+// ---------------------------------------------------------------------------
+describe("decline-surface gate: the located-parent Ref executes on the one engine (N1)", () => {
+  test("nested create under an update located by a non-PK unique", async () => {
+    const c = await freshClient(nb as Record<string, Model<any>>);
+    // `tag.name` is the unique the update locates by; `postTag.tagId` references
+    // `tag.id`, which no literal in the payload holds. The decoy is seeded first.
+    await c.tag.create({ data: { id: "t-decoy", name: "decoy" } });
+    await c.tag.create({ data: { id: "t-target", name: "ref" } });
+    await c.post.create({ data: { id: "p1", title: "host", userId: null } });
+    await c.tag.update({
+      where: { name: "ref" },
+      data: { postTags: { create: { id: "j1", postId: "p1" } } },
+    });
+    const joins = await c.postTag.findMany({ orderBy: { id: "asc" } });
+    expect(
+      joins.map((j: { id: string; tagId: string }) => [j.id, j.tagId])
+    ).toEqual([["j1", "t-target"]]);
+    await c.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N3 — the M2M completions join the absorbed surface. `createMany` was the last
+// `RelationMutationKind` with no junction arm, and the junction `upsert`'s create arm
+// refused a DB-generated target key. Both now execute; each test names the mutation
+// that falsifies it.
+// ---------------------------------------------------------------------------
+describe("decline-surface gate: the M2M completions execute on the one engine (N3)", () => {
+  // N3-U1: `createMany` THROUGH A JUNCTION, both roots. `buildJunctionParts`' `default:`
+  // arm declined it as the last unhandled `RelationMutationKind`; it is now the `create`
+  // slot per row (child INSERT then join row) with `skipDuplicates` riding each INSERT.
+  // Re-adding a decline to the `createMany` arm makes both halves throw.
+  test("M2M createMany-through-junction executes on V2, under update AND create", async () => {
+    const c = await freshClient(m2m);
+    await c.post.create({ data: { id: "p1", title: "t" } });
+    await c.post.update({
+      where: { id: "p1" },
+      data: {
+        tags: {
+          createMany: {
+            data: [
+              { id: "t1", name: "x" },
+              { id: "t2", name: "y" },
+            ],
+          },
+        },
+      },
+    });
+    await c.post.create({
+      data: {
+        id: "p2",
+        title: "t2",
+        tags: { createMany: { data: [{ id: "t3", name: "z" }] } },
+      },
+    });
+    const linked = await c.post.findMany({
+      orderBy: { id: "asc" },
+      include: { tags: { orderBy: { id: "asc" } } },
+    });
+    expect(
+      linked.map((post: { id: string; tags: { id: string }[] }) => [
+        post.id,
+        post.tags.map((tag) => tag.id),
+      ])
+    ).toEqual([
+      ["p1", ["t1", "t2"]],
+      ["p2", ["t3"]],
+    ]);
+    await c.$disconnect();
+  });
+
+  // N3-U2: the junction `upsert` create arm with a DB-GENERATED target key. Was an
+  // `UnsupportedOperationError` ("requires the target primary key … in the create data")
+  // because the arm's dedup ledger addressed the target by a literal; the join row rides
+  // the produced `Ref`. N7-U-C deleted the ledger (its every reachable firing was a
+  // wrong-row update — see the 40 -> 39 census entry), and with it the last reason the arm
+  // needed any compile-time `where`: the arm now asks `resolveCreatePk`, the same resolver
+  // `create` / `connectOrCreate` / `createMany` ask. Reinstating either the literal-only
+  // requirement or the create-data-unique gate makes this throw.
+  test("M2M upsert-through-junction with a generated create-arm PK executes on V2", async () => {
+    const c = await freshClient(m2m);
+    const article = await c.article.create({ data: { title: "a" } });
+    await c.article.update({
+      where: { id: article.id },
+      data: {
+        labels: {
+          upsert: {
+            where: { name: "gen" },
+            create: { name: "gen" },
+            update: { name: "gen2" },
+          },
+        },
+      },
+    });
+    const withLabels = await c.article.findUnique({
+      where: { id: article.id },
+      include: { labels: true },
+    });
+    expect(
+      (withLabels?.labels ?? []).map((label: { name: string }) => label.name)
+    ).toEqual(["gen"]);
+    await c.$disconnect();
+  });
+});
+
+describe("decline-surface gate: the depth seams execute on the one engine (N4)", () => {
+  // N4-U1: a nested `update` named by a NON-primary-key unique whose data carries deeper
+  // relation writes. `RelationWritePart` declined it ("must locate the target by its
+  // primary key"); the target's own correlated probe already captured that key, so the
+  // deeper edges read it from there. Restoring the refusal makes this throw.
+  test("a nested update named by a non-PK unique carries deeper writes", async () => {
+    const c = await freshClient(seam);
+    await c.workspace.create({ data: { id: 1, slug: "w" } });
+    await c.project.create({
+      data: { id: 10, code: "P-1", title: "t", workspaceId: 1 },
+    });
+    await c.workspace.update({
+      where: { id: 1 },
+      data: {
+        projects: {
+          update: {
+            where: { code: "P-1" },
+            data: {
+              title: "edited",
+              tasks: { create: { id: 100, label: "d" } },
+            },
+          },
+        },
+      },
+    });
+    const tasks = await c.task.findMany({});
+    expect(
+      tasks.map((t: { id: number; projectId: number }) => [t.id, t.projectId])
+    ).toEqual([[100, 10]]);
+    await c.$disconnect();
+  });
+
+  // N4-U1 (junction): a junction `update` named by a NON-primary-key unique whose target
+  // carries its own relation writes. The membership read already selects the target key.
+  test("a junction update named by a non-PK unique carries deeper writes", async () => {
+    const c = await freshClient(m2m);
+    await c.post.create({ data: { id: "p1", title: "t" } });
+    await c.post.create({ data: { id: "p2", title: "t2" } });
+    await c.post.update({
+      where: { id: "p1" },
+      data: { tags: { create: { id: "t1", name: "x" } } },
+    });
+    await c.post.update({
+      where: { id: "p1" },
+      data: {
+        tags: {
+          update: {
+            where: { name: "x" },
+            data: { posts: { connect: { id: "p2" } } },
+          },
+        },
+      },
+    });
+    const tag = await c.tag.findUnique({
+      where: { id: "t1" },
+      include: { posts: { orderBy: { id: "asc" } } },
+    });
+    expect((tag?.posts ?? []).map((p: { id: string }) => p.id)).toEqual([
+      "p1",
+      "p2",
+    ]);
+    await c.$disconnect();
+  });
+
+  // U-E6.1: the UPSERT twin of the test above, and the shape this file's representative
+  // decline used to be. Reinstating that refusal makes this throw — the other half of
+  // this gate's bidirectional pin. The arm's update payload addresses the primary key
+  // the slot's own membership probe captured, so a target named by `name` carries its
+  // deeper edges exactly as the `update` kind's does.
+  test("a junction upsert named by a non-PK unique carries deeper writes", async () => {
+    const c = await freshClient(m2m);
+    await c.post.create({ data: { id: "p1", title: "t" } });
+    await c.post.create({ data: { id: "p2", title: "t2" } });
+    await c.post.update({
+      where: { id: "p1" },
+      data: { tags: { create: { id: "t1", name: "x" } } },
+    });
+    await c.post.update({
+      where: { id: "p1" },
+      data: {
+        tags: {
+          upsert: {
+            where: { name: "x" },
+            create: { id: "t9", name: "x" },
+            update: { posts: { connect: { id: "p2" } } },
+          },
+        },
+      },
+    });
+    const tag = await c.tag.findUnique({
+      where: { id: "t1" },
+      include: { posts: { orderBy: { id: "asc" } } },
+    });
+    expect((tag?.posts ?? []).map((p: { id: string }) => p.id)).toEqual([
+      "p1",
+      "p2",
+    ]);
+    // The create arm never ran: the probe found the member.
+    expect(await c.tag.count({ where: { id: "t9" } })).toBe(0);
+    await c.$disconnect();
+  });
+
+  // N4-U3: `createMany` under a parent-held (`planned`) target — an earlier
+  // representative decline. Reinstating that refusal makes this throw.
+  test("a createMany under a parent-held planned target executes on V2", async () => {
+    const c = await freshClient(nb);
+    await c.user.create({ data: { id: "u1", name: "u" } });
+    await c.post.create({ data: { id: "po1", title: "t", userId: "u1" } });
+    await c.post.update({
+      where: { id: "po1" },
+      data: {
+        author: {
+          update: {
+            posts: { createMany: { data: [{ id: "po2", title: "bulk" }] } },
+          },
+        },
+      },
+    });
+    const posts = await c.post.findMany({ orderBy: { id: "asc" } });
+    expect(
+      posts.map((p: { id: string; userId: string | null }) => [p.id, p.userId])
+    ).toEqual([
+      ["po1", "u1"],
+      ["po2", "u1"],
+    ]);
+    await c.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N5 — ORDERING joins the absorbed surface. The adopt family under a non-cascade
+// referenced-PK transition was declined because every child edge was emitted BEFORE
+// the root UPDATE, so an adopt could only bind the id the transition was vacating. The
+// edge now binds the post-transition id and is emitted after that UPDATE.
+// ---------------------------------------------------------------------------
+const n5AdoptSchema = (() => {
+  const shelf = s
+    .model({
+      id: s.int().id(),
+      name: s.string(),
+      books: s.oneToMany(() => book),
+    })
+    .map("n5_gate_shelves");
+  const book = s
+    .model({
+      id: s.int().id(),
+      title: s.string(),
+      shelfId: s.int().nullable(),
+      shelf: s
+        .manyToOne(() => shelf)
+        .fields("shelfId")
+        .references("id")
+        .optional()
+        .onUpdate("setNull"),
+    })
+    .map("n5_gate_books");
+  return { shelf, book };
+})();
+
+describe("decline-surface gate: the adopt family under a PK transition executes on the one engine (N5)", () => {
+  // N5-U1: the root moves its own primary key AND connects a child in one payload.
+  // Restoring the A15 refusal (or emitting the adopt write before the root UPDATE)
+  // makes this throw instead of persisting.
+  test("connect under a non-cascade referenced-PK transition executes on V2", async () => {
+    const c = await freshClient(n5AdoptSchema as Record<string, Model<any>>);
+    await c.shelf.create({ data: { id: 1, name: "target" } });
+    await c.book.create({ data: { id: 10, title: "free", shelfId: null } });
+    await c.shelf.update({
+      where: { id: 1 },
+      data: { id: 5, books: { connect: { id: 10 } } },
+    });
+    await expect(c.shelf.findMany({})).resolves.toEqual([
+      { id: 5, name: "target" },
+    ]);
+    await expect(c.book.findMany({})).resolves.toEqual([
+      { id: 10, title: "free", shelfId: 5 },
+    ]);
+    await c.$disconnect();
+  });
+});
+
+describe("decline-surface gate: the adopt family's create arm is a create subtree on the one engine (N4-U2 / N4-U4)", () => {
+  // N4-U2: a nested `connectOrCreate` whose CREATE arm carries an m2m edge, a
+  // before-parent to-one `create`, and a child-held `createMany` — three kinds that were
+  // three separate refusals, all of them now the create root's ordinary surface. Restore
+  // any of them (or take the create arm off the subtree) and this throws instead of
+  // persisting.
+  test("a create arm carrying m2m + parent-held to-one + createMany executes on V2", async () => {
+    const c = await freshClient(pi as Record<string, Model<any>>);
+    await c.org.create({ data: { id: 1, slug: "o1" } });
+    await c.label.create({ data: { id: 1, name: "l1" } });
+    await c.org.update({
+      where: { id: 1 },
+      data: {
+        teams: {
+          connectOrCreate: {
+            where: { code: "T-GATE" },
+            create: {
+              id: 5,
+              code: "T-GATE",
+              title: "gate",
+              labels: { connect: [{ id: 1 }] },
+              lead: { create: { id: 3, name: "gate-lead" } },
+              tasks: { createMany: { data: [{ id: 7, label: "bulk" }] } },
+            },
+          },
+        },
+      },
+    });
+    await expect(c.team.findMany({})).resolves.toEqual([
+      { id: 5, code: "T-GATE", title: "gate", orgId: 1, leadId: 3 },
+    ]);
+    await expect(c.task.findMany({})).resolves.toEqual([
+      { id: 7, label: "bulk", teamId: 5, ownerId: null },
+    ]);
+    await c.$disconnect();
+  });
+
+  // N4-U4: a shared-primary-key child create whose parent key the DATABASE generates.
+  // The record's identity — and the terminal read that returns it — ride the same
+  // backward `Ref` its own foreign key does, so the operation can name the row it wrote.
+  test("a shared-primary-key create under a generated parent key executes on V2", async () => {
+    const c = await freshClient(pi as Record<string, Model<any>>);
+    const created = await c.profile.create({
+      data: {
+        bio: "gate",
+        account: { create: { email: "g@x", handle: "g", name: "g" } },
+      },
+    });
+    const accounts = await c.account.findMany({});
+    expect(accounts).toHaveLength(1);
+    expect(created).toMatchObject({ accountId: accounts[0].id, bio: "gate" });
+    await c.$disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The single engine either constructs a payload's whole tree or declines it with
 // an UnsupportedOperationError at construction — no fallback catches the decline.
 // Every conformance scenario constructs (the migration reached census zero before
@@ -626,28 +1012,71 @@ describe("decline-surface gate: absorbed nested-relation-in-update shapes execut
 // honestly visible so a future regression that silently changed its disposition
 // would surface here.
 // ---------------------------------------------------------------------------
+/** The representative decline's own schema (see the note below): a junction target with a
+ *  DB-generated primary key and TWO uniques a `whereUnique` can name. */
+const twoUniqueTarget = (() => {
+  const shelf = s
+    .model({
+      id: s.string().id(),
+      books: s.manyToMany(() => book).through("dsg_book_shelf"),
+    })
+    .map("dsg_shelves");
+  const book = s
+    .model({
+      id: s.int().id().increment(),
+      isbn: s.string().unique(),
+      code: s.string().unique(),
+      title: s.string(),
+      shelves: s.manyToMany(() => shelf).through("dsg_book_shelf"),
+    })
+    .map("dsg_books");
+  return { shelf, book };
+})();
+
 const REPRESENTATIVE_CONSTRUCT_DECLINE = {
-  // A parent-held (FK-holder-side) to-one `update` whose located target's DATA carries a
-  // nested `createMany` (`author: { update: { posts: { createMany } } }`). T4a CLASS VI
-  // absorbed the single-`create` leaf under a `planned` parent-held target (its FK inlined
-  // from the located row at compile), but a `createMany` one step past it is a documented
-  // finer boundary reached by no estate scenario (measured-not-curated), so it still
-  // declines. A construct-time probe: no seed, no execution.
+  // RETARGETED TWICE, each time by the absorption that took the previous representative.
+  //
+  //  1. N4 (route-inventory's "76 -> 74" entry) took a `createMany` under a parent-held
+  //     `planned` target — N4-U3's absorption.
+  //  2. U-E6.1 took the one that replaced it: an m2m `upsert` whose non-PK-unique
+  //     target's update arm carries deeper relation writes. Its recorded justification
+  //     was the created-earlier branch — an update arm reached with the global probe
+  //     having run BEFORE this operation's own INSERT — and N7-U-C had already deleted
+  //     that branch. What was left was a wiring gap, not a wall: the fold now hands the
+  //     arm the probe id the `update` kind always had. It EXECUTES, with witnesses in
+  //     `junction-upsert-arm-probe-behavior.ts` on both substrates and both Docker legs.
+  //
+  //  3. U-E6.8 took MOST of the one that replaced THAT: a `createMany` through a junction
+  //     with `skipDuplicates` onto a DB-generated target key. The maintainer's decision
+  //     (expressible-shapes-plan.md, Risks item 3) is that adopt-equivalence defines skip
+  //     for generated-key rows, so a row spelling exactly one nameable unique is now a
+  //     `connectOrCreate` adopt and a target with nothing to conflict on drops the flag —
+  //     witnessed in `e68-junction-skip-adopt-behavior.ts`, both substrates, both Docker
+  //     legs.
+  //
+  // The tripwire needs a shape that still declines, so it names the SURVIVOR of that same
+  // site, whose impossibility E6.8 re-proved: a row spelling TWO complete nameable uniques.
+  // Either constraint can be the one an INSERT meets, so no single probe names the row a
+  // skip would have skipped ON — and an adopt that guessed would join the parent to a row
+  // the skip never selected (the wrong-row doctrine; the decoy is in E6.8's witness file).
+  // The schema is local because the shape is about CONSTRAINTS, and the shared m2m fixture
+  // has only one unique per target. A construct-time probe: no seed, no execution.
   label:
-    "parent-held to-one update whose target createMany's under a parent-held (planned) id",
-  schema: nb as Record<string, Model<any>>,
+    "m2m createMany with skipDuplicates onto a generated key whose row spells two uniques",
+  schema: twoUniqueTarget as Record<string, Model<any>>,
   operation: "update",
   args: {
-    where: { id: "po1" },
+    where: { id: "s1" },
     data: {
-      author: {
-        update: {
-          posts: { createMany: { data: [{ id: "po2", title: "t" }] } },
+      books: {
+        createMany: {
+          data: [{ isbn: "i1", code: "c1", title: "t" }],
+          skipDuplicates: true,
         },
       },
     },
   } as Record<string, unknown>,
-  rootModel: nb.post as Model<any>,
+  rootModel: twoUniqueTarget.shelf as Model<any>,
 } as const;
 
 describe("decline-surface gate: the documented narrower boundary still declines (P6)", () => {

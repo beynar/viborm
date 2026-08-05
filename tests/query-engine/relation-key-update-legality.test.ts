@@ -8,6 +8,9 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 
 const AUTHOR_ID_RELATION_KEY_ERROR = /relation key field 'authorId'/;
+// M12: the general owned-foreign-key refusal, which precedes this file's rule wherever
+// the rewritten relation key is the key the ENCLOSING relation owns.
+const POSTS_OWN_AUTHOR_ID_ERROR = /Relation 'posts' owns 'authorId'/;
 const CODE_RELATION_KEY_ERROR = /relation key field 'code'/;
 const ID_RELATION_KEY_ERROR = /relation key field 'id'/;
 const OCCUPIED_RELATION_ERROR = /current relation is occupied/;
@@ -112,6 +115,32 @@ const member = s
       .onUpdate("cascade"),
   })
   .map("relation_key_members");
+
+// The NON-cascading sibling of organization/member: a rewritten non-PK referenced
+// column whose nested create must take the post-SET value from the SET operand
+// itself (UpdateOperation.resolveCreateParent's envelope unwrapping) — the cascade
+// pair above never reaches that derivation (N5-U2: a cascading edge asks for no
+// value at all).
+const registry = s
+  .model({
+    id: s.int().id(),
+    tag: s.int().unique(),
+    entries: s.oneToMany(() => entry),
+  })
+  .map("relation_key_registries");
+
+const entry = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    registryTag: s.int().nullable(),
+    registry: s
+      .manyToOne(() => registry)
+      .fields("registryTag")
+      .references("tag")
+      .optional(),
+  })
+  .map("relation_key_entries");
 
 const setNullParent = s
   .model({
@@ -228,6 +257,8 @@ const schema = {
   post,
   organization,
   member,
+  registry,
+  entry,
   setNullParent,
   setNullChild,
   setNullList,
@@ -288,14 +319,18 @@ async function runScenario(
 
 async function expectParity(
   scenario: Scenario,
-  expectedError: RegExp | undefined
+  expectedError: RegExp | undefined,
+  // Which typed refusal answers. `NestedWriteError` is this file's rule (CLASS IV, the
+  // relation-key legality walk); a scenario whose payload is refused by a STRICTLY MORE
+  // GENERAL rule first names that rule's class instead — see the M12 note below.
+  expectedName = "NestedWriteError"
 ): Promise<void> {
   const live = await runScenario("live", scenario);
   const batch = await runScenario("batch", scenario);
 
   expect(batch.error).toEqual(live.error);
   if (expectedError) {
-    expect(live.error?.name).toBe("NestedWriteError");
+    expect(live.error?.name).toBe(expectedName);
     expect(live.error?.message).toMatch(expectedError);
   } else {
     expect(live.error).toBeUndefined();
@@ -385,6 +420,17 @@ describe("relation-key update legality", () => {
     );
   });
 
+  // M12 — DELIBERATE CLASS CHANGE, the state contract unchanged. `authorId` is not just
+  // a relation key of the target here: it is the foreign key the ENCLOSING `posts`
+  // relation owns, so this payload is illegal on its own, with or without the sibling
+  // `author: { update }` this file's rule needs. The general refusal now answers first
+  // ("Relation 'posts' owns 'authorId'; omit it from nested create and update data"),
+  // which is also where Prisma lands — its `PostUpdateWithoutAuthorInput` omits the key
+  // outright, so the relation-key rule is never consulted for this shape. What the test
+  // is FOR is unchanged and still asserted: the nested data is judged before any outer
+  // effect, and the snapshot shows nothing written. CLASS IV keeps its own coverage —
+  // any relation key of the target that the enclosing relation does NOT own (and the two
+  // root-level scenarios above and below) still raise `NestedWriteError` here.
   test("recurses into nested update data before outer effects", async () => {
     await expectParity(
       {
@@ -407,7 +453,8 @@ describe("relation-key update legality", () => {
         snapshot: authorPostState,
         expectedState: originalAuthorPostState,
       },
-      AUTHOR_ID_RELATION_KEY_ERROR
+      POSTS_OWN_AUTHOR_ID_ERROR,
+      "UnsupportedOperationError"
     );
   });
 
@@ -762,6 +809,71 @@ describe("relation-key update legality", () => {
         expectedState: {
           organizations: [{ id: 1, code: 11 }],
           members: [{ id: 1, name: "Updated", organizationCode: 11 }],
+        },
+      },
+      undefined
+    );
+  });
+
+  test("the `{ set: v }` envelope on a rewritten NON-cascading referenced column feeds a nested CREATE the post-SET value", async () => {
+    // N7-U-B's third absorption (UpdateOperation.resolveCreateParent): the envelope
+    // spelling and the bare literal are ONE assignment. The edge must NOT cascade —
+    // a cascading edge never consults this derivation (N5-U2) — which is why this
+    // witness lives on registry/entry, not organization/member. Falsified:
+    // reverting the envelope unwrapping to the bare
+    // `input.rootScalarData[referencedField]` read fails this test with
+    // "references a non-literal rewritten column 'tag'" while the bare-literal
+    // sibling below still passes.
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.registry.create({ data: { id: 1, tag: 10 } });
+        },
+        act: (client) =>
+          client.registry.update({
+            where: { id: 1 },
+            data: {
+              tag: { set: 11 },
+              entries: { create: { id: 2, name: "Fresh" } },
+            },
+          }),
+        snapshot: async (client) => ({
+          registries: await client.registry.findMany(),
+          entries: await client.entry.findMany(),
+        }),
+        expectedState: {
+          registries: [{ id: 1, tag: 11 }],
+          entries: [{ id: 2, name: "Fresh", registryTag: 11 }],
+        },
+      },
+      undefined
+    );
+  });
+
+  test("the bare literal on a rewritten NON-cascading referenced column feeds a nested CREATE the same value", async () => {
+    // The control beside the envelope witness: the two spellings must stay one
+    // assignment. If the envelope test fails and this one passes, the envelope
+    // unwrapping is what broke.
+    await expectParity(
+      {
+        seed: async (client) => {
+          await client.registry.create({ data: { id: 1, tag: 10 } });
+        },
+        act: (client) =>
+          client.registry.update({
+            where: { id: 1 },
+            data: {
+              tag: 12,
+              entries: { create: { id: 3, name: "Bare" } },
+            },
+          }),
+        snapshot: async (client) => ({
+          registries: await client.registry.findMany(),
+          entries: await client.entry.findMany(),
+        }),
+        expectedState: {
+          registries: [{ id: 1, tag: 12 }],
+          entries: [{ id: 3, name: "Bare", registryTag: 12 }],
         },
       },
       undefined

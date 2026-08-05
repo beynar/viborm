@@ -110,6 +110,50 @@ export interface DatabaseAdapter {
     containsText: (column: Sql, value: Sql) => Sql;
     startsWithText: (column: Sql, value: Sql) => Sql;
     endsWithText: (column: Sql, value: Sql) => Sql;
+    /**
+     * `startsWithText` for a plain string operand, spelled so the dialect's
+     * planner can turn it into an index range.
+     *
+     * Same answer as `startsWithText` on every input — it exists only because
+     * `startsWithText` wraps the COLUMN in a function (`LEFT`/`substr`), which
+     * no planner can range on. This one takes the raw JS string instead of a
+     * bound `Sql` so the adapter can escape it into its own pattern language
+     * and bind the finished pattern; a pattern assembled in SQL from the
+     * operand would be non-constant and lose the range again.
+     *
+     * Only the where-builder's default-mode, plain-string, `string`-scalar path
+     * reaches it. A field-reference operand, a JSON path, an enum column and
+     * `mode: "insensitive"` all keep `startsWithText`: each of those either has
+     * no client-side string to escape, or already wraps the column in a fold
+     * that forecloses the range anyway.
+     *
+     * Each dialect's implementation must hold the case-sensitivity contract
+     * `startsWithText` documents. See the per-adapter comments — the three
+     * answers are not the same shape, and the measurements that forced that
+     * are recorded in `docs/architecture/query-performance-plan.md`, §7.3.
+     */
+    startsWithPrefix: (column: Sql, value: string) => Sql;
+
+    /**
+     * `column = value` and `column IN (values)` on a TEXT column, under the
+     * case-sensitive semantics `caseSensitiveText` spells, written so the
+     * dialect's planner can still use an index.
+     *
+     * `column` arrives unwrapped: each adapter applies its own
+     * `caseSensitiveText` where its own semantics need it, and is free to put
+     * an index-usable conjunct in front of it. On PostgreSQL and SQLite that
+     * is exactly `caseSensitiveText(column) <op> …` and nothing more — their
+     * case-sensitive spellings are already index-usable. MySQL's is not: the
+     * `BINARY` cast is a function of the column, so the planner drops to a full
+     * scan, and MySQL adds a collation-native conjunct in front. See
+     * `docs/architecture/query-performance-plan.md`, §10.2 for the plans.
+     *
+     * The operands are BOUND values, never referenced columns — the caller
+     * routes a reference to the plain comparison, which has no index lookup to
+     * preserve.
+     */
+    exactTextEq: (column: Sql, value: Sql) => Sql;
+    exactTextIn: (column: Sql, values: Sql) => Sql;
 
     // Set membership
     in: (column: Sql, values: Sql) => Sql;

@@ -48,7 +48,7 @@ import { expectTypeOf } from "vitest";
 import {
   isRetryableRace,
   markRaceable,
-} from "../../src/query-engine-v2/race-retry";
+} from "../../src/query-engine/write-engine/race-retry";
 
 /**
  * The census. Every concrete class, with the disposition the taxonomy claims for it. A class

@@ -10,9 +10,8 @@ import type { Model } from "@schema/model";
 import { isSql } from "@sql";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
-import type { StatementStep } from "../../src/query-engine-v2/OperationFragment";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
-import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
+import type { StatementStep } from "../../src/query-engine/write-engine/OperationFragment";
+import { UpsertOperation } from "../../src/query-engine/write-engine/UpsertOperation";
 import {
   extendedWhereUniqueSchema,
   runExtendedWhereUniqueBehavior,
@@ -140,8 +139,15 @@ const identitySchema = (() => {
     })
     .id(["tenantId", "seq"])
     .map("ext_wu_seats");
-  // The same compound generated PK with NO other unique: nothing in the create
-  // data can name the inserted row, so this is the shape the refusal is FOR.
+  // The same compound generated PK with NO other unique. RETARGETED BY E6.2
+  // (authorized test change: decline → accept-and-execute, same payload): this WAS the
+  // shape the refusal was for, on the reading that a compound key needs a compound
+  // capture. M9 measured the payload reaching the refusal and E6.2 absorbed it —
+  // one member is produced by the INSERT, the other is a literal the same INSERT
+  // writes, and their union names exactly the inserted row. The refusal now covers
+  // only the payloads where that union cannot be formed; see
+  // `e6-produced-compound-identity.test.ts` for the survivor (two generated members)
+  // and the whole absorbed family.
   const slot = s
     .model({
       tenantId: s.int(),
@@ -271,7 +277,6 @@ test("the create-data unique outranks the captured increment PK", () => {
 });
 
 const CAPTURED = { id: { kind: "firstRowField", field: "id" } };
-const NO_UNIQUE_IDENTITY = /nor any complete unique constraint of the model/;
 
 test("an INCOMPLETE compound unique is no identity — the capture is taken", () => {
   // Half a compound key is a filter, never an identity. `tag`'s `org_region`
@@ -304,21 +309,29 @@ test("a NULL member in the create data is no identity — the capture is taken",
   expect(singleColumn.write.outputs).toEqual(CAPTURED);
 });
 
-test("no identity source at all is a typed refusal, not a guess", () => {
-  // The refusal that REMAINS: a compound generated PK and no other unique, so the
-  // create data names no row. It is raised only when the create arm is TAKEN.
-  expect(() =>
-    compileCreateArm(identitySchema.slot, {
-      where: { tenantId_seq: { tenantId: 4, seq: 11 } },
-      create: { tenantId: 4, label: "none", score: 1 },
-    })
-  ).toThrow(UnsupportedOperationError);
-  expect(() =>
-    compileCreateArm(identitySchema.slot, {
-      where: { tenantId_seq: { tenantId: 4, seq: 11 } },
-      create: { tenantId: 4, label: "none", score: 1 },
-    })
-  ).toThrow(NO_UNIQUE_IDENTITY);
+test("a compound generated PK with no other unique reads back by the PRODUCED key", () => {
+  // RETARGETED BY E6.2 (authorized test change: decline → accept-and-execute, same payload). This test read
+  // "no identity source at all is a typed refusal, not a guess" and asserted the
+  // throw on exactly these arguments. The premise was wrong, not the doctrine: the
+  // create data spells `tenantId` and the INSERT produces `seq`, so the read-back
+  // has a complete primary key whose every member comes from the write. Nothing is
+  // guessed and nothing is re-derived from the `where` — the assertions below are
+  // what pins that.
+  const { write, terminal } = compileCreateArm(identitySchema.slot, {
+    where: { tenantId_seq: { tenantId: 4, seq: 11 } },
+    create: { tenantId: 9, label: "none", score: 1 },
+  });
+  expect(write.outputs).toEqual({
+    id: { kind: "firstRowField", field: "seq" },
+  });
+  const { text, values } = terminalSql(terminal);
+  expect(text).toContain('"tenantId"');
+  expect(text).toContain('"seq"');
+  // The literal member is the CREATE's `tenantId`, never the `where`'s; the
+  // generated member is the capture, never the `where`'s `seq`.
+  expect(values).toContain(9);
+  expect(values).not.toContain(4);
+  expect(values).not.toContain(11);
 });
 
 test(
@@ -376,14 +389,17 @@ test(
 );
 
 test(
-  "BEHAVIOR: the remaining refusal is typed, and its model is already write-capped",
+  "BEHAVIOR: the produced compound identity answers on both arms, on a model create cannot reach",
   { timeout: 30_000 },
   async () => {
-    // `slot` is the shape the refusal is FOR: a generated compound PK with no
-    // other unique. The honest cost is bounded — a single-row `create` on it is
-    // ALREADY refused further upstream, by mutation-identity's generated-compound
-    // -PK guard, while `createMany` and reads work. So the upsert refusal narrows
-    // a model that was never writable through the single-row create path either.
+    // RETARGETED BY E6.2 (authorized test change: decline → accept-and-execute, same payload). This test
+    // read "the remaining refusal is typed, and its model is already write-capped"
+    // and asserted the `UnsupportedOperationError` on the `slot` create arm. The
+    // "write-capped" half is still TRUE and still pinned below: a single-row
+    // `create` on `slot` remains refused upstream by mutation-identity's
+    // generated-compound-PK guard. What changed is the upsert: its create arm now
+    // reads back by the produced key, so the model gains a single-row write path
+    // through `upsert` that `create` still does not have.
     const client = createClient({
       schema: identitySchema,
       driver: new PGliteDriver(),
@@ -407,22 +423,30 @@ test(
       expect(
         await client.slot.findMany({ select: { tenantId: true, label: true } })
       ).toEqual([{ tenantId: 1, label: "b" }]);
-      const upsertRejection = await client.slot
-        .upsert({
-          where: { tenantId_seq: { tenantId: 1, seq: 99 } },
-          create: { tenantId: 1, label: "c", score: 3 },
-          update: { score: { increment: 1 } },
+      // CREATE arm: the `where` names a `seq` no row holds. The seeded row shares
+      // the create's `tenantId`, so a read-back re-derived from the spelled member
+      // alone could answer with IT; the produced `seq` is what separates them.
+      const made = await client.slot.upsert({
+        where: { tenantId_seq: { tenantId: 1, seq: 99 } },
+        create: { tenantId: 1, label: "c", score: 3 },
+        update: { score: { increment: 1 } },
+        select: { tenantId: true, seq: true, label: true, score: true },
+      });
+      expect(made.label).toBe("c");
+      expect(made.tenantId).toBe(1);
+      expect(made.seq).not.toBe(99);
+      // The seeded row is untouched — the create arm answered with its OWN row.
+      expect(
+        await client.slot.findMany({
+          orderBy: { seq: "asc" },
+          select: { label: true, score: true },
         })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-      expect(upsertRejection).toBeInstanceOf(UnsupportedOperationError);
-      expect((upsertRejection as Error).message).toContain(
-        "nor any complete unique constraint of the model"
-      );
-      // The refusal fires only when the create arm is TAKEN — a located row still
-      // updates on the very same model.
+      ).toEqual([
+        { label: "b", score: 2 },
+        { label: "c", score: 3 },
+      ]);
+      // The create-arm identity is decided on the TAKEN arm only — a located row
+      // still updates on the very same model.
       expect(
         await client.slot.upsert({
           where: { tenantId_seq: { tenantId: 1, seq: 1 } },

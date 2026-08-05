@@ -14,12 +14,23 @@ import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
 import { runCompoundKeyBehavior } from "./compound-key-behavior";
 import { runCountAggregateWindowBehavior } from "./count-aggregate-window-behavior";
+import { runCreateManyReturnFoldBehavior } from "./create-many-return-fold-behavior";
 import { runCursorPaginationBehavior } from "./cursor-pagination-behavior";
 import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runDistinctSkipWindowBehavior } from "./distinct-skip-window-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
+import {
+  runFkIndexBehavior,
+  runFkIndexPlanBehavior,
+  runFkIndexUpgradeBehavior,
+} from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
 import { runImplicitReturningBehavior } from "./implicit-returning-behavior";
+import {
+  runMappedIndexBehavior,
+  runPartialIndexCoverageBehavior,
+  runPartialIndexPredicateChurnBehavior,
+} from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runLikeEscapeBehavior } from "./like-escape-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
@@ -32,6 +43,7 @@ import { runNestedWriteJsonEnvelopeBehavior } from "./nested-write-json-envelope
 import { runOmitBehavior } from "./omit-behavior";
 import { runOptionalRelationParityBehavior } from "./optional-relation-parity-behavior";
 import { runOrderingArrayCreateBehavior } from "./ordering-array-create-behavior";
+import { runOrderingPlanBehavior } from "./ordering-plan-behavior";
 import { runPrismaParityBehavior } from "./prisma-parity-behavior";
 import { runReadPathRegressionBehavior } from "./read-path-regression-behavior";
 import { runRelationFilterMutationBehavior } from "./relation-filter-mutation-behavior";
@@ -65,6 +77,35 @@ function createBatchOnlyPGliteDriver(): PGliteDriver {
 }
 
 describe("PGlite Driver", () => {
+  runFkIndexBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runMappedIndexBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runPartialIndexCoverageBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runPartialIndexPredicateChurnBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runFkIndexUpgradeBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runFkIndexPlanBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runOrderingPlanBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+
   runForwardFkOrderingBehavior({
     driverName: "PGlite (tx)",
     createDriver: createInMemoryPGliteDriver,
@@ -134,6 +175,10 @@ describe("PGlite Driver", () => {
     createDriver: createInMemoryPGliteDriver,
   });
   runImplicitReturningBehavior({
+    driverName: "PGlite",
+    createDriver: createInMemoryPGliteDriver,
+  });
+  runCreateManyReturnFoldBehavior({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
   });

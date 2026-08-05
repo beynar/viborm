@@ -1,0 +1,71 @@
+---
+import Icon from "blume/components/Icon.astro";
+
+const features = [
+  {
+    description:
+      "Types flow from immutable schema definitions into every client operation and result.",
+    icon: "sparkles",
+    title: "Inference, not generation",
+  },
+  {
+    description:
+      "Use familiar create, find, update, upsert, delete, aggregation, and transaction APIs.",
+    icon: "braces",
+    title: "Prisma-inspired client",
+  },
+  {
+    description:
+      "Keep one schema and one query surface across PostgreSQL, MySQL, and SQLite.",
+    icon: "database",
+    title: "One ORM, three dialects",
+  },
+  {
+    description:
+      "Model one-to-one, one-to-many, and many-to-many relations with typed nested reads and writes.",
+    icon: "git-branch",
+    title: "Relations stay typed",
+  },
+  {
+    description:
+      "Validate through the Standard Schema interface and interoperate with its growing ecosystem.",
+    icon: "shield-check",
+    title: "Standard Schema V1",
+  },
+  {
+    description:
+      "Run on Node.js, Bun, serverless databases, and Cloudflare D1 through focused drivers.",
+    icon: "plug",
+    title: "Drivers for your runtime",
+  },
+];
+---
+
+<section>
+  <div class="mx-auto max-w-2xl text-center">
+    <p class="font-medium text-accent text-sm">Everything stays connected</p>
+    <h2 class="mt-3 text-balance font-medium text-3xl tracking-tight sm:text-5xl">
+      The schema is the single source of truth.
+    </h2>
+    <p class="mx-auto mt-5 max-w-xl text-balance text-muted-foreground leading-relaxed">
+      Change a field and TypeScript follows the change into filters, writes,
+      relations, selections, and returned records immediately.
+    </p>
+  </div>
+
+  <div class="mt-12 grid overflow-hidden rounded-blume border border-border sm:grid-cols-2 lg:grid-cols-3">
+    {
+      features.map((feature) => (
+        <article class="group border-border border-b p-7 last:border-b-0 sm:border-r sm:[&:nth-child(2n)]:border-r-0 lg:[&:nth-child(2n)]:border-r lg:[&:nth-child(3n)]:border-r-0 lg:[&:nth-last-child(-n+3)]:border-b-0">
+          <span class="inline-flex size-10 items-center justify-center rounded-blume bg-muted text-accent transition-transform group-hover:-translate-y-0.5">
+            <Icon name={feature.icon} size={19} />
+          </span>
+          <h3 class="mt-6 font-medium text-lg tracking-tight">{feature.title}</h3>
+          <p class="mt-2 text-muted-foreground text-sm leading-relaxed">
+            {feature.description}
+          </p>
+        </article>
+      ))
+    }
+  </div>
+</section>

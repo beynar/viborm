@@ -63,7 +63,7 @@ Post-wave cleanup: `78f3a0c` deleted the two guards W1-U1/W1-U3 made unreachable
 
 | Unit | Status | Landing commit(s) | Deliberate divergence / scope note |
 |---|---|---|---|
-| W4-U1 Extended `whereUnique` | delivered, scope note | `ec8a72c`, `6fcab71`, `3d8eb6d`, `3ccd057`; review fixes `53631f8`, `ea1f637`, `51a995a` | Two divergences, both refused rather than half-answered: **relation filters** inside a unique `where` (the filter half compiles into UPDATE/DELETE, where MySQL rejects a subquery reading the mutated table — error 1093), and **nested relation-write target selectors plus `cursor` keep the strict discriminator-only schema**. Top-level five operations only. Upsert's create arm carries no `racePin` under an extended `where`, and its read-back addresses the write's own identity, never the `where` (`ea1f637`, `51a995a`). |
+| W4-U1 Extended `whereUnique` | delivered, scope note | `ec8a72c`, `6fcab71`, `3d8eb6d`, `3ccd057`; review fixes `53631f8`, `ea1f637`, `51a995a` | Two divergences, both refused rather than half-answered: **relation filters** inside a unique `where` (the filter half compiles into UPDATE/DELETE, where MySQL rejects a subquery reading the mutated table — error 1093) — *lifted by N6-U2*, which composed that wrapper into the unique-`where` builders — and **nested relation-write target selectors plus `cursor` keep the strict discriminator-only schema** — the first half *lifted by N6-U1*, which widened the nested `update`/`upsert`/`delete` TARGET selectors (`connect`/`disconnect`/`set`/`connectOrCreate.where` and `cursor` stay strict on their own merits). Top-level five operations only. Upsert's create arm carries no `racePin` under an extended `where`, and its read-back addresses the write's own identity, never the `where` (`ea1f637`, `51a995a`). |
 | W4-U2 `updateMany`/`deleteMany` `limit` | delivered, scope note | `127cd2f`; merged `656d40a` | The contract is **how many, not which** — a bulk write takes no `orderBy`, the two dialect spellings genuinely reach different rows, and nothing invents an ordering. Stated as a warning in the docs; no test asserts row identity. |
 | W4-U3 To-one nested `update` `{where, data}` | delivered, scope note | `ba1f586`; merged `656d40a`; fixes `5cd5268`, `406794b`, `8bd2cc9`; doc corrections `dad1dec`, `f5446dd` | On a target model that owns an update key named `data` the two spellings collide and viborm **refuses** the shape (Prisma picks one silently). The `where` is the target's ordinary non-unique `where` — a precondition on the one connected record, not a selector. |
 | W4-U4 JSON null sentinels | delivered, scope note | `78bd10a`; merged `656d40a` | A bare top-level `null` in JSON **write** position is refused (type-level and runtime), matching Prisma's `InputJsonValue`. Breaking; **D-6 sign-off is still open** — the reversal is ~10 lines and localized (see the D-6 row). A sentinel under a `path` is refused too (use `path` + `equals: null`). |
@@ -306,6 +306,14 @@ filters inside a unique `where` (the filter half compiles into UPDATE/DELETE, wh
 carries no alias and MySQL rejects a subquery reading the mutated table — error 1093), and nested
 target selectors / `cursor`, which keep the strict schema.
 
+> **Superseded in part by N6-U2** (`docs/architecture/nested-write-boundaries-plan.md` §N6).
+> The relation-filter refusal is GONE. W4-U1's stated reason was half right: MySQL's 1093 was
+> real, but the first and more dangerous half was that the empty alias left the correlated
+> `EXISTS` naming a bare column, which binds to the RELATED table wherever both models carry
+> that name. `buildUpdate`/`buildDelete` now qualify by the target's table name and declare
+> `mutationTable`, the spelling `buildUpdateMany`/`buildDeleteMany` always used, and both
+> halves are answered at once. The nested-selector divergence is N6-U1's.
+
 **Evidence.** `tests/query-engine-v2/extended-where-unique-behavior.ts` — 21 cases × PGlite
 tx/batch, SQLite3 tx/batch, LibSQL tx/batch, pg tx/batch, MySQL2 tx (a batch-only MySQL is
 non-returning, so the routed layer refuses this write family before I/O). Three staleness
@@ -494,8 +502,8 @@ which is what makes the X1c nested-target delegation, which re-parses an already
 subtree, meaning-preserving". Both halves are now wrong. The delegation no longer re-parses
 anything: re-parsing a parse OUTPUT is not a no-op, and doing it persisted the ORM's own
 `{ set: … }` JSON envelope as the user's data (fixed in `Parse the delegated update
-target's data once, not twice`; recorded in [ATOM §X1c](../../src/query-engine-v2/ATOM.md)
-and [PLAN §X1c](../../src/query-engine-v2/PLAN.md)). And idempotence at the ENVELOPE level
+target's data once, not twice`; recorded in [ATOM §X1c](../../src/query-engine/write-engine/ATOM.md)
+and [PLAN §X1c](../../src/query-engine/write-engine/PLAN.md)). And idempotence at the ENVELOPE level
 never protected what was inside it — which is exactly why the JSON write broke through it.
 What keeps the two witnesses green is that the form is decided ONCE, at the parse boundary,
 from the user's payload; nothing re-derives it downstream.
@@ -564,8 +572,10 @@ change: `NestedTargetLocate.filter` (the X1c delegated paths),
 `parentHeldProbeStatement`'s filter argument (the parent-held in-place path) all AND one
 extra `WhereInput` term into a read that already existed. Because it never reaches the
 write statement, a RELATION filter inside the envelope's `where` IS portable here —
-unlike inside a top-level extended unique `where`, which W4-U1 refuses for exactly that
-reason (MySQL error 1093 on a subquery reading the mutated table).
+unlike inside a top-level extended unique `where`, which W4-U1 refused for exactly that
+reason (MySQL error 1093 on a subquery reading the mutated table). N6-U2 lifted that
+refusal by composing the 1093 derived-table wrapper into the unique-`where` builders, so
+the contrast this paragraph drew no longer separates the two positions.
 
 **Evidence.** `tests/query-engine-v2/to-one-update-where-behavior.ts` — 16 cases ×
 PGlite tx/batch, SQLite3 tx/batch, LibSQL tx/batch, pg tx/batch, MySQL2 tx — covering
@@ -900,7 +910,7 @@ delegated arms are forwarded the DESUGARED select whenever the caller projected
 at all, so both arms of an omit-carrying upsert answer the same columns.
 
 **Bulk writes: `omit` is a projection, so it returns rows.** `returnsRows`
-([query-engine-v2/routing.ts](../../src/query-engine-v2/routing.ts)) now reads
+([query-engine-v2/routing.ts](../../src/query-engine/write-engine/routing.ts)) now reads
 `select !== undefined || omit !== undefined`, and `BulkWriteResult` discriminates
 on the same pair with the same three-case honesty (`undefined` → `{count}`,
 definite → rows, maybe-`undefined` → the union). Accepting a projection on the
@@ -1317,7 +1327,7 @@ string form take `_executeRaw` and stay driver-native.
 decimal is *stored and compared through the dialect's exact-decimal path*, and
 it held for every column the caller names — except the one column the caller
 never names. A relation-correlated foreign key is lowered by `referenceSql`
-(`src/query-engine-v2/fragment-builders.ts`), which bound the value with
+(`src/query-engine/write-engine/fragment-builders.ts`), which bound the value with
 `literals.value` under `getScalarCastType`. That function answered `"numeric"`
 for a decimal. So the PARENT key and the CHILD foreign key holding *the same
 logical value* were bound two different ways inside one statement pair:

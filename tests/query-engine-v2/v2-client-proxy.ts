@@ -3,13 +3,13 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
-import type { ExecutableOperation } from "../../src/query-engine-v2/OperationExecutor";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
+import type { ExecutableOperation } from "../../src/query-engine/write-engine/OperationExecutor";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
 import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
-} from "../../src/query-engine-v2/routing";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
+} from "../../src/query-engine/write-engine/routing";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
 
 /**
  * The V2-backed client proxy (PLAN P2a instrument 1, extended in P4). It wraps a

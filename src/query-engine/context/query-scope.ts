@@ -78,6 +78,20 @@ export function isScalarField(model: Model<any>, fieldName: string): boolean {
   return model["~"].scalarFieldSet.has(fieldName);
 }
 
+/**
+ * Whether the column behind a scalar field can hold SQL NULL.
+ *
+ * A NOT NULL column makes every null-placement request unobservable, which is
+ * what lets the paginated ORDER BY drop the placement key and the cursor
+ * predicate use a row-value comparison.
+ */
+export function isNullableScalarField(
+  model: Model<any>,
+  fieldName: string
+): boolean {
+  return model["~"].state.scalars[fieldName]?.["~"].state.nullable === true;
+}
+
 export function isRelation(model: Model<any>, fieldName: string): boolean {
   return model["~"].relationSet.has(fieldName);
 }

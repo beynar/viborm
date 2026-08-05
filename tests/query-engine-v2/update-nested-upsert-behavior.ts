@@ -8,8 +8,8 @@ import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 
 /**
  * The canonical parity slice schema (PLAN P1.1(b)): a parent located by a
@@ -51,7 +51,9 @@ export interface UpdateSliceRunner {
   ): Promise<T>;
 }
 
-export function createUpdateSliceExecutor(driver: AnyDriver): UpdateSliceRunner {
+export function createUpdateSliceExecutor(
+  driver: AnyDriver
+): UpdateSliceRunner {
   const schemas = createSchemaRegistry(updateSliceSchema);
   const engine = new QueryEngine(
     driver,
@@ -89,7 +91,11 @@ export function correlatedUpsertArgs(options: {
       posts: {
         upsert: {
           where: { id: options.childId },
-          create: { id: options.childId, title: options.title, slug: options.slug },
+          create: {
+            id: options.childId,
+            title: options.title,
+            slug: options.slug,
+          },
           update: { title: options.title },
         },
       },

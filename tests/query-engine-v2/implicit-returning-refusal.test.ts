@@ -5,8 +5,8 @@ import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
+import { constructRoutedOperation } from "../../src/query-engine/write-engine/routing";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
 
 /**
  * The two refusals the implicit-returning surface inherits, both scoped to
@@ -122,25 +122,24 @@ describe("createMany skipDuplicates + select on a non-returning driver", () => {
   // above does not pre-empt this decision.
   const engine = () => makeEngine(new MySQL2Driver());
 
-  test("refuses with the V8003 UnsupportedOperationError naming the way out", () => {
-    let thrown: Error | undefined;
-    try {
-      constructRoutedOperation(engine(), schema.gadget, "createMany", {
-        data: rows,
-        skipDuplicates: true,
-        select,
-      });
-    } catch (error) {
-      thrown = error as Error;
-    }
-
-    expect(thrown).toBeInstanceOf(UnsupportedOperationError);
-    expect(thrown?.message).toContain(
-      "does not support 'skipDuplicates' on a driver without RETURNING"
-    );
-    // The message must name BOTH escapes, because both are real.
-    expect(thrown?.message).toContain("Drop 'select'");
-    expect(thrown?.message).toContain("drop 'skipDuplicates'");
+  test("constructs, as a per-row capture (E6.9)", () => {
+    // RETARGETED from a refusal to an accept-and-construct assertion on the SAME payload.
+    // U-E6.9, maintainer-authorized (expressible-shapes-plan.md, Risks item 3): the shape
+    // is not inexpressible, only unfoldable — the writes have to be OBSERVED. The
+    // operation now carries one skippable INSERT per input row in its capture fragment and
+    // refetches the rows that were not skipped; behavior on the live server is in
+    // `e69-skip-select-capture-docker.test.ts` (MySQL) with a PGlite RETURNING control.
+    //
+    // This file's remaining claim is the STRUCTURE, which no behavior test can see: the
+    // operation is transaction-mode and its capture is exactly one step per input row.
+    const operation = constructRoutedOperation(
+      engine(),
+      schema.gadget,
+      "createMany",
+      { data: rows, skipDuplicates: true, select }
+    ) as { mode: string; planning(): { steps: readonly unknown[] } };
+    expect(operation.mode).toBe("transaction");
+    expect(operation.planning().steps).toHaveLength(rows.length);
   });
 
   test("skipDuplicates WITHOUT select is fully supported on the same driver", () => {

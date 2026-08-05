@@ -996,6 +996,290 @@ export function runNestedWriteBehavior({
         ["post-set-kept", "user-set-partial"],
       ]);
     });
+
+    /**
+     * PHASE 4 — the link IN-list fold (query-performance-plan). A `connect` /
+     * `disconnect` list of one key shape sends ONE probe and ONE write for the
+     * whole list instead of a pair per target. The statement count and the
+     * grouping rule are witnessed on PGlite in
+     * `tests/query-engine-v2/link-in-list-fold.test.ts`; what belongs here, on
+     * every driver, is the SQL the fold newly emits — an `IN` list inside a
+     * locked read and inside a bulk UPDATE — and that the missing-target
+     * rejection still fails closed. MySQL matters most: it is non-returning, so
+     * the folded write goes out as a plain `UPDATE … WHERE key IN (…)` with no
+     * RETURNING clause to confirm it.
+     */
+    test("connect with a list of targets reparents every one of them", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({ data: { id: "user-in", name: "Ida" } });
+      for (const id of ["post-in-1", "post-in-2", "post-in-3"]) {
+        await currentClient.post.create({ data: { id, title: id } });
+      }
+
+      await currentClient.user.update({
+        where: { id: "user-in" },
+        data: {
+          posts: {
+            connect: [
+              { id: "post-in-1" },
+              { id: "post-in-2" },
+              // Repeated on purpose: the fold's missing-target verdict counts
+              // DISTINCT keys, so one row must satisfy both entries.
+              { id: "post-in-2" },
+              { id: "post-in-3" },
+            ],
+          },
+        },
+      });
+
+      const posts = await currentClient.post.findMany({
+        where: { id: { startsWith: "post-in-" } },
+        orderBy: { id: "asc" },
+      });
+      expect(posts.map((post) => [post.id, post.userId])).toEqual([
+        ["post-in-1", "user-in"],
+        ["post-in-2", "user-in"],
+        ["post-in-3", "user-in"],
+      ]);
+    });
+
+    test("a connect list with one absent target writes nothing", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: { id: "user-in-miss", name: "Ivo" },
+      });
+      await currentClient.post.create({
+        data: { id: "post-in-present", title: "Present" },
+      });
+
+      await expect(
+        currentClient.user.update({
+          where: { id: "user-in-miss" },
+          data: {
+            posts: {
+              connect: [{ id: "post-in-present" }, { id: "post-in-absent" }],
+            },
+          },
+        })
+      ).rejects.toThrow(
+        "Cannot connect relation 'posts': target record was not found."
+      );
+
+      const present = await currentClient.post.findUnique({
+        where: { id: "post-in-present" },
+      });
+      expect(present?.userId).toBeNull();
+    });
+
+    test("disconnect with a list nulls every one of them", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-in-drop",
+          name: "Ines",
+          posts: {
+            create: [
+              { id: "post-in-drop-1", title: "One" },
+              { id: "post-in-drop-2", title: "Two" },
+            ],
+          },
+        },
+      });
+
+      await currentClient.user.update({
+        where: { id: "user-in-drop" },
+        data: {
+          posts: {
+            disconnect: [{ id: "post-in-drop-1" }, { id: "post-in-drop-2" }],
+          },
+        },
+      });
+
+      const posts = await currentClient.post.findMany({
+        where: { id: { startsWith: "post-in-drop-" } },
+        orderBy: { id: "asc" },
+      });
+      expect(posts.map((post) => [post.id, post.userId])).toEqual([
+        ["post-in-drop-1", null],
+        ["post-in-drop-2", null],
+      ]);
+    });
+
+    test("a disconnect list naming ANOTHER parent's child nulls nothing", async () => {
+      const currentClient = requireClient(client);
+      await currentClient.user.create({
+        data: {
+          id: "user-in-mine",
+          name: "Iris",
+          posts: { create: [{ id: "post-in-mine", title: "Mine" }] },
+        },
+      });
+      await currentClient.user.create({
+        data: {
+          id: "user-in-theirs",
+          name: "Ivan",
+          posts: { create: [{ id: "post-in-theirs", title: "Theirs" }] },
+        },
+      });
+
+      // The grouped probe's correlation half is the only thing that tells a
+      // connected-elsewhere row apart from a legitimate disconnect.
+      await expect(
+        currentClient.user.update({
+          where: { id: "user-in-mine" },
+          data: {
+            posts: {
+              disconnect: [{ id: "post-in-mine" }, { id: "post-in-theirs" }],
+            },
+          },
+        })
+      ).rejects.toThrow(
+        "Cannot disconnect relation 'posts': target record was not found for this parent."
+      );
+
+      const posts = await currentClient.post.findMany({
+        where: { id: { startsWith: "post-in-" } },
+        orderBy: { id: "asc" },
+      });
+      expect(posts.map((post) => [post.id, post.userId])).toEqual([
+        ["post-in-mine", "user-in-mine"],
+        ["post-in-theirs", "user-in-theirs"],
+      ]);
+    });
+
+    test("a create tree's connect list reparents every one of them", async () => {
+      const currentClient = requireClient(client);
+      for (const id of ["post-in-new-1", "post-in-new-2"]) {
+        await currentClient.post.create({ data: { id, title: id } });
+      }
+
+      await currentClient.user.create({
+        data: {
+          id: "user-in-new",
+          name: "Iona",
+          posts: {
+            connect: [{ id: "post-in-new-1" }, { id: "post-in-new-2" }],
+          },
+        },
+      });
+
+      const posts = await currentClient.post.findMany({
+        where: { id: { startsWith: "post-in-new-" } },
+        orderBy: { id: "asc" },
+      });
+      expect(posts.map((post) => [post.id, post.userId])).toEqual([
+        ["post-in-new-1", "user-in-new"],
+        ["post-in-new-2", "user-in-new"],
+      ]);
+    });
+
+    /**
+     * A DELETE whose projection names a relation may not lock the shape-capturing
+     * read.
+     *
+     * `DeleteOperation` runs the unfolded path for any relation projection:
+     * locate (PK-only, `FOR UPDATE` in transaction mode), shape-capturing read,
+     * DELETE. That middle read must NOT carry `FOR UPDATE` — a relation
+     * projection compiles to a LATERAL join, and PostgreSQL rejects the
+     * combination outright with SQLSTATE 0A000. The gate for dropping the lock
+     * used to be `!include`, which is only HALF of "the projection names a
+     * relation": a relation nested in `select` sailed past it and the delete
+     * crashed. MEASURED on PGlite in transaction mode before the fix, both
+     * spellings of the same defect:
+     *
+     *   select: { id, posts: { select: { title } } }
+     *     -> 0A000 "FOR UPDATE is not allowed with aggregate functions"
+     *        (to-many: LEFT JOIN LATERAL … json_agg)
+     *   select: { id, author: { select: { name } } }
+     *     -> 0A000 "FOR UPDATE cannot be applied to the nullable side of an
+     *        outer join" (to-one: LEFT JOIN LATERAL)
+     *
+     * `include` — the half the old proxy did cover — is asserted alongside them,
+     * so a fix that traded one spelling for the other cannot pass. Dropping the
+     * lock here costs nothing: the PK-only locate took the row lock inside the
+     * SAME transaction (the executor wraps planning AND the compiled fragment in
+     * one `withTransaction`), and it still holds when the DELETE runs.
+     *
+     * On every driver, because the crash is dialect-specific but the plan is not:
+     * MySQL and SQLite build the identical unfolded shape and only PostgreSQL
+     * refuses it, so a regression would go unseen without the pg leg.
+     */
+    describe("delete with a relation projection", () => {
+      beforeEach(async () => {
+        const currentClient = requireClient(client);
+        await currentClient.user.create({
+          data: {
+            id: "user-relsel",
+            name: "Rhea",
+            posts: {
+              create: [
+                { id: "post-relsel-1", title: "First" },
+                { id: "post-relsel-2", title: "Second" },
+              ],
+            },
+          },
+        });
+      });
+
+      test("a to-many relation inside `select` comes back, and the row is gone", async () => {
+        const currentClient = requireClient(client);
+
+        const deleted = await currentClient.user.delete({
+          where: { id: "user-relsel" },
+          select: {
+            id: true,
+            posts: { select: { title: true }, orderBy: { id: "asc" } },
+          },
+        });
+
+        // Read BEFORE the delete — the children must be in the answer, not the
+        // empty list a post-delete read would give.
+        expect(deleted).toEqual({
+          id: "user-relsel",
+          posts: [{ title: "First" }, { title: "Second" }],
+        });
+        expect(
+          await currentClient.user.findUnique({ where: { id: "user-relsel" } })
+        ).toBeNull();
+      });
+
+      test("a to-one relation inside `select` comes back, and the row is gone", async () => {
+        const currentClient = requireClient(client);
+
+        const deleted = await currentClient.post.delete({
+          where: { id: "post-relsel-1" },
+          select: { id: true, author: { select: { name: true } } },
+        });
+
+        expect(deleted).toEqual({
+          id: "post-relsel-1",
+          author: { name: "Rhea" },
+        });
+        expect(
+          await currentClient.post.findUnique({
+            where: { id: "post-relsel-1" },
+          })
+        ).toBeNull();
+      });
+
+      test("the `include` spelling is unaffected", async () => {
+        const currentClient = requireClient(client);
+
+        const deleted = await currentClient.user.delete({
+          where: { id: "user-relsel" },
+          include: { posts: { orderBy: { id: "asc" } } },
+        });
+
+        expect(deleted.id).toBe("user-relsel");
+        expect(deleted.posts.map((post) => post.id)).toEqual([
+          "post-relsel-1",
+          "post-relsel-2",
+        ]);
+        expect(
+          await currentClient.user.findUnique({ where: { id: "user-relsel" } })
+        ).toBeNull();
+      });
+    });
   });
 }
 

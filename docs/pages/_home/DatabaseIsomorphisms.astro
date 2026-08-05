@@ -1,0 +1,102 @@
+---
+import Icon from "blume/components/Icon.astro";
+
+const isomorphisms = [
+  {
+    api: "s.string().array()",
+    icon: "list-ordered",
+    mysql: "JSON",
+    name: "Scalar lists",
+    postgres: "text[]",
+    sqlite: "JSON text",
+  },
+  {
+    api: "s.enum([…])",
+    icon: "list",
+    mysql: "ENUM(…)",
+    name: "Enums",
+    postgres: "Named ENUM type",
+    sqlite: "TEXT + CHECK",
+  },
+  {
+    api: "s.boolean()",
+    icon: "toggle-left",
+    mysql: "TINYINT(1)",
+    name: "Booleans",
+    postgres: "boolean",
+    sqlite: "INTEGER 0/1",
+  },
+  {
+    api: "s.dateTime()",
+    icon: "calendar",
+    mysql: "DATETIME(3)",
+    name: "Date and time",
+    postgres: "timestamptz",
+    sqlite: "ISO TEXT",
+  },
+  {
+    api: "s.decimal()",
+    icon: "binary",
+    mysql: "DECIMAL(65,30)",
+    name: "Exact decimals",
+    postgres: "numeric",
+    sqlite: "TEXT",
+  },
+];
+---
+
+<section>
+  <div class="mx-auto max-w-2xl text-center">
+    <p class="font-medium text-accent text-sm">Database isomorphisms</p>
+    <h2 class="mt-3 text-balance font-medium text-3xl tracking-tight sm:text-5xl">
+      Same feature set. Change the database, not the application.
+    </h2>
+    <p class="mx-auto mt-5 max-w-xl text-balance text-muted-foreground leading-relaxed">
+      VibORM gives PostgreSQL, MySQL, and SQLite one portable schema and client
+      API, so switching drivers does not require rewriting application code.
+    </p>
+  </div>
+
+  <div class="mt-10 overflow-hidden rounded-blume border border-border">
+    <div class="hidden grid-cols-[1.25fr_1fr_1fr_1fr] border-border border-b bg-muted/40 px-5 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider lg:grid">
+      <span>VibORM concept</span>
+      <span>PostgreSQL</span>
+      <span>MySQL</span>
+      <span>SQLite</span>
+    </div>
+    {
+      isomorphisms.map((isomorphism) => (
+        <article class="grid grid-cols-3 gap-x-3 gap-y-4 border-border border-b p-4 last:border-b-0 lg:grid-cols-[1.25fr_1fr_1fr_1fr] lg:items-center lg:gap-5 lg:p-5">
+          <div class="col-span-3 lg:col-span-1">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-accent lg:size-9">
+                <Icon name={isomorphism.icon} size={16} />
+              </span>
+              <div>
+                <h3 class="font-medium text-sm lg:text-base">{isomorphism.name}</h3>
+                <code class="font-mono text-muted-foreground text-[11px] lg:text-xs">{isomorphism.api}</code>
+              </div>
+            </div>
+          </div>
+          <div class="min-w-0">
+            <span class="mb-1 block text-[10px] text-muted-foreground uppercase tracking-wide lg:hidden">PG</span>
+            <code class="break-words font-mono text-[11px] lg:text-[13px]">{isomorphism.postgres}</code>
+          </div>
+          <div class="min-w-0">
+            <span class="mb-1 block text-[10px] text-muted-foreground uppercase tracking-wide lg:hidden">MySQL</span>
+            <code class="break-words font-mono text-[11px] lg:text-[13px]">{isomorphism.mysql}</code>
+          </div>
+          <div class="min-w-0">
+            <span class="mb-1 block text-[10px] text-muted-foreground uppercase tracking-wide lg:hidden">SQLite</span>
+            <code class="break-words font-mono text-accent text-[11px] lg:text-[13px]">{isomorphism.sqlite}</code>
+          </div>
+        </article>
+      ))
+    }
+  </div>
+
+  <p class="mt-5 flex items-center justify-center gap-2 text-muted-foreground text-sm">
+    <Icon class="mt-0.5 shrink-0 text-accent" name="shield-check" size={16} />
+    One schema. One query API. Three database engines.
+  </p>
+</section>

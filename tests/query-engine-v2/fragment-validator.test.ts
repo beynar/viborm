@@ -3,14 +3,14 @@ import { describe, expect, test } from "vitest";
 import {
   validateFragment,
   validateProbe,
-} from "../../src/query-engine-v2/FragmentValidator";
+} from "../../src/query-engine/write-engine/FragmentValidator";
 import {
   type OperationFragment,
   type OperationValueReference,
   type Probe,
   ref,
   type StatementStep,
-} from "../../src/query-engine-v2/OperationFragment";
+} from "../../src/query-engine/write-engine/OperationFragment";
 
 function sqlWith(...refs: OperationValueReference[]): Sql {
   return new Sql(

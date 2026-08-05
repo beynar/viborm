@@ -1,7 +1,7 @@
 ---
 title: Many-to-One
 description: Define many-to-one relationships connecting multiple records to a single related record
-icon: ArrowLeftToLine
+icon: arrow-left-to-line
 ---
 
 ## Basic Example
@@ -55,6 +55,35 @@ s.manyToOne(() => organization)
   .fields("orgId", "teamId")
   .references("id", "teamId")
 ```
+
+## The foreign-key index
+
+**You do not declare it.** `push` and `migrate` add an index over the `.fields()`
+columns on every database — PostgreSQL, MySQL and SQLite all leave a foreign key
+unindexed otherwise, and every `include`, relation filter and nested write reads
+this side of the relation through those columns.
+
+What is worth declaring is a **wider** index, when a query needs more than the
+foreign key. The usual case is an include that orders and limits:
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  createdAt: s.dateTime().now(),
+  authorId: s.string(),
+  author: s.manyToOne(() => user).fields("authorId").references("id"),
+}).index(["authorId", "createdAt"]);
+```
+
+An index whose **leading** columns are the foreign key replaces the automatic
+one rather than adding a second index over the same column — so put the foreign
+key first. See [composite indexes for ordered
+includes](/docs/schema/model#composite-indexes-for-ordered-includes).
+
+One index does not count: a **partial** index (`.index([...], { where })`) holds
+only the rows its predicate keeps, so it cannot serve the rows the predicate
+excludes. The automatic foreign-key index is still added alongside it.
 
 **When using `.optional()`, the FK field itself must also be `.nullable()`:**
 

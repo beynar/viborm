@@ -8,9 +8,9 @@ import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { DeleteOperation } from "../../src/query-engine-v2/DeleteOperation";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { DeleteOperation } from "../../src/query-engine/write-engine/DeleteOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 
 /**
  * The P2a update-family schema. `user` holds a child-held-FK to-many (`posts`);

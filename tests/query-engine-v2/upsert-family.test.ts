@@ -13,11 +13,12 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { executeRoutedOperation } from "../../src/query-engine-v2/routing";
-import { UnsupportedOperationError } from "../../src/query-engine-v2/shared";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
-import { UpsertOperation } from "../../src/query-engine-v2/UpsertOperation";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { executeRoutedOperation } from "../../src/query-engine/write-engine/routing";
+import { UnsupportedOperationError } from "../../src/query-engine/write-engine/shared";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
+import { UpsertOperation } from "../../src/query-engine/write-engine/UpsertOperation";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   runUpsertFamilyBehavior,
   upsertFamilySchema,
@@ -254,7 +255,15 @@ describe("query-engine-v2 upsert family dual-run oracle (V1 vs V2)", () => {
 // ---------------------------------------------------------------------------
 
 describe("query-engine-v2 upsert construction surface", () => {
-  test("scalar upsert constructs on V2; a nested-arm relation mutation is the documented refusal", () => {
+  // DELIBERATE RETARGET (N1-U1). The second case used to be this file's decline
+  // example, and its cause was the update arm's nested create demanding a
+  // compile-time literal for the child's foreign key while the `where` names
+  // `email`. The upsert's update arm IS an `UpdateOperation`, so N1's located-parent
+  // Ref lands here unchanged and the tree constructs. The behavior witness — that
+  // the update arm actually writes the child against the located row, and that the
+  // CREATE arm is unaffected — is in `upsert-family-behavior.ts`, on every driver
+  // and both substrates.
+  test("both a scalar upsert and an update arm carrying a nested create construct on V2", () => {
     const schemas = createSchemaRegistry(upsertFamilySchema);
     const engine = new QueryEngine(
       new PGliteDriver(),
@@ -262,7 +271,6 @@ describe("query-engine-v2 upsert construction surface", () => {
     );
     const userModel = upsertFamilySchema.user;
 
-    // Supported: a scalar upsert is V2-native.
     expect(
       new UpsertOperation(engine, userModel, {
         where: { email: "r@x" },
@@ -272,19 +280,16 @@ describe("query-engine-v2 upsert construction surface", () => {
       })
     ).toBeInstanceOf(UpsertOperation);
 
-    // A nested relation mutation in the update arm is outside V2's upsert surface:
-    // V2 declines at construction with the typed refusal.
     expect(
-      () =>
-        new UpsertOperation(engine, userModel, {
-          where: { email: "r@x" },
-          create: { email: "r@x", score: 0 },
-          update: {
-            posts: { create: { id: 1, title: "t", slug: "sr" } },
-          },
-          select: { email: true, posts: { select: { id: true } } },
-        })
-    ).toThrow(UnsupportedOperationError);
+      new UpsertOperation(engine, userModel, {
+        where: { email: "r@x" },
+        create: { email: "r@x", score: 0 },
+        update: {
+          posts: { create: { id: 1, title: "t", slug: "sr" } },
+        },
+        select: { email: true, posts: { select: { id: true } } },
+      })
+    ).toBeInstanceOf(UpsertOperation);
   });
 });
 
@@ -361,8 +366,13 @@ class BeforeBatchPGliteDriver extends PGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const hook = this.beforeBatch;
-    this.beforeBatch = undefined;
-    if (hook) await hook();
+    // Fire before the operation's compiled ATOMIC UNIT, not the first batch of
+    // any kind: planning reads ride a batch too once grouped by level (PLAN
+    // Phase 6.1).
+    if (hook && batchIsAtomicUnit(queries)) {
+      this.beforeBatch = undefined;
+      await hook();
+    }
     return this.transaction(client, async (transaction) => {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {

@@ -479,6 +479,22 @@ function buildFilterOperation(
       adapter.expressions.caseSensitiveText(comparableText(e));
     return [asExactText(column), asExactText(expr)];
   };
+
+  /**
+   * `equals` against a BOUND operand on a text column — the one shape a
+   * planner can answer with an index lookup, and the one shape MySQL's
+   * case-sensitive spelling costs it (plan §10.2). `exactTextEq` is where each
+   * dialect writes that comparison in its own index-usable form.
+   *
+   * A referenced column keeps `exactComparison` unchanged, for the same reason
+   * `startsWithPrefix` skips it: comparing two columns is not a lookup, so
+   * there is no index to preserve and an accelerator conjunct would decide no
+   * row's membership.
+   */
+  const exactEquals = (v: unknown): Sql =>
+    isTextScalar && !operandExpression(ctx, v, alias)
+      ? adapter.operators.exactTextEq(column, lit(v))
+      : adapter.operators.eq(...exactComparison(v));
   /** Case-folded operand — pairs with `foldedTextColumn`. */
   const foldedOperand = (v: unknown) => {
     const expr = operandExpression(ctx, v, alias);
@@ -526,7 +542,7 @@ function buildFilterOperation(
       ) {
         return insensitiveEq(value);
       }
-      return adapter.operators.eq(...exactComparison(value));
+      return exactEquals(value);
 
     case "not":
       if (value === null) {
@@ -595,11 +611,13 @@ function buildFilterOperation(
       if (isInsensitive) {
         return adapter.operators.or(...value.map(insensitiveEq));
       }
-      const inValues = value.map((v) => lit(v));
-      return adapter.operators.in(
-        exactTextColumn,
-        adapter.literals.list(inValues)
-      );
+      const inValues = adapter.literals.list(value.map((v) => lit(v)));
+      // `equals`' twin: the operands here are always bound (`lit` refuses a
+      // reference), so this is the other membership test a planner can range
+      // on — and the other one MySQL's case-sensitive spelling costs.
+      return isTextScalar
+        ? adapter.operators.exactTextIn(column, inValues)
+        : adapter.operators.in(column, inValues);
     }
 
     case "notIn": {
@@ -632,12 +650,28 @@ function buildFilterOperation(
     }
 
     case "startsWith": {
-      return isInsensitive
-        ? adapter.operators.startsWithText(
-            foldedTextColumn,
-            foldedOperand(value)
-          )
-        : adapter.operators.startsWithText(column, plainOperand(value));
+      if (isInsensitive) {
+        return adapter.operators.startsWithText(
+          foldedTextColumn,
+          foldedOperand(value)
+        );
+      }
+      // A literal string operand is the only shape that can be escaped into a
+      // pattern here, and so the only one the index-usable spelling can serve.
+      // The alternative is a field reference or an SQL fragment — an object,
+      // with no client-side string to escape — which keeps the LEFT/substr
+      // spelling and loses nothing: its operand is a column, so no planner
+      // could have ranged the predicate either way.
+      //
+      // The COLUMN's type needs no check to go with this. `startsWith` is
+      // admitted on a non-array string scalar and nowhere else; an enum or a
+      // string list is refused at the parse boundary, which
+      // `tests/query-engine/starts-with-prefix-sql.test.ts` pins as the
+      // boundary's job rather than restating it here.
+      if (typeof value === "string") {
+        return adapter.operators.startsWithPrefix(column, value);
+      }
+      return adapter.operators.startsWithText(column, plainOperand(value));
     }
 
     case "endsWith": {

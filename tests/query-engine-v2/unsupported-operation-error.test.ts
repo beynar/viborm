@@ -7,13 +7,38 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { UnsupportedOperationError as RootExport } from "../../src/index";
-import { UnsupportedOperationError as EngineReexport } from "../../src/query-engine-v2/shared";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
-import { manyToManySchema } from "../fixtures/many-to-many-schema";
+import { UnsupportedOperationError as EngineReexport } from "../../src/query-engine/write-engine/shared";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
+
+/**
+ * The live-refusal specimen, inline because it is about a SHAPE and never touches a
+ * database: a junction target with a DB-generated primary key and TWO nameable uniques,
+ * both spelled by the row. E6.8 re-proved that this one has no probe (see
+ * `e68-junction-skip-adopt-behavior.ts` for the wrong-row decoy that says why).
+ */
+const refusalSpecimenSchema = (() => {
+  const shelf = s
+    .model({
+      id: s.string().id(),
+      books: s.manyToMany(() => book).through("uoe_book_shelf"),
+    })
+    .map("uoe_shelves");
+  const book = s
+    .model({
+      id: s.int().id().increment(),
+      isbn: s.string().unique(),
+      code: s.string().unique(),
+      title: s.string(),
+      shelves: s.manyToMany(() => shelf).through("uoe_book_shelf"),
+    })
+    .map("uoe_books");
+  return { shelf, book };
+})();
 
 /**
  * Part B of the M2M generated-PK fix: a DELIBERATE capability boundary must not
@@ -51,24 +76,31 @@ describe("UnsupportedOperationError public surface", () => {
   });
 
   test("a live engine refusal surfaces the class with the V8003 code", () => {
-    hydrateSchemaNames(manyToManySchema);
-    const schemas = createSchemaRegistry(manyToManySchema);
+    hydrateSchemaNames(refusalSpecimenSchema);
+    const schemas = createSchemaRegistry(refusalSpecimenSchema);
     const engine = new QueryEngine(
       new PGliteDriver({ client: new PGlite() }),
-      createModelRegistry(manyToManySchema, schemas)
+      createModelRegistry(refusalSpecimenSchema, schemas)
     );
-    // upsert-through-junction with a DB-generated create-arm PK: the one
-    // deliberate M2M generated-PK refusal left (create/connectOrCreate absorb it).
+    // RETARGETED TWICE, each time because the previous specimen was absorbed.
+    //  - N3-U2 absorbed the first (upsert-through-junction with a DB-generated
+    //    create-arm PK — the create data's complete unique now names the row).
+    //  - E6.8 absorbed most of the second (`createMany skipDuplicates` on a
+    //    generated-key target): a row spelling exactly ONE nameable unique is now a
+    //    `connectOrCreate` adopt, and a target with nothing to conflict on drops the flag.
+    // What SURVIVES that refusal — and is the specimen now — is the sub-shape whose
+    // impossibility E6.8 re-proved: a row spelling TWO complete uniques. The probe would
+    // have to name the row a constraint fires on, and either unique can be the one that
+    // fires, so no single probe names it. Refused at construction, before any effect.
     let caught: unknown;
     try {
-      new UpdateOperation(engine, manyToManySchema.article, {
-        where: { id: 1 },
+      new UpdateOperation(engine, refusalSpecimenSchema.shelf, {
+        where: { id: "s1" },
         data: {
-          labels: {
-            upsert: {
-              where: { name: "x" },
-              create: { name: "x" },
-              update: { name: "y" },
+          books: {
+            createMany: {
+              data: [{ isbn: "i1", code: "c1", title: "t" }],
+              skipDuplicates: true,
             },
           },
         },

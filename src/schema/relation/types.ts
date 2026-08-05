@@ -86,24 +86,99 @@ type ModelWithRelations = {
   "~": { state: { relations: Record<string, AnyRelation> } };
 };
 
-/** Helper to extract fields from target model's relations */
-type ExtractInverseFieldsRaw<TTargetModel, TSourceModel, TName> =
+/** `(U extends unknown ? … )` distributed into a parameter position, so a union
+ *  becomes an intersection — the standard vehicle for {@link IsSingleMember}. */
+type UnionToIntersection<U> = (
+  U extends unknown
+    ? (x: U) => void
+    : never
+) extends (x: infer I) => void
+  ? I
+  : never;
+
+/**
+ * True exactly when `U` has ONE member — the type-level form of the runtime
+ * scan's `candidates.length === 1`. `never` (no candidate) is false, and a
+ * union of two or more is false because a union is not assignable to its own
+ * intersection.
+ *
+ * It is asked about the target model's RELATION KEYS, never about the field
+ * tuples those relations carry: two relations can name the same column, and
+ * counting tuples would fuse two candidates into one and take the
+ * single-candidate branch for an ambiguous edge.
+ */
+export type IsSingleMember<U> = [U] extends [never]
+  ? false
+  : [U] extends [UnionToIntersection<U>]
+    ? true
+    : false;
+
+/** Every to-one back-reference on the target model that carries a foreign key to
+ *  the source — the candidate set the runtime scan collects BEFORE the name is
+ *  asked. Keyed by relation name, which is unique by construction. */
+type InverseCandidateKeys<TTargetModel, TSourceModel> =
   TTargetModel extends ModelWithRelations
     ? {
         [K in keyof TTargetModel["~"]["state"]["relations"]]: TTargetModel["~"]["state"]["relations"][K] extends ToOneRelationShape<
           infer State
         >
           ? State["getter"] extends () => TSourceModel
-            ? State extends { fields: infer Fields extends string[] }
-              ? TName extends string
-                ? State["name"] extends TName
-                  ? Fields
-                  : never
-                : Fields
+            ? State extends { fields: string[] }
+              ? K
               : never
             : never
           : never;
       }[keyof TTargetModel["~"]["state"]["relations"]]
+    : never;
+
+/** The candidates whose `.name()` matches — what the name is FOR when several
+ *  back-references compete. */
+type NamedInverseCandidateKeys<TTargetModel, TSourceModel, TName> =
+  TTargetModel extends ModelWithRelations
+    ? {
+        [K in keyof TTargetModel["~"]["state"]["relations"]]: TTargetModel["~"]["state"]["relations"][K] extends ToOneRelationShape<
+          infer State
+        >
+          ? State["getter"] extends () => TSourceModel
+            ? State extends { fields: string[] }
+              ? TName extends string
+                ? State["name"] extends TName
+                  ? K
+                  : never
+                : K
+              : never
+            : never
+          : never;
+      }[keyof TTargetModel["~"]["state"]["relations"]]
+    : never;
+
+/** The `.fields()` tuple of one named candidate. */
+type InverseFieldsAt<TTargetModel, K> = TTargetModel extends ModelWithRelations
+  ? K extends keyof TTargetModel["~"]["state"]["relations"]
+    ? TTargetModel["~"]["state"]["relations"][K] extends ToOneRelationShape<
+        infer State
+      >
+      ? State extends { fields: infer Fields extends string[] }
+        ? Fields
+        : never
+      : never
+    : never
+  : never;
+
+/** Helper to extract fields from target model's relations */
+type ExtractInverseFieldsRaw<TTargetModel, TSourceModel, TName> =
+  TTargetModel extends ModelWithRelations
+    ? IsSingleMember<
+        InverseCandidateKeys<TTargetModel, TSourceModel>
+      > extends true
+      ? InverseFieldsAt<
+          TTargetModel,
+          InverseCandidateKeys<TTargetModel, TSourceModel>
+        >
+      : InverseFieldsAt<
+          TTargetModel,
+          NamedInverseCandidateKeys<TTargetModel, TSourceModel, TName>
+        >
     : undefined;
 
 /** Convert never to undefined */
@@ -120,7 +195,23 @@ type ExtractInverseFields<TTargetModel, TSourceModel, TName> = [
  *   inverse to-one relation in the target model and returns its fields
  *
  * The target model's relations are inferred from S["getter"].
- * If the relation has a name, only matches inverse relations with the same name.
+ *
+ * The relation name DISAMBIGUATES; it does not reject — the SAME rule the runtime
+ * {@link getInverseRelationMap} and the engine's `findInverseRelationState` apply. A SOLE
+ * back-reference IS this relation's foreign key whether or not it echoes the name, and
+ * the name only picks among SEVERAL competing back-references.
+ *
+ * TH — the residual D5 left here is closed. The name check used to REJECT at the type
+ * level while the runtime demoted it, so on a schema whose lone back-reference does not
+ * echo the name the two answered differently about one edge. Measured through the public
+ * client at 620a171: a nested `createMany` row DEMANDED the foreign key
+ * (`Property 'orgId' is missing … but required`) that the runtime schema had already made
+ * optional and the engine derives — a legal call the compiler refused. The alignment is
+ * expressible because `.fields()` keeps its literal tuple through the model type and
+ * {@link IsSingleMember} answers `candidates.length === 1` over the target's RELATION
+ * KEYS (the recorded risk — a `.fields()` collapse to `string[]` fusing two candidates —
+ * was measured NOT to occur, and counting keys rather than tuples makes it unreachable
+ * either way).
  */
 export type GetInverseRelationMap<
   S extends RelationState,
@@ -138,7 +229,10 @@ export type GetInverseRelationMap<
  * Get the FK fields from the inverse relation at runtime.
  * - For to-one relations with `.fields()`: returns its own fields
  * - For inverse one-to-one, one-to-many, and many-to-many relations: finds the
- *   inverse to-one relation in the target model
+ *   inverse to-one relation in the target model, by the SAME rule the engine's
+ *   {@link findInverseRelationState} uses (see the note at the scan below): the
+ *   relation name disambiguates competing back-references, it never rejects the
+ *   only one.
  *
  * @param state - The current relation state
  * @param sourceModel - The source model (to verify the inverse points back)
@@ -162,6 +256,7 @@ export function getInverseRelationMap<S extends RelationState, TSourceModel>(
   };
   const targetRelations = targetModel["~"].state.relations;
 
+  const candidates: RelationState[] = [];
   for (const relation of Object.values(targetRelations)) {
     const relState = relation["~"].state;
 
@@ -178,12 +273,32 @@ export function getInverseRelationMap<S extends RelationState, TSourceModel>(
       continue;
     }
 
-    // If source relation has a name, inverse must have the same name
-    if (state.name && state.name !== relState.name) {
-      continue;
-    }
+    candidates.push(relState);
+  }
 
-    return relState.fields as GetInverseRelationMap<S, TSourceModel>;
+  // The relation name DISAMBIGUATES; it does not reject. When several to-one
+  // back-references point at the source model, `.name()` says which one carries THIS
+  // relation's foreign key. When there is exactly one, it IS this relation's foreign key
+  // whatever either side spelled — `.name()` on a single relation pair is legal
+  // decoration (R007 only asks for it when several relations run between two models, and
+  // R003/R004 pair relations by type, never by name).
+  //
+  // This is the rule `findInverseRelationState` — the ENGINE's scanner, which resolves
+  // the same edge for read correlation and for nested-write FK direction — has always
+  // applied. Rejecting a name-mismatched SOLE back-reference here made the two scanners
+  // answer differently about one edge: the parse omitted nothing, so it ADMITTED a
+  // spelled child foreign key, and `CreateOperation`'s inject then overwrote that value
+  // with the one the engine resolved — a user-supplied identity discarded silently.
+  // Aligned on the engine's reading because two live callers need it: a name-mismatched
+  // schema's reads correlate through that scanner with no parse boundary in front of
+  // them, and its nested writes resolve their FK direction through it.
+  if (candidates.length === 1) {
+    return candidates[0]!.fields as GetInverseRelationMap<S, TSourceModel>;
+  }
+  for (const candidate of candidates) {
+    if (!state.name || state.name === candidate.name) {
+      return candidate.fields as GetInverseRelationMap<S, TSourceModel>;
+    }
   }
 
   return undefined as GetInverseRelationMap<S, TSourceModel>;

@@ -6,7 +6,7 @@ import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { manyToManySchema } from "../fixtures/many-to-many-schema";
 import { createV2RoutedClient } from "./v2-client-proxy";
 
@@ -382,8 +382,13 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    name: "overlapping connect and deleteMany reject membership dependency",
-    expectReject: true,
+    // RETARGETED by N6-U3 (own-write linearization, ATOM §4.1), from a rejection to an
+    // accept-and-execute assertion on the SAME payload — the oracle half of the
+    // conformance scenario of the same shape. `connect` reads nothing, so it is a
+    // stage-3 pure adder ordered after the junction's `deleteMany`; the removal's
+    // filter is resolved against committed membership, where t2 is not yet a member.
+    // Both substrates must still agree, which is what this oracle is for.
+    name: "connect lands after a deleteMany that cannot see it",
     seed,
     act: async (c) => {
       await c.post!.update!({

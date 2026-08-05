@@ -6,8 +6,8 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { PendingOperationV2 } from "../../src/query-engine-v2/PendingOperationV2";
-import { UpdateOperation } from "../../src/query-engine-v2/UpdateOperation";
+import { PendingOperationV2 } from "../../src/query-engine/write-engine/PendingOperationV2";
+import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import {
   correlatedUpsertArgs,
   updateSliceSchema,
@@ -36,7 +36,10 @@ class BatchOnlyPGliteDriver extends PGliteDriver {
 function engineFor(driver: PGliteDriver) {
   return new QueryEngine(
     driver,
-    createModelRegistry(updateSliceSchema, createSchemaRegistry(updateSliceSchema))
+    createModelRegistry(
+      updateSliceSchema,
+      createSchemaRegistry(updateSliceSchema)
+    )
   );
 }
 
@@ -132,7 +135,11 @@ describe("query-engine-v2 PendingOperation contract (PLAN P1.5)", () => {
     const pending = pendingFor(engine, args);
     const parsed = pending.parseResult({
       rows: [
-        { email: "a@x", count: 13, posts: [{ id: 1, title: "made", slug: "made", userId: 1 }] },
+        {
+          email: "a@x",
+          count: 13,
+          posts: [{ id: 1, title: "made", slug: "made", userId: 1 }],
+        },
       ],
       rowCount: 1,
     });

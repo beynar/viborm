@@ -7,8 +7,8 @@ import { s } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { OperationExecutor } from "../../src/query-engine-v2/OperationExecutor";
-import { constructRoutedOperation } from "../../src/query-engine-v2/routing";
+import { OperationExecutor } from "../../src/query-engine/write-engine/OperationExecutor";
+import { constructRoutedOperation } from "../../src/query-engine/write-engine/routing";
 
 /**
  * The P4 write stragglers across the driver matrix, exercised through the SAME

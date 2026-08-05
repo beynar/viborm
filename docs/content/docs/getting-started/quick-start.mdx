@@ -1,7 +1,7 @@
 ---
 title: Quick Start
 description: Build your first VibORM schema in 5 minutes with a simple blog example featuring users and posts
-icon: Zap
+icon: zap
 ---
 
 ## 1. Define Your Schema
@@ -38,8 +38,8 @@ export const post = s.model({
 
 Initialize your database client with your preferred database:
 
-<Tabs items={["postgres.js", "node-postgres", "SQLite", "PGlite"]}>
-  <Tab value="postgres.js">
+<Tabs>
+  <Tab title="postgres.js">
 ```ts title="src/db/client.ts"
 import { createClient } from "viborm/postgres";
 import * as schema from "./schema";
@@ -50,7 +50,7 @@ export const client = createClient({
 });
 ```
   </Tab>
-  <Tab value="node-postgres">
+  <Tab title="node-postgres">
 ```ts title="src/db/client.ts"
 import { createClient } from "viborm/pg";
 import * as schema from "./schema";
@@ -61,7 +61,7 @@ export const client = createClient({
 });
 ```
   </Tab>
-  <Tab value="SQLite">
+  <Tab title="SQLite">
 ```ts title="src/db/client.ts"
 import { createClient } from "viborm/sqlite3";
 import * as schema from "./schema";
@@ -72,7 +72,7 @@ export const client = createClient({
 });
 ```
   </Tab>
-  <Tab value="PGlite">
+  <Tab title="PGlite">
 ```ts title="src/db/client.ts"
 import { createClient } from "viborm/pglite";
 import * as schema from "./schema";
@@ -179,7 +179,7 @@ await client.user.findMany({
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Schema Definition"
     description="Learn about models and fields (scalars and relations)"
@@ -195,4 +195,4 @@ await client.user.findMany({
     description="Master the filter operators"
     href="/docs/client/filtering"
   />
-</Cards>
+</CardGroup>

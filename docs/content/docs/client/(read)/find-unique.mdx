@@ -1,0 +1,200 @@
+---
+title: findUnique
+description: Find a single record by unique identifier (primary key or unique scalar)
+icon: fingerprint
+---
+
+## Basic Usage
+
+```ts
+// By primary key
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+});
+
+// By unique scalar
+const user = await client.user.findUnique({
+  where: { email: "alice@example.com" },
+});
+```
+
+## Compound Keys
+
+For models with compound unique constraints:
+
+```ts
+// Schema
+const membership = s.model({
+  orgId: s.string(),
+  userId: s.string(),
+  role: s.string(),
+}).id(["orgId", "userId"]);
+
+// Query by compound key
+const member = await client.membership.findUnique({
+  where: {
+    orgId_userId: {
+      orgId: "org_1",
+      userId: "user_1",
+    },
+  },
+});
+
+// With custom name
+const membership = s.model({ ... })
+  .id(["orgId", "userId"], { name: "membership_pk" });
+
+const member = await client.membership.findUnique({
+  where: {
+    membership_pk: {
+      orgId: "org_1",
+      userId: "user_1",
+    },
+  },
+});
+```
+
+## Options
+
+```ts
+await client.user.findUnique({
+  where: { ... },     // Required: unique identifier
+  select: { ... },    // Optional: fields to return
+  include: { ... },   // Optional: relations to include
+});
+```
+
+`select` and `include` control the returned shape — see [Selecting Fields](/docs/client/selecting).
+
+## findUniqueOrThrow
+
+Throws if the record doesn't exist:
+
+```ts
+const user = await client.user.findUniqueOrThrow({
+  where: { id: "user_123" },
+});
+// Type: User (never null)
+// Throws: NotFoundError if not found
+```
+
+## Return Type
+
+```ts
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+});
+// Type: User | null
+
+// With select
+const user = await client.user.findUnique({
+  where: { id: "user_123" },
+  select: { id: true, email: true },
+});
+// Type: { id: string; email: string } | null
+```
+
+## Valid Unique Scalars
+
+The `where` must name at least one unique **discriminator** — a scalar marked
+unique, or a complete compound constraint:
+
+```ts
+const user = s.model({
+  id: s.string().id(),           // ✅ Primary key
+  email: s.string().unique(),    // ✅ Unique scalar
+  name: s.string(),              // ❌ Not a discriminator on its own
+});
+
+// Valid
+await client.user.findUnique({ where: { id: "..." } });
+await client.user.findUnique({ where: { email: "..." } });
+
+// Invalid - TypeScript error, and a ValidationError at runtime
+await client.user.findUnique({ where: { name: "..." } });
+```
+
+## Narrowing a Unique Lookup
+
+Alongside the discriminator you may pass ordinary **non-unique scalar filters**
+and `AND` / `OR` / `NOT`. The row must satisfy all of it:
+
+```ts
+// "the user with this id, but only if they're still active"
+const user = await client.user.findUnique({
+  where: {
+    id: "user_123",
+    status: "active",
+    NOT: { deletedAt: { not: null } },
+  },
+});
+// null when the id exists but the filter excludes it
+```
+
+The discriminator is still required — the extra filters narrow a unique lookup,
+they never replace it. A `where` with only filters is a `ValidationError`, not a
+scan.
+
+The same `where` shape is accepted by
+[`update`](/docs/client/update), [`delete`](/docs/client/delete) and
+[`upsert`](/docs/client/upsert). What "excluded" means there is per operation:
+
+| Operation | Unique key matches, filter excludes |
+|-----------|-------------------------------------|
+| `findUnique` | `null` |
+| `findUniqueOrThrow` | `NotFoundError` |
+| `update` / `delete` | `NotFoundError`, nothing written |
+| `upsert` | the **create** branch runs — and then hits the unique key that is already taken, so a `UniqueConstraintError` surfaces |
+
+Relation filters work here too, in the same position and with the same meaning
+as in `findMany`:
+
+```ts
+// "the account with this id, but only if it still has a live login"
+const account = await client.account.findUnique({
+  where: {
+    id: 1,
+    logins: { some: { status: "live" } },
+    manager: { is: { active: true } },
+  },
+});
+```
+
+They narrow the row exactly as a scalar filter does — including on `update`,
+`delete` and `upsert`, per the table above. Self-relations are covered: on MySQL,
+where an `UPDATE` may not read the table it is mutating, the engine compiles the
+subquery through a derived table so the answer is the same everywhere.
+
+:::info
+One place viborm goes **further** than Prisma:
+
+- **Nested `update` / `upsert` / `delete` target selectors take the extended form
+  too.** Prisma accepts unique discriminators only in those positions; viborm
+  accepts `{ <unique>, ...filters }` there as well, with the same meaning it has at
+  the top level — the filter narrows which row the write addresses, and a filter
+  that excludes the row makes the nested write a not-found rather than touching it.
+  **Relation filters included** — a nested selector takes the same `where` the top
+  level does.
+
+  ```ts
+  await orm.author.update({
+    where: { id: authorId },
+    data: {
+      books: {
+        // renames the book only if it is still a draft and has no printings
+        update: {
+          where: { isbn, status: "draft", printings: { none: {} } },
+          data: { title },
+        },
+      },
+    },
+  });
+  ```
+
+  The selectors that NAME a row to link rather than locate one to mutate —
+  `connect`, `disconnect`, `set`, `connectOrCreate` — keep the strict form, as does
+  `cursor`, which is an exact row address in an ordering.
+:::
+
+To get-or-create a record atomically, use [`upsert`](/docs/client/upsert) instead of a `findUnique` + `create` pair.
+

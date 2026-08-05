@@ -1,7 +1,7 @@
 ---
 title: Push
 description: Synchronize your schema directly to the database without migration files — compares models against database state and applies changes
-icon: Zap
+icon: zap
 ---
 
 ## When to Use Push
@@ -11,20 +11,20 @@ icon: Zap
 - **CI test databases** - Fresh schema for each test run
 - **Non-versioned workflows** - When you don't need migration history
 
-<Callout type="warn" title="Not for Production">
+:::warning[Not for Production]
 Push doesn't create migration files, so changes aren't versioned. Use [file-based migrations](/docs/migration/migrate) for production deployments.
-</Callout>
+:::
 
 ## Basic Usage
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # Push schema changes to database
 npx viborm push
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts title="src/db/push.ts"
 import { createMigrationClient } from "viborm/migrations";
 import { client } from "./client";
@@ -44,14 +44,14 @@ if (result.applied) {
 
 Preview changes without applying them:
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # Preview changes without applying
 npx viborm push --dry-run
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 const result = await migrations.push({ dryRun: true });
 
@@ -68,8 +68,8 @@ for (const sql of result.sql) {
 
 When push detects **destructive changes** (dropping tables/columns), **ambiguous changes** (potential renames), or **enum value removals**, it calls the `resolve` callback for each one.
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # CLI prompts interactively for each change
 npx viborm push
@@ -81,7 +81,7 @@ npx viborm push --force
 npx viborm push --strict
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 const result = await migrations.push({
   resolve: async (change) => {
@@ -161,9 +161,9 @@ interface EnumValueRemovalChange {
 }
 ```
 
-<Callout type="info" title="Per-Column Resolution">
+:::info[Per-Column Resolution]
 Enum value removals are resolved per-column, allowing different mappings for different columns using the same enum. This lets you map `PENDING` to `INACTIVE` in one column but to `NULL` in another.
-</Callout>
+:::
 
 ### Built-in Resolvers
 
@@ -211,22 +211,22 @@ Skip all resolution prompts and auto-accept everything:
 - **Ambiguous changes**: Treats as add+drop (not rename, accepts data loss)
 - **Enum value removals**: Sets all to NULL
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 npx viborm push --force
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 await migrations.push({ force: true });
 ```
   </Tab>
 </Tabs>
 
-<Callout type="warn" title="Data Loss">
+:::warning[Data Loss]
 Force mode accepts all data loss. Use only when you're certain you don't need the data.
-</Callout>
+:::
 
 ### Combining Force with Resolver
 
@@ -264,14 +264,14 @@ await migrations.push({
 
 Reset the database before pushing (drops all tables and pushes fresh schema):
 
-<Tabs items={["CLI", "Migration Client"]}>
-  <Tab value="CLI">
+<Tabs>
+  <Tab title="CLI">
 ```bash
 # Drop all tables and push fresh schema
 npx viborm push --force-reset
 ```
   </Tab>
-  <Tab value="Migration Client">
+  <Tab title="Migration Client">
 ```ts
 // forceReset drops all tables, then pushes fresh schema
 await migrations.push({ forceReset: true });
@@ -279,13 +279,13 @@ await migrations.push({ forceReset: true });
   </Tab>
 </Tabs>
 
-<Callout type="warn" title="Destructive Operation">
+:::warning[Destructive Operation]
 Force reset drops all tables and data. Use with extreme caution and never in production.
-</Callout>
+:::
 
-<Callout type="info" title="Storage-Aware">
+:::info[Storage-Aware]
 When a storage driver is configured, `forceReset` also clears the migration journal to keep it in sync. Without a storage driver, it only drops tables.
-</Callout>
+:::
 
 ## CLI Options
 
@@ -370,7 +370,7 @@ See the [ResolveChange interface](#resolvechange-interface) above for the full `
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Migrate"
     description="File-based migrations for production"
@@ -381,4 +381,4 @@ See the [ResolveChange interface](#resolvechange-interface) above for the full `
     description="Database-specific DDL generation"
     href="/docs/migration/drivers"
   />
-</Cards>
+</CardGroup>

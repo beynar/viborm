@@ -11,11 +11,25 @@ import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runBooleanNoOpArmBehavior } from "../query-engine-v2/boolean-noop-arm-behavior";
 import { runBulkWriteBehavior } from "../query-engine-v2/bulk-write-behavior";
 import { runCreateManyBehavior } from "../query-engine-v2/create-many-behavior";
 import { runCreateNestedUpsertBehavior } from "../query-engine-v2/create-nested-upsert-behavior";
+import { runDepthSeamBehavior } from "../query-engine-v2/depth-seam-behavior";
 import { runExtendedWhereUniqueBehavior } from "../query-engine-v2/extended-where-unique-behavior";
+import { runInverseToOneCreateBehavior } from "../query-engine-v2/inverse-to-one-create-behavior";
+import { runJunctionCreateManyBehavior } from "../query-engine-v2/junction-create-many-behavior";
+import { runLocatedParentRefBehavior } from "../query-engine-v2/located-parent-ref-behavior";
 import { runNestedMutationBehavior } from "../query-engine-v2/nested-mutation-behavior";
+import { runOwnWriteLinearizationBehavior } from "../query-engine-v2/own-write-linearization-behavior";
+import {
+  runBeforeRootSubtreeBehavior,
+  runNonPkReferenceBehavior,
+  runParentHeldLookupBehavior,
+  runUpsertArmRelationBehavior,
+} from "../query-engine-v2/parent-held-lookup-behavior";
+import { runPostTransitionAdoptBehavior } from "../query-engine-v2/post-transition-adopt-behavior";
+import { runProducedIdentityBehavior } from "../query-engine-v2/produced-identity-depth-behavior";
 import { runReadBehavior } from "../query-engine-v2/read-behavior";
 import { runToOneUpdateWhereBehavior } from "../query-engine-v2/to-one-update-where-behavior";
 import { runUpdateFamilyBehavior } from "../query-engine-v2/update-family-behavior";
@@ -30,9 +44,15 @@ import { runBatchPrimaryKeyDataflowBehavior } from "./batch-primary-key-dataflow
 import { runBlobFilterBehavior } from "./blob-filter-behavior";
 import { runBulkWriteLimitBehavior } from "./bulk-write-limit-behavior";
 import { runClientRawBehavior } from "./client-raw-behavior";
+import { runCreateManyReturnFoldBehavior } from "./create-many-return-fold-behavior";
 import { runDecimalExactnessBehavior } from "./decimal-exactness-behavior";
 import { runFieldReferenceBehavior } from "./field-reference-behavior";
+import { runFkIndexBehavior } from "./fk-index-behavior";
 import { runForwardFkOrderingBehavior } from "./forward-fk-ordering-behavior";
+import {
+  runMappedIndexBehavior,
+  runPartialIndexPredicateChurnBehavior,
+} from "./index-ddl-behavior";
 import { runJsonNullSentinelBehavior } from "./json-null-sentinel-behavior";
 import { runListJsonFilterBehavior } from "./list-json-filter-behavior";
 import { runM2mDeleteManyStalenessBehavior } from "./m2m-deletemany-staleness-behavior";
@@ -483,6 +503,43 @@ describeIf("pg Driver", () => {
     });
   });
 
+  // E1 — the parent-held to-one absorptions on the REAL PostgreSQL server rather
+  // than the WASM one: the lookup subquery and the produced identity both travel
+  // through the pool's own RETURNING handling here.
+  runParentHeldLookupBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runBeforeRootSubtreeBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runUpsertArmRelationBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runNonPkReferenceBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runFkIndexBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runMappedIndexBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  // Decision 7.4 on the real server rather than the WASM one: the deparse this
+  // reconciles is PostgreSQL's, and `pg` reaches it through a POOL, where the
+  // canonicalization's session-local scratch would scatter across connections
+  // if it were not pinned to one.
+  runPartialIndexPredicateChurnBehavior({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
   runForwardFkOrderingBehavior({
     driverName: "pg (tx)",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
@@ -639,6 +696,86 @@ describeIf("pg Driver", () => {
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 
+  runLocatedParentRefBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runLocatedParentRefBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runInverseToOneCreateBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runInverseToOneCreateBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runDepthSeamBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runDepthSeamBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runProducedIdentityBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runProducedIdentityBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runOwnWriteLinearizationBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runOwnWriteLinearizationBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runBooleanNoOpArmBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runBooleanNoOpArmBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runPostTransitionAdoptBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runPostTransitionAdoptBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  runJunctionCreateManyBehavior({
+    name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runJunctionCreateManyBehavior({
+    name: "pg atomic batch",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
   runExtendedWhereUniqueBehavior({
     name: "pg transaction",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
@@ -689,6 +826,13 @@ describeIf("pg Driver", () => {
   });
   runCreateManyBehavior({
     name: "pg transaction",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  // Phase 7.2: the multi-row `INSERT … RETURNING` fold, on the real PostgreSQL
+  // whose implementation order the fold trusts (PGlite is the same engine in
+  // WASM; this is the leg that runs it over the wire).
+  runCreateManyReturnFoldBehavior({
+    driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   runCreateManyBehavior({

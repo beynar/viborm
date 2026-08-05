@@ -391,12 +391,14 @@ describe("FindMany Args - Nested Relation OrderBy Types", () => {
   test("type: rejects a nine-hop to-one relation orderBy", () => {
     // Stays on ONE line (like the to-many case below): split across lines, the
     // error is reported on an inner property and @ts-expect-error misses it.
+    // biome-ignore format: the one-line spelling is load-bearing — reformatting moves the reported error onto an inner property and the @ts-expect-error below stops matching it (TS2578).
     // @ts-expect-error relation orderBy is capped at eight relation hops
     const tooDeep: UserInput = { orderBy: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { manager: { username: "asc" } } } } } } } } } } };
     expect(tooDeep).toBeDefined();
   });
 
   test("type: rejects to-many relation in a to-one orderBy chain", () => {
+    // biome-ignore format: the one-line spelling is load-bearing — reformatting moves the reported error onto an inner property and the @ts-expect-error below stops matching it (TS2578).
     // @ts-expect-error nested to-many relations are excluded from to-one orderBy chains
     const withToMany: CommentInput = { orderBy: { post: { author: { posts: { _count: "asc" } } } } };
     expect(withToMany).toBeDefined();

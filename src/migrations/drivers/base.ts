@@ -26,6 +26,17 @@ export interface DDLContext {
    * Required for SQLite table recreation operations.
    */
   currentSchema?: SchemaSnapshot;
+
+  /**
+   * The operations of this batch that run *before* the one being generated.
+   *
+   * `currentSchema` is introspected once, before the batch starts, so on its
+   * own it describes the database as it was — not as the statements already
+   * emitted have left it. A SQLite table recreation has to name the indexes the
+   * table holds at the moment it runs, because `DROP TABLE` takes them with it;
+   * see `SQLite3MigrationDriver.getCurrentTable`.
+   */
+  precedingOperations?: DiffOperation[];
 }
 
 // Extract individual operation types from the DiffOperation union
@@ -124,6 +135,29 @@ export abstract class MigrationDriver {
     executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
   ): Promise<SchemaSnapshot>;
 
+  /**
+   * Returns this database's own spelling of each declared partial-index
+   * predicate, so the differ can compare a declaration against what the catalog
+   * gave back (Decision 7.4).
+   *
+   * Optional, and implemented only where the two spellings can differ.
+   * PostgreSQL deparses through `pg_get_expr`, so a declared `active = true`
+   * reads back as `(active = true)` and every push re-creates the index;
+   * SQLite stores the CREATE INDEX statement verbatim and has nothing to
+   * reconcile; MySQL refuses a partial index outright.
+   *
+   * `executeRaw` runs on ONE pinned connection for the whole call — the
+   * canonicalization may need session-local scratch objects, which a pooled
+   * connection per statement would scatter. Positional result; `undefined` at
+   * a position means the database did not answer, and the differ then refuses
+   * to call that predicate equal to anything.
+   */
+  canonicalizeIndexPredicates?(
+    tableName: string,
+    predicates: readonly string[],
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<ReadonlyArray<string | undefined>>;
+
   // ===========================================================================
   // TYPE MAPPING
   // ===========================================================================
@@ -209,10 +243,12 @@ export abstract class MigrationDriver {
   // ===========================================================================
 
   abstract generateAddUniqueConstraint(
-    op: AddUniqueConstraintOperation
+    op: AddUniqueConstraintOperation,
+    context?: DDLContext
   ): string;
   abstract generateDropUniqueConstraint(
-    op: DropUniqueConstraintOperation
+    op: DropUniqueConstraintOperation,
+    context?: DDLContext
   ): string;
 
   // ===========================================================================
@@ -673,9 +709,9 @@ export abstract class MigrationDriver {
       case "dropForeignKey":
         return this.generateDropForeignKey(operation, context);
       case "addUniqueConstraint":
-        return this.generateAddUniqueConstraint(operation);
+        return this.generateAddUniqueConstraint(operation, context);
       case "dropUniqueConstraint":
-        return this.generateDropUniqueConstraint(operation);
+        return this.generateDropUniqueConstraint(operation, context);
       case "addPrimaryKey":
         return this.generateAddPrimaryKey(operation, context);
       case "dropPrimaryKey":

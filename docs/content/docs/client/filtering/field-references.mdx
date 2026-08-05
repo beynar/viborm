@@ -1,7 +1,7 @@
 ---
 title: Field references and SQL fragments
 description: Compare a column against another column of the same row, or against an SQL expression you write yourself
-icon: Columns3
+icon: columns3
 ---
 
 Every ordinary filter operand becomes a bound parameter. Pass a **callback** instead and
@@ -33,12 +33,12 @@ await client.post.findMany({ where: { views: { gt: () => 42 } } });
 // fragment (ctx.sql`…`); it returned a value of type 'number'.
 ```
 
-<Callout type="warn">
-  Keep the callback **pure**. It is called during validation, and a payload may be
+:::warning
+Keep the callback **pure**. It is called during validation, and a payload may be
   validated more than once (`upsert` re-parses the arm it takes). A callback that returns
   the same thing every time is indistinguishable from a value; one that counts its calls
   or mutates state gets exactly what it asks for.
-</Callout>
+:::
 
 ## Where callbacks work
 
@@ -101,13 +101,13 @@ await client.post.findMany({
 });
 ```
 
-<Callout type="warn">
-  **The fragment's text is yours, dialect and all.** This is the same trust model as
+:::warning
+**The fragment's text is yours, dialect and all.** This is the same trust model as
   `$queryRaw`: viborm does not parse it, does not rewrite it, and does not translate it
   between providers. A fragment naming a Postgres function will not run on SQLite. Values
   interpolated into it are always bound — never concatenate user input into the template
   text yourself.
-</Callout>
+:::
 
 ## Enums
 

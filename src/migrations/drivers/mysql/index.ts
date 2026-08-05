@@ -62,6 +62,8 @@ export class MySQLMigrationDriver extends MigrationDriver {
     supportsIndexTypes: ["btree", "fulltext", "spatial"], // InnoDB does not support user-defined HASH indexes
     supportsNativeArrays: false, // Use JSON instead
     supportsAddForeignKeyViaAlter: true, // ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY
+    // `information_schema` reports the declared `CONSTRAINT_NAME`.
+    introspectionReadsConstraintNames: true,
   };
 
   // ===========================================================================
@@ -366,6 +368,19 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
     // Validate index type
     this.validateIndexType(index.type, index.name);
+
+    // MySQL has no partial index. Emitting the index without its predicate
+    // would build a different index from the declared one and would index rows
+    // the schema excluded, so refuse the declaration instead of dropping it.
+    if (index.where) {
+      throw new MigrationError(
+        `Index "${index.name}" declares a partial index predicate (where: "${index.where}"). ` +
+          "MySQL does not support partial indexes. " +
+          "Either remove 'where' from the index definition, or move the predicate into a generated column and index that.",
+        VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+        { meta: { indexName: index.name, indexWhere: index.where } }
+      );
+    }
 
     const cols = index.columns.map((c) => this.escapeIdentifier(c)).join(", ");
 

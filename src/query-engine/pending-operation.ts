@@ -11,13 +11,13 @@ import { isSql, type Sql } from "@sql";
 import type {
   ExecutableOperation,
   SingleStatementPlan,
-} from "../query-engine-v2/OperationExecutor";
-import { OperationExecutor } from "../query-engine-v2/OperationExecutor";
+} from "../query-engine/write-engine/OperationExecutor";
+import { OperationExecutor } from "../query-engine/write-engine/OperationExecutor";
 import {
   constructRoutedOperation,
   executeRoutedOperation,
   ROUTED_OPERATIONS,
-} from "../query-engine-v2/routing";
+} from "../query-engine/write-engine/routing";
 import {
   createPendingOperationContext,
   type OperationExecutionContext,

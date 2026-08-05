@@ -1,7 +1,7 @@
 ---
 title: Introduction
 description: Add observability to your VibORM application with OpenTelemetry tracing and structured logging
-icon: Activity
+icon: activity
 ---
 
 ## Features
@@ -83,13 +83,13 @@ Cache keys, including custom keys, are omitted from logs and spans. Cache
 event/status, model, operation, and correlation ID remain available for
 diagnosis without deriving another identifier from private key material.
 
-<Callout type="warn">
+:::warning
 Only enable `includeParams` in development or staging environments. Query parameters may contain sensitive user data.
-</Callout>
+:::
 
 ## Next Steps
 
-<Cards>
+<CardGroup>
   <Card
     title="Logging"
     description="Configure structured logging with callbacks"
@@ -100,4 +100,4 @@ Only enable `includeParams` in development or staging environments. Query parame
     description="Set up OpenTelemetry tracing"
     href="/docs/instrumentation/tracing"
   />
-</Cards>
+</CardGroup>

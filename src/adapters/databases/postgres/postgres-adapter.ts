@@ -32,6 +32,7 @@ import {
   createStandardClauses,
   createStandardLiterals,
   createSubqueries,
+  escapeLikeLiteral,
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter('"');
@@ -110,6 +111,38 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`LEFT(${column}, LENGTH(${value})) = ${value}`,
     endsWithText: (column: Sql, value: Sql): Sql =>
       sql`RIGHT(${column}, LENGTH(${value})) = ${value}`,
+    // PostgreSQL is the one dialect where the escaped LIKE spelling is both
+    // exact and index-usable, so it stands alone here: `LIKE` is case- and
+    // accent-sensitive natively, which is the contract `startsWithText` holds,
+    // and `match_pattern_prefix` extracts `name >= 'x' AND name < 'y'` from the
+    // constant-folded pattern even though it arrives as a bound parameter.
+    //
+    // THE INDEX RANGE HAS A COLLATION PRECONDITION, and the common case does
+    // not meet it. Measured, 20k rows, plain btree index:
+    //   - C-collated database (PGlite, `datcollate = 'C'`): Bitmap Index Scan
+    //     over 111 rows, where `LEFT(col, LENGTH($1)) = $1` is a Seq Scan over
+    //     all 20000.
+    //   - `en_US.utf8` (postgres:16 — the project's own test container, and
+    //     what a default `initdb` produces): BOTH spellings Seq Scan. Only a
+    //     `(col text_pattern_ops)` index ranges, and `generateCreateIndex`
+    //     (src/migrations/drivers/postgres/index.ts) emits no opclass, so
+    //     viborm cannot create one.
+    // What survives on a default-locale cluster — and the reason this spelling
+    // still stands there — is the row estimate: `LIKE` tracks the data
+    // (202/1010/11111/19998 against truths 111/1111/11111/20000) while
+    // `LEFT(...)` is an opaque function estimated at a flat 100 for every
+    // prefix width, a 111x error at `name1%` that propagates into the row
+    // estimate of any join above it. It is never worse than the spelling it
+    // replaced on any measured leg. Full record: Decision 7.3 in
+    // docs/architecture/query-performance-plan.md.
+    startsWithPrefix: (column: Sql, value: string): Sql =>
+      sql`${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\'`,
+
+    // PostgreSQL's text comparison is already byte-exact and already
+    // index-usable — `caseSensitiveText` is the identity here — so these are
+    // the plain comparisons, byte-identical to what shipped before §10.2.
+    exactTextEq: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
+    exactTextIn: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
 
     // Set membership — values is a parenthesized list from literals.list(),
     // so ANY/ALL (which need an array) would produce invalid SQL here
@@ -395,6 +428,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsLateralJoins: true,
     supportsVector: false,
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
+    supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,
     supportsMutationRowLimit: false, // PostgreSQL has no UPDATE/DELETE ... LIMIT
     supportsExactDecimal: true, // `numeric`: exact, unconstrained precision

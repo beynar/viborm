@@ -2,6 +2,20 @@
  * PostgreSQL Driver (postgres.js)
  *
  * Driver implementation for postgres.js - a modern, fast PostgreSQL client.
+ *
+ * No statement pipelining, measured rather than assumed. postgres.js can
+ * pipeline, but it gates that on `!q.describeFirst`, and it sets `describeFirst`
+ * for every parameterized query that is not already a cached prepared
+ * statement. `sql.unsafe()` — the only entry point that accepts a generated SQL
+ * string, which is all this driver ever has — hard-sets `prepare: false`, so no
+ * statement is ever cached and the gate never opens. Issuing a transaction's
+ * statements without intermediate awaits therefore costs exactly what issuing
+ * them one at a time costs, and each parameterized statement costs two round
+ * trips rather than one.
+ *
+ * `tests/drivers/postgres-pipelining.test.ts` pins that measurement, and the
+ * Phase 9 section of `docs/architecture/query-performance-plan.md` records the
+ * numbers and the door that stays shut.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";

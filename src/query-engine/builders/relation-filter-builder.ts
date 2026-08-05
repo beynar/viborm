@@ -9,7 +9,7 @@
  * - isNot: NOT EXISTS for to-one (record doesn't match)
  */
 
-import { type Sql, sql } from "@sql";
+import type { Sql } from "@sql";
 import { createChildScope, getColumnName, getTableName } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
@@ -17,6 +17,10 @@ import {
   buildManyToManyJoinParts,
   getManyToManyJoinInfo,
 } from "./many-to-many-utils";
+import {
+  hideMutationTarget,
+  readsMutationTarget,
+} from "./mutation-target-subquery";
 
 export type BuildNestedWhere = (
   ctx: QueryScope,
@@ -387,27 +391,19 @@ class RelationFilterSubqueries {
 
   /**
    * Hide a relation-filter subquery that selects from the table currently being
-   * mutated behind a derived table, on dialects where UPDATE/DELETE may not
-   * reference the target table in a subquery (MySQL error 1093). The derived
-   * table is materialized, which sidesteps the restriction; the correlation to
-   * the outer mutation survives as an outer reference (MySQL 8.0.14+).
+   * mutated behind a derived table (MySQL error 1093). The rule and the wrap live
+   * in {@link file://../builders/mutation-target-subquery.ts}, which the to-one
+   * `connect` lookup in an UPDATE's `SET` shares — the subquery already sits
+   * inside an `EXISTS (…)` here, so no parentheses are added.
    */
   private wrapMutationTarget(
     ctx: QueryScope,
     subquery: Sql,
     tables: string[]
   ): Sql {
-    if (
-      !ctx.mutationTable ||
-      ctx.adapter.capabilities.supportsMutationTargetInSubquery ||
-      !tables.includes(ctx.mutationTable)
-    ) {
-      return subquery;
-    }
-    return sql`SELECT * FROM ${ctx.adapter.subqueries.correlate(
-      subquery,
-      ctx.nextAlias()
-    )}`;
+    return readsMutationTarget(ctx, tables)
+      ? hideMutationTarget(ctx, subquery)
+      : subquery;
   }
 
   /**

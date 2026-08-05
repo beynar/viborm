@@ -53,7 +53,7 @@ client.user.updateMany({
 The payload then reaches [set-builder.ts:34](../../src/query-engine/builders/set-builder.ts:34), which does `if (isRelation(...)) continue; // Skip relations`.
 
 Prisma rejects this shape loudly. viborm accepts it and lies. Worse, the engine documents the opposite as its justification —
-[BulkCountOperation.ts:26](../../src/query-engine-v2/BulkCountOperation.ts:26): *"updateMany with relation data is rejected by V1's own validation schema (reused here), so a relation payload never reaches the builder — parity is inherited, not re-derived."* That premise is false, and it is why no test was ever written.
+[BulkCountOperation.ts:26](../../src/query-engine/write-engine/BulkCountOperation.ts:26): *"updateMany with relation data is rejected by V1's own validation schema (reused here), so a relation payload never reaches the builder — parity is inherited, not re-derived."* That premise is false, and it is why no test was ever written.
 
 Degenerate sub-case: if `data` contains **only** relation keys, the user gets a bare `QueryEngineError: No fields to update` ([set-builder.ts:53](../../src/query-engine/builders/set-builder.ts:53)) that never names the relation.
 
@@ -62,14 +62,14 @@ Degenerate sub-case: if `data` contains **only** relation keys, the user gets a 
 [push.ts:182](../../src/cli/commands/push.ts:182) then re-plans and applies with `push(client, { force: true, dryRun: false })` — **no `resolve` callback**, so [planner.ts:250](../../src/migrations/push/planner.ts:250) falls back to `alwaysAddDropResolver`. A change the user answered *"rename"* to executes as DROP + ADD. (Outright rejections still abort correctly, because `reject()` throws.)
 
 **Defect 3 — verified with a live probe `[V]`.**
-[RelationJunctionPart.ts:982](../../src/query-engine-v2/RelationJunctionPart.ts:982) requires the target PK as a compile-time literal in the create data. With V1 deleted there is no fallback, so an ordinary Prisma-shaped payload now throws.
+[RelationJunctionPart.ts:982](../../src/query-engine/write-engine/RelationJunctionPart.ts:982) requires the target PK as a compile-time literal in the create data. With V1 deleted there is no fallback, so an ordinary Prisma-shaped payload now throws.
 `PLAN.md:421` predicted exactly this and reasoned it away: *"No current test schema hits it (all M2M targets carry provided PKs), so the route inventory over the reachable corpus is exactly one."* Every M2M fixture in `tests/fixtures/many-to-many-schema.ts` uses `s.string().id()` with explicit values. **The gates measured corpus-reachability, not user-reachability.**
 
 > **All three defects are fixed on `prisma-parity-v2`** — before the waves, not by them, which is why they have no row in the plan's delivery table. Defect 1: `bd091a0` binds `updateMany`'s `data` to `core.scalarUpdate` (`validation/model/args/mutation.ts:212`), so a relation key is refused at the parse boundary instead of discarded. Defect 2: `a9cf030` records the dry-run resolutions and replays them on the apply pass (`src/cli/resolve-recorder.ts`). Defect 3: `b1392ca` threads the junction target's DB-generated identity as a backward `Ref`, plus a generated-PK M2M fixture. The findings below are kept as written.
 
 ### 0.2 The systemic finding behind defect 3
 
-`UnsupportedOperationError extends QueryEngineError {}` ([shared.ts:160](../../src/query-engine-v2/shared.ts:160)) with **no `diagnosticName` override**, and it is **not exported** from `src/index.ts` or `src/errors/index.ts`. So all **76** deliberate capability boundaries surface as:
+`UnsupportedOperationError extends QueryEngineError {}` ([shared.ts:160](../../src/query-engine/write-engine/shared.ts:160)) with **no `diagnosticName` override**, and it is **not exported** from `src/index.ts` or `src/errors/index.ts`. So all **76** deliberate capability boundaries surface as:
 
 ```
 err.name === "QueryEngineError"
@@ -97,8 +97,8 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 
 # Part 1 — Prisma Client ↔ viborm feature parity
 
-**Engine note.** `src/query-engine-v2/` is the sole engine on the client path
-([pending-operation.ts:124](../../src/query-engine/pending-operation.ts:124) → `constructRoutedOperation`; [routing.ts:20](../../src/query-engine-v2/routing.ts:20) *"with V1 deleted there is no fallback arm"*).
+**Engine note.** `src/query-engine/write-engine/` is the sole engine on the client path
+([pending-operation.ts:124](../../src/query-engine/pending-operation.ts:124) → `constructRoutedOperation`; [routing.ts:20](../../src/query-engine/write-engine/routing.ts:20) *"with V1 deleted there is no fallback arm"*).
 `src/query-engine/` was **not** deleted — it survives as the SQL-building substrate (builders, read operations, `PendingOperation`) that V2 delegates into.
 
 ## 1.1 Headline gaps a Prisma user hits first
@@ -108,9 +108,9 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 3. ~~**Transaction options are rejected, not ignored.**~~ — **CLOSED by W5-U3** (decision D-2): `$transaction` accepts `{ isolationLevel, timeout, maxWait }`. `assertNoTransactionOptions` is retired; each driver declares a contract in `transactionOptionSupport()` and the resolver ([transaction-options.ts](../../src/drivers/shared/transaction-options.ts)) either builds an executable plan or refuses with `UnsupportedOperationError` (V8003); a malformed options object is still `V5005`. Per-driver cells are pinned in `tests/drivers/transaction-portability.test.ts` and tabulated in [transactions.mdx](../content/docs/client/transactions.mdx).
 4. ~~**Error codes don't port.**~~ — **PARTLY CLOSED by W5-U2**: every error still carries its own `V####` `code`, and now also a `prismaCode` where a Prisma counterpart exists (`e.prismaCode === 'P2002'` works in a catch written for Prisma). P2000 is mapped (`ValueTooLongError` V3005, from PG `22001` / MySQL `1406`) and client construction throws `ClientInitializationError` (V1004 → P1012). Deliberately partial: viborm-only families (transactions, nested writes, cache, migrations, V8003) report `undefined` rather than a code Prisma never defined — see the table in §1.8.
 5. ~~**No field references**~~ — **CLOSED by W2-B**, resurfaced by **W8-A**: the operand callback `(ctx) => ctx.fields.<field>` is Prisma's `FieldRef` (see §1.3). **No full-text search** still stands: `search` / `_relevance` return zero hits repo-wide.
-6. ~~**Extended `whereUnique` is absent.**~~ — **CLOSED by W4-U1**: `findUnique`/`findUniqueOrThrow`/`update`/`delete`/`upsert` take Prisma ≥4.5's extended unique `where` (discriminator + non-unique scalar filters + `AND`/`OR`/`NOT`). Two divergences remain, both stated: relation filters inside a unique `where` are refused by name (the filter half compiles into UPDATE/DELETE, where MySQL rejects a subquery reading the mutated table), and nested relation-write target selectors / `cursor` keep the strict discriminator-only form.
+6. ~~**Extended `whereUnique` is absent.**~~ — **CLOSED by W4-U1**, and **extended PAST Prisma by N6-U1 and N6-U2** (decisions D-N1, D-N2): `findUnique`/`findUniqueOrThrow`/`update`/`delete`/`upsert` take Prisma ≥4.5's extended unique `where` (discriminator + non-unique scalar filters + `AND`/`OR`/`NOT`), and so do the **nested `update` / `upsert` / `delete` target selectors**, where Prisma is unique-only — see the superset row in §2. W4 had scoped those out because "a nested target is located by PK boundaries the extra filters would collide with"; N1/N4-U1 removed the collision by making a nested locate return its primary key however the row was named — and since N6-U2 landed in the same schema, a nested selector's filter half may be a relation filter too (it rides the aliased probe, never the write, so no `mutationTable` composition is owed at depth). ~~Relation filters inside a unique `where` are refused by name~~ — **CLOSED by N6-U2**: `buildUpdate`/`buildDelete` now qualify the unique `where` by the target's table name and declare it as the `mutationTable`, the spelling `buildUpdateMany`/`buildDeleteMany` always used, so the correlated `EXISTS` names the mutated table and MySQL's error 1093 is answered by the same derived-table wrapper. `connect`/`disconnect`/`set`/`connectOrCreate.where` and `cursor` stay strict on their own merits — they name a row to link or address, they do not locate one to mutate.
 7. ~~**`Decimal` is a JS `number`.**~~ — **CLOSED by W6-U1**: `s.decimal()` is string-backed. It reads as the exact canonical decimal string, accepts `string | number` on write (a `number` is documented as possibly carrying float error the caller already made), and every comparison and arithmetic happens in SQL — `CAST(? AS NUMERIC)` on PG, `CAST(? AS DECIMAL(65,30))` on MySQL (uncast, MySQL would compare an exact column as a *double*). SQLite stores `TEXT` (was `REAL`): reads, writes and equality are exact, while ordering, aggregation and atomic arithmetic are a typed `UnsupportedOperationError` rather than a double-precision guess. A one-release `decimal: "number"` client option restores the old decode at runtime only.
-8. **Nested `create`/`createMany` under `update` is conditionally refused.** Works only when the referenced parent column is single-field *and* pinned by the unique `where` or rewritten by the root SET ([UpdateOperation.ts:1327-1382](../../src/query-engine-v2/UpdateOperation.ts:1327)). Inverse-side to-one nested `create`/`createMany`/`updateMany`/`deleteMany` are absent outright (`:1671-1676`). Prisma has no such condition.
+8. **Nested `create`/`createMany` under `update` is conditionally refused.** Works only when the referenced parent column is single-field *and* pinned by the unique `where` or rewritten by the root SET ([UpdateOperation.ts:1327-1382](../../src/query-engine/write-engine/UpdateOperation.ts:1327)). Inverse-side to-one nested `create`/`createMany`/`updateMany`/`deleteMany` are absent outright (`:1671-1676`). Prisma has no such condition.
 9. ~~**No `omit`, no query-level projection sugar.**~~ — **CLOSED by W5-U4**: query-level `omit` (every returning operation, plus nested relation nodes) and client-level `omit` both ship, desugaring in validation into the `select` they denote ([args/omit.ts](../../src/validation/model/args/omit.ts), [client/omit.ts](../../src/client/omit.ts)). Model-level `.omit()` ([model.ts:155](../../src/schema/model/model.ts:155)) became a HARD exclusion in the same unit — the field has neither a `select` nor an `omit` key — so the three layers rank schema > client > query. ~~`_count: true` shorthand fails strict validation~~ — **CLOSED by W1-B**: the shorthand desugars to `{ select: { <every to-many relation>: true } }` in validation (see §1.4).
 10. **Tooling is a fraction of Prisma's CLI.** Two commands: `viborm push` and `viborm migrate {generate,apply,down,status,drop}`. No Studio, no `db seed`, no `db pull` command, no drift detection, no shadow DB.
 
@@ -119,7 +119,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 | Operation | Status | Evidence |
 |---|---|---|
 | `findUnique` | ✅ | [find.ts:20-48](../../src/validation/model/args/find.ts:20); `routing.ts:32` |
-| `findUniqueOrThrow` | ✅ | [ReadOperation.ts:80](../../src/query-engine-v2/ReadOperation.ts:80) |
+| `findUniqueOrThrow` | ✅ | [ReadOperation.ts:80](../../src/query-engine/write-engine/ReadOperation.ts:80) |
 | `findFirst` | ✅ — `take` honored with Prisma's sign semantics (`f105500`); `distinct` accepted, array **or** bare-string form (W1-B unit 3) | `find.ts` `getDistinctSchema` feeds findMany and findFirst alike; `ReadOperation` passes the whole validated args to `buildFind` |
 | `findFirstOrThrow` | ✅ | `types.ts:113-114` |
 | `findMany` | ✅ | `find.ts:107-157` |
@@ -129,7 +129,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 | `update` | ✅ unique-`where` enforced | `mutation.ts:126-155` |
 | `updateMany` | ✅ incl. `limit` (W4-U2) — **and see defect 1** | `mutation.ts` `getUpdateManyArgs`; `operations/bulk-limit.ts` |
 | ~~`updateManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `updateMany` with a `select`. Same scalar-only projection as `createMany`; `limit` caps this arm too, so the rows returned are the rows affected. `deleteMany` with a `select` is the same shape, past Prisma, which has no returning `deleteMany` | `mutation.ts` `getUpdateManyArgs` / `getDeleteManyArgs`; `args/bulk-write-projection.ts` |
-| `upsert` | ✅ **+ superset** (`targetWhere`/`setWhere`) | `mutation.ts:309-346`; probe-first, not `ON CONFLICT` ([UpsertOperation.ts:79](../../src/query-engine-v2/UpsertOperation.ts:79)) |
+| `upsert` | ✅ **+ superset** (`targetWhere`/`setWhere`) | `mutation.ts:309-346`; probe-first, not `ON CONFLICT` ([UpsertOperation.ts:79](../../src/query-engine/write-engine/UpsertOperation.ts:79)) |
 | `delete` | ✅ unique-`where` enforced | `mutation.ts:236-262` |
 | `deleteMany` | ✅ incl. `limit` (W4-U2) | `mutation.ts` `getDeleteManyArgs`; `operations/bulk-limit.ts` |
 | `count` | ✅ incl. `select: { _all, field }`, where/orderBy/cursor/take/skip | `aggregate.ts:111-148` |
@@ -169,7 +169,8 @@ Single compile path: [where-builder.ts](../../src/query-engine/builders/where-bu
 | DateTime/Date/Time/BigInt/Decimal/Boolean/Enum filters | ✅ | `src/validation/scalars/*` |
 | Bytes (blob) filters | ✅ **CLOSED by W1-U2** (`f64a315`) — `in`/`notIn` shipped with `BytesFilter` parity, incl. empty `in: []` → FALSE; pinned live on pg, pglite, postgres.js, mysql2, sqlite3 and libsql (`tests/drivers/blob-filter-behavior.ts`) | `scalars/blob.ts` `buildBlobFilterSchema`; `scalar-filter-operators.ts` |
 | Compound unique in `findUnique` | ✅ | `core/where.ts:98-121` |
-| **Extended whereUnique** | ✅ **W4-U1** — discriminator + non-unique scalar filters + `AND`/`OR`/`NOT`, top-level `findUnique`/`findUniqueOrThrow`/`update`/`delete`/`upsert` only; relation filters refused by name; nested target selectors and `cursor` stay strict | `core/where.ts` `getWhereUniqueExtendedSchema`; `where-unique-builder.ts` `partitionWhereUnique` |
+| **Extended whereUnique** | ✅ **W4-U1**, widened by **N6-U2** — discriminator + non-unique filters (scalar **and relation**, the relation half added by N6-U2) + `AND`/`OR`/`NOT` on top-level `findUnique`/`findUniqueOrThrow`/`update`/`delete`/`upsert`. Only the LINK selectors stay strict: `connect`/`disconnect`/`set`/`connectOrCreate.where` and `cursor` | `core/where.ts` `getWhereUniqueExtendedSchema`; `where-unique-builder.ts` `partitionWhereUnique` |
+| **Extended whereUnique in NESTED target selectors** | ⬆️ **SUPERSET — N6-U1 (D-N1)**. Nested `update` / `upsert` / `delete` targets take `{ <unique>, ...filters }` — including RELATION filters, once N6-U2 merged into this schema; **Prisma's nested selectors are unique-only in these three positions**. The filter half joins the locate and every batch guard; the discriminator alone still feeds the located PK, identity and `racePin` (withheld under an extended selector, as at the root). At depth the filter needs no `mutationTable` composition: a nested targeted write addresses the row by the key its probe captured, so the filter only ever rides an aliased SELECT | `relations/update.ts`; `query-engine-v2/shared.ts` `uniqueSelectorConjuncts`; `fragment-builders.ts` `childRacePin`; witnesses in `depth-seam-behavior.ts` (N6-U1 block) and `extended-where-unique-behavior.ts` §8 (the merge surface), compile-pinned in `unique-where-relation-filter-plan.test.ts` |
 | `_count` in `where` | ❌ — matches Prisma | `where-builder.ts:110` |
 
 **Reverse gap — CLOSED by W1-B unit 1.** The engine had always implemented `having: { AND | OR | NOT }` ([groupby-having.ts:17](../../src/query-engine/operations/groupby-having.ts:17)) while `getHavingSchema` built entries only from scalar names, so `groupBy({ having: { OR: [...] } })` died at validation with `Unknown key: OR`. `getHavingSchema` now builds AND/OR/NOT through the same thunk self-reference `getWhereSchema` uses (AND/NOT object-or-array, OR array-only; scalar entries applied last, so a scalar literally named `AND` still wins — identical precedence to `where`). Field references are excluded from `having` by an explicit `v.noFieldRef` wrapper (W2-B), matching Prisma.
@@ -208,17 +209,17 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 
 | Feature | Under `create` | Under `update` | Notes |
 |---|---|---|---|
-| `create` (single + array) | ✅ all cardinalities | 🟡 parent-held to-one ✅; **inverse to-one ❌** (`UpdateOperation.ts:1671`); **to-many conditional** — needs a single-field referenced column pinned by the unique `where` or rewritten by root SET (`:1327-1382`) | `client.user.update({ where:{ email }, data:{ posts:{ create:{…} } } })` fails; `where:{ id }` works |
-| `createMany` (+`skipDuplicates`) | ✅ to-many | 🟡 same pinning gate; ❌ inverse to-one; ❌ M2M (`RelationJunctionPart.ts:1615`) | — |
+| `create` (single + array) | ✅ all cardinalities | ✅ all cardinalities — parent-held to-one, **inverse to-one (N2-U1)**, and to-many on any spelling of the unique `where` (**N1-U1** removed the pinning gate; the referenced column rides the located-parent Ref) | an occupied inverse-to-one slot errors on the 1:1 FK's UNIQUE constraint, matching Prisma |
+| `createMany` (+`skipDuplicates`) | ✅ to-many, **✅ M2M since N3-U1** | ✅ to-many, any `where` spelling (N1-U1); **✅ M2M since N3-U1**. Not offered on a to-one — **Prisma parity**, measured: `createMany` is absent from Prisma 7.9.1's to-one nested-update input too | M2M `createMany` = `create` per row + the join row; `skipDuplicates` skips the CHILD row's insert and still writes the join row, and is refused when the target key is DB-generated (a skipped INSERT produces no identity) |
 | `connect` | ✅ | ✅ | fails if target missing |
 | `connectOrCreate` | ✅ | ✅ — ↔️ **global** lookup-and-adopt (reparents), not parent-correlated | `UpdateOperation.ts:1434` |
 | `update` | — | ✅ to-one takes bare data **or** Prisma 5's `{where?,data}` (W4-U3; `where` is a NON-unique filter on the connected record, filter-miss → P2025-equivalent, whole tree rolls back). ⚠️ on a target owning a field named `data` the two spellings collide and viborm **refuses** the shape (Prisma picks one silently) — spell the envelope out, `{where:{},data:{…}}`. To-many `{where,data}` ✅ | `update.ts:45-79`, `to-one-update-form.ts` |
 | `updateMany` | — | ✅➕ `where` is **optional** (Prisma requires it) | `update.ts:153-161` |
-| `upsert` | ➕ **to-many only, viborm superset**, global-adopt-and-update, **executable today** | ✅ to-one `{create,update}`, to-many `{where,create,update}` | `create.ts:182-201`; proven in `create-nested-upsert-behavior.ts:123`. `compatibility.mdx:66` saying "the current engine rejects it" is **stale** |
-| `delete` | — | ✅ boolean (to-one), whereUnique single+array (to-many) | ↔️ inverse-side `delete: true` with no related row is a **no-op**; Prisma throws P2025 |
-| `deleteMany` | — | ✅ to-many; ❌ inverse to-one | `update.ts:172` |
-| `set` | — | ✅ to-many, with orphan guard | `RelationWritePart.ts:910-947` |
-| `disconnect` | — | ✅ boolean on optional to-one; whereUnique on to-many | `update.ts:49,251-253` |
+| `upsert` | ➕ **child-held to-many only, viborm superset**, global-adopt-and-update, **executable today**. ⚠️ the same key on a **many-to-many** relation under `create` is refused (`CreateOperation.ts:1648`) — the schema offers it on both, and the audit found this the one kind that actually reaches that site, with no recorded reason covering it | ✅ to-one `{create,update}`, to-many `{where,create,update}`, m2m ✅ | `create.ts:182-201`; proven in `create-nested-upsert-behavior.ts:123`. `compatibility.mdx:66` saying "the current engine rejects it" is **stale**. The m2m asymmetry is item 3 of the floor audit |
+| `delete` | — | 🟡 boolean (to-one), whereUnique single+array (to-many). **Narrower than Prisma on the to-one**: Prisma 7.9.1 takes `WhereInput \| boolean`, viborm only the boolean (N2-U3 — see §3.B). ✅ the literal `delete: false` is now the **no-op** Prisma's boolean arm makes it (N7-U-B, measured against a live Prisma 7.9.1; the three refusal sites are gone) | ↔️ inverse-side `delete: true` with no related row is a **no-op**; Prisma throws P2025 |
+| `deleteMany` | — | ✅ to-many. Not offered on a to-one — **Prisma parity**, measured against Prisma 7.9.1's to-one nested-update input (N2-U2) | `update.ts:172` |
+| `set` | — | ✅ to-many, with orphan guard. To-one: Prisma parity, absent there too | `RelationWritePart.ts:910-947` |
+| `disconnect` | — | 🟡 boolean on optional to-one; whereUnique on to-many. **Narrower than Prisma on the to-one**: Prisma 7.9.1 takes `WhereInput \| boolean`, viborm only the boolean (N2-U3 — see §3.B). ✅ `disconnect: false` is now a **no-op**, matching Prisma (N7-U-B). It had been worse than an error at two paths: the parent-held arm and the depth arm DISCONNECTED on `false` | `update.ts:49,251-253` |
 | Required-relation orphaning | ✅ throws, Prisma-equivalent — **plus stricter typing**: on a required to-one the `disconnect`/`delete` keys aren't in the schema at all | `RelationProgramValues.ts:181-188` |
 | Atomic `set`/`increment`/`decrement`/`multiply`/`divide` | ✅ Int, Float, BigInt, Decimal | `set-builder.ts:106-134` |
 | Atomic arithmetic **on a primary key** | ➕ with a portability gate (one op per PK; float/decimal arithmetic and `divide: 0` rejected) | `mutation-identity.ts:190-236` |
@@ -229,7 +230,16 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | Write-race retry | ➕ whole operation retried **exactly once** on a racePin-matched unique violation; fail-closed on missing attribution | `race-retry.ts:27-113` |
 | Implicit transaction around multi-statement writes | ✅ **stricter than Prisma** — a driver with neither transactions nor atomic batch is *rejected* | `OperationExecutor.ts:98-140` |
 
-**Own-write preflight (viborm-specific).** Any nested decision read whose footprint overlaps an *earlier write in the same tree* is rejected before I/O: `{ posts: { create: {…}, connect: { where: {…} } } }` → `Nested operation 'connect' on relation 'posts' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.` ([OwnWriteLedger.ts:247](../../src/query-engine/OwnWriteLedger.ts:247)). Prisma linearizes some of these. Deliberate doctrine: ATOM §4 rejects rather than linearizes, because reimplementing ~1.2k lines of legality semantics per-Part *"would fork the theorem the whole architecture rests on."*
+**How every targeted nested row above names its target — ⬆️ SUPERSET since N6-U1/N6-U2.** The `update` / `upsert` / `delete` rows take `{ <unique>, ...filters }`, scalar filters and relation filters alike, where Prisma's nested selectors are unique-only; the discriminator keeps its monopoly on the located PK, identity and `racePin`. The row is stated once, with its seams and witnesses, in §1.3 ("Extended whereUnique in NESTED target selectors") — the write rows point at it rather than restating it. `connect` / `disconnect` / `set` / `connectOrCreate.where` stay strict: they name a row to link, not one to locate and mutate.
+
+**Own-write preflight (viborm-specific).** Any nested decision read whose footprint overlaps an *earlier write in the same tree* is rejected before I/O — for example `{ posts: { delete: [{ id: 1 }], update: [{ where: { id: 1 }, data: {…} }] } }` → `Nested operation 'update' on relation 'posts' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries.` ([OwnWriteLedger.ts:247](../../src/query-engine/OwnWriteLedger.ts:247)).
+
+**N6-U3 DELIVERED (2026-07-30) — the obligation this row carried is discharged.** Two corrections to what stood here.
+
+1. *The example was wrong.* `{ posts: { create: {…}, connect: {…} } }` — the payload this row printed, and the one the plan called A14's headline — does **not** reject and never did, on a to-many or a many-to-many, whether or not the two kinds name the same row. It executes; both rows land. Measured before anything was changed. The illustration above is a shape that genuinely produces the message.
+2. *The doctrine was not what the refusal rested on.* Sibling kinds on one relation now linearize in ONE fixed, documented order (ATOM §4.1), used by both the emission and the legality derivation. Before the amendment there were **two** orders — `RELATION_MUTATION_KEYS` for emission, `planRelationMutationSteps`' own if-chain for derivation — disagreeing on `deleteMany` vs `upsert`, so a shape's soundness was checked against a sequence the engine never executed. Deleting the second order, not weakening the check, is what moved the surface: over all 55 sibling pairs × {to-many, m2m} × {disjoint, same identity} plus the create root, **92 rejections became 41**. What survives is a payload contradiction (two kinds naming one row) or a many-to-many `deleteMany` whose filter cannot be bounded — both re-justified, neither inherited.
+
+**Versus Prisma, measured (7.9.1, pg adapter, query log per shape):** Prisma has no order at all — it executes sibling kinds in the enumeration order of the JS object literal, so `{ create, deleteMany }` deletes the row it just created while `{ deleteMany, create }` keeps it. That is [prisma/prisma#16606](https://github.com/prisma/prisma/issues/16606), open and labelled `bug/2-confirmed`. viborm's order is fixed and independent of how the caller spelled the object. Prisma also does not offer `createMany` on an implicit many-to-many; viborm does (N3-U1).
 
 ## 1.6 Transactions
 
@@ -296,8 +306,9 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `@updatedAt` | `.updatedAt()` | ✅ |
 | `@map` / `@@map` | `.map()` | ✅ |
 | `@ignore` / `@@ignore` | `.omit({field:true})` | 🟡 **different semantic** — a SCHEMA-level projection exclusion (since W5-U4: hard, unnameable in `select`/`omit`), not "invisible to client but present in DB": the column is still writable and filterable. No DB-only-field marker |
-| `@@index` | `.index(fields, {name, unique, type, where})` | ✅➕ adds `unique`, `btree\|hash\|gin\|gist`, PG partial-index `where` |
-| `@@fulltext` | — | ❌ at schema level, though the migration layer supports it |
+| `@@index` | `.index(fields, {name, unique, type, where})` | ✅➕ adds `unique`, `btree\|hash\|gin\|gist\|fulltext\|spatial` (refused by name on the dialects that lack each), PG/SQLite partial-index `where`. ❌ **field NAMES only** — an EXPRESSION index (`lower(email)`) cannot be declared, which closes the only index escape for `mode: "insensitive"` predicates; see plan §10.5 |
+| `@@fulltext` | `.index(fields, { type: "fulltext" })` | ✅ **CLOSED by plan §10.6** (MySQL only — the emitter, introspection and capability list already had it; only the schema-level `IndexType` union was short) |
+| — | ANN vector index (`ivfflat`, `hnsw`) | ❌ **not declarable while vector `orderBy` ships** — so every vector similarity query is a full scan. Needs a metric-matched operator class and build parameters `IndexOptions` has no shape for; see plan §10.5 |
 | `@relation(fields, references)` | `.fields()` / `.references()` | ✅ |
 | `@relation(name:)` | `.name()` on all 4 relation kinds | ✅ |
 | Referential actions | `.onDelete()`/`.onUpdate()`: `cascade\|setNull\|restrict\|noAction` | 🟡 **`SetDefault` absent** at schema level. **DDL-enforced only** — no `relationMode="prisma"` client emulation |
@@ -353,6 +364,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `upsert` `targetWhere` / `setWhere` — partial-unique-index targeting and conditional `DO UPDATE ... WHERE` | `UpsertOperation.ts:84-89` |
 | `exist({ where? }) → boolean` | `docs/…/exist.mdx` |
 | Nested `updateMany` with optional `where` | `update.ts:153-161` |
+| **Extended `whereUnique` in nested `update`/`upsert`/`delete` target selectors** (N6-U1), including **relation filters inside a unique `where`** at the root and at depth (N6-U2) — Prisma is unique-only in the nested positions and refuses relation filters in a unique `where` everywhere | §1.3 row; `shared.ts` `uniqueSelectorConjuncts`; `depth-seam-behavior.ts`, `extended-where-unique-behavior.ts`, `unique-where-relation-filter-plan.test.ts` |
 | `mode:'insensitive'`, scalar-list filters, list `push/unshift/set` on **MySQL and SQLite** | §1.3, §1.5 |
 | Atomic arithmetic on primary keys with a portability gate | `mutation-identity.ts:190-236` |
 | `s.date()`, `s.time()`, `s.point()`, per-field Standard-Schema validators, function-valued defaults, ID prefixes, partial/typed indexes, explicit junction naming | §1.9 |
@@ -396,7 +408,7 @@ There is **no driver-level capability interface**. `src/drivers/types.ts` define
 | `supportsLateralJoins` | true | true (8.0.14+) | **false** | yes |
 | `supportsMutationTargetInSubquery` | true | **false** (ERR 1093) | true | yes |
 | `supportsVector` | false → true only via `{ pgvector: true }` | false | false | yes |
-| `supportsCteWithMutations` | true | false | true | **no — dead flag** |
+| `supportsCteWithMutations` | true | false | **false** (was `true`, and wrong) | yes — the Phase 8 folds |
 | `supportsFullOuterJoin` | true | false | false | **no — dead flag** |
 | `supportsUpsertWhere` | true | false | true | **no — dead flag** |
 
@@ -413,7 +425,7 @@ Placeholder style is **dialect-derived, never driver-derived**: `$n` for postgre
 | Concurrency | 🟡 pooled (`pg`, `postgres`, `bun-sql`); serialized (`pglite`) | 🟡 pooled | 🟡 **serialized** (`sqlite3`, `bun-sqlite`, in-memory `libsql`) |
 
 **The `requiresAtomicResolution` refusal — real code, currently unreachable in production.**
-[routing.ts:107-126](../../src/query-engine-v2/routing.ts:107) refuses `update`/`delete`/`upsert` when `supportsBatch && !supportsTransactions && !supportsReturning`. The only non-returning adapter is MySQL, and no shipped MySQL driver is batch-only; the only batch-only drivers (`d1`, `neon-http`) both support RETURNING. So **no shipped driver combination can hit this refusal.** It is exercised only by an artificial test subclass (`tests/drivers/batch-forced-mysql2.ts:11`) inside the docker-gated MySQL suite — a test that does not run by default.
+[routing.ts:107-126](../../src/query-engine/write-engine/routing.ts:107) refuses `update`/`delete`/`upsert` when `supportsBatch && !supportsTransactions && !supportsReturning`. The only non-returning adapter is MySQL, and no shipped MySQL driver is batch-only; the only batch-only drivers (`d1`, `neon-http`) both support RETURNING. So **no shipped driver combination can hit this refusal.** It is exercised only by an artificial test subclass (`tests/drivers/batch-forced-mysql2.ts:11`) inside the docker-gated MySQL suite — a test that does not run by default.
 
 ## 2.3 RETURNING
 
@@ -563,29 +575,33 @@ The repo is honest about this in its own docs (`tests/drivers/README.md:38`, `ne
 
 ## 3.0 The structural fact that reframes everything
 
-**V1 is gone.** [routing.ts:64](../../src/query-engine-v2/routing.ts:64) — *"with V1 deleted there is no fallback arm to catch it."*
+**V1 is gone.** [routing.ts:64](../../src/query-engine/write-engine/routing.ts:64) — *"with V1 deleted there is no fallback arm to catch it."*
 
-Consequence: **all 76 `UnsupportedOperationError` throw sites are now terminal, user-facing errors.** Before P6 they were *routes* — the tree quietly re-ran on V1 and the user got a working query. `ATOM.md:1469` confirms: *"The former route-to-V1 declines are now terminal `UnsupportedOperationError`s."*
+Consequence: **every `UnsupportedOperationError` throw site is now a terminal, user-facing error.** Before P6 they were *routes* — the tree quietly re-ran on V1 and the user got a working query. `ATOM.md:1469` confirms: *"The former route-to-V1 declines are now terminal `UnsupportedOperationError`s."*
 
-But **73 comments across `src/` still say "routes to V1"**. See §0.2.
+But **58 comments across `src/` still say "routes to V1"** (was 73; the N-waves retired 15 of them by deleting or rewriting the sites). See §0.2.
 
 ### The refusal surface, counted
 
-| Class | Sites in `src/query-engine-v2/*.ts` | Nature |
+Re-counted on `nested-write-boundaries` @ `6910728` (grep over `src/query-engine/write-engine/*.ts`).
+
+| Class | Sites in `src/query-engine/write-engine/*.ts` | Nature |
 |---|---:|---|
-| `UnsupportedOperationError` | **76** (pinned: `route-inventory.test.ts:622`) → **78 on `prisma-parity-v2`** | shape the engine cannot express |
-| `QueryEngineError` | 82 | ~4 real declines, ~78 fail-closed invariants |
-| `NestedWriteError` | 32 | relation legality / target-not-found |
-| `TransactionError` | 5 | driver-capability refusals |
+| `UnsupportedOperationError` | **68** (pinned: `route-inventory.test.ts:1706`) | shape the engine declines — but see the audit below: 25 of the 68 are unreachable guards |
+| `QueryEngineError` | 85 | fail-closed invariants (X1c/N2-U1/N4-U2 converted three unreachable declines into this class) |
+| `NestedWriteError` | 35 | relation legality / target-not-found / own-write preflight |
+| `TransactionError` | 7 | driver-capability refusals |
 | `ValidationError` | 1 | the single parse boundary |
 
-> **Census on this branch: 76 → 78**, pinned at `route-inventory.test.ts:670`. Two deltas, each with its rationale written above the assertion: `+1` from `b1392ca` (the M2M generated-PK junction create split `requireCreatePk` into two sites while *absorbing* an accept-and-execute shape), and `+1` from `ea1f637`/`51a995a` (upsert's create-arm read-back stopped consulting the `where`; the new site is a create payload carrying no complete identity). The count going up here means refusals got **narrower**, not that surface was lost.
+> **Census on this branch: 78 → 68**, pinned at `route-inventory.test.ts:1706`, with every delta's rationale written above the assertion in the count-evolution log. The composition changed more than the number: absorptions removed whole families (N1-U1's pinning gate, N2-U1's inverse-to-one create, N3-U1's M2M `createMany`, N4-U1's located-target seams, N4-U2's six create-arm guards, N5-U1's adopt ordering) while each one drew a finer boundary in its place.
+>
+> **The floor claim is audited, and it does not hold at 68.** Site-by-site disposition with live reachability measurements is in [nested-write-boundaries-plan.md § "The floor — final census disposition"](./nested-write-boundaries-plan.md): 3 parity · 15 genuinely inexpressible · **50 unjustified**, of which 25 refuse nothing at all (the parse boundary or an exhaustive dispatch answers first). Applying the disposition this branch already gave two such sites — convert to `QueryEngineError` — would take the census to 43 with no user-visible change. **DONE, and then some:** N7-U-A converted 23 of the 25 (census 68 → 45, two of the claims were refuted), and N7-U-B measured the rest against a live Prisma 7.9.1 oracle — 5 sites ABSORBED, the (c-iii) class emptied, census **40**. The standing balance is 4 parity · 19 inexpressible · **17 reachable with a mechanism this engine already has**, grouped into four named waves.
 
 ## 3.A Hard refusals a user could hit
 
 *Ranked by likelihood in a normal application.*
 
-**A1. ~~M2M nested `create` with a database-generated target PK — the top hazard.~~ FIXED (`b1392ca`, pre-wave, same branch).** The child INSERT produces the identity and the junction row references it by a backward `Ref`; `create` and `connectOrCreate` both work through the junction. Still refused, and now honestly typed: an explicit-null or non-`increment` absent PK, and the **upsert create arm** (its compile-time dedup ledger addresses the target by a literal). Covered by a generated-PK fixture in the shared M2M behavior suite on every driver leg. See [defect 3](#01-the-three-defects-worth-fixing-before-anything-else).
+**A1. ~~M2M nested `create` with a database-generated target PK — the top hazard.~~ FIXED (`b1392ca`, pre-wave, same branch).** The child INSERT produces the identity and the junction row references it by a backward `Ref`; `create` and `connectOrCreate` both work through the junction. Still refused, and now honestly typed: an explicit-null or non-`increment` absent PK, and the **junction upsert create arm** (its compile-time dedup ledger addresses the target by a literal). The CHILD-HELD upsert create arm no longer refuses a generated key: N4-U2 made that arm a create subtree, whose grandchildren `Ref` the INSERT that produces it. Covered by a generated-PK fixture in the shared M2M behavior suite on every driver leg. See [defect 3](#01-the-three-defects-worth-fixing-before-anything-else).
 
 **A2. `update`/`delete`/`upsert` on a batch-only, non-returning driver.** The returned row's identity can only be parsed after the batch commits, and that parse cannot be rolled back. `TransactionError`. A substrate limit; `ATOM.md:318` says it stays *"unless a deliberate design note lifts it."* **Currently unreachable** — no shipped driver combination qualifies.
 
@@ -611,13 +627,13 @@ But **73 comments across `src/` still say "routes to V1"**. See §0.2.
 
 **A13. Arithmetic on a primary key — four portability refusals.** Two ops on one PK; float/decimal PK arithmetic; `divide: 0`; non-finite operand. Plus: a derived write to a **relation key** field while mutating that relation.
 
-**A14. The own-write preflight.** See §1.5. viborm-specific — Prisma linearizes some of these.
+**A14. The own-write preflight.** See §1.5. viborm-specific. Prisma has no fixed sibling order at all (it follows the payload's key order — prisma/prisma#16606); viborm linearizes in one documented order (ATOM §4.1, N6-U3) and rejects only a payload contradiction or an unbounded many-to-many `deleteMany` filter.
 
 **A15. Referential-action legality: nested adopt under a non-cascade PK transition.** A root `update` rewriting a parent PK a child references with `onUpdate: restrict/setNull/noAction`, while nesting `connect`/`connectOrCreate`/`set`/to-many `upsert`. *(The T4c-fix commit `b82a729` exists because this guard was originally wired only into the inverse-to-one `upsert` — every other kind silently diverged into corruption. Fixed; recorded because it shows the class is live.)*
 
 **A16. Every model must have a primary key.** Engine, `push` and `migrate` all refuse.
 
-**A17. Parity refusals inside nested writes** (all match Prisma's own rejections): `update`/`delete`/`set`/`disconnect` inside a `create` payload; M2M `upsert`/`disconnect`/`set`/`delete` under `create`; two kinds on one to-one arm; object-form `disconnect: {…}`/`delete: {…}` on a to-one; writing a relation's owned FK inside its own nested create; nested create identity must match the unique `where`; M2M `disconnect: true` without a selector; `set` that would orphan a required FK.
+**A17. Parity refusals inside nested writes** (all match Prisma's own rejections): `update`/`delete`/`set`/`disconnect` inside a `create` payload; M2M `upsert`/`disconnect`/`set`/`delete` under `create`; two kinds on one to-one arm; ~~object-form `disconnect: {…}`/`delete: {…}` on a to-one~~ (**N2-U3 — this entry was WRONG, and is retracted**: measured against Prisma 7.9.1's generated `ProfileUpdateOneWithoutUserNestedInput`, both keys are typed `ProfileWhereInput | boolean`, a filter narrowing which connected record is acted on. viborm types them `v.boolean()`, so the object form is refused at the parse boundary — a genuine, narrower surface, not parity. Moved to §3.B); writing a relation's owned FK inside its own nested create; nested create identity must match the unique `where`; M2M `disconnect: true` without a selector; `set` that would orphan a required FK.
 
 **A18. Driver / dialect capability refusals.** `d1`/`neon-http` callback transactions; ~~`$transaction` options~~ (**W5-U3, `812a750`** — no longer a blanket refusal: options are honored per driver, and only the combinations a driver cannot execute are refused, each with a reason); array-form `$transaction` with a non-batchable op on a batch-only driver; insertId-scratch batch merge; PlanetScale cross-shard; `mysql2` `multipleStatements`; SQLite RIGHT/FULL OUTER/LATERAL; MySQL FULL OUTER; JSON path segments with `"` or `\`; nullable vector column in a distance select; compound-PK many-to-many (query **and** migration).
 
@@ -625,22 +641,24 @@ But **73 comments across `src/` still say "routes to V1"**. See §0.2.
 
 These are the *interesting* category. `route-inventory.test.ts:70-73` states plainly: **"NO conformance scenario reaches any of them (that is why the census is zero)."** They were unreachable-by-test *and* silently handled by V1. **V1 is gone. They are now live cliffs with zero test coverage.**
 
-Census evolution: 36 → 49 → 51 → 59 → 62 → 65 → 73 → 74 → 75 → 78 → 81 → 86 → 87 → 90 → 89 → 84 → 83 → 78 → **76**. Every absorption added finer boundaries.
+Census evolution: 36 → 49 → 51 → 59 → 62 → 65 → 73 → 74 → 75 → 78 → 81 → 86 → 87 → 90 → 89 → 84 → 83 → 78 → 76 → 74 (N4/N5) → **68** (N4-U2) → 45 (N7-U-A) → **40** (N7-U-B), and 68 through N4-U4, N6-U1, N6-U2 and N6-U3 — the last four moved capability without moving the count, each for a reason the log states (the shape missed the census, the refusal lived at the parse boundary, or it raised a different error class). Every absorption added finer boundaries — until N4-U2, whose six sites were boundaries of a hand-rolled arm rather than of anything the engine could not express, and which therefore added none.
+
+**Audited 2026-07-30 — the §3.B rows below are a taxonomy of *sites*, not of refusals.** The per-site disposition (with live reachability probes) is in [nested-write-boundaries-plan.md § "The floor — final census disposition"](./nested-write-boundaries-plan.md). Its headline for this section: **B12's "degenerate/unreachable guards" is far larger than the one row suggests — 25 of the 68 sites are unreachable** (N7-U-A then converted 23 of the 25; TWO turned out to be reachable — see B12), and N7-U-B then absorbed five more against a live Prisma oracle, including two paths where viborm silently did the OPPOSITE of what the payload asked, and several rows below (B2's compound-key family, B7's connect-by-other-unique, parts of B3/B4) name shapes whose closing mechanism already exists elsewhere in the engine. Line numbers in the `Sites` column predate the N-waves and are indicative, not current.
 
 | # | Boundary | Sites |
 |---|---|---|
-| **B1** | Shared-primary-key edges whose fold value isn't a compile-time literal (`A.id` *is* the FK to `B`; works for a direct-referenced `connect` or literal-id `create`, fails for a non-referenced `connect`, a generated create id, or `connectOrCreate`) | `CreateOperation.ts:758`, `UpdateOperation.ts:2491` |
+| **B1** | Shared-primary-key edges whose fold value isn't a compile-time literal (`A.id` *is* the FK to `B`). **N4-U4 (2026-07-30) absorbed the `create` cause on the CREATE root under BOTH provenances** — a literal target key, and one the database generates, which the record's identity and its terminal read take as a backward `Ref` to the producing before-parent INSERT. What survives there is a non-referenced `connect` (its FK is a lookup subquery, and re-evaluating it for the identity is a second provenance) and a `connectOrCreate` (a runtime arm decision). N4-U4 also widened a fresh record's identity past its primary key, so an edge referencing one of its other uniques now resolves | `CreateOperation.ts:758`, `UpdateOperation.ts:2491` |
 | **B2** | Compound keys at the wrong place in the tree | `CreateOperation.ts:1230`, `UpdateOperation.ts:1333,1129,2046`, `RelationUpsertPart.ts:653` |
 | **B3** | Nested writes that must locate their target by its primary key (a nested `update`/`upsert` carrying its own relation writes needs a construction-time literal FK) | `RelationWritePart.ts:596`, `RelationUpsertPart.ts:740`, `RelationJunctionPart.ts:1339` |
 | **B4** | Nested relation writes in arms that can't carry them (upsert create arm; `updateMany`/connectOrCreate-adopt data; parent-held to-one located data; before-root target create) | `RelationWritePart.ts:375,586,576`, `UpdateOperation.ts:2318,2506` |
 | **B5** | **PK transition + a non-cascading child-held edge** — *"routed for correctness, not inexpressibility"* (`PLAN.md:1314`). Witness test exists | `RelationWritePart.ts:637` |
 | **B6** | Nested `create` under a PK-transitioning parent (unpinned pre-transition value; non-literal arithmetic rewrite; reference neither pinned nor rewritten) | `UpdateOperation.ts:1352,1367,1379,1156` |
 | **B7** | Connect by a non-referenced unique in the wrong position | `UpdateOperation.ts:2993,2574`, `RelationUpsertPart.ts:940` |
-| **B8** | The connectOrCreate / upsert create-arm depth guard (one level deeper) | `RelationUpsertPart.ts:806,848,854,916,923,495,597` |
+| **B8** | ~~The connectOrCreate / upsert create-arm depth guard (one level deeper)~~ **ABSORBED by N4-U2 (2026-07-30).** The arm's row is PRODUCED, and a produced row's relations are the create ROOT's surface, so the whole relation-carrying arm is a create SUBTREE (X1b's `nestedFresh` reuse through an injected builder). Five sites deleted, one converted to a structural invariant. What remains is named for the UPDATE arm, whose target is LOCATED: an m2m edge and a parent-held to-one one level deeper | `RelationUpsertPart.ts` (update-arm sites only) |
 | **B9** | Depth leaves in `nested-target-parts.ts` (5 sites). **The depth limit itself is gone** — X1/X1b/X1c lifted it entirely; a 40-level chain is exercised. These are *seam* differences, not a counter. `:537` is the live tripwire the decline-surface gate keeps alive | `nested-target-parts.ts:307,335,481,537,555` |
 | **B10** | T4b/T4c narrower boundaries (located-only pre-transition PK, compound generated PK, non-portable arithmetic; the A15 adopt decline) | `ATOM.md:1383,1424,1445` |
 | **B11** | Top-level `upsert` update arm with a parent-held to-one relation | `route-inventory.test.ts:456` |
-| **B12** | Degenerate/unreachable guards — `'<label>' must be an object.` ×4, the upsert fourth-key gate, `read does not handle '…'`, `No validation schema exists for relation '…'`, the defensive relation-type guard | — |
+| **B12** | ~~Degenerate/unreachable guards~~ **EMPTIED by N7-U-A (2026-07-30)**, and then some: the audit found this row was 25 sites wide, not the handful it listed. 23 of them are now `QueryEngineError` internal invariants (the N2-U1 / X1c disposition — a branch unreachable BY CONSTRUCTION is not a capability boundary), so they are no longer refusal sites at all; the census pin dropped 68 → 45 with **no user-visible change**, because none of them fires. Witnesses: `census-conversion-witnesses.test.ts`. TWO survivors were re-measured as **REACHABLE**: the create-root relation-type guard (a `manyToOne` with no `.fields()`, which the same schema's `update` root accepts) and the to-many upsert builder's direction guard (a parent-held to-one `connectOrCreate` on an upsert UPDATE arm, where the grandchild fold dispatches on the kind alone). Both reclassified as unwired mechanisms, not degenerate guards | `CreateOperation.ts:822`, `RelationUpsertPart.ts:708` |
 
 ### The user-facing shapes inside §3.B worth calling out by name
 
@@ -648,10 +666,13 @@ These are ordinary Prisma payloads:
 
 | Payload | Result |
 |---|---|
-| `user.update({ where:{ id }, data:{ profile:{ create:{ bio } } } })` on an **inverse-side to-one** | ❌ `does not support nested 'create' on the inverse-side to-one relation 'profile'` ([UpdateOperation.ts:1671](../../src/query-engine-v2/UpdateOperation.ts:1671)). `tests/query-engine-v2/to-one-update-family.test.ts:260-440` enumerates every other inverse-to-one kind — **no `create` case** |
-| `user.update({ where:{ email }, data:{ posts:{ create:{…} } } })` | ❌ `requires the referenced parent column 'id' to be pinned by the unique where or rewritten by the update`. Works with `where: { id }` |
-| `post.update({ where:{ id }, data:{ tags:{ createMany:{ data:[…] } } } })` (M2M) | ❌ `does not support nested 'createMany' on many-to-many relation 'tags'` |
-| `tags: { update: { where:{ slug }, data:{ posts:{…} } } }` | ❌ must locate the target by its primary key |
+| `user.update({ where:{ id }, data:{ profile:{ create:{ bio } } } })` on an **inverse-side to-one** | ✅ since **N2-U1**: the arity-1 case of the child-held create, on both parent provenances (pinned `where` or N1's located-parent Ref). An OCCUPIED slot errors as Prisma's does — the 1:1 FK's UNIQUE constraint, no pre-check probe and no retry. `tests/query-engine-v2/inverse-to-one-create-behavior.ts`, every driver leg × both substrates |
+| `user.update({ where:{ email }, data:{ posts:{ create:{…} } } })` | ✅ since **N1-U1** (the located-parent Ref): the locate selects the referenced column and the nested create reads it from the located row, compiling to the same statements as the `where: { id }` spelling |
+| `post.update({ where:{ id }, data:{ tags:{ createMany:{ data:[…] } } } })` (M2M) | ✅ since **N3-U1** — the `create` slot per row plus `skipDuplicates`; also under a `create` root. Refused only for `skipDuplicates` + a DB-generated target key (a skipped INSERT produces no identity for its join row) |
+| `article.update({ …, data:{ labels:{ upsert:{ where:{ name }, create:{ name }, update } } } })` with a generated `label.id` | ✅ since **N3-U2** — the create data's complete unique names the row; the join row rides the produced identity `Ref`. Still refused when the create data spells NO complete identity |
+| Many-to-many on a model with a **compound primary key** | ❌ `Many-to-many relations with compound PKs are not supported` — refused identically on the query side (`correlation-utils.ts:267`) and in the migrations serializer, both at construction/DDL. Measured in N3-U3: the junction vocabulary is scalar to its root, including the public `.A()` / `.B()` API, which names exactly ONE junction column per side |
+| `tags: { update: { where:{ slug }, data:{ posts:{…} } } }` | ❌ must locate the target by its primary key (N4-U1's unit: the same Ref generalizes, applied there) |
+| `user.update({ where:{ id }, data:{ profile:{ disconnect:{ …filter } } } })` / the same with `delete` | ❌ refused at the **parse boundary** — viborm types both keys `v.boolean()`. Prisma 7.9.1 types them `WhereInput \| boolean` (a filter narrowing which connected record is acted on), so this is a NARROWER surface, not a parity refusal (**N2-U3**, retracting the A17 claim). Closing it is a schema widening plus a filtered disconnect write; `delete`'s half is nearly free since `delete: true` already compiles through the filter-taking `deleteMany` leaf |
 | Two kinds on one to-one arm, or connect-by-other-unique on a parent-held to-one | ❌ see §1.5 |
 
 ## 3.C Deferred engineering (backlog, no direct user impact)
@@ -723,7 +744,7 @@ Residual is V2's fixed per-call construction cost (fresh operation object + own-
 
 **E8. The TypeScript type-instantiation ceiling (~31 levels).** A rich per-level literal create payload type-checks at 30 levels and fails at 32 with TS2321. The runtime carries no depth counter and folds a 40-level chain. A **DX** ceiling on client input inference, not an engine limit. Workaround: build the payload programmatically so the compiler never infers the deep literal.
 
-**E9. Documentation contradictions that make the current state hard to establish.** `ATOM.md:1004` *"(V1 not yet deletable)"* vs `routing.ts:26` *"with V1 deleted"*. `src/query-engine-v2/README.md:3` still declares *"Query Engine V1 remains the public implementation"*; its module table lists only `CreateOperation` (25 modules exist); `:291` says *"A future `UpdateOperation` should be implemented concretely first"* (it is 3,300+ lines); its "Deliberate Non-Goals" lists three things that all shipped. `correlation-utils.ts:19` claims M2M junction handling is *"not yet implemented"* while `:62` routes it to a working helper. `src/README.md:110` — *"when the database adapter system is implemented in a future phase"*. Plus the 73 "routes to V1" comments.
+**E9. Documentation contradictions that make the current state hard to establish.** `ATOM.md:1004` *"(V1 not yet deletable)"* vs `routing.ts:26` *"with V1 deleted"*. `src/query-engine/write-engine/README.md:3` still declares *"Query Engine V1 remains the public implementation"*; its module table lists only `CreateOperation` (25 modules exist); `:291` says *"A future `UpdateOperation` should be implemented concretely first"* (it is 3,300+ lines); its "Deliberate Non-Goals" lists three things that all shipped. `correlation-utils.ts:19` claims M2M junction handling is *"not yet implemented"* while `:62` routes it to a working helper. `src/README.md:110` — *"when the database adapter system is implemented in a future phase"*. Plus the 73 "routes to V1" comments.
 
 **E10. Reproducibility.** The benchmark baseline (`benchmarks/baseline.json`) is a **machine-local, untracked artifact**. None of the §3.D numbers is reproducible from a clean clone without regenerating it.
 
@@ -759,7 +780,7 @@ Residual is V2's fixed per-call construction cost (fresh operation object + own-
 | `README.md:39` | "no `updateManyAndReturn`" | ~~it exists~~ — **resolved by W3-U4** (`c9de15f`, docs `27d8e53`): the method genuinely does not exist; `README.md:37,39` now describe the implicit-returning form instead |
 | `README.md:271-295` | `instrumentation: { tracing: { enabled: true } }` | `TracingConfig` has no `enabled` field |
 | `prisma-core-gaps.md:20-22` | `createManyAndReturn`/`updateManyAndReturn` are non-goals | ~~both implemented~~ — **W3-U4 made the doc right for the wrong reason**: the names are non-goals now by decision D-1, and the capability ships under `createMany`/`updateMany` + `select`. The page still needs that sentence |
-| `src/query-engine-v2/README.md:3` + 73 in-file comments | "V1 remains the public implementation" / "routes to V1" | V1 fallback deleted; those errors now propagate |
+| `src/query-engine/write-engine/README.md:3` + 73 in-file comments | "V1 remains the public implementation" / "routes to V1" | V1 fallback deleted; those errors now propagate |
 | `src/client/AGENTS.md:255-260` | `$transaction(cb, { isolationLevel })` | ~~any second argument throws `V5005`~~ — **resolved by W5-U3** (`812a750`): the documented call now works; a *malformed* options object is what raises `V5005` |
 | `src/migrations/AGENTS.md:191` | `viborm push --accept-data-loss` | the flag is `--force` |
 | `AGENTS.md:184` | 13+ drivers including `d1-http` | 11 drivers; `d1-http` does not exist |

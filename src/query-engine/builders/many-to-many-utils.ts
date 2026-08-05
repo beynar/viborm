@@ -291,29 +291,6 @@ export function buildJunctionMembership(
 }
 
 /**
- * Where-unique on the target table, additionally scoped to rows connected to
- * this parent through the junction (unique ∧ membership). The correlated
- * predicate the relation compiler uses to match a connected child.
- */
-export function buildConnectedUniqueWhere(
-  ctx: QueryScope,
-  childCtx: QueryScope,
-  joinInfo: ManyToManyJoinInfo,
-  parentValue: Sql,
-  whereUnique: Record<string, unknown>
-): Sql {
-  return ctx.adapter.operators.and(
-    buildWhereUnique(childCtx, whereUnique, joinInfo.targetTableName),
-    buildJunctionMembership(
-      ctx,
-      joinInfo,
-      parentValue,
-      joinInfo.targetTableName
-    )
-  );
-}
-
-/**
  * Junction rows referencing the given target PKs — from any parent, and on
  * self-referential relations also rows where the target is the SOURCE. Used to
  * delete every junction row pointing at a child that is being deleted so the

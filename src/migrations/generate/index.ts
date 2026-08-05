@@ -70,7 +70,10 @@ export async function generate(
   const currentSnapshot = serializeModels(models, { migrationDriver });
 
   // 3. Calculate diff between snapshots
-  const diffResult = diff(previousSnapshot, currentSnapshot);
+  // No canonicalization hook: `generate` compares two stored snapshots, both
+  // written by the serializer, so there is no deparsed catalog spelling to
+  // reconcile and no live connection to reconcile it through.
+  const diffResult = await diff(previousSnapshot, currentSnapshot);
 
   // 4. Resolve ambiguous changes
   let finalOperations = await resolveAmbiguousChanges(
@@ -110,12 +113,16 @@ export async function generate(
   // 7. Get or create journal
   const journal = await storage.getOrCreateJournal(dialect);
 
-  // 8. Generate DDL statements
-  const ddlContext = { currentSchema: previousSnapshot };
+  // 8. Generate DDL statements. The snapshot describes the database before the
+  // migration; the operations already written have moved it on, and SQLite's
+  // table recreation needs both (see `DDLContext.precedingOperations`).
   const sql: string[] = [];
 
-  for (const op of finalOperations) {
-    const ddl = migrationDriver.generateDDL(op, ddlContext);
+  for (const [position, op] of finalOperations.entries()) {
+    const ddl = migrationDriver.generateDDL(op, {
+      currentSchema: previousSnapshot,
+      precedingOperations: finalOperations.slice(0, position),
+    });
     // Split multi-statement DDL
     const statements = ddl.split(";\n").filter((s) => s.trim());
     for (const stmt of statements) {
@@ -128,11 +135,13 @@ export async function generate(
   // 8b. Generate down (rollback) DDL from inverted operations.
   // Down statements run against the post-migration schema.
   const inverted = invertOperations(finalOperations, previousSnapshot);
-  const downDdlContext = { currentSchema: currentSnapshot };
   const downSql: string[] = [];
 
-  for (const op of inverted.operations) {
-    const ddl = migrationDriver.generateDDL(op, downDdlContext);
+  for (const [position, op] of inverted.operations.entries()) {
+    const ddl = migrationDriver.generateDDL(op, {
+      currentSchema: currentSnapshot,
+      precedingOperations: inverted.operations.slice(0, position),
+    });
     const statements = ddl.split(";\n").filter((s) => s.trim());
     for (const stmt of statements) {
       const trimmed = stmt.trim();

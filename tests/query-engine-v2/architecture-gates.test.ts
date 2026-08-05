@@ -5,7 +5,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const V2 = join(ROOT, "src/query-engine-v2");
+const V2 = join(ROOT, "src/query-engine/write-engine");
 const ADAPTERS = join(ROOT, "src/adapters");
 
 const EXECUTOR = join(V2, "OperationExecutor.ts");

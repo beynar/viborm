@@ -1,7 +1,7 @@
 ---
 title: Decimal
 description: Exact decimal scalar — string-backed, never rounded through a float
-icon: Sigma
+icon: sigma
 ---
 
 ## Basic Usage
@@ -31,12 +31,12 @@ handing you a value that quietly disagrees with the database — which is exactl
 what `s.decimal()` exists to prevent. Use [`s.float()`](/docs/schema/scalars/number)
 when approximate is genuinely fine.
 
-<Callout type="info">
-  Prisma solves this the same way underneath: its `Decimal` is a `decimal.js`
+:::info
+Prisma solves this the same way underneath: its `Decimal` is a `decimal.js`
   instance, and `decimal.js` serializes to a string. viborm returns the string
   itself, so there is no extra type to import and nothing to convert before
   `JSON.stringify`.
-</Callout>
+:::
 
 ## Writing
 
@@ -156,8 +156,8 @@ Bare `DECIMAL` on MySQL would mean `DECIMAL(10,0)` and silently truncate every
 fraction, so the default matches Prisma's `DECIMAL(65,30)`. Override any of
 them via [Native Types](/docs/schema/native-types).
 
-<Callout type="warn">
-  **Upgrading an existing SQLite database.** The column type moves `REAL` →
+:::warning
+**Upgrading an existing SQLite database.** The column type moves `REAL` →
   `TEXT`, and it is **not silent**: `push`/`diff` report an `alterColumn` naming
   the column and both types (`from: REAL`, `to: TEXT`). SQLite cannot alter a
   column type in place, so the change is realized by the standard rebuild —
@@ -168,7 +168,7 @@ them via [Native Types](/docs/schema/native-types).
   already rounded stays rounded, because those digits were discarded when the
   row was written, not when it is migrated. If any row carried more than ~15
   significant digits, re-import it from your source of truth.
-</Callout>
+:::
 
 ## Migrating from `number` decimals
 

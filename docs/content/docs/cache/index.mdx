@@ -1,7 +1,7 @@
 ---
 title: Caching
 description: Built-in caching for read queries with automatic invalidation and stale-while-revalidate support
-icon: Database
+icon: database
 ---
 
 ## Features
@@ -223,9 +223,9 @@ export async function GET() {
 }
 ```
 
-<Callout type="warn">
+:::warning
 Without `waitUntil` in serverless environments, background revalidation may be terminated when the request completes.
-</Callout>
+:::
 
 ## Cache Invalidation
 
@@ -244,9 +244,9 @@ await client.$invalidate("user:*");
 await client.$invalidate("user:*", "post:findMany:*");
 ```
 
-<Callout type="info">
+:::info
 When `cacheVersion` is configured, `$invalidate` automatically uses the versioned prefix. For example, with `cacheVersion: 2`, calling `$invalidate("user:*")` clears `viborm:v2:user:*`.
-</Callout>
+:::
 
 ### Invalidation on Mutations
 
@@ -297,9 +297,9 @@ await client.user.update({
 });
 ```
 
-<Callout type="info">
+:::info
 Auto-invalidation clears ALL cached queries for the model. Use manual invalidation for more granular control.
-</Callout>
+:::
 
 ## Cache Key Generation
 
@@ -317,9 +317,9 @@ viborm:v2:user:findMany:a1b2c3d4e5f6...  // with cacheVersion: 2
 
 The hash is deterministic — identical queries always produce the same key, regardless of object property order.
 
-<Callout type="info">
+:::info
 The current key format includes the operation name, which means `findFirst` and `findUnique` with identical arguments will have separate cache entries even though they may produce the same SQL query. Use custom cache keys if you need to share cache entries across operations.
-</Callout>
+:::
 
 ### Custom Cache Keys
 

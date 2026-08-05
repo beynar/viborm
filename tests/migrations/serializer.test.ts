@@ -504,6 +504,608 @@ describe("one-to-one FK unique constraint", () => {
 });
 
 // =============================================================================
+// DECLARED INDEX COLUMN RESOLUTION (Phase 2, Unit 2.1)
+// =============================================================================
+
+/**
+ * `.index()` names TypeScript fields; the DDL has to name columns. A `.map()`ed
+ * field made the two differ, and the index collection pushed the field name
+ * straight through — so CREATE INDEX named a column that does not exist and the
+ * push failed.
+ */
+describe("declared index columns resolve through .map()", () => {
+  function serialize(schema: Record<string, any>) {
+    hydrateSchemaNames(schema);
+    return serializeModels(schema, {
+      migrationDriver: postgresMigrationDriver,
+    });
+  }
+
+  it("writes the mapped column name into a single-field index", () => {
+    const Post = s
+      .model({
+        id: s.string().id(),
+        publishedAt: s.dateTime().map("published_at"),
+      })
+      .index(["publishedAt"]);
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      expect.objectContaining({ columns: ["published_at"] }),
+    ]);
+  });
+
+  /**
+   * Plan §10.6. Everything under the schema already spoke `fulltext` — the
+   * MySQL emitter, its introspection, its capability list and the snapshot's
+   * own `IndexDef` — but `IndexType` could not spell it, so no schema could
+   * ask. This is the declaration that could not be written before, and it has
+   * to reach the snapshot for any of the rest to be reachable.
+   */
+  it("carries a declared fulltext index type into the snapshot", () => {
+    const Post = s
+      .model({ id: s.string().id(), body: s.string() })
+      .index(["body"], { type: "fulltext" });
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      expect.objectContaining({ columns: ["body"], type: "fulltext" }),
+    ]);
+  });
+
+  it("writes the mapped column names into a compound index, in order", () => {
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string().map("author_id"),
+        publishedAt: s.dateTime().map("published_at"),
+      })
+      .index(["authorId", "publishedAt"]);
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      expect.objectContaining({ columns: ["author_id", "published_at"] }),
+    ]);
+  });
+
+  it("leaves an unmapped field's column name alone", () => {
+    const Post = s
+      .model({
+        id: s.string().id(),
+        publishedAt: s.dateTime(),
+      })
+      .index(["publishedAt"]);
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      expect.objectContaining({ columns: ["publishedAt"] }),
+    ]);
+  });
+
+  it("carries the mapped column name into a unique declared index too", () => {
+    const Post = s
+      .model({
+        id: s.string().id(),
+        slug: s.string().map("url_slug"),
+      })
+      .index(["slug"], { unique: true, name: "post_slug_uq" });
+
+    const snapshot = serialize({ post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      {
+        name: "post_slug_uq",
+        columns: ["url_slug"],
+        unique: true,
+        type: undefined,
+        where: undefined,
+      },
+    ]);
+  });
+});
+
+// =============================================================================
+// FOREIGN-KEY INDEX TESTS
+// =============================================================================
+
+/**
+ * A manyToOne FK is read from the many side on every include, relation filter
+ * and nested-write locate. Only MySQL/InnoDB indexes an FK constraint by
+ * itself, so the serializer emits the index for every dialect — unless an index
+ * the schema already declares covers the columns as a prefix.
+ */
+describe("foreign-key index for to-many relations", () => {
+  function serialize(schema: Record<string, any>) {
+    hydrateSchemaNames(schema);
+    return serializeModels(schema, {
+      migrationDriver: postgresMigrationDriver,
+    });
+  }
+
+  it("emits an index on the manyToOne FK column", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s.model({
+      id: s.string().id(),
+      authorId: s.string(),
+      author: s
+        .manyToOne(() => User)
+        .fields("authorId")
+        .references("id"),
+    });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    const postTable = snapshot.tables.find((t) => t.name === "post");
+    expect(postTable!.indexes).toEqual([
+      { name: "post_authorId_idx", columns: ["authorId"], unique: false },
+    ]);
+    // The user table holds no FK, so it gains no index.
+    expect(snapshot.tables.find((t) => t.name === "user")!.indexes).toEqual([]);
+  });
+
+  it("names the mapped column, not the TypeScript field", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s.model({
+      id: s.string().id(),
+      authorId: s.string().map("author_id"),
+      author: s
+        .manyToOne(() => User)
+        .fields("authorId")
+        .references("id"),
+    });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      { name: "post_author_id_idx", columns: ["author_id"], unique: false },
+    ]);
+  });
+
+  it("emits ONE composite index over a compound FK, in FK order", () => {
+    const Org = s
+      .model({
+        tenantId: s.string(),
+        code: s.string(),
+        members: s.oneToMany(() => Member),
+      })
+      .id(["tenantId", "code"]);
+
+    const Member = s.model({
+      id: s.string().id(),
+      orgTenantId: s.string(),
+      orgCode: s.string(),
+      org: s
+        .manyToOne(() => Org)
+        .fields("orgTenantId", "orgCode")
+        .references("tenantId", "code"),
+    });
+
+    const snapshot = serialize({ org: Org, member: Member });
+
+    expect(snapshot.tables.find((t) => t.name === "member")!.indexes).toEqual([
+      {
+        name: "member_orgTenantId_orgCode_idx",
+        columns: ["orgTenantId", "orgCode"],
+        unique: false,
+      },
+    ]);
+  });
+
+  it("does not duplicate a user-declared index on the FK column", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .index(["authorId"]);
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      {
+        name: "post_authorId_idx",
+        columns: ["authorId"],
+        unique: undefined,
+        type: undefined,
+        where: undefined,
+      },
+    ]);
+  });
+
+  it("compares the declared index by its mapped column name", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string().map("author_id"),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .index(["authorId"]);
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    // One index over the column, not two: the FK index must not be fooled into
+    // emitting a second index over the same column. The declared entry now
+    // carries the mapped column name too (the index collection resolves it),
+    // so both readers compare the one name the database knows.
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      {
+        name: "post_authorId_idx",
+        columns: ["author_id"],
+        unique: undefined,
+        type: undefined,
+        where: undefined,
+      },
+    ]);
+  });
+
+  it("skips the index when the FK columns prefix a declared compound index", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string(),
+        createdAt: s.string(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .index(["authorId", "createdAt"]);
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    expect(
+      snapshot.tables.find((t) => t.name === "post")!.indexes.map((i) => i.name)
+    ).toEqual(["post_authorId_createdAt_idx"]);
+  });
+
+  it("emits the index when the FK columns only SUFFIX a declared index", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string(),
+        createdAt: s.string(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .index(["createdAt", "authorId"]);
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    // A B-tree on (createdAt, authorId) cannot serve a lookup on authorId
+    // alone, so the FK still needs its own index.
+    expect(
+      snapshot.tables.find((t) => t.name === "post")!.indexes.map((i) => i.name)
+    ).toEqual(["post_createdAt_authorId_idx", "post_authorId_idx"]);
+  });
+
+  it("skips the index when the FK column is unique", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s.model({
+      id: s.string().id(),
+      authorId: s.string().unique(),
+      author: s
+        .manyToOne(() => User)
+        .fields("authorId")
+        .references("id"),
+    });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([]);
+  });
+
+  it("skips the index when the FK columns prefix the primary key", () => {
+    const Post = s.model({
+      id: s.string().id(),
+      tags: s.oneToMany(() => PostTag),
+    });
+
+    const Tag = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => PostTag),
+    });
+
+    // An explicit junction model: its PK already indexes (postId, tagId), so
+    // the FK to post is covered and only the FK to tag needs an index.
+    const PostTag = s
+      .model({
+        postId: s.string(),
+        tagId: s.string(),
+        post: s
+          .manyToOne(() => Post)
+          .fields("postId")
+          .references("id"),
+        tag: s
+          .manyToOne(() => Tag)
+          .fields("tagId")
+          .references("id"),
+      })
+      .id(["postId", "tagId"]);
+
+    const snapshot = serialize({ post: Post, tag: Tag, postTag: PostTag });
+
+    expect(
+      snapshot.tables
+        .find((t) => t.name === "postTag")!
+        .indexes.map((i) => i.name)
+    ).toEqual(["postTag_tagId_idx"]);
+  });
+
+  // REGRESSION (Phase 2 review): every declared index counted as coverage,
+  // including one carrying a predicate. A partial index holds only the rows its
+  // predicate keeps, so it cannot answer a lookup for an excluded row — and
+  // declaring one silently removed the foreign-key index altogether, on the
+  // exact column this plan calls its highest value. Harmless until Phase 2
+  // taught SQLite to emit the WHERE; a live defect from that commit on.
+  it("does not let a partial declared index cover the FK columns", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string(),
+        published: s.boolean(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .index(["authorId"], { where: "published = true" });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    // Two indexes over one column, and only one of them is the whole column.
+    // The automatic index cannot take the name the declared one holds, so it
+    // takes the name of the constraint it serves.
+    expect(snapshot.tables.find((t) => t.name === "post")!.indexes).toEqual([
+      {
+        name: "post_authorId_idx",
+        columns: ["authorId"],
+        unique: undefined,
+        type: undefined,
+        where: "published = true",
+      },
+      {
+        name: "post_authorId_fkey_idx",
+        columns: ["authorId"],
+        unique: false,
+      },
+    ]);
+  });
+
+  // The fallback name is keyed on the name being taken, not on the predicate:
+  // a mapped field spells the declared index after the field and the automatic
+  // index after the column, so nothing collides and the preferred name stands.
+  it("keeps the preferred name when the partial index does not hold it", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string().map("author_id"),
+        published: s.boolean(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .index(["authorId"], { where: "published = true" });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    expect(
+      snapshot.tables.find((t) => t.name === "post")!.indexes.map((i) => i.name)
+    ).toEqual(["post_authorId_idx", "post_author_id_idx"]);
+  });
+
+  // REGRESSION (PR #20 review): the fallback covered only HALF the invariant it
+  // exists for. Both candidate names are ordinary strings a schema may declare
+  // — `.index([...], { name: "post_authorId_fkey_idx" })` is legal — and with
+  // both taken the automatic index was pushed anyway, putting two entries under
+  // one name into the snapshot. The differ then emitted two `CREATE INDEX` for
+  // that name and the second failed the whole push (measured on better-sqlite3:
+  // `index post_authorId_fkey_idx already exists`). The index is a read
+  // optimization, so it yields; the schema's own names win.
+  it("emits no FK index when the schema holds both candidate names", () => {
+    const User = s.model({
+      id: s.string().id(),
+      posts: s.oneToMany(() => Post),
+    });
+
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string(),
+        title: s.string(),
+        author: s
+          .manyToOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      // Neither declared index COVERS `authorId`, so neither suppresses the
+      // FK index on coverage grounds — they only take its two names.
+      .index(["title"], { name: "post_authorId_idx" })
+      .index(["id"], { name: "post_authorId_fkey_idx" });
+
+    const snapshot = serialize({ user: User, post: Post });
+
+    expect(
+      snapshot.tables
+        .find((t) => t.name === "post")!
+        .indexes.map((i) => `${i.name}(${i.columns.join(",")})`)
+    ).toEqual(["post_authorId_idx(title)", "post_authorId_fkey_idx(id)"]);
+  });
+
+  it("adds no FK index for a oneToOne relation", () => {
+    const User = s.model({
+      id: s.string().id(),
+      profile: s.oneToOne(() => Profile),
+    });
+
+    const Profile = s.model({
+      id: s.string().id(),
+      userId: s.string(),
+      user: s
+        .oneToOne(() => User)
+        .fields("userId")
+        .references("id"),
+    });
+
+    const snapshot = serialize({ user: User, profile: Profile });
+
+    const profileTable = snapshot.tables.find((t) => t.name === "profile");
+    // The unique constraint the 1:1 case emits is the index.
+    expect(profileTable!.indexes).toEqual([]);
+    expect(profileTable!.uniqueConstraints).toEqual([
+      { name: "profile_userId_key", columns: ["userId"] },
+    ]);
+  });
+
+  // The accepted case, pinned so the branch below cannot be read as dead: a
+  // declared UNIQUE index over the whole column IS the 1:1 uniqueness.
+  it("accepts a total declared UNIQUE index as the 1:1 uniqueness", () => {
+    const User = s.model({
+      id: s.string().id(),
+      profile: s.oneToOne(() => Profile),
+    });
+
+    const Profile = s
+      .model({
+        id: s.string().id(),
+        userId: s.string(),
+        user: s
+          .oneToOne(() => User)
+          .fields("userId")
+          .references("id"),
+      })
+      .index(["userId"], { unique: true });
+
+    const snapshot = serialize({ user: User, profile: Profile });
+
+    expect(
+      snapshot.tables.find((t) => t.name === "profile")!.uniqueConstraints
+    ).toEqual([]);
+  });
+
+  // REGRESSION (Phase 2 review): the same predicate blindness degraded a 1:1
+  // relation to N:1. A partial UNIQUE index constrains only the rows its
+  // predicate keeps, so two rows excluded by it can hold the same FK — two
+  // profiles owning one user, which is what the branch exists to forbid.
+  it("does not accept a partial UNIQUE index as the 1:1 uniqueness", () => {
+    const User = s.model({
+      id: s.string().id(),
+      profile: s.oneToOne(() => Profile),
+    });
+
+    const Profile = s
+      .model({
+        id: s.string().id(),
+        userId: s.string(),
+        active: s.boolean(),
+        user: s
+          .oneToOne(() => User)
+          .fields("userId")
+          .references("id"),
+      })
+      .index(["userId"], { unique: true, where: "active = true" });
+
+    const snapshot = serialize({ user: User, profile: Profile });
+
+    expect(
+      snapshot.tables.find((t) => t.name === "profile")!.uniqueConstraints
+    ).toEqual([{ name: "profile_userId_key", columns: ["userId"] }]);
+  });
+
+  // REGRESSION (PR #20 review): the coverage scan read `uniqueConstraints` while
+  // the 1:1 branch was still APPENDING to it, so a model naming the same columns
+  // from a `manyToOne` and from a `oneToOne` answered by declaration order. Both
+  // spellings are serialized here and the FK index has to be absent from both:
+  // the 1:1 constraint covers the column either way, and which relation the
+  // schema happens to list first is not a fact about the database.
+  it.each([
+    ["manyToOne first", true],
+    ["oneToOne first", false],
+  ])("emits no FK index when a 1:1 on the same columns makes them unique (%s)", (_name, manyFirst) => {
+    const Target = s.model({ id: s.string().id(), n: s.string() });
+    const manyRelation = s
+      .manyToOne(() => Target)
+      .fields("ownerId")
+      .references("id");
+    const oneRelation = s
+      .oneToOne(() => Target)
+      .fields("ownerId")
+      .references("id");
+    const Child = s.model({
+      id: s.string().id(),
+      ownerId: s.string(),
+      ...(manyFirst
+        ? { many: manyRelation, one: oneRelation }
+        : { one: oneRelation, many: manyRelation }),
+    });
+
+    const childTable = serialize({ target: Target, child: Child }).tables.find(
+      (t) => t.name === "child"
+    );
+
+    expect(childTable!.indexes).toEqual([]);
+    expect(childTable!.uniqueConstraints).toEqual([
+      { name: "child_ownerId_key", columns: ["ownerId"] },
+    ]);
+  });
+});
+
+// =============================================================================
 // COMPOUND KEY SERIALIZATION TESTS
 // =============================================================================
 

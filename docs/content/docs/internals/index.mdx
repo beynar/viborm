@@ -1,7 +1,7 @@
 ---
 title: Internals Overview
 description: The 12-layer architecture transforming type-safe schema definitions into database queries without code generation
-icon: Layers
+icon: layers
 ---
 
 ## The 12-Layer Architecture
@@ -113,9 +113,9 @@ L9: Client uses:       orm.user.findMany({ where: { name: ... }})  // Fully type
 
 ## The Golden Rule
 
-<Callout type="error" title="Query Engine / Adapter Separation">
+:::danger[Query Engine / Adapter Separation]
 Query engine NEVER generates dialect-specific SQL. ALWAYS delegate to adapter.
-</Callout>
+:::
 
 ```typescript
 // ❌ WRONG: Hardcoded PostgreSQL in query-engine

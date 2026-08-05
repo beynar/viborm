@@ -16,12 +16,13 @@ import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { CreateOperation } from "../../src/query-engine-v2/CreateOperation";
+import { CreateOperation } from "../../src/query-engine/write-engine/CreateOperation";
 import {
   isOperationValueReference,
   ref,
   type TargetConstraintPin,
-} from "../../src/query-engine-v2/OperationFragment";
+} from "../../src/query-engine/write-engine/OperationFragment";
+import { batchIsAtomicUnit } from "../fixtures/atomic-unit-batch";
 import {
   createNestedUpsertArgs,
   createOperationExecutor,
@@ -68,8 +69,13 @@ class BeforeBatchPGliteDriver extends BatchOnlyPGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     const beforeBatch = this.beforeBatch;
-    this.beforeBatch = undefined;
-    if (beforeBatch) await beforeBatch();
+    // Fire before the operation's compiled ATOMIC UNIT, not the first batch of
+    // any kind: planning reads ride a batch too once grouped by level (PLAN
+    // Phase 6.1).
+    if (beforeBatch && batchIsAtomicUnit(queries)) {
+      this.beforeBatch = undefined;
+      await beforeBatch();
+    }
     return super.executeBatch<T>(client, queries);
   }
 }
@@ -355,12 +361,15 @@ describe("query-engine-v2 linear operation fragments", () => {
             select: { name: true, posts: true },
           }
         )
-      // The create family generalized (PLAN P6-prerequisite): a nested upsert's
-      // create arm now composes deeper Parts, so a deeper `connect` is rejected by
-      // RelationUpsertPart's create-arm bound (only connectOrCreate one level
-      // deeper), not the old proof-slice's blanket "deeper relation mutations"
-      // refusal. Still an UnsupportedOperationError before any I/O (routes to V1).
-    ).toThrow("supports only nested connectOrCreate one level deeper");
+      // RETARGETED BY N4-U2 (authorized test change). This assertion has been walked
+      // down the same shape twice: first the proof-slice's blanket "deeper relation
+      // mutations" refusal, then RelationUpsertPart's create-arm bound ("only
+      // connectOrCreate one level deeper"). Both are gone. The create arm's row is
+      // PRODUCED, and a produced row's relations are the create root's surface, so the
+      // whole arm is now a create SUBTREE and a deeper parent-held to-one `connect` is
+      // simply one of the things a create root has always folded. The payload is
+      // unchanged; what it does is now construct, so the assertion is that it does.
+    ).not.toThrow();
 
     const upsert = createNestedUpsertArgs().data.posts.upsert;
     expect(

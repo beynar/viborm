@@ -91,9 +91,9 @@ When invalidating with patterns like `user:*`, the driver:
 1. Lists all keys with the prefix
 2. Deletes each matching key
 
-<Callout type="warn">
+:::warning
 KV list operations can be slow with many keys. For large-scale invalidation, consider using specific cache keys instead of broad prefixes.
-</Callout>
+:::
 
 ## TypeScript Setup
 

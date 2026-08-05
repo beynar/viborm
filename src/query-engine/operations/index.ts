@@ -13,6 +13,7 @@ export {
   buildCreateMany,
   buildCreateManyAndReturn,
   buildCreateManyPlan,
+  buildInsertStatement,
   type CreateManyPlan,
 } from "./create";
 export {
@@ -29,9 +30,11 @@ export {
 } from "./find-common";
 export { buildFindUnique } from "./find-unique";
 export { buildGroupBy, type GroupByArgs } from "./groupby";
+export { buildMutationProjectionFold } from "./mutation-projection-fold";
 export {
   buildUpdate,
   buildUpdateMany,
   buildUpdateManyAndReturn,
+  buildUpdateStatement,
 } from "./update";
 export { buildUpsert } from "./upsert";

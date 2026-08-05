@@ -1,7 +1,7 @@
 ---
 title: Tracing
 description: Set up OpenTelemetry tracing for distributed observability
-icon: Radar
+icon: radar
 ---
 
 ## Prerequisites
@@ -12,9 +12,9 @@ Install the OpenTelemetry API package:
 npm install @opentelemetry/api
 ```
 
-<Callout type="info">
+:::info
 The `@opentelemetry/api` package is an optional peer dependency. VibORM gracefully degrades to no-op when it's not installed.
-</Callout>
+:::
 
 ## Configuration
 
@@ -219,9 +219,9 @@ tracing: {
 }
 ```
 
-<Callout type="warn">
+:::warning
 Only enable `includeParams` in development. Query parameters in traces may contain sensitive data and could be stored in your tracing backend.
-</Callout>
+:::
 
 These options affect tracing only — logging and error diagnostics have
 [independent disclosure policies](/docs/instrumentation#privacy--security).
