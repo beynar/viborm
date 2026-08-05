@@ -69,7 +69,7 @@ import { UpdateOperation } from "./UpdateOperation";
  * projection) call for their located target's data relations. It reuses the SAME
  * per-kind builders the root's `interpretRelation` uses — m2m junction, the correlated
  * write/link/adopt families, the inverse-side to-one — differing only in the
- * `ParentIdSource` (a compile-time literal here, a planned locate read at the root):
+ * final reference source (a compile-time literal here, a planned locate read at the root):
  * one architecture, one vocabulary, depth adds list entries and one parent-id value.
  *
  * A **parent-held FK to-one at depth** (the located target itself holds an FK it would
@@ -85,7 +85,7 @@ import { UpdateOperation } from "./UpdateOperation";
  * seam {@link RelationWritePart} calls without importing this module at runtime (an
  * erased type import breaks the cycle).
  *
- * `correlationParentId` is N5-U1's two-source split (`RelationSetConfig`) carried to
+ * `membershipReadSource` is N5-U1's two-source split carried to
  * depth: the value existing rows are READ by, when that is not the value new ones are
  * WRITTEN with. They differ in exactly one situation — a target whose own SET moves the
  * primary key its deeper edges reference, ordered after its self-UPDATE — and only the
@@ -97,7 +97,7 @@ export type NestedChildBuilder = (
   parentId: FinalReferenceSource,
   relations: Record<string, RelationMutationProgram>,
   txMode: boolean,
-  correlationParentId?: FinalReferenceSource
+  membershipReadSource?: FinalReferenceSource
 ) => readonly Part[];
 
 /**
@@ -113,7 +113,7 @@ export function buildNestedTargetChildParts(
   relations: Record<string, RelationMutationProgram>,
   parentId: FinalReferenceSource,
   txMode: boolean,
-  correlationParentId?: FinalReferenceSource
+  membershipReadSource?: FinalReferenceSource
 ): readonly Part[] {
   const parts: Part[] = [];
   for (const [relationName, program] of Object.entries(relations)) {
@@ -124,7 +124,7 @@ export function buildNestedTargetChildParts(
       relationName,
       program,
       parentId,
-      correlationParentId,
+      membershipReadSource,
       txMode,
       parts,
     });
@@ -320,7 +320,7 @@ function foldOneNestedRelation(input: {
   parentId: FinalReferenceSource;
   /** The junction-only READ source under a post-transition ordering (E2-U3); see
    *  {@link NestedChildBuilder}. */
-  correlationParentId?: FinalReferenceSource;
+  membershipReadSource?: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -371,7 +371,7 @@ function foldOneNestedRelation(input: {
         relationInfo,
         program,
         parentId,
-        correlationParentId: input.correlationParentId,
+        membershipReadSource: input.membershipReadSource,
         txMode,
         nestedBuilder: deeperBuilder,
       })

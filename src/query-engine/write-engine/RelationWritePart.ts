@@ -832,7 +832,7 @@ export class RelationWritePart implements Part {
         // it to the POST-transition key. Intersect them and the edge needs a value
         // that is neither: the probe runs BEFORE the self-UPDATE, so a `planned`
         // source reads the key the transition is about to vacate, and no
-        // `ParentIdSource` applies the SET's operand to a planned value at compile —
+        // The transitioned source applies the SET's operand to a planned value at compile —
         // `literal`, `planned` and `ref` each carry a value verbatim, none transforms
         // it. The occupied guard below needs the same pre-transition literal to say
         // which slot it is checking. Both wants are the ONE mechanism N5's own record
@@ -866,7 +866,7 @@ export class RelationWritePart implements Part {
     // its WRITES run after that UPDATE, by which time `ON UPDATE CASCADE` has carried
     // those same rows to the new key, so they must use it. Two values, two positions —
     // which is not a missing mechanism but the split N5-U1 already built for `set`
-    // (`RelationSetConfig.correlationParentId`), carried through the child-Part seam to
+    // (`RelationSetConfig.membershipReadSource`), carried through the child-Part seam to
     // `RelationJunctionPart`. The non-cascade sibling keeps the ordering N5-U1 gave it
     // (written against `afterPk`, after the self-UPDATE, behind the occupied guard
     // above), so both edges get their own correct value from one ordering.
@@ -874,7 +874,7 @@ export class RelationWritePart implements Part {
     // Only the where-pinned spelling reaches here: `pkEntry === undefined` under a
     // post-transition already declined above (no compile-time pre-value exists to read
     // membership by, which is the same value the occupied guard needs).
-    const correlationParentId =
+    const membershipReadSource =
       postTransition && pkEntry !== undefined
         ? literalParentId(pkEntry.value)
         : undefined;
@@ -884,7 +884,7 @@ export class RelationWritePart implements Part {
         parentSource,
         relations,
         this.config.txMode,
-        correlationParentId
+        membershipReadSource
       )
     );
     return {
@@ -1174,7 +1174,7 @@ export interface RelationSetConfig {
    * PRE-transition one. Absent → both halves read {@link parentId}, byte-identical
    * to pre-N5.
    */
-  readonly correlationParentId?: FinalReferenceSource;
+  readonly membershipReadSource?: FinalReferenceSource;
   readonly txMode: boolean;
 }
 
@@ -1479,13 +1479,13 @@ export class RelationSetPart implements Part {
 
   /** `fk_i = <parent_i>` for every compound-key field — a SQL `Ref` at planning
    *  (technique #1), or the inlined literal at compile. Reads the DEPARTING-side
-   *  parent value ({@link RelationSetConfig.correlationParentId}), which is the
+   *  parent value ({@link RelationSetConfig.membershipReadSource}), which is the
    *  assigned one everywhere except under a non-cascade transition. */
   private correlationFilters(
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
-    const source = this.config.correlationParentId ?? this.config.parentId;
+    const source = this.config.membershipReadSource ?? this.config.parentId;
     return this.config.fkFields.map((fkField, index) => ({
       [fkField]: {
         equals: useRef
@@ -1806,17 +1806,17 @@ export function buildToManyDeleteManyParts(
   );
 }
 
-/** `set`: one membership Part over every unique target `where`. `correlationParentId`
+/** `set`: one membership Part over every unique target `where`. `membershipReadSource`
  *  (N5-U1) splits the departing half off the assigned half; omit it and both read
  *  `base.parentId`. */
 export function buildToManySetPart(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "set" }>,
-  correlationParentId?: FinalReferenceSource
+  membershipReadSource?: FinalReferenceSource
 ): RelationSetPart {
   const requiredFields = requiredForeignKeyFields(base.fk);
   return new RelationSetPart(base.scope, {
-    correlationParentId,
+    membershipReadSource,
     engine: base.engine,
     childScope: base.childScope,
     childName: base.childName,

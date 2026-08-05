@@ -157,7 +157,7 @@ interface RelationUpsertConfigCore {
   /**
    * This part's own locate-probe step id, allocated by the builder BEFORE the arms
    * fold (N4-U1) — the update arm's grandchildren may address it as a `planned`
-   * parent source, and a `ParentIdSource` is a value, so the id has to exist first.
+   * parent source, and a final reference source is a value, so the id has to exist first.
    */
   readonly probeId: string;
   /** Whether the probe publishes its captured primary key as a `firstRowField`
@@ -236,7 +236,7 @@ export type RelationUpsertConfig = RelationUpsertConfigCore &
  *   its update-arm child parts compile one level deeper;
  * - found + uncorrelated (correlated mode only) → typed V7001 throw.
  *
- * It holds no parent — only a `ParentIdSource` value, its FK metadata, and its
+ * It holds no parent — only field-bound FK members and its
  * own children.
  */
 export class RelationUpsertPart implements Part {

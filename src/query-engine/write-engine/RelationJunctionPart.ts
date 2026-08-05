@@ -27,10 +27,14 @@ import {
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope, RelationInfo } from "../types";
 import {
+  type CorrelatedForeignKeyMember,
   type FinalReferenceSource,
+  type ForeignKeyMember,
   finalReferenceValueWith,
+  foreignKeyCorrelationValue,
+  foreignKeyResolvedReadValue,
   isPlanningFieldSource,
-  referencedFieldCorrelation,
+  planningSourceFromFinal,
 } from "./foreign-key-reference";
 import {
   childRacePin,
@@ -133,9 +137,9 @@ export interface RelationJunctionConfig {
    * join rows still carry; the WRITES run after the self-UPDATE, by which time
    * `ON UPDATE CASCADE` has carried those same rows to the new one. Absent → every read
    * takes {@link parentId}, byte-identical to pre-E2-U3. The same split
-   * `RelationSetConfig.correlationParentId` makes for `set`.
+   * `RelationSetConfig.membershipReadSource` makes for `set`.
    */
-  readonly correlationParentId?: FinalReferenceSource;
+  readonly membershipReadSource?: FinalReferenceSource;
   /**
    * E5-U1 — this parent is a row the enclosing operation is MAKING, so it can have no
    * membership yet (fresh-parent elision, ATOM §4). Only the `upsert` kind reads it,
@@ -157,7 +161,7 @@ export interface RelationJunctionConfig {
   /**
    * N4-U1 (`update` only): the target-slot probe ids, allocated by the builder before
    * the target payloads fold, because a target named by a NON-primary-key unique hands
-   * its deeper edges a `planned` source addressing that probe — and a `ParentIdSource`
+   * its deeper edges a planning source addressing that probe — and a source value
    * is a value, so the id must exist first. Aligned to {@link wheres}; absent for every
    * other kind, which allocates its probe ids in the constructor as before.
    */
@@ -205,7 +209,7 @@ export interface RelationJunctionConfig {
    * (the payload named the primary key itself, or carries no deeper edge at all). Always
    * one of the two ids in {@link upsertProbeIds}.
    *
-   * The BUILDER makes this choice, because it must: a `ParentIdSource` is a value, so the
+   * The BUILDER makes this choice because a final source is a value, so the
    * arm cannot fold until the id exists. The slot then publishes the `firstRowField` on
    * whichever probe this names — one decision, read twice, so the two sites cannot drift
    * about which probe `compile` spends on the arm.
@@ -384,6 +388,7 @@ export class RelationJunctionPart implements Part {
   private readonly config: RelationJunctionConfig;
   private readonly targetPkField: string;
   private readonly sourcePkField: string;
+  private readonly sourceFieldName: string;
   private readonly childScope: QueryScope;
   private readonly statements: ManyToManyStatements;
   private readonly targets: readonly TargetSlot[];
@@ -400,6 +405,7 @@ export class RelationJunctionPart implements Part {
     const join = getManyToManyJoinInfo(config.parentScope, config.relationInfo);
     this.targetPkField = join.targetPkField;
     this.sourcePkField = join.sourcePkField;
+    this.sourceFieldName = join.sourceFieldName;
     this.childScope = createQueryScope(
       config.engine.adapter,
       config.relationInfo.targetModel
@@ -1741,17 +1747,11 @@ export class RelationJunctionPart implements Part {
    * (both ride through `ManyToManyStatements.materialize`), so no leaf learns which.
    *
    * E2-U3: this is the READ side, so it takes {@link
-   * RelationJunctionConfig.correlationParentId} when the two sides differ — the one
+   * RelationJunctionConfig.membershipReadSource} when the two sides differ — the one
    * situation where the key existing join rows carry is not the key new ones must.
    */
   private parentRef(): unknown {
-    const source = this.config.correlationParentId ?? this.config.parentId;
-    return referencedFieldCorrelation(
-      source,
-      this.sourcePkField,
-      this.config.relationName,
-      "junction"
-    );
+    return foreignKeyCorrelationValue(this.membershipMember());
   }
 
   /** The compile-time parent value the junction writes correlate on: a located
@@ -1761,7 +1761,21 @@ export class RelationJunctionPart implements Part {
    *  riding `Sql.values` exactly as the child-FK path does (materialized by the
    *  executor in tx mode; scratch-threaded insertId in batch mode). */
   private parentLiteral(known: PlanningKnown): unknown {
-    return this.resolveParent(this.config.parentId, known);
+    const member = this.parentWriteMember();
+    return finalReferenceValueWith(
+      member.writeSource,
+      member.referencedField,
+      known,
+      this.config.relationName,
+      "junction",
+      (reference) =>
+        referenceSql(
+          this.config.engine,
+          this.config.parentScope.model,
+          member.referencedField,
+          reference
+        )
+    );
   }
 
   /**
@@ -1782,30 +1796,33 @@ export class RelationJunctionPart implements Part {
    * byte-identical to pre-E2-U3.
    */
   private membershipLiteral(known: PlanningKnown): unknown {
-    return this.resolveParent(
-      this.config.correlationParentId ?? this.config.parentId,
-      known
+    return foreignKeyResolvedReadValue(
+      this.membershipMember(),
+      known,
+      this.config.relationName,
+      "junction"
     );
   }
 
-  private resolveParent(
-    source: FinalReferenceSource,
-    known: PlanningKnown
-  ): unknown {
-    return finalReferenceValueWith(
-      source,
-      this.sourcePkField,
-      known,
-      this.config.relationName,
-      "junction",
-      (reference) =>
-        referenceSql(
-          this.config.engine,
-          this.config.parentScope.model,
-          this.sourcePkField,
-          reference
-        )
-    );
+  private parentWriteMember(): ForeignKeyMember {
+    return {
+      foreignField: this.sourceFieldName,
+      referencedField: this.sourcePkField,
+      writeSource: this.config.parentId,
+    };
+  }
+
+  private membershipMember(): CorrelatedForeignKeyMember {
+    const readSource = this.config.membershipReadSource ?? this.config.parentId;
+    return {
+      ...this.parentWriteMember(),
+      readSource: planningSourceFromFinal(
+        readSource,
+        this.config.relationName,
+        "junction"
+      ),
+      writeSource: this.config.parentId,
+    };
   }
 }
 
@@ -1830,8 +1847,8 @@ export function buildJunctionParts(input: {
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
   /** E2-U3: the membership-READ parent value when it differs from the written one —
-   *  see {@link RelationJunctionConfig.correlationParentId}. */
-  correlationParentId?: FinalReferenceSource;
+   *  see {@link RelationJunctionConfig.membershipReadSource}. */
+  membershipReadSource?: FinalReferenceSource;
   /** E5-U1 — see {@link RelationJunctionConfig.freshParent}. Threaded by the CREATE
    *  root, the one caller whose parent row does not exist yet. */
   freshParent?: boolean;
@@ -1867,7 +1884,7 @@ export function buildJunctionParts(input: {
     relationInfo,
     childName,
     parentId,
-    correlationParentId: input.correlationParentId,
+    membershipReadSource: input.membershipReadSource,
     freshParent: input.freshParent,
     txMode,
   } as const;
@@ -2473,7 +2490,7 @@ export function buildJunctionParts(input: {
           )
         );
         // E6.1 — the slot's two probe ids, allocated HERE (before the arms fold) for the
-        // reason the `update` kind allocates its own: a `ParentIdSource` is a value, so
+        // reason the `update` kind allocates its own: a final source is a value, so
         // the id has to exist before a payload can be folded against it. Allocated in
         // the order the slot itself would, so no step id moves.
         const upsertProbeIds = items.map(() => ({

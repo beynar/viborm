@@ -51,7 +51,9 @@ import type { QueryScope, RelationInfo } from "../types";
 import type { CreateOperation } from "./CreateOperation";
 import {
   type FinalReferenceSource,
+  type ForeignKeyMember,
   finalReferenceValue,
+  foreignKeyWriteValue,
   literalReferenceSource,
   pairCorrelatedForeignKeyMembers,
   pairForeignKeyMembers,
@@ -342,14 +344,14 @@ interface RelationKeyGuard {
  *      emitted, so nothing is being moved off a value the transition vacates; and
  *   2. the POST-transition value is a compile-time literal here (`after`).
  * So the edge is written against `after`, AFTER the root UPDATE that creates that id.
- * `correlationParentId` is the pre-transition source for the one member that reads
+ * `membershipReadSource` is the pre-transition source for the one member that reads
  * existing membership as well as writing it (`set`'s departing half).
  */
 interface PostTransitionAdopt {
   /** The value an adopt edge WRITES — the parent's post-transition referenced column. */
   readonly parentId: FinalReferenceSource;
   /** The value an adopt member READS existing children by — the located row's own. */
-  readonly correlationParentId: ReturnType<typeof plannedParentId>;
+  readonly membershipReadSource: ReturnType<typeof plannedParentId>;
   /** The list whose writes are emitted after the root UPDATE (`afterRootParts`). */
   readonly target: Part[];
 }
@@ -1352,7 +1354,7 @@ export class UpdateOperation {
             parentId,
             relations,
             nestedTxMode,
-            correlationParentId
+            membershipReadSource
           ) =>
             buildNestedTargetChildParts(
               scope,
@@ -1361,7 +1363,7 @@ export class UpdateOperation {
               relations,
               parentId,
               nestedTxMode,
-              correlationParentId
+              membershipReadSource
             ),
         })
       );
@@ -1521,7 +1523,7 @@ export class UpdateOperation {
       keyTransition.regime === "guarded"
         ? {
             parentId: literalParentId(keyTransition.after),
-            correlationParentId: input.parentIdSource,
+            membershipReadSource: input.parentIdSource,
             target: input.afterRootParts,
           }
         : undefined;
@@ -1547,7 +1549,7 @@ export class UpdateOperation {
         parentId: FinalReferenceSource,
         relations: Record<string, RelationMutationProgram>,
         txMode: boolean,
-        correlationParentId?: FinalReferenceSource
+        membershipReadSource?: FinalReferenceSource
       ) =>
         buildNestedTargetChildParts(
           input.scope,
@@ -1556,7 +1558,7 @@ export class UpdateOperation {
           relations,
           parentId,
           txMode,
-          correlationParentId
+          membershipReadSource
         ),
       // N4-U2: the inverse-side to-one upsert's relation-carrying create arm is a
       // create subtree, built through the same seam the to-many adopt family uses.
@@ -2092,13 +2094,13 @@ export class UpdateOperation {
       case "set":
         // `set` is BOTH halves at once: it reparents its targets (the adopt half —
         // post-transition value, after the root UPDATE) and releases the departing
-        // rows, which still carry the PRE-transition value. `correlationParentId`
+        // rows, which still carry the PRE-transition value. `membershipReadSource`
         // keeps those two apart; without a transition they are the same source.
         pushAdopt([
           buildToManySetPart(
             adopt ? { ...writeBase, parentId: adopt.parentId } : writeBase,
             entry,
-            adopt?.correlationParentId
+            adopt?.membershipReadSource
           ),
         ]);
         return;
@@ -3357,14 +3359,27 @@ export class UpdateOperation {
     for (let index = 0; index < fk.fkFields.length; index += 1) {
       const referenced = fk.pkFields[index]!;
       const fkField = fk.fkFields[index]!;
-      fkAssign[fkField] = Object.hasOwn(where, referenced)
-        ? referenceSql(this.engine, this.model, fkField, where[referenced])
-        : buildConnectSubqueryForField(
-            recordScope,
-            relationInfo,
-            where,
-            referenced
-          );
+      const member: ForeignKeyMember = {
+        foreignField: fkField,
+        referencedField: referenced,
+        writeSource: Object.hasOwn(where, referenced)
+          ? { kind: "literal", value: where[referenced] }
+          : {
+              kind: "lookup",
+              statement: buildConnectSubqueryForField(
+                recordScope,
+                relationInfo,
+                where,
+                referenced
+              ),
+            },
+      };
+      fkAssign[fkField] = referenceSql(
+        this.engine,
+        this.model,
+        fkField,
+        foreignKeyWriteValue(member, undefined, relationInfo.name, "connect")
+      );
     }
     return fkAssign;
   }

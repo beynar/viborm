@@ -42,6 +42,7 @@ import {
   type FinalReferenceSource,
   type ForeignKeyMember,
   finalReferenceValue,
+  foreignKeyWriteValue,
   pairForeignKeyMembers,
 } from "./foreign-key-reference";
 import {
@@ -1048,7 +1049,7 @@ export class CreateOperation {
             parentId,
             relations,
             nestedTxMode,
-            correlationParentId
+            membershipReadSource
           ) =>
             buildNestedTargetChildParts(
               scope,
@@ -1057,7 +1058,7 @@ export class CreateOperation {
               relations,
               parentId,
               nestedTxMode,
-              correlationParentId
+              membershipReadSource
             ),
         })
       );
@@ -1343,21 +1344,34 @@ export class CreateOperation {
     relationInfo: RelationInfo,
     fk: FkDirection,
     where: Record<string, unknown>,
-    _relationName: string
+    relationName: string
   ): Record<string, unknown> {
     const recordScope = createQueryScope(this.engine.adapter, recordModel);
     const fkAssign: Record<string, unknown> = {};
     for (let index = 0; index < fk.fkFields.length; index += 1) {
       const referenced = fk.pkFields[index]!;
       const fkField = fk.fkFields[index]!;
-      fkAssign[fkField] = Object.hasOwn(where, referenced)
-        ? referenceSql(this.engine, recordModel, fkField, where[referenced])
-        : buildConnectSubqueryForField(
-            recordScope,
-            relationInfo,
-            where,
-            referenced
-          );
+      const member: ForeignKeyMember = {
+        foreignField: fkField,
+        referencedField: referenced,
+        writeSource: Object.hasOwn(where, referenced)
+          ? { kind: "literal", value: where[referenced] }
+          : {
+              kind: "lookup",
+              statement: buildConnectSubqueryForField(
+                recordScope,
+                relationInfo,
+                where,
+                referenced
+              ),
+            },
+      };
+      fkAssign[fkField] = referenceSql(
+        this.engine,
+        recordModel,
+        fkField,
+        foreignKeyWriteValue(member, undefined, relationName, "connect")
+      );
     }
     return fkAssign;
   }
@@ -1700,7 +1714,7 @@ export class CreateOperation {
    * A single-column edge is the length-1 case and produces exactly the source it always
    * did, so nothing about the common shape moves. A COMPOUND edge used to be refused
    * here, and the refusal was right for the source that existed: every consumer of a
-   * single-value `ParentIdSource` spends that one value on every foreign-key column, so
+   * unbound source spends one value on every foreign-key column, so
    * a two-column edge would have written the first referenced value into both — the
    * cross-pair trap D3 measured one level deeper. Keying by name removes the trap by
    * construction rather than by care: there is no index to misalign, and a column with
