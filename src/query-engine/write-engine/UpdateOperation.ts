@@ -2295,6 +2295,7 @@ export class UpdateOperation {
             relationName,
             fk,
             childScope,
+            childName,
             upsertInput: item,
             after: keyTransition.after,
           });
@@ -2389,6 +2390,7 @@ export class UpdateOperation {
     relationName: string;
     fk: FkDirection;
     childScope: QueryScope;
+    childName: string;
   }):
     | { regime: "none" }
     | { regime: "guarded"; after: unknown }
