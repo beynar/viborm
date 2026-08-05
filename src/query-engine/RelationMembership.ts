@@ -1,7 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner RelationMembership.
 import type { Model } from "@schema/model";
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
-import { getFkDirection } from "./builders/relation-data-builder";
+import { bindRelation } from "./builders/relation-data-builder";
 import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
 import { getRelationInfo, getRelationNames } from "./context";
 import {
@@ -31,7 +31,8 @@ export function getRelationMembershipScope(
   ctx: QueryScope,
   relationInfo: RelationInfo
 ): RelationMembershipScope {
-  if (relationInfo.type === "manyToMany") {
+  const relation = bindRelation(ctx, relationInfo);
+  if (relation.kind === "junction") {
     const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
     const orderedFields: [string, string] =
       joinInfo.sourceFieldName.localeCompare(joinInfo.targetFieldName) <= 0
@@ -45,10 +46,9 @@ export function getRelationMembershipScope(
     };
   }
 
-  const direction = getFkDirection(ctx, relationInfo);
   const fields: Array<{ foreignKey: string; referencedKey: string }> = [];
-  for (const [index, foreignKey] of direction.fkFields.entries()) {
-    const referencedKey = direction.pkFields[index];
+  for (const [index, foreignKey] of relation.foreignFields.entries()) {
+    const referencedKey = relation.referencedFields[index];
     if (referencedKey === undefined) {
       throw new NestedWriteError(
         `Relation '${relationInfo.name}' has mismatched foreign-key metadata.`,
@@ -64,8 +64,14 @@ export function getRelationMembershipScope(
   );
   return {
     kind: "foreignKey",
-    holder: direction.fkHolder,
-    referenced: direction.referenced,
+    holder:
+      relation.kind === "parentHeldToOne"
+        ? relation.sourceModel
+        : relation.relationInfo.targetModel,
+    referenced:
+      relation.kind === "parentHeldToOne"
+        ? relation.relationInfo.targetModel
+        : relation.sourceModel,
     fields,
   };
 }
@@ -110,13 +116,12 @@ export function buildRootUpdateMembershipFootprints(
   const footprints: RootMembershipFootprint[] = [];
   for (const mutation of Object.values(relations)) {
     const relationInfo = mutation.relationInfo;
-    if (relationInfo.type === "manyToMany") continue;
-    const direction = getFkDirection(ctx, relationInfo);
+    const relation = bindRelation(ctx, relationInfo);
+    if (relation.kind === "junction") continue;
     if (
-      direction.holdsFK ||
-      direction.fkHolder !== ctx.model ||
-      direction.referenced !== ctx.model ||
-      !hasChangedForeignKey(direction.fkFields, scalarData)
+      relation.kind === "parentHeldToOne" ||
+      relation.relationInfo.targetModel !== ctx.model ||
+      !hasChangedForeignKey(relation.foreignFields, scalarData)
     ) {
       continue;
     }
@@ -136,11 +141,13 @@ export function buildTransitiveUpdateMembershipFootprints(
   const membershipScopes: RelationMembershipScope[] = [];
   for (const relationName of getRelationNames(ctx.model)) {
     const relationInfo = getRelationInfo(ctx, relationName);
-    if (!relationInfo || relationInfo.type === "manyToMany") continue;
-    const direction = getFkDirection(ctx, relationInfo);
+    if (!relationInfo) continue;
+    const relation = bindRelation(ctx, relationInfo);
+    if (relation.kind === "junction") continue;
     if (
-      direction.fkHolder !== ctx.model ||
-      !hasChangedForeignKey(direction.fkFields, scalarData)
+      (relation.kind !== "parentHeldToOne" &&
+        relation.relationInfo.targetModel !== ctx.model) ||
+      !hasChangedForeignKey(relation.foreignFields, scalarData)
     ) {
       continue;
     }

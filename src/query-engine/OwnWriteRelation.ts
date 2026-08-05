@@ -1,6 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import type { Model } from "@schema/model";
-import { getFkDirection } from "./builders/relation-data-builder";
+import { bindRelation } from "./builders/relation-data-builder";
 import type {
   NormalizedRelationUpsert,
   RelationMutationProgram,
@@ -298,9 +298,9 @@ export class OwnWriteRelation {
   }
 
   private isRelatedHeldRelation(): boolean {
+    const relation = bindRelation(this.ctx, this.relationInfo);
     return (
-      this.relationInfo.type !== "manyToMany" &&
-      !getFkDirection(this.ctx, this.relationInfo).holdsFK
+      relation.kind === "childHeldToOne" || relation.kind === "childHeldToMany"
     );
   }
 

@@ -1,5 +1,5 @@
 import { getPrimaryKeyFields } from "./builders/correlation-utils";
-import { getFkDirection } from "./builders/relation-data-builder";
+import { bindRelation } from "./builders/relation-data-builder";
 import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
 import { classifyRelationKeyScalarUpdate } from "./TargetConstraint";
 import { NestedWriteError, type QueryScope } from "./types";
@@ -37,13 +37,17 @@ export function assertRelationKeyUpdatesAreCompilable(
   const primaryKeyFields = new Set(getPrimaryKeyFields(ctx.model));
 
   for (const mutation of Object.values(relations)) {
-    if (mutation.relationInfo.type === "manyToMany") continue;
-
-    const fk = getFkDirection(ctx, mutation.relationInfo);
-    const relationKeyFields = fk.holdsFK ? fk.fkFields : fk.pkFields;
+    const relation = bindRelation(ctx, mutation.relationInfo);
+    if (relation.kind === "junction") continue;
+    const relationKeyFields =
+      relation.kind === "parentHeldToOne"
+        ? relation.foreignFields
+        : relation.referencedFields;
     for (const field of relationKeyFields) {
       if (scalarData[field] === undefined) continue;
-      if (primaryKeyFields.has(field) && !fk.holdsFK) continue;
+      if (primaryKeyFields.has(field) && relation.kind !== "parentHeldToOne") {
+        continue;
+      }
       if (classifyRelationKeyScalarUpdate(scalarData[field]).resolved) continue;
 
       throw new NestedWriteError(

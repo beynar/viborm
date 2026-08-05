@@ -1,5 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
-import { getFkDirection } from "./builders/relation-data-builder";
+import { bindRelation } from "./builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type RelationMutationProgram,
@@ -173,7 +173,7 @@ export class OwnWriteNode {
 
   appendTransitiveMembershipWrites(ledger: OwnWriteLedger): void {
     for (const footprint of this.transitiveMembershipFootprints) {
-      const direction = getFkDirection(this.ctx, footprint.relationInfo);
+      const relation = bindRelation(this.ctx, footprint.relationInfo);
       const membershipScope = getRelationMembershipScope(
         this.ctx,
         footprint.relationInfo
@@ -182,7 +182,11 @@ export class OwnWriteNode {
         this.rootOperation,
         {
           first: footprint.constraint,
-          second: unknownConstraint(direction.referenced),
+          second: unknownConstraint(
+            relation.kind === "parentHeldToOne"
+              ? relation.relationInfo.targetModel
+              : relation.sourceModel
+          ),
         },
         membershipScope,
         "inverseTarget",
@@ -297,10 +301,7 @@ function getRelationEntryGroups(
   const relatedHoldsFk: [string, RelationMutationProgram][] = [];
   for (const entry of Object.entries(relations)) {
     const relationInfo = entry[1].relationInfo;
-    if (
-      relationInfo.type !== "manyToMany" &&
-      getFkDirection(ctx, relationInfo).holdsFK
-    ) {
+    if (bindRelation(ctx, relationInfo).kind === "parentHeldToOne") {
       currentHoldsFk.push(entry);
     } else {
       relatedHoldsFk.push(entry);

@@ -1,6 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner OwnWriteLedger.
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
-import { getFkDirection } from "./builders/relation-data-builder";
+import { bindRelation } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import {
   type RelationMembershipScope,
@@ -40,7 +40,7 @@ export function getRelationMembershipEndpoints(
       ? { first: currentConstraint, second: targetConstraint }
       : { first: targetConstraint, second: currentConstraint };
   }
-  return getFkDirection(ctx, relationInfo).holdsFK
+  return bindRelation(ctx, relationInfo).kind === "parentHeldToOne"
     ? { first: currentConstraint, second: targetConstraint }
     : { first: targetConstraint, second: currentConstraint };
 }
@@ -264,8 +264,9 @@ export function getMembershipReadOrientation(
   ctx: QueryScope,
   relationInfo: RelationInfo
 ): MembershipReadOrientation {
-  if (relationInfo.type === "manyToMany") return "manyToMany";
-  return getFkDirection(ctx, relationInfo).holdsFK ? "direct" : "inverse";
+  const relation = bindRelation(ctx, relationInfo);
+  if (relation.kind === "junction") return "manyToMany";
+  return relation.kind === "parentHeldToOne" ? "direct" : "inverse";
 }
 
 function writeCanAffectRead(

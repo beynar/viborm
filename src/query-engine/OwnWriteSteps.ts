@@ -1,6 +1,9 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import type { Model } from "@schema/model";
-import { getFkDirection } from "./builders/relation-data-builder";
+import {
+  bindRelation,
+  type ParentHeldToOne,
+} from "./builders/relation-data-builder";
 import type {
   RelationMutationEntry,
   RelationMutationProgram,
@@ -20,7 +23,7 @@ import {
   unknownConstraint,
   updateResultConstraints,
 } from "./TargetConstraint";
-import type { QueryScope } from "./types";
+import { QueryEngineError, type QueryScope } from "./types";
 
 export class OwnWriteSteps {
   private readonly relation: OwnWriteRelation;
@@ -141,8 +144,8 @@ export class OwnWriteSteps {
       const selector = selectorConstraint(this.relation.target, where);
       if (
         this.relation.family.kind === "update" &&
-        this.relation.relationInfo.type !== "manyToMany" &&
-        getFkDirection(this.relation.ctx, this.relation.relationInfo).holdsFK
+        bindRelation(this.relation.ctx, this.relation.relationInfo).kind ===
+          "parentHeldToOne"
       ) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -443,12 +446,18 @@ function buildToOneUpdateFootprint(
   rootScalarData: Readonly<Record<string, unknown>> | undefined
 ): ToOneUpdateFootprint {
   const target = relationInfo.targetModel;
-  const direction = getFkDirection(ctx, relationInfo);
   const scalarData = getScalarData(target, updateData);
   const changedFields = new Set(Object.keys(scalarData));
+  const relation = bindRelation(ctx, relationInfo);
+  if (relation.kind === "junction") {
+    throw new QueryEngineError(
+      `Relation '${relationInfo.name}' is many-to-many and has no FK direction. ` +
+        "Many-to-many writes must go through the junction table handlers."
+    );
+  }
   const readConstraint =
-    direction.holdsFK && rootScalarData
-      ? buildReboundTargetConstraint(target, direction, rootScalarData)
+    relation.kind === "parentHeldToOne" && rootScalarData
+      ? buildReboundTargetConstraint(target, relation, rootScalarData)
       : unknownConstraint(target);
   const resultConstraints: TargetConstraint[] = [];
 
@@ -463,10 +472,18 @@ function buildToOneUpdateFootprint(
   }
 
   const membershipFields = new Set(
-    direction.holdsFK ? direction.pkFields : direction.fkFields
+    relation.kind === "parentHeldToOne"
+      ? relation.referencedFields
+      : relation.foreignFields
   );
-  if (direction.fkHolder === target && direction.referenced === target) {
-    for (const field of [...direction.fkFields, ...direction.pkFields]) {
+  if (
+    relation.sourceModel === target &&
+    relation.relationInfo.targetModel === target
+  ) {
+    for (const field of [
+      ...relation.foreignFields,
+      ...relation.referencedFields,
+    ]) {
       membershipFields.add(field);
     }
   }
@@ -511,19 +528,19 @@ function dedupeConnectOrCreateItems(
 
 function buildReboundTargetConstraint(
   target: Model<any>,
-  direction: ReturnType<typeof getFkDirection>,
+  relation: ParentHeldToOne,
   rootScalarData: Readonly<Record<string, unknown>>
 ): TargetConstraint {
   const values: Record<string, unknown> = {};
-  for (const [index, fkField] of direction.fkFields.entries()) {
-    const referencedField = direction.pkFields[index];
+  for (const [index, fkField] of relation.foreignFields.entries()) {
+    const referencedField = relation.referencedFields[index];
     if (!(referencedField && Object.hasOwn(rootScalarData, fkField))) continue;
     const update = classifyRelationKeyScalarUpdate(rootScalarData[fkField]);
     if (update.resolved && update.value !== null) {
       values[referencedField] = update.value;
     }
   }
-  return normalizeTargetConstraint(target, direction.pkFields, values);
+  return normalizeTargetConstraint(target, relation.referencedFields, values);
 }
 
 function getScalarData(
