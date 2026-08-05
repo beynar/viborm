@@ -683,7 +683,6 @@ export class RelationWritePart implements Part {
         `query-engine-v2 ${kind} for relation '${relationName}' requires data.`
       );
     }
-    const legacyData = separateData(childScope, data);
     const { scalarData, relations } = buildParsedRelationPrograms(
       childScope,
       data
@@ -704,11 +703,7 @@ export class RelationWritePart implements Part {
     // `author: { update }`). V1 runs this at EVERY `compileLocatedUpdate` level; this
     // is the nested level (a to-many/inverse-to-one `update` target's payload), so the
     // reject recurses into nested update data BEFORE any outer effect, byte-identical.
-    assertRelationKeyUpdatesAreCompilable(
-      childScope,
-      scalarData,
-      legacyData.relations
-    );
+    assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
     if (Object.keys(relations).length === 0) {
       // An EMPTY nested update payload (`update: { where, data: {} }`,
       // `updateMany: { where, data: {} }`) asks for nothing. Measured against Prisma

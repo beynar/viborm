@@ -2,10 +2,7 @@
 import { NestedWriteError, NotFoundError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
-import {
-  splitToOneUpdateTarget,
-  type ToOneUpdateTarget,
-} from "@validation/relations/to-one-update-form";
+import type { ToOneUpdateTarget } from "@validation/relations/to-one-update-form";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
@@ -15,14 +12,13 @@ import {
   type FkDirection,
   getFkDirection,
   type NestedUpdateManyInput,
-  type RelationMutation,
   separateData,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   buildRelationMutationProgram,
-  getRelationMutationKinds,
   type NormalizedRelationUpsert,
+  partitionModelData,
   type RelationMutationEntry,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
@@ -539,10 +535,10 @@ export class UpdateOperation {
       assertPortablePrimaryKeyUpdateInput(model, "update", { data });
     }
     const parent = createQueryScope(engine.adapter, model);
-    const separated = separateData(parent, data);
+    const partitioned = partitionModelData(parent, data);
     const relationPrograms: Record<string, RelationMutationProgram> = {};
-    for (const [relationName, mutation] of Object.entries(
-      separated.relations
+    for (const [relationName, relationPayload] of Object.entries(
+      partitioned.relationPayloads
     )) {
       const relationSchemas = parentSchemas.relations[relationName];
       if (!relationSchemas) {
@@ -551,15 +547,15 @@ export class UpdateOperation {
         );
       }
       const parsedRelation = nestedTarget
-        ? mutation.payload
+        ? relationPayload.payload
         : parseValidated(
             relationSchemas.update,
-            data[relationName],
+            relationPayload.payload,
             "update",
             `data.${relationName}`
           );
       const program = buildRelationMutationProgram(
-        mutation.relationInfo,
+        relationPayload.relationInfo,
         parsedRelation
       );
       if (program) relationPrograms[relationName] = program;
@@ -600,33 +596,34 @@ export class UpdateOperation {
         assertPortablePrimaryKeyUpdateInput(model, "update", args);
         assertRelationKeyUpdatesAreCompilable(
           parent,
-          separated.scalarData,
-          separated.relations
+          partitioned.scalarData,
+          relationPrograms
         );
-        this.assertUpdateManyRelationLegality(separated.relations);
-        const ownWrite = buildParsedRelationPrograms(
+        this.assertUpdateManyRelationLegality(relationPrograms);
+        const parsedData = requireRecord(parsedArgs.data, "update.data");
+        const parsedScalarData = partitionModelData(
           parent,
-          requireRecord(parsedArgs.data, "update.data")
-        );
+          parsedData
+        ).scalarData;
         new OwnWritePreflight().assertUpdate(
           parent,
-          ownWrite.scalarData,
-          ownWrite.relations,
+          parsedScalarData,
+          relationPrograms,
           where
         );
       };
     } else {
       assertRelationKeyUpdatesAreCompilable(
         parent,
-        separated.scalarData,
-        separated.relations
+        partitioned.scalarData,
+        relationPrograms
       );
       // CLASS V (T4c) — V1's `assertUpdateManyDataIsCompilable`, reused: a nested
       // relation write inside `updateMany` data rejects (byte-identical) BEFORE the
       // parent mutation. Runtime-branch-gated inside an upsert update arm (the
       // deferred branch above), so a missing-target upsert taking the create arm never
       // validates it.
-      this.assertUpdateManyRelationLegality(separated.relations);
+      this.assertUpdateManyRelationLegality(relationPrograms);
     }
 
     // A nested target's `where` (a child-held to-many `update` selector) is already
@@ -677,10 +674,10 @@ export class UpdateOperation {
       const parsedData = validatedArgs
         ? requireRecord(validatedArgs.data, "update.data")
         : data;
-      const ownWrite = buildParsedRelationPrograms(parent, parsedData);
+      const scalarData = partitionModelData(parent, parsedData).scalarData;
       new OwnWritePreflight().assertUpdate(
         parent,
-        ownWrite.scalarData,
+        scalarData,
         relationPrograms,
         where
       );
@@ -739,7 +736,7 @@ export class UpdateOperation {
         relationKeyGuards,
         locateFields,
         parentFkLocateFields,
-        rootScalarData: separated.scalarData,
+        rootScalarData: partitioned.scalarData,
       });
     }
     this.childParts = childParts;
@@ -752,7 +749,7 @@ export class UpdateOperation {
     //    when non-empty (a relation-only update never writes the parent row;
     //    Prisma's `update({ data: { posts: { connect } } })`).
     const parentSet: Record<string, unknown> = {};
-    if (Object.keys(separated.scalarData).length > 0) {
+    if (Object.keys(partitioned.scalarData).length > 0) {
       Object.assign(
         parentSet,
         // The same parse-once rule the relation payloads follow: a nested target's
@@ -760,10 +757,10 @@ export class UpdateOperation {
         // target's `core.update` over it), so it is assigned as-is. A second pass over
         // a JSON write's `{ set: … }` envelope re-wraps it into the column.
         nestedTarget
-          ? separated.scalarData
+          ? partitioned.scalarData
           : parseValidated(
               parentSchemas.core.scalarUpdate,
-              separated.scalarData,
+              partitioned.scalarData,
               "update",
               "data"
             )
@@ -1225,23 +1222,25 @@ export class UpdateOperation {
    * construction (a plain update) or deferred to the taken upsert branch.
    */
   private assertUpdateManyRelationLegality(
-    relations: Record<string, RelationMutation>
+    relations: Record<string, RelationMutationProgram>
   ): void {
-    for (const mutation of Object.values(relations)) {
-      const updateMany = mutation.updateMany;
-      if (updateMany === undefined) continue;
+    for (const program of Object.values(relations)) {
       const childScope = createQueryScope(
         this.engine.adapter,
-        mutation.relationInfo.targetModel
+        program.relationInfo.targetModel
       );
-      const inputs = Array.isArray(updateMany) ? updateMany : [updateMany];
-      for (const input of inputs) {
-        if (!(isRecord(input) && isRecord(input.data))) continue;
-        const { relations: nested } = separateData(childScope, input.data);
-        assertUpdateManyRelationsAreCompilable(
-          mutation.relationInfo.name,
-          nested
-        );
+      for (const entry of program.entries) {
+        if (entry.kind !== "updateMany") continue;
+        for (const input of entry.items) {
+          const { relations: nested } = buildParsedRelationPrograms(
+            childScope,
+            input.data
+          );
+          assertUpdateManyRelationsAreCompilable(
+            program.relationInfo.name,
+            nested
+          );
+        }
       }
     }
   }
@@ -1628,24 +1627,14 @@ export class UpdateOperation {
    * comes from differs.
    */
   private interpretChildHeldCreate(args: {
-    entry: Extract<
-      RelationMutationEntry,
-      { kind: "create" | "createMany" }
-    >;
+    entry: Extract<RelationMutationEntry, { kind: "create" | "createMany" }>;
     relationName: string;
     fk: FkDirection;
     childScope: QueryScope;
     childName: string;
     input: Parameters<UpdateOperation["interpretRelation"]>[0];
   }): void {
-    const {
-      entry,
-      relationName,
-      fk,
-      childScope,
-      childName,
-      input,
-    } = args;
+    const { entry, relationName, fk, childScope, childName, input } = args;
     const { parentId, afterRoot } = this.resolveCreateParent(
       input,
       fk,
@@ -2247,11 +2236,9 @@ export class UpdateOperation {
         // `{ where, data }` wrapper arrives already told apart from bare data by the
         // relation schema, as its canonical envelope; the filter narrows that
         // locator. See `splitToOneUpdateTarget`.
-        input.childParts.push(
-          buildToOneUpdatePart(writeBase, entry)
-        );
+        input.childParts.push(buildToOneUpdatePart(writeBase, entry));
         return;
-      case "upsert":
+      case "upsert": {
         // Correlated to-one upsert (TO-ONE.md §7.2, family F): the correlated probe
         // decides found → update / absent → create (fk = parent), no unique `where`.
         // The same correlated locator as the `update` arm, with a create branch.
@@ -2280,10 +2267,9 @@ export class UpdateOperation {
           });
           return;
         }
-        input.childParts.push(
-          buildInverseToOneUpsertPart(writeBase, item)
-        );
+        input.childParts.push(buildInverseToOneUpsertPart(writeBase, item));
         return;
+      }
       case "disconnect": {
         // A required child FK cannot be nulled — V1's verbatim typed rejection.
         assertRelationCanDisconnect(relationInfo, fk);
@@ -2541,13 +2527,7 @@ export class UpdateOperation {
         return;
       case "create":
         input.parentHeldTargets.push(
-          this.interpretParentHeldCreate(
-            input,
-            relationName,
-            relationInfo,
-            fk,
-            entry
-          )
+          this.interpretParentHeldCreate(relationName, relationInfo, fk, entry)
         );
         return;
       case "connectOrCreate":
@@ -2956,10 +2936,7 @@ export class UpdateOperation {
       });
       updateData = scalarData;
     }
-    const before = this.buildBeforeTarget(
-      childScope,
-      spec.create
-    );
+    const before = this.buildBeforeTarget(childScope, spec.create);
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const probeId = input.scope.allocate(`${childName}.find`);
     return {
@@ -3125,7 +3102,6 @@ export class UpdateOperation {
   /** A parent-held `create` under update: an unconditional before-root target
    *  INSERT, the root UPDATE's FK column referencing its identity by a `Ref`. */
   private interpretParentHeldCreate(
-    input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relationName: string,
     relationInfo: RelationInfo,
     fk: FkDirection,
@@ -3776,10 +3752,7 @@ export class UpdateOperation {
     relationName: string,
     relationInfo: RelationInfo,
     fk: FkDirection,
-    entry: Extract<
-      RelationMutationEntry,
-      { kind: "connect" | "disconnect" }
-    >
+    entry: Extract<RelationMutationEntry, { kind: "connect" | "disconnect" }>
   ): ToOneLink {
     if (entry.kind === "disconnect") {
       // V1-verbatim rejection when a required FK cannot be nulled.
@@ -4272,7 +4245,6 @@ function isConstructionLiteral(value: unknown): boolean {
   if (t === "object") return value instanceof Date;
   return t === "string" || t === "number" || t === "bigint" || t === "boolean";
 }
-
 
 function defaultSelect(model: Model<any>): Record<string, unknown> {
   // V1's default projection is every scalar EXCEPT `.omit()`-ed fields — the raw

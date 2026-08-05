@@ -1,8 +1,6 @@
 import { getPrimaryKeyFields } from "./builders/correlation-utils";
-import {
-  getFkDirection,
-  type RelationMutation,
-} from "./builders/relation-data-builder";
+import { getFkDirection } from "./builders/relation-data-builder";
+import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
 import { classifyRelationKeyScalarUpdate } from "./TargetConstraint";
 import { NestedWriteError, type QueryScope } from "./types";
 
@@ -14,7 +12,7 @@ import { NestedWriteError, type QueryScope } from "./types";
  */
 export function assertUpdateManyRelationsAreCompilable(
   relationName: string,
-  relations: Record<string, RelationMutation>
+  relations: Record<string, RelationMutationProgram>
 ): void {
   const relationKeys = Object.keys(relations);
   if (relationKeys.length === 0) return;
@@ -34,7 +32,7 @@ export function assertUpdateManyRelationsAreCompilable(
 export function assertRelationKeyUpdatesAreCompilable(
   ctx: QueryScope,
   scalarData: Record<string, unknown>,
-  relations: Record<string, RelationMutation>
+  relations: Record<string, RelationMutationProgram>
 ): void {
   const primaryKeyFields = new Set(getPrimaryKeyFields(ctx.model));
 
