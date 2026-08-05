@@ -24,7 +24,8 @@ All builders follow the same pattern: pure function, context first, returns Sql.
 
 | File | Purpose | Complexity |
 |------|---------|------------|
-| `relation-data-builder.ts` | Nested-write data classification, FK direction | High (~800 lines) |
+| `relation-mutation-parser.ts` | Scalar/relation partitioning and lossless relation mutation programs | High |
+| `relation-data-builder.ts` | FK direction and relation SQL data | Medium |
 | `include-builder.ts` | Relation inclusion (lateral + subquery strategies) | High (~630 lines) |
 | `where-builder.ts` | WHERE clauses, filter dispatch | High (~620 lines) |
 | `relation-filter-builder.ts` | some/every/none, is/isNot | Medium (~440 lines) |
@@ -101,6 +102,14 @@ Handles nested relation inclusion via JSON aggregation:
 ---
 
 ## Core Rules
+
+### Canonical mutation inputs
+
+Partitioning and mutation interpretation are separate. `partitionModelData`
+only separates scalar fields from relation payloads. After the relation schema
+transforms a payload, `buildRelationMutationProgram` records its ordered meaning
+once. Downstream emitters consume normalized entries and must not inspect raw
+mutation keys, normalize arrays again, or reparse nested data.
 
 ### Rule 1: Pure Functions
 Builders have no side effects. Same inputs always produce same output. No state mutation.

@@ -484,7 +484,7 @@ legacy program concept and where it lives in V2:
 | `FallbackValue` | dies — compile emits only the taken branch |
 | `CapturedRead` / planning statements | planning fragment steps (may ref each other) |
 | `BranchStep` + `whenTrue/whenFalse` | dies — decided in `compile(known)` JS via widened probes |
-| legacy branch pins | `Probe.pin` (§2) + `Step.racePin` |
+| legacy branch pins | explicit selected-arm guard (§2) + `Step.racePin` |
 | `expectedCardinality` / `affectedRows` contracts | `Step.expects` postconditions (tx: result check; batch: adapter assertion) |
 | legacy failure kind (`nestedWrite`/`notFound`/`query`) | `Failure.kind` — full set, day one |
 | `failure.raceable` | `Failure.raceable`, values per Pin Rule class |
@@ -1328,7 +1328,7 @@ so the group boundary is now a measured fact, not a reading of intent.
 depth-recursive child-Part builder the verdict called for is landed as
 `buildNestedTargetChildParts` (`nested-target-parts.ts`): a **located-by-PK** target's
 data relations fold into deeper Parts through the SAME per-kind builders the root uses,
-parameterized only by `ParentIdSource` — `literalParentId(pk)` for a child-held nested
+parameterized only by a final reference source — `literalParentId(pk)` for a child-held nested
 update (its `where` PK, in `RelationWritePart`), `plannedParentId(probe, pk)` for a
 parent-held one (its captured PK, exposed as a firstRowField, in
 `UpdateOperation.parentHeldUpdateData` — family A-remainder's projection). The obligation
@@ -1819,7 +1819,7 @@ driver in tx mode, driver `insertId` otherwise — batch mode threads it through
 adapter's insertId scratch store, the same machinery as the create root), and the join
 row references it by a backward `Ref` cast at the interpolation site (`referenceSql`).
 A FRESH parent whose own PK is generated rides the same mechanism: the junction write
-correlation accepts the `ref`-kind `ParentIdSource` (previously only
+correlation accepts a `finalRef` source (previously only
 `planned`/`literal`), so both join-row columns may be produced values. Covers `create`
 (create root + update root + depth) and `connectOrCreate` (missing arm; the dedup
 ledger keys a generated target by its unique selector). Two honest boundaries remained,
@@ -1960,7 +1960,7 @@ No `Ref` was involved, which is the finding. §3's techniques exist for values t
 yet known; this value was known all along and the plan was already spellable. What the
 refusal named as inexpressibility was a fixed emission order — the ordering half of §2's
 "a write plus the premises it needs", which the atom expresses by WHERE a step sits, not by
-what vocabulary it uses. The one genuinely new thing is `RelationSetConfig.correlationParentId`:
+what vocabulary it uses. The one genuinely new thing is `RelationSetConfig.membershipReadSource`:
 `set` both reads existing membership (its departing half, a correlated planning read) and
 writes it, and only under a transition do those two want different parent values. Splitting
 them is a §1 multi-field-produce distinction, not a new step kind.

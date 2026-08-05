@@ -297,7 +297,7 @@ Part method, no executor branch, no parent reference. Concretely:
   INSERT is an ordinary `write` step whose FK column holds a `Ref` — the atom's
   native "refs point backward" shape (WHY §4.2, ATOM §6). No IR.
 - The `connectOrCreate` found/missing decision is `compile(known)` JS over a
-  widened global probe (technique #2) — the same `Probe.pin` + `Step.racePin` the
+  widened global probe (technique #2) — the same explicit found guard + `Step.racePin` the
   adopt family already uses. No `BranchStep`.
 - The §2 coverage ledger is a construction-time payload analysis — a `Map<string,
   Set<unknown>>` keyed by target model — consumed while emitting the record's FK
@@ -669,7 +669,7 @@ reusable depth-recursive child-Part builder the hypothesis called for — it fol
 **located-by-PK** target's data relations into deeper Parts through the SAME per-kind
 builders the root's `interpretRelation` uses (m2m junction, the correlated
 write/link/adopt families, the inverse-side to-one, and a literal-parent create/
-createMany leaf), differing only in the `ParentIdSource`: a compile-time
+createMany leaf), differing only in the final reference source: a compile-time
 `literalParentId(pk)` for a child-held nested update (the target's own `where` PK), a
 `plannedParentId(probe, pk)` for a parent-held one (its captured PK, exposed as a
 firstRowField). Both callers — `RelationWritePart` (child-held) and

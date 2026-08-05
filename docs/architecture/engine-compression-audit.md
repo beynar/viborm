@@ -2,7 +2,35 @@
 
 **Date:** 2026-08-05
 **Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Method:** Four read-only analyst lenses (repetition census, ATOM vocabulary gaps, dispatch unification, vestige + invariant placement), each chained into a skeptic that re-read every cited line, attacked every net-delta claim, and checked every proposal against the recorded doctrine. Confidence numbers are post-skeptic. Nothing was changed; this is the plan.
+**Method:** Four read-only analyst lenses (repetition census, ATOM vocabulary gaps, dispatch unification, vestige + invariant placement), each chained into a skeptic that re-read every cited line, attacked every net-delta claim, and checked every proposal against the recorded doctrine. Confidence numbers are post-skeptic. The original findings below are historical input. The implementation outcome supersedes their proposed shapes.
+
+## Implementation outcome
+
+The compression work started at `18328f96dc84a72b38b058960acb2f87a30d7667`. The validated implementation base is `58a7bdd89292cacd9acf145093b9d2bf084598d3`. Documentation followed as a separate atomic unit.
+
+The result is **2,383 production TypeScript lines added and 4,146 deleted: net −1,763 lines** in `src/query-engine`. This exceeds the planned reduction. Public query APIs, result types, SQL order, parameter order, step IDs, guards, and execution order remain unchanged, except for the authorized Create `connectOrCreate` replacement-race message correction.
+
+The implementation removed **20 named internal concepts or carriers**, plus dead exports and barrels:
+
+- The query-engine and builder barrels, the `@query-engine` alias, and the dead V1 builder exports.
+- The legacy operation program, `ProgramFailure`, `UniqueConflictPin`, `ProgramReadOperation`, and `RelationStatement`.
+- `BatchValueRef`, `BatchResolvableValue`, and `PreparedBatchRacePin`.
+- The relation-program values module and its duplicate nullability/message ownership.
+- The many-to-many descriptor bounce.
+- The optional per-kind `RelationMutation` bag, `RelationMutationStep`, and `RelationMutationPlan`.
+- `ParentIdSource`, `PerFieldParentIdSource`, `AdoptParentIdSource`, `FreshReferenced`, and `UpsertParentBinding`.
+- The non-structural `Probe` and `validateProbe`.
+
+The live model now has four stronger boundaries:
+
+1. `StatementStep` is a union of `ReadStep` and `WriteStep`. Only writes can carry a race pin or unique-conflict policy.
+2. `PlanningFragment` contains statement steps and outputs, but no guards. E6.9 preparation writes remain legal during planning.
+3. `RelationMutationProgram` preserves parsed input order and meaning without carrying execution deduplication.
+4. Foreign-key sources are bound to a foreign/referenced field pair. No caller supplies a field name when it resolves a source.
+
+The provisional structural adopt helper was rejected. It needed arm callbacks and duplicate exceptions, and it added more production code than it removed. The implementation therefore deleted the original non-structural probe vocabulary and kept the four explicit adopt sites. No branch-step IR, strategy object, generic mutation DSL, payload walker, or shared utility landfill was added.
+
+The remaining local compression was measured after the main migration. Only guard/write bucketing still had three or more semantically identical instances, so it received one owner. Correlation builders, generated-identity constructors, and recursive where walkers still have different invariants or fewer than three live instances and remain separate.
 
 ## The question, answered first
 
@@ -18,7 +46,7 @@ The engine grew 30,820 → 33,119 → 38,927 lines across PRs #16 and #20 (+26%)
 
 | # | Finding | What | Net | Conf. |
 |---|---|---|---|---|
-| R1.1 | D1 (adj.) | `src/query-engine/operation-program.ts`: the program-construction/resolution half is dead since THE DELETION. The skeptic's correction makes it BIGGER: the analyst's "live" inventory was a name-collision artifact — write-engine defines its OWN `OperationStep`/`GuardStep`/`StatementStep` in `OperationFragment.ts`; the old `ReadStep`/`WriteStep`/`FailureStep`/`ProgramStatement`/`Captured*`/`Produced*`/`ProgramWriteOperation` are ALL externally dead. File 506 → ~110 lines (keep `ProgramFailure`, `UniqueConflictPin`, the live rump). | ≈ −390 | 0.9 |
+| R1.1 | D1 (adj.) | **Superseded by implementation:** the liveness audit proved that the proposed rump also had no justified owner. The complete legacy operation program was deleted, and live failure and constraint types now use their canonical owners. | Better than estimate | 1.0 |
 | R1.2 | D2 | `src/query-engine/RelationProgramValues.ts`: 19 of 22 exports dead; relocate the 3 live ones into write-engine; merge the duplicated `requiredFkFieldsFor` derivation. | ≈ −245 | 0.85 |
 | R1.3 | D4 | `buildCreateManyAndReturn` (dead V1 builder) + slim the `@query-engine` barrel to what production imports (it survives as a test alias). | ≈ −70 | 0.9 |
 | R1.4 | B5/C2/D3/A5 (one family) | The verbatim clone tail, SAFE SUBSET ONLY: `normalizeWheres`+`normalizeWhereData` (byte-identical 44-line block, `RelationWritePart.ts:1841` ≡ `RelationJunctionPart.ts:2734`) to shared.ts. The `requireRecord`/`normalizeSingle` twins are NOT all safe — the skeptics found behavioral differences (UpdateOperation's 3-arg variant refuses multi-element arrays with its own message; per-file message templates) — extract only the byte-identical ones, keep the divergent ones in place with a one-line pointer. | ≈ −60 | 0.72 |
@@ -43,8 +71,8 @@ The engine grew 30,820 → 33,119 → 38,927 lines across PRs #16 and #20 (+26%)
 |---|---|---|---|---|
 | R3.0 | A-skeptic MISSED (audit FIRST) | **The connectOrCreate found-arm guard wording asymmetry**: `CreateOperation.ts:1799` words the vanished-target batch guard as plain not-found (`relationTargetNotFound(…, 'connect')`) while `UpdateOperation.ts:3438` words it `nestedReplacement('connectOrCreate')` with an explicit replacement-race comment. Either the asymmetry is V1-parity-recorded per operation, or Create reports the wrong failure class. MEASURE before R3.1 — a unifier would silently pick one. | Possible live wording defect | — |
 | R3.1 | A3 (adj.) | The parent-held adopt family shared by Create/Update — **the extraction E3-U3's reclassification explicitly recorded as its own unit.** Guard wordings stay site-supplied; before-subtree emitters stay injected (their racePin plumbing differs deliberately); update-only kinds stay put. Only after R3.0's answer. | ≈ −65 lines, −3 concepts, and the recorded debt is paid | 0.55 |
-| R3.2 | A4 (adj.) | Extend the ATOM **Probe** vocabulary so `validateProbe` covers the arm quadrille: today it is called at exactly ONE of the ~9 adopt-family sites; the rest hand-roll probe/decision/guard/racePin and argue the Pin Rule in comments. Line win is small (≈ −50); the win is that "found ⇒ presence guard raceable:false on the captured PK; missing ⇒ constraint pin raceable:true" becomes machine-validated at every site instead of prose at eight. | Checkability | 0.5 |
-| R3.3 | B1 (adj.) | Value-sourcing unification: fold `FreshReferenced` into the `ParentIdSource` union, add a `lookup` source kind (E1 built the lookup subquery positionally), delete the 9 hand-rolled per-field resolve loops through one widened `fkAssign`. The skeptic confirmed the 9 loops and the member-for-member bridge; the refusal-context plumbing is the tax. | ≈ −150, one sourcing concept | 0.6 |
+| R3.2 | A4 (adj.) | **Rejected by implementation experiment:** a structural adopt helper required arm callbacks and exception policy. It failed the negative-line gate. The non-structural probe declaration and validator were deleted; explicit sites keep their local decisions. | −1 false concept | 1.0 |
+| R3.3 | B1 (adj.) | **Superseded by a stricter model:** final and planning sources now belong to field-bound foreign-key members. Separate read and write sources express primary-key transitions without inference. Lookup is a final source only and cannot enter planning branch SQL. | One provenance model | 1.0 |
 | R3.4 | A7 (adj.) | The optional located-PK publication threading — **the recorded conditional-arm unit** (`RelationUpsertPart.ts:1289-1324` names it; the plan's Status recorded it). Net lines ≈ 0; the win is a SHAPE ABSORBED (deeper relation-carrying writes on upsert update arms stop refusing) plus deleting the refusal essay. This is also one of the RA re-audit's nine (c-ii) survivors — two ledgers point at the same unit. | Absorption + essay deletion | 0.5 |
 
 ## Rejected — the false compressions, so nobody re-litigates them
@@ -52,7 +80,7 @@ The engine grew 30,820 → 33,119 → 38,927 lines across PRs #16 and #20 (+26%)
 All UPHELD by their skeptics, with the load-bearing differences named in the full audit output:
 
 - **A fragment-level CONDITIONAL-ARM step kind (B3):** re-adds the BranchStep the census deliberately killed; +200-300 executor/validator lines against −150 Part lines. The arms' mass is in what they EMIT, not the branching.
-- **A LOCATE step kind in the frozen vocabulary (B6):** honest delta ≈ 0; the two largest cited sites already have single-home statements; the P2a precedent stands. R3.2's Probe-validation extension gets the checkability without the step kind.
+- **A LOCATE step kind in the frozen vocabulary (B6):** honest delta ≈ 0; the two largest cited sites already have single-home statements. The provisional structural adopt helper also failed its objective keep gate, so explicit site logic remains smaller.
 - **One payload-walker across the three roots (C7):** the positions differ in measured, load-bearing ways (E6.5's direction-split, N5's ordering, the census's per-position attribution). A strategy DSL would cost more concepts than it deletes.
 - **AbstractWriteOperation (C8):** the shared skeleton is already thin; inheritance buys −20 lines and +1 coupling concept.
 - **Table-driving the legality walks (C9):** blocked honestly by the X2 cast ratchet; net ≈ 0.

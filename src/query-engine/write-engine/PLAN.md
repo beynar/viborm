@@ -1007,7 +1007,7 @@ Mechanism (1) — **update-arm literal-parent recursion** — is landed and 5-DB
 `buildNestedTargetChildParts` (`nested-target-parts.ts`) is the reusable depth-recursive
 child-Part builder: a **located-by-PK** target folds its data relations into deeper Parts
 through the SAME per-kind builders the root's `interpretRelation` uses, parameterized only
-by `ParentIdSource` — `literalParentId(pk)` for a child-held nested `update`
+by a final reference source — `literalParentId(pk)` for a child-held nested `update`
 (`RelationWritePart`), `plannedParentId(probe, pk)` for a parent-held one
 (`UpdateOperation.parentHeldUpdateData`, family A-remainder's projection, its captured PK
 exposed as a firstRowField). The obligation P1 never carried is ported per Part: a target

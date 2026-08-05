@@ -1,367 +1,157 @@
-# Query Engine V2
+# Query Engine Write Engine
 
-> **Status:** internal architectural experiment. Query Engine V1 remains the
-> public implementation and continues to define client behavior.
+The write engine is the live nested-write implementation. It compiles validated
+create, update, upsert, delete, and many-write requests into two linear phases:
+a guard-free planning fragment and one selected final fragment.
 
-## Why This Experiment Exists
-
-VibORM promises one portable query model across PostgreSQL, MySQL, SQLite,
-LibSQL, and PGlite. That promise is non-negotiable. The existing query engine
-has accumulated the machinery required to preserve it across simple queries,
-deep returns, generated values, relation mutations, transactions, and atomic
-batches.
-
-The resulting implementation is correct and broad, but its general operation
-program, compiler families, runtime specialization, and relation machinery also
-create a large structural surface. Adding or understanding one operation can
-require navigating many files, branches, intermediate concepts, and ownership
-seams. The machinery risks becoming harder to reason about than the operation
-it represents.
-
-V2 tests a smaller hypothesis:
-
-> A concrete operation should validate and understand its payload, compile it
-> into capability-specialized linear SQL fragments, and delegate only generic
-> provider execution to a small executor.
-
-This is not a rewrite commitment. It is a controlled proof intended to discover
-whether a simpler architecture can preserve the complete interoperability and
-safety contract before any public migration occurs.
-
-## Architectural Hypothesis
+## Lifecycle
 
 ```text
-QueryEngine
-└── creates a concrete operation
-    ├── validates and interprets its payload
-    ├── selects the available atomic capability
-    ├── compiles planning and final linear fragments
-    └── parses the declared result
-             ↓
-      OperationFragment
-      ordered SQL steps + symbolic values
-             ↓
-      OperationExecutor
-      provider execution + atomic envelope + strict results
-             ↓
-      driver and adapter
+whole-args validation
+→ scalar/relation partition
+→ lossless relation mutation programs
+→ OwnWrite legality
+→ guard-free planning
+→ selected final fragment
+→ generic execution
+→ declared result parsing
 ```
 
-The architecture separates two kinds of knowledge:
+The operation owns meaning. `OperationExecutor` owns provider execution,
+transaction or atomic-batch envelopes, symbolic-value materialization, guard
+attribution, and strict result handling. It must not learn relation or mutation
+semantics.
 
-- an operation knows what the request means;
-- the executor knows how to execute already-compiled steps safely.
+## Step and fragment model
 
-The executor must not learn about create, update, relation, filter, or nested
-mutation semantics. Concrete operations must not implement provider protocols
-or dialect syntax.
-
-## Current Modules
-
-| Module | Responsibility |
-| --- | --- |
-| [`CreateOperation`](./CreateOperation.ts) | Validate the supported create payload, resolve relation metadata, choose transaction or batch mode, compile planning and final fragments, and parse the create result |
-| [`OperationFragment`](./OperationFragment.ts) | Represent ordered statement and guard steps, declared outputs, and references to values produced by earlier statements |
-| [`OperationExecutor`](./OperationExecutor.ts) | Execute linear fragments, provide transaction or atomic-batch envelopes, lower symbolic values, manage batch scratch values, validate provider results, and attribute guard failures |
-| `QueryEngine` | Remain the client-scoped owner of the driver, adapter, schema registry, instrumentation, and transaction identity |
-| adapters | Own dialect SQL, assertions, casts, locking syntax, returning behavior, and batch-reference SQL |
-| drivers | Own connection and provider execution semantics |
-
-There is deliberately no base operation class, operation hierarchy, compiler
-object, context bag, generic fragment validator, or second SQL AST.
-
-## Main Ideas
-
-### 1. Concrete operations own semantics
-
-Each public operation kind may be represented by one concrete class such as
-`CreateOperation` or a future `UpdateOperation`. The class owns the semantic
-decisions unique to that operation:
-
-- input validation and normalization;
-- model and relation interpretation;
-- statement ordering;
-- capability specialization;
-- result selection and parsing;
-- typed operation failures.
-
-Concrete classes do not inherit from an operation base class. A shared module
-is introduced only after at least two real operations expose the same semantic
-rule and would otherwise duplicate it.
-
-### 2. Final fragments are linear
-
-An `OperationFragment` is trusted internal compiler output. Its step order is
-its execution order.
+`OperationFragment.ts` has three runtime step kinds:
 
 ```ts
-type OperationStep = StatementStep | GuardStep;
+interface ReadStep extends StatementStepBase {
+  readonly kind: "read";
+}
+
+interface WriteStep extends StatementStepBase {
+  readonly kind: "write";
+  readonly racePin?: TargetConstraintPin;
+  readonly onUniqueConflict?: "skip";
+}
+
+type StatementStep = ReadStep | WriteStep;
+
+interface PlanningFragment {
+  readonly steps: readonly StatementStep[];
+  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
+}
 ```
 
-There is no generic runtime branch interpreter. When an operation needs a
-database-dependent decision, the concrete operation performs a planning read
-and creates the selected linear fragment before final execution.
+Final fragments may also contain guards. Planning fragments cannot. Planning is
+not read-only: E6.9 skip-duplicate capture intentionally performs preparation
+writes and publishes their outputs for final compilation. Nested
+`Part.planning()` currently contributes reads.
 
-Planning is guard-free. Root operation planning usually contains reads, but
-E6.9 skip-duplicate capture intentionally performs preparation writes in this
-phase and passes their outcomes to final compilation. Nested `Part.planning()`
-currently contributes reads. Guards belong only to the final fragment.
+`racePin` and `onUniqueConflict` belong only to writes. A read carrying either
+effect is a type error. Fragment validation enforces unique IDs, backward local
+references, resolvable outputs, and guard Pin-Rule classes.
 
-This keeps the executor small and makes the generated operation inspectable:
+## Canonical relation mutation program
 
-```text
-guard, when required
-→ root write
-→ selected relation write
-→ final read
-```
-
-### 3. Capabilities shape compilation
-
-The operation selects its execution mode once from the driver capabilities.
-Transactions are preferred; otherwise an atomic batch is used. A driver
-supporting neither is rejected before provider access.
-
-Transaction mode:
-
-```text
-open transaction
-  → execute locked planning read
-  → compile the selected final fragment
-  → execute the final fragment
-  → parse the result
-commit
-```
-
-Batch mode:
-
-```text
-execute planning read
-→ compile the selected final fragment with a guard first
-→ execute the complete final fragment as one atomic batch
-→ parse the result
-```
-
-The guard pins the planning premise so a stale batch decision aborts before any
-write. Database capabilities may change the generated SQL and steps, but they
-must not change the portable operation semantics.
-
-### 4. Runtime values remain explicit
-
-Known values remain ordinary SQL parameters. Values that do not exist until a
-prior statement completes use `OperationValueReference`.
-
-This supports generated identifiers without hiding dependencies in callbacks
-or mutable context:
-
-```text
-user.create.id
-      ↓
-post.create.userId
-      ↓
-user.select.where.id
-```
-
-Transaction execution resolves references to concrete provider values. Atomic
-batch execution lowers them through adapter-owned batch-reference SQL. Casts
-remain destination-field-aware and adapter-owned.
-
-### 5. Nested mutations should compose, not create another engine
-
-A nested write is not a separate runtime. It is operation semantics that
-contributes planning reads, final mutation steps, dependencies, final guards,
-and outputs to the same operation lifecycle. Root planning additionally owns
-the E6.9 preparation-write exception described above.
-
-The current proof keeps one nested upsert inside `CreateOperation` so the seam
-is discovered from working code rather than invented in advance. If a future
-`UpdateOperation` repeats the same relation-upsert rules, that duplication will
-earn a concrete relation compiler such as a provisional `RelationUpsert` module.
-It would produce ordinary fragment steps; it would not own execution or form a
-class hierarchy.
-
-### 6. Statements need semantic success contracts
-
-A normalized provider result is not by itself proof that an operation fulfilled
-its promise. Reads and writes must eventually declare the cardinality or effect
-that constitutes success, for example:
-
-```text
-planning lookup  → zero or one row
-single create    → exactly one affected row and its generated value
-single update    → exactly one affected row
-terminal read    → exactly one row
-```
-
-This is a statement postcondition, not another output value. Transaction mode
-can verify returned results before commit. Batch mode must enforce any
-rollback-relevant condition inside the atomic batch through adapter-owned
-assertions, locked guards, constraints, or an equivalent portable mechanism.
-
-The exact representation remains intentionally undecided until it can express
-the required cross-database guarantees without rebuilding the larger V1
-program vocabulary.
-
-## The First Vertical Slice
-
-The current implementation proves one intentionally narrow operation:
+`builders/relation-mutation-parser.ts` transforms schema-parsed relation data
+into:
 
 ```ts
-client.user.create({
-  data: {
-    name: "henry",
-    posts: {
-      upsert: {
-        where: { id: 1 },
-        create: { id: 1, title: "post" },
-        update: { title: "post" },
-      },
-    },
-  },
-  select: {
-    name: true,
-    posts: true,
-  },
-});
+interface RelationMutationProgram {
+  readonly relationInfo: RelationInfo;
+  readonly entries: readonly RelationMutationEntry[];
+}
 ```
 
-The supported shape has:
+The program is lossless for operation meaning:
 
-- a root create with a database-generated incrementing identifier;
-- one child-held-FK, to-many relation;
-- one nested upsert selected by a global child lookup;
-- reparenting on the update branch;
-- generated parent-ID injection on both branches;
-- a terminal deep selection.
+- mutation kinds keep schema order;
+- source array order and duplicates survive;
+- `set: []` survives;
+- false boolean no-ops are removed;
+- to-one filters and normalized target forms survive;
+- execution-specific deduplication is not stored in the program.
 
-The operation becomes one of two final linear sequences:
+OwnWrite and every emitter consume `entries`. A consumer must not reopen the raw
+payload, normalize arrays again, or recreate the old optional per-kind bag.
 
-```text
-transaction, existing child:
-  user.create → post.update → user.select
+## Field-bound foreign-key provenance
 
-transaction, missing child:
-  user.create → post.create → user.select
+`foreign-key-reference.ts` owns all source kinds and lowering:
 
-batch, existing child:
-  guard.exists → user.create → post.update → user.select
+```ts
+interface ForeignKeyMember {
+  readonly foreignField: string;
+  readonly referencedField: string;
+  readonly writeSource: FinalReferenceSource;
+}
 
-batch, missing child:
-  guard.notExists → user.create → post.create → user.select
+interface CorrelatedForeignKeyMember extends ForeignKeyMember {
+  readonly readSource: PlanningReferenceSource;
+}
 ```
 
-The same behavior has been verified through transaction and forced-batch paths
-on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite. This proves the slice, not the
-generality of the architecture.
+Each source is bound to its edge member before resolution. A transitioned key
+reads the old planning field and writes the transformed final value. A final
+operation reference cannot enter planning SQL. A lookup is a final SQL source;
+the root operation still owns its existence and null checks.
 
-## What V2 Is Expected to Achieve
+Many-to-many membership uses the same split: membership reads and batch guards
+use the old source, while assignments use the final source. Junction SQL remains
+owned by `ManyToManyStatements`.
 
-### Preserve correctness and interoperability
+## Branch premises
 
-Portable operations must have equivalent observable behavior on every
-supported database. Generated values, atomicity, locking, stale-decision
-protection, error propagation, result parsing, instrumentation, and transaction
-cleanup may not be weakened to simplify the implementation.
+Branch sites explicitly compile the selected arm:
 
-### Improve locality
+- batch found arm: captured-row presence guard, `raceable: false`;
+- transaction found arm: locked read, no duplicate guard;
+- missing arm inserting the unique target: constraint + write `racePin`;
+- same-operation duplicate: neither guard nor pin;
+- retained materialized-set or orphan premises: their existing `notExists`
+  guards, `raceable: true`.
 
-A maintainer changing create semantics should primarily work in the create
-module and the builders owning the affected SQL concern. Runtime execution
-should not change when a new operation semantic is added.
+The `AdoptProbe` prototype was rejected. It required arm compiler callbacks and
+a duplicate exception across the four sites, so it became a strategy object and
+failed the negative-line gate. The previous declaration-only `Probe` and
+`validateProbe` were deleted because they did not enforce consumption.
 
-### Enable composition
+## Ordering invariants
 
-Complex operations should be constructed from the same small primitives used
-by simple operations: parameterized statements, explicit produced values,
-ordered dependencies, guards, and declared results. Nested depth should add
-composed operation parts, not another interpreter.
+1. Step IDs and SQL/parameter order are stable observable contracts.
+2. Planning contains no guards.
+3. Final batch guards run before writes; relative order within both buckets is
+   preserved.
+4. A symbolic reference points backward inside the same fragment.
+5. Planning values cross into final compilation as known values, not references
+   to the discarded planning fragment.
+6. Read-before/write-after key transitions keep independent sources.
+7. First-create-wins duplicate behavior remains local to connect-or-create.
+8. Wrong-row protections address the captured row, not a re-evaluated selector.
 
-### Compress structure
+## Kept boundaries
 
-The architecture should reduce independent concepts, branches, high-arity
-functions, context threading, and duplicated transaction/batch implementations.
-Line count is evidence, not the objective: moving the same complexity into more
-files or generic types is not success.
+- `QueryMetadata`
+- adapter `batchRefs`
+- `ManyToManyStatements`
+- E6.9 planning preparation writes
+- adapter-owned SQL, casts, assertions, conflict syntax, and locking
 
-### Remain inspectable and fail closed
+Do not add a universal operation program, generic mutation DSL, payload walker,
+strategy framework, branch-step IR, or shared utility landfill.
 
-The compiled fragment should make ordering and dependencies visible. Missing
-values, malformed provider results, violated postconditions, stale premises,
-and unsupported operation shapes must raise typed errors. No layer may replace
-failure with plausible empty data.
+## Validation
 
-## How the Architecture Earns Its Next Seams
+Run the focused nested-write and race tests for a changed path, then:
 
-The second materially different operation is the decisive test.
+```bash
+pnpm test:types
+pnpm test:gates
+pnpm package:build
+```
 
-A future `UpdateOperation` should be implemented concretely first. Its result
-will determine whether two additional seams are real:
-
-1. **Operation-to-executor interface.** If create and update expose the same
-   mode, planning, final-fragment, and parsing lifecycle, introduce one small
-   internal structural interface and remove create-specific knowledge from the
-   executor. It must not become another public lifecycle object or compete with
-   `PendingOperation`.
-2. **Relation-operation composition.** If both operations implement the same
-   nested-upsert semantic rules, extract those rules into one concrete relation
-   module. Extract the shared meaning, not merely similar syntax.
-
-The executor and fragment algebra should remain unchanged when the second
-operation is added. If they acquire update-specific branches, relation imports,
-or operation unions, the current seam is leaking and must be reconsidered.
-
-## Deliberate Non-Goals
-
-V2 does not currently attempt to provide:
-
-- public client routing;
-- a replacement for `PendingOperation`;
-- a universal operation program;
-- a complete SQL AST;
-- arbitrary runtime callbacks or closure bags;
-- a generic branch interpreter;
-- a base class or subclass per operation;
-- a defensive validator for compiler-created fragments;
-- every nested mutation shape;
-- transparent retry for unresolved write races.
-
-Unsupported shapes must fail before provider access. New concepts are added
-only when a concrete supported operation cannot preserve its semantics through
-the existing model.
-
-## Questions the Experiment Must Answer
-
-Before V2 can replace any part of V1, it must demonstrate:
-
-1. Can a second operation reuse the executor without adding semantic branches?
-2. Can nested operations compose recursively without recreating a universal
-   intermediate representation?
-3. Can statement postconditions be enforced atomically and portably in both
-   transaction and batch modes?
-4. Can operations whose decisions depend on their own earlier writes remain
-   linear, or do they prove the need for one additional finite primitive?
-5. Can the architecture cover compound keys, both FK directions,
-   many-to-many relations, non-returning mutations, and deep returns while
-   remaining smaller and easier to navigate?
-6. Can V1 behavior contracts be reused at the operation interface so migration
-   deletes old semantics rather than maintaining two implementations?
-
-If the answers require rebuilding V1 under different names, the experiment has
-failed. If each new operation adds local semantic code while leaving the
-executor, adapter seam, and fragment vocabulary stable, V2 has earned adoption.
-
-## Adoption Standard
-
-V2 is ready for incremental routing only when:
-
-- its supported operation has behavior parity with V1;
-- PostgreSQL, MySQL, SQLite, LibSQL, and PGlite pass the same contract;
-- transaction and atomic-batch outcomes are equivalent;
-- provider and semantic failures remain typed and fail closed;
-- the operation adds no dialect inspection to the query engine;
-- the migrated operation has one semantic implementation;
-- the resulting module graph is smaller and more local than the path it
-  replaces.
-
-Until then, V2 remains a proof beside the production engine, not a promise that
-the proof has already generalized.
+Use both PGlite transaction and forced atomic-batch witnesses. Run PostgreSQL
+and MySQL parity suites when Docker is available.
