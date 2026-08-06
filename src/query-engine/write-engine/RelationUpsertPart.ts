@@ -1088,9 +1088,6 @@ function buildOneUpsertPart(
         deferLegality: true,
       })
     : undefined;
-  if (updateCompiler) {
-    assertArmPlanningAssertsNothing(updateCompiler.planning(), relationName);
-  }
   const probeId =
     updateCompiler?.targetReadId ?? scope.allocate(`${childName}.find`);
   const createSubtree = seam.freshArm({
@@ -1154,54 +1151,6 @@ function assertArmEdgeIsChildHeld(
   throw new UnsupportedOperationError(
     `query-engine-v2 does not support a parent-held to-one write on relation '${relationName}' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent.`
   );
-}
-
-/**
- * E3 — the UPDATE arm's planning superset may ASSERT nothing.
- *
- * Every deeper Part plans unconditionally: its reads run before the arm decision, so that
- * `compile` has all inputs whichever arm each level takes (technique #2). Only the taken
- * arm's children then compile — which makes a compile-time not-found on a deeper Part
- * harmless, because compile never runs on the CREATE arm. A PLANNING-time postcondition
- * is not harmless: the executor enforces `expects` on the planning result itself
- * (`OperationExecutor.enforcePostcondition`), so a deeper read that asserts "exactly one
- * row" aborts the whole operation even when this part is legitimately about to INSERT a
- * fresh row that has no such deeper row yet. Measured live through the public client on
- * both substrates: an arm whose locator names no row, carrying a grandchild `update`
- * whose own data carries a relation, raised `Cannot update relation '…': target record
- * was not found for this parent.` instead of taking the create arm.
- *
- * Three deeper mechanisms declare such an assertion, all for the same reason — they
- * publish a located key EAGERLY as a `firstRowField`, and an eager extraction of an
- * absent output would otherwise abort with an internal wording:
- * `RelationWritePart.buildProbe` (a non-PK-located target carrying child Parts),
- * `RelationJunctionPart`'s `targetPublishesPk` probe, and the X1c whole-target delegation
- * (the selected-record compiler's correlated target read).
- *
- * The answer each of them already has a name for is the OPTIONAL publication this part
- * makes for its own probe ({@link RelationUpsertConfig.publishesLocatedPk} — `optional:
- * true`, "an empty probe is this part's legitimate CREATE decision") and the update
- * root's `locateNotFoundOptional`. Wiring that through the seam means threading a
- * "conditional arm" flag into `RelationWritePart`, `RelationJunctionPart` and
- * the selected-record compiler, which is a change to those parts' pinned probe shapes;
- * it is named here as the mechanism and left to its own unit rather than smuggled in.
- *
- * Until then the composition fails closed, and it does so STRUCTURALLY — it asks the
- * built steps whether any of them asserts, not the payload whether it looks like one of
- * the three shapes. A payload question would have to re-derive the deeper dispatch this
- * arm just stopped doing, and would silently miss the next mechanism that adds an eager
- * publication. This one cannot: whatever declares a planning postcondition is caught.
- */
-function assertArmPlanningAssertsNothing(
-  steps: readonly OperationStep[],
-  relationName: string
-): void {
-  for (const step of steps) {
-    if (!("expects" in step && step.expects)) continue;
-    throw new UnsupportedOperationError(
-      `query-engine-v2 does not support a deeper write on the update arm of relation '${relationName}' whose planning read asserts that its own target exists; this arm may legitimately take its create branch, where no such row exists yet.`
-    );
-  }
 }
 
 /**

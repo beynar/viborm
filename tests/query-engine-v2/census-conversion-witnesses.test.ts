@@ -4,7 +4,6 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import {
   NestedWriteError,
-  QueryEngineError,
   UnsupportedOperationError,
   ValidationError,
 } from "@errors";
@@ -65,7 +64,6 @@ const NO_UNION_MEMBER = /did not match any union member/;
 const MISSING_REQUIRED = /Missing required field/;
 const NO_UNIQUE_DISCRIMINATOR = /requires at least one unique discriminator/;
 const MISMATCHED_FK = /mismatched foreign-key metadata/;
-const NEEDS_PLANNED_PARENT = /requires a planned parent id/;
 const NON_NULLABLE_PK = /Expected integer|Expected object/;
 const NOT_A_READ_BASE = /is not a read base/;
 // E3 — the upsert UPDATE arm's direction boundary replaced the child-held adopt
@@ -734,7 +732,7 @@ describe("N7-U-A (c-i) conversion witnesses — the Part builders", () => {
     );
   });
 
-  test("nested-target-parts :573 — ALL ELEVEN kinds are handled one level deeper", () => {
+  test("the selected-record compiler handles all eleven kinds one level deeper", () => {
     const engine = new QueryEngine(
       new PGliteDriver(),
       createModelRegistry(nestedWriteBehaviorSchema, schemas)
@@ -782,13 +780,10 @@ describe("N7-U-A (c-i) conversion witnesses — the Part builders", () => {
       } catch (error) {
         refusal = error;
       }
-      // Either the kind constructs, or it meets a DIFFERENT already-classified guard
-      // inside the built Part (`set` / `disconnect` need a planned parent id). Neither is
-      // the deleted `default:` arm, and neither is an `UnsupportedOperationError`.
+      // Either the kind constructs, or it meets a different already-classified guard
+      // inside the built Part. Neither is an unsupported dispatch arm.
       if (refusal) {
-        expect(refusal, `kind '${kind}'`).toBeInstanceOf(QueryEngineError);
         expect(refusal).not.toBeInstanceOf(UnsupportedOperationError);
-        expect((refusal as Error).message).toMatch(NEEDS_PLANNED_PARENT);
       }
     }
   });

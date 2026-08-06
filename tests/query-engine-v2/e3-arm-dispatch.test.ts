@@ -453,35 +453,23 @@ function runSuite(name: string, make: () => RecordingPGliteDriver): void {
         ],
       },
     };
-    const PLANNING_ASSERTS =
-      "query-engine-v2 does not support a deeper write on the update arm of relation 'teams' whose planning read asserts that its own target exists; this arm may legitimately take its create branch, where no such row exists yet.";
-
-    test("carve-out: a deeper planning read that asserts its own target refuses", async () => {
-      // The grandchild's own data carries a relation, so its target's whole update
-      // delegates to the update root, whose locate declares `exactlyOneRow` — a PLANNING
-      // postcondition, enforced before the arm decision.
-      const error = await refusalOf(ASSERTING_PLANNING_READ);
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(PLANNING_ASSERTS);
-      expect(driver.statements).toEqual([]);
+    test("a deeper selected-record update runs on the found arm", async () => {
+      await run(ASSERTING_PLANNING_READ);
+      expect(await notes()).toEqual([
+        { id: "n1", body: "u", teamId: "t1" },
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+      ]);
     });
 
-    test("carve-out: the SAME shape on the create arm — where the damage is", async () => {
-      // This is the spelling the guard exists for, and the one a falsification shows:
-      // with the guard removed, this measured
-      //   NestedWriteError: Cannot update relation 'notes': target record was not found
-      //   for this parent.
-      // on both substrates — a not-found raised for a row the arm was legitimately
-      // about to CREATE, from a planning read that ran before the arm decision. The
-      // found-arm spelling above merely succeeds without the guard, so on its own it
-      // could not tell a reader what the guard is buying.
-      const error = await refusalOf(ASSERTING_PLANNING_READ, { id: "tFresh" });
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(PLANNING_ASSERTS);
-      expect(driver.statements).toEqual([]);
+    test("the same deeper update stays inert on the create arm", async () => {
+      await run(ASSERTING_PLANNING_READ, { id: "tFresh" });
       expect(
         (await client.team.findMany({ where: { id: "tFresh" } })).length
-      ).toBe(0);
+      ).toBe(1);
+      expect(await notes()).toEqual([
+        { id: "n1", body: "old", teamId: "t1" },
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+      ]);
     });
   });
 }

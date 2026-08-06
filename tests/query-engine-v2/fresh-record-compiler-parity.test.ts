@@ -545,6 +545,7 @@ describe("one fresh-record compiler parity", () => {
     });
     expect(outputContract(operation.planning())).toEqual({
       "topic.find.rows": reference("topic.find", "rows"),
+      "topic.find.id": reference("topic.find", "id"),
     });
 
     const missing = operation.compile({ "topic.find.rows": [] });

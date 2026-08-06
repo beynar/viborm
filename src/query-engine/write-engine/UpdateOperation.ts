@@ -574,7 +574,6 @@ export class UpdateOperation {
             partitioned.scalarData,
             relationPrograms
           );
-          this.assertUpdateManyRelationLegality(relationPrograms);
           return;
         }
         const parsedArgs = parseValidated(
@@ -613,7 +612,9 @@ export class UpdateOperation {
       // parent mutation. Runtime-branch-gated inside an upsert update arm (the
       // deferred branch above), so a missing-target upsert taking the create arm never
       // validates it.
-      this.assertUpdateManyRelationLegality(relationPrograms);
+      if (!nestedTarget) {
+        this.assertUpdateManyRelationLegality(relationPrograms);
+      }
     }
 
     // A nested target's `where` (a child-held to-many `update` selector) is already
@@ -684,8 +685,14 @@ export class UpdateOperation {
       options.selectedWriteId ??
       scope.allocate(`${parentName}.update`);
     this.updateId = updateId;
-    this.terminalId = scope.allocate(`${parentName}.select`);
-    this.rootGuardId = scope.allocate(`${parentName}.guard.exists`);
+    const selectedRecord =
+      nestedTarget !== undefined || options.selectedTargetReadId !== undefined;
+    this.terminalId = selectedRecord
+      ? `${parentName}.select`
+      : scope.allocate(`${parentName}.select`);
+    this.rootGuardId = selectedRecord
+      ? `${parentName}.guard.exists`
+      : scope.allocate(`${parentName}.guard.exists`);
 
     // 3. Interpret each nested relation into a to-many child Part or a to-one
     //    root-SET fold. The parent-id every child arm consumes is the located
@@ -2092,7 +2099,10 @@ export class UpdateOperation {
         // upsert branch). Skip building the Part so its construction does not throw
         // ahead of that runtime-branch-gated verdict (an untaken upsert update arm
         // whose invalid updateMany never runs must not reject the whole tree).
-        if (updateManyCarriesRelations(childScope, entry.items)) {
+        if (
+          updateManyCarriesRelations(childScope, entry.items) &&
+          !this.nestedTarget
+        ) {
           return;
         }
         push(buildToManyUpdateManyParts(writeBase, entry));

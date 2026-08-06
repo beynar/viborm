@@ -235,6 +235,7 @@ describe("query-engine-v2 linear operation fragments", () => {
     expect(planning.steps.map((step) => step.id)).toEqual(["post.find"]);
     expect(planning.outputs).toEqual({
       "post.find.rows": ref("post.find", "rows"),
+      "post.find.id": ref("post.find", "id"),
     });
     expect(planningStep?.kind).toBe("read");
     if (planningStep?.kind !== "read") return;
