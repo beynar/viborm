@@ -10,8 +10,10 @@ semantic facts:
 2. `BoundRelation` says where that relation is stored.
 3. A record compiler says how one fresh or selected record is mutated.
 
-Relation owners combine those facts. They still own membership, target
-selection, branch decisions, guards, and race pins.
+Relation owners combine those facts. Child-held and junction owners keep
+membership, target selection, branch decisions, guards, and race pins.
+Parent-held to-one decisions remain in the record compiler because they choose
+columns in that record's root statement.
 
 ## 1. Compilation pipeline
 
@@ -300,6 +302,7 @@ The nested fresh-record Part exposes:
 - a referenced root field for consumers such as a junction insert.
 
 It does not own the incoming relation's membership or found/missing decision.
+The explicit inline junction-target insert remains local to the junction owner.
 
 Generated identity capture is demand-driven. A generated value is requested
 when a descendant, an incoming edge consumer, a junction, or a terminal result
@@ -333,7 +336,7 @@ The compiler owns:
 - the root UPDATE;
 - descendant Parts.
 
-It does not own:
+For child-held and junction edges it does not own:
 
 - the target read statement;
 - selector or parent correlation;
@@ -345,6 +348,10 @@ It does not own:
 - direct top-level returning folds;
 - top-level conflict folds;
 - enclosing OwnWrite timing.
+
+For `parentHeldToOne`, it does own the inline FK fold and the branch required to
+construct the root UPDATE. Moving that decision out would require a lifecycle
+protocol or an extra statement.
 
 A true no-op returns no compiler before any step ID is allocated. Incoming FK
 assignments make the update non-empty. Derived FK parameters follow user scalar
@@ -360,7 +367,8 @@ create/update arm selection.
 
 ## 11. Relation-owner boundary
 
-A relation owner answers questions about an edge, not a record's internal SET.
+A child-held or junction relation owner answers questions about an edge, not a
+record's internal SET.
 
 It owns:
 
@@ -493,18 +501,17 @@ or selector drift cannot redirect an update.
 Junction updates use the selected-record compiler for the target record but
 keep membership probes and junction writes in the junction owner.
 
-Fresh junction attachment remains explicit because its required order is:
+Fresh junction attachment remains explicit. The two live orders are:
 
 ```text
-target before-writes
-target INSERT
-junction INSERT
-target descendants
+inline target:    target INSERT → junction INSERT → inline descendants
+delegated target: complete fresh-record subtree → junction INSERT
 ```
 
-Moving the junction insert into a universal fresh-record path would require a
-lifecycle hook, placement flag, strategy, or generic attachment array. Those
-concepts cost more than the explicit domain path and are not part of the atom.
+The junction input and allocated plan are discriminated by operation kind, so an
+invalid mixture of probes, compilers, fresh targets, or identities is not
+representable. Moving the junction insert into a universal fresh-record path
+would change the delegated order or require a lifecycle hook or placement flag.
 
 Membership reads during a key transition use the old correlated source. Join
 assignments use the final source. Generated target identities flow to the join

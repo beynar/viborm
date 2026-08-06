@@ -53,16 +53,23 @@ identities, value sources, transition state, SQL, or branch policy.
 ### Record mutation
 
 `CreateOperation` compiles each non-bulk fresh record subtree. Nested callers
-provide parsed data and field-bound incoming FK members.
+provide parsed data and field-bound incoming FK members. The explicit inline
+junction-target insert remains local to `RelationJunctionPart`.
 
 `RecordUpdateCompiler` compiles each already-selected non-bulk record update.
 It owns scalar SET data, incoming FK assignments, nested relations, required
 target projection, primary-key transitions, the root UPDATE, and descendant
 order. A true no-op returns no compiler before allocating an ID.
 
-Relation owners keep target selection, correlation, membership, found/missing
-decisions, guards, race pins, not-found messages, junction effects, and terminal
-results. They pass the captured target to the record compiler.
+For `parentHeldToOne`, the record compiler owns the inline FK fold and the branch
+needed to construct its own INSERT or UPDATE. Child-held and junction relation
+owners keep target selection, correlation, membership, found/missing decisions,
+guards, race pins, not-found messages, standalone edge effects, and terminal
+results. They pass captured targets to the selected-record compiler.
+
+The two record compilers recurse through the type-only `RecordCompilerSeam`
+(`createFresh`, `updateSelected`). No runtime import cycle or strategy object is
+required.
 
 ## Foreign-key values
 
@@ -91,8 +98,10 @@ First-create-wins is local to connect-or-create. Do not generalize it to upsert.
 - Planning reads precede same-operation writes that could change their answer.
 - Primary-key transitions keep independent old-read and new-write sources.
 - Atomic-batch guards precede writes while preserving order inside each group.
-- Junction create attachment stays target before-writes, target INSERT,
-  junction INSERT, target descendants.
+- Inline junction targets emit target INSERT, junction INSERT, then inline
+  descendants.
+- Delegated targets compile their complete fresh-record subtree before the
+  junction INSERT.
 
 ## Kept specializations
 

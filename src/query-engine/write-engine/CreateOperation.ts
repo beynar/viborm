@@ -38,6 +38,7 @@ import {
 } from "../operations";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import { planNestedCreateIdentity } from "../operations/mutation-identity";
+import { assertCreateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import type { QueryEngine } from "../query-engine";
 import { ResultParser } from "../result/ResultParser";
 import type { QueryScope } from "../types";
@@ -60,11 +61,7 @@ import {
   linkGroupSelector,
 } from "./link-target-groups";
 import { nestedReplacement, relationTargetNotFound } from "./messages";
-import {
-  buildFreshArmPart,
-  buildJunctionTargetRelationParts,
-  type FreshArmBuilder,
-} from "./nested-target-parts";
+import { buildJunctionTargetRelationParts } from "./nested-target-parts";
 import {
   bucketOperationSteps,
   isOperationValueReference,
@@ -77,14 +74,15 @@ import {
   type TargetConstraintPin,
   type WriteStep,
 } from "./OperationFragment";
-import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
-import { buildRecordUpdateCompiler } from "./RecordUpdateCompiler";
+import {
+  buildRecordUpdateCompiler,
+  type RecordCompilerSeam,
+} from "./RecordUpdateCompiler";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import {
-  type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
   fkEquals,
@@ -102,6 +100,50 @@ import {
 
 type ExecutionMode = "transaction" | "batch";
 type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
+
+export interface FreshRecordPart extends Part {
+  readonly rootWriteId: string;
+  rootReferenced(field: string): FinalReferenceSource | undefined;
+}
+
+export type FreshRecordBuilder = (input: {
+  readonly childScope: QueryScope;
+  readonly data: Record<string, unknown>;
+  readonly incomingForeignKey: readonly ForeignKeyMember[];
+  readonly relationName: string;
+  readonly racePin?: TargetConstraintPin;
+}) => FreshRecordPart;
+
+/** Build one nested non-bulk fresh record through the create compiler. */
+export function buildFreshRecordPart(
+  scope: StepScope,
+  engine: QueryEngine,
+  input: Parameters<FreshRecordBuilder>[0]
+): FreshRecordPart {
+  const operation = new CreateOperation(
+    engine,
+    input.childScope.model,
+    {},
+    {
+      scope,
+      skipOwnWrite: true,
+      nestedFresh: {
+        data: input.data,
+        incomingForeignKey: input.incomingForeignKey,
+        relationName: input.relationName,
+        rootRacePin: input.racePin,
+      },
+    }
+  );
+  return {
+    planning: () => operation.planning().steps,
+    compile: (_scope, known) => operation.compile(known).steps,
+    get rootWriteId() {
+      return operation.rootWriteStepId;
+    },
+    rootReferenced: (field) => operation.freshRootReferenced(field),
+  };
+}
 
 /**
  * A parent-held-FK to-one arm folded into a record's INSERT. The record holds
@@ -287,15 +329,15 @@ export class CreateOperation {
   private readonly armLegalityChecks: (() => void) | undefined;
   /** N4-U2 — the adopt family's fresh-arm seam, bound to this operation's scope and
    *  engine (an arrow field, so `this` survives being passed as a callback). */
-  private readonly buildFreshArm: FreshArmBuilder = (input) =>
-    buildFreshArmPart(this.scope, this.engine, input);
+  private readonly createFresh: FreshRecordBuilder = (input) =>
+    buildFreshRecordPart(this.scope, this.engine, input);
   /** E3 — the adopt family's whole seam: the fresh CREATE arm above, plus the
    *  located UPDATE arm's deeper child Parts. Arrow fields, so this binds lazily
    *  and field-initializer order does not matter. */
-  private readonly armSeam: ArmSeam = {
-    freshArm: (input) => this.buildFreshArm(input),
-    updateRecord: (input) =>
-      buildRecordUpdateCompiler(input, this.buildFreshArm),
+  private readonly recordCompilers: RecordCompilerSeam = {
+    createFresh: (input) => this.createFresh(input),
+    updateSelected: (input) =>
+      buildRecordUpdateCompiler(input, this.createFresh),
   };
 
   constructor(
@@ -374,7 +416,7 @@ export class CreateOperation {
     // enclosing operation's whole-tree walk).
     const parsedData = buildParsedRelationPrograms(parent, data);
     const assertOwnWrite = () => {
-      new OwnWritePreflight().assertCreate(
+      assertCreateOwnWriteSafety(
         parent,
         parsedData.scalarData,
         parsedData.relations
@@ -403,7 +445,7 @@ export class CreateOperation {
       this.root.childCreates.length === 0 &&
       this.root.createManyGroups.length === 0 &&
       this.root.afterParts.length === 0;
-    // PLAN Phase 8.1 — the same fold for a RELATION projection, which cannot ride
+    // A relation projection cannot ride
     // a RETURNING list (no alias to correlate against) but can ride a CTE:
     // `WITH p AS (INSERT … RETURNING <every column>) SELECT <projection over p>
     // FROM p`. Legal here on ONE guard rather than the update's two: an INSERT
@@ -513,7 +555,7 @@ export class CreateOperation {
   }
 
   /**
-   * PLAN Phase 8.2 — a guard-free nested-create tree, folded into one statement:
+   * A guard-free nested-create tree folded into one statement:
    *
    * ```sql
    * WITH "__viborm_mutation" AS (INSERT INTO parent … RETURNING <every column>),
@@ -946,7 +988,7 @@ export class CreateOperation {
     const entries = program.entries;
 
     if (relation.kind === "junction") {
-      // M2M is not special (WHY §4.3): the junction composes as ordinary Parts. A
+      // The junction composes as ordinary Parts. A
       // fresh parent has no existing memberships, so every kind the parse boundary
       // admits here — create/createMany/connect/connectOrCreate/upsert — only ADDS
       // membership (elision, ATOM §4).
@@ -980,7 +1022,7 @@ export class CreateOperation {
           // E5-U1 — this record is being MADE, so it has no membership to read.
           freshParent: true,
           txMode,
-          armSeam: this.armSeam,
+          recordCompilers: this.recordCompilers,
           // T3b-2 (family C): a junction create target whose data carries its own
           // relations folds them one level deeper against the fresh target's explicit
           // literal PK (mechanism 2, fresh-parent elision — ATOM §4). The fold
@@ -999,7 +1041,7 @@ export class CreateOperation {
               relations,
               parentId,
               nestedTxMode,
-              this.armSeam,
+              this.recordCompilers,
               membershipReadSource
             ),
         })
@@ -1016,7 +1058,7 @@ export class CreateOperation {
     // The create-tree mechanics are direction-based, not arity-based — a child
     // INSERTs AFTER the parent with `fk = parent`, riding the same already-certified
     // own-write machinery (a sibling reading a just-created child is still rejected
-    // by the OwnWritePreflight). A to-one is the arity-1 case of that path; the
+    // by OwnWrite analysis). A to-one is the arity-1 case of that path; the
     // mixed-directions conformance scenario and the create-family oracle certify the
     // one-to-one `create`.
     //
@@ -1416,7 +1458,7 @@ export class CreateOperation {
               entry.items,
               this.childEdgeMembers(input.self, relation),
               txMode,
-              this.armSeam
+              this.recordCompilers
             )
           );
           break;
@@ -1430,7 +1472,7 @@ export class CreateOperation {
               this.childEdgeMembers(input.self, relation),
               undefined,
               txMode,
-              this.armSeam
+              this.recordCompilers
             )
           );
           break;

@@ -48,7 +48,7 @@ a relation mutation means.
 | operation shells | Validation, public target behavior, direct folds, and result declaration |
 | `CreateOperation` | One non-bulk fresh record subtree |
 | `RecordUpdateCompiler` | One already-selected non-bulk record update |
-| relation Parts | Selection, membership, branches, guards, pins, and relation effects |
+| relation Parts | Child-held/junction selection, membership, guards, pins, and edge effects |
 | `ManyToManyStatements` | Adapter-backed junction SQL materialization |
 | `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
 | `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
@@ -108,10 +108,17 @@ three independent inputs:
   junction;
 - a record compiler mutates one fresh or already-selected record.
 
-`CreateOperation` compiles non-bulk fresh record subtrees.
+`CreateOperation` compiles non-bulk fresh record subtrees except the explicit
+inline junction-target insert.
 `RecordUpdateCompiler` compiles non-bulk updates for a record selected by its
-caller. Relation Parts still own target reads, parent correlation, membership,
-found/missing decisions, guards, race pins, and junction effects.
+caller. A parent-held to-one branch stays in the record compiler because it
+chooses FK columns in that record's root statement. Child-held and junction
+Parts own target reads, parent correlation, membership, found/missing decisions,
+guards, race pins, and standalone edge effects.
+
+The two compilers recurse through a type-only dependency seam with exactly two
+functions, `createFresh` and `updateSelected`. The write engine has no runtime
+import cycle and the seam carries no strategy or lifecycle policy.
 
 Generated identity capture is demand-driven. A fresh-record consumer requests
 `rootReferenced(field)` only when a descendant, incoming edge, junction, or
@@ -145,6 +152,12 @@ still wins and an untaken upsert arm remains inert.
 Before emission, OwnWrite analysis rejects nested trees whose writes cannot be
 linearized safely. During emission, updates address a captured primary key
 rather than re-evaluating a selector that could match a replacement row.
+
+Junction compilation also uses exact discriminated state. Inline fresh targets
+emit target INSERT, junction INSERT, then inline descendants. Delegated targets
+emit their complete fresh-record subtree before the junction INSERT. These
+orders remain explicit because merging them would require placement policy or
+change observable step order.
 
 ### Foreign-key provenance
 
@@ -215,5 +228,5 @@ during its compatibility window; no runtime metadata object exists.
 ## Architecture gates
 
 `pnpm test:gates` checks fragment vocabulary, layer imports, parsing boundaries,
-result contracts, and provider-neutral behavior. The shared driver suites prove
+write-engine runtime import acyclicity, result contracts, and provider-neutral behavior. The shared driver suites prove
 the same portable semantics on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite.

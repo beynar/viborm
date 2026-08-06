@@ -49,7 +49,6 @@ import {
   upsertTargetNotFoundForParent,
   upsertTargetVanished,
 } from "./messages";
-import type { FreshArmBuilder } from "./nested-target-parts";
 import type {
   GuardStep,
   OperationStep,
@@ -61,8 +60,8 @@ import type {
 import type { Part, PlanningKnown } from "./Part";
 import { conditionalArmPlanning, planningKey } from "./Part";
 import type {
+  RecordCompilerSeam,
   RecordUpdateCompiler,
-  UpdateRecordBuilder,
 } from "./RecordUpdateCompiler";
 import type { StepScope } from "./StepScope";
 import {
@@ -76,7 +75,7 @@ import {
 
 /**
  * Where the parent id the child FK points at comes from — a first-class value,
- * never the parent object (WHY §4.2).
+ * never the parent object.
  * - `ref`: the parent write produces it in the same final fragment (create
  *   context); a Ref materialized later.
  * - `planned`: it was located by a planning read and is inlined as a literal at
@@ -100,7 +99,7 @@ import {
  * How the found branch reads the probe (ATOM §4):
  * - `global-adopt`: nested upsert under `create` — the parent is fresh, no
  *   correlation is possible, so any globally-matched row is adopted and updated
- *   (the create-input superset, PLAN P−1.2).
+ *   (the create-input superset).
  * - `correlated`: nested upsert under `update` — a found row is legal only if
  *   it already belongs to this parent; a found-uncorrelated row is the typed
  *   V7001 error (V1's message verbatim). Never `ON CONFLICT` (ATOM §4).
@@ -129,17 +128,9 @@ export type UpsertCorrelation = "global-adopt" | "correlated";
  * - `connectOrCreate`: found → pure connect (reparent, no update data); the found
  *   premise carries V1's verbatim `Record was replaced …` replacement wording.
  * Both share one probe, one create arm (constraint + `racePin`), one found guard
- * (`raceable: false`) — the leaf differs, never the vocabulary (WHY §4.1).
+ * (`raceable: false`) — the leaf differs, never the vocabulary.
  */
 export type UpsertFamily = "connectOrCreate" | "upsert";
-
-/** Record compilers injected across the `nested-target-parts` import cycle.
- * `freshArm` owns the missing arm's record subtree; `updateRecord` owns the found
- * arm's selected-record mutation. The Part keeps the decision and membership rules. */
-export interface ArmSeam {
-  readonly freshArm: FreshArmBuilder;
-  readonly updateRecord: UpdateRecordBuilder;
-}
 
 type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
 
@@ -190,7 +181,7 @@ interface RelationUpsertConfigCore {
    * Depth: nested upsert parts contributed by this child's UPDATE payload. They
    * are emitted only on this part's found+correlated (update) arm — the same
    * linear fragment, one level deeper (README §5, ATOM §6). This part holds its
-   * children (by FK direction), never its parent (WHY §4.2). Empty at depth 1.
+   * children (by FK direction), never its parent. Empty at depth 1.
    */
   /**
    * N4-U2 — the absent → CREATE arm inserts a FRESH row, which is exactly what a
@@ -452,8 +443,7 @@ export class RelationUpsertPart implements Part {
   /**
    * The declared found pin, narrowed to the located row. Only the premise's STATEMENT
    * changes — the id, the premise class and the failure wording are the constructor's,
-   * which is what makes this the same pin the {@link Probe} declares rather than a
-   * second guard for the same premise.
+   * which keeps it the same declared pin rather than a second guard for the premise.
    */
   private pinLocatedRow(
     pin: GuardStep,
@@ -809,7 +799,7 @@ export function transitionedParentId(
 }
 
 // ---------------------------------------------------------------------------
-// Recursive to-many upsert composition (PLAN P1.3). One shared builder folds a
+// Recursive to-many upsert composition. One shared builder folds a
 // nested upsert relation into a `RelationUpsertPart`; when that child's UPDATE
 // payload carries its own upsert relations, the builder recurses, so depth adds
 // list entries and one parent-id value, never vocabulary or a Part method.
@@ -829,7 +819,7 @@ export function buildToManyUpsertParts(
   members: readonly ForeignKeyMember[],
   correlationMembers: readonly CorrelatedForeignKeyMember[] | undefined,
   txMode: boolean,
-  seam: ArmSeam,
+  seam: RecordCompilerSeam,
   family: UpsertFamily = "upsert"
 ): RelationUpsertPart[] {
   const { relationInfo } = relation;
@@ -902,7 +892,7 @@ function connectOrCreateTargetKey(
  * Build one `RelationUpsertPart` per `connectOrCreate` item — the update-less
  * member of the adopt family (ATOM §6's worked trace). It is always global-adopt
  * (`connect` performs a global lookup-and-adopt in both the create and update
- * contexts, PLAN P−1.2), so it takes no correlation: found → connect (reparent),
+ * contexts), so it takes no correlation: found → connect (reparent),
  * absent → create (constraint + `racePin`).
  */
 export function buildConnectOrCreateParts(
@@ -912,7 +902,7 @@ export function buildConnectOrCreateParts(
   items: readonly ConnectOrCreateInput[],
   members: readonly ForeignKeyMember[],
   txMode: boolean,
-  seam: ArmSeam
+  seam: RecordCompilerSeam
 ): RelationUpsertPart[] {
   return buildAdoptParts(scope, engine, relation, items, members, txMode, seam);
 }
@@ -924,7 +914,7 @@ function buildAdoptParts(
   items: readonly AdoptMutationItem[],
   members: readonly ForeignKeyMember[],
   txMode: boolean,
-  seam: ArmSeam
+  seam: RecordCompilerSeam
 ): RelationUpsertPart[] {
   const { relationInfo } = relation;
   const child = createQueryScope(engine.adapter, relationInfo.targetModel);
@@ -963,7 +953,7 @@ function buildOneUpsertPart(
   members: readonly ForeignKeyMember[],
   correlationMembers: readonly CorrelatedForeignKeyMember[] | undefined,
   txMode: boolean,
-  seam: ArmSeam,
+  seam: RecordCompilerSeam,
   family: UpsertFamily,
   duplicateOfEarlier = false
 ): RelationUpsertPart {
@@ -1055,7 +1045,7 @@ function buildOneUpsertPart(
     );
   }
   const updateCompiler = update
-    ? seam.updateRecord({
+    ? seam.updateSelected({
         scope,
         engine,
         targetScope: child,
@@ -1083,7 +1073,7 @@ function buildOneUpsertPart(
     : undefined;
   const probeId =
     updateCompiler?.targetReadId ?? scope.allocate(`${childName}.find`);
-  const createSubtree = seam.freshArm({
+  const createSubtree = seam.createFresh({
     childScope: child,
     data: create,
     incomingForeignKey: members,

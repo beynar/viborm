@@ -1,13 +1,10 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import type { Model } from "@schema/model";
-import {
-  bindRelation,
-  type ParentHeldToOne,
-} from "./builders/relation-data-builder";
 import type {
-  RelationMutationEntry,
-  RelationMutationProgram,
-} from "./builders/relation-mutation-parser";
+  BoundRelation,
+  ParentHeldToOne,
+} from "./builders/relation-data-builder";
+import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import type { OwnWriteFootprint } from "./OwnWriteLedger";
 import type { OwnWriteRelation } from "./OwnWriteRelation";
 import {
@@ -23,7 +20,7 @@ import {
   unknownConstraint,
   updateResultConstraints,
 } from "./TargetConstraint";
-import { QueryEngineError, type QueryScope } from "./types";
+import { QueryEngineError } from "./types";
 
 export class OwnWriteSteps {
   private readonly relation: OwnWriteRelation;
@@ -144,8 +141,7 @@ export class OwnWriteSteps {
       const selector = selectorConstraint(this.relation.target, where);
       if (
         this.relation.family.kind === "update" &&
-        bindRelation(this.relation.ctx, this.relation.relationInfo).kind ===
-          "parentHeldToOne"
+        this.relation.boundRelation.kind === "parentHeldToOne"
       ) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -164,7 +160,7 @@ export class OwnWriteSteps {
       entry.target.kind === "selectors" ? entry.target.targets : []
     ).map((where) => selectorConstraint(this.relation.target, where));
 
-    if (this.relation.relationInfo.type !== "manyToMany") {
+    if (this.relation.boundRelation.kind !== "junction") {
       for (const constraint of constraints) {
         this.relation.assertTargetAndMembershipRead("disconnect", constraint);
       }
@@ -195,7 +191,7 @@ export class OwnWriteSteps {
     const constraints = entry.target.targets.map((where) =>
       selectorConstraint(this.relation.target, where)
     );
-    if (this.relation.relationInfo.type === "manyToMany") {
+    if (this.relation.boundRelation.kind === "junction") {
       for (const constraint of constraints) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -227,7 +223,7 @@ export class OwnWriteSteps {
         "set",
         constraint
       );
-      if (this.relation.relationInfo.type !== "manyToMany") {
+      if (this.relation.boundRelation.kind !== "junction") {
         this.relation.assertMembershipRead("set", constraint);
       }
     }
@@ -240,12 +236,14 @@ export class OwnWriteSteps {
   private processUpdate(
     entry: Extract<RelationMutationEntry, { kind: "update" }>
   ): void {
-    if (this.relation.relationInfo.isToOne) {
+    if (
+      this.relation.boundRelation.kind === "parentHeldToOne" ||
+      this.relation.boundRelation.kind === "childHeldToOne"
+    ) {
       const [input] = entry.items;
       if (!input) return;
       const footprint = buildToOneUpdateFootprint(
-        this.relation.ctx,
-        this.relation.relationInfo,
+        this.relation.boundRelation,
         input.data,
         this.relation.family.kind === "update"
           ? this.relation.family.scalarData
@@ -304,7 +302,7 @@ export class OwnWriteSteps {
     entry: Extract<RelationMutationEntry, { kind: "deleteMany" }>
   ): void {
     const unknown = unknownConstraint(this.relation.target);
-    if (this.relation.relationInfo.type === "manyToMany") {
+    if (this.relation.boundRelation.kind === "junction") {
       for (const filter of entry.filters) {
         const constraint = getFilterTargetConstraint(
           this.relation.target,
@@ -440,15 +438,14 @@ interface ToOneUpdateFootprint {
 }
 
 function buildToOneUpdateFootprint(
-  ctx: QueryScope,
-  relationInfo: RelationMutationProgram["relationInfo"],
+  relation: BoundRelation,
   updateData: Readonly<Record<string, unknown>>,
   rootScalarData: Readonly<Record<string, unknown>> | undefined
 ): ToOneUpdateFootprint {
+  const { relationInfo } = relation;
   const target = relationInfo.targetModel;
   const scalarData = getScalarData(target, updateData);
   const changedFields = new Set(Object.keys(scalarData));
-  const relation = bindRelation(ctx, relationInfo);
   if (relation.kind === "junction") {
     throw new QueryEngineError(
       `Relation '${relationInfo.name}' is many-to-many and has no FK direction. ` +

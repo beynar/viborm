@@ -1,5 +1,4 @@
 import { QueryEngineError } from "@errors";
-import type { Model } from "@schema/model";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
   bindRelation,
@@ -7,7 +6,6 @@ import {
   type ChildHeldToOne,
 } from "../builders/relation-data-builder";
 import {
-  buildParsedRelationPrograms,
   type RelationMutationEntry,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
@@ -17,7 +15,6 @@ import { buildCreateManyPlan } from "../operations/create";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
-import { CreateOperation } from "./CreateOperation";
 import {
   type FinalReferenceSource,
   type ForeignKeyMember,
@@ -31,16 +28,15 @@ import { referenceSql } from "./fragment-builders";
 import type {
   OperationStep,
   StatementStep,
-  TargetConstraintPin,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
-  type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
 } from "./RelationUpsertPart";
+import type { RecordCompilerSeam } from "./RecordUpdateCompiler";
 import {
   buildInverseToOneUpsertPart,
   buildToManyDeleteManyParts,
@@ -53,21 +49,15 @@ import {
 import type { StepScope } from "./StepScope";
 import { getStepModelName, UnsupportedOperationError } from "./shared";
 
-/** Fresh-record and junction-target composition seams. Selected-record recursion lives
- * in `RecordUpdateCompiler`; this module retains fresh create ownership and the explicit
- * junction attachment order. */
+/** Located-target relation composition below the selected-record compiler. */
 
 /**
  * How a located-by-PK target's relations are folded one level deeper — the recursion
  * seam {@link RelationWritePart} calls without importing this module at runtime (an
  * erased type import breaks the cycle).
  *
- * `membershipReadSource` is N5-U1's two-source split carried to
- * depth: the value existing rows are READ by, when that is not the value new ones are
- * WRITTEN with. They differ in exactly one situation — a target whose own SET moves the
- * primary key its deeper edges reference, ordered after its self-UPDATE — and only the
- * junction consumes it, because a junction is the one edge kind with a parent-correlated
- * PLANNING read. Absent everywhere else, and then every read takes `parentId`.
+ * `membershipReadSource` carries the pre-transition key when existing junction rows
+ * are read by a different value than new rows are written with.
  */
 export type JunctionTargetRelationsBuilder = (
   targetScope: QueryScope,
@@ -90,7 +80,7 @@ export function buildJunctionTargetRelationParts(
   relations: Record<string, RelationMutationProgram>,
   parentId: FinalReferenceSource,
   txMode: boolean,
-  armSeam: ArmSeam,
+  recordCompilers: RecordCompilerSeam,
   membershipReadSource?: FinalReferenceSource
 ): readonly Part[] {
   const parts: Part[] = [];
@@ -101,7 +91,7 @@ export function buildJunctionTargetRelationParts(
       targetScope,
       program,
       parentId,
-      armSeam,
+      recordCompilers,
       membershipReadSource,
       txMode,
       parts,
@@ -110,85 +100,14 @@ export function buildJunctionTargetRelationParts(
   return parts;
 }
 
-/**
- * Whether a fresh junction target needs the whole {@link CreateOperation} compiler:
- * parent-held relations must fold into its INSERT, while a compound or non-primary-key
- * child edge needs field-bound references the scalar junction shortcut does not carry.
- */
-export function requiresWholeFreshRecordCompiler(
-  targetScope: QueryScope,
-  data: Record<string, unknown>
-): boolean {
-  const { relations } = buildParsedRelationPrograms(targetScope, data);
-  const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
-  for (const mutation of Object.values(relations)) {
-    const relation = bindRelation(targetScope, mutation.relationInfo);
-    if (relation.kind === "junction") continue;
-    if (relation.kind === "parentHeldToOne") return true;
-    const referencesTargetPk =
-      targetPrimaryKeys.length === 1 &&
-      relation.referencedFields.length === 1 &&
-      relation.referencedFields[0] === targetPrimaryKeys[0];
-    if (!referencesTargetPk) return true;
-  }
-  return false;
-}
-
-/**
- * Compile a relation-bearing M2M target through {@link CreateOperation}. The target has
- * no incoming FK from the enclosing row; the junction Part owns membership and consumes
- * the created target's referenced value.
- */
-export function buildNestedTargetFreshCreatePart(input: {
-  scope: StepScope;
-  engine: QueryEngine;
-  targetModel: Model<any>;
-  data: Record<string, unknown>;
-  /**
-   * The missing-premise pin belongs on the subtree's root INSERT. It is absent for an
-   * unconditional create arm.
-   */
-  racePin?: TargetConstraintPin;
-}): {
-  readonly part: Part;
-  /**
-   * E4-U3 — one referenced value of the row this subtree's ROOT makes: a backward
-   * `Ref` when its primary key is database-generated, a literal when the create data
-   * spells it, `undefined` when it is neither (the caller's typed refusal). The join
-   * row spends it, which is why the subtree has to hand it back rather than keep it.
-   */
-  readonly rootReferenced: (field: string) => FinalReferenceSource | undefined;
-} {
-  const op = new CreateOperation(
-    input.engine,
-    input.targetModel,
-    {},
-    {
-      scope: input.scope,
-      skipOwnWrite: true,
-      nestedFresh: {
-        data: input.data,
-        incomingForeignKey: [],
-        relationName: "",
-        ...(input.racePin ? { rootRacePin: input.racePin } : {}),
-      },
-    }
-  );
-  return {
-    part: new NestedFreshCreatePart(op),
-    rootReferenced: (field) => op.freshRootReferenced(field),
-  };
-}
-
 function foldJunctionTargetRelation(input: {
   scope: StepScope;
   engine: QueryEngine;
   targetScope: QueryScope;
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
-  armSeam: ArmSeam;
-  /** The junction-only READ source under a post-transition ordering (E2-U3); see
-   *  {@link JunctionTargetRelationsBuilder}. */
+  recordCompilers: RecordCompilerSeam;
+  /** Junction-only read source under post-transition ordering. */
   membershipReadSource?: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
@@ -201,7 +120,7 @@ function foldJunctionTargetRelation(input: {
   // The recursion seam threaded to every kind that may carry its own relations one
   // level deeper (the m2m junction here; the child-held write/link/adopt families
   // via `writeBase` below): the same builder, one operation's scope + engine
-  // captured, depth adding list entries and one parent-id value (WHY §4.2).
+  // captured, depth adding list entries and one parent-id value.
   const deeperBuilder: JunctionTargetRelationsBuilder = (
     deeperScope,
     deeperParentId,
@@ -216,16 +135,12 @@ function foldJunctionTargetRelation(input: {
       deeperRelations,
       deeperParentId,
       deeperTxMode,
-      input.armSeam,
+      input.recordCompilers,
       deeperCorrelationParentId
     );
 
   if (relation.kind === "junction") {
-    // Many-to-many is not special (WHY §4.3): junction as ordinary Parts, correlated
-    // to the located target's literal PK (its membership reads inline the literal —
-    // RelationJunctionPart.parentRef). A junction create/update/upsert target whose
-    // data carries its own relations folds them one level deeper through the same
-    // seam (T3b-2 family C at depth).
+    // Junction targets recurse through the same relation builder.
     input.parts.push(
       ...buildJunctionParts({
         scope,
@@ -236,7 +151,7 @@ function foldJunctionTargetRelation(input: {
         parentId,
         membershipReadSource: input.membershipReadSource,
         txMode,
-        armSeam: input.armSeam,
+        recordCompilers: input.recordCompilers,
         nestedBuilder: deeperBuilder,
       })
     );
@@ -244,26 +159,14 @@ function foldJunctionTargetRelation(input: {
   }
 
   if (relation.kind === "parentHeldToOne") {
-    // X1c LIFTED (the located-target parent-held-to-one, child-SET folding). A located
-    // target that holds this FK — a deeper parent-held to-one whose identity folds into
-    // the target's OWN update SET — no longer reaches this in-place child-Part builder:
-    // Selected-record updates route the whole target to the record compiler, so the
-    // target's SET absorbs the fold at the update root. This branch is therefore
-    // unreachable by construction — a fail-closed internal invariant, not a route.
+    // A parent-held edge must already have folded into the selected record's SET.
     throw new QueryEngineError(
       `query-engine-v2 internal: a parent-held to-one on relation '${relationName}' reached the junction target relation builder; it requires the whole fresh-record compiler.`
     );
   }
 
-  // X1c LIFTED (the located-target D4 projection): the deeper FK must reference the
-  // located target's OWN single primary key. A **D4-style deeper edge referencing a
-  // non-PK unique of the located target** needs the located row's non-PK referenced
-  // column threaded from a locate read — which the update root exposes via `locateFields`
-  // firstRowField outputs. Selected-record updates use their compiler-owned projection,
-  // so this junction-create builder never sees a non-PK reference;
-  // the branch is a fail-closed internal invariant, not a route. (Witness:
-  // nested-update-d4-deep-nonpk-reference.test.ts — the create-arm non-PK reference is the
-  // update root's own family-E boundary, byte-identical at depth.)
+  // Non-PK references require the selected-record compiler's captured projection;
+  // this lower builder can consume only the target's single primary key.
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
   const referencesTargetPk =
     targetPrimaryKeys.length === 1 &&
@@ -293,13 +196,13 @@ function foldJunctionTargetRelation(input: {
     parentId,
     txMode,
     nestedBuilder: deeperBuilder,
-    armSeam: input.armSeam,
+    recordCompilers: input.recordCompilers,
   } as const;
 
   for (const entry of program.entries) {
     foldJunctionChildHeldEntry({
       entry,
-      armSeam: input.armSeam,
+      recordCompilers: input.recordCompilers,
       childScope,
       childName,
       relation,
@@ -315,7 +218,7 @@ function foldJunctionTargetRelation(input: {
 
 function foldJunctionChildHeldEntry(args: {
   entry: RelationMutationEntry;
-  armSeam: ArmSeam;
+  recordCompilers: RecordCompilerSeam;
   childScope: QueryScope;
   childName: string;
   relation: ChildHeldToOne | ChildHeldToMany;
@@ -328,7 +231,7 @@ function foldJunctionChildHeldEntry(args: {
 }): void {
   const {
     entry,
-    armSeam,
+    recordCompilers,
     childScope,
     childName,
     relation,
@@ -373,7 +276,7 @@ function foldJunctionChildHeldEntry(args: {
             relation.referencedFields.map(() => parentId)
           ),
           txMode,
-          armSeam
+          recordCompilers
         )
       );
       return;
@@ -405,7 +308,7 @@ function foldJunctionChildHeldEntry(args: {
           members,
           members,
           txMode,
-          armSeam
+          recordCompilers
         )
       );
       return;
@@ -450,30 +353,20 @@ function foldJunctionChildHeldEntry(args: {
         relation.referencedFields.map(() => parentId)
       );
       parts.push(
-        ...buildFreshRecordParts({
-          scope,
-          engine,
-          childScope,
-          relationName,
-          members,
-          creates: entry.items,
-        })
+        ...entry.items.map((data) =>
+          recordCompilers.createFresh({
+            childScope,
+            data,
+            incomingForeignKey: members,
+            relationName,
+          })
+        )
       );
       return;
     }
     case "createMany": {
-      // N4-U3 — the bulk arm of the same dispatch the single `create` above makes.
-      // A LITERAL parent id (a child-held nested update located by its `where` PK)
-      // resolves the injected foreign key at construction; a PLANNED one (a
-      // parent-held to-one `update` target, located by this operation's planning
-      // read) resolves it at COMPILE from the row the locate ACTED ON. N1-U1 already
-      // built the planned bulk leaf for the ROOT's `createMany`
-      // ({@link buildPlannedParentCreateManyPart}); the site that used to refuse here
-      // was the one caller that had not been handed it. Nothing about `skipDuplicates`
-      // changes with provenance: the leaf's statement-count alignment between the
-      // construction-time shape plan and the compile-time plan is ASSERTED inside that
-      // builder, and the skip disposition is a function of the dialect and the rows,
-      // not of where the foreign key's value comes from.
+      // Literal parents inject now; planned parents inject the captured value at
+      // compile. Skip semantics are independent of that provenance.
       const members = pairForeignKeyMembers(
         relation.foreignFields,
         relation.referencedFields,
@@ -503,10 +396,7 @@ function foldJunctionChildHeldEntry(args: {
       return;
     }
     default:
-      // Unreachable by construction (N7-U-A, the X1c disposition): measured, all ELEVEN
-      // to-many keys have a case above (the two that answer differently — `set` and
-      // `disconnect` without a planned parent id — reach their OWN `QueryEngineError`
-      // inside the built Part, not this switch). An engine invariant, not a route.
+      // Every parsed to-many entry has a case above.
       throw new QueryEngineError(
         `query-engine-v2 internal: unsupported entry reached the deeper nested dispatch on relation '${relationName}'; the parse boundary admits only the eleven to-many kinds, all of which are handled above.`
       );
@@ -554,144 +444,8 @@ function foreignKeyInject(
   return inject;
 }
 
-export function buildFreshRecordParts(input: {
-  scope: StepScope;
-  engine: QueryEngine;
-  childScope: QueryScope;
-  relationName: string;
-  members: readonly ForeignKeyMember[];
-  creates: readonly Record<string, unknown>[];
-}): readonly Part[] {
-  return input.creates.map((create) =>
-    buildFreshRecordPart({ ...input, create })
-  );
-}
-
-/**
- * A relation-bearing nested create is a {@link CreateOperation} subtree. It shares the
- * enclosing step scope, trusts the already parsed payload, omits a terminal result read,
- * and folds field-bound incoming FK members into its root INSERT.
- *
- * Every mechanism the create root already supports falls out unchanged at any depth:
- * a parent-held-FK to-one grandchild (a before-parent create whose id the fresh
- * child's own FK references — the T1 pattern, recursive), a database-generated /
- * compound PK (the produced id threaded as a backward `Ref` / per-field identity to
- * its grandchildren), the fresh-parent adopt family (connect/connectOrCreate/upsert/
- * set under the GLOBAL fresh-parent elision, ATOM §4) and M2M through the junction.
- * The semantic refusals the create root raises (a nested `update`/`delete` in create
- * data, an M2M `upsert` under create, …) now fire byte-identically at depth — one
- * home for the create tree, not two.
- */
-export interface FreshRecordPart extends Part {
-  readonly rootWriteId: string;
-  rootReferenced(field: string): FinalReferenceSource | undefined;
-}
-
-class NestedFreshCreatePart implements FreshRecordPart {
-  private readonly op: CreateOperation;
-  constructor(op: CreateOperation) {
-    this.op = op;
-  }
-  planning(): readonly StatementStep[] {
-    return this.op.planning().steps;
-  }
-  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
-    return this.op.compile(known).steps;
-  }
-  get rootWriteId(): string {
-    return this.op.rootWriteStepId;
-  }
-  rootReferenced(field: string): FinalReferenceSource | undefined {
-    return this.op.freshRootReferenced(field);
-  }
-}
-
-/**
- * N4-U2 — the seam an ADOPT arm's fresh row is built through, injected as a function
- * so `RelationUpsertPart` / `RelationWritePart` reach the create root without importing
- * this module at runtime (the {@link JunctionTargetRelationsBuilder} convention: an erased type
- * import breaks the cycle).
- *
- * A nested `upsert`/`connectOrCreate` whose probe finds nothing INSERTs a fresh row —
- * which is what a `create` root builds. Before this seam the arm emitted one hand-rolled
- * INSERT and refused every relation its payload carried beyond a single parent-held
- * to-one `connect`; now the whole arm is a create SUBTREE, so a deeper m2m, a
- * before-parent to-one `create`, a `createMany`, a globally-adopting `connect` /
- * `connectOrCreate` / `upsert`, a database-generated primary key threaded to its own
- * grandchildren, and any depth below all fall out of the create root unchanged.
- */
-export type FreshArmBuilder = (input: {
-  readonly childScope: QueryScope;
-  readonly data: Record<string, unknown>;
-  readonly incomingForeignKey: readonly ForeignKeyMember[];
-  readonly relationName: string;
-  readonly racePin?: TargetConstraintPin;
-}) => FreshRecordPart;
-
-/** The {@link FreshArmBuilder} implementation — one home for the adopt arm's fresh
- *  subtree, shared by every caller that folds an adopt family. */
-export function buildFreshArmPart(
-  scope: StepScope,
-  engine: QueryEngine,
-  input: Parameters<FreshArmBuilder>[0]
-): FreshRecordPart {
-  return new NestedFreshCreatePart(
-    new CreateOperation(
-      engine,
-      input.childScope.model,
-      {},
-      {
-        scope,
-        skipOwnWrite: true,
-        nestedFresh: {
-          data: input.data,
-          incomingForeignKey: input.incomingForeignKey,
-          relationName: input.relationName,
-          ...(input.racePin ? { rootRacePin: input.racePin } : {}),
-        },
-      }
-    )
-  );
-}
-
-function buildFreshRecordPart(input: {
-  scope: StepScope;
-  engine: QueryEngine;
-  childScope: QueryScope;
-  relationName: string;
-  members: readonly ForeignKeyMember[];
-  create: Record<string, unknown>;
-}): Part {
-  const { scope, engine, childScope, relationName, members, create } = input;
-  const op = new CreateOperation(
-    engine,
-    childScope.model,
-    {},
-    {
-      scope,
-      skipOwnWrite: true,
-      nestedFresh: {
-        data: create,
-        incomingForeignKey: members,
-        relationName,
-      },
-    }
-  );
-  return new NestedFreshCreatePart(op);
-}
-
-/**
- * The construction-time half a nested `createMany` leaf shares across both parent-id
- * provenances: the user rows, the skipDuplicates disposition, and V1's portability
- * guard on the PRE-injection rows.
- *
- * X1b mechanism 3 — createMany skipDuplicates at depth. The composed skip leaf
- * (T4a CLASS VI, generalized one level past the create root): the skip rides the
- * plan (a dialect whose skip IS a SQL leaf carries `ON CONFLICT DO NOTHING` /
- * `INSERT OR IGNORE`; a `recoverableUniqueError` dialect — MySQL — has no leaf,
- * so each per-row statement carries the savepoint-wrapped `onUniqueConflict: skip`
- * executor effect). Byte-identical to `CreateOperation.foldCreateMany`.
- */
+/** Plan nested createMany before parent FK injection. Duplicate skipping uses the
+ * same SQL leaf or recoverable-conflict effect as the root createMany path. */
 function planNestedCreateMany(input: {
   engine: QueryEngine;
   childScope: QueryScope;
@@ -762,23 +516,9 @@ export function buildLiteralParentCreateManyPart(input: {
   return new LiteralParentWriteParts(steps);
 }
 
-/**
- * N1-U1 — the PLANNED-parent `createMany` leaf: the same bulk plan the literal leaf
- * builds, with the located parent's referenced column(s) resolved at COMPILE from the
- * planning row ({@link foreignKeyInject}) instead of at construction. This is the
- * located-parent Ref applied to the bulk arm — `update({ where: { email }, data: {
- * posts: { createMany } } })` compiles to the SAME statements as the `where: { id }`
- * spelling, differing only in where the foreign key's value comes from.
- *
- * Step ids are allocated at CONSTRUCTION (the {@link Part} contract: ids are allocated
- * once, `compile` is a deterministic construction over them). The plan's statement
- * count is a function of which COLUMNS each row carries — `buildValueGroups` runs
- * maximal contiguous same-shape runs, and `shouldOmitInsertValue` omits only
- * `undefined` — never of their VALUES, and the injected foreign key is an `Sql`
- * fragment under both provenances. So a construction-time shape plan built with a
- * placeholder foreign key yields exactly the statements compile rebuilds; the
- * alignment is ASSERTED at compile, never assumed.
- */
+/** Planned-parent createMany resolves captured FK values at compile. IDs are
+ * allocated from a shape-only placeholder plan; compile verifies that injection
+ * preserves the statement count before pairing IDs with statements. */
 export function buildPlannedParentCreateManyPart(input: {
   scope: StepScope;
   engine: QueryEngine;
@@ -841,20 +581,8 @@ export function buildPlannedParentCreateManyPart(input: {
   });
 }
 
-/**
- * The PLANNED-parent child-held `create` leaf (T4a CLASS VI): a `create` under a target
- * located by a PLANNED id — a parent-held to-one `update` target read by this operation's
- * own locate probe (family A-remainder). Its step ids are allocated at construction
- * (stable; the leaf owns no planning read — the enclosing operation already plans the
- * target's locate), but its INSERT statements are built at COMPILE, when the located row
- * is in `known`: the grandchild FK carries the target's captured PK, inlined as a literal
- * from that row (`planned`, ATOM §9 inv. 2 forbids a final step reffing a planning step,
- * so the value is inlined, never a SQL `Ref`) — exactly as the root's depth recursion
- * threads a first-class parent value, one step past the literal-parent reach. A
- * The fresh-record compiler owns relation-bearing create arms. This scalar leaf
- * never becomes a correlation axis: it is
- * an unconditional INSERT with no probe, guard, or racePin.
- */
+/** A compile-time leaf whose captured parent FK is known only after planning.
+ * Final SQL inlines that value; it never references a discarded planning step. */
 class PlannedParentCreatePart implements Part {
   private readonly build: (known: PlanningKnown) => readonly OperationStep[];
   constructor(build: (known: PlanningKnown) => readonly OperationStep[]) {

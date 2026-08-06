@@ -31,6 +31,7 @@ import {
   assertPortablePrimaryKeyUpdateInput,
   getUpdatedPrimaryKeyWhere,
 } from "../operations/mutation-identity";
+import { assertUpdateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import type { QueryEngine } from "../query-engine";
 import {
   assertRelationKeyUpdatesAreCompilable,
@@ -38,7 +39,11 @@ import {
 } from "../relation-key-legality";
 import { ResultParser } from "../result/ResultParser";
 import type { QueryScope } from "../types";
-import { CreateOperation } from "./CreateOperation";
+import {
+  buildFreshRecordPart,
+  CreateOperation,
+  type FreshRecordBuilder,
+} from "./CreateOperation";
 import {
   absenceGuard,
   affectedRows,
@@ -51,7 +56,6 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import { upsertSkipPremiseChanged } from "./messages";
-import { buildFreshArmPart, type FreshArmBuilder } from "./nested-target-parts";
 import {
   isOperationValueReference,
   type OperationFragment,
@@ -62,7 +66,6 @@ import {
   type StatementStep,
   type WriteStep,
 } from "./OperationFragment";
-import { OwnWritePreflight } from "./OwnWritePreflight";
 import { conditionalArmPlanning, planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import {
@@ -125,9 +128,8 @@ interface Conditional {
 }
 
 /**
- * The root (top-level) `upsert` (PLAN P2b/T3c), **probe-first per ATOM §2/§4** —
- * except through the one narrow door ATOM §4 draws for it, which PLAN Decision 7.1
- * takes: see {@link UpsertOperation.buildOnConflictFold}. Outside that door a
+ * The root (top-level) `upsert` is probe-first except for the direct
+ * {@link UpsertOperation.buildOnConflictFold}. Outside that fold, a
  * locate read decides create-vs-update at planning, and every
  * premise is pinned to the vocabulary the update/delete family already uses. It
  * locates the row by any unique `where`; absent → the create arm (constraint +
@@ -184,7 +186,6 @@ export class UpsertOperation {
   private readonly createArmOp?: CreateOperation;
   // A relation-bearing found arm reuses this operation's decision read.
   private readonly updateCompiler?: RecordUpdateCompiler;
-  private readonly updateArmUsesCompiler: boolean;
   private readonly updateLegality?: () => void;
   // PHASE 7 / Decision 7.1 — the ON CONFLICT door. When the whole upsert reduces
   // to ONE `INSERT … ON CONFLICT (target) DO UPDATE … RETURNING`, this holds that
@@ -375,9 +376,8 @@ export class UpsertOperation {
         if (program) updateRelations[relationName] = program;
       }
     }
-    const freshArm: FreshArmBuilder = (input) =>
-      buildFreshArmPart(scope, engine, input);
-    this.updateArmUsesCompiler = updateHasRelations;
+    const createFresh: FreshRecordBuilder = (input) =>
+      buildFreshRecordPart(scope, engine, input);
     this.updateCompiler = updateHasRelations
       ? buildRecordUpdateCompiler(
           {
@@ -391,7 +391,7 @@ export class UpsertOperation {
             relationName: "record",
             pinnedTarget: pinnedTargetValues(parent, this.parentWhere),
           },
-          freshArm
+          createFresh
         )
       : undefined;
     const updateArgs = { where, data: update, ...subSelect };
@@ -415,7 +415,7 @@ export class UpsertOperation {
               "query-engine-v2 internal: update.data must be a record."
             );
           }
-          new OwnWritePreflight().assertUpdate(
+          assertUpdateOwnWriteSafety(
             parent,
             partitionModelData(parent, parsedArgs.data).scalarData,
             updateRelations,
@@ -434,7 +434,7 @@ export class UpsertOperation {
         select: Object.fromEntries(locateFields.map((field) => [field, true])),
         forUpdate: txMode,
       }),
-      outputs: this.updateArmUsesCompiler
+      outputs: updateHasRelations
         ? {
             rows: { kind: "rows" },
             ...Object.fromEntries(
@@ -771,7 +771,7 @@ export class UpsertOperation {
     known: Readonly<Record<string, unknown>>,
     locatedRow: Record<string, unknown>
   ): ArmResult {
-    if (this.updateArmUsesCompiler) {
+    if (Object.keys(this.locate.outputs).length > 1) {
       const parent = createQueryScope(this.engine.adapter, this.model);
       const guards = this.conditionalMatchGuards();
       if (this.mode === "batch" && this.conditionals.length === 0) {

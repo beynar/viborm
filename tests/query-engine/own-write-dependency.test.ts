@@ -1,5 +1,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { buildParsedRelationPrograms } from "@query-engine/builders/relation-mutation-parser";
+import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { createQueryScope } from "@query-engine/context/query-scope";
 import {
   analyzeOwnWriteTree,
@@ -93,20 +94,15 @@ function summarizeSelfChildrenStep(
   });
   const currentConstraint = selectorConstraint(selfNode, { id: 1 });
   const targetConstraint = selectorConstraint(selfNode, { id: 2 });
-  const membershipScope = getRelationMembershipScope(
-    plan.ctx,
-    relation.relationInfo
-  );
+  const boundRelation = bindRelation(plan.ctx, relation.relationInfo);
+  const membershipScope = getRelationMembershipScope(plan.ctx, boundRelation);
   return {
     ledger,
     membershipScope,
-    membershipOrientation: getMembershipReadOrientation(
-      plan.ctx,
-      relation.relationInfo
-    ),
+    membershipOrientation: getMembershipReadOrientation(boundRelation),
     endpoints: getRelationMembershipEndpoints(
       plan.ctx,
-      relation.relationInfo,
+      boundRelation,
       membershipScope,
       currentConstraint,
       targetConstraint

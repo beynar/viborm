@@ -69,14 +69,23 @@ arm behavior do not move.
 
 ### Record compilers
 
-`CreateOperation` compiles each non-bulk fresh record subtree.
-`RecordUpdateCompiler` compiles each already-selected non-bulk record update.
+`CreateOperation` compiles each non-bulk fresh record subtree except the explicit
+inline junction-target insert. `RecordUpdateCompiler` compiles each
+already-selected non-bulk record update except the top-level scalar upsert fold,
+which stays in its shell to preserve the one-statement path.
 
 The update compiler owns scalar SET data, incoming FK assignments, nested
 relations, required target fields, primary-key transitions, the root UPDATE,
-and descendant ordering. Its caller owns the target read, correlation,
-membership, found/missing decision, guards, race pins, not-found failure, and
-terminal result. A true no-op allocates no step ID.
+and descendant ordering. For a `parentHeldToOne` edge, the record compiler also
+owns the inline FK fold and the branch needed to construct its root statement.
+For child-held and junction edges, relation owners keep the target read,
+correlation, membership, found/missing decision, guards, race pins, not-found
+failure, and standalone edge effects. A true no-op allocates no step ID.
+
+Fresh and selected compilers recurse through a type-only `RecordCompilerSeam`
+with two functions: `createFresh` and `updateSelected`. It is a dependency
+boundary, not a strategy framework. Runtime imports inside `write-engine` must
+remain acyclic.
 
 Direct top-level scalar folds and bulk operations remain specialized.
 
@@ -108,7 +117,7 @@ wrong row after planning.
 | `write-engine/UpdateOperation.ts` | public update shell and direct folds |
 | `write-engine/RecordUpdateCompiler.ts` | one selected record mutation |
 | `write-engine/UpsertOperation.ts` | top-level arm selection and terminal result |
-| relation Parts | selection, membership, branch, guards, pins, edge effects |
+| relation Parts | child-held/junction selection, membership, guards, pins, and edge effects |
 | `write-engine/OperationExecutor.ts` | generic fragment execution |
 | `write-engine/OperationFragment.ts` | step and fragment vocabulary |
 | `builders/relation-mutation-parser.ts` | parsed mutation programs |

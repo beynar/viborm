@@ -1,6 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner OwnWriteLedger.
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
-import { bindRelation } from "./builders/relation-data-builder";
+import type { BoundRelation } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import {
   type RelationMembershipScope,
@@ -14,7 +14,7 @@ import {
   type TargetConstraint,
   type TargetConstraintOverlap,
 } from "./TargetConstraint";
-import { NestedWriteError, type QueryScope, type RelationInfo } from "./types";
+import { NestedWriteError, type QueryScope } from "./types";
 
 export type DependencyOperation = RelationMutationEntry["kind"];
 export type TargetWriteDimension = "targetExistence" | "targetPredicate";
@@ -29,18 +29,18 @@ export interface MembershipEndpoints {
 
 export function getRelationMembershipEndpoints(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relation: BoundRelation,
   scope: RelationMembershipScope,
   currentConstraint: TargetConstraint,
   targetConstraint: TargetConstraint
 ): MembershipEndpoints {
   if (scope.kind === "manyToMany") {
-    const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
+    const joinInfo = getManyToManyJoinInfo(ctx, relation.relationInfo);
     return joinInfo.sourceFieldName === scope.firstField
       ? { first: currentConstraint, second: targetConstraint }
       : { first: targetConstraint, second: currentConstraint };
   }
-  return bindRelation(ctx, relationInfo).kind === "parentHeldToOne"
+  return relation.kind === "parentHeldToOne"
     ? { first: currentConstraint, second: targetConstraint }
     : { first: targetConstraint, second: currentConstraint };
 }
@@ -261,10 +261,8 @@ export class OwnWriteLedger {
 }
 
 export function getMembershipReadOrientation(
-  ctx: QueryScope,
-  relationInfo: RelationInfo
+  relation: BoundRelation
 ): MembershipReadOrientation {
-  const relation = bindRelation(ctx, relationInfo);
   if (relation.kind === "junction") return "manyToMany";
   return relation.kind === "parentHeldToOne" ? "direct" : "inverse";
 }

@@ -64,8 +64,8 @@ export function parseValidated<S extends VibSchema>(
  *    RAW payload FRESH, so a schema that TRANSFORMED them on the way past would make the
  *    second parse see the first parse's output (measured: a nested `createMany` whose
  *    re-parse answers `Expected string`);
- *  · the UNTAKEN arm's CONTENT must never be validated (`deferArmLegality`), so a schema
- *    that descended into the arms would reject trees that execute today.
+ *  · an untaken arm's content must not run arm-specific validation, so a schema
+ *    that descended into the arms would reject trees that never execute.
  *
  * This schema does neither. It is MODEL-BLIND — three required keys, five optional ones,
  * the object-ness of the three, and nothing else. No transform (the arms come back by

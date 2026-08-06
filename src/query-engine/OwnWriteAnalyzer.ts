@@ -141,9 +141,11 @@ export class OwnWriteNode {
 
     for (const [groupIndex, relationEntries] of relationGroups.entries()) {
       for (const [, mutation] of relationEntries) {
+        const boundRelation = bindRelation(this.ctx, mutation.relationInfo);
         OwnWriteRelation.create(
           this,
           mutation,
+          boundRelation,
           rootMembershipFootprints,
           this.family.kind === "create" && groupIndex === 0
             ? beforeParentMembershipLedger
@@ -174,10 +176,7 @@ export class OwnWriteNode {
   appendTransitiveMembershipWrites(ledger: OwnWriteLedger): void {
     for (const footprint of this.transitiveMembershipFootprints) {
       const relation = bindRelation(this.ctx, footprint.relationInfo);
-      const membershipScope = getRelationMembershipScope(
-        this.ctx,
-        footprint.relationInfo
-      );
+      const membershipScope = getRelationMembershipScope(this.ctx, relation);
       ledger.appendMembership(
         this.rootOperation,
         {

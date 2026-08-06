@@ -18,7 +18,7 @@ import type {
   RelationMutationEntry,
   RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import { canonicalRecordUpdateData } from "../builders/relation-mutation-parser";
+import { buildParsedRelationPrograms } from "../builders/relation-mutation-parser";
 import { createQueryScope, getTableName } from "../context/query-scope";
 import {
   buildDeleteMany,
@@ -39,6 +39,7 @@ import {
 } from "../relation-key-legality";
 import { classifyRelationKeyScalarUpdate } from "../TargetConstraint";
 import type { QueryScope, RelationInfo } from "../types";
+import type { FreshRecordBuilder, FreshRecordPart } from "./CreateOperation";
 import {
   type FinalReferenceSource,
   type ForeignKeyMember,
@@ -70,12 +71,11 @@ import {
   buildJunctionTargetRelationParts,
   buildLiteralParentCreateManyPart,
   buildPlannedParentCreateManyPart,
-  type FreshArmBuilder,
-  type FreshRecordPart,
 } from "./nested-target-parts";
 import {
   bucketOperationSteps,
   type OperationStep,
+  type Failure,
   type ReadStep,
   type StatementStep,
   type TargetConstraintPin,
@@ -86,7 +86,6 @@ import { conditionalArmPlanning, planningKey } from "./Part";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
-  type ArmSeam,
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
   literalParentId,
@@ -139,17 +138,22 @@ export interface RecordUpdateCompilerInput {
   readonly rootWrite: StepAddress;
   readonly incomingForeignKey?: readonly ForeignKeyMember[];
   readonly relationName: string;
+  /** Returning-driver affected-row failure for this selected root write. */
+  readonly rootWriteFailure?: Failure;
   /** Construction-known discriminator values only; never the selector itself. */
   readonly pinnedTarget?: Readonly<Record<string, unknown>>;
 }
 
-export type UpdateRecordBuilder = (
-  input: RecordUpdateCompilerInput
-) => RecordUpdateCompiler | undefined;
+export interface RecordCompilerSeam {
+  readonly createFresh: FreshRecordBuilder;
+  readonly updateSelected: (
+    input: RecordUpdateCompilerInput
+  ) => RecordUpdateCompiler | undefined;
+}
 
 export function buildRecordUpdateCompiler(
   input: RecordUpdateCompilerInput,
-  freshArm: FreshArmBuilder
+  createFresh: FreshRecordBuilder
 ): RecordUpdateCompiler | undefined {
   if (
     Object.keys(input.scalarData).length === 0 &&
@@ -158,7 +162,7 @@ export function buildRecordUpdateCompiler(
   ) {
     return undefined;
   }
-  return new RecordUpdateCompilerState(input, freshArm);
+  return new RecordUpdateCompilerState(input, createFresh);
 }
 
 function resolveStepAddress(scope: StepScope, address: StepAddress): string {
@@ -354,6 +358,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private readonly model: QueryScope["model"];
   private readonly scope: StepScope;
   private readonly relationName: string;
+  private readonly rootWriteFailure: Failure | undefined;
   private readonly pinnedTarget: Readonly<Record<string, unknown>>;
   private readonly incomingForeignKey: readonly ForeignKeyMember[];
   private readonly parentPrimaryKeys: readonly string[];
@@ -366,22 +371,23 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private readonly parentUpdateData: Record<string, unknown>;
   private readonly needsRootUpdate: boolean;
   private readonly reorderRootUpdateAfterChildren: boolean;
-  private readonly buildFreshArm: FreshArmBuilder;
-  private readonly armSeam: ArmSeam;
+  private readonly createFresh: FreshRecordBuilder;
+  private readonly recordCompilers: RecordCompilerSeam;
 
-  constructor(input: RecordUpdateCompilerInput, freshArm: FreshArmBuilder) {
+  constructor(input: RecordUpdateCompilerInput, createFresh: FreshRecordBuilder) {
     this.engine = input.engine;
     this.model = input.targetScope.model;
     this.scope = input.scope;
     this.mode = selectExecutionMode(input.engine, "update");
     this.relationName = input.relationName;
+    this.rootWriteFailure = input.rootWriteFailure;
     this.pinnedTarget = input.pinnedTarget ?? {};
     this.incomingForeignKey = input.incomingForeignKey ?? [];
-    this.buildFreshArm = freshArm;
-    this.armSeam = {
-      freshArm,
-      updateRecord: (nestedInput) =>
-        buildRecordUpdateCompiler(nestedInput, freshArm),
+    this.createFresh = createFresh;
+    this.recordCompilers = {
+      createFresh,
+      updateSelected: (nestedInput) =>
+        buildRecordUpdateCompiler(nestedInput, createFresh),
     };
 
     const parentPrimaryKeys = getPrimaryKeyFields(this.model);
@@ -677,7 +683,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     }
 
     if (relation.kind === "junction") {
-      // Many-to-many is not special (WHY §4.3): junction as ordinary Parts. Each
+      // A junction composes as ordinary Parts. Each
       // membership kind is a leaf feeding the same step vocabulary; the whole
       // family lives in one file, never an `M2M*` subsystem.
       const engine = this.engine;
@@ -691,7 +697,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           program,
           parentId: input.parentIdSource,
           txMode: input.txMode,
-          armSeam: this.armSeam,
+          recordCompilers: this.recordCompilers,
           // T3b-2 (family C): a junction create/update/upsert target whose data
           // carries its own relations folds them one level deeper through the same
           // literal-parent builder the child-held families use (mechanism 1 reuse for
@@ -710,7 +716,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               relations,
               parentId,
               nestedTxMode,
-              this.armSeam,
+              this.recordCompilers,
               membershipReadSource
             ),
         })
@@ -864,7 +870,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       childPrimaryKey: childPrimaryKeys[0]!,
       parentId: input.parentIdSource,
       txMode: input.txMode,
-      armSeam: this.armSeam,
+      recordCompilers: this.recordCompilers,
     } as const;
 
     // Multiple mutation kinds may coexist on one relation (V1's `{ delete,
@@ -952,7 +958,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     if (entry.kind === "create") {
       target.push(
         ...entry.items.map((data) =>
-          this.buildFreshArm({
+          this.createFresh({
             childScope: leaf.childScope,
             data,
             incomingForeignKey: leaf.members,
@@ -1310,14 +1316,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             members,
             members,
             input.txMode,
-            this.armSeam
+            this.recordCompilers
           )
         );
         return;
       }
       case "connectOrCreate":
         // Still a GLOBAL lookup-and-adopt under update (found → reparent, absent
-        // → create), never correlated (PLAN P−1.2) — composed like the upsert part.
+        // → create), never correlated — composed like the upsert part.
         pushAdopt(
           buildConnectOrCreateParts(
             input.scope,
@@ -1330,7 +1336,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               referencedFields.map(() => adoptParentId)
             ),
             input.txMode,
-            this.armSeam
+            this.recordCompilers
           )
         );
         return;
@@ -1486,7 +1492,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               referencedFields.map(() => adoptParentId)
             ),
             input.txMode,
-            this.armSeam
+            this.recordCompilers
           )
         );
         return;
@@ -1727,7 +1733,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       relation.referencedFields.map(() => literalParentId(after))
     );
     input.afterRootParts.push(
-      this.buildFreshArm({
+      this.createFresh({
         childScope,
         data: createData,
         incomingForeignKey: members,
@@ -1887,7 +1893,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       "update"
     );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
-    const childUpdate = canonicalRecordUpdateData(childScope, target.data);
+    const childUpdate = buildParsedRelationPrograms(childScope, target.data);
     assertPinnedTransitionIsCompilable(
       childScope,
       childUpdate.scalarData,
@@ -1904,7 +1910,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       childUpdate.relations
     );
     assertSelectedUpdateManyDataIsScalar(childScope, childUpdate.relations);
-    const compiler = this.armSeam.updateRecord({
+    const compiler = this.recordCompilers.updateSelected({
       scope: input.scope,
       engine: this.engine,
       targetScope: childScope,
@@ -2028,7 +2034,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     }
     const before = this.buildBeforeTarget(childScope, spec.create);
     const childName = getStepModelName(relationInfo.targetModel, relationName);
-    const childUpdate = canonicalRecordUpdateData(childScope, spec.update);
+    const childUpdate = buildParsedRelationPrograms(childScope, spec.update);
     const hasUpdate =
       Object.keys(childUpdate.scalarData).length > 0 ||
       Object.keys(childUpdate.relations).length > 0;
@@ -2042,7 +2048,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       );
     }
     const compiler = hasUpdate
-      ? this.armSeam.updateRecord({
+      ? this.recordCompilers.updateSelected({
           scope: input.scope,
           engine: this.engine,
           targetScope: childScope,
@@ -2324,7 +2330,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     rootRacePin?: TargetConstraintPin
   ): BeforeTarget {
     return {
-      subtree: this.buildFreshArm({
+      subtree: this.createFresh({
         childScope,
         data: createData,
         incomingForeignKey: [],
@@ -2931,9 +2937,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         ? {
             expects: affectedRows(
               1,
-              notFoundFailure(
-                `query-engine-v2 update located no '${parentName}' row for its unique where.`
-              )
+              this.rootWriteFailure ??
+                notFoundFailure(
+                  `query-engine-v2 update located no '${parentName}' row for its unique where.`
+                )
             ),
           }
         : {}),

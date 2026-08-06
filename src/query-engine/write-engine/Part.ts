@@ -16,23 +16,14 @@ import type { StepScope } from "./StepScope";
 export type PlanningKnown = Readonly<Record<string, unknown>>;
 
 /**
- * A composable operation fragment (PLAN P1.3). Two functions, an interface, no
- * hierarchy — and, decisively, **no part holds its parent**: a parent hands a
- * child only a `Ref` value and an FK position (WHY §4.2), never itself. The
- * root part splices child parts around its own write by FK direction; multiple
- * relations under one root fold into one linear fragment.
+ * A composable operation fragment. A parent passes field-bound references and
+ * relation position to its Parts; it does not hand them the parent operation.
+ * Planning contributes the reads needed to decide or materialize the final
+ * fragment. Compilation emits only the selected effects.
  *
- * - `planning(scope)` contributes the part's planning reads. They may `Ref`
- *   earlier planning reads (ATOM §3 technique 1). Probes are consumed through
- *   the P0 `Probe` pairing (ATOM §2), validated at construction.
- * - `compile(scope, known)` **constructs** the taken steps from the planning
- *   outputs (build-don't-select, P1.2) and may throw typed errors (the
- *   uncorrelated-exists arm, ATOM §3 technique 2). It never selects from a
- *   pre-frozen branch pair.
- *
- * Step ids are scope-allocated once (at construction); `planning`/`compile` are
- * deterministic projections/constructions over those ids, so calling `compile`
- * repeatedly with different `known` is safe (the existing slice suite does it).
+ * Step IDs are allocated at construction. Planning and compilation are
+ * deterministic over those IDs, so the same Part can compile different known
+ * planning results without mutating its structure.
  */
 export interface Part {
   planning(scope: StepScope): readonly StatementStep[];

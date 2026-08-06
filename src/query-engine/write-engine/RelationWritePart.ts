@@ -20,7 +20,6 @@ import {
   buildDeleteMany,
   buildFind,
   buildFindUnique,
-  buildUpdate,
   buildUpdateMany,
 } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
@@ -39,7 +38,6 @@ import {
   planningSourceFromFinal,
 } from "./foreign-key-reference";
 import {
-  affectedRows,
   exactlyOneRow,
   nestedWriteFailure,
   presenceGuard,
@@ -60,8 +58,10 @@ import type {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import type { RecordUpdateCompiler } from "./RecordUpdateCompiler";
-import type { ArmSeam } from "./RelationUpsertPart";
+import type {
+  RecordCompilerSeam,
+  RecordUpdateCompiler,
+} from "./RecordUpdateCompiler";
 import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
 import {
@@ -71,11 +71,9 @@ import {
 } from "./shared";
 
 /**
- * The correlated child-write family (PLAN P2c): nested `update` / `updateMany` /
- * `delete` / `deleteMany` on a child-held-FK to-many relation. Each is a root
- * write plus an FK edge (WHY §4.2) — the same shape as connect/disconnect
- * (`RelationLinkPart`), differing only in the SQL leaf and the failure name
- * (WHY §4.1 "one write part, leaves differ"). No new vocabulary.
+ * The correlated child-write family: nested `update` / `updateMany` / `delete` /
+ * `deleteMany` on a child-held-FK to-many relation. Each is a root write plus an
+ * FK edge, with an operation-specific SQL leaf and failure.
  *
  * - **targeted** (`update` one, `delete` one): a *correlated* existence probe —
  *   `WHERE unique AND fk = Ref(parentLocate)` (technique #1's SQL-level
@@ -111,7 +109,7 @@ export interface RelationWriteConfig {
    * A single-column edge is the length-1 case; nothing else changes.
    */
   readonly childPrimaryKey: string;
-  readonly armSeam: ArmSeam;
+  readonly recordCompilers: RecordCompilerSeam;
   /** The located parent id (a planning value, inlined as a literal at compile). */
   readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
@@ -176,21 +174,23 @@ export class RelationWritePart implements Part {
 
   constructor(scope: StepScope, config: RelationWriteConfig) {
     this.config = config;
+    let updateCompiler: RecordUpdateCompiler | undefined;
     if (config.kind === "update" && config.upsertCreateSubtree === undefined) {
-      this.updateCompiler = this.buildUpdateCompiler(scope);
-      this.isNoOpUpdate = this.updateCompiler === undefined;
+      updateCompiler = this.buildUpdateCompiler(scope);
+      this.isNoOpUpdate = updateCompiler === undefined;
     }
     if (this.isNoOpUpdate) {
+      this.updateCompiler = undefined;
       this.probeId = "";
       this.writeId = "";
       this.guardId = "";
       return;
     }
     this.probeId =
-      this.updateCompiler?.targetReadId ??
+      updateCompiler?.targetReadId ??
       scope.allocate(`${config.childName}.find`);
     this.writeId =
-      this.updateCompiler?.writeId ??
+      updateCompiler?.writeId ??
       scope.allocate(`${config.childName}.${config.kind}`);
     this.guardId = scope.allocate(`${config.childName}.guard.exists`);
     // Payload-determined support decisions are made at CONSTRUCTION — before any
@@ -198,15 +198,32 @@ export class RelationWritePart implements Part {
     // that PROPAGATES (post-P6: no V1 fallback catches it). A nested relation write
     // inside `update`/`updateMany` data was, pre-T3b, such a shape; mechanism 1 now
     // folds it one level deeper (see `interpretChildParts`).
-    if (
-      config.kind === "updateMany" ||
-      (config.kind === "update" && config.upsertCreateSubtree !== undefined)
-    ) {
+    if (config.kind === "updateMany") {
       this.updateScalarData = this.parseScalarUpdateData();
-      this.isNoOpUpdate =
-        config.upsertCreateSubtree === undefined &&
-        Object.keys(this.updateScalarData).length === 0;
+      this.isNoOpUpdate = Object.keys(this.updateScalarData).length === 0;
+    } else if (
+      config.kind === "update" &&
+      config.upsertCreateSubtree !== undefined
+    ) {
+      const scalarData = this.parseScalarUpdateData();
+      updateCompiler = config.recordCompilers.updateSelected({
+        scope,
+        engine: config.engine,
+        targetScope: config.childScope,
+        scalarData,
+        relations: {},
+        targetRead: { id: this.probeId },
+        rootWrite: { id: this.writeId },
+        relationName: this.relationName,
+        rootWriteFailure: {
+          kind: "notFound",
+          message: upsertTargetVanished(this.relationName),
+          relation: this.relationName,
+          raceable: false,
+        },
+      });
     }
+    this.updateCompiler = updateCompiler;
     // The probe is built LAST: whether it owes the deeper edges the located primary
     // key is a fact about the child Parts, which are interpreted above. A no-op arm
     // gets no probe — it must not make the target's existence a precondition.
@@ -272,13 +289,6 @@ export class RelationWritePart implements Part {
     );
   }
 
-  /** Whether a targeted `update` writes the target row itself (a non-empty scalar
-   *  SET). A relation-only nested update (`{ friends: { connect } }`) writes only its
-   *  child Parts — no empty-SET UPDATE. */
-  private hasSelfUpdate(): boolean {
-    return Object.keys(this.updateScalarData ?? {}).length > 0;
-  }
-
   /**
    * The inverse-side one-to-one upsert. The correlated
    * probe (`WHERE fk = parent`) already decided the three-way at plan time:
@@ -315,15 +325,12 @@ export class RelationWritePart implements Part {
         this.relationName
       );
     }
-    // Found + an update arm that asks for nothing: Prisma's no-op (the same rule
-    // `isNoOpUpdate` pins for plain update arms — measured, N7 review). The CREATE
-    // half is what kept this Part out of `isNoOpUpdate`; on the FOUND branch that
-    // half is not taken, so there is nothing to write and no premise to pin.
-    if (!this.hasSelfUpdate()) return [];
+    // The branch read remains necessary for the missing create arm, but an empty
+    // selected update has no compiler and therefore no found-arm effect to pin.
+    if (!this.updateCompiler) return [];
     const capturedPk = (first as Record<string, unknown>)[
       this.config.childPrimaryKey
     ];
-    const capturedWhere = { [this.config.childPrimaryKey]: capturedPk };
     const steps: OperationStep[] = [];
     if (!this.config.txMode) {
       steps.push(
@@ -338,7 +345,7 @@ export class RelationWritePart implements Part {
         )
       );
     }
-    steps.push(this.buildUpsertUpdateArm(capturedWhere));
+    steps.push(...this.updateCompiler.compile(known));
     return steps;
   }
 
@@ -353,31 +360,6 @@ export class RelationWritePart implements Part {
       );
     }
     return rows;
-  }
-
-  /** Found arm of the inverse-side to-one upsert: UPDATE the captured child, pinned
-   *  in tx by the upsert-vanished affected-rows expectation. */
-  private buildUpsertUpdateArm(where: Record<string, unknown>): WriteStep {
-    const step: WriteStep = {
-      id: this.writeId,
-      kind: "write",
-      statement: buildUpdate(this.config.childScope, {
-        where,
-        data: this.requireUpdateScalarData(),
-        select: { [this.config.childPrimaryKey]: true },
-      }),
-      outputs: {},
-    };
-    if (!this.config.txMode) return step;
-    return {
-      ...step,
-      expects: affectedRows(1, {
-        kind: "notFound",
-        message: upsertTargetVanished(this.relationName),
-        relation: this.relationName,
-        raceable: false,
-      }),
-    };
   }
 
   private buildDeleteOne(where: Record<string, unknown>): WriteStep {
@@ -431,13 +413,19 @@ export class RelationWritePart implements Part {
           ? Object.fromEntries(
               selectedFields.map((field) => [
                 field,
-                { kind: "firstRowField" as const, field },
+                {
+                  kind: "firstRowField" as const,
+                  field,
+                  ...(this.config.upsertCreateSubtree
+                    ? { optional: true }
+                    : {}),
+                },
               ])
             )
           : {}),
       },
     };
-    return this.updateCompiler
+    return this.updateCompiler && !this.config.upsertCreateSubtree
       ? { ...step, expects: exactlyOneRow(this.targetFailure()) }
       : step;
   }
@@ -568,7 +556,7 @@ export class RelationWritePart implements Part {
       this.config.childScope,
       parsed.relations
     );
-    return this.config.armSeam.updateRecord({
+    return this.config.recordCompilers.updateSelected({
       scope,
       engine: this.config.engine,
       targetScope: this.config.childScope,
@@ -735,7 +723,7 @@ interface SetTarget {
 }
 
 /**
- * The `set` membership Part (PLAN P2c) for a child-held-FK to-many relation. It
+ * The `set` membership Part for a child-held-FK to-many relation. It
  * makes the parent's children exactly the target set: departing children are
  * disconnected (nullable FK) or, if their FK is required, the operation is
  * rejected by the **retained `notExists` orphan guard** (ATOM §2, `raceable:
@@ -1094,7 +1082,7 @@ interface WritePartBase {
    *  it — a caller that forgot the seam would otherwise turn a typed refusal into an
    *  internal invariant break, and a runtime fallback for that would be a guard with no
    *  reachable coverage to name. */
-  readonly armSeam: ArmSeam;
+  readonly recordCompilers: RecordCompilerSeam;
 }
 
 /**
@@ -1233,7 +1221,7 @@ export function buildInverseToOneUpsertPart(
   // the to-many adopt family's create arm takes. The arm's foreign key is injected into
   // the subtree's root INSERT by the identical expression the scalar arm writes, so the
   // two spellings land the same row under the same parent.
-  const subtree = base.armSeam.freshArm({
+  const subtree = base.recordCompilers.createFresh({
     childScope: base.childScope,
     data: createData,
     incomingForeignKey: pairForeignKeyMembers(
@@ -1346,7 +1334,7 @@ function partConfig(
     relation: base.relation,
     kind,
     childPrimaryKey: base.childPrimaryKey,
-    armSeam: base.armSeam,
+    recordCompilers: base.recordCompilers,
     parentId: base.parentId,
     txMode: base.txMode,
   };

@@ -2,6 +2,7 @@ import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { hydrateSchemaNames } from "@schema";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -15,6 +16,7 @@ import {
 } from "../../src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "../../src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "../../src/query-engine/write-engine/UpsertOperation";
+import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-schema";
 import { createJunctionUpsertSchema } from "./create-junction-upsert-behavior";
 import { producedIdentitySchema as junctionIdentitySchema } from "./e4-junction-produced-identity-behavior";
 import { locatedParentRefSchema } from "./located-parent-ref-behavior";
@@ -24,6 +26,8 @@ import {
   correlatedUpsertArgs,
   updateSliceSchema,
 } from "./update-nested-upsert-behavior";
+
+hydrateSchemaNames(nestedWriteBehaviorSchema);
 
 class BatchOnlyPGliteDriver extends PGliteDriver {
   override readonly supportsTransactions = false;
@@ -172,7 +176,246 @@ const terminalExpectation = (operation: "create" | "update") => ({
   },
 });
 
+function inverseToOneUpsert(
+  driver: PGliteDriver,
+  update: Record<string, unknown>
+): UpdateOperation {
+  return updateFor(
+    driver,
+    nestedWriteBehaviorSchema,
+    nestedWriteBehaviorSchema.user,
+    {
+      where: { id: "u1" },
+      data: {
+        profile: {
+          upsert: {
+            create: { id: "pr-new", bio: "fresh" },
+            update,
+          },
+        },
+      },
+      select: { id: true },
+    }
+  );
+}
+
 describe("one record, one compiler parity", () => {
+  for (const substrate of [
+    {
+      name: "transaction",
+      batch: false,
+      createDriver: () => new PGliteDriver(),
+    },
+    {
+      name: "atomic batch",
+      batch: true,
+      createDriver: () => new BatchOnlyPGliteDriver(),
+    },
+  ]) {
+    test(`inverse child-held to-one upsert preserves found, missing, and replacement contracts (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const operation = inverseToOneUpsert(driver, { bio: "updated" });
+      const planning = operation.planning();
+      expect(ids(planning)).toEqual(["user.locate", "profile.find"]);
+      expect(prepared(driver, statementStep(planning, "user.locate"))).toEqual({
+        sql: `SELECT "t0"."id" AS "id" FROM "nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${substrate.batch ? "" : " FOR UPDATE"}`,
+        params: ["u1"],
+      });
+      expect(effects(statementStep(planning, "user.locate"))).toEqual({
+        outputs: {
+          rows: { kind: "rows" },
+          id: { kind: "firstRowField", field: "id" },
+        },
+        expects: {
+          kind: "exactlyOneRow",
+          failure: {
+            kind: "notFound",
+            message:
+              "query-engine-v2 update located no 'user' row for its unique where.",
+            raceable: false,
+          },
+        },
+        racePin: null,
+        onUniqueConflict: null,
+      });
+      expect(prepared(driver, statementStep(planning, "profile.find"))).toEqual({
+        sql: `SELECT "t0"."id" AS "id" FROM "nested_behavior_profiles" AS "t0" WHERE "t0"."userId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
+        params: [reference("user.locate", "id"), 1],
+      });
+      expect(effects(statementStep(planning, "profile.find"))).toEqual({
+        outputs: {
+          rows: { kind: "rows" },
+          id: { kind: "firstRowField", field: "id", optional: true },
+        },
+        expects: null,
+        racePin: null,
+        onUniqueConflict: null,
+      });
+      expect(outputContract(planning)).toEqual({
+        "user.locate.rows": reference("user.locate", "rows"),
+        "user.locate.id": reference("user.locate", "id"),
+        "profile.find.rows": reference("profile.find", "rows"),
+        "profile.find.id": reference("profile.find", "id"),
+      });
+
+      const found = operation.compile({
+        "user.locate.rows": [{ id: "u1" }],
+        "profile.find.rows": [{ id: "pr1", userId: "u1" }],
+      });
+      expect(ids(found)).toEqual(
+        substrate.batch
+          ? [
+              "user.guard.exists",
+              "profile.guard.exists",
+              "profile.update",
+              "user.select",
+            ]
+          : ["profile.update", "user.select"]
+      );
+      if (substrate.batch) {
+        expect(
+          guardContract(driver, step(found, "user.guard.exists"))
+        ).toEqual({
+          id: "user.guard.exists",
+          premise: {
+            kind: "exists",
+            sql: 'SELECT "t0"."id" AS "id" FROM "nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+            params: ["u1"],
+          },
+          failure: {
+            kind: "notFound",
+            message:
+              "query-engine-v2 update located no 'user' row for its unique where.",
+            raceable: false,
+          },
+        });
+        expect(
+          guardContract(driver, step(found, "profile.guard.exists"))
+        ).toEqual({
+          id: "profile.guard.exists",
+          premise: {
+            kind: "exists",
+            sql: 'SELECT "t0"."id" AS "id" FROM "nested_behavior_profiles" AS "t0" WHERE ("t0"."userId" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+            params: ["u1", "pr1", 1],
+          },
+          failure: {
+            kind: "nestedWrite",
+            message: "Nested upsert premise changed for relation 'profile'.",
+            relation: "profile",
+            raceable: false,
+          },
+        });
+      }
+      expect(prepared(driver, statementStep(found, "profile.update"))).toEqual({
+        sql: 'UPDATE "nested_behavior_profiles" SET "bio" = $1 WHERE "nested_behavior_profiles"."id" = $2 RETURNING "id" AS "id"',
+        params: ["updated", "pr1"],
+      });
+      expect(effects(statementStep(found, "profile.update"))).toEqual({
+        outputs: {},
+        expects: substrate.batch
+          ? null
+          : {
+              kind: "affectedRows",
+              expected: 1,
+              failure: {
+                kind: "notFound",
+                message:
+                  "Nested upsert target for relation 'profile' vanished before its update.",
+                relation: "profile",
+                raceable: false,
+              },
+            },
+        racePin: null,
+        onUniqueConflict: null,
+      });
+
+      const missing = operation.compile({
+        "user.locate.rows": [{ id: "u1" }],
+        "profile.find.rows": [],
+      });
+      expect(ids(missing)).toEqual(
+        substrate.batch
+          ? ["user.guard.exists", "profile.create", "user.select"]
+          : ["profile.create", "user.select"]
+      );
+      expect(prepared(driver, statementStep(missing, "profile.create"))).toEqual({
+        sql: 'INSERT INTO "nested_behavior_profiles" ("id", "bio", "userId") VALUES ($1, $2, CAST($3 AS TEXT))',
+        params: ["pr-new", "fresh", "u1"],
+      });
+      expect(effects(statementStep(missing, "profile.create"))).toEqual({
+        outputs: {},
+        expects: null,
+        racePin: null,
+        onUniqueConflict: null,
+      });
+      for (const final of [found, missing]) {
+        expect(prepared(driver, statementStep(final, "user.select"))).toEqual({
+          sql: 'SELECT "t0"."id" AS "id" FROM "nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+          params: ["u1"],
+        });
+        expect(effects(statementStep(final, "user.select"))).toEqual({
+          outputs: { result: { kind: "rows" } },
+          expects: substrate.batch ? null : terminalExpectation("update"),
+          racePin: null,
+          onUniqueConflict: null,
+        });
+        expect(outputContract(final)).toEqual({
+          result: reference("user.select", "result"),
+        });
+      }
+    });
+
+    test(`inverse child-held to-one upsert keeps a found empty update effect-free (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const operation = inverseToOneUpsert(driver, {});
+      const planning = operation.planning();
+      expect(ids(planning)).toEqual(["user.locate", "profile.find"]);
+      expect(effects(statementStep(planning, "profile.find"))).toEqual({
+        outputs: { rows: { kind: "rows" } },
+        expects: null,
+        racePin: null,
+        onUniqueConflict: null,
+      });
+      expect(outputContract(planning)).toEqual({
+        "user.locate.rows": reference("user.locate", "rows"),
+        "user.locate.id": reference("user.locate", "id"),
+        "profile.find.rows": reference("profile.find", "rows"),
+      });
+      const final = operation.compile({
+        "user.locate.rows": [{ id: "u1" }],
+        "profile.find.rows": [{ id: "pr1", userId: "u1" }],
+      });
+      expect(ids(final)).toEqual(
+        substrate.batch ? ["user.guard.exists", "user.select"] : ["user.select"]
+      );
+      expect(outputContract(final)).toEqual({
+        result: reference("user.select", "result"),
+      });
+    });
+
+    test(`inverse child-held to-one upsert refuses relation-bearing update data before planning (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      let failure: unknown;
+      try {
+        inverseToOneUpsert(driver, {
+          bio: "updated",
+          user: { connect: { id: "u2" } },
+        });
+      } catch (error) {
+        failure = error;
+      }
+      expect(
+        failure instanceof Error
+          ? { name: failure.name, message: failure.message }
+          : failure
+      ).toEqual({
+        name: "UnsupportedOperationError",
+        message:
+          "query-engine-v2 upsert for relation 'profile' does not support nested relation writes in its data.",
+      });
+    });
+  }
+
   test("a direct scalar update remains one self-contained statement", () => {
     const driver = new PGliteDriver();
     const operation = updateFor(

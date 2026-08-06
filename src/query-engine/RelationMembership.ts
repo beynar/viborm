@@ -1,7 +1,10 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner RelationMembership.
 import type { Model } from "@schema/model";
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
-import { bindRelation } from "./builders/relation-data-builder";
+import {
+  type BoundRelation,
+  bindRelation,
+} from "./builders/relation-data-builder";
 import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
 import { getRelationInfo, getRelationNames } from "./context";
 import {
@@ -29,9 +32,9 @@ export type RelationMembershipScope =
 
 export function getRelationMembershipScope(
   ctx: QueryScope,
-  relationInfo: RelationInfo
+  relation: BoundRelation
 ): RelationMembershipScope {
-  const relation = bindRelation(ctx, relationInfo);
+  const { relationInfo } = relation;
   if (relation.kind === "junction") {
     const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
     const orderedFields: [string, string] =
@@ -151,7 +154,7 @@ export function buildTransitiveUpdateMembershipFootprints(
     ) {
       continue;
     }
-    const membershipScope = getRelationMembershipScope(ctx, relationInfo);
+    const membershipScope = getRelationMembershipScope(ctx, relation);
     if (
       membershipScopes.some((existingScope) =>
         relationMembershipScopesEqual(existingScope, membershipScope)

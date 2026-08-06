@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +8,7 @@ import { describe, expect, it } from "vitest";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const V2 = join(ROOT, "src/query-engine/write-engine");
 const ADAPTERS = join(ROOT, "src/adapters");
+const STRUCTURE_REPORT = join(ROOT, "scripts/query-engine-structure.mjs");
 
 const EXECUTOR = join(V2, "OperationExecutor.ts");
 const FRAGMENT = join(V2, "OperationFragment.ts");
@@ -72,6 +74,20 @@ function importSpecifiers(file: ts.SourceFile): string[] {
   };
   visit(file);
   return specifiers;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function writeEngineRuntimeImportCycles(): unknown {
+  const report: unknown = JSON.parse(
+    execFileSync(process.execPath, [STRUCTURE_REPORT], { encoding: "utf8" })
+  );
+  if (!isRecord(report) || !isRecord(report.writeEngine)) {
+    throw new Error("Query-engine structure report has no writeEngine section.");
+  }
+  return report.writeEngine.runtimeImportCycles;
 }
 
 function isExported(statement: ts.Statement): boolean {
@@ -193,5 +209,9 @@ describe("query-engine-v2 structural gates (PLAN P0)", () => {
     expect(exportedTypeSurface(file).map((entry) => entry.name)).toEqual(
       FRAGMENT_TYPE_NAMES
     );
+  });
+
+  it("(e) keeps write-engine runtime imports acyclic", () => {
+    expect(writeEngineRuntimeImportCycles()).toEqual([]);
   });
 });

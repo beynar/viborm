@@ -23,7 +23,7 @@ The retained compression is semantic:
 3. one topology representation for a bound relation position;
 4. one fresh-record compiler;
 5. one selected-record update compiler;
-6. explicit relation owners for membership and branch policy.
+6. exact relation owners for child-held and junction membership policy.
 
 This is not a claim that all relation code can merge. The record compiler owns
 the mutation of a row. The relation owner owns why that row was selected and
@@ -51,39 +51,62 @@ symbols:
 | fresh record | `CreateOperation` |
 | selected record | `RecordUpdateCompiler` |
 | edge policy | relation Parts |
-| legality | OwnWrite preflight |
+| legality | OwnWrite analysis |
 | junction SQL | `ManyToManyStatements` |
 | bulk writes | specialized bulk compilers |
 | result contract | output/result shaping |
 
-The record-compiler pass is mainly an ownership correction. It does not remove
+The record-compiler passes are mainly ownership corrections. They do not remove
 `RelationMutationProgram`, `BoundRelation`, or relation Parts, because each says
 something independent. It removes the false idea that selected-record update
 semantics belong to a nested mode of the public update operation, together with
 compatibility carriers that exposed that mode.
 
-Documentation deletion is not production compression. Against the historical
-boundary above, the final measured deltas are:
+Documentation and comment deletion are not executable compression. The
+structural census therefore records both physical lines and non-trivia
+TypeScript-token lines. Against the historical boundary above, the query engine
+now measures:
 
-| Surface | Measure | Net |
-| --- | --- | ---: |
-| production TypeScript, `src/**/*.ts` | raw diff | **−758 lines** |
-| changed production TypeScript | lexical token-bearing lines | **−168 lines** |
-| owned Markdown | whole-file line count | **−4,675 lines** |
+| Measure | Historical | Current | Net |
+| --- | ---: | ---: | ---: |
+| production TypeScript files | 110 | 109 | **−1** |
+| physical production lines | 35,992 | 34,576 | **−1,416** |
+| non-trivia token lines | 16,396 | 15,979 | **−417** |
+| measured functions | 1,406 | 1,376 | **−30** |
+| branch nodes | 3,110 | 3,084 | **−26** |
 
-The lexical measure counts lines containing TypeScript tokens and excludes
-comments and whitespace. It prevents the removal of historical comments from
-masquerading as executable compression.
+The final refinement started at `4f696b46ddee4f44c954e3370d98cc371f73a5ee`:
 
-The durable concept count fell from approximately 18 to 17. The removed concept
-is the selected-record `nestedTarget` operating mode of the public
-`UpdateOperation`. `RecordUpdateCompiler` now owns that job directly. The pass
-also deleted its compatibility vocabulary: `NestedTargetLocate`,
-`selectedTargetReadId`, `selectedWriteId`, `locateNotFoundOptional`,
-`selectedRequiredTargetFields`, `selectedPlanning`,
-`selectedConditionalPlanning`, and `compileSelected`. Finally,
-`SKIP_LEAF_PATTERN` and `INSERT_TARGET_PATTERN` disappeared when create-fold
-decisions stopped recognizing rendered dialect SQL.
+| Measure | Before | After | Net |
+| --- | ---: | ---: | ---: |
+| physical production lines | 35,207 | 34,576 | **−631** |
+| non-trivia token lines | 16,225 | 15,979 | **−246** |
+| comment/blank physical remainder | 18,982 | 18,597 | **−385** |
+| measured functions | 1,399 | 1,376 | **−23** |
+| branch nodes | 3,084 | 3,084 | **0** |
+| write-engine runtime cycles | 1 | 0 | **−1** |
+| `RelationJunctionPart.ts` | 2,565 | 2,242 | **−323** |
+
+Owned architecture Markdown changed by **+69 physical lines** because the live ownership doctrine replaced older claims; it is not counted as production compression.
+
+The token measure excludes comments and whitespace. The comment/blank remainder
+is reported separately so historical narrative removal cannot masquerade as
+executable compression.
+
+The durable concept count remains approximately 17. Exact junction state and
+the type-only compiler seam are representations of existing responsibilities,
+not new semantic owners. This refinement instead deleted or merged compatibility
+carriers: `OwnWritePreflight`, `canonicalRecordUpdateData`,
+`UpdateRecordBuilder`, `NestedFreshCreatePart`,
+`buildNestedTargetFreshCreatePart`, duplicate fresh-record builders, the
+`ArmSeam`/`FreshArmBuilder` vocabulary, `JunctionKind`, junction parallel
+configuration channels, the inverse-upsert local selected-update builder, and
+`updateArmUsesCompiler`.
+
+Three false ownership surfaces disappeared: OwnWrite's pass-through preflight,
+the duplicate nested fresh-record compiler surface, and the inverse to-one
+upsert's private selected-update path. The junction's optional aligned arrays
+also became one exact input variant and one exact allocated plan.
 
 ## Final ownership model
 
@@ -104,7 +127,8 @@ policy.
 
 The create compiler receives parsed data and field-bound incoming FK members.
 It owns the root insert, generated identity demand, nested record effects, and
-fresh subtree order. `createMany` remains specialized.
+fresh subtree order. The explicit inline junction-target insert and
+`createMany` remain specialized.
 
 ### RecordUpdateCompiler: one selected record
 
@@ -113,9 +137,14 @@ and optional incoming FK assignments. It owns the root SET, nested relations,
 required target projection, primary-key transition logic, and descendant order.
 It returns no compiler for a true no-op before allocating a step ID.
 
-### Relation Parts: why this record
+For `parentHeldToOne`, the compiler also owns the inline FK fold and branch that
+constructs the record's root statement. The top-level scalar upsert fold stays
+in its operation shell because it preserves the one-statement `ON CONFLICT`
+path.
 
-Relation owners keep selector and parent correlation, membership, found/missing
+### Relation Parts: why this child-held or junction record
+
+Child-held and junction owners keep selector and parent correlation, membership, found/missing
 decisions, not-found behavior, guards, race pins, junction effects, and terminal
 relation effects. They pass the captured target to the record compiler.
 
@@ -156,10 +185,12 @@ to upsert.
 
 ### Junction placement
 
-Fresh many-to-many attachment requires target before-writes, target insert,
-junction insert, then target descendants. A universal create hook would add a
-lifecycle concept to hide one explicit domain order. The junction path remains
-separate.
+Fresh many-to-many attachment has two pinned orders. An inline target emits its
+INSERT, the junction INSERT, then inline descendants. A delegated target emits
+its complete fresh-record subtree before the junction INSERT. A universal create
+hook would either change the delegated order or add placement policy. The
+junction path therefore remains explicit and stores its input and allocated
+state as exact discriminated variants instead of parallel optional arrays.
 
 ## Deliberately retained specializations
 

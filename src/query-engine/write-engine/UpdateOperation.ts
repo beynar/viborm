@@ -23,6 +23,7 @@ import {
   buildUpdateStatement,
 } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
+import { assertUpdateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import type { QueryEngine } from "../query-engine";
 import {
   assertRelationKeyUpdatesAreCompilable,
@@ -30,13 +31,16 @@ import {
 } from "../relation-key-legality";
 import { ResultParser } from "../result/ResultParser";
 import {
+  buildFreshRecordPart,
+  type FreshRecordBuilder,
+} from "./CreateOperation";
+import {
   affectedRows,
   exactlyOneRow,
   notFoundFailure,
   presenceGuard,
   queryFailure,
 } from "./fragment-builders";
-import { buildFreshArmPart, type FreshArmBuilder } from "./nested-target-parts";
 import {
   type GuardStep,
   type OperationFragment,
@@ -47,7 +51,6 @@ import {
   type StatementStep,
   type WriteStep,
 } from "./OperationFragment";
-import { OwnWritePreflight } from "./OwnWritePreflight";
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import {
@@ -170,7 +173,7 @@ export class UpdateOperation {
 
     const parsedData = requireRecord(validatedArgs.data, "update.data");
     const parsedScalarData = partitionModelData(parent, parsedData).scalarData;
-    new OwnWritePreflight().assertUpdate(
+    assertUpdateOwnWriteSafety(
       parent,
       parsedScalarData,
       relations,
@@ -258,8 +261,8 @@ export class UpdateOperation {
           )
         : undefined;
 
-    const freshArm: FreshArmBuilder = (input) =>
-      buildFreshArmPart(scope, engine, input);
+    const createFresh: FreshRecordBuilder = (input) =>
+      buildFreshRecordPart(scope, engine, input);
     this.compiler = canFold
       ? undefined
       : buildRecordUpdateCompiler(
@@ -274,7 +277,7 @@ export class UpdateOperation {
             relationName: "record",
             pinnedTarget: pinnedTargetValues(parent, this.parentWhere),
           },
-          freshArm
+          createFresh
         );
 
     const locateFields =

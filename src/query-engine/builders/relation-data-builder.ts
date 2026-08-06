@@ -1,11 +1,7 @@
 /**
- * Relation Data Builder
- *
- * Handles nested write operations: create, createMany, connect,
- * connectOrCreate, disconnect, delete, deleteMany, set, update,
- * updateMany, and upsert.
- * Separates scalar and relation data, builds connect subqueries, and binds
- * relation storage positions.
+ * Owns bound relation topology and the surviving connect lookup subquery.
+ * Parsed mutation meaning belongs to relation-mutation-parser; record and edge
+ * effects belong to the write engine.
  */
 
 import type { Model } from "@schema/model";
