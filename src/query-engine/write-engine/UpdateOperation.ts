@@ -83,12 +83,10 @@ import {
   buildBeforeRootTargetSubtree,
   buildFreshArmPart,
   buildFreshRecordParts,
+  buildJunctionTargetRelationParts,
   buildLiteralParentCreateManyPart,
-  buildNestedTargetChildParts,
-  buildNestedTargetUpdatePart,
   buildPlannedParentCreateManyPart,
   type FreshArmBuilder,
-  targetNeedsFullUpdate,
 } from "./nested-target-parts";
 import {
   bucketOperationSteps,
@@ -98,6 +96,7 @@ import {
   type PlanningFragment,
   type ReadStep,
   ref,
+  type StatementOutputSource,
   type StatementStep,
   type TargetConstraintPin,
   type WriteStep,
@@ -106,6 +105,10 @@ import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
+import {
+  buildRecordUpdateCompiler,
+  type RecordUpdateCompiler,
+} from "./RecordUpdateCompiler";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
@@ -233,7 +236,6 @@ type ParentHeldTarget =
       readonly childPrimaryKey: string;
       readonly probeId: string;
       readonly guardId: string;
-      readonly writeId: string;
       readonly correlation: ParentHeldCorrelation;
       readonly probe: ReadStep;
       /** W4-U3 — the `update: { where, data }` wrapper's NON-unique filter on the
@@ -241,14 +243,7 @@ type ParentHeldTarget =
        *  split-witness guard (never the write, which addresses the captured PK).
        *  Absent for the bare `update: <data>` spelling. */
       readonly filter?: Record<string, unknown>;
-      readonly data: Record<string, unknown>;
-      // T3b family A-remainder — the located target's own child Parts, built from its
-      // `data` relations and correlated to its captured PK (a `planned` source on this
-      // probe). The self-UPDATE reorders AFTER them on a PK transition (ON UPDATE
-      // CASCADE to depth), exactly as the child-held nested update does. Empty when the
-      // parent-held update's target data carries no nested relation writes.
-      readonly childParts: readonly Part[];
-      readonly reorderAfterChildren: boolean;
+      readonly compiler: RecordUpdateCompiler;
     }
   // FK-holder-side (parent-held) to-one `delete: true` (TO-ONE.md §7.2, family A):
   // NULL the parent's FK first (a parent UPDATE — V1's nullability gate), then
@@ -274,15 +269,10 @@ type ParentHeldTarget =
       readonly childPrimaryKey: string;
       readonly probeId: string;
       readonly guardId: string;
-      readonly writeId: string;
       readonly parentSetId: string;
       readonly correlation: ParentHeldCorrelation;
       readonly probe: ReadStep;
-      readonly updateData: Record<string, unknown>;
-      /** E1 U4 — the relation-carrying UPDATE arm, delegated whole to a nested-target
-       *  sub-op. Present INSTEAD of `updateData`, never beside it: the sub-op owns the
-       *  arm's SET and its relations together. Compiled only in the FOUND arm. */
-      readonly delegated?: Part;
+      readonly compiler?: RecordUpdateCompiler;
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
     };
@@ -367,15 +357,6 @@ export class UpdateOperation {
    *  and field-initializer order does not matter. */
   private readonly armSeam: ArmSeam = {
     freshArm: (input) => this.buildFreshArm(input),
-    nestedChild: (targetScope, parentId, relations, txMode) =>
-      buildNestedTargetChildParts(
-        this.scope,
-        this.engine,
-        targetScope,
-        relations,
-        parentId,
-        txMode
-      ),
   };
   private readonly model: Model<any>;
   private readonly scope: StepScope;
@@ -462,6 +443,7 @@ export class UpdateOperation {
   // for a standalone / upsert-arm update.
   private readonly nestedTarget?: NestedTargetLocate;
   private readonly suppressTerminal: boolean;
+  private readonly incomingForeignKey: readonly ForeignKeyMember[];
 
   constructor(
     engine: QueryEngine,
@@ -507,6 +489,7 @@ export class UpdateOperation {
     const nestedTarget = options.nestedTarget;
     this.nestedTarget = nestedTarget?.locate;
     this.suppressTerminal = nestedTarget !== undefined;
+    this.incomingForeignKey = options.incomingForeignKey ?? [];
     const deferLegality = options.deferArmLegality === true;
     // The whole-args parse is ALSO where `omit` becomes the `select` it denotes
     // (@validation/model/args/omit), so the projection below is read from ITS
@@ -584,6 +567,16 @@ export class UpdateOperation {
     if (deferLegality) {
       // Retained for the caller's per-arm invocation (the upsert's whenTrue branch).
       this.armLegalityChecks = () => {
+        if (nestedTarget) {
+          assertPortablePrimaryKeyUpdateInput(model, "update", { data });
+          assertRelationKeyUpdatesAreCompilable(
+            parent,
+            partitioned.scalarData,
+            relationPrograms
+          );
+          this.assertUpdateManyRelationLegality(relationPrograms);
+          return;
+        }
         const parsedArgs = parseValidated(
           parentSchemas.args.update,
           args,
@@ -681,9 +674,15 @@ export class UpdateOperation {
     }
 
     const parentName = getStepModelName(model, "parent");
-    const locateId = scope.allocate(`${parentName}.locate`);
+    const locateId =
+      nestedTarget?.targetReadId ??
+      options.selectedTargetReadId ??
+      scope.allocate(`${parentName}.locate`);
     this.locateId = locateId;
-    const updateId = scope.allocate(`${parentName}.update`);
+    const updateId =
+      nestedTarget?.writeId ??
+      options.selectedWriteId ??
+      scope.allocate(`${parentName}.update`);
     this.updateId = updateId;
     this.terminalId = scope.allocate(`${parentName}.select`);
     this.rootGuardId = scope.allocate(`${parentName}.guard.exists`);
@@ -906,6 +905,7 @@ export class UpdateOperation {
     this.needsRootUpdate =
       !this.directWrite &&
       (Object.keys(parentSet).length > 0 ||
+        this.incomingForeignKey.length > 0 ||
         parentHeldTargets.some(
           (target) =>
             target.kind === "create" || target.kind === "connectOrCreate"
@@ -1029,20 +1029,11 @@ export class UpdateOperation {
       ) {
         steps.push(...target.before.subtree.planning().steps);
       }
-      // A parent-held `update` whose located target carries nested relation writes
-      // (family A-remainder): its child Parts plan their probes here, correlated to
-      // the target's captured PK by a `planned` source on `target.probe`.
       if (target.kind === "update") {
-        for (const part of target.childParts) {
-          steps.push(...part.planning(this.scope));
-        }
+        steps.push(...target.compiler.planning());
       }
-      // E1 U4 — the delegated upsert UPDATE arm plans its whole sub-op here: its own
-      // correlated locate and everything below it. Both arms plan, the probe decides
-      // (ATOM §3 technique 2), which is why that locate carries no not-found
-      // postcondition — an empty match IS the create arm.
-      if (target.kind === "upsert" && target.delegated) {
-        steps.push(...target.delegated.planning(this.scope));
+      if (target.kind === "upsert" && target.compiler) {
+        steps.push(...target.compiler.conditionalPlanning());
       }
     }
     for (const part of this.childParts)
@@ -1122,6 +1113,24 @@ export class UpdateOperation {
     return this.planning().steps.filter((step) => step.id !== this.locateId);
   }
 
+  /** Plan an update arm whose selected row may be absent because another arm can run. */
+  selectedConditionalPlanning(): readonly StatementStep[] {
+    return this.selectedPlanning().map((step) => {
+      const outputs = Object.fromEntries(
+        Object.entries(step.outputs).map(
+          ([name, source]): [string, StatementOutputSource] => [
+            name,
+            source.kind === "firstRowField"
+              ? { ...source, optional: true }
+              : source,
+          ]
+        )
+      );
+      const { expects: _expects, ...withoutExpectation } = step;
+      return { ...withoutExpectation, outputs };
+    });
+  }
+
   /** Compile one row already selected by the relation owner. */
   compileSelected(
     known: Readonly<Record<string, unknown>>
@@ -1173,6 +1182,7 @@ export class UpdateOperation {
       beforeRootWrites,
       writes
     );
+    Object.assign(rootExtraSet, this.buildIncomingForeignKeySet(known));
     for (const part of this.childParts) {
       bucketOperationSteps(part.compile(this.scope, known), guards, writes);
     }
@@ -1225,6 +1235,26 @@ export class UpdateOperation {
       steps.push(...afterRootWrites);
     }
     return steps;
+  }
+
+  private buildIncomingForeignKeySet(
+    known: Readonly<Record<string, unknown>>
+  ): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (const member of this.incomingForeignKey) {
+      data[member.foreignField] = referenceSql(
+        this.engine,
+        this.model,
+        member.foreignField,
+        foreignKeyWriteValue(
+          member,
+          known,
+          this.nestedTarget?.relationName ?? "record",
+          "update"
+        )
+      );
+    }
+    return data;
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {
@@ -1389,7 +1419,7 @@ export class UpdateOperation {
             nestedTxMode,
             membershipReadSource
           ) =>
-            buildNestedTargetChildParts(
+            buildJunctionTargetRelationParts(
               scope,
               engine,
               targetScope,
@@ -1550,25 +1580,6 @@ export class UpdateOperation {
       childPrimaryKey: childPrimaryKeys[0]!,
       parentId: input.parentIdSource,
       txMode: input.txMode,
-      // T3b mechanism 1: a targeted nested `update` whose located target data carries
-      // its own relations folds them one level deeper (family B). The seam captures
-      // this operation's scope + engine; depth adds list entries, never vocabulary.
-      nestedBuilder: (
-        targetScope: QueryScope,
-        parentId: FinalReferenceSource,
-        relations: Record<string, RelationMutationProgram>,
-        txMode: boolean,
-        membershipReadSource?: FinalReferenceSource
-      ) =>
-        buildNestedTargetChildParts(
-          input.scope,
-          engine,
-          targetScope,
-          relations,
-          parentId,
-          txMode,
-          membershipReadSource
-        ),
       // N4-U2: the inverse-side to-one upsert's relation-carrying create arm is a
       // create subtree, built through the same seam the to-many adopt family uses.
       freshArm: this.buildFreshArm,
@@ -2545,23 +2556,12 @@ export class UpdateOperation {
           data: item.data,
           ...(item.target.filter ? { filter: item.target.filter } : {}),
         };
-        // X1c: a parent-held to-one UPDATE target whose own data carries the
-        // located-target projection of mechanism 1/2 (a deeper parent-held to-one —
-        // child-SET folding on the referenced row — or a D4 edge) delegates its WHOLE
-        // update to the update root, correlated to THIS parent by `child.<referenced> =
-        // parent.<fk>`. The remaining A-remainder shapes keep the in-place fold.
-        const delegated = this.tryDelegateParentHeldUpdate(
+        const compiled = this.interpretParentHeldUpdate(
           input,
           relation,
           target
         );
-        if (delegated) {
-          input.childParts.push(delegated);
-          return;
-        }
-        input.parentHeldTargets.push(
-          this.interpretParentHeldUpdate(input, relation, target)
-        );
+        if (compiled) input.parentHeldTargets.push(compiled);
         return;
       }
       case "delete":
@@ -2585,55 +2585,6 @@ export class UpdateOperation {
           `query-engine-v2 internal: an unsupported entry reached the parent-held to-one update dispatch on relation '${relationName}'; the parse boundary admits no such key there.`
         );
     }
-  }
-
-  /**
-   * X1c — a parent-held to-one UPDATE target whose OWN data carries the located-target
-   * projection of mechanism 1/2 delegates its whole update to an {@link UpdateOperation}
-   * nested-target sub-op, correlated to THIS parent by `child.<referenced> = parent.<fk>`
-   * (the referenced-row locator the A-remainder fold uses). The parent's FK columns are
-   * added to `parentFkLocateFields` so the locate exposes them for the correlation `Ref`
-   * (technique #1). Relation-key legality ALLOWS the same update rebinding this FK to a
-   * literal (`relation-key-legality.ts` rejects only a NON-literal operation there), so
-   * the correlation carries the same contract as the in-place twin: the parent's FK
-   * value is its FINAL value — a rebound column resolves to its construction-time
-   * literal through {@link resolveParentFkRebinds}, an untouched one reads the located
-   * row. Correlating on the located (pre-rebind) value would locate — and mutate — the
-   * row the parent is moving AWAY from.
-   * Returns `undefined` when the target keeps the in-place A-remainder fold.
-   */
-  private tryDelegateParentHeldUpdate(
-    input: Parameters<UpdateOperation["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
-    target: ToOneUpdateTarget
-  ): Part | undefined {
-    const { relationInfo, foreignFields, referencedFields } = relation;
-    const relationName = relationInfo.name;
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
-    if (!targetNeedsFullUpdate(childScope, target.data)) return undefined;
-    for (const field of foreignFields) input.parentFkLocateFields.add(field);
-    const parentFieldOverride = resolveParentFkRebinds(
-      input.rootScalarData,
-      foreignFields
-    );
-    return buildNestedTargetUpdatePart({
-      scope: input.scope,
-      engine: this.engine,
-      targetModel: relationInfo.targetModel,
-      data: target.data,
-      locate: {
-        parentId: input.parentIdSource,
-        childFields: referencedFields,
-        parentFields: foreignFields,
-        parentFieldOverride,
-        ...(target.filter ? { filter: target.filter } : {}),
-        relationName,
-        notFoundMessage: relationTargetNotFound(relationInfo, "update"),
-      },
-    });
   }
 
   /**
@@ -2699,8 +2650,8 @@ export class UpdateOperation {
     input: Parameters<UpdateOperation["interpretRelation"]>[0],
     relation: ParentHeldToOne,
     target: ToOneUpdateTarget
-  ): ParentHeldTarget {
-    const { relationInfo } = relation;
+  ): ParentHeldTarget | undefined {
+    const { relationInfo, foreignFields, referencedFields } = relation;
     const relationName = relationInfo.name;
     const childScope = createQueryScope(
       this.engine.adapter,
@@ -2713,23 +2664,26 @@ export class UpdateOperation {
       "update"
     );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
-    const probeId = input.scope.allocate(`${childName}.find`);
-    const built = this.parentHeldUpdateData(
-      input,
-      childScope,
-      target.data,
-      probeId,
-      childPrimaryKey
-    );
-    // A parent-held update whose located target carries nested relation writes exposes
-    // its captured PK as a firstRowField output so the target's own child Parts (family
-    // A-remainder recursion) correlate to it by a `planned` source. That eager output
-    // extraction throws on a MISSING target, so the probe additionally carries the
-    // not-found postcondition (enforced during planning, before extraction) — V1's
-    // `Cannot update relation` wording. A scalar-only target keeps the plain probe (its
-    // missing-target check stays at compile, `parentHeldCapturedPk`), byte-identical to
-    // pre-T3b.
-    const hasChildParts = built.childParts.length > 0;
+    const compiler = buildRecordUpdateCompiler({
+      scope: input.scope,
+      engine: this.engine,
+      targetScope: childScope,
+      data: target.data,
+      targetReadLabel: `${childName}.find`,
+      writeLabel: `${childName}.update`,
+      locate: {
+        parentId: input.parentIdSource,
+        childFields: referencedFields,
+        parentFields: foreignFields,
+        parentFieldOverride: correlation.override,
+        ...(target.filter ? { filter: target.filter } : {}),
+        relationName,
+        notFoundMessage: relationTargetNotFound(relationInfo, "update"),
+      },
+    });
+    if (!compiler) return undefined;
+    const probeId = compiler.targetReadId;
+    const hasDescendantPlanning = compiler.planning().length > 0;
     const probe: ReadStep = {
       id: probeId,
       kind: "read",
@@ -2740,18 +2694,21 @@ export class UpdateOperation {
         undefined,
         true,
         undefined,
-        target.filter
+        target.filter,
+        compiler.requiredTargetFields
       ),
-      outputs: hasChildParts
+      outputs: hasDescendantPlanning
         ? {
             rows: { kind: "rows" },
-            [childPrimaryKey]: {
-              kind: "firstRowField",
-              field: childPrimaryKey,
-            },
+            ...Object.fromEntries(
+              compiler.requiredTargetFields.map((field) => [
+                field,
+                { kind: "firstRowField", field },
+              ])
+            ),
           }
         : { rows: { kind: "rows" } },
-      ...(hasChildParts
+      ...(hasDescendantPlanning
         ? {
             expects: exactlyOneRow(
               nestedWriteFailure(
@@ -2770,55 +2727,11 @@ export class UpdateOperation {
       childPrimaryKey,
       probeId,
       guardId: input.scope.allocate(`${childName}.guard.exists`),
-      writeId: input.scope.allocate(`${childName}.update`),
       correlation,
       probe,
       ...(target.filter ? { filter: target.filter } : {}),
-      data: built.scalarData,
-      childParts: built.childParts,
-      reorderAfterChildren: built.reorderAfterChildren,
+      compiler,
     };
-  }
-
-  /**
-   * The validated scalar assignments AND the child Parts of a family-A parent-held
-   * `update` target's payload (TO-ONE.md §7.7, A-remainder). Pre-T3b a nested relation
-   * write here threw; now the located target builds its own child Parts one level
-   * deeper — the parent-held projection of the child-held nested-update recursion —
-   * correlated to its captured PK by a `planned` source on the parent-held probe.
-   */
-  private parentHeldUpdateData(
-    input: Parameters<UpdateOperation["interpretRelation"]>[0],
-    childScope: QueryScope,
-    data: Record<string, unknown>,
-    probeId: string,
-    childPrimaryKey: string
-  ): {
-    scalarData: Record<string, unknown>;
-    childParts: readonly Part[];
-    reorderAfterChildren: boolean;
-  } {
-    const { scalarData, relations } = buildParsedRelationPrograms(
-      childScope,
-      data
-    );
-    assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
-      data: scalarData,
-    });
-    if (Object.keys(relations).length === 0) {
-      return { scalarData, childParts: [], reorderAfterChildren: false };
-    }
-    const childParts = buildNestedTargetChildParts(
-      input.scope,
-      this.engine,
-      childScope,
-      relations,
-      plannedParentId(probeId),
-      input.txMode
-    );
-    const reorderAfterChildren =
-      childParts.length > 0 && Object.hasOwn(scalarData, childPrimaryKey);
-    return { scalarData, childParts, reorderAfterChildren };
   }
 
   /** A parent-held to-one `delete: true`: NULL the parent FK (a required FK is V1's
@@ -2861,7 +2774,7 @@ export class UpdateOperation {
     relation: ParentHeldToOne,
     entry: Extract<RelationMutationEntry, { kind: "upsert" }>
   ): ParentHeldTarget {
-    const { relationInfo } = relation;
+    const { relationInfo, foreignFields, referencedFields } = relation;
     const relationName = relationInfo.name;
     this.assertNotSharedPk(relation, "upsert");
     const childScope = createQueryScope(
@@ -2880,29 +2793,27 @@ export class UpdateOperation {
         `query-engine-v2 internal: parent-held to-one upsert on relation '${relationName}' requires one correlated target.`
       );
     }
-    const updatePayload = spec.update;
-    // E1 U4 — an arm that carries relations delegates its WHOLE arm (its SET and
-    // its relations together) to an UpdateOperation nested-target sub-op, the X1c
-    // seam the `update` arm already uses. A scalar-only arm keeps the in-place fold
-    // byte-identically, so the found+empty no-op the estate pins stays where it was.
-    const { scalarData, relations } = buildParsedRelationPrograms(
-      childScope,
-      updatePayload
-    );
-    const delegated =
-      Object.keys(relations).length > 0
-        ? this.delegateParentHeldUpsertArm(input, relation, updatePayload)
-        : undefined;
-    let updateData: Record<string, unknown> = {};
-    if (!delegated) {
-      assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
-        data: scalarData,
-      });
-      updateData = scalarData;
-    }
     const before = this.buildBeforeTarget(childScope, spec.create);
     const childName = getStepModelName(relationInfo.targetModel, relationName);
-    const probeId = input.scope.allocate(`${childName}.find`);
+    const compiler = buildRecordUpdateCompiler({
+      scope: input.scope,
+      engine: this.engine,
+      targetScope: childScope,
+      data: spec.update,
+      targetReadLabel: `${childName}.find`,
+      writeLabel: `${childName}.update`,
+      locate: {
+        parentId: input.parentIdSource,
+        childFields: referencedFields,
+        parentFields: foreignFields,
+        parentFieldOverride: correlation.override,
+        relationName,
+        notFoundMessage: upsertPremiseChanged(relationName),
+      },
+      deferLegality: true,
+    });
+    const probeId =
+      compiler?.targetReadId ?? input.scope.allocate(`${childName}.find`);
     return {
       kind: "upsert",
       relation,
@@ -2910,7 +2821,6 @@ export class UpdateOperation {
       childPrimaryKey,
       probeId,
       guardId: input.scope.allocate(`${childName}.guard.exists`),
-      writeId: input.scope.allocate(`${childName}.update`),
       parentSetId: input.scope.allocate("parent.fkset"),
       correlation,
       probe: {
@@ -2921,69 +2831,27 @@ export class UpdateOperation {
           childPrimaryKey,
           correlation,
           undefined,
-          true
+          true,
+          undefined,
+          undefined,
+          compiler?.requiredTargetFields
         ),
-        outputs: { rows: { kind: "rows" } },
+        outputs: compiler
+          ? {
+              rows: { kind: "rows" },
+              ...Object.fromEntries(
+                compiler.requiredTargetFields.map((field) => [
+                  field,
+                  { kind: "firstRowField", field, optional: true },
+                ])
+              ),
+            }
+          : { rows: { kind: "rows" } },
       },
-      updateData,
-      ...(delegated ? { delegated } : {}),
+      compiler,
       before,
       missingFkAssign: this.beforeTargetFkAssign(relation, before),
     };
-  }
-
-  /**
-   * E1 U4 — the relation-carrying half of a parent-held to-one `upsert`'s UPDATE arm.
-   *
-   * The arm is the located referenced row's whole update, so it is the same shape
-   * {@link tryDelegateParentHeldUpdate} already delegates: an
-   * {@link UpdateOperation} nested-target sub-op correlated by `child.<referenced> =
-   * parent.<fk>`, sharing this operation's scope, emitting no terminal read. Three
-   * things make it the UPSERT's arm rather than a plain nested update:
-   *
-   *  · `locateNotFoundOptional` — the sub-op's locate is planned as the SUPERSET
-   *    (both arms plan; the probe decides at compile), so an empty match is the
-   *    create arm's decision and must not abort planning.
-   *  · the caller compiles it only when the probe FOUND a row, so the create arm
-   *    writes nothing from here.
-   *  · `notFoundMessage` is the upsert family's own {@link upsertPremiseChanged} —
-   *    reaching it means the row the probe saw was gone by the time the batch ran,
-   *    which is a changed premise and not a missing target.
-   *
-   * The FK-rebind mix ships with it: `resolveParentFkRebinds` is the one derivation
-   * of "the parent's FK value is its FINAL value", so an update that rebinds this FK
-   * to a literal in the same SET correlates on the value it is moving TO — the D1
-   * contract, wired exactly as the `update` arm wires it.
-   *
-   * The caller decides WHETHER to delegate (it has already separated the payload);
-   * this builds the arm.
-   */
-  private delegateParentHeldUpsertArm(
-    input: Parameters<UpdateOperation["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
-    updatePayload: Record<string, unknown>
-  ): Part {
-    const { relationInfo, foreignFields, referencedFields } = relation;
-    const relationName = relationInfo.name;
-    for (const field of foreignFields) input.parentFkLocateFields.add(field);
-    return buildNestedTargetUpdatePart({
-      scope: input.scope,
-      engine: this.engine,
-      targetModel: relationInfo.targetModel,
-      data: updatePayload,
-      locateNotFoundOptional: true,
-      locate: {
-        parentId: input.parentIdSource,
-        childFields: referencedFields,
-        parentFields: foreignFields,
-        parentFieldOverride: resolveParentFkRebinds(
-          input.rootScalarData,
-          foreignFields
-        ),
-        relationName,
-        notFoundMessage: upsertPremiseChanged(relationName),
-      },
-    });
   }
 
   /** `child.<referenced> = <finalFk>` — a SQL `Ref` to the located parent at
@@ -3034,7 +2902,8 @@ export class UpdateOperation {
     capturedPk: unknown,
     useRef: boolean,
     known?: Readonly<Record<string, unknown>>,
-    filter?: Record<string, unknown>
+    filter?: Record<string, unknown>,
+    selectedFields: readonly string[] = [childPrimaryKey]
   ): Sql {
     return buildFind(
       childScope,
@@ -3054,7 +2923,9 @@ export class UpdateOperation {
               : [{ [childPrimaryKey]: { equals: capturedPk } }]),
           ],
         },
-        select: { [childPrimaryKey]: true },
+        select: Object.fromEntries(
+          selectedFields.map((field) => [field, true])
+        ),
         forUpdate: this.mode === "transaction",
       },
       { limit: 1 }
@@ -3506,31 +3377,7 @@ export class UpdateOperation {
         )
       );
     }
-    // The located target's self-UPDATE (emitted only when its payload carries scalar
-    // assignments — a relation-only parent-held update writes no target row) lands
-    // BEFORE its child Parts by default, or AFTER them on a PK transition it rewrites
-    // (ON UPDATE CASCADE ported to depth). Its child Parts' guards hoist ahead of every
-    // write via the bucketing in `compileParentHeldTargets`' caller.
-    const selfUpdate =
-      Object.keys(target.data).length > 0
-        ? {
-            id: target.writeId,
-            kind: "write" as const,
-            statement: buildUpdate(target.childScope, {
-              where: { [target.childPrimaryKey]: capturedPk },
-              data: target.data,
-              select: { [target.childPrimaryKey]: true },
-            }),
-            outputs: {},
-          }
-        : undefined;
-    const childSteps: OperationStep[] = [];
-    for (const part of target.childParts) {
-      bucketOperationSteps(part.compile(this.scope, known), guards, childSteps);
-    }
-    if (selfUpdate && !target.reorderAfterChildren) writes.push(selfUpdate);
-    writes.push(...childSteps);
-    if (selfUpdate && target.reorderAfterChildren) writes.push(selfUpdate);
+    bucketOperationSteps(target.compiler.compile(known), guards, writes);
   }
 
   /** Compile a family-A parent-held `delete: true`: NULL the parent FK (V1's
@@ -3613,23 +3460,7 @@ export class UpdateOperation {
       });
       return;
     }
-    // E1 U4 — the relation-carrying arm: the delegated sub-op owns this arm's whole
-    // update (its SET, its relations, its own correlated locate and batch presence
-    // guard, whose failure wording is this family's `upsertPremiseChanged`). Emitted
-    // ONLY here, in the found arm, so the create arm writes nothing from it.
-    if (target.delegated) {
-      bucketOperationSteps(
-        target.delegated.compile(this.scope, known),
-        guards,
-        writes
-      );
-      return;
-    }
-    // Found + an update arm that asks for nothing: Prisma's no-op (the same rule
-    // the plain nested update's `isNoOpUpdate` pins — measured, N7 review). The
-    // parent's FK already names the found row, so there is nothing to write and no
-    // premise to pin.
-    if (Object.keys(target.updateData).length === 0) return;
+    if (!target.compiler) return;
     const capturedPk = this.parentHeldCapturedPk(
       known,
       target.probeId,
@@ -3657,16 +3488,8 @@ export class UpdateOperation {
         )
       );
     }
-    writes.push({
-      id: target.writeId,
-      kind: "write",
-      statement: buildUpdate(target.childScope, {
-        where: { [target.childPrimaryKey]: capturedPk },
-        data: target.updateData,
-        select: { [target.childPrimaryKey]: true },
-      }),
-      outputs: {},
-    });
+    target.compiler.assertLegality();
+    bucketOperationSteps(target.compiler.compile(known), guards, writes);
   }
 
   /** The parent's primary-key where-unique for a dedicated parent-FK write. */

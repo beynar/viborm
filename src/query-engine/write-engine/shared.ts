@@ -87,6 +87,9 @@ export interface SubOperationOptions {
   readonly scope?: StepScope;
   /** Skip the constructor own-write preflight; the caller runs it per-arm (deferred). */
   readonly skipOwnWrite?: boolean;
+  /** Reuse a caller-owned target read and root write. */
+  readonly selectedTargetReadId?: string;
+  readonly selectedWriteId?: string;
   /** Drop the locate's exactly-one-row postcondition (upsert: absent → create arm). */
   readonly locateNotFoundOptional?: boolean;
   /**
@@ -149,7 +152,11 @@ export interface SubOperationOptions {
   readonly nestedTarget?: {
     readonly data: Record<string, unknown>;
     readonly locate: NestedTargetLocate;
+    readonly targetReadId?: string;
+    readonly writeId?: string;
   };
+  /** Field-bound assignments derived by the relation owner after user scalar data. */
+  readonly incomingForeignKey?: readonly ForeignKeyMember[];
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

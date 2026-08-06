@@ -539,6 +539,8 @@ export class RelationWritePart implements Part {
       engine: this.config.engine,
       targetScope: this.config.childScope,
       data,
+      targetReadLabel: `${this.config.childName}.find`,
+      writeLabel: `${this.config.childName}.update`,
       locate: {
         ...(this.config.where ? { where: this.config.where } : {}),
         parentId: this.config.parentId,

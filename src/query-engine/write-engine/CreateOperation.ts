@@ -62,7 +62,7 @@ import {
 import { nestedReplacement, relationTargetNotFound } from "./messages";
 import {
   buildFreshArmPart,
-  buildNestedTargetChildParts,
+  buildJunctionTargetRelationParts,
   type FreshArmBuilder,
 } from "./nested-target-parts";
 import {
@@ -340,15 +340,6 @@ export class CreateOperation {
    *  and field-initializer order does not matter. */
   private readonly armSeam: ArmSeam = {
     freshArm: (input) => this.buildFreshArm(input),
-    nestedChild: (targetScope, parentId, relations, txMode) =>
-      buildNestedTargetChildParts(
-        this.scope,
-        this.engine,
-        targetScope,
-        relations,
-        parentId,
-        txMode
-      ),
   };
 
   constructor(
@@ -1049,7 +1040,7 @@ export class CreateOperation {
             nestedTxMode,
             membershipReadSource
           ) =>
-            buildNestedTargetChildParts(
+            buildJunctionTargetRelationParts(
               scope,
               engine,
               targetScope,

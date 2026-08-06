@@ -84,7 +84,6 @@ function writes(steps: readonly OperationStep[]): readonly StatementStep[] {
   return steps.filter((step): step is StatementStep => step.kind === "write");
 }
 
-const TAG_TABLE = /FROM "e61_tags"/;
 const NOTE_INSERT = /INSERT INTO "e61_notes"/;
 const TAG_UPDATE = /UPDATE "e61_tags"/;
 const jsonOf = (value: unknown): string =>
@@ -104,24 +103,21 @@ const UPDATE_ROOT_WHOLE_TARGET = {
 };
 
 describe("U-E6.1 the arm's address is the probe's key, not the selector", () => {
-  test("the delegated whole-target locate reads the MEMBER probe, not the selector", () => {
+  test("the record compiler reuses the MEMBER probe", () => {
     const planning = new UpdateOperation(
       engineFor(),
       junctionUpsertArmSchema.user,
       UPDATE_ROOT_WHOLE_TARGET
     ).planning();
-    const locate = reads(planning.steps).find(
-      (step) => step.id === "tag.locate"
+    expect(reads(planning.steps).some((step) => step.id === "tag.locate")).toBe(
+      false
     );
-    expect(locate).toBeDefined();
-    const statement = sqlOf(locate as StatementStep);
-    // The captured key, addressed by `Ref` — never `slug` a second time.
-    expect(statement).toMatch(TAG_TABLE);
-    expect(statement).toContain('"t0"."id" = ?');
-    expect(statement).not.toContain('"slug"');
-    expect(jsonOf((locate as StatementStep).statement.values)).toContain(
-      '{"step":"tag.member","output":"id"}'
+    const probe = reads(planning.steps).find(
+      (step) => step.id === "tag.member"
     );
+    expect(probe?.outputs).toMatchObject({
+      id: { kind: "firstRowField", field: "id", optional: true },
+    });
   });
 
   test("the member probe PUBLISHES the captured key, and optionally", () => {
@@ -171,10 +167,7 @@ describe("U-E6.1 the arm's address is the probe's key, not the selector", () => 
     );
   });
 
-  test("CREATE root: the delegated whole-target locate reads the GLOBAL probe", () => {
-    // The same assertion as the update root's, at the other root — the carve E5-U1 named
-    // and this unit lifts. `tag.find` is the probe `compileFreshUpsert` spends on the
-    // arm's own UPDATE, so it is the one the delegated target must address.
+  test("CREATE root: the record compiler reuses the GLOBAL probe", () => {
     const planning = new CreateOperation(
       engineFor(),
       junctionUpsertArmSchema.user,
@@ -192,17 +185,13 @@ describe("U-E6.1 the arm's address is the probe's key, not the selector", () => 
         },
       }
     ).planning();
-    const locate = reads(planning.steps).find(
-      (step) => step.id === "tag.locate"
+    expect(reads(planning.steps).some((step) => step.id === "tag.locate")).toBe(
+      false
     );
-    expect(locate).toBeDefined();
-    const statement = sqlOf(locate as StatementStep);
-    expect(statement).toMatch(TAG_TABLE);
-    expect(statement).toContain('"t0"."id" = ?');
-    expect(statement).not.toContain('"slug"');
-    expect(jsonOf((locate as StatementStep).statement.values)).toContain(
-      '{"step":"tag.find","output":"id"}'
-    );
+    const probe = reads(planning.steps).find((step) => step.id === "tag.find");
+    expect(probe?.outputs).toMatchObject({
+      id: { kind: "firstRowField", field: "id", optional: true },
+    });
   });
 
   test("CORRUPT LOCATE: the deeper edge follows the probe row, not the selector", () => {

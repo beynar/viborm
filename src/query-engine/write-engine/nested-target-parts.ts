@@ -51,12 +51,7 @@ import {
   buildToOneUpdatePart,
 } from "./RelationWritePart";
 import type { StepScope } from "./StepScope";
-import {
-  getStepModelName,
-  type NestedTargetLocate,
-  UnsupportedOperationError,
-} from "./shared";
-import { UpdateOperation } from "./UpdateOperation";
+import { getStepModelName, UnsupportedOperationError } from "./shared";
 
 /**
  * T3b mechanism 1 — update-arm literal-parent recursion (TO-ONE.md §7.7).
@@ -79,10 +74,9 @@ import { UpdateOperation } from "./UpdateOperation";
  *
  * A **parent-held FK to-one at depth** (the located target itself holds an FK it would
  * rewrite in its own SET) needs child-SET folding this in-place builder does not carry;
- * X1c lifts it by delegating the WHOLE located target UPDATE to `UpdateOperation`
- * ({@link targetNeedsFullUpdate} + {@link buildNestedTargetUpdatePart}) BEFORE this builder
- * is reached, so a parent-held to-one (and a non-PK / compound D4 reference) never arrives
- * here — the two former boundary throws are now fail-closed internal invariants.
+ * Selected-record updates now compile through `RecordUpdateCompiler`. This file keeps
+ * only the explicit junction-create ordering that cannot be absorbed without moving
+ * the join write after the fresh target's descendants.
  */
 
 /**
@@ -97,7 +91,7 @@ import { UpdateOperation } from "./UpdateOperation";
  * junction consumes it, because a junction is the one edge kind with a parent-correlated
  * PLANNING read. Absent everywhere else, and then every read takes `parentId`.
  */
-export type NestedChildBuilder = (
+export type JunctionTargetRelationsBuilder = (
   targetScope: QueryScope,
   parentId: FinalReferenceSource,
   relations: Record<string, RelationMutationProgram>,
@@ -111,7 +105,7 @@ export type NestedChildBuilder = (
  * {@link literalParentId} in the child-held case (the located target's `where` PK)
  * and a planned source in the parent-held case (the parent-held probe's captured id).
  */
-export function buildNestedTargetChildParts(
+export function buildJunctionTargetRelationParts(
   scope: StepScope,
   engine: QueryEngine,
   targetScope: QueryScope,
@@ -122,7 +116,7 @@ export function buildNestedTargetChildParts(
 ): readonly Part[] {
   const parts: Part[] = [];
   for (const program of Object.values(relations)) {
-    foldOneNestedRelation({
+    foldJunctionTargetRelation({
       scope,
       engine,
       targetScope,
@@ -147,7 +141,7 @@ export function buildNestedTargetChildParts(
  * the D4 located-row reference at the ROOT); the common child-held-to-PK / m2m / create
  * target stays on the proven {@link RelationWritePart} path.
  */
-export function targetNeedsFullUpdate(
+export function requiresWholeFreshRecordCompiler(
   targetScope: QueryScope,
   data: Record<string, unknown>
 ): boolean {
@@ -164,61 +158,6 @@ export function targetNeedsFullUpdate(
     if (!referencesTargetPk) return true;
   }
   return false;
-}
-
-/**
- * X1c — the located UPDATE target reuse: the target's WHOLE update (its SET ∪ every
- * relation it carries) delegates to an {@link UpdateOperation} in its `nestedTarget`
- * mode, the update-root analogue of X1b's `nestedFresh` create-root reuse. The op
- * shares the enclosing {@link StepScope} (no step-id collision), parses NOTHING (the
- * `data` handed over is the enclosing parse's output — already validated, already
- * transformed), emits no terminal read (the enclosing
- * op owns the result), and LOCATES + CORRELATES the target to its enclosing parent
- * ({@link NestedTargetLocate}). Every mechanism the update root already carries falls
- * out unchanged at any depth: a parent-held to-one before-root write folded into the
- * SET (child-SET folding), a generated / D4 referenced identity threaded from the
- * located row, the PK-transition reorder, the child-held / m2m families. The SEMANTIC
- * refusals the update root raises fire byte-identically — one home for the update tree.
- */
-class NestedTargetUpdatePart implements Part {
-  private readonly op: UpdateOperation;
-  constructor(op: UpdateOperation) {
-    this.op = op;
-  }
-  planning(): readonly StatementStep[] {
-    return this.op.planning().steps;
-  }
-  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
-    return this.op.compile(known).steps;
-  }
-}
-
-export function buildNestedTargetUpdatePart(input: {
-  scope: StepScope;
-  engine: QueryEngine;
-  targetModel: Model<any>;
-  data: Record<string, unknown>;
-  locate: NestedTargetLocate;
-  /**
-   * E1 U4 — the delegated arm of an enclosing UPSERT. Its locate is a SUPERSET read
-   * (ATOM §3 technique 2): it runs whether or not the found arm is taken, so an empty
-   * match is the CREATE arm's decision and not a missing target. The caller compiles
-   * this Part only in the found arm, where the locate matched by construction.
-   */
-  locateNotFoundOptional?: boolean;
-}): Part {
-  const op = new UpdateOperation(
-    input.engine,
-    input.targetModel,
-    {},
-    {
-      scope: input.scope,
-      skipOwnWrite: true,
-      nestedTarget: { data: input.data, locate: input.locate },
-      ...(input.locateNotFoundOptional ? { locateNotFoundOptional: true } : {}),
-    }
-  );
-  return new NestedTargetUpdatePart(op);
 }
 
 /**
@@ -314,14 +253,14 @@ export function buildBeforeRootTargetSubtree(input: {
   );
 }
 
-function foldOneNestedRelation(input: {
+function foldJunctionTargetRelation(input: {
   scope: StepScope;
   engine: QueryEngine;
   targetScope: QueryScope;
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
   /** The junction-only READ source under a post-transition ordering (E2-U3); see
-   *  {@link NestedChildBuilder}. */
+   *  {@link JunctionTargetRelationsBuilder}. */
   membershipReadSource?: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
@@ -335,14 +274,14 @@ function foldOneNestedRelation(input: {
   // level deeper (the m2m junction here; the child-held write/link/adopt families
   // via `writeBase` below): the same builder, one operation's scope + engine
   // captured, depth adding list entries and one parent-id value (WHY §4.2).
-  const deeperBuilder: NestedChildBuilder = (
+  const deeperBuilder: JunctionTargetRelationsBuilder = (
     deeperScope,
     deeperParentId,
     deeperRelations,
     deeperTxMode,
     deeperCorrelationParentId
   ) =>
-    buildNestedTargetChildParts(
+    buildJunctionTargetRelationParts(
       scope,
       engine,
       deeperScope,
@@ -378,13 +317,11 @@ function foldOneNestedRelation(input: {
     // X1c LIFTED (the located-target parent-held-to-one, child-SET folding). A located
     // target that holds this FK — a deeper parent-held to-one whose identity folds into
     // the target's OWN update SET — no longer reaches this in-place child-Part builder:
-    // {@link targetNeedsFullUpdate} routes the WHOLE target to `UpdateOperation`
-    // ({@link buildNestedTargetUpdatePart}) at EVERY caller (the child-held leaf, the
-    // parent-held A-remainder, the m2m junction), so the target's SET absorbs the fold at
-    // the update root, one architecture, at any depth. This branch is therefore
+    // Selected-record updates route the whole target to the record compiler, so the
+    // target's SET absorbs the fold at the update root. This branch is therefore
     // unreachable by construction — a fail-closed internal invariant, not a route.
     throw new QueryEngineError(
-      `query-engine-v2 internal: a parent-held to-one on relation '${relationName}' reached the in-place child-Part builder; it must delegate to the update root (targetNeedsFullUpdate).`
+      `query-engine-v2 internal: a parent-held to-one on relation '${relationName}' reached the junction target relation builder; it requires the whole fresh-record compiler.`
     );
   }
 
@@ -392,8 +329,8 @@ function foldOneNestedRelation(input: {
   // located target's OWN single primary key. A **D4-style deeper edge referencing a
   // non-PK unique of the located target** needs the located row's non-PK referenced
   // column threaded from a locate read — which the update root exposes via `locateFields`
-  // firstRowField outputs. {@link targetNeedsFullUpdate} routes any such target's WHOLE
-  // update to `UpdateOperation`, so this in-place builder never sees a non-PK reference;
+  // firstRowField outputs. Selected-record updates use their compiler-owned projection,
+  // so this junction-create builder never sees a non-PK reference;
   // the branch is a fail-closed internal invariant, not a route. (Witness:
   // nested-update-d4-deep-nonpk-reference.test.ts — the create-arm non-PK reference is the
   // update root's own family-E boundary, byte-identical at depth.)
@@ -404,7 +341,7 @@ function foldOneNestedRelation(input: {
     relation.referencedFields[0] === targetPrimaryKeys[0];
   if (!referencesTargetPk) {
     throw new QueryEngineError(
-      `query-engine-v2 internal: a non-primary-key referenced edge on relation '${relationName}' reached the in-place child-Part builder; it must delegate to the update root (targetNeedsFullUpdate).`
+      `query-engine-v2 internal: a non-primary-key referenced edge on relation '${relationName}' reached the junction target relation builder; it requires the whole fresh-record compiler.`
     );
   }
 
@@ -438,11 +375,10 @@ function foldOneNestedRelation(input: {
   // located UPDATE arm's deeper child Parts (this same recursion, one level on).
   const armSeam: ArmSeam = {
     freshArm: writeBase.freshArm,
-    nestedChild: deeperBuilder,
   };
 
   for (const entry of program.entries) {
-    foldOneChildHeldKind({
+    foldJunctionChildHeldEntry({
       entry,
       armSeam,
       childScope,
@@ -458,7 +394,7 @@ function foldOneNestedRelation(input: {
   }
 }
 
-function foldOneChildHeldKind(args: {
+function foldJunctionChildHeldEntry(args: {
   entry: RelationMutationEntry;
   armSeam: ArmSeam;
   childScope: QueryScope;
@@ -748,7 +684,7 @@ class NestedFreshCreatePart implements Part {
 /**
  * N4-U2 — the seam an ADOPT arm's fresh row is built through, injected as a function
  * so `RelationUpsertPart` / `RelationWritePart` reach the create root without importing
- * this module at runtime (the {@link NestedChildBuilder} convention: an erased type
+ * this module at runtime (the {@link JunctionTargetRelationsBuilder} convention: an erased type
  * import breaks the cycle).
  *
  * A nested `upsert`/`connectOrCreate` whose probe finds nothing INSERTs a fresh row —

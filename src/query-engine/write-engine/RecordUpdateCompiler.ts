@@ -5,6 +5,7 @@ import { buildParsedRelationPrograms } from "../builders/relation-mutation-parse
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
+import type { ForeignKeyMember } from "./foreign-key-reference";
 import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { PlanningKnown } from "./Part";
 import type { StepScope } from "./StepScope";
@@ -16,6 +17,7 @@ export interface RecordUpdateCompiler {
   readonly writeId: string;
   readonly requiredTargetFields: readonly string[];
   planning(): readonly StatementStep[];
+  conditionalPlanning(): readonly StatementStep[];
   compile(known: PlanningKnown): readonly OperationStep[];
   assertLegality(): void;
 }
@@ -25,7 +27,13 @@ export interface RecordUpdateCompilerInput {
   readonly engine: QueryEngine;
   readonly targetScope: QueryScope;
   readonly data: Record<string, unknown>;
-  readonly locate: NestedTargetLocate;
+  readonly locate:
+    | NestedTargetLocate
+    | ((targetReadId: string) => NestedTargetLocate);
+  readonly targetReadLabel: string;
+  readonly targetReadId?: string;
+  readonly writeLabel: string;
+  readonly incomingForeignKey?: readonly ForeignKeyMember[];
   readonly deferLegality?: boolean;
 }
 
@@ -36,11 +44,20 @@ export function buildRecordUpdateCompiler(
   const parsed = buildParsedRelationPrograms(input.targetScope, input.data);
   if (
     Object.keys(parsed.scalarData).length === 0 &&
-    Object.keys(parsed.relations).length === 0
+    Object.keys(parsed.relations).length === 0 &&
+    (input.incomingForeignKey?.length ?? 0) === 0
   ) {
     return undefined;
   }
   assertUnpinnedTransitionIsCompilable(input, parsed);
+
+  const targetReadId =
+    input.targetReadId ?? input.scope.allocate(input.targetReadLabel);
+  const writeId = input.scope.allocate(input.writeLabel);
+  const locate =
+    typeof input.locate === "function"
+      ? input.locate(targetReadId)
+      : input.locate;
 
   const operation = new UpdateOperation(
     input.engine,
@@ -49,7 +66,15 @@ export function buildRecordUpdateCompiler(
     {
       scope: input.scope,
       skipOwnWrite: true,
-      nestedTarget: { data: input.data, locate: input.locate },
+      nestedTarget: {
+        data: input.data,
+        locate,
+        targetReadId,
+        writeId,
+      },
+      ...(input.incomingForeignKey
+        ? { incomingForeignKey: input.incomingForeignKey }
+        : {}),
       ...(input.deferLegality ? { deferArmLegality: true } : {}),
     }
   );
@@ -59,6 +84,7 @@ export function buildRecordUpdateCompiler(
     writeId: operation.selectedWriteId(),
     requiredTargetFields: operation.selectedRequiredTargetFields(),
     planning: () => operation.selectedPlanning(),
+    conditionalPlanning: () => operation.selectedConditionalPlanning(),
     compile: (known) => operation.compileSelected(known),
     assertLegality: () => operation.assertArmLegality(),
   };
@@ -70,8 +96,10 @@ function assertUnpinnedTransitionIsCompilable(
 ): void {
   const primaryKey = getPrimaryKeyFields(input.targetScope.model)[0];
   if (!(primaryKey && Object.hasOwn(parsed.scalarData, primaryKey))) return;
-  const pinsPrimaryKey = input.locate.where
-    ? getWhereUniqueEntries(input.targetScope, input.locate.where).some(
+  if (typeof input.locate === "function") return;
+  const locate = input.locate;
+  const pinsPrimaryKey = locate?.where
+    ? getWhereUniqueEntries(input.targetScope, locate.where).some(
         (entry) => entry.fieldName === primaryKey
       )
     : false;
@@ -85,7 +113,7 @@ function assertUnpinnedTransitionIsCompilable(
       relation.onUpdate !== "cascade"
     ) {
       throw new UnsupportedOperationError(
-        `query-engine-v2 update for relation '${input.locate.relationName}' transitions the target primary key '${primaryKey}' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key.`
+        `query-engine-v2 update for relation '${locate.relationName}' transitions the target primary key '${primaryKey}' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key.`
       );
     }
   }

@@ -10,7 +10,6 @@ import {
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
-import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
 import {
   type ManyToManyOperation,
@@ -23,7 +22,6 @@ import {
   buildDeleteMany,
   buildFind,
   buildFindUnique,
-  buildUpdate,
 } from "../operations";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
@@ -34,7 +32,6 @@ import {
   foreignKeyCorrelationValue,
   foreignKeyResolvedReadValue,
   foreignKeyWriteValueWith,
-  isPlanningFieldSource,
   planningSourceFromFinal,
 } from "./foreign-key-reference";
 import {
@@ -53,11 +50,11 @@ import {
 } from "./messages";
 import {
   buildNestedTargetFreshCreatePart,
-  buildNestedTargetUpdatePart,
-  type NestedChildBuilder,
-  targetNeedsFullUpdate,
+  type JunctionTargetRelationsBuilder,
+  requiresWholeFreshRecordCompiler,
 } from "./nested-target-parts";
 import {
+  bucketOperationSteps,
   type GuardStep,
   type OperationStep,
   type ReadStep,
@@ -68,6 +65,10 @@ import {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
+import {
+  buildRecordUpdateCompiler,
+  type RecordUpdateCompiler,
+} from "./RecordUpdateCompiler";
 import { literalParentId, plannedParentId } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 import {
@@ -170,6 +171,7 @@ export interface RelationJunctionConfig {
    *  target primary key as a `firstRowField` output (set exactly when the slot's
    *  deeper edges `planned`-read it). */
   readonly targetPublishesPk?: readonly boolean[];
+  readonly updateCompilers?: readonly RecordUpdateCompiler[];
   /** update/updateMany: the validated scalar data, aligned to `wheres`/`filters`. */
   readonly data?: readonly Record<string, unknown>[];
   /** deleteMany/updateMany: the correlated filter(s). */
@@ -215,9 +217,13 @@ export interface RelationJunctionConfig {
    * about which probe `compile` spends on the arm.
    */
   readonly upsertArmProbeIds?: readonly (string | undefined)[];
+  readonly upsertUpdateCompilers?: readonly (
+    | RecordUpdateCompiler
+    | undefined
+  )[];
   // T3b-2 mechanism 2 / mechanism 1 reuse (TO-ONE.md §7.7). A junction create /
   // update / upsert target whose data carries its own relation writes folds them
-  // one level deeper through the same {@link NestedChildBuilder} the child-held
+  // one level deeper through the junction target relation builder the child-held
   // families use — a fresh created target (mechanism 2, its explicit PK the child
   // parts' literal parent) or a located-by-PK updated target (mechanism 1, the
   // `where` PK the literal parent). Aligned index-for-index to `creates` / `wheres`
@@ -226,7 +232,6 @@ export interface RelationJunctionConfig {
   readonly createChildParts?: readonly (readonly Part[])[];
   readonly updateChildParts?: readonly (readonly Part[])[];
   readonly upsertCreateChildParts?: readonly (readonly Part[])[];
-  readonly upsertUpdateChildParts?: readonly (readonly Part[])[];
   /** E2-U2 — the `connectOrCreate` CREATE arm's own relations, folded one level deeper
    *  against the arm's explicit literal PK (mechanism 2, the fresh target). Aligned to
    *  {@link adopts}; emitted ONLY on the branch that inserts the row — an adopted target
@@ -277,9 +282,7 @@ interface TargetSlot {
   readonly writeId: string;
   readonly childId: string;
   readonly probe: ReadStep;
-  /** update (mechanism 1): the located target's own nested child Parts, folded one
-   *  level deeper against its literal `where` PK. Empty for a scalar-only update. */
-  readonly childParts: readonly Part[];
+  readonly compiler?: RecordUpdateCompiler;
 }
 
 /** A per-filter bulk slot (deleteMany) with its materialized-set difference ids. */
@@ -354,12 +357,10 @@ interface UpsertSlot {
   /** Set when the create arm's PK is DB-generated: its INSERT captures the identity
    *  the join row references (see {@link CreateSlot.generatedField}). */
   readonly generatedField?: string;
-  readonly update: Record<string, unknown>;
   readonly membershipProbeId: string;
   readonly globalProbeId: string;
   readonly guardId: string;
   readonly childId: string;
-  readonly updateId: string;
   readonly joinId: string;
   /**
    * E5-U1 — absent under {@link RelationJunctionConfig.freshParent}. The membership
@@ -371,12 +372,9 @@ interface UpsertSlot {
    */
   readonly membershipProbe?: ReadStep;
   readonly globalProbe: ReadStep;
-  /** upsert arms (mechanism 2 / mechanism 1 reuse): the create-arm and update-arm
-   *  nested child Parts, folded one level deeper against the target's literal PK
-   *  (`create` PK / `where` PK). Emitted branch-specifically: create-arm on the absent
-   *  decision, update-arm on the member decision. Empty for a scalar-only arm. */
+  /** The create arm's descendants run only when that arm inserts the target. */
   readonly createChildParts: readonly Part[];
-  readonly updateChildParts: readonly Part[];
+  readonly updateCompiler?: RecordUpdateCompiler;
   /** X1c — when present, the fresh create-arm target's whole create delegates to
    *  `CreateOperation`, REPLACING the create branch's `childInsert` (emitted before the
    *  join). The update arm keeps the located-update projection (empty scalar + the
@@ -472,11 +470,7 @@ export class RelationJunctionPart implements Part {
     const steps: StatementStep[] = [];
     for (const target of this.targets) {
       steps.push(target.probe);
-      // Depth (T3b-2): the located update target's own child Parts plan their probes
-      // here, one level deeper — the unconditional planning superset (ATOM §3
-      // technique 2), identical to the root and the child-held recursion.
-      for (const child of target.childParts)
-        steps.push(...child.planning(scope));
+      if (target.compiler) steps.push(...target.compiler.planning());
     }
     for (const bulk of this.bulks) steps.push(bulk.read);
     for (const adopt of this.adopts) {
@@ -510,8 +504,8 @@ export class RelationJunctionPart implements Part {
       for (const child of upsert.createChildParts) {
         steps.push(...child.planning(scope));
       }
-      for (const child of upsert.updateChildParts) {
-        steps.push(...child.planning(scope));
+      if (upsert.updateCompiler) {
+        steps.push(...upsert.updateCompiler.conditionalPlanning());
       }
     }
     return steps;
@@ -691,14 +685,12 @@ export class RelationJunctionPart implements Part {
   // `update` takes no written parent value: its guard asserts membership on the READ
   // correlation and its write addresses the target's own captured primary key.
   private compileUpdate(
-    scope: StepScope,
+    _scope: StepScope,
     known: PlanningKnown
   ): readonly OperationStep[] {
     const guards: OperationStep[] = [];
     const writes: OperationStep[] = [];
-    const data = this.config.data ?? [];
-    for (let index = 0; index < this.targets.length; index += 1) {
-      const target = this.targets[index]!;
+    for (const target of this.targets) {
       const targetPk = this.requireTarget(target, known, "update");
       if (!this.config.txMode) {
         guards.push(
@@ -710,22 +702,8 @@ export class RelationJunctionPart implements Part {
           )
         );
       }
-      // The self-UPDATE lands only when the payload carries scalar assignments; a
-      // relation-only nested update (`data: { tags: { create } }`) writes no target
-      // row, only its child Parts (mechanism 1). Membership is still validated by
-      // `requireTarget`/the presence guard above.
-      const scalar = data[index] ?? {};
-      if (Object.keys(scalar).length > 0) {
-        writes.push(
-          this.childUpdate(
-            target.writeId,
-            { [this.targetPkField]: targetPk },
-            scalar
-          )
-        );
-      }
-      for (const child of target.childParts) {
-        writes.push(...child.compile(scope, known));
+      if (target.compiler) {
+        bucketOperationSteps(target.compiler.compile(known), guards, writes);
       }
     }
     return [...guards, ...writes];
@@ -887,9 +865,6 @@ export class RelationJunctionPart implements Part {
     known: PlanningKnown
   ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
-    const emitChildren = (parts: readonly Part[]) => {
-      for (const child of parts) steps.push(...child.compile(scope, known));
-    };
     // NO same-operation dedup ledger here, unlike `compileConnectOrCreate`. The two
     // kinds differ in what a second array item MEANS. `connectOrCreate` says "this
     // target, adopted or made", so a second item naming the same target is satisfied
@@ -913,18 +888,10 @@ export class RelationJunctionPart implements Part {
             )
           );
         }
-        // Update arm (a scalar SET only when non-empty; a relation-only update arm
-        // writes just its child Parts — mechanism 1 reused at the arm level).
-        if (Object.keys(slot.update).length > 0) {
-          steps.push(
-            this.childUpdate(
-              slot.updateId,
-              { [this.targetPkField]: memberPk },
-              slot.update
-            )
-          );
+        if (slot.updateCompiler) {
+          slot.updateCompiler.assertLegality();
+          steps.push(...slot.updateCompiler.compile(known));
         }
-        emitChildren(slot.updateChildParts);
         continue;
       }
       const globalRows = known[planningKey(slot.globalProbeId, "rows")];
@@ -985,17 +952,9 @@ export class RelationJunctionPart implements Part {
         // worded for THIS operation ({@link adoptFoundGuard}).
         steps.push(this.adoptFoundGuard(slot, foundPk));
       }
-      if (Object.keys(slot.update).length > 0) {
-        steps.push(
-          this.childUpdate(
-            slot.updateId,
-            { [this.targetPkField]: foundPk },
-            slot.update
-          )
-        );
-      }
-      for (const child of slot.updateChildParts) {
-        steps.push(...child.compile(scope, known));
+      if (slot.updateCompiler) {
+        slot.updateCompiler.assertLegality();
+        steps.push(...slot.updateCompiler.compile(known));
       }
       // ALWAYS, and last: the membership add is what the found branch is FOR. The join
       // row is idempotent (junction-PK skip), so a target that somehow already belonged
@@ -1050,14 +1009,26 @@ export class RelationJunctionPart implements Part {
   ): TargetSlot {
     const { kind, childName } = this.config;
     const connected = kind === "delete" || kind === "update";
+    const compiler = this.config.updateCompilers?.[index];
     const probeId =
+      compiler?.targetReadId ??
       this.config.targetProbeIds?.[index] ??
       scope.allocate(`${childName}.find`);
+    const publishesPk =
+      compiler !== undefined && compiler.planning().length > 0
+        ? true
+        : this.config.targetPublishesPk?.[index] === true;
+    const selectedFields = compiler?.requiredTargetFields ?? [
+      this.targetPkField,
+    ];
     const statement = connected
       ? this.membershipRead({
           parentValue: this.parentRef(),
           whereUnique: where,
           take: 1,
+          select: Object.fromEntries(
+            selectedFields.map((field) => [field, true])
+          ),
         })
       : buildFindUnique(this.childScope, {
           where,
@@ -1070,7 +1041,6 @@ export class RelationJunctionPart implements Part {
     // family's own not-a-member message as the read's postcondition. Byte-identical to
     // `requireTarget`'s compile-time throw, moved one phase earlier (still before any
     // write, on both substrates).
-    const publishesPk = this.config.targetPublishesPk?.[index] === true;
     const probe: ReadStep = {
       id: probeId,
       kind: "read",
@@ -1078,10 +1048,12 @@ export class RelationJunctionPart implements Part {
       outputs: publishesPk
         ? {
             rows: { kind: "rows" },
-            [this.targetPkField]: {
-              kind: "firstRowField",
-              field: this.targetPkField,
-            },
+            ...Object.fromEntries(
+              selectedFields.map((field) => [
+                field,
+                { kind: "firstRowField", field },
+              ])
+            ),
           }
         : { rows: { kind: "rows" } },
       ...(publishesPk
@@ -1100,11 +1072,10 @@ export class RelationJunctionPart implements Part {
       where,
       probeId,
       guardId: scope.allocate(`${childName}.guard.exists`),
-      writeId: scope.allocate(`${childName}.${kind}`),
+      writeId: compiler?.writeId ?? scope.allocate(`${childName}.${kind}`),
       childId: scope.allocate(`${childName}.delete.child`),
       probe,
-      childParts:
-        kind === "update" ? (this.config.updateChildParts?.[index] ?? []) : [],
+      compiler,
     };
   }
 
@@ -1231,6 +1202,7 @@ export class RelationJunctionPart implements Part {
       allocated?.member ?? scope.allocate(`${childName}.member`);
     const globalProbeId =
       allocated?.global ?? scope.allocate(`${childName}.find`);
+    const updateCompiler = this.config.upsertUpdateCompilers?.[index];
     const childId = scope.allocate(`${childName}.create`);
     // N7-U-C: ONE identity resolver for every junction create arm. The upsert arm
     // used to have its own, because its dedup ledger needed a compile-time `where`
@@ -1247,15 +1219,13 @@ export class RelationJunctionPart implements Part {
       ...(identity.generatedField
         ? { generatedField: identity.generatedField }
         : {}),
-      update: item.update,
       membershipProbeId,
       globalProbeId,
       guardId: scope.allocate(`${childName}.guard.member`),
       childId,
-      updateId: scope.allocate(`${childName}.update`),
       joinId: scope.allocate(`${childName}.junction.insert`),
       createChildParts: this.config.upsertCreateChildParts?.[index] ?? [],
-      updateChildParts: this.config.upsertUpdateChildParts?.[index] ?? [],
+      updateCompiler,
       createDelegated: this.config.upsertCreateDelegated?.[index],
       // Two widened probes (technique #2): whether the target is a member of this
       // parent (correlated by a SQL Ref) AND whether it exists globally. `compile`
@@ -1275,6 +1245,7 @@ export class RelationJunctionPart implements Part {
                 parentValue: this.parentRef(),
                 whereUnique: item.where,
                 take: 1,
+                select: this.upsertArmSelect(index, membershipProbeId),
               }),
               outputs: this.upsertArmProbeOutputs(index, membershipProbeId),
             },
@@ -1284,7 +1255,7 @@ export class RelationJunctionPart implements Part {
         kind: "read",
         statement: buildFindUnique(this.childScope, {
           where: item.where,
-          select: { [this.targetPkField]: true },
+          select: this.upsertArmSelect(index, globalProbeId),
           forUpdate: this.config.txMode,
         }),
         outputs: this.upsertArmProbeOutputs(index, globalProbeId),
@@ -1312,14 +1283,29 @@ export class RelationJunctionPart implements Part {
     if (this.config.upsertArmProbeIds?.[index] !== probeId) {
       return { rows: { kind: "rows" } };
     }
+    const compiler = this.config.upsertUpdateCompilers?.[index];
+    const fields = compiler?.requiredTargetFields ?? [this.targetPkField];
     return {
       rows: { kind: "rows" },
-      [this.targetPkField]: {
-        kind: "firstRowField",
-        field: this.targetPkField,
-        optional: true,
-      },
+      ...Object.fromEntries(
+        fields.map((field) => [
+          field,
+          { kind: "firstRowField", field, optional: true },
+        ])
+      ),
     };
+  }
+
+  private upsertArmSelect(
+    index: number,
+    probeId: string
+  ): Record<string, boolean> {
+    if (this.config.upsertArmProbeIds?.[index] !== probeId) {
+      return { [this.targetPkField]: true };
+    }
+    const compiler = this.config.upsertUpdateCompilers?.[index];
+    const fields = compiler?.requiredTargetFields ?? [this.targetPkField];
+    return Object.fromEntries(fields.map((field) => [field, true]));
   }
 
   // -------------------------------------------------------------------------
@@ -1330,6 +1316,7 @@ export class RelationJunctionPart implements Part {
     where?: Record<string, unknown>;
     whereUnique?: Record<string, unknown>;
     take?: number;
+    select?: Record<string, boolean>;
   }) {
     return this.statements.materialize(this.relationInfo, "membershipRead", {
       parentValue: args.parentValue,
@@ -1337,7 +1324,7 @@ export class RelationJunctionPart implements Part {
       ...(args.where && Object.keys(args.where).length > 0
         ? { where: args.where }
         : {}),
-      select: { [this.targetPkField]: true },
+      select: args.select ?? { [this.targetPkField]: true },
       ...(args.take !== undefined ? { take: args.take } : {}),
       lock: "transaction",
     });
@@ -1356,27 +1343,6 @@ export class RelationJunctionPart implements Part {
         operation,
         args
       ),
-      outputs: {},
-    };
-  }
-
-  /** UPDATE the target addressed by a COMPILE-TIME `where` — the located member's
-   *  captured primary key, or (N3-U2, a duplicate item under a generated PK) the
-   *  create-data unique that names the row this operation's own INSERT wrote. Never
-   *  a `Ref`: the identity is always a literal by construction. */
-  private childUpdate(
-    id: string,
-    where: Record<string, unknown>,
-    data: Record<string, unknown>
-  ): WriteStep {
-    return {
-      id,
-      kind: "write",
-      statement: buildUpdate(this.childScope, {
-        where,
-        data,
-        select: { [this.targetPkField]: true },
-      }),
       outputs: {},
     };
   }
@@ -1864,7 +1830,7 @@ export function buildJunctionParts(input: {
    *  (nested-target-parts.ts:164). A relation-carrying create/update/upsert target
    *  folds those relations one level deeper through it; the type makes threading it
    *  mandatory so no caller can silently fall back to a scalar-only boundary. */
-  nestedBuilder: NestedChildBuilder;
+  nestedBuilder: JunctionTargetRelationsBuilder;
 }): RelationJunctionPart[] {
   const { scope, engine, parentScope, relation, program, parentId, txMode } =
     input;
@@ -1886,65 +1852,6 @@ export function buildJunctionParts(input: {
     freshParent: input.freshParent,
     txMode,
   } as const;
-  // T3b-2 — fold a create/update/upsert-arm target payload into (scalar SET, deeper
-  // child Parts). A scalar-only payload keeps the pre-T3b-2 behavior (empty child
-  // Parts); a relation-carrying one folds those relations one level deeper against
-  // the target's literal PK through the shared `nestedBuilder`, which every caller
-  // threads — its non-optional type (interface note above) makes it mandatory, so no
-  // caller can silently fall back to a scalar-only boundary.
-  const foldTarget = (
-    data: Record<string, unknown>,
-    resolveParentId: () => FinalReferenceSource
-  ): { scalar: Record<string, unknown>; childParts: readonly Part[] } => {
-    const { scalarData, relations } = buildParsedRelationPrograms(
-      childScope,
-      data
-    );
-    if (Object.keys(relations).length === 0) {
-      return { scalar: scalarData, childParts: [] };
-    }
-    return {
-      scalar: scalarData,
-      childParts: input.nestedBuilder(
-        childScope,
-        resolveParentId(),
-        relations,
-        txMode
-      ),
-    };
-  };
-  /**
-   * Where a relation-carrying update/upsert target's own primary key — the value the
-   * deeper foreign keys reference — comes from.
-   *
-   * N4-U1: for a nested `update` the answer is no longer "only the `where`". The
-   * junction's target slot ALREADY locates the row: its membership read selects the
-   * target primary key and `requireTarget` spends it on the join-row write. So when
-   * some OTHER unique names the target, the deeper edges take a `planned` source into
-   * that same membership read — the row the slot ACTED ON — and only the `where`'s own
-   * literal is skipped, not the capability.
-   *
-   * E6.1: the same is now true of the UPSERT arms, and the refusal that stood here is
-   * gone. Its recorded justification was the created-earlier branch — an update arm
-   * reached with the global probe having run BEFORE this operation's own INSERT, so no
-   * row existed for a `planned` source to read. N7-U-C DELETED that branch: the junction
-   * upsert keeps no same-operation dedup ledger, because an `upsert` item names the row
-   * ITS `where` names and the own-write preflight rejects any item whose selector could
-   * name a row an earlier item wrote (the argument is in {@link compileUpsert}). What was
-   * left behind was a wiring gap and not a wall — the `update` kind pre-allocated its
-   * probe ids and the upsert fold passed `undefined`. Every arm that reaches here acts on
-   * a row ONE of its own probes located, so `probeId` is always a value.
-   */
-  const updateTargetParentId = (
-    where: Record<string, unknown>,
-    probeId: string
-  ): FinalReferenceSource => {
-    const entry = getWhereUniqueEntries(childScope, where).find(
-      (candidate) => candidate.fieldName === targetPkField
-    );
-    if (entry !== undefined) return literalParentId(entry.value);
-    return plannedParentId(probeId);
-  };
   /**
    * E4-U3 — how a FRESH junction target and its own relations are written, in one
    * decision for every arm that makes a row (`create` / `createMany` /
@@ -2000,7 +1907,7 @@ export function buildJunctionParts(input: {
         identity: undefined,
       };
     }
-    if (pkIsLiteral && !targetNeedsFullUpdate(childScope, create)) {
+    if (pkIsLiteral && !requiresWholeFreshRecordCompiler(childScope, create)) {
       return {
         scalar: scalarData,
         childParts: input.nestedBuilder(
@@ -2164,65 +2071,6 @@ export function buildJunctionParts(input: {
     }
     return { kind: "adopt", wheres };
   };
-  // X1c — a junction target whose data carries the parent-held to-one projection (or a
-  // D4 edge) is not folded in place; its WHOLE target write delegates to the update /
-  // create ROOT. An UPDATE target delegates to `UpdateOperation`, returned as an empty
-  // scalar + the delegated Part in child Parts (the slot skips its empty self-UPDATE). A
-  // CREATE target (a fresh row, its parent-held FK folded into its OWN INSERT — X1b's
-  // fresh mechanism) delegates to `CreateOperation`, carried as `delegated` so the slot
-  // skips its `childInsert`.
-  //
-  // E6.1 — the delegated target is addressed by the KEY THE SLOT'S PROBE CAPTURED, never
-  // by the selector again. It used to hand `UpdateOperation` the same `where` the probe
-  // had already spent: two locates, two chances to name a different row, while the join
-  // row and the arm's guard address the probe's key. That is the wrong-row doctrine's own
-  // failure — an identity comes from the row a step acted on — and on an upsert's CREATE
-  // arm it was not even latent: the second locate found nothing and raised the target's
-  // own not-found, aborting the arm that was meant to be taken (measured). The selector's
-  // filters are not lost with it; the probe reads the WHOLE `where`, so they are enforced
-  // once, where the row is chosen.
-  const foldOrDelegateUpdate = (
-    data: Record<string, unknown>,
-    where: Record<string, unknown>,
-    probeId: string,
-    /** True for an UPSERT arm: an empty probe is the CREATE decision, so the delegated
-     *  locate must not raise its own not-found on the arm that is not taken. */
-    missingIsABranch: boolean
-  ): {
-    scalar: Record<string, unknown>;
-    childParts: readonly Part[];
-    usesLocatedPk: boolean;
-  } => {
-    if (!targetNeedsFullUpdate(childScope, data)) {
-      let usesLocatedPk = false;
-      const folded = foldTarget(data, () => {
-        const source = updateTargetParentId(where, probeId);
-        usesLocatedPk = isPlanningFieldSource(source);
-        return source;
-      });
-      return { ...folded, usesLocatedPk };
-    }
-    return {
-      scalar: {},
-      usesLocatedPk: true,
-      childParts: [
-        buildNestedTargetUpdatePart({
-          scope,
-          engine,
-          targetModel: relationInfo.targetModel,
-          data,
-          locate: {
-            parentId: plannedParentId(probeId),
-            childFields: [targetPkField],
-            parentFields: [targetPkField],
-            relationName,
-            notFoundMessage: relationTargetNotFound(relationInfo, "update"),
-          },
-          ...(missingIsABranch ? { locateNotFoundOptional: true } : {}),
-        }),
-      ],
-    };
-  };
   const parts: RelationJunctionPart[] = [];
   // A stable, V1-mirroring kind order: adopt/link first, then set, then the
   // correlated writes, then removals — every kind independent (the own-write
@@ -2293,40 +2141,40 @@ export function buildJunctionParts(input: {
         );
         break;
       case "update": {
-        const wheres = entry.items.map((item) => {
+        const items = entry.items.map((item) => {
           if (item.target.kind !== "unique") {
             throw new QueryEngineError(
               `query-engine-v2 internal: many-to-many update for relation '${relationName}' requires a unique target.`
             );
           }
-          return item.target.where;
+          return { where: item.target.where, data: item.data };
         });
-        // T3b-2 mechanism 1 reuse: a relation-carrying update target folds its own
-        // relations one level deeper against its located PK; a scalar-only target
-        // keeps its empty child Parts (the pre-T3b-2 behavior). N4-U1: the target's
-        // membership probe id is allocated HERE, before the fold, so a target named by
-        // a non-primary-key unique can hand the deeper edges a `planned` read of it.
-        const targetProbeIds = wheres.map(() =>
-          scope.allocate(`${childName}.find`)
-        );
-        const folded = entry.items.map((item, index) =>
-          // A nested `update` that finds no member is a not-found, not a branch.
-          foldOrDelegateUpdate(
-            item.data,
-            wheres[index]!,
-            targetProbeIds[index]!,
-            false
-          )
-        );
+        const compiled = items.flatMap((item) => {
+          const compiler = buildRecordUpdateCompiler({
+            scope,
+            engine,
+            targetScope: childScope,
+            data: item.data,
+            targetReadLabel: `${childName}.find`,
+            writeLabel: `${childName}.update`,
+            locate: (targetReadId) => ({
+              where: item.where,
+              parentId: plannedParentId(targetReadId),
+              childFields: [targetPkField],
+              parentFields: [targetPkField],
+              relationName,
+              notFoundMessage: relationTargetNotFound(relationInfo, "update"),
+            }),
+          });
+          return compiler ? [{ where: item.where, compiler }] : [];
+        });
+        if (compiled.length === 0) break;
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
             kind: "update",
-            wheres,
-            targetProbeIds,
-            targetPublishesPk: folded.map((f) => f.usesLocatedPk),
-            data: folded.map((f) => f.scalar),
-            updateChildParts: folded.map((f) => f.childParts),
+            wheres: compiled.map((item) => item.where),
+            updateCompilers: compiled.map((item) => item.compiler),
           })
         );
         break;
@@ -2505,13 +2353,25 @@ export function buildJunctionParts(input: {
         const armProbeIds = upsertProbeIds.map((ids) =>
           input.freshParent ? ids.global : ids.member
         );
-        const foldedUpdates = items.map((item, index) =>
-          foldOrDelegateUpdate(
-            item.update,
-            item.where,
-            armProbeIds[index]!,
-            true
-          )
+        const updateCompilers = items.map((item, index) =>
+          buildRecordUpdateCompiler({
+            scope,
+            engine,
+            targetScope: childScope,
+            data: item.update,
+            targetReadId: armProbeIds[index]!,
+            targetReadLabel: `${childName}.find`,
+            writeLabel: `${childName}.update`,
+            locate: {
+              where: item.where,
+              parentId: plannedParentId(armProbeIds[index]!),
+              childFields: [targetPkField],
+              parentFields: [targetPkField],
+              relationName,
+              notFoundMessage: relationTargetNotFound(relationInfo, "update"),
+            },
+            deferLegality: true,
+          })
         );
         parts.push(
           new RelationJunctionPart(scope, {
@@ -2520,14 +2380,14 @@ export function buildJunctionParts(input: {
             upserts: items.map((item, index) => ({
               where: item.where,
               create: foldedCreates[index]!.scalar,
-              update: foldedUpdates[index]!.scalar,
+              update: {},
             })),
             upsertProbeIds,
-            upsertArmProbeIds: foldedUpdates.map((fold, index) =>
-              fold.usesLocatedPk ? armProbeIds[index] : undefined
+            upsertArmProbeIds: updateCompilers.map((compiler, index) =>
+              compiler ? armProbeIds[index] : undefined
             ),
+            upsertUpdateCompilers: updateCompilers,
             upsertCreateChildParts: foldedCreates.map((f) => f.childParts),
-            upsertUpdateChildParts: foldedUpdates.map((f) => f.childParts),
             upsertCreateDelegated: foldedCreates.map((f) => f.delegated),
             upsertCreateIdentity: foldedCreates.map((f) => f.identity),
           })
