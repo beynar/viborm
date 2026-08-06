@@ -25,7 +25,7 @@ All builders follow the same pattern: pure function, context first, returns Sql.
 | File | Purpose | Complexity |
 |------|---------|------------|
 | `relation-mutation-parser.ts` | Scalar/relation partitioning and lossless relation mutation programs | High |
-| `relation-data-builder.ts` | FK direction and relation SQL data | Medium |
+| `relation-data-builder.ts` | Bound relation topology and relation SQL data | Medium |
 | `include-builder.ts` | Relation inclusion (lateral + subquery strategies) | High (~630 lines) |
 | `where-builder.ts` | WHERE clauses, filter dispatch | High (~620 lines) |
 | `relation-filter-builder.ts` | some/every/none, is/isNot | Medium (~440 lines) |
@@ -110,6 +110,15 @@ only separates scalar fields from relation payloads. After the relation schema
 transforms a payload, `buildRelationMutationProgram` records its ordered meaning
 once. Downstream emitters consume normalized entries and must not inspect raw
 mutation keys, normalize arrays again, or reparse nested data.
+
+### Bound relation topology
+
+`relation-data-builder.ts` owns `bindRelation`. Bind at the first topology
+decision, after earlier schema and legality failures have had their normal
+priority. `BoundRelation` carries ordered relation fields and cardinal position
+only. Do not add scopes, values, identities, transition state, junction
+metadata, SQL, or execution policy to it. Field/value pairing remains in
+`write-engine/foreign-key-reference.ts`.
 
 ### Rule 1: Pure Functions
 Builders have no side effects. Same inputs always produce same output. No state mutation.

@@ -126,13 +126,19 @@ optional root race pin. The fresh-record Part publishes its planning and final
 steps, root write ID, and root referenced values. Relation Parts still own
 membership and found/missing decisions. `createMany` remains specialized.
 
-A prototype selected-record compiler was removed after falsification. Existing
-paths do not share one target-read contract: scalar target updates reuse an
-outer rows-only probe, deep updates perform a second locate with stricter
-cardinality, and empty updates currently allocate suppressed IDs that preserve
-later sibling suffixes. A universal compiler either changed those observable
-plans or required position policy that exceeded the deletion gate. The current
-depth-specific update compiler therefore remains live.
+`RecordUpdateCompiler` is the one compiler for an already-selected non-bulk
+record update. The relation owner supplies the target-read and write labels,
+owns membership, branch decisions, guards, and race pins, and publishes the
+fields the compiler requires. The compiler owns scalar SET data, incoming FK
+assignments, parent-held folds, child-held descendants, required target fields,
+PK transitions, and root UPDATE ordering. It returns `undefined` for a true
+no-op before it allocates a step ID.
+
+Child-held, parent-held, relation-upsert, and junction update targets use this
+compiler. A junction member or upsert arm reuses its membership/global probe;
+it does not run a second target locate. `updateMany`, `deleteMany`, and `set`
+remain specialized. Top-level scalar update folds remain local because they
+return the public result from the mutation statement itself.
 
 ## Branch premises
 
@@ -152,7 +158,8 @@ failed the negative-line gate. The previous declaration-only `Probe` and
 
 ## Ordering invariants
 
-1. Step IDs and SQL/parameter order are stable observable contracts.
+1. Public SQL meaning, parameter order, guards, and errors are stable. Internal
+   target-read labels can normalize when one compiler replaces a redundant read.
 2. Planning contains no guards.
 3. Final batch guards run before writes; relative order within both buckets is
    preserved.

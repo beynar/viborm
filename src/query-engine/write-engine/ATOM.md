@@ -1326,7 +1326,7 @@ so the group boundary is now a measured fact, not a reading of intent.
 
 **T3b-1 — mechanism 1 DELIVERED (family B ×8 + A-remainder ×2; census 31 → 21).** The
 depth-recursive child-Part builder the verdict called for is landed as
-`buildNestedTargetChildParts` (`nested-target-parts.ts`): a **located-by-PK** target's
+the former depth-specific target builder in `nested-target-parts.ts`: a **located-by-PK** target's
 data relations fold into deeper Parts through the SAME per-kind builders the root uses,
 parameterized only by a final reference source — `literalParentId(pk)` for a child-held nested
 update (its `where` PK, in `RelationWritePart`), `plannedParentId(probe, pk)` for a
@@ -1352,7 +1352,7 @@ recursion (C's create, E, G), then mechanism (3), the create-arm depth-guard rel
 13 remaining recursion/depth keys run natively fallback-off; only D ×7 + H ×1 (T3c) remain.
 **Family C**: `RelationJunctionPart.buildJunctionParts` folds a junction `create`/`update`/
 `upsert`-arm target whose data carries its own relations one level deeper through the SAME
-`buildNestedTargetChildParts` seam — a located update/upsert-update target by its `where` PK
+the former depth-specific target-builder seam — a located update/upsert-update target by its `where` PK
 (mechanism 1 reuse), a fresh create/upsert-create target by its explicit `create` PK
 (mechanism 2, ATOM §4 fresh-parent elision). The slots carry per-target child Parts,
 `planning` plans their probes as the unconditional superset (§3 technique 2), `compile`
@@ -1364,7 +1364,7 @@ column to `locateFields`, keeping reorder FALSE so the root UPDATE precedes the 
 **Family G**: `RelationUpsertPart.buildArmChildParts` accepts a child-held `create` one level
 deeper on the connectOrCreate create arm — a fresh grandchild INSERT folding a single
 parent-held to-one `connect`, mirroring V1's accepted depth exactly. **Named reorder
-obligation closed**: `buildNestedTargetChildParts` routes a deeper edge whose FK references a
+obligation closed**: the former depth-specific target builder routes a deeper edge whose FK references a
 NON-PK column of the located target to V1 (the literal/planned parent id carries only the
 target's PK per-field), so the PK-only depth reorder check is complete; the root threads such
 a value from its located row (D4), the depth builder is a documented narrower boundary.
@@ -1444,14 +1444,14 @@ wired the probe as a committed, falsifiable gate.
   detection, cascade/setNull/restrict staged re-point, no-op-transition detection,
   empty-slot race pin, validate-only-the-taken-branch; (VI) **deep create-context
   grandchildren** — a create under a PLANNED (runtime-captured) target id, one step past
-  `buildNestedTargetChildParts`' literal-parent reach. Plus (b) three routing-doc tests
+  the former depth-specific target builder's literal-parent reach. Plus (b) three routing-doc tests
   that assert the V1-fallback route itself (rewritten when V1 dies at P6). Only I + VII
   were machinery-complete this drive; the rest are enumerated exactly in the T3d report,
   none a regression (the full estate is green with the fallback ON).
 
 **T4a — CLASS VI absorbed (blast radius 43 → 40).** The first and smallest of the three
 final subsystems. **Deep create-context grandchildren**: a nested `create` whose FK carries
-a captured parent id one step past `buildNestedTargetChildParts`' literal-parent reach —
+a captured parent id one step past the former depth-specific target builder's literal-parent reach —
 refs point backward, exactly as P1's depth recursion threaded a produced id. Three keys, one
 mechanism family:
 - **Key 1 — a `create` under a PLANNED parent-held `update` target** (`post.update →
@@ -1625,7 +1625,7 @@ vocabulary); PERF's deep junction fold is 1.64× faster.**
 **X1 — THE DEPTH LIFT (the first post-P6 contract extension, maintainer-authorized).** The
 P6 backlog's first item: lift the nesting-depth limits V1's staged runtime imposed and the
 migration MIRRORED for parity. The measurement first, honestly: the engine's
-construction-time recursion (`buildNestedTargetChildParts`, the coverage ledger,
+construction-time recursion (the former depth-specific target builder, the coverage ledger,
 fresh-parent elision) had NO architectural depth constraint even before X1 — a
 self-referential child-held `create` OR `update` chain already folded to arbitrary depth
 (measured green at 12 levels, tx and batch), and the validation layer's `v.lazy` relation
@@ -1636,7 +1636,7 @@ located target may now carry its own create-context grandchildren to arbitrary d
 create SUBTREE — `update → …update → …create({ …, children: { create: { …, children:
 { create: … } } } })`). The fresh child's own primary key is a construction-time literal
 (validation materializes generated string defaults), so it is a `literalParentId` for its
-grandchildren — the SAME `buildNestedTargetChildParts` seam, one level deeper, NO counter:
+grandchildren — the same former depth-specific target-builder seam, one level deeper, NO counter:
 level N and level N+1 run identical code (`buildFreshCreateGrandchildParts`,
 `nested-target-parts.ts`). The two `... nested relation writes in the create data … one
 level deeper` throws (literal + planned leaf) are DELETED; five FINER-boundary throws
@@ -1933,7 +1933,7 @@ dispatch is now TOTAL over the parse boundary's inverse-to-one surface (the seve
 `toOneUpdateFactory` emits, which are exactly Prisma 7.9.1's), so reaching it would mean
 the schema produced a key it does not define. That is an engine invariant break, not a
 declined shape, so it became a `QueryEngineError` — the same disposition X1c gave
-`foldOneNestedRelation`'s unreachable branches, and the reason the count drops by a whole
+the former per-relation fold's unreachable branches, and the reason the count drops by a whole
 site rather than moving to a narrower message.
 
 **N5-U1 — the adopt family under a non-cascade PK transition (no mechanism either; a
@@ -2052,7 +2052,7 @@ discriminator-only spelling and running the estate:
 The second row is the one the unit shipped without. Every arm written for N6-U1 used a
 target whose data was scalar or a CHILD-held to-many, all of which route through a Part;
 the delegation is entered only when the target's data carries a PARENT-HELD to-one or a
-non-PK referenced edge (`targetNeedsFullUpdate`), because only then does the deeper write
+non-PK referenced edge (the whole-record classifier), because only then does the deeper write
 fold into the target's own SET. The two claims — "the filter half is honoured" and "these
 selectors are widened" — are made per ROUTE, not per payload key, and the route was
 missing from the witness set while the shape appeared in the measurement list. Both gaps
@@ -2110,7 +2110,7 @@ site and found **25 of the 68 refusing nothing**: `unknown -> Record` narrowings
 whole-args parse, defensive type guards over a closed union, and `default:` arms of
 switches TOTAL over the parse boundary's own key set. This unit applies to them the
 disposition this engine had already used twice — N2-U1's `interpretInverseToOneKind`
-`default` and X1c's two `foldOneNestedRelation` branches — and states it as a rule:
+`default` and X1c's two former per-relation fold branches — and states it as a rule:
 
 > **A branch unreachable BY CONSTRUCTION is a `QueryEngineError` internal invariant, never
 > an `UnsupportedOperationError`.** The user-facing class means "this engine declines a
@@ -2365,3 +2365,31 @@ An operation is valid iff:
 These are compiler-output checks, cheap enough to assert in tests and (for 2
 and 4) in the executor. They are the whole safety story of the atom;
 everything else is ordinary SQL the builders already know how to write.
+
+---
+
+## 10. Record compilers and relation position
+
+The mutation program says **what** one relation payload requests. A
+`BoundRelation` says **where** that relation is stored: parent-held to-one,
+child-held to-one, child-held to-many, or junction. It carries ordered topology
+only. Value provenance stays in field-bound foreign-key members, and branch
+policy stays with the relation Part.
+
+`CreateOperation` compiles every non-bulk fresh record. Incoming foreign-key
+members are data, not callbacks. A root reference is requested by a real
+consumer, so generated identity capture is demand-driven. `createMany` remains
+its own bulk operation.
+
+`RecordUpdateCompiler` compiles every already-selected non-bulk record update.
+Its caller owns the decision read, correlation, membership, failure wording,
+guards, and race pins. The compiler owns the record SET, derived incoming FK
+assignments, nested relations, required projection, key-transition order, root
+UPDATE, and descendants. The caller publishes the fields the compiler requires
+on its existing read. A true no-op creates no compiler, allocates no ID, and
+emits no statement.
+
+This boundary deliberately permits relation and junction owners to reuse their
+existing target probe. It does not add a locator, strategy, lifecycle hook, or
+runtime step. Junction create stays explicit because its required order is
+target INSERT, junction INSERT, then target descendants.

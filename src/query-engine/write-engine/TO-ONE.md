@@ -665,7 +665,8 @@ the reject half of every rejects/succeeds pair is free.
 
 Mechanism (1) is landed. The delivered truth:
 
-**The recursion.** `buildNestedTargetChildParts` (`nested-target-parts.ts`) is the
+**The recursion.** The former depth-specific target builder in
+`nested-target-parts.ts` was the
 reusable depth-recursive child-Part builder the hypothesis called for — it folds a
 **located-by-PK** target's data relations into deeper Parts through the SAME per-kind
 builders the root's `interpretRelation` uses (m2m junction, the correlated
@@ -750,7 +751,7 @@ keys (**C ×10, E ×2, G ×1**) run natively fallback-off; only D ×7 + H ×1 (T
 
 **Family C — the m2m junction scalarOnly boundary lifted.** `RelationJunctionPart`'s
 `buildJunctionParts` folds a junction `create`/`update`/`upsert`-arm target whose data
-carries its OWN relations one level deeper through the SAME `buildNestedTargetChildParts`
+carries its OWN relations one level deeper through the same former depth-specific target-builder
 seam mechanism 1 introduced — a located `update`/`upsert`-update target by its `where` PK
 (mechanism 1 reuse), a fresh `create`/`upsert`-create target by its explicit `create` PK
 (mechanism 2, ATOM §4 fresh-parent elision — the just-created junction target has no
@@ -789,7 +790,7 @@ depth exactly. The decline message keeps its pre-T3b-2 wording (byte-identical).
 (`RelationWritePart`, `UpdateOperation.parentHeldUpdateData`) tested only the target PK,
 while the root reorders on its full referenced-column union (PK ∪ every child-referenced
 column, D4-style non-PK references included). A **D4-style deeper edge referencing a non-PK
-unique the target rewrites** is the gap. Resolution: `buildNestedTargetChildParts` now routes
+unique the target rewrites** is the gap. Resolution: the former depth-specific target builder now routes
 every deeper child-held edge whose FK references a NON-PK column of the located target to V1
 — the literal/planned parent id carries only the target's PK per-field, so such a reference
 cannot be injected AND would miss the PK-only reorder. The PK is therefore the only referenced
@@ -821,7 +822,7 @@ true.
 arm stays the proven inline path (a plain INSERT with the raceable missing-premise
 `racePin`, or `UPDATE … [RETURNING]`). A **relation-bearing** arm composes the
 root machinery it always should have: the update arm delegates to an `UpdateOperation`
-sub-op (mechanism 1 — `buildNestedTargetChildParts`, the reorder/cascade root handling,
+sub-op (mechanism 1 — the former depth-specific target builder, the reorder/cascade root handling,
 the D7 PK-transition + self-m2m witness), the create arm to a `CreateOperation` sub-op
 (mechanism 2 — fresh-parent elision, the create-root traversal barrier). Both share the
 upsert's `StepScope` (no step-id collision across arms), plan their WHOLE superset (ATOM
@@ -905,7 +906,7 @@ targets the inverse-side to-one relation on that key needs V1's occupied-slot /
 cascade / setNull / restrict staging, no-op-transition detection, empty-slot race pin,
 and validate-only-the-taken-branch (this is the class the drive pre-sanctioned as a stop);
 and **deep create-context grandchildren** — a `create` under a parent-held to-one target
-located by a runtime-captured (planned) id, one step past `buildNestedTargetChildParts`'
+located by a runtime-captured (planned) id, one step past the former depth-specific target builder's
 literal-parent reach. The third — batch generated/updated-PK dataflow — is dialect
 plumbing (an adapter batch-reference store), not a to-one concern. P6-readiness is AMBER:
 the census gate is met, the blast-radius gate is green-by-allowlist, and the exact

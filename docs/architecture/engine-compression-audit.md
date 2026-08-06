@@ -34,10 +34,12 @@ The remaining local compression was measured after the main migration. Only guar
 
 ## Follow-on record-compiler experiment
 
-The follow-on work started at `d4bcdde` and ended at `66ae57b`. It tested two
-proposals: one compiler for each single record, and one bound relation-position
-atom. The retained production change adds 992 TypeScript lines and deletes
-1,449: **net −457 lines** in `src/query-engine`.
+The follow-on work started at `d4bcdde` and its production implementation ended
+at `ff5ff41`. It tested two proposals: one compiler for each non-bulk record and
+one bound relation-position atom. The retained production change adds 1,779
+TypeScript lines and deletes 2,869: **net −1,090 lines** in
+`src/query-engine`. This passes the required −800-line gate and falls inside the
+planned 800–1,250-line range without junction-create absorption.
 
 The fresh-record proposal passed. `CreateOperation` now compiles every non-bulk
 fresh record subtree. Nested callers pass parsed data and field-bound incoming
@@ -54,31 +56,37 @@ production lines. It stores topology only; field-value provenance remains in
 `foreign-key-reference.ts`, and junction SQL remains in
 `ManyToManyStatements`.
 
-The selected-record compiler failed its keep gate and was removed. Three live
-contracts prevented an exact common core:
+The selected-record proposal also passed after the compatibility requirement
+was narrowed to public behavior. `RecordUpdateCompiler` now owns one selected
+row's scalar SET, incoming FK assignments, nested relation compilation,
+required target projection, key transitions, root UPDATE, and descendant
+ordering. Relation owners still own membership, target selection, found/missing
+decisions, guards, race pins, and not-found messages. Ordinary child-held and
+parent-held updates, relation-upsert found arms, junction member updates, and
+probe-first top-level upsert update arms use this compiler.
 
-- A scalar targeted update uses one outer rows-only probe. A deep target update
-  performs another locate and adds `firstRowField` and `exactlyOneRow` behavior.
-- Upsert scalar found arms reuse the decision probe. Relation-bearing found arms
-  intentionally perform the second optional locate.
-- Empty nested updates allocate suppressed step IDs today. Returning before ID
-  allocation changes later same-model sibling suffixes.
+The important compression is that the compiler consumes the caller's existing
+decision read. Deep targets no longer need a second locate only to enter another
+update implementation. This intentionally normalizes internal target-read IDs
+and projections while preserving public results, SQL meaning, parameter order,
+guards, failures, write order, and statement count. A true empty nested update
+returns before allocating an ID and emits no step.
 
-The prototype could preserve the current plans only by adding position and
-payload policy, or it could remove that policy only by changing SQL, reads,
-guards, or step IDs. Both choices violate this plan. Its final production delta
-is zero. The junction-create absorption experiment was not retained because its
-required predecessor did not pass and the explicit junction insertion between
-the target INSERT and descendants still needs an attachment policy. No lifecycle
-hook, strategy object, or placement boolean was added.
-
-The follow-on target of 800 removed production lines and 8–12 removed concepts
-was therefore not met. The retained work removed these eight named surfaces:
+The work removed these named surfaces, in addition to their duplicate branches:
 `FkDirection`, `getFkDirection`, `rootFkInject`,
 `buildLiteralParentCreatePart`, `buildPlannedParentCreatePart`,
-`buildNestedFreshCreateParts`, `buildCreateArm`, and
-`buildUpsertCreateArm`. The smaller result is intentional: the failed units were
-deleted instead of hiding their positional differences behind policy.
+`buildNestedFreshCreateParts`, `buildCreateArm`, `buildUpsertCreateArm`,
+`NestedChildBuilder`, the depth-specific target builder and its two recursive
+folds, the whole-record target classifier, and the selected-target update
+wrapper.
+
+Junction-create absorption was not retained. Its required order is target
+before-writes, target INSERT, junction INSERT, then target descendants. Passing
+that placement through the fresh-record compiler would require a lifecycle hook,
+strategy object, attachment array, or placement flag. The explicit junction
+path is smaller and more truthful. `createMany`, `updateMany`, `deleteMany`,
+`set`, direct top-level scalar folds, and junction SQL remain specialized. No
+adapter or runtime step kind changed.
 
 ## The question, answered first
 

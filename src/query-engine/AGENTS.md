@@ -81,6 +81,24 @@ each source to one foreign/referenced field pair.
 Callers must not resolve a source by passing an unrelated field name or switch
 on source kinds. Source lowering belongs in this file.
 
+### Record compilers and bound relations
+
+`bindRelation` classifies one relation as `parentHeldToOne`,
+`childHeldToOne`, `childHeldToMany`, or `junction`. It stores topology only:
+ordered FK fields, referenced fields, and the update action. It does not store
+scopes, identities, value sources, SQL, or branch policy.
+
+`CreateOperation` compiles each non-bulk fresh record. Nested callers provide
+parsed data and field-bound incoming FK members. `RecordUpdateCompiler`
+compiles each already-selected non-bulk record update. Its caller owns the
+target read, membership, branch decision, guards, and race pins; the compiler
+owns the row SET, nested relations, required target projection, and transition
+ordering. A true empty update returns no compiler and allocates no step ID.
+
+Junction create attachment remains explicit because its required order is
+target INSERT, junction INSERT, then target descendants. Do not add lifecycle
+hooks or placement flags to force it through the fresh-record compiler.
+
 ### Branch pins
 
 Branch sites explicitly own selected-arm guards and race pins. The `AdoptProbe`
@@ -104,6 +122,7 @@ Rules:
 | `query-engine.ts` | public orchestration shell |
 | `write-engine/CreateOperation.ts` | create semantics and fragment compilation |
 | `write-engine/UpdateOperation.ts` | update semantics and fragment compilation |
+| `write-engine/RecordUpdateCompiler.ts` | one already-selected record update |
 | `write-engine/UpsertOperation.ts` | delegated create/update arm selection |
 | `write-engine/OperationExecutor.ts` | generic fragment execution and value materialization |
 | `write-engine/OperationFragment.ts` | step and fragment vocabulary |

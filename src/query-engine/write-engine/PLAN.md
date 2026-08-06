@@ -1004,7 +1004,7 @@ SITE of every residual key**, capturing each `UnsupportedOperationError` message
 ### T3b-1 — mechanism 1 landed: family B + A-remainder (census 31 → 21)
 
 Mechanism (1) — **update-arm literal-parent recursion** — is landed and 5-DB certified.
-`buildNestedTargetChildParts` (`nested-target-parts.ts`) is the reusable depth-recursive
+The former depth-specific target builder in `nested-target-parts.ts` was the reusable depth-recursive
 child-Part builder: a **located-by-PK** target folds its data relations into deeper Parts
 through the SAME per-kind builders the root's `interpretRelation` uses, parameterized only
 by a final reference source — `literalParentId(pk)` for a child-held nested `update`
@@ -1043,7 +1043,7 @@ only D ×7 + H ×1 (T3c) remain.
 
 - **Family C (×10)** — `RelationJunctionPart.buildJunctionParts` lifts the m2m scalarOnly
   boundary: a junction `create`/`update`/`upsert`-arm target whose data carries its own
-  relations folds them one level deeper through the SAME `buildNestedTargetChildParts` seam
+  relations folds them one level deeper through the same former depth-specific target-builder seam
   (a located update/upsert-update target by its `where` PK — mechanism 1 reuse; a fresh
   create/upsert-create target by its explicit `create` PK — mechanism 2, ATOM §4 elision).
   Slots carry per-target child Parts; `planning` plans the superset; `compile` emits the
@@ -1056,7 +1056,7 @@ only D ×7 + H ×1 (T3c) remain.
 - **Family G (×1)** — `RelationUpsertPart.buildArmChildParts` accepts a child-held `create`
   one level deeper on the connectOrCreate create arm: a fresh grandchild INSERT folding a
   single parent-held to-one `connect`, mirroring V1's accepted depth exactly.
-- **Named reorder obligation closed** — `buildNestedTargetChildParts` routes a deeper edge
+- **Named reorder obligation closed** — the former depth-specific target builder routes a deeper edge
   whose FK references a NON-PK column of the located target to V1 (the literal/planned parent
   id carries only the target's PK per-field, so a D4-style deep non-PK reference cannot be
   injected and would miss the PK-only depth reorder); the PK-only reorder check is therefore
@@ -1079,7 +1079,7 @@ is EMPTY. The V1 fallback arm holds no reachable accept-and-execute conformance 
   update arms compose the root machinery: a **scalar** arm stays inline (its proven
   INSERT-with-`racePin` / `UPDATE … [RETURNING]` path); a **relation-bearing** arm delegates
   to a `CreateOperation` (mechanism 2, fresh-parent elision / the create-root traversal
-  barrier) / `UpdateOperation` (mechanism 1, `buildNestedTargetChildParts` + reorder/cascade)
+  barrier) / `UpdateOperation` (mechanism 1, the former depth-specific target builder + reorder/cascade)
   sub-op that SHARES the upsert's `StepScope`, plans its whole superset (ATOM §3 technique 2 —
   only the taken arm's writes compile), and DEFERS its own-write barrier to the enclosing
   per-arm compile (V1 checks each arm's barrier inside its own branch — the create arm's is
@@ -1161,7 +1161,7 @@ boundary-stopped the rest with design notes and an exact list.
   companion (occupied-slot / cascade / setNull / restrict staging, no-op-transition
   detection, empty-slot race pin, validate-only-the-taken-branch); (VI) **deep
   create-context grandchildren** (3) — a create under a runtime-captured target id, one
-  step past `buildNestedTargetChildParts`; plus (b) three routing-doc tests that assert
+  step past the former depth-specific target builder; plus (b) three routing-doc tests that assert
   the V1-fallback route itself (rewritten when V1 dies at P6). Honest outcome: two
   classes were machinery-complete this drive; three remain as subsystems, one of which
   (the referential engine) the mission pre-sanctioned. None a regression — the full
@@ -1178,7 +1178,7 @@ the three V1-seam meta-tests. The exact remaining list is `BLAST_RADIUS_RESIDUAL
 
 **T4a — CLASS VI absorbed (blast radius 43 → 40).** The first and smallest of the three
 final subsystems is landed: **deep create-context grandchildren**, a nested `create` whose FK
-carries a captured parent id one step past `buildNestedTargetChildParts`' literal-parent reach
+carries a captured parent id one step past the former depth-specific target builder's literal-parent reach
 (refs point backward — the ATOM depth-recursion mechanism). Three keys, one family: (1) a
 `create` under a PLANNED parent-held `update` target — its FK inlined at compile from the
 located planning row (the shared fresh-record compiler); (2) a `create`
@@ -1333,7 +1333,7 @@ under a located target (a child-held nested `update`, a parent-held planned `upd
 after-root upsert create arm — all three leaves share the code) may now carry its OWN nested
 `create` / `createMany` relations, to arbitrary depth. The fresh child's primary key is a
 construction-time literal, so it is a `literalParentId` for its grandchildren — the SAME
-`buildNestedTargetChildParts` seam, one level deeper, NO counter and no one-more-level special
+the former depth-specific target builder seam, one level deeper, NO counter and no one-more-level special
 case (`buildFreshCreateGrandchildParts` in `nested-target-parts.ts`). The two `... nested
 relation writes in the create data … one level deeper` throws are DELETED; five finer-boundary
 throws replace them (census **87 → 90**), each a real seam difference (route-inventory §
