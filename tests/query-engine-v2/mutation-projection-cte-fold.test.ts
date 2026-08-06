@@ -1204,6 +1204,70 @@ describe("Phase 8.2 — the nested-create tree", () => {
     ]);
   });
 
+  test("a skip-carrying arm on another table still folds", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.account.create({
+      data: {
+        id: 308,
+        email: "a308@x",
+        label: "L308",
+        notes: {
+          createMany: {
+            data: [
+              { id: 3080, body: "A" },
+              { id: 3081, body: "B" },
+            ],
+            skipDuplicates: true,
+          },
+        },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(foldedInOneStatement(statements)).toBe(true);
+    expect(
+      await client.note.findMany({
+        where: { accountId: 308 },
+        orderBy: { id: "asc" },
+        select: { id: true },
+      })
+    ).toEqual([{ id: 3080 }, { id: 3081 }]);
+  });
+
+  test("a self-relation skip arm declines because it shares the root table", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = await boot(driver);
+
+    driver.recording = true;
+    await client.account.create({
+      data: {
+        id: 309,
+        email: "a309@x",
+        label: "L309",
+        reports: {
+          createMany: {
+            data: [{ id: 3090, email: "a3090@x", label: "report" }],
+            skipDuplicates: true,
+          },
+        },
+      },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
+    expect(
+      await client.account.findUnique({
+        where: { id: 3090 },
+        select: { managerId: true },
+      })
+    ).toEqual({ managerId: 309 });
+  });
+
   test("a lone scalar create keeps its own single-statement fold", async () => {
     const driver = new RecordingPGliteDriver();
     const client = await boot(driver);

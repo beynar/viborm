@@ -187,6 +187,8 @@ interface ChildCreate {
  */
 interface CreateManyGroup {
   readonly steps: readonly WriteStep[];
+  readonly targetTable: string;
+  readonly statementSkipsDuplicates: boolean;
   /**
    * Per step, whether its INSERT leaves a value for the DATABASE to assign —
    * Phase 8.2's ordering conjunct reads it (see {@link CreateOperation.buildTreeFold}).
@@ -602,7 +604,7 @@ export class CreateOperation {
    *  · **No step carries an effect the merge would drop.** A `skip` effect needs
    *    a savepoint scope one statement has not got, and a per-step `expects` is a
    *    JS check on a result that stops existing once the steps are one.
-   *  · **The arms do not care what order they run in** ({@link armsAreOrderInsensitive}).
+   *  · **The arms do not care what order they run in** ({@link foldArmsAreOrderInsensitive}).
    *    The multi-statement path runs them in declaration order; PostgreSQL runs
    *    unread data-modifying `WITH` arms in an order it does not specify, and on
    *    PG 16 it runs them LAST-TO-FIRST. Nothing the emitter can spell pins that,
@@ -622,9 +624,9 @@ export class CreateOperation {
       (step): step is WriteStep => step.kind === "write"
     );
     const [rootWrite, ...siblings] = statementWrites;
-    // The arms this tree can classify (see `armsAreOrderInsensitive`), by step id.
-    const assignments = new Map<string, boolean>();
-    collectArmAssignments(this.root, assignments);
+    // The arms this tree can classify, by step id.
+    const semantics = new Map<string, FoldArmSemantics>();
+    collectFoldArmSemantics(this.root, semantics);
     const foldable =
       this.mode === "transaction" &&
       this.engine.adapter.capabilities.supportsCteWithMutations &&
@@ -635,8 +637,7 @@ export class CreateOperation {
       siblings.length > 0 &&
       statementWrites.length === writes.length &&
       rootWrite?.id === this.root.writeStepId &&
-      armsAreOrderInsensitive(writes, assignments) &&
-      !foldWouldDropSkipSemantics(writes) &&
+      foldArmsAreOrderInsensitive(writes, semantics) &&
       statementWrites.every(
         (step) =>
           isSql(step.statement) &&
@@ -1577,6 +1578,10 @@ export class CreateOperation {
           insertTakesDatabaseAssignedValue(childScope.model, rows[index]!)
         )
       ),
+      targetTable: getTableName(childScope.model),
+      statementSkipsDuplicates:
+        skipDuplicates &&
+        this.engine.adapter.mutations.skipDuplicatesStrategy === "sql",
     });
   }
 
@@ -2115,8 +2120,8 @@ function freshReferenced(
  * default is already a value in the row. So an absent auto-increment column is the
  * whole of it, and two conjuncts answer the question, both fail-closed:
  *
- *  · **Every arm is one this tree classified.** `assignments` comes from walking the
- *    record tree the operation planned ({@link collectArmAssignments}); a write no
+ *  · **Every arm is one this tree classified.** The metadata comes from walking the
+ *    record tree the operation planned ({@link collectFoldArmSemantics}); a write no
  *    record and no `createMany` group produced is not in it, and an unclassified arm
  *    declines rather than being assumed harmless.
  *  · **At most ONE classified arm takes a database-assigned value.** Rows WITHIN one
@@ -2128,10 +2133,11 @@ function freshReferenced(
  * declines here and keeps the multi-statement path, while the same children through
  * `createMany` — one arm, one defined row order — still fold.
  */
-/** The SQL-leaf skip spelling on the one dialect that folds (PostgreSQL). */
-const SKIP_LEAF_PATTERN = /\bON CONFLICT\b[\s\S]*?\bDO NOTHING\b/i;
-/** The table an INSERT arm writes, read from the statement head. */
-const INSERT_TARGET_PATTERN = /^\s*INSERT\s+INTO\s+("[^"]+"|\S+)/i;
+interface FoldArmSemantics {
+  readonly databaseAssigned: boolean;
+  readonly targetTable: string;
+  readonly statementSkipsDuplicates: boolean;
+}
 
 /**
  * P8/P9 review (blocking): `ON CONFLICT DO NOTHING` cannot see a tuple another
@@ -2143,69 +2149,69 @@ const INSERT_TARGET_PATTERN = /^\s*INSERT\s+INTO\s+("[^"]+"|\S+)/i;
  * included — a self-relation puts the root's tuple in the same blind spot). A
  * single skip arm with internal duplicates stays foldable: rows within one
  * statement see each other's conflicts.
- * (The `onUniqueConflict` conjunct in the gate covers the recoverableUniqueError
- * strategy — MySQL — which has no CTE fold at all; this is the leaf spelling's
- * guard, the one the folding dialect actually uses.)
+ * The record plan owns these facts before SQL rendering. The fold therefore does
+ * not infer query semantics from a dialect's statement text.
  */
-function foldWouldDropSkipSemantics(writes: readonly OperationStep[]): boolean {
+function foldArmsAreOrderInsensitive(
+  writes: readonly OperationStep[],
+  semantics: ReadonlyMap<string, FoldArmSemantics>
+): boolean {
   const armsPerTable = new Map<string, number>();
   const skipTables: string[] = [];
-  for (const step of writes) {
-    if (step.kind !== "write" || !isSql(step.statement)) continue;
-    const text = step.statement.strings.join("?");
-    const target = INSERT_TARGET_PATTERN.exec(text)?.[1];
-    if (!target) continue;
-    armsPerTable.set(target, (armsPerTable.get(target) ?? 0) + 1);
-    if (SKIP_LEAF_PATTERN.test(text)) skipTables.push(target);
-  }
-  return skipTables.some((table) => (armsPerTable.get(table) ?? 0) >= 2);
-}
-
-function armsAreOrderInsensitive(
-  writes: readonly OperationStep[],
-  assignments: ReadonlyMap<string, boolean>
-): boolean {
   let databaseAssigned = 0;
   for (const step of writes) {
-    const takesAssignedValue = assignments.get(step.id);
-    if (takesAssignedValue === undefined) return false;
-    if (takesAssignedValue) databaseAssigned += 1;
+    const arm = semantics.get(step.id);
+    if (!arm) return false;
+    armsPerTable.set(
+      arm.targetTable,
+      (armsPerTable.get(arm.targetTable) ?? 0) + 1
+    );
+    if (arm.statementSkipsDuplicates) skipTables.push(arm.targetTable);
+    if (arm.databaseAssigned) databaseAssigned += 1;
   }
-  return databaseAssigned <= 1;
+  return (
+    databaseAssigned <= 1 &&
+    !skipTables.some((table) => (armsPerTable.get(table) ?? 0) >= 2)
+  );
 }
 
-/** Every write step {@link armsAreOrderInsensitive} can classify, and whether its
- *  INSERT leaves a value for the database to assign. Walks the record tree exactly
- *  as `emitRecord` emits it, so the two agree on which steps exist. */
-function collectArmAssignments(
+/** Every write step {@link foldArmsAreOrderInsensitive} can classify. Walks the
+ * record tree exactly as `emitRecord` emits it, so the two agree on which steps
+ * exist. */
+function collectFoldArmSemantics(
   plan: RecordPlan,
-  into: Map<string, boolean>
+  into: Map<string, FoldArmSemantics>
 ): void {
   for (const arm of plan.parentHeldArms) {
     // The other parent-held kinds either write nothing (`connect-covered`) or plan a
     // probe, and a tree that probed has already declined on empty planning.
-    if (arm.kind === "create") collectArmAssignments(arm.before, into);
+    if (arm.kind === "create") collectFoldArmSemantics(arm.before, into);
   }
-  into.set(
-    plan.writeStepId,
-    insertTakesDatabaseAssignedValue(plan.model, {
+  into.set(plan.writeStepId, {
+    databaseAssigned: insertTakesDatabaseAssignedValue(plan.model, {
       ...plan.scalarData,
       ...plan.identity,
-    })
-  );
+    }),
+    targetTable: getTableName(plan.model),
+    statementSkipsDuplicates: false,
+  });
   for (const child of plan.childCreates) {
-    collectArmAssignments(child.record, into);
+    collectFoldArmSemantics(child.record, into);
   }
   for (const group of plan.createManyGroups) {
     for (const [index, step] of group.steps.entries()) {
-      into.set(step.id, group.databaseAssigned[index]!);
+      into.set(step.id, {
+        databaseAssigned: group.databaseAssigned[index]!,
+        targetTable: group.targetTable,
+        statementSkipsDuplicates: group.statementSkipsDuplicates,
+      });
     }
   }
 }
 
 /** Whether this INSERT leaves a value for the DATABASE to assign — an auto-increment
  *  column the row does not spell, which is the only kind there is (see the sequence
- *  paragraph on {@link armsAreOrderInsensitive}). */
+ *  paragraph on {@link foldArmsAreOrderInsensitive}). */
 function insertTakesDatabaseAssignedValue(
   model: Model<any>,
   row: Readonly<Record<string, unknown>>
