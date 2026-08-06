@@ -35,9 +35,9 @@ The remaining local compression was measured after the main migration. Only guar
 ## Follow-on record-compiler experiment
 
 The follow-on work started at `d4bcdde` and its production implementation ended
-at `ff5ff41`. It tested two proposals: one compiler for each non-bulk record and
-one bound relation-position atom. The retained production change adds 1,779
-TypeScript lines and deletes 2,869: **net −1,090 lines** in
+at `ec60888`. It tested two proposals: one compiler for each non-bulk record and
+one bound relation-position atom. The retained production change adds 1,788
+TypeScript lines and deletes 2,919: **net −1,131 lines** in
 `src/query-engine`. This passes the required −800-line gate and falls inside the
 planned 800–1,250-line range without junction-create absorption.
 
@@ -71,6 +71,11 @@ update implementation. This intentionally normalizes internal target-read IDs
 and projections while preserving public results, SQL meaning, parameter order,
 guards, failures, write order, and statement count. A true empty nested update
 returns before allocating an ID and emits no step.
+
+Conditional update-arm planning publishes captured target fields as optional
+outputs. A found arm can therefore compile its descendants, while the same
+descendants remain inert when the create arm is selected. No planning
+postcondition can reject the untaken update arm.
 
 The work removed these named surfaces, in addition to their duplicate branches:
 `FkDirection`, `getFkDirection`, `rootFkInject`,
