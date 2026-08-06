@@ -411,6 +411,7 @@ export class UpdateOperation {
   // it as a `planned` parent id into that read (N1-U1).
   private readonly locateId: string;
   private readonly locate: ReadStep;
+  private readonly requiredTargetFields: readonly string[];
   // Whether the non-fold path emits a parent-row UPDATE (a scalar SET ∪ to-one FK
   // folds). Built at compile so it can address the captured PK (V1's `WHERE id`);
   // `false` for a relation-only update (no parent row written) or the fold path.
@@ -919,6 +920,7 @@ export class UpdateOperation {
     const locateSelectFields = [
       ...new Set<string>([...locateFields, ...parentFkLocateFields]),
     ];
+    this.requiredTargetFields = locateSelectFields;
     // X1c: a nested target's locate is CORRELATED to its enclosing parent — the
     // target's own unique `where` (child-held to-many; empty for a to-one / parent-held
     // target) ANDed with `child.<childField> = parent.<referenced>` (a SQL `Ref` to the
@@ -1090,6 +1092,54 @@ export class UpdateOperation {
     }
     const locatedRow = locateRows[0] as Record<string, unknown>;
 
+    const steps = this.compileLocatedRecord(known, locatedRow, true);
+    // X1c: a nested target contributes only its writes/guards; the enclosing operation
+    // owns the terminal read and the result (no double refetch, no cross-fragment ref).
+    if (this.suppressTerminal) {
+      return { steps, outputs: {} };
+    }
+    steps.push(this.buildTerminal(locatedRow));
+    return { steps, outputs: { result: ref(this.terminalId, "result") } };
+  }
+
+  /** The target-read id consumed by a composing relation owner. */
+  selectedTargetReadId(): string {
+    return this.locateId;
+  }
+
+  /** The root UPDATE id emitted by this record compiler. */
+  selectedWriteId(): string {
+    return this.updateId;
+  }
+
+  /** Fields the caller-owned target read must capture for this record subtree. */
+  selectedRequiredTargetFields(): readonly string[] {
+    return this.requiredTargetFields;
+  }
+
+  /** Plan descendants of a caller-owned selected-record read. */
+  selectedPlanning(): readonly StatementStep[] {
+    return this.planning().steps.filter((step) => step.id !== this.locateId);
+  }
+
+  /** Compile one row already selected by the relation owner. */
+  compileSelected(
+    known: Readonly<Record<string, unknown>>
+  ): readonly OperationStep[] {
+    const rows = known[planningKey(this.locateId, "rows")];
+    if (!(Array.isArray(rows) && isRecord(rows[0]))) {
+      throw new QueryEngineError(
+        "query-engine-v2 selected record compiler received no captured target row."
+      );
+    }
+    return this.compileLocatedRecord(known, rows[0], false);
+  }
+
+  private compileLocatedRecord(
+    known: Readonly<Record<string, unknown>>,
+    locatedRow: Record<string, unknown>,
+    includeRootPresenceGuard: boolean
+  ): OperationStep[] {
     // Build-don't-select (P1.2): to-one connect checks + child arms construct
     // their taken steps; the shared root update and deep terminal read emit once.
     // Guards hoist ahead of every write (batch pins premises first).
@@ -1100,7 +1150,7 @@ export class UpdateOperation {
     // root write, lowered to an adapter-owned exists assertion. It closes the
     // staleness window between the unlocked locate read and the batch; a
     // concurrent delete aborts the batch typed instead of a silent empty result.
-    if (this.mode === "batch") {
+    if (includeRootPresenceGuard && this.mode === "batch") {
       guards.push(this.buildRootPresenceGuard(known, locatedRow));
     }
     // CLASS IV (T4c): the referential-action occupied guards. The transition is real
@@ -1174,13 +1224,7 @@ export class UpdateOperation {
       }
       steps.push(...afterRootWrites);
     }
-    // X1c: a nested target contributes only its writes/guards; the enclosing operation
-    // owns the terminal read and the result (no double refetch, no cross-fragment ref).
-    if (this.suppressTerminal) {
-      return { steps, outputs: {} };
-    }
-    steps.push(this.buildTerminal(locatedRow));
-    return { steps, outputs: { result: ref(this.terminalId, "result") } };
+    return steps;
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {

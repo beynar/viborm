@@ -1,23 +1,19 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationWritePart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import { getPrimaryKeyFields } from "../builders/correlation-utils";
-import {
-  bindRelation,
-  type ChildHeldToMany,
-  type ChildHeldToOne,
+import type {
+  ChildHeldToMany,
+  ChildHeldToOne,
 } from "../builders/relation-data-builder";
 import type {
   NormalizedRelationUpsert,
   RelationMutationEntry,
-  RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import {
   buildParsedRelationPrograms,
   partitionModelData,
 } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
-import { createQueryScope } from "../context/query-scope";
 import {
   buildDelete,
   buildDeleteMany,
@@ -26,10 +22,7 @@ import {
   buildUpdate,
   buildUpdateMany,
 } from "../operations";
-import {
-  assertPortablePrimaryKeyUpdateInput,
-  getUpdatedPrimaryKeyValue,
-} from "../operations/mutation-identity";
+import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import type { QueryScope } from "../types";
@@ -41,7 +34,6 @@ import {
   planningSourceFromFinal,
 } from "./foreign-key-reference";
 import {
-  absenceGuard,
   affectedRows,
   exactlyOneRow,
   nestedWriteFailure,
@@ -49,19 +41,13 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import {
-  relationKeyOccupiedMessage,
   relationOwnsForeignKey,
   relationTargetNotFound,
   setRequiredOrphan,
   upsertPremiseChanged,
   upsertTargetVanished,
 } from "./messages";
-import {
-  buildNestedTargetUpdatePart,
-  type FreshArmBuilder,
-  type NestedChildBuilder,
-  targetNeedsFullUpdate,
-} from "./nested-target-parts";
+import type { FreshArmBuilder } from "./nested-target-parts";
 import type {
   OperationStep,
   ReadStep,
@@ -70,15 +56,13 @@ import type {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import { literalParentId, plannedParentId } from "./RelationUpsertPart";
+import {
+  buildRecordUpdateCompiler,
+  type RecordUpdateCompiler,
+} from "./RecordUpdateCompiler";
 import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
-import {
-  getStepModelName,
-  sameScalarValue,
-  UnsupportedOperationError,
-  uniqueSelectorConjuncts,
-} from "./shared";
+import { UnsupportedOperationError, uniqueSelectorConjuncts } from "./shared";
 
 /**
  * The correlated child-write family (PLAN P2c): nested `update` / `updateMany` /
@@ -151,18 +135,6 @@ export interface RelationWriteConfig {
    */
   /** N4-U2 — the inverse-side to-one upsert's CREATE arm is always a fresh subtree. */
   readonly upsertCreateSubtree?: Part;
-  /**
-   * T3b mechanism 1: the recursion seam. When a targeted `update`'s `data` carries
-   * nested relation writes, its located target builds its OWN child Parts through
-   * this builder, exactly as a root update does — the family-B boundary lifted. The
-   * target's primary key reaches them under either provenance (N4-U1): a {@link
-   * literalParentId} when the unique `where` names it, a {@link plannedParentId} into
-   * this part's own locate probe when some other unique does — or when there is no
-   * `where` at all (E2-U1, the inverse-side to-one, whose locator IS the correlation).
-   * A relation-carrying `update` with no builder, a bulk `updateMany`, or the
-   * inverse-side to-one upsert arm still declines.
-   */
-  readonly nestedBuilder?: NestedChildBuilder;
 }
 
 export class RelationWritePart implements Part {
@@ -171,22 +143,11 @@ export class RelationWritePart implements Part {
   private readonly writeId: string;
   private readonly guardId: string;
   private readonly probe?: ReadStep;
-  // T3b mechanism 1 — the located target's own child Parts (built from its `data`
-  // relations) and whether its self-UPDATE must land AFTER them (a PK transition it
-  // rewrites, carried to the deeper FK by ON UPDATE CASCADE — the root's
-  // `reorderRootUpdateAfterChildren` ported to depth). Empty / false when the
-  // targeted update carries no nested relation writes.
-  private readonly childParts: readonly Part[];
-  private readonly reorderAfterChildren: boolean;
   // The validated scalar assignments of a targeted `update`/`updateMany` (∅ when a
   // relation-only nested update carries no scalars — then no self-UPDATE is emitted,
   // only the child Parts). Computed once at construction.
   private readonly updateScalarData?: Record<string, unknown>;
-  // N4-U1: this part's own probe is the target's LOCATE, so its captured primary key
-  // can be the deeper edges' parent value when the `where` does not name it. Set when
-  // the child Parts were built against a `planned` source pointing at {@link probeId} —
-  // the probe then owes them a `firstRowField` output and a not-found postcondition.
-  private readonly probeCarriesLocatedPk: boolean;
+  private readonly updateCompiler?: RecordUpdateCompiler;
   // N7-U-B — a nested `update`/`updateMany` arm that asks for nothing: no scalar
   // assignment, no deeper relation write, and not an upsert arm (whose CREATE half
   // still runs when the probe finds no row). Prisma skips such an arm entirely, so
@@ -208,30 +169,36 @@ export class RelationWritePart implements Part {
 
   constructor(scope: StepScope, config: RelationWriteConfig) {
     this.config = config;
-    this.probeId = scope.allocate(`${config.childName}.find`);
-    this.writeId = scope.allocate(`${config.childName}.${config.kind}`);
+    if (config.kind === "update" && config.upsertCreateSubtree === undefined) {
+      this.updateCompiler = this.buildUpdateCompiler(scope);
+      this.isNoOpUpdate = this.updateCompiler === undefined;
+    }
+    if (this.isNoOpUpdate) {
+      this.probeId = "";
+      this.writeId = "";
+      this.guardId = "";
+      return;
+    }
+    this.probeId =
+      this.updateCompiler?.targetReadId ??
+      scope.allocate(`${config.childName}.find`);
+    this.writeId =
+      this.updateCompiler?.writeId ??
+      scope.allocate(`${config.childName}.${config.kind}`);
     this.guardId = scope.allocate(`${config.childName}.guard.exists`);
-    this.childParts = [];
-    this.reorderAfterChildren = false;
-    this.probeCarriesLocatedPk = false;
     // Payload-determined support decisions are made at CONSTRUCTION — before any
     // I/O — so a shape V2 does not own declines with a typed UnsupportedOperationError
     // that PROPAGATES (post-P6: no V1 fallback catches it). A nested relation write
     // inside `update`/`updateMany` data was, pre-T3b, such a shape; mechanism 1 now
     // folds it one level deeper (see `interpretChildParts`).
-    if (config.kind === "update" || config.kind === "updateMany") {
-      const built = this.interpretChildParts(scope);
-      this.childParts = built.childParts;
-      this.reorderAfterChildren = built.reorderAfterChildren;
-      this.updateScalarData = built.scalarData;
-      this.probeCarriesLocatedPk = built.parentIsLocatedPk;
+    if (
+      config.kind === "updateMany" ||
+      (config.kind === "update" && config.upsertCreateSubtree !== undefined)
+    ) {
+      this.updateScalarData = this.parseScalarUpdateData();
       this.isNoOpUpdate =
         config.upsertCreateSubtree === undefined &&
-        built.childParts.length === 0 &&
-        Object.keys(built.scalarData).length === 0;
-      // MERGE (N4 + N5): the PK-arithmetic portability check that used to stand here
-      // moved INTO `interpretChildParts` (N5-U1b) — it must run before that method
-      // derives a post-transition primary key from the same scalar assignments.
+        Object.keys(this.updateScalarData).length === 0;
     }
     // The probe is built LAST: whether it owes the deeper edges the located primary
     // key is a fact about the child Parts, which are interpreted above. A no-op arm
@@ -243,12 +210,7 @@ export class RelationWritePart implements Part {
   planning(scope: StepScope): readonly StatementStep[] {
     if (this.isNoOpUpdate) return [];
     const steps: StatementStep[] = this.probe ? [this.probe] : [];
-    // Depth (T3b mechanism 1): the located target's own child Parts plan their
-    // probes here, one level deeper — the same unconditional planning superset the
-    // root and the upsert-arm recursion already use (ATOM §3 technique 2). The
-    // upsert CREATE arm's subtree plans here too, unconditionally: which arm compiles
-    // is a compile-time decision, and planning is the widened superset of both.
-    for (const child of this.childParts) steps.push(...child.planning(scope));
+    if (this.updateCompiler) steps.push(...this.updateCompiler.planning());
     if (this.config.upsertCreateSubtree) {
       steps.push(...this.config.upsertCreateSubtree.planning(scope));
     }
@@ -294,23 +256,13 @@ export class RelationWritePart implements Part {
       steps.push(this.buildDeleteOne(capturedWhere));
       return steps;
     }
-    // `update` — mechanism 1. The self-UPDATE (emitted only when the payload carries
-    // scalar assignments; a relation-only nested update writes no parent row) lands
-    // BEFORE the located target's child Parts by default, or AFTER them when its SET
-    // rewrites the target's own primary key (a PK transition the deeper FK references,
-    // carried to the new value by ON UPDATE CASCADE — `reorderRootUpdateAfterChildren`
-    // ported to depth). The child Parts correlate to the PRE-transition literal PK.
-    const childSteps: OperationStep[] = [];
-    for (const child of this.childParts) {
-      childSteps.push(...child.compile(scope, known));
+    if (this.updateCompiler) {
+      steps.push(...this.updateCompiler.compile(known));
+      return steps;
     }
-    const selfUpdate = this.hasSelfUpdate()
-      ? this.buildUpdateOne(capturedWhere)
-      : undefined;
-    if (selfUpdate && !this.reorderAfterChildren) steps.push(selfUpdate);
-    steps.push(...childSteps);
-    if (selfUpdate && this.reorderAfterChildren) steps.push(selfUpdate);
-    return steps;
+    throw new QueryEngineError(
+      `query-engine-v2 update for relation '${this.relationName}' has no record compiler.`
+    );
   }
 
   /** Whether a targeted `update` writes the target row itself (a non-empty scalar
@@ -421,19 +373,6 @@ export class RelationWritePart implements Part {
     };
   }
 
-  private buildUpdateOne(where: Record<string, unknown>): WriteStep {
-    return {
-      id: this.writeId,
-      kind: "write",
-      statement: buildUpdate(this.config.childScope, {
-        where,
-        data: this.requireUpdateScalarData(),
-        select: { [this.config.childPrimaryKey]: true },
-      }),
-      outputs: {},
-    };
-  }
-
   private buildDeleteOne(where: Record<string, unknown>): WriteStep {
     return {
       id: this.writeId,
@@ -472,33 +411,28 @@ export class RelationWritePart implements Part {
    * modes (technique #1) — the literal is not known until that read runs.
    */
   private buildProbe(): ReadStep {
+    const selectedFields = this.updateCompiler?.requiredTargetFields ?? [
+      this.config.childPrimaryKey,
+    ];
     const step: ReadStep = {
       id: this.probeId,
       kind: "read",
       statement: this.correlatedProbeStatement(undefined, true),
-      outputs: { rows: { kind: "rows" } },
-    };
-    if (!this.probeCarriesLocatedPk) return step;
-    // N4-U1: the deeper edges take this probe's captured primary key as a `planned`
-    // source, so the probe must PUBLISH it — a `firstRowField` output the deeper
-    // planning probes can `Ref` in SQL, alongside the `rows` the compile-time inline
-    // already reads. That eager extraction throws on an empty result, so the probe also
-    // carries the not-found postcondition here (enforced during planning, before any
-    // write, with this family's own verbatim target-not-found wording) rather than
-    // leaving it to `capturedPk` at compile. Exactly the shape the parent-held to-one
-    // update probe already takes when its target carries child Parts
-    // (UpdateOperation.buildParentHeldUpdate).
-    return {
-      ...step,
       outputs: {
         rows: { kind: "rows" },
-        [this.config.childPrimaryKey]: {
-          kind: "firstRowField",
-          field: this.config.childPrimaryKey,
-        },
+        ...(this.updateCompiler
+          ? Object.fromEntries(
+              selectedFields.map((field) => [
+                field,
+                { kind: "firstRowField" as const, field },
+              ])
+            )
+          : {}),
       },
-      expects: exactlyOneRow(this.targetFailure()),
     };
+    return this.updateCompiler
+      ? { ...step, expects: exactlyOneRow(this.targetFailure()) }
+      : step;
   }
 
   /**
@@ -515,6 +449,9 @@ export class RelationWritePart implements Part {
     useRef: boolean,
     capturedPk?: unknown
   ): Sql {
+    const selectedFields = this.updateCompiler?.requiredTargetFields ?? [
+      this.config.childPrimaryKey,
+    ];
     return buildFind(
       this.config.childScope,
       {
@@ -528,7 +465,9 @@ export class RelationWritePart implements Part {
               : [{ [this.config.childPrimaryKey]: { equals: capturedPk } }]),
           ],
         },
-        select: { [this.config.childPrimaryKey]: true },
+        select: Object.fromEntries(
+          selectedFields.map((field) => [field, true])
+        ),
         forUpdate: this.config.txMode,
       },
       { limit: 1 }
@@ -586,241 +525,61 @@ export class RelationWritePart implements Part {
     });
   }
 
-  /**
-   * Separate a targeted `update`/`updateMany` payload into its scalar assignments
-   * and its child Parts (T3b mechanism 1). Pre-T3b this threw for any nested relation
-   * write; now a targeted `update` folds those relations one level deeper
-   * ({@link nestedBuilder}), the located target building its own child Parts exactly
-   * as a root update does — whether the target was named by its primary key, by
-   * another unique (N4-U1), or by the FK correlation alone (E2-U1, the inverse-side
-   * to-one). A relation-carrying `updateMany` (bulk, no captured PK), the inverse-side
-   * to-one UPSERT arm (no arm for the child Parts to be emitted under), or a build
-   * without the recursion seam still declines.
-   */
-  private interpretChildParts(scope: StepScope): {
-    childParts: readonly Part[];
-    reorderAfterChildren: boolean;
-    scalarData: Record<string, unknown>;
-    parentIsLocatedPk: boolean;
-  } {
-    const { data, childScope, kind } = this.config;
-    const relationName = this.relationName;
+  private buildUpdateCompiler(
+    scope: StepScope
+  ): RecordUpdateCompiler | undefined {
+    const data = this.config.data;
     if (!data) {
       throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relationName}' requires data.`
+        `query-engine-v2 update for relation '${this.relationName}' requires data.`
+      );
+    }
+    return buildRecordUpdateCompiler({
+      scope,
+      engine: this.config.engine,
+      targetScope: this.config.childScope,
+      data,
+      locate: {
+        ...(this.config.where ? { where: this.config.where } : {}),
+        parentId: this.config.parentId,
+        childFields: this.foreignFields,
+        parentFields: this.referencedFields,
+        ...(this.config.targetFilter
+          ? { filter: this.config.targetFilter }
+          : {}),
+        relationName: this.relationName,
+        notFoundMessage: relationTargetNotFound(
+          this.config.relation.relationInfo,
+          "update"
+        ),
+      },
+    });
+  }
+
+  /** Bulk updates and the legacy inverse-to-one upsert leaf accept scalar data only. */
+  private parseScalarUpdateData(): Record<string, unknown> {
+    const { data, childScope, kind } = this.config;
+    if (!data) {
+      throw new QueryEngineError(
+        `query-engine-v2 ${kind} for relation '${this.relationName}' requires data.`
       );
     }
     const { scalarData, relations } = buildParsedRelationPrograms(
       childScope,
       data
     );
-    // V1's PK-arithmetic portability check on the nested child data (float/decimal
-    // non-portability, divide-by-zero, one-op) — a payload legality gate at construction
-    // (before the probe), matching RelationUpdates, on the scalar assignments only
-    // (nested relation writes are not PK arithmetic). It runs HERE rather than after this
-    // method because N5-U1 derives a post-transition primary key from those same
-    // assignments below, and that derivation is only sound once the operand is known
-    // portable — the same precondition `resolveCreateParent` states at the root.
     assertPortablePrimaryKeyUpdateInput(childScope.model, kind, {
       data: scalarData,
     });
-    // CLASS IV (T4c) — V1's `assertRelationKeyUpdatesAreCompilable`, reused: the
-    // located target's own relation-key fields may not be rewritten by a non-literal
-    // op while it mutates that relation (`authorId: { increment }` alongside
-    // `author: { update }`). V1 runs this at EVERY `compileLocatedUpdate` level; this
-    // is the nested level (a to-many/inverse-to-one `update` target's payload), so the
-    // reject recurses into nested update data BEFORE any outer effect, byte-identical.
     assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
-    if (Object.keys(relations).length === 0) {
-      // An EMPTY nested update payload (`update: { where, data: {} }`,
-      // `updateMany: { where, data: {} }`) asks for nothing. Measured against Prisma
-      // 7.9.1 (`@prisma/adapter-pg`, Postgres): both spellings return the parent
-      // unchanged, and — unlike a non-empty nested update — a `where` matching NO row
-      // raises nothing either, so the arm is skipped whole rather than located and
-      // found missing. viborm's root already accepts `update({ where, data: {} })`;
-      // this makes the nested spelling agree (N7-U-B). The Part answers by emitting no
-      // steps at all — see `isNoOpUpdate`.
-      return {
-        childParts: [],
-        reorderAfterChildren: false,
-        scalarData,
-        parentIsLocatedPk: false,
-      };
-    }
-    // Nested relation writes present. A targeted `update` folds them; the unique
-    // `where` is NOT part of that premise (E2-U1). An inverse-side to-one `update`
-    // carries no unique locator by construction (TO-ONE.md §7.2 — the FK correlation
-    // IS the locator), and the row it acts on is exactly as located as a to-many
-    // target named by a non-primary-key unique: this part's own correlated probe holds
-    // it, and N4-U1 already hands that probe's captured primary key to the deeper edges
-    // as a `planned` source. Both spellings converge on one identity — the row the
-    // probe locked — so the `where` decides only whether that identity is ALSO a
-    // compile-time literal, never whether the fold is possible.
-    //
-    // Three positions still decline, each for its own reason:
-    //  · the inverse-side to-one UPSERT arm — `compileInverseToOneUpsert` decides the
-    //    three-way at compile and its found arm emits the update leaf ALONE; the child
-    //    Parts have no arm to be emitted under, so folding them here would run the
-    //    grandchildren on the CREATE branch too (E3 owns the arm wiring);
-    //  · a bulk `updateMany` — a set-based write has no per-row identity for a deeper
-    //    edge to reference;
-    //  · a build without the recursion seam.
-    const isUpsertArm = this.config.upsertCreateSubtree !== undefined;
-    if (kind !== "update" || isUpsertArm || !this.config.nestedBuilder) {
+    if (Object.keys(relations).length > 0) {
+      const operation =
+        this.config.upsertCreateSubtree === undefined ? kind : "upsert";
       throw new UnsupportedOperationError(
-        `query-engine-v2 ${isUpsertArm ? "upsert" : kind} for relation '${relationName}' does not support nested relation writes in its data.`
+        `query-engine-v2 ${operation} for relation '${this.relationName}' does not support nested relation writes in its data.`
       );
     }
-    // N4-U1 — the target's primary key, whichever unique named the row.
-    //
-    // The deeper edges' foreign keys reference THIS target's primary key. When the
-    // `where` names it, that is a compile-time literal and nothing is read. When it
-    // names some OTHER unique (`{ slug }`, `{ email }`), the key is not unknowable —
-    // this part ALREADY locates the row: `correlatedProbeStatement` selects the
-    // primary key and `capturedPk` is the identity the self-UPDATE addresses. So the
-    // deeper edges take a `planned` source pointing at that same probe, exactly as N1
-    // gave the root's child edges the located-parent Ref, and the value they spend is
-    // read from THE ROW THE PROBE LOCKED — never re-derived from the `where` (the
-    // wrong-row doctrine). Both provenances converge on one identity: the located row.
-    //
-    // An inverse-side to-one has NO `where` at all, which is the same answer as a
-    // to-many named by another unique: no compile-time literal, so the deeper edges
-    // read the probe. `getWhereUniqueEntries` is asked only when there is a selector
-    // to partition — an absent one is not an empty one.
-    const pkEntry = this.config.where
-      ? getWhereUniqueEntries(childScope, this.config.where).find(
-          (entry) => entry.fieldName === this.config.childPrimaryKey
-        )
-      : undefined;
-    const parentIsLocatedPk = pkEntry === undefined;
-    const primaryKey = this.config.childPrimaryKey;
-    // Does this target's own SET rewrite the primary key the deeper edges reference?
-    //
-    // Named reorder obligation (TO-ONE.md §7.7): the root reorders on its full
-    // referenced-column union (PK ∪ every child-referenced column, D4-style non-PK
-    // references included); the PK is the ONLY referenced column that can reach this
-    // depth check, because `buildNestedTargetChildParts` routes every deeper edge whose
-    // FK references a non-PK column of the target to V1 (the literal/planned parent id
-    // carries only the target's PK per-field). So checking the PK here is complete —
-    // no D4-style deep non-PK reference is silently reordered wrong; it never arrives.
-    //
-    // A SET that names the primary key is not automatically a TRANSITION. `set` to the
-    // value the key already carries and `increment: 0` write the key without MOVING it,
-    // and the root has always answered that with `{ regime: "none" }` — no occupied
-    // guard, no reordering, the ordinary parts byte-identical (pinned by "allows
-    // same-value set on an occupied setNull relation" and "allows increment zero …" in
-    // `relation-key-update-legality.test.ts`). Depth owes the same answer, from the same
-    // two literals: the where-pinned pre-value and `getUpdatedPrimaryKeyValue` over the
-    // operand, both already in hand here. Asking `Object.hasOwn` alone made an occupied
-    // slot a REJECTION at depth for a payload the root ACCEPTS, under a message claiming
-    // a transition that is not happening — one rule answering two ways.
-    //
-    // Only the where-pinned spelling can be decided: a target named by another unique
-    // has no compile-time pre-value to compare against, so a no-op there is
-    // indistinguishable from a move and takes the ordinary transition path — the same
-    // place the root's `pastSurface` leaves an unpinned pre-value.
-    const setsPk = Object.hasOwn(scalarData, primaryKey);
-    const afterPk =
-      setsPk && pkEntry !== undefined
-        ? getUpdatedPrimaryKeyValue(
-            childScope.model,
-            primaryKey,
-            pkEntry.value,
-            scalarData[primaryKey],
-            getStepModelName(childScope.model, relationName)
-          )
-        : undefined;
-    const transitionsPk =
-      setsPk &&
-      !(pkEntry !== undefined && sameScalarValue(pkEntry.value, afterPk));
-    // Two orderings, one per referential action, and the action is what picks:
-    //
-    //  · CASCADE (the implicit m2m junction FK, serializer default): write the edge
-    //    against the PRE-transition literal FIRST, then let the self-UPDATE's
-    //    `ON UPDATE CASCADE` carry it old → new. `reorderAfterChildren`.
-    //  · NON-cascade (a child-held one-to-many / inverse-side one-to-one FK, NO ACTION
-    //    by default): the same order strands the edge on the id the transition vacates.
-    //    N5-U1 gives it the ordering the root already had — write against the
-    //    POST-transition literal AFTER the self-UPDATE — plus the CLASS IV occupied
-    //    guard the root emits for exactly this situation, so an OCCUPIED old slot is the
-    //    same typed rejection at depth that it is at the root instead of the referential
-    //    action silently nulling those children.
-    const postTransition =
-      transitionsPk &&
-      !pkTransitionCascadeSafe(childScope, relations, primaryKey);
-    const childParts: Part[] = [];
-    let parentSource: FinalReferenceSource;
-    if (pkEntry === undefined) {
-      if (postTransition) {
-        // MERGE (N4 × N5) — the one shape neither lane's mechanism reaches, and it
-        // exists only where the two absorptions MEET. N4 lets the target be named by
-        // any unique, giving the deeper edges a `planned` source into this part's
-        // probe; N5 orders a NON-cascade deeper edge after the self-UPDATE and binds
-        // it to the POST-transition key. Intersect them and the edge needs a value
-        // that is neither: the probe runs BEFORE the self-UPDATE, so a `planned`
-        // source reads the key the transition is about to vacate, and no
-        // The transitioned source applies the SET's operand to a planned value at compile —
-        // `literal`, `planned` and `ref` each carry a value verbatim, none transforms
-        // it. The occupied guard below needs the same pre-transition literal to say
-        // which slot it is checking. Both wants are the ONE mechanism N5's own record
-        // names for a follow-on unit (an operand-applying `planned` source), so this
-        // fails closed rather than binding a stale key. Neither lane REGRESSES here:
-        // at the shared base both spellings of this payload already declined.
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${primaryKey}' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key.`
-        );
-      }
-      parentSource = plannedParentId(this.probeId);
-    } else {
-      if (postTransition) {
-        childParts.push(
-          ...buildPkTransitionOccupiedGuards({
-            scope,
-            childScope,
-            relations,
-            transitioningPk: primaryKey,
-            before: pkEntry.value,
-            txMode: this.config.txMode,
-          })
-        );
-      }
-      parentSource = literalParentId(postTransition ? afterPk : pkEntry.value);
-    }
-    // E2-U3 — a junction edge BESIDE a non-cascade one, under the post-transition
-    // ordering. The mix used to decline because one value cannot serve both halves of a
-    // junction: its membership READ runs at planning, before the self-UPDATE exists, so
-    // it can only ask for the key the join rows carry NOW (the where-pinned pre-value);
-    // its WRITES run after that UPDATE, by which time `ON UPDATE CASCADE` has carried
-    // those same rows to the new key, so they must use it. Two values, two positions —
-    // which is not a missing mechanism but the split N5-U1 already built for `set`
-    // (`RelationSetConfig.membershipReadSource`), carried through the child-Part seam to
-    // `RelationJunctionPart`. The non-cascade sibling keeps the ordering N5-U1 gave it
-    // (written against `afterPk`, after the self-UPDATE, behind the occupied guard
-    // above), so both edges get their own correct value from one ordering.
-    //
-    // Only the where-pinned spelling reaches here: `pkEntry === undefined` under a
-    // post-transition already declined above (no compile-time pre-value exists to read
-    // membership by, which is the same value the occupied guard needs).
-    const membershipReadSource =
-      postTransition && pkEntry !== undefined
-        ? literalParentId(pkEntry.value)
-        : undefined;
-    childParts.push(
-      ...this.config.nestedBuilder(
-        childScope,
-        parentSource,
-        relations,
-        this.config.txMode,
-        membershipReadSource
-      )
-    );
-    return {
-      childParts,
-      reorderAfterChildren:
-        childParts.length > 0 && transitionsPk && !postTransition,
-      scalarData,
-      parentIsLocatedPk: parentIsLocatedPk && childParts.length > 0,
-    };
+    return scalarData;
   }
 
   /** The validated scalar assignments of a targeted `update`/`updateMany`; the leaf
@@ -919,174 +678,6 @@ export class RelationWritePart implements Part {
       : [];
   }
 }
-
-/**
- * Whether a nested-update PK transition can safely use the pre-transition-literal +
- * reorder mechanism ({@link RelationWritePart} `compileTargeted`): the child edge is
- * written against the target's OLD primary key, then the self-UPDATE rewrites that PK,
- * and the deeper FK is carried old→new by ON UPDATE CASCADE. That is sound only when
- * every deeper edge referencing the transitioning PK cascades on update:
- *
- * - an implicit **m2m junction** FK is ON UPDATE CASCADE by default (serializer) — safe;
- * - a **child-held** one-to-many / inverse-side one-to-one FK defaults to NO ACTION, so
- *   the edge written against the old id is stranded when the PK moves (a ForeignKeyError
- *   V1 never raises — V1 orders the edge against the POST-transition id). Route to V1.
- *
- * All non-junction relations reaching here already survived the child-Part builder, so
- * their bound referenced fields are the target's referenced fields.
- */
-function pkTransitionCascadeSafe(
-  targetScope: QueryScope,
-  relations: Record<string, RelationMutationProgram>,
-  transitioningPk: string
-): boolean {
-  for (const mutation of Object.values(relations)) {
-    const relation = bindRelation(targetScope, mutation.relationInfo);
-    // A junction FK cascades on update by default.
-    if (relation.kind === "junction") continue;
-    if (
-      relation.referencedFields.includes(transitioningPk) &&
-      relation.onUpdate !== "cascade"
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * CLASS IV AT DEPTH (N5-U1) — the occupied-slot rejection the root emits for a
- * non-cascade referenced-key transition, for a nested update TARGET that transitions
- * its OWN primary key.
- *
- * The root's version ({@link UpdateOperation} `pushOccupiedGuard`) reads the old slot
- * through the operation's own `relationKeyGuards` list; at depth there is no such list,
- * so the same read/verdict pair is a Part — which is the point of Parts. Both ask one
- * question: does any child still carry the key this update is about to move? Occupied is
- * V1's typed `Cannot update relation '…' with onUpdate('…') while the current relation
- * is occupied.`; empty is what makes the post-transition ordering correct, because it
- * means no edge is being left behind on the vacated key.
- *
- * One Part per deeper relation that actually holds a non-cascade foreign key referencing
- * the transitioning primary key — the same predicate {@link pkTransitionCascadeSafe}
- * answers, here reported per relation instead of as one boolean.
- */
-function buildPkTransitionOccupiedGuards(args: {
-  scope: StepScope;
-  childScope: QueryScope;
-  relations: Record<string, RelationMutationProgram>;
-  transitioningPk: string;
-  before: unknown;
-  txMode: boolean;
-}): RelationKeyOccupiedPart[] {
-  const { scope, childScope, relations, transitioningPk, before, txMode } =
-    args;
-  const guards: RelationKeyOccupiedPart[] = [];
-  for (const [relationName, mutation] of Object.entries(relations)) {
-    const info = mutation.relationInfo;
-    const relation = bindRelation(childScope, info);
-    if (
-      relation.kind === "junction" ||
-      relation.kind === "parentHeldToOne" ||
-      relation.onUpdate === "cascade" ||
-      !relation.referencedFields.includes(transitioningPk)
-    ) {
-      continue;
-    }
-    const deeperScope = createQueryScope(childScope.adapter, info.targetModel);
-    guards.push(
-      new RelationKeyOccupiedPart(scope, {
-        deeperScope,
-        deeperName: getStepModelName(info.targetModel, relationName),
-        relationName,
-        action: relation.onUpdate ?? "restrict",
-        fkField:
-          relation.foreignFields[
-            relation.referencedFields.indexOf(transitioningPk)
-          ]!,
-        before,
-        txMode,
-      })
-    );
-  }
-  return guards;
-}
-
-interface RelationKeyOccupiedConfig {
-  readonly deeperScope: QueryScope;
-  readonly deeperName: string;
-  readonly relationName: string;
-  readonly action: string;
-  readonly fkField: string;
-  readonly before: unknown;
-  readonly txMode: boolean;
-}
-
-/** The read + verdict pair described by {@link buildPkTransitionOccupiedGuards}.
- *  Transaction mode inspects the locked planning probe and throws before any write;
- *  batch mode pins the empty-slot decision with a `notExists` guard (`raceable: true` —
- *  a concurrent plant can invalidate it), exactly as the root's does. */
-class RelationKeyOccupiedPart implements Part {
-  private readonly config: RelationKeyOccupiedConfig;
-  private readonly probeId: string;
-  private readonly guardId: string;
-  private readonly statement: Sql;
-
-  constructor(scope: StepScope, config: RelationKeyOccupiedConfig) {
-    this.config = config;
-    this.probeId = scope.allocate(`${config.deeperName}.transition.find`);
-    this.guardId = scope.allocate(`${config.deeperName}.guard.occupied`);
-    this.statement = buildFind(
-      config.deeperScope,
-      {
-        where: { [config.fkField]: { equals: config.before } },
-        select: {
-          [getPrimaryKeyFields(config.deeperScope.model)[0]!]: true,
-        },
-        forUpdate: config.txMode,
-      },
-      { limit: 1 }
-    );
-  }
-
-  planning(): readonly StatementStep[] {
-    return [
-      {
-        id: this.probeId,
-        kind: "read",
-        statement: this.statement,
-        outputs: { rows: { kind: "rows" } },
-      },
-    ];
-  }
-
-  compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
-    const message = relationKeyOccupiedMessage(
-      this.config.relationName,
-      this.config.action
-    );
-    if (this.config.txMode) {
-      const rows = known[planningKey(this.probeId, "rows")];
-      if (Array.isArray(rows) && rows.length > 0) {
-        throw new NestedWriteError(message, this.config.relationName);
-      }
-      return [];
-    }
-    return [
-      absenceGuard(
-        this.guardId,
-        this.statement,
-        nestedWriteFailure(message, this.config.relationName, true)
-      ),
-    ];
-  }
-}
-
-// ---------------------------------------------------------------------------
-// set — membership as leaves (ATOM §2/§3). The departing-rows orphan guard is a
-// RETAINED notExists pin (raceable: true); the departing set is a planning-time
-// read inlined at compile, never crossing a write boundary at runtime.
-// ---------------------------------------------------------------------------
 
 export interface RelationSetConfig {
   readonly engine: QueryEngine;
@@ -1475,10 +1066,6 @@ interface WritePartBase {
   readonly childPrimaryKey: string;
   readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
-  /** T3b mechanism 1: the recursion seam a targeted `update` uses to fold nested
-   *  relation writes in its `data` one level deeper. Absent for the leaf families
-   *  (delete/deleteMany/updateMany), so those keep declining a relation payload. */
-  readonly nestedBuilder?: NestedChildBuilder;
   /** N4-U2: the fresh-arm seam the inverse-side to-one upsert's relation-carrying
    *  CREATE arm is built through. REQUIRED, so the absorption cannot be reached without
    *  it — a caller that forgot the seam would otherwise turn a typed refusal into an
@@ -1548,29 +1135,11 @@ export function buildToManyUpdateParts(
     // held before the fork below: refusing on BOTH sides costs one check, while a
     // check inside either branch would leave the other silent.
     assertOwnedFkAbsentFromUpdateData(base, item.data);
-    return targetNeedsFullUpdate(base.childScope, item.data)
-      ? buildNestedTargetUpdatePart({
-          scope: base.scope,
-          engine: base.engine,
-          targetModel: base.childScope.model,
-          data: item.data,
-          locate: {
-            where: item.target.where,
-            parentId: base.parentId,
-            childFields: base.relation.foreignFields,
-            parentFields: base.relation.referencedFields,
-            relationName,
-            notFoundMessage: relationTargetNotFound(
-              base.relation.relationInfo,
-              "update"
-            ),
-          },
-        })
-      : new RelationWritePart(base.scope, {
-          ...partConfig(base, "update"),
-          where: item.target.where,
-          data: item.data,
-        });
+    return new RelationWritePart(base.scope, {
+      ...partConfig(base, "update"),
+      where: item.target.where,
+      data: item.data,
+    });
   });
 }
 
@@ -1607,28 +1176,6 @@ export function buildToOneUpdatePart(
   // is the child's whole locator — spelling it moves the row OUT of the parent that is
   // updating through it.
   assertOwnedFkAbsentFromUpdateData(base, target.data);
-  // X1c: an inverse-side to-one target whose data carries a parent-held to-one write
-  // (child-SET folding) or a D4 edge delegates its whole update to the update root,
-  // located by the FK correlation alone (a to-one carries no unique `where`).
-  if (targetNeedsFullUpdate(base.childScope, target.data)) {
-    return buildNestedTargetUpdatePart({
-      scope: base.scope,
-      engine: base.engine,
-      targetModel: base.childScope.model,
-      data: target.data,
-      locate: {
-        parentId: base.parentId,
-        childFields: base.relation.foreignFields,
-        parentFields: base.relation.referencedFields,
-        ...(target.target.filter ? { filter: target.target.filter } : {}),
-        relationName,
-        notFoundMessage: relationTargetNotFound(
-          base.relation.relationInfo,
-          "update"
-        ),
-      },
-    });
-  }
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
     data: target.data,
@@ -1769,6 +1316,5 @@ function partConfig(
     childPrimaryKey: base.childPrimaryKey,
     parentId: base.parentId,
     txMode: base.txMode,
-    nestedBuilder: base.nestedBuilder,
   };
 }
