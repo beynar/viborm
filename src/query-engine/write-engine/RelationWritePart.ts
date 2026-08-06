@@ -133,7 +133,7 @@ export interface RelationWriteConfig {
    */
   readonly targetFilter?: Record<string, unknown>;
   /**
-   * Inverse-side one-to-one **upsert** (TO-ONE.md §7.2, family F): the create-arm
+   * Inverse-side one-to-one upsert: the create arm
    * scalar data taken when the correlated probe finds NO child of this parent. When
    * present, this `kind: "update"` part becomes an upsert — `data` is the found-arm
    * update payload. The locator stays the FK correlation alone (no unique `where`); the
@@ -280,7 +280,7 @@ export class RelationWritePart implements Part {
   }
 
   /**
-   * Family F — the inverse-side one-to-one `upsert` (TO-ONE.md §7.2). The correlated
+   * The inverse-side one-to-one upsert. The correlated
    * probe (`WHERE fk = parent`) already decided the three-way at plan time:
    *
    * - absent (0 rows) → CREATE arm: `INSERT child (createData, fk = parent)`. No
@@ -683,10 +683,8 @@ export class RelationWritePart implements Part {
 
   /**
    * The child's unique-selector conjuncts, or `[]` when this targeted mutation has
-   * no unique `where` — the **inverse-side to-one** case (TO-ONE.md §7.2), where the
-   * FK correlation is the whole locator (V1's `normalizeUpdateInputs` yields
-   * `{ data }` with no selector for a to-one, and `RelationUpdates` locates the child
-   * by `filter: correlatedWhere(fk, parentValues)` alone). A to-many targeted
+   * no unique `where` — the inverse-side to-one case, where FK correlation is the
+   * whole locator. A to-many targeted
    * `update`/`delete` always supplies its unique `where`.
    *
    * N6-U1: the selector may now be EXTENDED, so its filter half rides along —
@@ -1171,9 +1169,8 @@ export function buildToManyUpdateParts(
 /**
  * `update` on an **inverse-side one-to-one** (child-held FK) relation: one
  * targeted correlated part whose locator is the FK correlation alone — a to-one
- * `update` carries no UNIQUE `where` (TO-ONE.md §7.2, V1's `normalizeUpdateInputs`
- * yields `{ data }` for a to-one). The captured PK is the single correlated child;
- * the write addresses it (V1's mutation-identity).
+ * `update` carries no unique `where`. The captured PK is the single correlated
+ * child and the write addresses that captured identity.
  *
  * W4-U3: the payload arrives as the relation update schema's canonical
  * `{ data, where? }` envelope — the ONE place the bare/wrapper spellings are told
@@ -1209,8 +1206,8 @@ export function buildToOneUpdatePart(
 }
 
 /**
- * `upsert` on an **inverse-side one-to-one** (child-held FK) relation (TO-ONE.md
- * §7.2, family F): the correlated child (`WHERE fk = parent`) is the locator — no
+ * `upsert` on an inverse-side one-to-one (child-held FK) relation: the correlated
+ * child (`WHERE fk = parent`) is the locator — no
  * unique `where`, exactly as the to-one `update` arm. Found → update it; absent →
  * create it with `fk = parent`. Composes the certified correlated-update leaf
  * ({@link buildToOneUpdatePart}) with an absent-arm create: a scalar-only arm is one

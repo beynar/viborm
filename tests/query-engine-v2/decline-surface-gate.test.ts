@@ -68,7 +68,7 @@ const pi = producedIdentitySchema;
 
 // Two parent-held to-one relations on one record, both referencing `account` —
 // the sibling-coupling witness the P6-prereq-2 incident lives in. Absorbed in T1
-// (TO-ONE.md), so the create-then-connect scenario now executes on V2 with the
+// so the create-then-connect scenario now executes on V2 with the
 // fallback OFF (its own before-parent coverage ledger resolves the connect).
 const t1CrossSchema = (() => {
   const account = s
@@ -224,7 +224,7 @@ describe("decline-surface gate: absorbed create shapes execute on the one engine
     await c.$disconnect();
   });
 
-  // T2 (TO-ONE.md §7): the parent-held to-one `connectOrCreate` under UPDATE — a
+  // T2: the parent-held to-one `connectOrCreate` under UPDATE — a
   // before-root target INSERT (missing arm) or existence guard (found arm) whose
   // FK the root parent UPDATE absorbs. Was residual entry 1; executes on V2 with
   // the fallback OFF. Re-narrowing the parent-held update guard makes this throw.
@@ -245,7 +245,7 @@ describe("decline-surface gate: absorbed create shapes execute on the one engine
     await c.$disconnect();
   });
 
-  // T2 (TO-ONE.md §7): the inverse-side (child-held) to-one `update` — a correlated
+  // T2: the inverse-side (child-held) to-one `update` — a correlated
   // targeted update whose locator is the FK correlation alone (no unique selector).
   // Was residual entry 2; executes on V2 with the fallback OFF. Re-narrowing the
   // child-held type guard back to one-to-many only makes this throw.
@@ -292,7 +292,7 @@ describe("decline-surface gate: absorbed create shapes execute on the one engine
     await c.$disconnect();
   });
 
-  // T3-r2 (TO-ONE.md §7.2, family F): the inverse-side (child-held) to-one `upsert`
+  // T3-r2, family F: the inverse-side (child-held) to-one `upsert`
   // — a correlated locate (WHERE fk = parent, no unique selector). Both arms and a
   // second-parent correlation witness: u2's profile must be untouched by u1's
   // upsert (create arm), and by u1's second upsert (update arm). Was residual
@@ -341,7 +341,7 @@ describe("decline-surface gate: absorbed create shapes execute on the one engine
     await c.$disconnect();
   });
 
-  // T3a (TO-ONE.md §7.2, family A): the FK-holder-side (parent-held) to-one `update`
+  // T3a, family A: the FK-holder-side (parent-held) to-one `update`
   // — mutate the REFERENCED target located through the parent's own FK column, at its
   // FINAL value (a same-root scalar rebind moves the target). MULTI-PARENT WITNESS: a
   // second post pointing at a different author must be untouched. Re-narrowing the
@@ -444,7 +444,7 @@ describe("decline-surface gate: absorbed create shapes execute on the one engine
   });
 });
 
-// T3b-1 (TO-ONE.md §7.7, family B + A-remainder — mechanism 1, update-arm literal-
+// T3b-1 (family B + A-remainder — mechanism 1, update-arm literal-
 // parent recursion). A self-referential membership schema: `children` (self one-to-
 // many), `friends` (self m2m, its junction FK ON UPDATE CASCADE by default), and
 // `container` (parent-held to-one). The witnesses below execute on V2 with the

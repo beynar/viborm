@@ -1,6 +1,6 @@
 ---
 title: L6 - Query Engine
-description: Compile one portable operation program and execute it consistently on every supported database
+description: Compile portable query fragments and execute them consistently on every supported database
 icon: database
 ---
 
@@ -8,84 +8,94 @@ icon: database
 
 ## Purpose
 
-The query engine owns database-agnostic query meaning. Every accepted client
-operation compiles to one declarative `OperationProgram`; adapters express its
-SQL and drivers execute it. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite may use
-different syntax or execution capabilities, but portable operations retain the
-same accepted inputs, atomic effects, results, and failures.
+The query engine owns database-agnostic query meaning. It validates a client
+operation, compiles adapter-built SQL into a small fragment vocabulary, executes
+that fragment through a driver, and parses the declared result.
 
-## Ownership Graph
+PostgreSQL, MySQL, SQLite, LibSQL, and PGlite use different syntax and execution
+capabilities, but portable operations keep the same accepted inputs, atomic
+effects, results, and failures.
+
+## Ownership graph
 
 ```text
 QueryEngine
 └── PendingOperation
-    ├── OperationCompiler → OperationProgram → SQL builders → adapter
-    ├── OperationRuntime  → OperationProgram → driver
-    └── OperationResults  → result shape → strict parsers
+    ├── operation shell → SQL builders → adapter
+    ├── PlanningFragment → OperationFragment → OperationExecutor → driver
+    └── declared outputs → strict result parsers
 ```
 
 | Owner | Responsibility |
 | --- | --- |
-| `QueryEngine` | Client-scoped driver, registry, instrumentation, client identity, and transaction scope |
-| `PendingOperation` | The sole lazy and Promise-like operation lifecycle |
-| `OperationCompiler` | Exhaustive read/write dispatch and program construction |
-| `WriteOperations` | Every write semantic, including relation mutations |
-| `OperationProgram` | Data-only steps, dependencies, guards, branches, produced values, atomicity, and result declaration |
-| `OperationRuntime` | Select statement, transaction, or atomic-batch execution |
-| `OperationResults` | Attribute provider outputs and produce the declared public result |
-| `QueryScope` | Adapter, current model, alias allocation, root alias, and mutation target for SQL construction only |
+| `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
+| `PendingOperation` | Lazy and Promise-like public operation lifecycle |
+| operation shells | Validation, public target behavior, compilation, and result declaration |
+| relation Parts | Selection, membership, branches, guards, pins, and relation effects |
+| `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
+| `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
+| `builders/` | Pure adapter-backed SQL construction by semantic concern |
+| `result/` | Strict row, relation, aggregate, count, scalar, and shape parsing |
 
-`QueryEngine` is a real owner rather than a forwarding shell. A transaction-
-bound engine preserves its originating client identity and receives a new scope
-identity.
+`QueryEngine` is a real owner. A transaction-bound engine preserves its client
+identity and receives a new transaction scope identity.
 
-## One Program Vocabulary
+## Fragment vocabulary
 
-A simple read or write is a one-step program. Multi-step non-`RETURNING`
-emulation, bulk operations, relation mutations, deep returns, and dynamic
-branches compose from the same vocabulary:
+The runtime vocabulary has three step kinds:
 
-- `read` and `write` execute adapter-built SQL fragments;
-- `guard` fails when a required database premise no longer holds;
-- `branch` chooses a declared step sequence from a prior read;
-- `failure` represents an explicit typed error;
-- produced values reference earlier outputs without runtime callbacks.
+- `read` executes an adapter-built read statement;
+- `write` executes an adapter-built write statement and can carry a race pin or
+  conflict-skip effect;
+- `guard` checks a database premise of the selected final fragment.
 
-This is an operation program, not a second SQL AST. Programs contain no
-callbacks, relation semantics, adapters, drivers, or arbitrary context bags.
+Produced values reference declared outputs from earlier steps. This is an
+execution fragment, not a second SQL AST. It contains no relation strategy,
+payload walker, driver, or arbitrary context bag.
+
+Planning uses a guard-free `PlanningFragment`. Planning is not always read-only:
+skip-duplicate capture can perform preparation writes. Final compilation emits
+one `OperationFragment` for the selected effects.
 
 ## Execution
 
 ```text
 client call
   → PendingOperation (lazy)
-  → validation
-  → OperationCompiler
-  → OperationProgram
-  → OperationRuntime
+  → operation validation and compilation
+  → PlanningFragment
+  → selected OperationFragment
+  → OperationExecutor
        ├── direct statement
        ├── interactive transaction
        └── atomic driver batch
-  → OperationResults
+  → strict result parser
   → typed value
 ```
 
-Runtime modules do not import relation semantics. Transaction and batch paths
-specialize the same program: one may observe uncommitted writes directly,
-while the other lowers references and guards into an ordered atomic batch.
+Transaction and batch modes use the same semantic fragment. The executor lowers
+references, checks postconditions, attributes guards, and fails closed when the
+available substrate cannot represent a required effect.
 
-## Relation Writes
+## Relation writes
 
-Nested writes remain a public feature, but there is no nested-write engine.
-Relation mutation semantics live under `WriteOperations`, compile into ordinary
-program steps, and use the same runtime as every other operation.
+Nested writes are a public feature, not a second runtime. Their compiler has
+three independent inputs:
 
-This keeps create, connect, connect-or-create, update, upsert, set, disconnect,
-delete, and many-to-many membership behavior equivalent across providers.
+- `RelationMutationProgram` records the schema-transformed payload meaning;
+- `BoundRelation` records whether the edge is parent-held, child-held, or a
+  junction;
+- a record compiler mutates one fresh or already-selected record.
 
-## SQL and Adapter Boundary
+`CreateOperation` compiles non-bulk fresh record subtrees.
+`RecordUpdateCompiler` compiles non-bulk updates for a record selected by its
+caller. Relation Parts still own target reads, parent correlation, membership,
+found/missing decisions, guards, race pins, and junction effects.
 
-The golden rule remains:
+`createMany`, `updateMany`, `deleteMany`, and relation `set` remain specialized
+because they have set semantics rather than one-record semantics.
+
+## SQL and adapter boundary
 
 > The query engine decides what to query. The adapter decides how the database
 > expresses it.
@@ -98,43 +108,40 @@ sql`COALESCE(json_agg(...), '[]'::json)`;
 scope.adapter.json.agg(expression);
 ```
 
-SQL construction remains in `builders/`, grouped by real concerns: where,
-relation filters, selections, includes, ordering, aggregation, mutation values,
-row shapes, and many-to-many junctions. Builders return parameterized `Sql`
-fragments and never interpolate user values into SQL strings.
+Builders return parameterized `Sql` fragments. The query engine does not match
+provider-specific SQL tokens to recover facts that the compiler already knows.
+Provider error-message and assertion-marker recognition belongs to driver error
+mapping.
 
-## Strict Results
+## Strict results
 
-`OperationResults` validates program result sources and owns one parser identity
-per execution driver. Provider middleware runs in this order:
+Result parsing keeps one middleware chain per execution driver:
 
 ```text
 driver parser → adapter parser → default strict parser
 ```
 
 Row, relation, aggregate, count, scalar, and expected-shape parsing remain
-separate cohesive concerns under `result/`. Missing or malformed provider data
-raises typed errors; parsing never replaces it with a plausible default.
+separate concerns under `result/`. Missing or malformed provider data raises a
+typed error; parsing never substitutes a plausible default.
 
-## SQL Inspection
+## SQL inspection
 
-`QueryEngine.build()` is deliberately limited to programs containing exactly
-one executable SQL step. It throws for multi-step programs instead of pretending
-that an atomic operation is one SQL statement. General operations use
-`prepare()` or execute the returned `PendingOperation`.
+`QueryEngine.build()` returns SQL only when an operation is representable as one
+statement without executor-only behavior. It rejects guards, unresolved
+references, and other multi-step semantics instead of pretending that an atomic
+operation is one SQL statement.
+
+Use `prepare()` or await the returned `PendingOperation` for general operations.
 
 ## Compatibility
 
-`PendingOperation` is the sole deferred-operation class. The deprecated
-`QueryMetadata<T>` export is only a type alias to `PendingOperation<T>` through
-the next published compatibility release; no runtime metadata object exists.
+`PendingOperation` is the deferred-operation class exported from the package
+root and `viborm/client`. `QueryMetadata<T>` remains a deprecated type-only alias
+during its compatibility window; no runtime metadata object exists.
 
-## Architecture Gates
+## Architecture gates
 
-`pnpm test:gates` enforces lifecycle ownership, compiler/runtime/result import
-boundaries, the narrow `QueryScope`, removal of the retired subsystem, an
-acyclic query-engine runtime import graph, and — outside the engine — that every
-concrete error class reaches all four surfaces of the taxonomy (the driver-failure
-union, `classifyFailure`, the Prisma-code map, and the published errors page).
-Shared provider suites then prove the same portable behavior on PostgreSQL,
-MySQL, SQLite, LibSQL, and PGlite.
+`pnpm test:gates` checks fragment vocabulary, layer imports, parsing boundaries,
+result contracts, and provider-neutral behavior. The shared driver suites prove
+the same portable semantics on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite.

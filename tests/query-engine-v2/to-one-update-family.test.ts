@@ -19,7 +19,7 @@ import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-sch
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
 
-// The T2 to-one-under-UPDATE oracle (TO-ONE.md §7). Every parent-held (FK-holder-
+// The T2 to-one-under-UPDATE oracle. Every parent-held (FK-holder-
 // side) and inverse-side (child-held) to-one arm under an update root is certified
 // V1 == V2-tx == V2-batch byte-identical (state + result + error + message). The
 // gated residual entries (parent-held connectOrCreate under update; inverse-side
@@ -413,7 +413,7 @@ const scenarios: Scenario[] = [
       }),
     dump: (c) => c.profile.findMany({ orderBy: { id: "asc" } }),
   },
-  // -- Inverse-side (child-held) to-one UPSERT, family F (TO-ONE.md §7.2) ----------
+  // -- Inverse-side (child-held) to-one UPSERT, family F ---------------------------
   {
     // ABSORBED (T3-r2) family F, ABSENT arm: no profile correlated to u1 → INSERT
     // it with fk = u1. No unique `where`; the FK correlation is the locator.
@@ -613,7 +613,7 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
 }
 
 // ---------------------------------------------------------------------------
-// Falsifications for the T2 pins (TO-ONE.md §7.1). Each new guard/racePin trips
+// Falsifications for the T2 pins. Each new guard/racePin trips
 // typed under a staleness injection, and is falsified once.
 // ---------------------------------------------------------------------------
 describe("query-engine-v2 to-one update family: T2 pin falsifications", () => {

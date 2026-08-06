@@ -1,6 +1,6 @@
 /**
- * T3c item 6 — the family-D A/B benchmark (top-level upsert nested-relation arm,
- * TO-ONE.md §7.8).
+ * T3c item 6 — the family-D A/B benchmark for a top-level upsert
+ * nested-relation arm.
  *
  * An EXISTING-row top-level `upsert` whose relation-bearing UPDATE arm folds a nested
  * to-many `update` (`user.upsert({ where, create, update: { name, posts: { update } }

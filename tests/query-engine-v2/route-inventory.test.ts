@@ -293,7 +293,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // 36 → 49: the create family (PLAN P6-prerequisite) added 13 sub-shape routes in
   // CreateOperation.ts.
   //
-  // 49 → 51 (T1, TO-ONE.md): the parent-held to-one `create` family under create
+  // 49 → 51 (T1): the parent-held to-one `create` family under create
   // roots is ABSORBED — the single "supports only 'connect' on the to-one relation"
   // decline is GONE (parent-held `create`/`connectOrCreate`, and a sibling `connect`
   // covered by a before-parent create, now construct on V2). What remains is the
@@ -307,7 +307,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // `createMany skipDuplicates`, compound child edge, M2M upsert/disconnect/set/
   // delete, non-record arg/where, arg-key guard) are unchanged.
   //
-  // 51 → 59 (T2, TO-ONE.md §7): the to-one family under UPDATE roots is ABSORBED,
+  // 51 → 59 (T2): the to-one family under UPDATE roots is ABSORBED,
   // adding 8 FINER-GRAINED boundary routes in UpdateOperation.ts (each a documented
   // shape whose whole tree still hands to V1). The absorption removed no route (the
   // old inverse-side "supports only one-to-many child-held" decline is REPHRASED to
@@ -324,7 +324,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // carried 43 reachable decline scenarios across eight families — NOT the single
   // inverse-side upsert arm the pre-T3 census claimed.
   //
-  // 59 → 62 (T3-r2, TO-ONE.md §7.2): family F (the inverse-side to-one `upsert`) is
+  // 59 → 62 (T3-r2): family F (the inverse-side to-one `upsert`) is
   // ABSORBED, adding 3 FINER-GRAINED boundary routes (each a documented narrower
   // shape whose whole tree still hands to V1), exactly as T1/T2 added finer routes
   // when they absorbed a family:
@@ -337,7 +337,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // The census dropped 43 → 42 in lockstep (family F's one scenario now runs
   // natively). No route was removed; nothing was faked green.
   //
-  // 62 → 65 (T3a, TO-ONE.md §7.2, family A): the FK-holder-side (parent-held) to-one
+  // 62 → 65 (T3a, family A): the FK-holder-side (parent-held) to-one
   // `update`/`delete`/`upsert` under an update root are ABSORBED (11 of family A's 13
   // scenarios now run natively). The single default throw that carried them is
   // repurposed (set/other kinds still route to V1 — unchanged count), and 3 FINER
@@ -354,7 +354,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // The census dropped 42 → 31 in lockstep (11 family-A scenarios now run natively).
   // No route was removed; nothing was faked green.
   //
-  // 65 → 73 (T3b-1, TO-ONE.md §7.7, family B — mechanism 1): a nested to-many
+  // 65 → 73 (T3b-1, family B — mechanism 1): a nested to-many
   // `update`'s located target now builds its OWN child Parts (update-arm literal-
   // parent recursion). Absorbing the 6 child-held family-B shapes adds 8 FINER
   // boundary routes, exactly as every prior absorption did:
@@ -372,7 +372,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // The census dropped 31 → 25 in lockstep (6 family-B scenarios now run natively).
   // No route was removed; nothing was faked green.
   //
-  // 73 → 74 (T3b-1, TO-ONE.md §7.7, family A-remainder): mechanism 1 extended to the
+  // 73 → 74 (T3b-1, family A-remainder): mechanism 1 extended to the
   // parent-held to-one `update` arm (its located target builds its own child Parts,
   // correlated to the captured PK by a `planned` source). This absorbs family B's 2
   // membership-root shapes + family A-remainder's 2, and adds 1 FINER boundary route
@@ -395,7 +395,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   // unmeasured); the m2m PK-transition census witnesses stay native (cascade-safe).
   // Witness: nested-update-pk-transition-cascade.test.ts. No census key moved.
   //
-  // 75 → 78 (T3b-2, TO-ONE.md §7.7, family C): `RelationJunctionPart.buildJunctionParts`
+  // 75 → 78 (T3b-2, family C): `RelationJunctionPart.buildJunctionParts`
   // lifts the m2m scalarOnly boundary — a junction create/update/upsert target whose
   // data carries its own relations folds them one level deeper (mechanism 2 create-arm
   // / mechanism 1 update-arm reuse). This adds THREE FINER boundary routes in

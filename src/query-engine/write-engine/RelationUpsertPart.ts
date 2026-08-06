@@ -850,8 +850,8 @@ export function buildToManyUpsertParts(
     relation.kind !== "childHeldToMany" &&
     !(relation.kind === "childHeldToOne" && family === "connectOrCreate")
   ) {
-    // The **inverse-side one-to-one** (child-held FK) is the arity-1 case of this
-    // child-held path (TO-ONE.md §7.0.1): `connectOrCreate` adopts it globally,
+    // The inverse-side one-to-one (child-held FK) is the arity-1 case of this
+    // child-held path: `connectOrCreate` adopts it globally,
     // exactly as the to-many arity does (found → reparent; absent → create with the
     // parent FK injected, constraint + racePin). A many-to-many target is the
     // junction's, and an FK-holder-side (parent-held) to-one is a same-row change,

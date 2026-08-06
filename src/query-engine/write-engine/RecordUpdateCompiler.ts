@@ -182,8 +182,8 @@ interface ToOneLink {
 }
 
 /**
- * A **before-root target** (TO-ONE.md §7.0.2): a nested record created ahead of the
- * root parent UPDATE, whose (possibly generated) identity the parent's FK column
+ * A nested record created ahead of the root parent UPDATE, whose possibly
+ * generated identity the parent's FK column
  * references. It is the arity-1 `create` payload of the parent-held direction, with
  * the parent INSERT replaced by the parent UPDATE.
  *
@@ -205,8 +205,8 @@ interface BeforeTarget {
 }
 
 /**
- * A parent-held-FK to-one arm under **update** whose target is written before the
- * root parent UPDATE and referenced by it (TO-ONE.md §7.0.2 / §7.1). Unlike the
+ * A parent-held-FK to-one arm under update whose target is written before the
+ * root parent UPDATE and referenced by it. Unlike the
  * create-root fold (which lands in the record's own INSERT), the FK here is set by
  * the root parent UPDATE, so the target write is emitted first and its identity
  * flows backward into the UPDATE's SET. `connect`/`disconnect` stay in
@@ -240,12 +240,8 @@ type ParentHeldTarget =
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
     }
-  // FK-holder-side (parent-held) to-one `update` under update (TO-ONE.md §7.2,
-  // family A): mutate the REFERENCED target row located through the parent's own
-  // FK columns (`child.<referenced> = parent.<fk>`, the FINAL fk value after any
-  // same-root scalar rebind). A correlated child write — no parent-side FK change
-  // — pinned in batch by the split-witness `exists` guard (V1's
-  // `RelationUpdates.compileRelation` update arm + `compileLocatedUpdate`).
+  // A parent-held to-one update locates the referenced row through the parent's
+  // final FK values. Its batch guard pins that correlation before the child write.
   | {
       readonly kind: "update";
       readonly relation: ParentHeldToOne;
@@ -262,10 +258,8 @@ type ParentHeldTarget =
       readonly filter?: Record<string, unknown>;
       readonly compiler: RecordUpdateCompiler;
     }
-  // FK-holder-side (parent-held) to-one `delete: true` (TO-ONE.md §7.2, family A):
-  // NULL the parent's FK first (a parent UPDATE — V1's nullability gate), then
-  // `deleteMany child WHERE <referenced> = <old fk>` (V1's `RelationRemovals.delete`
-  // parent-held arm). No probe: zero matched rows is V1's silent success.
+  // A parent-held delete nulls the parent's FK before deleting by the old value.
+  // It is idempotent, so zero matched rows need no probe or failure.
   | {
       readonly kind: "delete";
       readonly relation: ParentHeldToOne;
@@ -274,11 +268,8 @@ type ParentHeldTarget =
       readonly deleteWriteId: string;
       readonly correlation: ParentHeldCorrelation;
     }
-  // FK-holder-side (parent-held) to-one `upsert` (TO-ONE.md §7.2, family A): the
-  // correlated probe decides at compile — found → UPDATE the located target (the
-  // parent FK is already the located value, no rebind write); absent → INSERT the
-  // target (before-root) and set the parent's FK to the created identity (V1's
-  // `RelationBranches.compileOneUpsert` parent-held arm + `updateParentForeignKey`).
+  // A parent-held upsert uses a correlated probe: found updates the located
+  // target; absent creates it and rebinds the parent FK.
   | {
       readonly kind: "upsert";
       readonly relation: ParentHeldToOne;
@@ -531,9 +522,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     for (const link of this.toOneLinks) {
       guards.push(...this.compileToOneConnect(link, known));
     }
-    // Parent-held `create`/`connectOrCreate`: the target INSERT(s) that must land
-    // BEFORE the root UPDATE, and the FK folds the UPDATE's SET absorbs (TO-ONE.md
-    // §7.0.2). The root UPDATE references the (possibly just-inserted) identity.
+    // Parent-held target INSERTs land before the root UPDATE, whose FK assignment
+    // references the possibly just-created identity.
     const beforeRootWrites: OperationStep[] = [];
     const rootExtraSet = this.compileParentHeldTargets(
       known,
@@ -732,7 +722,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // A parent-held FK is a same-row change. `connect`/`disconnect` fold their
       // (construction-known) FK literal into the root SET; `create`/`connectOrCreate`
       // write the target before the root UPDATE and reference its identity from the
-      // UPDATE's SET (TO-ONE.md §7.0.2). Only one kind per to-one relation.
+      // UPDATE's SET. Only one kind is valid per to-one relation.
       //
       // E6.5 RE-JUSTIFIED, MEASURED. The vacate+supply pairs the inverse-side twin
       // below absorbs do NOT compose here, and the reason is this direction's own
@@ -761,7 +751,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     }
 
     // Child-held direction (the target holds the FK). One-to-many is the plural
-    // case; the **inverse-side one-to-one** is its arity-1 case (TO-ONE.md §7.0.1)
+    // case; the inverse-side one-to-one is its arity-1 case
     // — the same correlated/global-adopt child writes, differing only in the to-one
     // payload spelling (`update: <data>` with no selector, `disconnect: true`).
     // The parent exists, so no fresh-parent elision: every probe reads committed
@@ -796,7 +786,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
     // to the locate read's select/outputs so a per-field child part reads or refs
     // each one. The whole family (link/adopt/write/set) generalizes together; no
-    // shape routes to V1 on account of compound arity any longer.
+    // shape needs a separate path solely because the edge is compound.
     //
     // T3b-2 (family E): a nested `create`/`createMany` resolves its FK from the
     // update's own inputs (the referenced column pinned by the unique `where`, or
@@ -826,9 +816,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     // CLASS IV (T4c-fix) — V1's relation-level occupied guard for a non-cascade
     // referenced-PK transition, emitted ONCE for the relation before the per-kind
-    // dispatch (kind- and cardinality-agnostic, exactly as V1). It rejects an occupied
-    // OLD slot for any nested mutation, declines an adopt kind / a past-surface
-    // reference (route to V1), and tells the to-one upsert to reroute its create arm.
+    // dispatch. It rejects an occupied old slot for any nested mutation and tells
+    // the to-one upsert where its create arm belongs.
     const keyTransition = this.interpretReferencedKeyTransition({
       input,
       relation,
@@ -839,8 +828,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // A real transition past the reproduced single-PK surface (a compound / non-PK /
       // unpinned reference). Only nested `create` / `createMany` proceed — their FK
       // literal (incl. a non-PK D4 rewrite) is resolved by `resolveLiteralCreateParent`
-      // against the empty-slot accept. Every other kind needs V1's occupied guard on a
-      // pre-transition value V2 cannot compile-correlate — route the whole tree to V1.
+      // against the empty-slot accept. Every other kind needs an occupied guard on a
+      // pre-transition value this compiler cannot correlate, so it fails typed.
       for (const kind of kinds) {
         if (kind !== "create" && kind !== "createMany") {
           throw new UnsupportedOperationError(
@@ -901,8 +890,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // child-held to-many. The located parent's FK is a construction-time literal
       // (the referenced column pinned by the unique `where`, or rewritten by the root
       // SET — D4's "thread the new value"), so it reuses the same literal-parent create
-      // leaf the child-held recursion uses. A referenced column resolvable only from the
-      // located row (a planned FK), a compound key, or a non-literal rewrite routes to V1.
+      // leaf the child-held recursion uses.
       if (entry.kind === "create" || entry.kind === "createMany") {
         this.interpretChildHeldCreate({
           entry,
@@ -1419,25 +1407,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /**
-   * One mutation kind on an **inverse-side one-to-one** (child-held FK) relation
-   * under update (TO-ONE.md §7). The parent exists (located first), so these are
-   * ordinary correlated / global-adopt child writes — the arity-1 case of the
-   * to-many child-held family — differing only in the to-one payload spelling:
-   * `update: <data>` (no unique selector, correlation is the locator), `disconnect:
-   * true` / `delete: true` (the whole correlated set), and `upsert` (found → update
-   * the correlated child / absent → create it, fk = parent — TO-ONE.md §7.2, family
-   * F, scalar arms), and — since N2-U1 — `create` (the arity-1 child-held INSERT,
-   * with the 1:1 FK's UNIQUE constraint as the occupied-slot rule).
-   *
-   * The dispatch is TOTAL over the parse boundary's inverse-to-one surface. The
-   * relation schema for a to-one ({@link file://../../validation/relations/update.ts}
-   * `toOneUpdateFactory`) emits exactly `create` / `connect` / `connectOrCreate` /
-   * `update` / `upsert`, plus `disconnect` / `delete` on an OPTIONAL relation — the
-   * same seven keys Prisma's `<T>UpdateOneWithout<R>NestedInput` carries (measured
-   * against Prisma 7.9.1; `createMany` / `deleteMany` / `updateMany` / `set` are
-   * to-many-only there too, and this schema does not offer them either). Every one is
-   * a `case` below, so the `default` is unreachable by construction and is an internal
-   * invariant, not a route.
+   * Compile one child-held to-one mutation. This is the arity-one child-held
+   * family: correlation is the locator, and the parse boundary limits the dispatch
+   * to create/connect/connectOrCreate/update/upsert plus optional disconnect/delete.
    */
   private interpretInverseToOneKind(args: {
     entry: RelationMutationEntry;
@@ -1474,30 +1446,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
     switch (entry.kind) {
       case "create":
-        // N2-U1 — the mainstream Prisma shape,
-        // `user.update({ where, data: { profile: { create: { bio } } } })`.
-        // Mechanically it is the ARITY-1 case of the child-held create the update root
-        // already builds: one INSERT whose foreign key is the located parent's referenced
-        // column — a construction literal when the unique `where` pins that column, N1's
-        // located-parent Ref when it does not. `interpretChildHeldCreate` is entered
-        // unchanged; the to-one payload is a bare object where the to-many spelling is
-        // single-or-array; the mutation program already normalized both spellings.
-        //
-        // THE OCCUPIED SLOT (Prisma's documented behavior: a related row already there is
-        // an error). The 1:1 foreign key carries a UNIQUE constraint — `serializer.ts`
-        // adds one when the schema does not, "1:1 FK must be unique at the DB level, or it
-        // degrades to N:1" — so an INSERT into an occupied slot violates it and surfaces as
-        // `UniqueConstraintError` with nothing written, on both substrates. That constraint
-        // IS the guard. A pre-check SELECT would be a SECOND guard on the one invariant
-        // (the AGENTS.md ban) and a racy one besides: two concurrent creates would both
-        // read an empty slot, both proceed, and leave the constraint to decide anyway.
-        //
-        // The race attribution, stated because it is load-bearing: this leaf carries NO
-        // `racePin` (only the adopt family's create-the-target-first arms do —
-        // `childRacePin`), so `race-retry.ts` sees a `UniqueConstraintError` matching no
-        // pin and not `meta.raceable`, and does NOT re-run the operation. That is the
-        // correct verdict — an occupied slot is a genuine conflict the caller must see,
-        // not a lost create-branch race worth retrying.
+        // The database's unique child FK is the sole occupied-slot guard. This
+        // unconditional create has no racePin: a collision is a genuine conflict,
+        // not a missing-arm race to retry.
         this.interpretChildHeldCreate({
           entry,
           relation,
@@ -1507,10 +1458,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         });
         return;
       case "connect":
-        // Global lookup-and-adopt: UPDATE child SET fk = parent WHERE unique, pinned
-        // by an exists guard — V1's child-held connect arm. A one-to-one FK carries a
-        // UNIQUE constraint, so a second row already pointing at this parent makes the
-        // reparent collide (V1's steal semantics, the DB enforces the invariant).
+        // Global lookup-and-adopt. The unique child FK enforces the one-row slot.
         pushAdopt(
           buildToManyLinkParts(
             input.scope,
@@ -1543,21 +1491,20 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         );
         return;
       case "update":
-        // Correlated targeted update with NO unique selector — the FK correlation
-        // (fk = parent) is the whole locator (TO-ONE.md §7.2). W4-U3's optional
+        // Correlation is the whole locator. The optional
         // `{ where, data }` wrapper arrives already told apart from bare data by the
         // relation schema, as its canonical envelope; the filter narrows that
         // locator. See `splitToOneUpdateTarget`.
         input.childParts.push(buildToOneUpdatePart(writeBase, entry));
         return;
       case "upsert": {
-        // Correlated to-one upsert (TO-ONE.md §7.2, family F): the correlated probe
+        // The correlated probe
         // decides found → update / absent → create (fk = parent), no unique `where`.
         // The same correlated locator as the `update` arm, with a create branch.
         //
         // CLASS IV (T4c): when the SAME root update TRANSITIONS a parent PK this child
         // FK references, the relation-level {@link interpretReferencedKeyTransition} has
-        // already emitted V1's occupied guard (reject an occupied OLD slot); here the
+        // already emitted the occupied guard; here the
         // empty-slot accept-shape reroutes the CREATE arm to a POST-transition-FK leaf
         // ordered after the root UPDATE (the update arm is unreachable: occupied rejects,
         // empty creates). A cascade / no-op / non-transition keeps the ordinary part.
@@ -1790,15 +1737,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     );
   }
 
-  /**
-   * A parent-held-FK (FK-holder-side) to-one arm under update. `connect`/
-   * `disconnect` fold their construction-known FK literal into the root SET
-   * ({@link interpretToOneLink}); `create`/`connectOrCreate` write the target
-   * ahead of the root UPDATE and reference its identity from the UPDATE's SET
-   * (TO-ONE.md §7.0.2). FK-holder-side `update`/`delete` (mutating the referenced
-   * row) route to V1 — a documented boundary (they need V1's staged
-   * `compileLocatedUpdate` / parent-FK-null-then-delete recursion).
-   */
+  /** Compile one parent-held to-one mutation at its required position. */
   private interpretParentHeldToOne(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: ParentHeldToOne,
@@ -2563,12 +2502,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /**
-   * Resolve every parent-held-target arm. `create`/`connectOrCreate` fold their FK
-   * into the root UPDATE's SET (returned as `extraSet`) and emit before-root INSERTs
-   * (TO-ONE.md §7.0.2). The family-A `update`/`delete`/`upsert` arms emit their OWN
-   * correlated child writes (into `writes`, after the root update — V1's
-   * root-scalar-then-relations order) and, for `delete`/absent-`upsert`, a dedicated
-   * parent-FK write (never a root-SET fold).
+   * Resolve parent-held targets. Create arms feed the root SET from a before-root
+   * INSERT. Update/delete/upsert arms emit correlated writes after the root and use
+   * a dedicated parent-FK write when the branch changes membership.
    */
   private compileParentHeldTargets(
     known: Readonly<Record<string, unknown>>,
@@ -2987,7 +2923,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         where: this.writeWhere(locatedRow),
         // The construction-time SET (scalar ∪ connect/disconnect folds) unioned
         // with the compile-time parent-held create/connectOrCreate FK folds
-        // (`extraSet`), which reference the before-root target (TO-ONE.md §7.0.2).
+        // (`extraSet`), which can reference a before-root target.
         data: { ...this.parentUpdateData, ...extraSet },
         select: this.pkSelect(),
       }),

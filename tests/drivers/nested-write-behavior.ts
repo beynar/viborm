@@ -528,7 +528,7 @@ export function runNestedWriteBehavior({
       expect(profiles).toHaveLength(0);
     });
 
-    // Family A (TO-ONE.md §7.2), absorbed in T3a: the FK-holder-side (parent-held)
+    // Family A, absorbed in T3a: the FK-holder-side (parent-held)
     // to-one `delete: true` — NULL the post's own FK, then delete the referenced
     // author. A second post held by a different author is the witness: it must
     // survive with its FK intact.
@@ -570,7 +570,7 @@ export function runNestedWriteBehavior({
       ]);
     });
 
-    // Family F (TO-ONE.md §7.2), absorbed in T3-r2: the inverse-side (child-held)
+    // Family F, absorbed in T3-r2: the inverse-side (child-held)
     // to-one `upsert` — a correlated locate (WHERE fk = parent, no unique `where`).
     // Runs V2's native correlated-upsert SQL on every driver here (5-DB matrix). The
     // second user's profile is the correlation witness: neither arm may touch it.

@@ -54,7 +54,7 @@ import type { StepScope } from "./StepScope";
 import { getStepModelName, UnsupportedOperationError } from "./shared";
 
 /**
- * T3b mechanism 1 — update-arm literal-parent recursion (TO-ONE.md §7.7).
+ * Update-arm literal-parent recursion.
  *
  * A nested `update`'s target payload builds its OWN child Parts exactly as a root
  * update does — the `RelationUpsertPart.buildArmChildParts` precedent generalized
@@ -893,8 +893,8 @@ export function buildPlannedParentCreateManyPart(input: {
  * from that row (`planned`, ATOM §9 inv. 2 forbids a final step reffing a planning step,
  * so the value is inlined, never a SQL `Ref`) — exactly as the root's depth recursion
  * threads a first-class parent value, one step past the literal-parent reach. A
- * relation-carrying create arm (deeper create-context) still routes to V1, byte-identical
- * to the literal leaf. The leaf never becomes a correlation axis (leaf-never-axis): it is
+ * The fresh-record compiler owns relation-bearing create arms. This scalar leaf
+ * never becomes a correlation axis: it is
  * an unconditional INSERT with no probe, guard, or racePin.
  */
 class PlannedParentCreatePart implements Part {

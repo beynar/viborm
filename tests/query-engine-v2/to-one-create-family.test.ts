@@ -19,7 +19,7 @@ import { nestedWriteBehaviorSchema } from "../fixtures/nested-write-behavior-sch
 import { operationFragmentSchema } from "./create-nested-upsert-behavior";
 import { createV2RoutedClient, type RouteRecord } from "./v2-client-proxy";
 
-// The T1 to-one-under-create oracle (TO-ONE.md). Every parent-held to-one arm and
+// The T1 to-one-under-create oracle. Every parent-held to-one arm and
 // every sibling combination is certified V1 == V2-tx == V2-batch byte-identical
 // (state + result + error + message), and the P6-prereq-2 create-then-connect
 // kill-signal incident is a NAMED regression witness executing on V2.
@@ -429,7 +429,7 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
 }
 
 // ---------------------------------------------------------------------------
-// Falsifications for the T1 pins (ATOM §2, TO-ONE.md §3). The covered-connect
+// Falsifications for the T1 pins (ATOM, branch pins). The covered-connect
 // ledger is falsified by the decline-surface-gate incident test (fallback OFF —
 // disabling the ledger makes the connect probe fail). Here: the connectOrCreate
 // FOUND-arm presence guard (raceable:false) and MISSING-arm racePin (raceable:true).

@@ -2175,7 +2175,7 @@ Downstream, `RelationWritePart` / `RelationLinkPart` and the shared parent-refer
 | Decline surface | decline-surface gate | Unsupported verbs (`update`-through, `set`, `upsert`, `connectOrCreate` in v1) decline loudly, enumerated in the gate |
 | Gates | `pnpm test:gates` | All five gates green; any token/vocabulary change is a conscious gate edit |
 
-**What this buys:** under the pre-fold engine this feature would have needed the closure/context plumbing (`Captures`/`ProgramValues`) to flow the parent id in batch mode — the exact machinery `WHY-V1-GREW.md` documents as the failure mode. Under the atom it is one lowering function plus one literal column.
+**What this buys:** under the pre-fold engine this feature would have needed closure/context plumbing (`Captures`/`ProgramValues`) to flow the parent id in batch mode. Under the current atom it is one lowering function plus one literal column.
 
 **Reads are the only genuinely polymorphic path** (the type is unknown until the row is scanned) — they are Phase 5's CASE expression in the read builders (`src/query-engine/builders/`) and never touch the fragment vocabulary.
 

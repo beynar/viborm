@@ -226,7 +226,7 @@ export interface RelationJunctionConfig {
     | undefined
   )[];
   readonly upsertUpdateLegalities?: readonly ((() => void) | undefined)[];
-  // T3b-2 mechanism 2 / mechanism 1 reuse (TO-ONE.md §7.7). A junction create /
+  // A junction create /
   // update / upsert target whose data carries its own relation writes folds them
   // one level deeper through the junction target relation builder the child-held
   // families use — a fresh created target (mechanism 2, its explicit PK the child
@@ -381,10 +381,8 @@ interface UpsertSlot {
   readonly createChildParts: readonly Part[];
   readonly updateCompiler?: RecordUpdateCompiler;
   readonly updateLegality?: () => void;
-  /** X1c — when present, the fresh create-arm target's whole create delegates to
-   *  `CreateOperation`, REPLACING the create branch's `childInsert` (emitted before the
-   *  join). The update arm keeps the located-update projection (empty scalar + the
-   *  delegated update Part in `updateChildParts`). */
+  /** When present, the fresh create-arm target compiles through `CreateOperation`,
+   *  replacing the create branch's `childInsert` emitted before the join. */
   readonly createDelegated?: Part;
 }
 

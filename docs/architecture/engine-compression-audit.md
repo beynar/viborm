@@ -1,169 +1,183 @@
-# The Engine Compression Audit
+# Query-Engine Compression Audit
 
-**Date:** 2026-08-05
-**Language:** This document uses Simplified Technical English (ASD-STE100 style).
-**Method:** Four read-only analyst lenses (repetition census, ATOM vocabulary gaps, dispatch unification, vestige + invariant placement), each chained into a skeptic that re-read every cited line, attacked every net-delta claim, and checked every proposal against the recorded doctrine. Confidence numbers are post-skeptic. The original findings below are historical input. The implementation outcome supersedes their proposed shapes.
+**Current as of:** 2026-08-06
 
-## Implementation outcome
+**Historical boundary:** `db3317770ce7e589ba1da849570eda6925c4c478`
 
-The compression work started at `18328f96dc84a72b38b058960acb2f87a30d7667`. The validated implementation base is `58a7bdd89292cacd9acf145093b9d2bf084598d3`. Documentation followed as a separate atomic unit.
+That commit is the last revision that contains the full implementation ledgers
+retired by this documentation pass. Use Git history when an old phase decision
+must be reconstructed. The live architecture is documented in
+[`ATOM.md`](../../src/query-engine/write-engine/ATOM.md).
 
-The result is **2,383 production TypeScript lines added and 4,146 deleted: net −1,763 lines** in `src/query-engine`. This exceeds the planned reduction. Public query APIs, result types, SQL order, parameter order, step IDs, guards, and execution order remain unchanged, except for the authorized Create `connectOrCreate` replacement-race message correction.
+## Result
 
-The implementation removed **20 named internal concepts or carriers**, plus dead exports and barrels:
+The engine is smaller in responsibility count than the pre-compression design,
+but it is not a tiny compiler. Nested writes have irreducible differences in
+topology, target ownership, race premises, referential actions, and bulk
+semantics.
 
-- The query-engine and builder barrels, the `@query-engine` alias, and the dead V1 builder exports.
-- The legacy operation program, `ProgramFailure`, `UniqueConflictPin`, `ProgramReadOperation`, and `RelationStatement`.
-- `BatchValueRef`, `BatchResolvableValue`, and `PreparedBatchRacePin`.
-- The relation-program values module and its duplicate nullability/message ownership.
-- The many-to-many descriptor bounce.
-- The optional per-kind `RelationMutation` bag, `RelationMutationStep`, and `RelationMutationPlan`.
-- `ParentIdSource`, `PerFieldParentIdSource`, `AdoptParentIdSource`, `FreshReferenced`, and `UpsertParentBinding`.
-- The non-structural `Probe` and `validateProbe`.
+The retained compression is semantic:
 
-The live model now has four stronger boundaries:
+1. one execution vocabulary: read, write, guard;
+2. one lossless representation of parsed relation intent;
+3. one topology representation for a bound relation position;
+4. one fresh-record compiler;
+5. one selected-record update compiler;
+6. explicit relation owners for membership and branch policy.
 
-1. `StatementStep` is a union of `ReadStep` and `WriteStep`. Only writes can carry a race pin or unique-conflict policy.
-2. `PlanningFragment` contains statement steps and outputs, but no guards. E6.9 preparation writes remain legal during planning.
-3. `RelationMutationProgram` preserves parsed input order and meaning without carrying execution deduplication.
-4. Foreign-key sources are bound to a foreign/referenced field pair. No caller supplies a field name when it resolves a source.
+This is not a claim that all relation code can merge. The record compiler owns
+the mutation of a row. The relation owner owns why that row was selected and
+how it belongs to its parent. Merging those responsibilities would replace
+visible branches with strategies, callbacks, or mode flags.
 
-The provisional structural adopt helper was rejected. It needed arm callbacks and duplicate exceptions, and it added more production code than it removed. The implementation therefore deleted the original non-structural probe vocabulary and kept the four explicit adopt sites. No branch-step IR, strategy object, generic mutation DSL, payload walker, or shared utility landfill was added.
+## Honest concept outcome
 
-The remaining local compression was measured after the main migration. Only guard/write bucketing still had three or more semantically identical instances, so it received one owner. Correlation builders, generated-identity constructors, and recursive where walkers still have different invariants or fewer than three live instances and remain separate.
+The current architecture has approximately 17 durable concepts when related
+types are grouped by responsibility rather than counted as individual TypeScript
+symbols:
 
-## Follow-on record-compiler experiment
+| Group | Durable concept |
+| --- | --- |
+| public orchestration | operation shell and `QueryMetadata` |
+| execution | statement/guard atom |
+| phase boundary | planning fragment |
+| final program | operation fragment |
+| execution service | operation executor |
+| composition | Part |
+| identity | step scope and output references |
+| parsed relation meaning | relation mutation program |
+| topology | bound relation |
+| value provenance | field-bound FK members |
+| fresh record | `CreateOperation` |
+| selected record | `RecordUpdateCompiler` |
+| edge policy | relation Parts |
+| legality | OwnWrite preflight |
+| junction SQL | `ManyToManyStatements` |
+| bulk writes | specialized bulk compilers |
+| result contract | output/result shaping |
 
-The follow-on work started at `d4bcdde` and its production implementation ended
-at `ec60888`. It tested two proposals: one compiler for each non-bulk record and
-one bound relation-position atom. The retained production change adds 1,788
-TypeScript lines and deletes 2,919: **net −1,131 lines** in
-`src/query-engine`. This passes the required −800-line gate and falls inside the
-planned 800–1,250-line range without junction-create absorption.
+The record-compiler pass is mainly an ownership correction. It does not remove
+`RelationMutationProgram`, `BoundRelation`, or relation Parts, because each says
+something independent. It removes the false idea that selected-record update
+semantics belong to a nested mode of the public update operation, together with
+compatibility carriers that exposed that mode.
 
-The fresh-record proposal passed. `CreateOperation` now compiles every non-bulk
-fresh record subtree. Nested callers pass parsed data and field-bound incoming
-foreign-key members. Literal-parent and planned-parent scalar INSERT builders,
-their callback injection seam, and the scalar-only create-arm paths were
-deleted. This part removed 274 production lines. `createMany` remains
-specialized.
+Documentation deletion is not production compression. Retiring implementation
+ledgers removes thousands of Markdown lines but zero runtime code. Production
+LOC must be measured separately from `src/**/*.ts` at delivery; no target range
+is reported here as an achieved result without that measurement.
 
-The relation-position proposal also passed. `BoundRelation` now distinguishes
-`parentHeldToOne`, `childHeldToOne`, `childHeldToMany`, and `junction` at the
-first topology decision. It replaced `FkDirection`, `getFkDirection`, and the
-repeated relation metadata carried by write Parts. This part removed 185
-production lines. It stores topology only; field-value provenance remains in
-`foreign-key-reference.ts`, and junction SQL remains in
-`ManyToManyStatements`.
+At this documentation unit's validation point, the owned Markdown diff is
+1,357 lines added and 6,052 deleted: net **−4,695 documentation lines**. Most of
+that reduction is retired phase history. It must not be added to the production
+compression number.
 
-The selected-record proposal also passed after the compatibility requirement
-was narrowed to public behavior. `RecordUpdateCompiler` now owns one selected
-row's scalar SET, incoming FK assignments, nested relation compilation,
-required target projection, key transitions, root UPDATE, and descendant
-ordering. Relation owners still own membership, target selection, found/missing
-decisions, guards, race pins, and not-found messages. Ordinary child-held and
-parent-held updates, relation-upsert found arms, junction member updates, and
-probe-first top-level upsert update arms use this compiler.
+## Final ownership model
 
-The important compression is that the compiler consumes the caller's existing
-decision read. Deep targets no longer need a second locate only to enter another
-update implementation. This intentionally normalizes internal target-read IDs
-and projections while preserving public results, SQL meaning, parameter order,
-guards, failures, write order, and statement count. A true empty nested update
-returns before allocating an ID and emits no step.
+### RelationMutationProgram: what was requested
 
-Conditional update-arm planning publishes captured target fields as optional
-outputs. A found arm can therefore compile its descendants, while the same
-descendants remain inert when the create arm is selected. No planning
-postcondition can reject the untaken update arm.
+The program records schema-transformed payload meaning. It preserves mutation
+kind order, item order, duplicates, empty set, filters, and normalized target
+forms. It does not contain topology or execution deduplication.
 
-The work removed these named surfaces, in addition to their duplicate branches:
-`FkDirection`, `getFkDirection`, `rootFkInject`,
-`buildLiteralParentCreatePart`, `buildPlannedParentCreatePart`,
-`buildNestedFreshCreateParts`, `buildCreateArm`, `buildUpsertCreateArm`,
-`NestedChildBuilder`, the depth-specific target builder and its two recursive
-folds, the whole-record target classifier, and the selected-target update
-wrapper.
+### BoundRelation: where the edge is stored
 
-Junction-create absorption was not retained. Its required order is target
-before-writes, target INSERT, junction INSERT, then target descendants. Passing
-that placement through the fresh-record compiler would require a lifecycle hook,
-strategy object, attachment array, or placement flag. The explicit junction
-path is smaller and more truthful. `createMany`, `updateMany`, `deleteMany`,
-`set`, direct top-level scalar folds, and junction SQL remain specialized. No
-adapter or runtime step kind changed.
+The bound relation classifies an edge as parent-held to-one, child-held to-one,
+child-held to-many, or junction. It carries ordered topology only. It does not
+contain scopes, identities, value sources, transition values, SQL, or branch
+policy.
 
-## The question, answered first
+### CreateOperation: one fresh record
 
-The engine grew 30,820 → 33,119 → 38,927 lines across PRs #16 and #20 (+26%), with V1's write runtime deleted in the middle. **Was the growth avoidable by smarter abstractions?** Mostly no — and the audit can show it, not just say it:
+The create compiler receives parsed data and field-bound incoming FK members.
+It owns the root insert, generated identity demand, nested record effects, and
+fresh subtree order. `createMany` remains specialized.
 
-- **Mechanical duplication is LOW.** jscpd over the write engine: 0.7–1.4% exact-clone rate (≈200–300 duplicated lines in 20,756). The growth is not copy-paste.
-- **One third of the write engine is doctrine prose.** 6,645 comment lines (32%) in the .ts files, plus 5,647 lines of in-folder markdown. `RelationUpsertPart.ts` is 44% comments; `UpdateOperation.ts` 33%. The skeptics verified this prose is NOT duplicated essay (D8) — each site argues its own decision — so there is no dedup win, only a relocation question (finding X1 below, the maintainer's call).
-- **The remainder is positional semantics that measured different.** The waves repeatedly tried to unify and were stopped by measurements now on record: reads take the pre-transition key while writes take the post key; the empty to-one payload is a no-op on one direction by Prisma's measured behavior; the member arm was the wrong donor by falsification. The audit's four KEEP_AS_IS findings (A9, C7, C8, D6b) re-verified these as **false compressions** so no future wave spends itself discovering them again.
+### RecordUpdateCompiler: one selected record
 
-**What IS compressible:** ≈1,100 net code lines at low risk (waves R1–R2 below), of which the single largest chunk is not the new work at all but **V1 vestige THE DELETION missed** (~700 lines of dead program/values machinery, confirmed dead by a name-collision-corrected liveness pass). Beyond lines, the audit found ~15 removable *concepts* and three vocabulary moves that make invariants machine-checkable instead of prose-argued.
+The update compiler receives scalar data, relation programs, a captured target,
+and optional incoming FK assignments. It owns the root SET, nested relations,
+required target projection, primary-key transition logic, and descendant order.
+It returns no compiler for a true no-op before allocating a step ID.
 
-## Wave R1 — pure deletions and verbatim-clone extraction (≈ −800 lines, near-zero risk)
+### Relation Parts: why this record
 
-| # | Finding | What | Net | Conf. |
-|---|---|---|---|---|
-| R1.1 | D1 (adj.) | **Superseded by implementation:** the liveness audit proved that the proposed rump also had no justified owner. The complete legacy operation program was deleted, and live failure and constraint types now use their canonical owners. | Better than estimate | 1.0 |
-| R1.2 | D2 | `src/query-engine/RelationProgramValues.ts`: 19 of 22 exports dead; relocate the 3 live ones into write-engine; merge the duplicated `requiredFkFieldsFor` derivation. | ≈ −245 | 0.85 |
-| R1.3 | D4 | `buildCreateManyAndReturn` (dead V1 builder) + slim the `@query-engine` barrel to what production imports (it survives as a test alias). | ≈ −70 | 0.9 |
-| R1.4 | B5/C2/D3/A5 (one family) | The verbatim clone tail, SAFE SUBSET ONLY: `normalizeWheres`+`normalizeWhereData` (byte-identical 44-line block, `RelationWritePart.ts:1841` ≡ `RelationJunctionPart.ts:2734`) to shared.ts. The `requireRecord`/`normalizeSingle` twins are NOT all safe — the skeptics found behavioral differences (UpdateOperation's 3-arg variant refuses multi-element arrays with its own message; per-file message templates) — extract only the byte-identical ones, keep the divergent ones in place with a one-line pointer. | ≈ −60 | 0.72 |
-| R1.5 | C3 (adj.) | The six verbatim `NestedChildBuilder` closures → one `makeNestedChildBuilder` factory (the skeptic removed one false site — `UpdateOperation.ts:2805` is a direct call). | ≈ −50 | 0.75 |
-| R1.6 | B/C skeptics' shared MISSED find | `RelationLinkPart.parentReferenced` (`:407-426`) privately re-derives `referencedFieldValue` — the exact drift-fork `parent-reference.ts`'s own header says the module exists to prevent. Replace with the shared resolver **with an explicit accepted-kinds pin** (the swap changes behavior for `transitioned` sources: typed internal refusal today → resolved value; the pin keeps the refusal until someone decides otherwise). | ≈ −20 | 0.8 |
-| R1.7 | B-skeptic missed | `defaultSelect` has FOUR copies (the analyst listed one). Extract. | ≈ −20 | 0.8 |
+Relation owners keep selector and parent correlation, membership, found/missing
+decisions, not-found behavior, guards, race pins, junction effects, and terminal
+relation effects. They pass the captured target to the record compiler.
 
-## Wave R2 — high-confidence unifications (≈ −300 lines, moderate risk, each its own unit)
+## Why the remaining branches are real
 
-| # | Finding | What | Net | Conf. |
-|---|---|---|---|---|
-| R2.1 | C1 (adj.) | Merge `UpdateOperation`'s TWO root child-held kind switches (`:1924-2079`, `:2102-2298` — byte-identical preambles, same builder family) into one direction-aware switch, the shape the depth loop already has. | ≈ −125 | 0.7 |
-| R2.2 | A1/C4 (same finding, adj.) | Collapse the literal-vs-planned twin builders in `nested-target-parts.ts` (`literalFkInject`≡`plannedFkInject` etc. — the literal source resolves through the same compile-phase path since `referencedFieldValue` ignores `known` for literals). The single-create pair is mechanically sound; the createMany pair differs more than inventoried (skeptic) — do it second, with its own witnesses. | ≈ −100 | 0.65 |
-| R2.3 | A2 (adj.) | One home for correlation conjuncts (`parentHeldCorrelationFilters` / `nestedTargetCorrelationFilters` / `correlationFilters` — verified near-twins). The STATEMENT-builder half is riskier than the analyst claimed (the skeptic found a load-bearing AND-conjunct ORDER difference) — unify the conjunct builders first, the statements only with byte-identical-SQL assertions. The prize is doctrinal: the wrong-row split-witness pin gets ONE home instead of three kept in agreement by prose. | ≈ −60 | 0.6 |
-| R2.4 | A6 | One constructor for the generated-identity INSERT (the RETURNING/insertId capability seam is spelled three times; the identity-RESOLUTION family above it stays distinct — the analyst and skeptic agree that unifying resolution would be false). | ≈ −25 | 0.8 |
-| R2.5 | C6 (adj.) | `RelationJunctionPart` parallel-array slot config → array-of-structs, honestly typed as the THREE item shapes the arms actually carry (skeptic). Kills an index-alignment wrong-row hazard CLASS. | ≈ −35 | 0.5 |
-| R2.6 | A8 | Name the guard/write bucketing (`step.kind === "guard"` split loops ×6) as one function; the batch guard-hoisting discipline gets a name. | ≈ −25 | 0.6 |
+### Branch pins
 
-## Wave R3 — the sanctioned extraction and the vocabulary moves (concept wins; each needs its own reviewed unit)
+A found row can vanish between an unlocked planning read and an atomic batch.
+The batch path guards the captured row. A missing arm that inserts the same
+unique target uses the database constraint and a root-write race pin. A
+same-operation duplicate needs neither. These are different premises, not
+syntax variants.
 
-| # | Finding | What | Why | Conf. |
-|---|---|---|---|---|
-| R3.0 | A-skeptic MISSED (audit FIRST) | **The connectOrCreate found-arm guard wording asymmetry**: `CreateOperation.ts:1799` words the vanished-target batch guard as plain not-found (`relationTargetNotFound(…, 'connect')`) while `UpdateOperation.ts:3438` words it `nestedReplacement('connectOrCreate')` with an explicit replacement-race comment. Either the asymmetry is V1-parity-recorded per operation, or Create reports the wrong failure class. MEASURE before R3.1 — a unifier would silently pick one. | Possible live wording defect | — |
-| R3.1 | A3 (adj.) | The parent-held adopt family shared by Create/Update — **the extraction E3-U3's reclassification explicitly recorded as its own unit.** Guard wordings stay site-supplied; before-subtree emitters stay injected (their racePin plumbing differs deliberately); update-only kinds stay put. Only after R3.0's answer. | ≈ −65 lines, −3 concepts, and the recorded debt is paid | 0.55 |
-| R3.2 | A4 (adj.) | **Rejected by implementation experiment:** a structural adopt helper required arm callbacks and exception policy. It failed the negative-line gate. The non-structural probe declaration and validator were deleted; explicit sites keep their local decisions. | −1 false concept | 1.0 |
-| R3.3 | B1 (adj.) | **Superseded by a stricter model:** final and planning sources now belong to field-bound foreign-key members. Separate read and write sources express primary-key transitions without inference. Lookup is a final source only and cannot enter planning branch SQL. | One provenance model | 1.0 |
-| R3.4 | A7 (adj.) | The optional located-PK publication threading — **the recorded conditional-arm unit** (`RelationUpsertPart.ts:1289-1324` names it; the plan's Status recorded it). Net lines ≈ 0; the win is a SHAPE ABSORBED (deeper relation-carrying writes on upsert update arms stop refusing) plus deleting the refusal essay. This is also one of the RA re-audit's nine (c-ii) survivors — two ledgers point at the same unit. | Absorption + essay deletion | 0.5 |
+### Captured-primary-key targeting
 
-## Rejected — the false compressions, so nobody re-litigates them
+An extended selector can stop matching or match another row after planning.
+The write therefore addresses the primary key captured by the owner read.
+This is the wrong-row invariant and cannot be compressed into selector reuse.
 
-All UPHELD by their skeptics, with the load-bearing differences named in the full audit output:
+### Parse once
 
-- **A fragment-level CONDITIONAL-ARM step kind (B3):** re-adds the BranchStep the census deliberately killed; +200-300 executor/validator lines against −150 Part lines. The arms' mass is in what they EMIT, not the branching.
-- **A LOCATE step kind in the frozen vocabulary (B6):** honest delta ≈ 0; the two largest cited sites already have single-home statements. The provisional structural adopt helper also failed its objective keep gate, so explicit site logic remains smaller.
-- **One payload-walker across the three roots (C7):** the positions differ in measured, load-bearing ways (E6.5's direction-split, N5's ordering, the census's per-position attribution). A strategy DSL would cost more concepts than it deletes.
-- **AbstractWriteOperation (C8):** the shared skeleton is already thin; inheritance buys −20 lines and +1 coupling concept.
-- **Table-driving the legality walks (C9):** blocked honestly by the X2 cast ratchet; net ≈ 0.
-- **The `kinds.length` arity guards are NOT one invariant (D6b):** the `!== 1` vs `> 1` asymmetry between parent-held and child-held is half-deliberate (the child-held `> 1` is recorded: the empty payload is Prisma's measured no-op) — but note the RA re-audit independently flagged the OTHER half (parent-held refusing the empty payload) as a parity question. One MEASUREMENT unit, not a unification.
-- **The comment mass is not duplicated doctrine (D8):** no essay extraction available; ≈ −15 lines of true self-clones at most.
+Validation transforms are not necessarily idempotent. Re-parsing canonical
+output can apply a transform twice or reinterpret an envelope. Parsed relation
+programs and transformed record data cross compiler boundaries directly.
 
-## X1 — the one decision that moves more lines than everything else combined (maintainer's call)
+### Old read, new write
 
-**A10 (upheld, 0.7):** one third of the engine's lines are in-file doctrine essays. Relocating the long-form argumentation into the in-folder docs (ATOM.md and the plan ledgers), leaving one-line pointers at the sites, would remove ≈ 2,500–3,000 .ts lines — 5-8× the whole R1-R3 program — at zero code-concept change. It is deliberately NOT scheduled: the essays-at-the-site convention is a chosen working style of this codebase (the waves' reviewers read them in place), and thinning it is a taste decision, not an engineering one. Without it, the honest ceiling of this plan is ≈ −1,100 code lines (~8% of the write engine's code lines) and ~15 concepts.
+A primary-key transition reads membership with the old key and assigns edges
+with the new key. One inferred parent value cannot serve both jobs. Correlated
+foreign-key members keep independent read and write sources.
 
-## Deferred, sized
+### First-create-wins
 
-- **D5 (adj.):** the `query-engine-v2` → `write-engine` naming completion: 157 src occurrences in 21 files, 81 outside-dir test references, the `tests/query-engine-v2/` directory itself, 4 package.json paths. Net 0 lines, ~380 mechanical sites. Pinned message strings change — census entries required.
+Repeated connect-or-create entries in one operation can name a row created by
+an earlier sibling. The later entry adopts that local row without a database
+race guard. This deduplication belongs to connect-or-create and is not applied
+to upsert.
 
-## Order
+### Junction placement
 
-```
-R3.0 (the wording-asymmetry measurement — first, it gates R3.1 and stands alone)
-R1   (deletions; one lane, near-zero risk)
-R2   (six units, each with byte-identical-SQL or witness assertions)
-R3.1 → R3.2 → R3.3 → R3.4 (each its own reviewed unit; R3.4 doubles as an absorption)
-X1, D5: maintainer decisions, any time.
-```
+Fresh many-to-many attachment requires target before-writes, target insert,
+junction insert, then target descendants. A universal create hook would add a
+lifecycle concept to hide one explicit domain order. The junction path remains
+separate.
 
-Every unit inherits the standard harness: measure first, both-substrate witnesses where behavior could move (R1/R2 claim byte-identical SQL — assert it, don't argue it), cp-backed falsifications, census entries for any message that moves, and the reviewer reads every diff.
+## Deliberately retained specializations
+
+- `createMany`, `updateMany`, and `deleteMany`;
+- relation `set`;
+- skip-duplicate grouping and E6.9 planning writes;
+- direct top-level scalar folds;
+- many-and-return folds;
+- junction SQL in `ManyToManyStatements`;
+- adapter `batchRefs` and executor generated-ID scratch.
+
+These mechanisms express set semantics or substrate capabilities. Absorbing
+them into one-record compilation would add policy switches rather than remove
+meaning.
+
+## Rejected shapes
+
+The audit rejects a generic mutation DSL, payload walker, branch-step IR,
+universal locator, adopt strategy, operation base class, lifecycle callbacks,
+junction placement flags, and a shared utility landfill.
+
+An abstraction is acceptable only when at least three consumers implement the
+same semantic rule and must change together. Similar syntax is not enough.
+
+## Acceptance rules
+
+The final design must preserve public APIs, result types, SQL meaning,
+parameters, step allocation, execution order, guards, race pins, errors, and
+transaction behavior. It adds no runtime step kind and no adapter policy.
+
+Proof includes both transaction and forced atomic-batch paths, wrong-row decoys,
+same-operation duplicates, generated identities, compound edges, key
+transitions, and junction membership. PostgreSQL and MySQL suites must be
+reported as not run when Docker is unavailable; skipped is not passed.

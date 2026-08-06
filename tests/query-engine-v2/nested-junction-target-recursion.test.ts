@@ -8,7 +8,7 @@ import { describe, expect, test } from "vitest";
 import { createV2RoutedClient } from "./v2-client-proxy";
 
 /**
- * T3b-2 family C witnesses (TO-ONE.md §7.7) — a m2m junction create/update/upsert
+ * T3b-2 family C witnesses — a m2m junction create/update/upsert
  * target whose data carries its OWN relations folds them one level deeper against the
  * target's literal PK (mechanism 2 create-arm / mechanism 1 update-arm reuse).
  *

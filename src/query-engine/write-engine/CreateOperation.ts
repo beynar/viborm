@@ -104,16 +104,16 @@ type ExecutionMode = "transaction" | "batch";
 type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
 
 /**
- * A parent-held-FK to-one arm folded into a record's INSERT (WHY §4.2, TO-ONE.md
- * §1.1). The record holds the FK, so the target is a **before-parent write**: its
+ * A parent-held-FK to-one arm folded into a record's INSERT. The record holds
+ * the FK, so the target is a **before-parent write**: its
  * referenced value is in the record's own FK column, so the target write (or the
  * connect's existence pin) must resolve *before* the record INSERT. One of four
  * shapes:
  *
  * - `connect-covered` — the target is created by a *sibling* before-parent `create`
  *   in the same record (the incident's create-then-connect). Existence is our own
- *   write inside the atomic envelope, so this is a pure FK assignment: no probe, no
- *   guard, no pin (TO-ONE.md §2). Resolved at construction by the coverage ledger.
+ *   write inside the atomic envelope, so this is a pure FK assignment: no probe,
+ *   guard, or pin. The coverage ledger resolves it at construction.
  * - `connect-probe` — an uncovered `connect`: the FK is the connect target's
  *   referenced literal, its existence pinned by a global planning probe (tx:
  *   found-at-compile) plus a batch `exists` guard (`raceable: false`).
@@ -160,9 +160,7 @@ type ParentHeldArm =
       readonly racePin: TargetConstraintPin | undefined;
     };
 
-/** A before-parent `create` target key, feeding the sibling-`connect` coverage
- *  ledger (TO-ONE.md §2): a `connect` whose referenced value is created by a
- *  sibling adopts it with no probe. */
+/** A before-parent target key that lets a sibling `connect` adopt it without a probe. */
 interface CreatedTarget {
   readonly model: Model<any>;
   /** Referenced field → the literal the sibling `create` writes for it. */
@@ -204,8 +202,7 @@ interface CreateManyGroup {
  * own scalar INSERT, the parent-held connects folded before it, and the
  * child-held work (nested create/createMany + adopt-family/M2M Parts) spliced
  * after it. A record holds only its children and its own identity — never its
- * parent (WHY §4.2): a child edge is handed a resolved FK value, never the
- * parent object.
+ * parent: a child edge receives a resolved FK value, never the parent object.
  */
 interface RecordPlan {
   readonly model: Model<any>;
@@ -250,63 +247,17 @@ interface SharedPkIdentity {
 }
 
 /**
- * The root `create` (PLAN P6-prerequisite — the create family, generalized far
- * beyond the P1 nested-upsert proof slice). It INSERTs the parent (capturing a
- * generated auto-increment identity, or addressing a known one), composes any mix
- * of nested writes, and reads the created row back through the same executor,
- * fragment vocabulary, and Part composition the update/upsert families use.
+ * The compiler for one fresh record subtree. It owns the record INSERT, generated
+ * identity capture, nested record compilation, and the terminal read. Relation
+ * parts retain membership decisions, probes, guards, race pins, and junction
+ * effects.
  *
- * **Fresh-parent elision (ATOM §4) is the central technique.** A child of a
- * parent this operation just created cannot pre-exist against, orphan, or collide
- * with committed state — no correlated probe under it can match — so the adopt
- * family runs GLOBAL (connectOrCreate/upsert adopt any matched row), and a nested
- * `create` is an unconditional INSERT (no probe, no `notExists` guard — its unique
- * violation is a genuine error, never a raceable create-branch signal, because it
- * is not a probe's missing arm). Race pins still ride the adopt family's create
- * arms (RelationUpsertPart) per the Pin Rule.
- *
- * Supported (constructs on V2):
- * - root scalars + defaults + generated/known PKs; select/include terminal; the
- *   statement-atomic fast path (one `INSERT … RETURNING select` on a returning
- *   driver with a scalar-only projection — no envelope, the PERF fast path);
- * - child-held-FK to-many AND inverse-side to-one: nested `create`/`createMany`/
- *   `connect`/`connectOrCreate`/`upsert` (fresh-parent global adopt), any depth;
- * - **parent-held-FK to-one (the T1 family, TO-ONE.md): `connect`, `create` (a
- *   before-parent INSERT whose identity the record FK references by a backward
- *   `Ref`), and `connectOrCreate`; plus every same-record sibling combination —
- *   a sibling `connect` observing a before-parent `create` is resolved by the
- *   construction-time coverage ledger (the P6-prereq-2 create-then-connect
- *   incident), no probe;**
- * - M2M `connect`/`create`/`connectOrCreate` through the junction.
- *
- * The child-held-FK one-to-many `upsert` is the deliberate P−1.2 Prisma SUPERSET
- * (global lookup, adopt-and-update); V1 rejects it at runtime, so it is the
- * oracle's extension-scenario class, not a V1-parity shape.
- *
- * Routed to V1 with a typed {@link UnsupportedOperationError} (the whole tree):
- * - a nested `update`/`delete`/`set`/… in a create payload (V1 rejects it too,
- *   with its own typed message — routing yields byte-identical behavior);
- * - M2M `upsert`/`disconnect`/`set`/`delete` under create (V1 rejects M2M upsert
- *   in parent create; the junction upsert needs a planned parent id a fresh
- *   parent cannot give);
- * - a to-one `connect` by a non-referenced unique (needs a lookup subquery), and
- *   a shared-primary-key parent-held edge whose fold value is neither a literal nor a
- *   value this fragment PRODUCES — a non-referenced connect's lookup subquery (whose
- *   re-evaluation for the identity would be a second provenance of the row the arm's
- *   probe located) or a `connectOrCreate`'s runtime arm decision. N4-U4 absorbed the
- *   `create` cause under BOTH provenances: a literal target key, and one the database
- *   generates, which the record's identity and its terminal read take as a backward
- *   `Ref` to the before-parent INSERT that produces it;
- * - a compound child edge;
- * - a referenced field that is neither this record's primary key nor a knowable value in
- *   its own create data (N4-U4 widened a fresh record's identity past its primary key:
- *   an edge referencing one of its other uniques reads the value that unique is about to
- *   hold — from the same create data, one column over).
- *
- * A nested `createMany skipDuplicates` is composed (T4a CLASS VI): the plan carries the
- * skip in its SQL leaf (`ON CONFLICT DO NOTHING`/`INSERT OR IGNORE`) or, on a
- * `recoverableUniqueError` dialect, per-row `onUniqueConflict` effects. A default-only
- * row under skipDuplicates stays V1's byte-identical `QueryEngineError`.
+ * A fresh parent has no committed membership, so child-held creates are direct
+ * INSERTs and adopt operations use global lookup. Parent-held targets are emitted
+ * before the record and feed its FK assignment; child-held targets are emitted
+ * after it. A nested `createMany` keeps its grouped statements and its adapter-owned
+ * skip-duplicate strategy. Unsupported payloads fail with typed errors; there is no
+ * alternate query engine.
  */
 export class CreateOperation {
   readonly mode: ExecutionMode;
@@ -729,7 +680,7 @@ export class CreateOperation {
     const createManyGroups: CreateManyGroup[] = [];
     const afterParts: Part[] = [];
 
-    // The before-parent coverage ledger (TO-ONE.md §2): every parent-held `create`
+    // The before-parent coverage ledger: every parent-held `create`
     // (and connectOrCreate — which guarantees the target exists after the
     // before-parent phase) in THIS record's arms is an unconditional witness a
     // sibling `connect` can adopt without a probe. Computed before interpreting the
@@ -920,7 +871,7 @@ export class CreateOperation {
   }
 
   /**
-   * Build the before-parent coverage ledger (TO-ONE.md §2): the set of target
+   * Build the before-parent coverage ledger: the set of target
    * keys a sibling `connect` may adopt without a probe because a sibling arm
    * guarantees the target exists after the before-parent phase. An unconditional
    * `create` always writes its target; a `connectOrCreate` guarantees existence by
@@ -959,7 +910,7 @@ export class CreateOperation {
     return targets;
   }
 
-  /** True iff a sibling before-parent arm creates the `connect` target (TO-ONE.md §2). */
+  /** True when a sibling before-parent arm creates the `connect` target. */
   private connectIsCovered(
     coverage: readonly CreatedTarget[],
     targetModel: Model<any>,
@@ -1103,7 +1054,7 @@ export class CreateOperation {
 
   /**
    * A parent-held-FK to-one relation (the record holds the FK): a before-parent
-   * arm (TO-ONE.md §1.1). `connect` (covered / probed), `create`, and
+   * arm. `connect` (covered or probed), `create`, and
    * `connectOrCreate` are on V2; a shared-primary-key edge stays routed.
    */
   private interpretParentHeld(
@@ -1184,7 +1135,7 @@ export class CreateOperation {
     ) {
       // The incident's create-then-connect: a sibling before-parent create writes
       // this target, so existence is our own write inside the atomic envelope —
-      // pure FK assignment, no probe, no guard, no pin (TO-ONE.md §2.3).
+      // pure FK assignment, with no probe, guard, or pin.
       input.parentHeldArms.push({ kind: "connect-covered", fkAssign });
       return;
     }
@@ -1300,8 +1251,8 @@ export class CreateOperation {
   }
 
   /**
-   * The record's FK columns ← the connect target's referenced values (TO-ONE.md
-   * §1.1). A directly-referenced unique (`where` carries the referenced column) is a
+   * The record's FK columns take the connect target's referenced values. A
+   * directly-referenced unique (`where` carries the referenced column) is a
    * compile-time literal; a **NON-referenced unique** (`where` carries some OTHER
    * unique — a to-one connect by e.g. `email` when the FK references `id`) resolves
    * through a correlated lookup subquery `(SELECT referenced FROM target WHERE …)` —
@@ -1550,8 +1501,7 @@ export class CreateOperation {
     // group, so heterogeneous rows (some supplying a generated PK, some omitting
     // it) split into contiguous grouped INSERTs — full parity with V1's grouped
     // execution, never the single-VALUES "Heterogeneous insert rows" hard-fail.
-    // `skipDuplicates` rides the plan: a dialect whose skip IS a SQL leaf
-    // (`ON CONFLICT DO NOTHING`, `INSERT OR IGNORE`) carries the semantics in the
+    // `skipDuplicates` rides the plan: a dialect whose skip is a SQL leaf carries the semantics in the
     // statement; a `recoverableUniqueError` dialect (MySQL) has no leaf, so each
     // per-row statement carries the savepoint-wrapped `onUniqueConflict: "skip"`
     // executor effect — exactly as the root `createMany` (ATOM §8, CreateManyOperation).
@@ -1738,7 +1688,7 @@ export class CreateOperation {
     // 1. Before the record INSERT: resolve each parent-held to-one arm — a before-
     //    parent target INSERT (emitted first, its id referenced backward), a covered
     //    connect (pure FK assign), or an uncovered connect/connectOrCreate probe +
-    //    pin (TO-ONE.md §1.1/§2). Each folds its FK value into `insertData`.
+    //    pin. Each folds its FK value into `insertData`.
     for (const arm of plan.parentHeldArms) {
       this.emitParentHeldArm(arm, insertData, known, guards, writes);
     }
@@ -1760,8 +1710,7 @@ export class CreateOperation {
     return insertData;
   }
 
-  /** Resolve one parent-held to-one arm into the record's `insertData`, emitting
-   *  any before-parent target write ahead of the record INSERT (TO-ONE.md §1.1). */
+  /** Resolve one parent-held arm and emit its target before the record INSERT. */
   private emitParentHeldArm(
     arm: ParentHeldArm,
     insertData: Record<string, unknown>,
@@ -2140,7 +2089,7 @@ interface FoldArmSemantics {
 }
 
 /**
- * P8/P9 review (blocking): `ON CONFLICT DO NOTHING` cannot see a tuple another
+ * P8/P9 review (blocking): PostgreSQL's conflict-skipping clause cannot see a tuple another
  * arm of the SAME command inserted — measured raw on PostgreSQL 16: two CTE arms
  * writing one table, one carrying the skip leaf, turn a succeeding create into a
  * `UniqueConstraintError` with NOTHING written, where the unfolded statements

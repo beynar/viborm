@@ -1,89 +1,129 @@
 # Query Engine
 
-The query engine turns one validated client operation into a database-agnostic
-`OperationProgram`, executes that program atomically through a driver, and
-parses its declared result. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite share
-the same operation semantics; dialect SQL remains adapter-owned.
+The query engine turns a validated client operation into database-agnostic SQL
+fragments, executes them atomically through a driver, and parses the declared
+result. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite share operation semantics;
+dialect syntax remains adapter-owned.
 
 ## Ownership
 
 ```text
 QueryEngine
 └── creates PendingOperation
-    ├── OperationCompiler → OperationProgram → SQL builders → adapter
-    ├── OperationRuntime  → OperationProgram → driver
-    └── OperationResults  → declared result shape → result parsers
+    ├── operation shell → SQL builders → adapter
+    ├── PlanningFragment → OperationFragment → OperationExecutor → driver
+    └── declared outputs → strict result parsers
 ```
 
 | Owner | Responsibility |
 | --- | --- |
-| `QueryEngine` | Client-scoped driver, model/schema registry, instrumentation, client identity, and transaction-scope identity |
-| `PendingOperation` | The sole lazy, Promise-like operation lifecycle |
-| `OperationCompiler` | Exhaustive operation dispatch and program compilation |
-| `WriteOperations` | Write compilation, including all relation mutations |
-| `OperationProgram` | Data-only steps, dependencies, branches, guards, produced values, atomicity, and the declared public result |
-| `OperationRuntime` | Select transaction or atomic-batch execution for the same program |
-| `OperationBatchRuntime` | Specialize dynamic program branches and lower produced values for atomic batches |
-| `OperationResults` | Provider result attribution, affected-row assertions, parsing, pagination reversal, and not-found handling |
-| `QueryScope` | SQL-construction state only: adapter, model, aliases, root alias, and optional mutation target |
-| `builders/` | Pure, adapter-backed SQL construction by semantic concern |
+| `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
+| `PendingOperation` | Lazy and Promise-like public operation lifecycle |
+| operation shells | Validation, public target behavior, compilation, and result declaration |
+| relation Parts | Selection, membership, branches, guards, race pins, and edge effects |
+| `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
+| `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
+| `builders/` | Adapter-backed SQL construction by semantic concern |
 | `result/` | Strict row, relation, aggregate, count, scalar, and shape parsing |
 
-`QueryEngine` is not a passthrough. Transaction-bound engines preserve the
-originating `clientId`, mint a new `scopeId`, and own the driver used to create
-and execute operations.
+`QueryEngine` is not a forwarding shell. A transaction-bound engine preserves
+the originating client identity, receives a new scope identity, and owns the
+driver used to construct and execute operations.
 
-## Operation Flow
+## Operation flow
 
 ```text
 client call
   → QueryEngine.prepare(...)
-  → PendingOperation (still unvalidated and unexecuted)
-  → validation
-  → planning fragment
-  → final OperationFragment
+  → PendingOperation (lazy)
+  → validation and operation construction
+  → PlanningFragment
+  → selected OperationFragment
   → OperationExecutor
-       ├── one statement
-       ├── one interactive transaction
-       └── one atomic driver batch
+       ├── direct statement
+       ├── interactive transaction
+       └── atomic driver batch
+  → strict result parser
   → typed public value
 ```
 
-Every operation compiles to a fragment. A simple read or write is a one-step
-fragment; relation writes, non-`RETURNING` emulation, deep returns, produced
-keys, and compile-time decisions use the same step vocabulary.
+A simple read or write is one statement. Relation writes, non-returning
+emulation, generated keys, branch premises, and deep results use the same small
+fragment vocabulary.
 
-## Fragment Vocabulary
+## Fragment vocabulary
 
-`write-engine/OperationFragment.ts` defines a deliberately small execution
-fragment, not a second SQL AST:
+`write-engine/OperationFragment.ts` defines three runtime step kinds:
 
-- `read` and `write` execute adapter-built `Sql` fragments;
-- `guard` asserts a database premise and fails closed when it changes;
-- produced values reference prior step outputs as data.
+- `read` executes adapter-built SQL;
+- `write` executes adapter-built SQL and can carry a race pin or
+  conflict-skip effect;
+- `guard` checks a database premise for the selected final fragment.
 
-Fragments contain adapter-built statements and declared result sources.
-Relation semantics stay in operations and parts; the executor consumes only
-the compiled fragment.
+Produced values reference declared outputs from earlier steps. The fragment is
+not a second SQL AST and contains no relation strategy, payload walker, driver,
+or arbitrary context bag.
 
-## SQL Construction
+Planning has its own guard-free `PlanningFragment`. Planning is not necessarily
+read-only: E6.9 skip-duplicate capture performs preparation writes and publishes
+their outputs. Final compilation emits only the selected effects.
 
-SQL lives in `builders/` because the existing name remains accurate and a
-folder rename would add path churn without deleting a concept. Independent
-concerns remain separate:
+## Relation writes
+
+Nested writes are a public feature, not a second runtime. Their compiler keeps
+three independent facts:
+
+1. `RelationMutationProgram` records schema-transformed payload meaning.
+2. `BoundRelation` records where the relation edge is stored.
+3. A record compiler emits the mutation of one fresh or selected record.
+
+`RelationMutationProgram` preserves operation order, item order, duplicates,
+empty set, filters, and normalized target forms. Execution-specific
+deduplication stays with the consumer that owns it.
+
+`BoundRelation` classifies an edge as parent-held to-one, child-held to-one,
+child-held to-many, or junction. It carries ordered topology only, not scopes,
+identities, value sources, transition state, SQL, or branch policy.
+
+`CreateOperation` compiles non-bulk fresh record subtrees.
+`RecordUpdateCompiler` compiles non-bulk updates for an already-selected record.
+The record compiler owns scalar assignments, incoming FK values, nested record
+effects, required target fields, primary-key transitions, and root-write order.
+
+Relation Parts still own target reads, parent correlation, membership,
+found/missing decisions, not-found failures, guards, race pins, junction
+effects, and terminal relation behavior. A write addresses the captured primary
+key, not a selector that can match another row after planning.
+
+Validation transforms are not assumed to be idempotent. Parse untrusted input
+once at its trust boundary and pass transformed programs or record data
+downstream.
+
+`createMany`, `updateMany`, `deleteMany`, relation `set`, and many-and-return
+folds remain specialized because they have set semantics rather than one-record
+semantics.
+
+See [write-engine/ATOM.md](write-engine/ATOM.md) for the normative write-engine
+doctrine.
+
+## SQL construction
+
+SQL builders remain in `builders/`, grouped by semantic concern:
 
 | Concern | Primary module |
 | --- | --- |
-| scalar/logical where | `where-builder.ts` |
+| scalar and logical filters | `where-builder.ts` |
 | relation predicates | `relation-filter-builder.ts` |
-| selection and recursive includes | `select-builder.ts`, `include-builder.ts`, `include-many-to-many.ts` |
+| selection and recursive includes | `select-builder.ts`, `include-builder.ts` |
 | ordering | `orderby-builder.ts`, `relation-orderby-builder.ts` |
-| aggregation | `aggregate-utils.ts`, relation counts |
+| aggregation | `aggregate-utils.ts` and relation counts |
 | insert values and row shapes | `values-builder.ts`, `insert-row-shapes.ts` |
 | mutation assignments | `set-builder.ts` |
-| many-to-many junction SQL | `many-to-many-utils.ts` |
+| relation payload meaning | `relation-mutation-parser.ts` |
+| relation topology | `relation-data-builder.ts` |
+| many-to-many junction SQL | `many-to-many-utils.ts`, `ManyToManyStatements.ts` |
 
-The golden rule is absolute: query-engine code decides what the query means;
+The golden rule is absolute: query-engine code decides what a query means;
 adapters decide how that meaning is written in a dialect.
 
 ```ts
@@ -94,71 +134,52 @@ sql`COALESCE(json_agg(...), '[]'::json)`;
 scope.adapter.json.agg(expression);
 ```
 
-Builders return parameterized `Sql` fragments, never interpolated SQL strings.
-Runtime import cycles are forbidden and enforced by architecture gates.
-
-## Relation Mutations
-
-A nested write is a public feature, not a separate engine. `WriteOperations`
-owns relation compilation through `RelationMutations` and its cohesive relation
-compiler children. The compiler emits ordinary program steps; runtime does not
-import relation semantics or select a nested-write interpreter.
-
-The same program must preserve:
-
-- foreign-key direction and compound-key behavior;
-- connect, create, update, upsert, set, disconnect, and delete semantics;
-- own-write visibility and concurrency guards;
-- one-operation atomicity;
-- equivalent transaction and atomic-batch outcomes.
+Builders return parameterized `Sql` fragments. Query-engine code does not match
+provider-specific SQL tokens to recover semantic facts. Provider error-message
+and assertion-marker recognition belongs to driver error mapping.
 
 ## Results
 
-`OperationResults` owns the declared public result. It validates that each
-declared source was produced, keeps parser middleware caches isolated per
-driver, and delegates strict shape parsing to `result/`.
-
-Provider middleware order remains:
+Result parsing validates every declared source and keeps middleware caches
+isolated per driver. Provider middleware order is:
 
 ```text
 driver parser → adapter parser → default strict parser
 ```
 
-Absent rows, missing relation values, malformed scalar carriers, unexpected
-columns, and invalid counts raise typed errors. Result code never substitutes a
-plausible empty object, array, count, or null for malformed provider output.
+Absent rows, malformed scalar carriers, unexpected columns, and invalid counts
+raise typed errors. Result code never substitutes a plausible empty object,
+array, count, or null for malformed provider output.
 
-## Single-Statement Inspection
+## Single-statement inspection
 
-`QueryEngine.build()` is intentionally a single-statement inspection API. It
-returns SQL only when the compiled program contains exactly one executable SQL
-step. Multi-step programs throw `QueryEngineError`; they never masquerade as
-one statement. Use `prepare()` or execute the returned `PendingOperation` for
-general operations.
+`QueryEngine.build()` returns SQL only when an operation is representable as one
+statement without executor-only behavior. It rejects guards, unresolved
+references, and multi-step semantics instead of pretending that an atomic
+operation is one statement.
 
-## Lifecycle Compatibility
+Use `prepare()` or await the returned `PendingOperation` for general operations.
 
-`PendingOperation` is the only deferred-operation class and is exported from
-the package root and `viborm/client`. The deprecated `QueryMetadata<T>` name is
-a type-only alias to `PendingOperation<T>` for the next published compatibility
-release. No runtime metadata object or closure bag exists; the alias is planned
-for removal after that compatibility window.
+## Lifecycle compatibility
 
-The internal `src/query-engine/index.ts` barrel deliberately preserves the
-advanced SQL-builder and parser exports used by repository integrations and
-tests. These helpers do not create a second lifecycle.
+`PendingOperation` is exported from the package root and `viborm/client`.
+`QueryMetadata<T>` remains a deprecated type-only alias during its compatibility
+window; no runtime metadata object exists.
+
+Use direct owner imports inside the repository. There is no query-engine barrel
+or bare `@query-engine` alias; the scoped `@query-engine/*` path mapping remains.
 
 ## Verification
 
-The architecture gates assert that:
+Architecture gates check fragment vocabulary, layer imports, parsing boundaries,
+result contracts, and provider-neutral behavior. Run:
 
-- the retired nested-write directory and routing do not exist;
-- `PendingOperation` is the lifecycle composition root;
-- runtime modules cannot import compiler relation semantics;
-- compiler modules cannot import concrete runtimes;
-- result modules cannot import compiler or runtime implementations;
-- `QueryScope` contains only SQL-construction state;
-- the query-engine runtime import graph is acyclic.
+```bash
+pnpm test:types
+pnpm test:gates
+pnpm package:build
+pnpm test
+```
 
-Behavior is proved by the shared query-engine suite and the same portable driver
-contracts on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite.
+Shared driver suites prove portable behavior on PostgreSQL, MySQL, SQLite,
+LibSQL, and PGlite.

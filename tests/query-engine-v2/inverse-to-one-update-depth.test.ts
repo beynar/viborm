@@ -13,7 +13,7 @@ import { UnsupportedOperationError } from "../../src/query-engine/write-engine/s
  * The boundary this file replaces (`RelationWritePart.interpretChildParts`) asked for a
  * unique `where` before it would fold a nested relation write. A to-many target has one;
  * an inverse-side to-one NEVER does — its locator is the foreign-key correlation alone
- * (TO-ONE.md §7.2, V1's `normalizeUpdateInputs` yields `{ data }` for a to-one) — so the
+ * (V1's `normalizeUpdateInputs` yields `{ data }` for a to-one) — so the
  * whole family declined, measured live on both substrates before the lift:
  *
  *   UnsupportedOperationError: query-engine-v2 update for relation 'profile' does not

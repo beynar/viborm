@@ -138,19 +138,11 @@ interface Conditional {
  * fires — pinned by the **retained `notExists`** guard (ATOM §2, `raceable:
  * true`).
  *
- * **T3c — the arms compose the create-root / update-root machinery (TO-ONE.md
- * §7.8).** A **scalar** create/update arm stays fully inline (the proven scalar
- * path, unchanged): a plain INSERT (racePin) or `UPDATE … [RETURNING]`. A
- * **relation-bearing** arm delegates to a {@link CreateOperation} / {@link
- * UpdateOperation} constructed as a sub-operation (mechanism 2, fresh-parent
- * elision / mechanism 1): it shares this upsert's
- * {@link StepScope}, defers its own-write barrier to this operation's per-arm
- * compile (V1 checks each arm's barrier inside its own branch — the D4/D5
- * create-branch-barrier witnesses), and — for the update arm — drops its locate's
- * not-found postcondition (a located-miss is this upsert's CREATE decision). The
- * delegated arms plan their whole superset (ATOM §3 technique 2); only the taken
- * arm's writes compile. The arm the locate selects, the conditional skip pins, and
- * the create-branch racePin all compose with each arm's own child Parts.
+ * Scalar arms stay inline. A relation-bearing create arm uses
+ * {@link CreateOperation}; a relation-bearing found arm uses the selected-record
+ * compiler. Both share this operation's {@link StepScope}. Payload legality and
+ * writes remain deferred until the locate selects the arm, while each arm's
+ * planning reads form the guard-free planning superset.
  */
 export class UpsertOperation {
   readonly mode: ExecutionMode;

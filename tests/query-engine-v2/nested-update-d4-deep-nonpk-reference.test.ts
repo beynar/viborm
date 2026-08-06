@@ -7,8 +7,8 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 
 /**
- * N1-U1 — the D4-deep non-PK reference, ABSORBED. (Was: the T3b-2 named reorder
- * obligation's decline witness, TO-ONE.md §7.7.)
+ * N1-U1 — the D4-deep non-PK reference, absorbed from the former T3b-2
+ * named-reorder decline.
  *
  * DELIBERATE TEST RETARGET, authorized by the N-wave plan's N1 acceptance ("the Ref
  * works under X1c delegation at depth >= 2 — a located grandparent's column reffed by a

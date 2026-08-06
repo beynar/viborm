@@ -1,196 +1,118 @@
 # Query Engine Write Engine
 
-The write engine is the live nested-write implementation. It compiles validated
-create, update, upsert, delete, and many-write requests into two linear phases:
-a guard-free planning fragment and one selected final fragment.
+The write engine compiles validated mutations into a guard-free planning
+fragment and one selected final fragment. [ATOM.md](./ATOM.md) is the normative
+architecture reference.
 
-## Lifecycle
+## Pipeline
 
 ```text
-whole-args validation
+validated input
 → scalar/relation partition
-→ lossless relation mutation programs
+→ RelationMutationProgram map
 → OwnWrite legality
-→ guard-free planning
-→ selected final fragment
-→ generic execution
-→ declared result parsing
+→ root operation + relation Parts
+→ PlanningFragment
+→ OperationFragment
+→ OperationExecutor
 ```
 
-The operation owns meaning. `OperationExecutor` owns provider execution,
-transaction or atomic-batch envelopes, symbolic-value materialization, guard
-attribution, and strict result handling. It must not learn relation or mutation
-semantics.
+`OperationExecutor` owns generic execution, reference materialization, guard
+attribution, transaction or batch envelopes, and strict result handling. It
+does not interpret relations or mutation kinds.
 
-## Step and fragment model
+## Execution atom
 
-`OperationFragment.ts` has three runtime step kinds:
+- `ReadStep` describes a read statement.
+- `WriteStep` describes a write and is the only step that can carry `racePin`
+  or `onUniqueConflict`.
+- `GuardStep` protects a premise of the selected final fragment.
+- `PlanningFragment` contains statements and outputs, never guards.
+- `OperationFragment` contains final statements, guards, and outputs.
 
-```ts
-interface ReadStep extends StatementStepBase {
-  readonly kind: "read";
-}
+Planning is not read-only. E6.9 skip-duplicate capture performs preparation
+writes and publishes their outputs. Nested Parts currently contribute reads.
+Keep the executor's non-read planning fallback.
 
-interface WriteStep extends StatementStepBase {
-  readonly kind: "write";
-  readonly racePin?: TargetConstraintPin;
-  readonly onUniqueConflict?: "skip";
-}
+## Three independent facts
 
-type StatementStep = ReadStep | WriteStep;
+### Requested meaning
 
-interface PlanningFragment {
-  readonly steps: readonly StatementStep[];
-  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
-}
-```
+`RelationMutationProgram` is the lossless, schema-transformed meaning of one
+relation payload. It preserves kind order, source order, duplicates, `set: []`,
+and normalized update/upsert targets. It removes only false boolean no-ops.
+Execution-specific deduplication stays with the consumer that owns it.
 
-Final fragments may also contain guards. Planning fragments cannot. Planning is
-not read-only: E6.9 skip-duplicate capture intentionally performs preparation
-writes and publishes their outputs for final compilation. Nested
-`Part.planning()` currently contributes reads.
+### Relation position
 
-`racePin` and `onUniqueConflict` belong only to writes. A read carrying either
-effect is a type error. Fragment validation enforces unique IDs, backward local
-references, resolvable outputs, and guard Pin-Rule classes.
+`BoundRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
+`childHeldToMany`, or `junction`. It stores topology only: source model, ordered
+FK fields, referenced fields, and update action. It does not store scopes,
+identities, value sources, transition state, SQL, or branch policy.
 
-## Canonical relation mutation program
+### Record mutation
 
-`builders/relation-mutation-parser.ts` transforms schema-parsed relation data
-into:
+`CreateOperation` compiles each non-bulk fresh record subtree. Nested callers
+provide parsed data and field-bound incoming FK members.
 
-```ts
-interface RelationMutationProgram {
-  readonly relationInfo: RelationInfo;
-  readonly entries: readonly RelationMutationEntry[];
-}
-```
+`RecordUpdateCompiler` compiles each already-selected non-bulk record update.
+It owns scalar SET data, incoming FK assignments, nested relations, required
+target projection, primary-key transitions, the root UPDATE, and descendant
+order. A true no-op returns no compiler before allocating an ID.
 
-The program is lossless for operation meaning:
+Relation owners keep target selection, correlation, membership, found/missing
+decisions, guards, race pins, not-found messages, junction effects, and terminal
+results. They pass the captured target to the record compiler.
 
-- mutation kinds keep schema order;
-- source array order and duplicates survive;
-- `set: []` survives;
-- false boolean no-ops are removed;
-- to-one filters and normalized target forms survive;
-- execution-specific deduplication is not stored in the program.
+## Foreign-key values
 
-OwnWrite and every emitter consume `entries`. A consumer must not reopen the raw
-payload, normalize arrays again, or recreate the old optional per-kind bag.
+`foreign-key-reference.ts` binds every planning or final source to one
+foreign/referenced field pair. A transition reads the old value and writes the
+new value. Final operation references cannot enter planning SQL, and lookup SQL
+cannot select a branch.
 
-## Field-bound foreign-key provenance
-
-`foreign-key-reference.ts` owns all source kinds and lowering:
-
-```ts
-interface ForeignKeyMember {
-  readonly foreignField: string;
-  readonly referencedField: string;
-  readonly writeSource: FinalReferenceSource;
-}
-
-interface CorrelatedForeignKeyMember extends ForeignKeyMember {
-  readonly readSource: PlanningReferenceSource;
-}
-```
-
-Each source is bound to its edge member before resolution. A transitioned key
-reads the old planning field and writes the transformed final value. A final
-operation reference cannot enter planning SQL. A lookup is a final SQL source;
-the root operation still owns its existence and null checks.
-
-Many-to-many membership uses the same split: membership reads and batch guards
-use the old source, while assignments use the final source. Junction SQL remains
-owned by `ManyToManyStatements`.
-
-## Record compilation and relation position
-
-`bindRelation` classifies a relation at its first topology decision:
-
-```ts
-type BoundRelation =
-  | ParentHeldToOne
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | JunctionRelation;
-```
-
-The bound relation stores ordered foreign and referenced fields for an FK edge.
-It does not store scopes, identities, value sources, transition state, junction
-metadata, SQL, or execution policy. `RelationMutationProgram` remains separate:
-it describes the request, while `BoundRelation` describes the edge position.
-
-`CreateOperation` is the one compiler for a non-bulk fresh record subtree.
-Nested callers provide parsed data, field-bound incoming FK members, and an
-optional root race pin. The fresh-record Part publishes its planning and final
-steps, root write ID, and root referenced values. Relation Parts still own
-membership and found/missing decisions. `createMany` remains specialized.
-
-`RecordUpdateCompiler` is the one compiler for an already-selected non-bulk
-record update. The relation owner supplies the target-read and write labels,
-owns membership, branch decisions, guards, and race pins, and publishes the
-fields the compiler requires. The compiler owns scalar SET data, incoming FK
-assignments, parent-held folds, child-held descendants, required target fields,
-PK transitions, and root UPDATE ordering. It returns `undefined` for a true
-no-op before it allocates a step ID.
-
-Child-held, parent-held, relation-upsert, and junction update targets use this
-compiler. A junction member or upsert arm reuses its membership/global probe;
-it does not run a second target locate. `updateMany`, `deleteMany`, and `set`
-remain specialized. Top-level scalar update folds remain local because they
-return the public result from the mutation statement itself.
+Writes address the captured primary key, not a selector that can match a
+different row after planning.
 
 ## Branch premises
 
-Branch sites explicitly compile the selected arm:
+- Batch found arm: captured-row presence guard, `raceable: false`.
+- Transaction found arm: locked decision read, no duplicate guard.
+- Missing arm that inserts the same unique target: constraint plus root-write
+  `racePin`.
+- Same-operation duplicate: no found guard and no missing pin.
+- Materialized-set or orphan premise: retain its explicit absence guard.
 
-- batch found arm: captured-row presence guard, `raceable: false`;
-- transaction found arm: locked read, no duplicate guard;
-- missing arm inserting the unique target: constraint + write `racePin`;
-- same-operation duplicate: neither guard nor pin;
-- retained materialized-set or orphan premises: their existing `notExists`
-  guards, `raceable: true`.
+First-create-wins is local to connect-or-create. Do not generalize it to upsert.
 
-The `AdoptProbe` prototype was rejected. It required arm compiler callbacks and
-a duplicate exception across the four sites, so it became a strategy object and
-failed the negative-line gate. The previous declaration-only `Probe` and
-`validateProbe` were deleted because they did not enforce consumption.
+## Ordering
 
-## Ordering invariants
+- Parse once; transformed payloads are not necessarily idempotent.
+- Planning reads precede same-operation writes that could change their answer.
+- Primary-key transitions keep independent old-read and new-write sources.
+- Atomic-batch guards precede writes while preserving order inside each group.
+- Junction create attachment stays target before-writes, target INSERT,
+  junction INSERT, target descendants.
 
-1. Public SQL meaning, parameter order, guards, and errors are stable. Internal
-   target-read labels can normalize when one compiler replaces a redundant read.
-2. Planning contains no guards.
-3. Final batch guards run before writes; relative order within both buckets is
-   preserved.
-4. A symbolic reference points backward inside the same fragment.
-5. Planning values cross into final compilation as known values, not references
-   to the discarded planning fragment.
-6. Read-before/write-after key transitions keep independent sources.
-7. First-create-wins duplicate behavior remains local to connect-or-create.
-8. Wrong-row protections address the captured row, not a re-evaluated selector.
+## Kept specializations
 
-## Kept boundaries
+`createMany`, `updateMany`, `deleteMany`, relation `set`, skip-duplicate capture,
+and many-and-return folds remain specialized. `ManyToManyStatements` remains
+the junction SQL owner. Keep `QueryMetadata` and adapter `batchRefs`.
 
-- `QueryMetadata`
-- adapter `batchRefs`
-- `ManyToManyStatements`
-- E6.9 planning preparation writes
-- adapter-owned SQL, casts, assertions, conflict syntax, and locking
-- explicit junction-create attachment order
-
-Do not add a universal operation program, generic mutation DSL, payload walker,
-strategy framework, branch-step IR, or shared utility landfill.
+Do not add a generic mutation DSL, payload walker, locator, strategy framework,
+branch-step IR, lifecycle hook, or shared utility landfill.
 
 ## Validation
 
-Run the focused nested-write and race tests for a changed path, then:
+Run the focused nested-write and race tests for the changed path, then:
 
 ```bash
 pnpm test:types
 pnpm test:gates
 pnpm package:build
+pnpm test
 ```
 
-Use both PGlite transaction and forced atomic-batch witnesses. Run PostgreSQL
-and MySQL parity suites when Docker is available.
+Run PostgreSQL and MySQL parity suites when Docker is available. Report skipped
+Docker suites as not run.
