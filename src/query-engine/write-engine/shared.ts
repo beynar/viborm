@@ -1,7 +1,10 @@
 import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import { isSql } from "@sql";
-import { partitionWhereUnique } from "../builders/where-unique-builder";
+import {
+  getWhereUniqueEntries,
+  partitionWhereUnique,
+} from "../builders/where-unique-builder";
 import {
   createChildScope,
   getRelationInfo,
@@ -10,95 +13,19 @@ import {
 import type { QueryEngine } from "../query-engine";
 import { getForeignKeyTargetFields } from "../TargetConstraint";
 import type { QueryScope } from "../types";
-import type {
-  FinalReferenceSource,
-  ForeignKeyMember,
-} from "./foreign-key-reference";
+import type { ForeignKeyMember } from "./foreign-key-reference";
 import type { TargetConstraintPin } from "./OperationFragment";
 import type { StepScope } from "./StepScope";
 
 /**
- * X1c — how a nested UPDATE target (a to-many / inverse-to-one child, or a
- * parent-held to-one) whose data carries a mechanism the child-Part builder cannot
- * fold in place — a **parent-held to-one write** (its identity folded into the
- * target's OWN update SET — child-SET folding) or a **non-PK / compound referenced
- * edge** (D4) — is located and correlated by the delegated {@link UpdateOperation}.
- * The correlation is the ONE piece the located-target reuse adds over `nestedFresh`
- * (a fresh create needs no locate): the target is verified to belong to the
- * enclosing parent by `child.<childFields[i]> = parent.<parentFields[i]>` (a SQL
- * `Ref` to the enclosing locate for a `planned` parent — technique #1 — or an
- * inlined literal), ANDed with the target's own unique `where` when it has one (a
- * child-held to-many `update`; a to-one / parent-held target locates by correlation
- * alone). A located miss is the target's own `Cannot … relation` not-found, not the
- * root not-found.
- */
-export interface NestedTargetLocate {
-  /** The target's unique selector (child-held to-many `update`); absent for a
-   *  to-one / parent-held target located by correlation alone. */
-  readonly where?: Record<string, unknown>;
-  /** The enclosing parent's id — a `planned` locate (a SQL `Ref`) or a compile-time
-   *  literal (a depth-composed literal-parent target). */
-  readonly parentId: FinalReferenceSource;
-  /** The target's correlation columns (child-held: its FK; parent-held: the columns
-   *  the parent's FK references), index-aligned with {@link parentFields}. */
-  readonly childFields: readonly string[];
-  /** The enclosing parent's columns the correlation reads (child-held: the parent's
-   *  referenced columns; parent-held: the parent's FK columns). */
-  readonly parentFields: readonly string[];
-  /** M1 — the FINAL value of a {@link parentFields} column the SAME enclosing update
-   *  rebinds to a literal, keyed by that column's name. The parent-held twin that folds
-   *  in place has always correlated on the POST-SET FK value ("the parent's FK value is
-   *  its FINAL value"); this is the delegated path's channel for the same contract. A
-   *  column named here overrides the locate row for BOTH consumers (the correlated
-   *  locate and the batch presence guard); an unnamed one reads the located row, which
-   *  stays the only source for a column this update does not touch. Without it the
-   *  delegated sub-op would locate — and mutate — the row the parent is moving away
-   *  from, with the presence guard confirming that same stale row. */
-  readonly parentFieldOverride?: Readonly<Record<string, unknown>>;
-  /** W4-U3 — the to-one `update: { where, data }` wrapper's NON-unique filter on the
-   *  currently connected record. ANDed into the locate (and the batch presence guard)
-   *  alongside the correlation: a connected row that fails it makes the locate empty,
-   *  so the target's own not-found fires and the whole operation aborts atomically,
-   *  state unchanged. Absent for the bare `update: <data>` spelling — then the locate
-   *  is byte-identical to pre-W4-U3. Never compiled into the WRITE (which addresses
-   *  the captured primary key), so a relation filter here is portable. */
-  readonly filter?: Record<string, unknown>;
-  readonly relationName: string;
-  /** V1's byte-identical `Cannot … relation … for this parent` not-found message
-   *  the enclosing caller sources from `relationTargetNotFound(info, "update")`. */
-  readonly notFoundMessage: string;
-}
-
-/**
- * How a root operation is reused as one arm of a composing operation (T3c — the
- * top-level `upsert`'s create/update arms compose the create-root / update-root
- * machinery, TO-ONE.md §7.8). A `CreateOperation`/`UpdateOperation` constructed
- * with these options is NOT a standalone operation: it shares the enclosing
- * operation's {@link StepScope} (so no two arms collide on a step id), and it
- * defers the analyses the enclosing operation must run **per-arm** — V1's upsert
- * runs the own-write barrier inside the taken branch only, so a violation in an
- * un-taken arm must not reject the whole tree (`skipOwnWrite` hands that timing to
- * the caller). The absent-row postcondition is dropped for the update arm
- * (`locateNotFoundOptional`): under an upsert a located-miss is the CREATE
- * decision, not a not-found error.
+ * Options used when a create operation contributes an arm or a nested fresh
+ * subtree to a caller-owned operation.
  */
 export interface SubOperationOptions {
   /** Share the enclosing operation's id allocator instead of minting a fresh one. */
   readonly scope?: StepScope;
   /** Skip the constructor own-write preflight; the caller runs it per-arm (deferred). */
   readonly skipOwnWrite?: boolean;
-  /** Reuse a caller-owned target read and root write. */
-  readonly selectedTargetReadId?: string;
-  readonly selectedWriteId?: string;
-  /** Drop the locate's exactly-one-row postcondition (upsert: absent → create arm). */
-  readonly locateNotFoundOptional?: boolean;
-  /**
-   * Skip the constructor payload-legality analyses (whole-args validation, PK-arithmetic
-   * portability, relation-key-update legality) and expose them as a method the caller runs
-   * per-arm. V1's upsert validates its update branch INSIDE the whenTrue branch only — an
-   * invalid UNTAKEN update branch (the create arm is taken) must not reject the whole tree.
-   */
-  readonly deferArmLegality?: boolean;
   /**
    * X1b — a nested fresh `create` at DEPTH: this `CreateOperation` is not a standalone
    * operation but a create SUBTREE spliced under a located target's write (a nested
@@ -130,37 +57,24 @@ export interface SubOperationOptions {
      */
     readonly rootRacePin?: TargetConstraintPin;
   };
-  /**
-   * X1c — a nested UPDATE target at DEPTH whose data carries the located-target
-   * projection of mechanism 1/2 (a parent-held to-one write needing child-SET
-   * folding, or a non-PK / compound referenced edge — D4) is not folded in place by
-   * the child-Part builder; the whole target UPDATE delegates to this operation, the
-   * update-root analogue of `nestedFresh`. It carries the ALREADY-PARSED update
-   * `data` — the enclosing operation's relation-schema parse produced it, and that
-   * schema IS this target's `core.update`, so every scalar SET and relation payload
-   * below is already in post-transform form and NOTHING here parses again (a
-   * transform is not idempotent: a JSON write's `{ set: … }` envelope is itself a
-   * legal JSON document, so a second pass persists the ORM's envelope as the user's
-   * data). It emits NO terminal read (the enclosing op owns the result), it shares the
-   * enclosing `StepScope`, and it LOCATES + CORRELATES the target to its enclosing
-   * parent ({@link NestedTargetLocate}). Every mechanism the update ROOT already
-   * carries — a parent-held to-one before-root write folded into the SET, a
-   * generated / D4 referenced identity threaded from the located row, the PK-transition
-   * reorder, the child-held / m2m families — falls out unchanged, one architecture,
-   * at any depth.
-   */
-  readonly nestedTarget?: {
-    readonly data: Record<string, unknown>;
-    readonly locate: NestedTargetLocate;
-    readonly targetReadId?: string;
-    readonly writeId?: string;
-  };
-  /** Field-bound assignments derived by the relation owner after user scalar data. */
-  readonly incomingForeignKey?: readonly ForeignKeyMember[];
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function pinnedTargetValues(
+  targetScope: QueryScope,
+  where: Record<string, unknown>
+): Readonly<Record<string, unknown>> {
+  const values: Record<string, unknown> = {};
+  for (const { fieldName, value } of getWhereUniqueEntries(
+    targetScope,
+    where
+  )) {
+    if (!Object.hasOwn(values, fieldName)) values[fieldName] = value;
+  }
+  return values;
 }
 
 /**
@@ -499,17 +413,16 @@ export function createDataUniqueWhere(
  * discriminator flattened to one equality per constrained column, plus — since
  * N6-U1 — the extended selector's non-unique FILTER half appended whole.
  *
- * One home, because four seams address "the row the caller named" and must address
+ * One home, because three seams address "the row the caller named" and must address
  * the SAME row: `RelationWritePart`'s correlated probe and batch guard,
  * `RelationUpsertPart`'s found guard, `RelationJunctionPart`'s captured-selector
- * guard, and the nested-target delegation's locate + guard ({@link
- * NestedTargetLocate}). Before N6-U1 each built the list itself from
- * `getWhereUniqueEntries`; that was complete only while a nested selector was
- * unique-only, and the day the selectors widened, the two that were NOT updated
- * silently dropped the filter half — an excluding filter still wrote (measured: a
- * nested `update` whose filter excluded its target renamed it anyway, and a nested
- * `delete` removed it). A dropped predicate is not a refusal, it is the WRONG ROW,
- * so the assembly lives here rather than at each seam.
+ * guard. Before N6-U1 each built the list itself from `getWhereUniqueEntries`; that
+ * was complete only while a nested selector was unique-only, and the day the
+ * selectors widened, the two that were NOT updated silently dropped the filter
+ * half — an excluding filter still wrote (measured: a nested `update` whose filter
+ * excluded its target renamed it anyway, and a nested `delete` removed it). A
+ * dropped predicate is not a refusal, it is the WRONG ROW, so the assembly lives
+ * here rather than at each seam.
  *
  * The split is the module contract of `where-unique-builder`: the discriminator is
  * the only half anything compile-time may read (pins, `racePin` attribution,

@@ -112,6 +112,7 @@ export function buildJunctionTargetRelationParts(
   relations: Record<string, RelationMutationProgram>,
   parentId: FinalReferenceSource,
   txMode: boolean,
+  armSeam: ArmSeam,
   membershipReadSource?: FinalReferenceSource
 ): readonly Part[] {
   const parts: Part[] = [];
@@ -122,6 +123,7 @@ export function buildJunctionTargetRelationParts(
       targetScope,
       program,
       parentId,
+      armSeam,
       membershipReadSource,
       txMode,
       parts,
@@ -215,50 +217,13 @@ export function buildNestedTargetFreshCreatePart(input: {
   };
 }
 
-/**
- * E1 U3 — the BEFORE-ROOT to-one target of an update root. The enclosing record
- * holds the foreign key, so the target is written FIRST and the enclosing UPDATE's
- * SET reads its key: the identity flows the OPPOSITE way from every other nested
- * fresh subtree, where the parent's key flows down into the child.
- *
- * That reversal is why this returns the OPERATION rather than a {@link Part}. The
- * caller needs two things a Part cannot give it: the subtree root's referenced value
- * ({@link CreateOperation.freshRootReferenced}) at CONSTRUCTION, so the FK fold can
- * be built; and the freedom to compile the subtree only in the arm that is TAKEN,
- * because one `buildBeforeTarget` serves three arms and two of them choose at
- * compile. The root FK inject is empty — the subtree owes the enclosing record
- * nothing.
- */
-export function buildBeforeRootTargetSubtree(input: {
-  scope: StepScope;
-  engine: QueryEngine;
-  targetModel: Model<any>;
-  data: Record<string, unknown>;
-  rootRacePin?: TargetConstraintPin;
-}): CreateOperation {
-  return new CreateOperation(
-    input.engine,
-    input.targetModel,
-    {},
-    {
-      scope: input.scope,
-      skipOwnWrite: true,
-      nestedFresh: {
-        data: input.data,
-        incomingForeignKey: [],
-        relationName: "",
-        ...(input.rootRacePin ? { rootRacePin: input.rootRacePin } : {}),
-      },
-    }
-  );
-}
-
 function foldJunctionTargetRelation(input: {
   scope: StepScope;
   engine: QueryEngine;
   targetScope: QueryScope;
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
+  armSeam: ArmSeam;
   /** The junction-only READ source under a post-transition ordering (E2-U3); see
    *  {@link JunctionTargetRelationsBuilder}. */
   membershipReadSource?: FinalReferenceSource;
@@ -288,6 +253,7 @@ function foldJunctionTargetRelation(input: {
       deeperRelations,
       deeperParentId,
       deeperTxMode,
+      input.armSeam,
       deeperCorrelationParentId
     );
 
@@ -307,6 +273,7 @@ function foldJunctionTargetRelation(input: {
         parentId,
         membershipReadSource: input.membershipReadSource,
         txMode,
+        armSeam: input.armSeam,
         nestedBuilder: deeperBuilder,
       })
     );
@@ -363,24 +330,13 @@ function foldJunctionTargetRelation(input: {
     parentId,
     txMode,
     nestedBuilder: deeperBuilder,
-    /** ONE home for the fresh-arm seam. `connectOrCreate` and `upsert` both hand it
-     *  to their part builders below; bound here so a change to what a fresh arm
-     *  builds has a single place to happen. */
-    freshArm: (freshInput: Parameters<FreshArmBuilder>[0]) =>
-      buildFreshArmPart(scope, engine, freshInput),
+    armSeam: input.armSeam,
   } as const;
-
-  // E3 — the adopt family's two injected builders, bound together here because this is
-  // the one place both halves exist: the fresh CREATE arm's create subtree and the
-  // located UPDATE arm's deeper child Parts (this same recursion, one level on).
-  const armSeam: ArmSeam = {
-    freshArm: writeBase.freshArm,
-  };
 
   for (const entry of program.entries) {
     foldJunctionChildHeldEntry({
       entry,
-      armSeam,
+      armSeam: input.armSeam,
       childScope,
       childName,
       relation,
@@ -668,7 +624,12 @@ export function buildFreshRecordParts(input: {
  * data, an M2M `upsert` under create, …) now fire byte-identically at depth — one
  * home for the create tree, not two.
  */
-class NestedFreshCreatePart implements Part {
+export interface FreshRecordPart extends Part {
+  readonly rootWriteId: string;
+  rootReferenced(field: string): FinalReferenceSource | undefined;
+}
+
+class NestedFreshCreatePart implements FreshRecordPart {
   private readonly op: CreateOperation;
   constructor(op: CreateOperation) {
     this.op = op;
@@ -678,6 +639,12 @@ class NestedFreshCreatePart implements Part {
   }
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     return this.op.compile(known).steps;
+  }
+  get rootWriteId(): string {
+    return this.op.rootWriteStepId;
+  }
+  rootReferenced(field: string): FinalReferenceSource | undefined {
+    return this.op.freshRootReferenced(field);
   }
 }
 
@@ -701,7 +668,7 @@ export type FreshArmBuilder = (input: {
   readonly incomingForeignKey: readonly ForeignKeyMember[];
   readonly relationName: string;
   readonly racePin?: TargetConstraintPin;
-}) => Part;
+}) => FreshRecordPart;
 
 /** The {@link FreshArmBuilder} implementation — one home for the adopt arm's fresh
  *  subtree, shared by every caller that folds an adopt family. */
@@ -709,7 +676,7 @@ export function buildFreshArmPart(
   scope: StepScope,
   engine: QueryEngine,
   input: Parameters<FreshArmBuilder>[0]
-): Part {
+): FreshRecordPart {
   return new NestedFreshCreatePart(
     new CreateOperation(
       engine,

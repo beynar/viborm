@@ -172,7 +172,139 @@ const terminalExpectation = (operation: "create" | "update") => ({
   },
 });
 
-describe("one fresh-record compiler parity", () => {
+describe("one record, one compiler parity", () => {
+  test("a direct scalar update remains one self-contained statement", () => {
+    const driver = new PGliteDriver();
+    const operation = updateFor(
+      driver,
+      updateSliceSchema,
+      updateSliceSchema.user,
+      {
+        where: { email: "direct@x" },
+        data: { count: { increment: 3 } },
+        select: { id: true, email: true, count: true },
+      }
+    );
+
+    expect(fragmentContract(driver, operation.planning())).toEqual({
+      steps: [],
+      outputs: {},
+    });
+    expect(fragmentContract(driver, operation.compile({}))).toEqual({
+      steps: [
+        {
+          id: "user.update",
+          kind: "write",
+          sql: 'UPDATE "update_slice_users" SET "count" = "count" + $1 WHERE "update_slice_users"."email" = $2 RETURNING "id" AS "id", "email" AS "email", "count" AS "count"',
+          params: [3, "direct@x"],
+          outputs: { result: { kind: "rows" } },
+          expects: {
+            kind: "affectedRows",
+            expected: 1,
+            failure: {
+              kind: "notFound",
+              message:
+                "query-engine-v2 update located no 'user' row for its unique where.",
+              raceable: false,
+            },
+          },
+          racePin: null,
+          onUniqueConflict: null,
+        },
+      ],
+      outputs: { result: reference("user.update", "result") },
+    });
+  });
+
+  test("a relation projection keeps locate, captured-PK update, and terminal read", () => {
+    const driver = new PGliteDriver();
+    const operation = updateFor(
+      driver,
+      updateSliceSchema,
+      updateSliceSchema.user,
+      {
+        where: { email: "projected@x" },
+        data: { count: { increment: 2 } },
+        select: {
+          id: true,
+          posts: {
+            where: { author: { count: { equals: 2 } } },
+            select: { id: true, title: true },
+          },
+        },
+      }
+    );
+
+    expect(fragmentContract(driver, operation.planning())).toEqual({
+      steps: [
+        {
+          id: "user.locate",
+          kind: "read",
+          sql: 'SELECT "t0"."id" AS "id" FROM "update_slice_users" AS "t0" WHERE "t0"."email" = $1 LIMIT 1 FOR UPDATE',
+          params: ["projected@x"],
+          outputs: {
+            rows: { kind: "rows" },
+            id: { kind: "firstRowField", field: "id" },
+          },
+          expects: {
+            kind: "exactlyOneRow",
+            failure: {
+              kind: "notFound",
+              message:
+                "query-engine-v2 update located no 'user' row for its unique where.",
+              raceable: false,
+            },
+          },
+          racePin: null,
+          onUniqueConflict: null,
+        },
+      ],
+      outputs: {
+        "user.locate.rows": reference("user.locate", "rows"),
+        "user.locate.id": reference("user.locate", "id"),
+      },
+    });
+    expect(
+      fragmentContract(
+        driver,
+        operation.compile({ "user.locate.rows": [{ id: 41 }] })
+      )
+    ).toEqual({
+      steps: [
+        {
+          id: "user.update",
+          kind: "write",
+          sql: 'UPDATE "update_slice_users" SET "count" = "count" + $1 WHERE "update_slice_users"."id" = $2 RETURNING "id" AS "id"',
+          params: [2, 41],
+          outputs: {},
+          expects: {
+            kind: "affectedRows",
+            expected: 1,
+            failure: {
+              kind: "notFound",
+              message:
+                "query-engine-v2 update located no 'user' row for its unique where.",
+              raceable: false,
+            },
+          },
+          racePin: null,
+          onUniqueConflict: null,
+        },
+        {
+          id: "user.select",
+          kind: "read",
+          sql: 'SELECT "t0"."id" AS "id", "t2"."_result" AS "posts" FROM "update_slice_users" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), \'[]\'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."title") AS "_json" FROM "update_slice_posts" AS "t1" WHERE ("t0"."id" = "t1"."userId" AND EXISTS (SELECT 1 FROM "update_slice_users" AS "t3" WHERE ("t1"."userId" = "t3"."id" AND "t3"."count" = $3)))) "t4") AS "t2" ON TRUE WHERE "t0"."id" = $4 LIMIT 1',
+          params: ["id", "title", 2, 41],
+          outputs: { result: { kind: "rows" } },
+          expects: terminalExpectation("update"),
+          racePin: null,
+          onUniqueConflict: null,
+        },
+      ],
+      outputs: { result: reference("user.select", "result") },
+    });
+  });
+
   test("literal and planned parent positions emit the same final fragment", () => {
     const driver = new PGliteDriver();
     const args = {
@@ -646,6 +778,37 @@ describe("one fresh-record compiler parity", () => {
     expect(() => operation.compile({})).toThrowError(
       "query-engine-v2 upsert planning did not expose the locate rows."
     );
+  });
+
+  test("a relation-shaped no-op update arm keeps optional locate outputs", () => {
+    const driver = new PGliteDriver();
+    const operation = new UpsertOperation(
+      engineFor(driver, updateSliceSchema),
+      updateSliceSchema.user,
+      {
+        where: { email: "noop@x" },
+        create: { email: "noop@x", count: 0 },
+        update: { posts: {} },
+        select: { id: true },
+      }
+    );
+
+    expect(ids(operation.planning())).toEqual(["user.locate"]);
+    expect(effects(statementStep(operation.planning(), "user.locate"))).toEqual(
+      {
+        outputs: {
+          rows: { kind: "rows" },
+          id: { kind: "firstRowField", field: "id", optional: true },
+        },
+        expects: null,
+        racePin: null,
+        onUniqueConflict: null,
+      }
+    );
+    expect(outputContract(operation.planning())).toEqual({
+      "user.locate.rows": reference("user.locate", "rows"),
+      "user.locate.id": reference("user.locate", "id"),
+    });
   });
 
   test("batch found arms retain their guards and executor effects", () => {

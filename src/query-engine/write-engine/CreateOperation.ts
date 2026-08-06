@@ -81,6 +81,7 @@ import { OwnWritePreflight } from "./OwnWritePreflight";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
+import { buildRecordUpdateCompiler } from "./RecordUpdateCompiler";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import {
   type ArmSeam,
@@ -340,6 +341,8 @@ export class CreateOperation {
    *  and field-initializer order does not matter. */
   private readonly armSeam: ArmSeam = {
     freshArm: (input) => this.buildFreshArm(input),
+    updateRecord: (input) =>
+      buildRecordUpdateCompiler(input, this.buildFreshArm),
   };
 
   constructor(
@@ -1029,6 +1032,7 @@ export class CreateOperation {
           // E5-U1 — this record is being MADE, so it has no membership to read.
           freshParent: true,
           txMode,
+          armSeam: this.armSeam,
           // T3b-2 (family C): a junction create target whose data carries its own
           // relations folds them one level deeper against the fresh target's explicit
           // literal PK (mechanism 2, fresh-parent elision — ATOM §4). The fold
@@ -1047,6 +1051,7 @@ export class CreateOperation {
               relations,
               parentId,
               nestedTxMode,
+              this.armSeam,
               membershipReadSource
             ),
         })

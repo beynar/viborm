@@ -6,6 +6,7 @@ import type {
   ChildHeldToOne,
 } from "../builders/relation-data-builder";
 import type {
+  NestedUpdateManyInput,
   NormalizedRelationUpsert,
   RelationMutationEntry,
 } from "../builders/relation-mutation-parser";
@@ -24,7 +25,11 @@ import {
 } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
-import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
+import {
+  assertPinnedTransitionIsCompilable,
+  assertRelationKeyUpdatesAreCompilable,
+  assertSelectedUpdateManyDataIsScalar,
+} from "../relation-key-legality";
 import type { QueryScope } from "../types";
 import {
   type FinalReferenceSource,
@@ -47,7 +52,6 @@ import {
   upsertPremiseChanged,
   upsertTargetVanished,
 } from "./messages";
-import type { FreshArmBuilder } from "./nested-target-parts";
 import type {
   OperationStep,
   ReadStep,
@@ -56,13 +60,15 @@ import type {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import {
-  buildRecordUpdateCompiler,
-  type RecordUpdateCompiler,
-} from "./RecordUpdateCompiler";
+import type { RecordUpdateCompiler } from "./RecordUpdateCompiler";
+import type { ArmSeam } from "./RelationUpsertPart";
 import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
-import { UnsupportedOperationError, uniqueSelectorConjuncts } from "./shared";
+import {
+  pinnedTargetValues,
+  UnsupportedOperationError,
+  uniqueSelectorConjuncts,
+} from "./shared";
 
 /**
  * The correlated child-write family (PLAN P2c): nested `update` / `updateMany` /
@@ -105,6 +111,7 @@ export interface RelationWriteConfig {
    * A single-column edge is the length-1 case; nothing else changes.
    */
   readonly childPrimaryKey: string;
+  readonly armSeam: ArmSeam;
   /** The located parent id (a planning value, inlined as a literal at compile). */
   readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
@@ -534,27 +541,43 @@ export class RelationWritePart implements Part {
         `query-engine-v2 update for relation '${this.relationName}' requires data.`
       );
     }
-    return buildRecordUpdateCompiler({
+    const parsed = buildParsedRelationPrograms(this.config.childScope, data);
+    const pinnedTarget = this.config.where
+      ? pinnedTargetValues(this.config.childScope, this.config.where)
+      : {};
+    assertPinnedTransitionIsCompilable(
+      this.config.childScope,
+      parsed.scalarData,
+      parsed.relations,
+      this.relationName,
+      pinnedTarget
+    );
+    assertPortablePrimaryKeyUpdateInput(
+      this.config.childScope.model,
+      "update",
+      {
+        data: parsed.scalarData,
+      }
+    );
+    assertRelationKeyUpdatesAreCompilable(
+      this.config.childScope,
+      parsed.scalarData,
+      parsed.relations
+    );
+    assertSelectedUpdateManyDataIsScalar(
+      this.config.childScope,
+      parsed.relations
+    );
+    return this.config.armSeam.updateRecord({
       scope,
       engine: this.config.engine,
       targetScope: this.config.childScope,
-      data,
-      targetReadLabel: `${this.config.childName}.find`,
-      writeLabel: `${this.config.childName}.update`,
-      locate: {
-        ...(this.config.where ? { where: this.config.where } : {}),
-        parentId: this.config.parentId,
-        childFields: this.foreignFields,
-        parentFields: this.referencedFields,
-        ...(this.config.targetFilter
-          ? { filter: this.config.targetFilter }
-          : {}),
-        relationName: this.relationName,
-        notFoundMessage: relationTargetNotFound(
-          this.config.relation.relationInfo,
-          "update"
-        ),
-      },
+      scalarData: parsed.scalarData,
+      relations: parsed.relations,
+      targetRead: { label: `${this.config.childName}.find` },
+      rootWrite: { label: `${this.config.childName}.update` },
+      relationName: this.relationName,
+      pinnedTarget,
     });
   }
 
@@ -1073,7 +1096,7 @@ interface WritePartBase {
    *  it — a caller that forgot the seam would otherwise turn a typed refusal into an
    *  internal invariant break, and a runtime fallback for that would be a guard with no
    *  reachable coverage to name. */
-  readonly freshArm: FreshArmBuilder;
+  readonly armSeam: ArmSeam;
 }
 
 /**
@@ -1215,7 +1238,7 @@ export function buildInverseToOneUpsertPart(
   // the to-many adopt family's create arm takes. The arm's foreign key is injected into
   // the subtree's root INSERT by the identical expression the scalar arm writes, so the
   // two spellings land the same row under the same parent.
-  const subtree = base.freshArm({
+  const subtree = base.armSeam.freshArm({
     childScope: base.childScope,
     data: createData,
     incomingForeignKey: pairForeignKeyMembers(
@@ -1244,6 +1267,18 @@ export function buildToManyUpdateManyParts(
         filter: item.where ?? {},
         data: item.data,
       })
+  );
+}
+
+/** Keep an invalid nested updateMany arm structural until its owner runs legality. */
+export function updateManyCarriesRelations(
+  childScope: QueryScope,
+  inputs: readonly NestedUpdateManyInput[]
+): boolean {
+  return inputs.some(
+    (input) =>
+      Object.keys(buildParsedRelationPrograms(childScope, input.data).relations)
+        .length > 0
   );
 }
 
@@ -1316,6 +1351,7 @@ function partConfig(
     relation: base.relation,
     kind,
     childPrimaryKey: base.childPrimaryKey,
+    armSeam: base.armSeam,
     parentId: base.parentId,
     txMode: base.txMode,
   };

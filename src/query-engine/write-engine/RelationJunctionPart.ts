@@ -23,7 +23,13 @@ import {
   buildFind,
   buildFindUnique,
 } from "../operations";
+import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
+import {
+  assertPinnedTransitionIsCompilable,
+  assertRelationKeyUpdatesAreCompilable,
+  assertSelectedUpdateManyDataIsScalar,
+} from "../relation-key-legality";
 import type { QueryScope } from "../types";
 import {
   type CorrelatedForeignKeyMember,
@@ -64,15 +70,13 @@ import {
   type WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
-import { planningKey } from "./Part";
-import {
-  buildRecordUpdateCompiler,
-  type RecordUpdateCompiler,
-} from "./RecordUpdateCompiler";
-import { literalParentId, plannedParentId } from "./RelationUpsertPart";
+import { conditionalArmPlanning, planningKey } from "./Part";
+import type { RecordUpdateCompiler } from "./RecordUpdateCompiler";
+import { type ArmSeam, literalParentId } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 import {
   getStepModelName,
+  pinnedTargetValues,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
@@ -221,6 +225,7 @@ export interface RelationJunctionConfig {
     | RecordUpdateCompiler
     | undefined
   )[];
+  readonly upsertUpdateLegalities?: readonly ((() => void) | undefined)[];
   // T3b-2 mechanism 2 / mechanism 1 reuse (TO-ONE.md §7.7). A junction create /
   // update / upsert target whose data carries its own relation writes folds them
   // one level deeper through the junction target relation builder the child-held
@@ -375,6 +380,7 @@ interface UpsertSlot {
   /** The create arm's descendants run only when that arm inserts the target. */
   readonly createChildParts: readonly Part[];
   readonly updateCompiler?: RecordUpdateCompiler;
+  readonly updateLegality?: () => void;
   /** X1c — when present, the fresh create-arm target's whole create delegates to
    *  `CreateOperation`, REPLACING the create branch's `childInsert` (emitted before the
    *  join). The update arm keeps the located-update projection (empty scalar + the
@@ -505,7 +511,7 @@ export class RelationJunctionPart implements Part {
         steps.push(...child.planning(scope));
       }
       if (upsert.updateCompiler) {
-        steps.push(...upsert.updateCompiler.conditionalPlanning());
+        steps.push(...conditionalArmPlanning(upsert.updateCompiler.planning()));
       }
     }
     return steps;
@@ -889,7 +895,7 @@ export class RelationJunctionPart implements Part {
           );
         }
         if (slot.updateCompiler) {
-          slot.updateCompiler.assertLegality();
+          slot.updateLegality?.();
           steps.push(...slot.updateCompiler.compile(known));
         }
         continue;
@@ -953,7 +959,7 @@ export class RelationJunctionPart implements Part {
         steps.push(this.adoptFoundGuard(slot, foundPk));
       }
       if (slot.updateCompiler) {
-        slot.updateCompiler.assertLegality();
+        slot.updateLegality?.();
         steps.push(...slot.updateCompiler.compile(known));
       }
       // ALWAYS, and last: the membership add is what the found branch is FOR. The join
@@ -1226,6 +1232,7 @@ export class RelationJunctionPart implements Part {
       joinId: scope.allocate(`${childName}.junction.insert`),
       createChildParts: this.config.upsertCreateChildParts?.[index] ?? [],
       updateCompiler,
+      updateLegality: this.config.upsertUpdateLegalities?.[index],
       createDelegated: this.config.upsertCreateDelegated?.[index],
       // Two widened probes (technique #2): whether the target is a member of this
       // parent (correlated by a SQL Ref) AND whether it exists globally. `compile`
@@ -1824,6 +1831,7 @@ export function buildJunctionParts(input: {
    *  root, the one caller whose parent row does not exist yet. */
   freshParent?: boolean;
   txMode: boolean;
+  armSeam: ArmSeam;
   /** T3b-2: the depth-recursive child-Part builder (mechanism 2 / mechanism 1
    *  reuse). REQUIRED — every `buildJunctionParts` caller threads it: the root
    *  (UpdateOperation.ts:977, CreateOperation.ts:653) and depth
@@ -2150,21 +2158,26 @@ export function buildJunctionParts(input: {
           return { where: item.target.where, data: item.data };
         });
         const compiled = items.flatMap((item) => {
-          const compiler = buildRecordUpdateCompiler({
+          const parsed = buildParsedRelationPrograms(childScope, item.data);
+          assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
+            data: parsed.scalarData,
+          });
+          assertRelationKeyUpdatesAreCompilable(
+            childScope,
+            parsed.scalarData,
+            parsed.relations
+          );
+          assertSelectedUpdateManyDataIsScalar(childScope, parsed.relations);
+          const compiler = input.armSeam.updateRecord({
             scope,
             engine,
             targetScope: childScope,
-            data: item.data,
-            targetReadLabel: `${childName}.find`,
-            writeLabel: `${childName}.update`,
-            locate: (targetReadId) => ({
-              where: item.where,
-              parentId: plannedParentId(targetReadId),
-              childFields: [targetPkField],
-              parentFields: [targetPkField],
-              relationName,
-              notFoundMessage: relationTargetNotFound(relationInfo, "update"),
-            }),
+            scalarData: parsed.scalarData,
+            relations: parsed.relations,
+            targetRead: { label: `${childName}.find` },
+            rootWrite: { label: `${childName}.update` },
+            relationName,
+            pinnedTarget: pinnedTargetValues(childScope, item.where),
           });
           return compiler ? [{ where: item.where, compiler }] : [];
         });
@@ -2353,26 +2366,57 @@ export function buildJunctionParts(input: {
         const armProbeIds = upsertProbeIds.map((ids) =>
           input.freshParent ? ids.global : ids.member
         );
-        const updateCompilers = items.map((item, index) =>
-          buildRecordUpdateCompiler({
-            scope,
-            engine,
-            targetScope: childScope,
-            data: item.update,
-            targetReadId: armProbeIds[index]!,
-            targetReadLabel: `${childName}.find`,
-            writeLabel: `${childName}.update`,
-            locate: {
-              where: item.where,
-              parentId: plannedParentId(armProbeIds[index]!),
-              childFields: [targetPkField],
-              parentFields: [targetPkField],
+        const updateArms = items.map((item, index) => {
+          const parsed = buildParsedRelationPrograms(childScope, item.update);
+          const pinnedTarget = pinnedTargetValues(childScope, item.where);
+          const hasUpdate =
+            Object.keys(parsed.scalarData).length > 0 ||
+            Object.keys(parsed.relations).length > 0;
+          if (hasUpdate) {
+            assertPinnedTransitionIsCompilable(
+              childScope,
+              parsed.scalarData,
+              parsed.relations,
               relationName,
-              notFoundMessage: relationTargetNotFound(relationInfo, "update"),
-            },
-            deferLegality: true,
-          })
-        );
+              pinnedTarget
+            );
+          }
+          const compiler = hasUpdate
+            ? input.armSeam.updateRecord({
+                scope,
+                engine,
+                targetScope: childScope,
+                scalarData: parsed.scalarData,
+                relations: parsed.relations,
+                targetRead: { id: armProbeIds[index]! },
+                rootWrite: { label: `${childName}.update` },
+                relationName,
+                pinnedTarget,
+              })
+            : undefined;
+          return {
+            compiler,
+            legality: compiler
+              ? () => {
+                  assertPortablePrimaryKeyUpdateInput(
+                    childScope.model,
+                    "update",
+                    { data: parsed.scalarData }
+                  );
+                  assertRelationKeyUpdatesAreCompilable(
+                    childScope,
+                    parsed.scalarData,
+                    parsed.relations
+                  );
+                  assertSelectedUpdateManyDataIsScalar(
+                    childScope,
+                    parsed.relations
+                  );
+                }
+              : undefined,
+          };
+        });
+        const updateCompilers = updateArms.map((arm) => arm.compiler);
         parts.push(
           new RelationJunctionPart(scope, {
             ...base,
@@ -2387,6 +2431,7 @@ export function buildJunctionParts(input: {
               compiler ? armProbeIds[index] : undefined
             ),
             upsertUpdateCompilers: updateCompilers,
+            upsertUpdateLegalities: updateArms.map((arm) => arm.legality),
             upsertCreateChildParts: foldedCreates.map((f) => f.childParts),
             upsertCreateDelegated: foldedCreates.map((f) => f.delegated),
             upsertCreateIdentity: foldedCreates.map((f) => f.identity),

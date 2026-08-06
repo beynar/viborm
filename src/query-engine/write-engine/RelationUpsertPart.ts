@@ -16,8 +16,16 @@ import {
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique, buildUpdate } from "../operations";
-import { getUpdatedPrimaryKeyValue } from "../operations/mutation-identity";
+import {
+  assertPortablePrimaryKeyUpdateInput,
+  getUpdatedPrimaryKeyValue,
+} from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
+import {
+  assertPinnedTransitionIsCompilable,
+  assertRelationKeyUpdatesAreCompilable,
+  assertSelectedUpdateManyDataIsScalar,
+} from "../relation-key-legality";
 import type { QueryScope } from "../types";
 import {
   type CorrelatedForeignKeyMember,
@@ -51,15 +59,16 @@ import type {
   WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
-import { planningKey } from "./Part";
-import {
-  buildRecordUpdateCompiler,
-  type RecordUpdateCompiler,
+import { conditionalArmPlanning, planningKey } from "./Part";
+import type {
+  RecordUpdateCompiler,
+  UpdateRecordBuilder,
 } from "./RecordUpdateCompiler";
 import type { StepScope } from "./StepScope";
 import {
   getStepModelName,
   isRecord,
+  pinnedTargetValues,
   sameScalarValue,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
@@ -141,6 +150,7 @@ export type UpsertFamily = "connectOrCreate" | "upsert";
  */
 export interface ArmSeam {
   readonly freshArm: FreshArmBuilder;
+  readonly updateRecord: UpdateRecordBuilder;
 }
 
 type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
@@ -166,6 +176,7 @@ interface RelationUpsertConfigCore {
   readonly where: Record<string, unknown>;
   readonly updateData: Readonly<Record<string, unknown>>;
   readonly updateCompiler?: RecordUpdateCompiler;
+  readonly updateLegality?: () => void;
   /**
    * The child-held foreign-key columns and the parent columns they reference,
    * index-aligned (compound keys are per-field, ATOM §1). A single-column edge is
@@ -363,7 +374,7 @@ export class RelationUpsertPart implements Part {
     // the taken arm's children later compile.
     const steps: StatementStep[] = [this.find];
     if (this.updateCompiler) {
-      steps.push(...this.updateCompiler.conditionalPlanning());
+      steps.push(...conditionalArmPlanning(this.updateCompiler.planning()));
     }
     steps.push(...this.createSubtree.planning(scope));
     return steps;
@@ -424,7 +435,7 @@ export class RelationUpsertPart implements Part {
       steps.push(this.pinLocatedRow(this.foundPin, capturedPk, known));
     }
     if (this.updateCompiler) {
-      this.updateCompiler.assertLegality();
+      this.config.updateLegality?.();
       steps.push(...this.compileRecordUpdate(known));
       return steps;
     }
@@ -1068,25 +1079,42 @@ function buildOneUpsertPart(
       `query-engine-v2 internal: relation '${relationName}' reached the upsert part with no foreign-key member.`
     );
   }
+  const pinnedTarget = pinnedTargetValues(child, where);
+  if (update) {
+    assertPinnedTransitionIsCompilable(
+      child,
+      childUpdate.scalarData,
+      childUpdate.relations,
+      relationName,
+      pinnedTarget
+    );
+  }
   const updateCompiler = update
-    ? buildRecordUpdateCompiler({
+    ? seam.updateRecord({
         scope,
         engine,
         targetScope: child,
-        data: update,
-        targetReadLabel: `${childName}.find`,
-        writeLabel: `${childName}.update`,
+        scalarData: childUpdate.scalarData,
+        relations: childUpdate.relations,
+        targetRead: { label: `${childName}.find` },
+        rootWrite: { label: `${childName}.update` },
         incomingForeignKey: members,
-        locate: {
-          where,
-          parentId,
-          childFields: [],
-          parentFields: [],
-          relationName,
-          notFoundMessage: upsertTargetVanished(relationName),
-        },
-        deferLegality: true,
+        relationName,
+        pinnedTarget,
       })
+    : undefined;
+  const updateLegality = updateCompiler
+    ? () => {
+        assertPortablePrimaryKeyUpdateInput(child.model, "update", {
+          data: childUpdate.scalarData,
+        });
+        assertRelationKeyUpdatesAreCompilable(
+          child,
+          childUpdate.scalarData,
+          childUpdate.relations
+        );
+        assertSelectedUpdateManyDataIsScalar(child, childUpdate.relations);
+      }
     : undefined;
   const probeId =
     updateCompiler?.targetReadId ?? scope.allocate(`${childName}.find`);
@@ -1114,6 +1142,7 @@ function buildOneUpsertPart(
     family,
     duplicateOfEarlier,
     updateCompiler,
+    updateLegality,
     createSubtree,
   });
 }

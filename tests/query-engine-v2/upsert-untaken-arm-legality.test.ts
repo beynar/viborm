@@ -48,9 +48,31 @@ const untakenArmSchema = (() => {
         .manyToOne(() => writer)
         .fields("writerId")
         .references("id"),
+      pages: s.oneToMany(() => page),
     })
     .map("e5u4_books");
-  return { writer, book };
+  const page = s
+    .model({
+      id: s.string().id(),
+      bookId: s.string(),
+      book: s
+        .manyToOne(() => book)
+        .fields("bookId")
+        .references("id"),
+      tagId: s.string(),
+      tag: s
+        .manyToOne(() => tag)
+        .fields("tagId")
+        .references("id"),
+    })
+    .map("e5u4_pages");
+  const tag = s
+    .model({
+      id: s.string().id(),
+      pages: s.oneToMany(() => page),
+    })
+    .map("e5u4_tags");
+  return { writer, book, page, tag };
 })();
 
 hydrateSchemaNames(untakenArmSchema);
@@ -121,6 +143,49 @@ describe("E5-U4 the untaken arm's legality stays deferred", () => {
     // The update arm was the taken one and did not run: the tree was refused whole.
     expect(
       (await client.writer.findUnique({ where: { id: "w3" } })).label
+    ).toBe("x");
+  }, 120_000);
+});
+
+describe("selected-record CLASS V legality", () => {
+  test("an ordinary deep selected update rejects before the root write", async () => {
+    await client.writer.create({
+      data: { id: "w4", email: "w4@x" },
+    });
+    await client.book.create({
+      data: { id: "b4", title: "book", writerId: "w4" },
+    });
+    await client.tag.create({ data: { id: "t4" } });
+    await client.page.create({
+      data: { id: "p4", bookId: "b4", tagId: "t4" },
+    });
+
+    await expect(
+      client.writer.update({
+        where: { id: "w4" },
+        data: {
+          label: "changed",
+          books: {
+            update: {
+              where: { id: "b4" },
+              data: {
+                pages: {
+                  updateMany: {
+                    where: {},
+                    data: { tag: { connect: { id: "t4" } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      })
+    ).rejects.toThrow(
+      "query-engine-v2 updateMany for relation 'pages' does not support nested relation writes in its data."
+    );
+
+    expect(
+      (await client.writer.findUnique({ where: { id: "w4" } })).label
     ).toBe("x");
   }, 120_000);
 });

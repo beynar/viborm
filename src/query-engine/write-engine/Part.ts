@@ -2,8 +2,9 @@
 import {
   type FragmentOutputSource,
   type OperationStep,
-  type StatementStep,
   ref,
+  type StatementOutputSource,
+  type StatementStep,
 } from "./OperationFragment";
 import type { StepScope } from "./StepScope";
 
@@ -60,4 +61,28 @@ export function planningOutputs(
     }
   }
   return outputs;
+}
+
+/**
+ * Make a selected arm's descendant plan safe while the owner has not selected that
+ * arm yet. A missing arm may leave first-row outputs absent, and no expectation from
+ * the untaken arm may reject planning.
+ */
+export function conditionalArmPlanning(
+  steps: readonly StatementStep[]
+): readonly StatementStep[] {
+  return steps.map((step) => {
+    const outputs = Object.fromEntries(
+      Object.entries(step.outputs).map(
+        ([name, source]): [string, StatementOutputSource] => [
+          name,
+          source.kind === "firstRowField"
+            ? { ...source, optional: true }
+            : source,
+        ]
+      )
+    );
+    const { expects: _expects, ...withoutExpectation } = step;
+    return { ...withoutExpectation, outputs };
+  });
 }

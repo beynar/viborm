@@ -288,6 +288,14 @@ export function buildParsedRelationPrograms(
   return { scalarData, relations };
 }
 
+/** Partition one already schema-transformed selected-record update payload. */
+export function canonicalRecordUpdateData(
+  ctx: QueryScope,
+  data: Record<string, unknown>
+): ReturnType<typeof buildParsedRelationPrograms> {
+  return buildParsedRelationPrograms(ctx, data);
+}
+
 function hasRelationMutationInput(
   value: unknown
 ): value is Record<string, unknown> {

@@ -5,7 +5,11 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import { partitionModelData } from "../builders/relation-mutation-parser";
+import {
+  buildRelationMutationProgram,
+  partitionModelData,
+  type RelationMutationProgram,
+} from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import {
   getWhereUniqueEntries,
@@ -23,8 +27,15 @@ import {
   buildUpdate,
   buildUpsert,
 } from "../operations";
-import { getUpdatedPrimaryKeyWhere } from "../operations/mutation-identity";
+import {
+  assertPortablePrimaryKeyUpdateInput,
+  getUpdatedPrimaryKeyWhere,
+} from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
+import {
+  assertRelationKeyUpdatesAreCompilable,
+  assertUpdateManyDataRelationsAreCompilable,
+} from "../relation-key-legality";
 import { ResultParser } from "../result/ResultParser";
 import type { QueryScope } from "../types";
 import { CreateOperation } from "./CreateOperation";
@@ -40,6 +51,7 @@ import {
   referenceSql,
 } from "./fragment-builders";
 import { upsertSkipPremiseChanged } from "./messages";
+import { buildFreshArmPart, type FreshArmBuilder } from "./nested-target-parts";
 import {
   isOperationValueReference,
   type OperationFragment,
@@ -50,20 +62,24 @@ import {
   type StatementStep,
   type WriteStep,
 } from "./OperationFragment";
-import { planningKey, planningOutputs } from "./Part";
+import { OwnWritePreflight } from "./OwnWritePreflight";
+import { conditionalArmPlanning, planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
-import type { RecordUpdateCompiler } from "./RecordUpdateCompiler";
+import {
+  buildRecordUpdateCompiler,
+  type RecordUpdateCompiler,
+} from "./RecordUpdateCompiler";
 import { StepScope } from "./StepScope";
 import {
   createDataUniqueWhere,
   getStepModelName,
   isRecord,
+  pinnedTargetValues,
   projectionNamesNoRelation,
   type SubOperationOptions,
   selectExecutionMode,
   UnsupportedOperationError,
 } from "./shared";
-import { UpdateOperation } from "./UpdateOperation";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -180,6 +196,8 @@ export class UpsertOperation {
   private readonly createArmOp?: CreateOperation;
   // A relation-bearing found arm reuses this operation's decision read.
   private readonly updateCompiler?: RecordUpdateCompiler;
+  private readonly updateArmUsesCompiler: boolean;
+  private readonly updateLegality?: () => void;
   // PHASE 7 / Decision 7.1 — the ON CONFLICT door. When the whole upsert reduces
   // to ONE `INSERT … ON CONFLICT (target) DO UPDATE … RETURNING`, this holds that
   // statement and the operation has EMPTY planning: no locate, no arms, no
@@ -204,8 +222,8 @@ export class UpsertOperation {
     // right about the ARMS and only the arms — they are delegated to
     // CreateOperation/UpdateOperation sub-ops that parse the RAW payload FRESH (so the
     // envelope hands them back BY REFERENCE, never a transformed copy), and the update
-    // arm's structure stays deferred to the taken branch (`deferArmLegality`), so the
-    // envelope reads nothing inside either arm. The narrowing below is what remains of
+    // arm's structure stays deferred to the taken branch, so the envelope reads nothing
+    // inside either arm. The narrowing below is what remains of
     // the three `requireRecord` gates: an engine invariant, not a user boundary.
     const where = envelopeRecord(args.where, "where");
     const create = envelopeRecord(args.create, "create");
@@ -367,29 +385,76 @@ export class UpsertOperation {
           subOptions
         )
       : undefined;
-    const updateArmOp = updateHasRelations
-      ? new UpdateOperation(
-          engine,
-          model,
-          { where, data: update, ...subSelect },
+    const updateRelations: Record<string, RelationMutationProgram> = {};
+    if (updateHasRelations) {
+      for (const [relationName, relationPayload] of Object.entries(
+        updatePartition.relationPayloads
+      )) {
+        const relationSchemas = parentSchemas.relations[relationName];
+        if (!relationSchemas) {
+          throw new QueryEngineError(
+            `query-engine-v2 internal: no validation schema exists for relation '${relationName}', which the model's own relation set declares.`
+          );
+        }
+        const parsedRelation = parseValidated(
+          relationSchemas.update,
+          relationPayload.payload,
+          "update",
+          `data.${relationName}`
+        );
+        const program = buildRelationMutationProgram(
+          relationPayload.relationInfo,
+          parsedRelation
+        );
+        if (program) updateRelations[relationName] = program;
+      }
+    }
+    const freshArm: FreshArmBuilder = (input) =>
+      buildFreshArmPart(scope, engine, input);
+    this.updateArmUsesCompiler = updateHasRelations;
+    this.updateCompiler = updateHasRelations
+      ? buildRecordUpdateCompiler(
           {
-            ...subOptions,
-            selectedTargetReadId: locateId,
-            selectedWriteId: this.updateId,
-            locateNotFoundOptional: true,
-            deferArmLegality: true,
-          }
+            scope,
+            engine,
+            targetScope: parent,
+            scalarData: this.updateData,
+            relations: updateRelations,
+            targetRead: { id: locateId },
+            rootWrite: { id: this.updateId },
+            relationName: "record",
+            pinnedTarget: pinnedTargetValues(parent, this.parentWhere),
+          },
+          freshArm
         )
       : undefined;
-    this.updateCompiler = updateArmOp
-      ? {
-          targetReadId: updateArmOp.selectedTargetReadId(),
-          writeId: updateArmOp.selectedWriteId(),
-          requiredTargetFields: updateArmOp.selectedRequiredTargetFields(),
-          planning: () => updateArmOp.selectedPlanning(),
-          conditionalPlanning: () => updateArmOp.selectedConditionalPlanning(),
-          compile: (known) => updateArmOp.compileSelected(known),
-          assertLegality: () => updateArmOp.assertArmLegality(),
+    const updateArgs = { where, data: update, ...subSelect };
+    this.updateLegality = updateHasRelations
+      ? () => {
+          const parsedArgs = parseValidated(
+            parentSchemas.args.update,
+            updateArgs,
+            "update",
+            ""
+          );
+          assertPortablePrimaryKeyUpdateInput(model, "update", updateArgs);
+          assertRelationKeyUpdatesAreCompilable(
+            parent,
+            this.updateData,
+            updateRelations
+          );
+          assertUpdateManyDataRelationsAreCompilable(parent, updateRelations);
+          if (!isRecord(parsedArgs.data)) {
+            throw new QueryEngineError(
+              "query-engine-v2 internal: update.data must be a record."
+            );
+          }
+          new OwnWritePreflight().assertUpdate(
+            parent,
+            partitionModelData(parent, parsedArgs.data).scalarData,
+            updateRelations,
+            where
+          );
         }
       : undefined;
 
@@ -403,7 +468,7 @@ export class UpsertOperation {
         select: Object.fromEntries(locateFields.map((field) => [field, true])),
         forUpdate: txMode,
       }),
-      outputs: this.updateCompiler
+      outputs: this.updateArmUsesCompiler
         ? {
             rows: { kind: "rows" },
             ...Object.fromEntries(
@@ -433,7 +498,7 @@ export class UpsertOperation {
     // 2): both arms' probes run before any write regardless of which the locate
     // later selects. Only the taken arm's writes compile.
     if (this.updateCompiler) {
-      steps.push(...this.updateCompiler.conditionalPlanning());
+      steps.push(...conditionalArmPlanning(this.updateCompiler.planning()));
     }
     if (this.createArmOp) steps.push(...this.createArmOp.planning().steps);
     return { steps, outputs: planningOutputs(steps) };
@@ -698,9 +763,7 @@ export class UpsertOperation {
     // relation-bearing update arm therefore rejects a barrier / legality violation
     // whether it later updates or skips (the D6 own-write witness; the relation-key /
     // PK-portability legality the sub-op deferred at construction).
-    if (this.updateCompiler) {
-      this.updateCompiler.assertLegality();
-    }
+    this.updateLegality?.();
     const unmatched = this.conditionals.find(
       (conditional) => !this.conditionalMatched(conditional, known)
     );
@@ -743,7 +806,7 @@ export class UpsertOperation {
     known: Readonly<Record<string, unknown>>,
     locatedRow: Record<string, unknown>
   ): ArmResult {
-    if (this.updateCompiler) {
+    if (this.updateArmUsesCompiler) {
       const parent = createQueryScope(this.engine.adapter, this.model);
       const guards = this.conditionalMatchGuards();
       if (this.mode === "batch" && this.conditionals.length === 0) {
@@ -761,7 +824,7 @@ export class UpsertOperation {
       return {
         steps: [
           ...guards,
-          ...this.updateCompiler.compile(known),
+          ...(this.updateCompiler?.compile(known) ?? []),
           this.buildTerminal(this.updatedTerminalWhere(locatedRow)),
         ],
         resultId: this.terminalId,
