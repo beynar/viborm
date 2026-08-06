@@ -62,15 +62,28 @@ something independent. It removes the false idea that selected-record update
 semantics belong to a nested mode of the public update operation, together with
 compatibility carriers that exposed that mode.
 
-Documentation deletion is not production compression. Retiring implementation
-ledgers removes thousands of Markdown lines but zero runtime code. Production
-LOC must be measured separately from `src/**/*.ts` at delivery; no target range
-is reported here as an achieved result without that measurement.
+Documentation deletion is not production compression. Against the historical
+boundary above, the final measured deltas are:
 
-At this documentation unit's validation point, the owned Markdown diff is
-1,357 lines added and 6,052 deleted: net **−4,695 documentation lines**. Most of
-that reduction is retired phase history. It must not be added to the production
-compression number.
+| Surface | Measure | Net |
+| --- | --- | ---: |
+| production TypeScript, `src/**/*.ts` | raw diff | **−626 lines** |
+| changed production TypeScript | lexical token-bearing lines | **−168 lines** |
+| owned Markdown | whole-file line count | **−4,675 lines** |
+
+The lexical measure counts lines containing TypeScript tokens and excludes
+comments and whitespace. It prevents the removal of historical comments from
+masquerading as executable compression.
+
+The durable concept count fell from approximately 18 to 17. The removed concept
+is the selected-record `nestedTarget` operating mode of the public
+`UpdateOperation`. `RecordUpdateCompiler` now owns that job directly. The pass
+also deleted its compatibility vocabulary: `NestedTargetLocate`,
+`selectedTargetReadId`, `selectedWriteId`, `locateNotFoundOptional`,
+`selectedRequiredTargetFields`, `selectedPlanning`,
+`selectedConditionalPlanning`, and `compileSelected`. Finally,
+`SKIP_LEAF_PATTERN` and `INSERT_TARGET_PATTERN` disappeared when create-fold
+decisions stopped recognizing rendered dialect SQL.
 
 ## Final ownership model
 
