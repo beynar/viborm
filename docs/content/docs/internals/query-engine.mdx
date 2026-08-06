@@ -16,22 +16,40 @@ PostgreSQL, MySQL, SQLite, LibSQL, and PGlite use different syntax and execution
 capabilities, but portable operations keep the same accepted inputs, atomic
 effects, results, and failures.
 
-## Ownership graph
+## Compilation and execution
 
-```text
-QueryEngine
-└── PendingOperation
-    ├── operation shell → SQL builders → adapter
-    ├── PlanningFragment → OperationFragment → OperationExecutor → driver
-    └── declared outputs → strict result parsers
+```mermaid
+flowchart TD
+    Call["Client call"] --> Pending["PendingOperation"]
+    Pending --> Shell["Operation shell"]
+    Shell --> Builders["Semantic SQL builders"]
+    Builders --> Adapter["Database adapter"]
+    Adapter -->|"parameterized Sql"| Builders
+    Builders --> Shell
+    Shell --> Planning["PlanningFragment"]
+    Planning --> Executor["OperationExecutor"]
+    Executor -->|"planning outputs"| Shell
+    Shell --> Final["selected OperationFragment"]
+    Final --> Executor
+    Executor --> Driver["Driver statement, transaction, or atomic batch"]
+    Driver -->|"provider results"| Executor
+    Executor --> Results["Strict result parser"]
+    Results --> Value["Typed value"]
 ```
+
+The shell decides operation meaning. Builders ask the adapter to express each
+SQL concern. The executor knows how to run fragments, but it does not know what
+a relation mutation means.
 
 | Owner | Responsibility |
 | --- | --- |
 | `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
 | `PendingOperation` | Lazy and Promise-like public operation lifecycle |
-| operation shells | Validation, public target behavior, compilation, and result declaration |
+| operation shells | Validation, public target behavior, direct folds, and result declaration |
+| `CreateOperation` | One non-bulk fresh record subtree |
+| `RecordUpdateCompiler` | One already-selected non-bulk record update |
 | relation Parts | Selection, membership, branches, guards, pins, and relation effects |
+| `ManyToManyStatements` | Adapter-backed junction SQL materialization |
 | `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
 | `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
 | `builders/` | Pure adapter-backed SQL construction by semantic concern |
@@ -57,25 +75,28 @@ Planning uses a guard-free `PlanningFragment`. Planning is not always read-only:
 skip-duplicate capture can perform preparation writes. Final compilation emits
 one `OperationFragment` for the selected effects.
 
-## Execution
-
-```text
-client call
-  → PendingOperation (lazy)
-  → operation validation and compilation
-  → PlanningFragment
-  → selected OperationFragment
-  → OperationExecutor
-       ├── direct statement
-       ├── interactive transaction
-       └── atomic driver batch
-  → strict result parser
-  → typed value
-```
+## Execution substrate
 
 Transaction and batch modes use the same semantic fragment. The executor lowers
 references, checks postconditions, attributes guards, and fails closed when the
 available substrate cannot represent a required effect.
+
+Planning reads can be grouped into one round trip on atomic-batch drivers. The
+final selected fragment can then run as one atomic batch. Transaction drivers
+execute the same steps linearly inside a transaction.
+
+Simple operations keep a structural fast path. A candidate is direct only when
+planning is empty, final compilation produces exactly one statement, and that
+statement has no unresolved executor-only effect. A direct `SELECT` or
+`... RETURNING` therefore runs without a transaction or batch envelope.
+
+The three single-statement consumers apply different policies:
+
+| Consumer | Additional rule |
+| --- | --- |
+| direct execution | Allows a postcondition; rejects conflict recovery, unresolved references, and `insertId` scratch |
+| prepared single statement | Also rejects postconditions because no executor will check them |
+| `QueryEngine.build()` | Returns SQL only when it can be represented without executor-only behavior |
 
 ## Relation writes
 
@@ -91,6 +112,50 @@ three independent inputs:
 `RecordUpdateCompiler` compiles non-bulk updates for a record selected by its
 caller. Relation Parts still own target reads, parent correlation, membership,
 found/missing decisions, guards, race pins, and junction effects.
+
+Generated identity capture is demand-driven. A fresh-record consumer requests
+`rootReferenced(field)` only when a descendant, incoming edge, junction, or
+terminal result needs the value. An unused database-generated identity does not
+force `RETURNING` or `insertId` handling onto an otherwise plain nested insert.
+
+```mermaid
+flowchart LR
+    Payload["Schema-transformed relation payload"] --> Program["RelationMutationProgram"]
+    Metadata["Relation metadata + current model"] --> Bound["BoundRelation"]
+    Program --> Owner["Relation Part"]
+    Bound --> Owner
+    Owner -->|"fresh record"| Create["CreateOperation"]
+    Owner -->|"captured record"| Update["RecordUpdateCompiler"]
+    Create --> Fragment["Operation steps"]
+    Update --> Fragment
+    Owner --> Fragment
+```
+
+These facts stay separate:
+
+- the mutation program preserves requested meaning and input order;
+- the bound relation records storage position and ordered fields only;
+- the record compiler owns one record mutation;
+- the relation Part owns the edge decision around that record.
+
+`BoundRelation` is deliberately not stored inside `RelationMutationProgram`.
+Binding happens at the first topology decision so an earlier validation failure
+still wins and an untaken upsert arm remains inert.
+
+Before emission, OwnWrite analysis rejects nested trees whose writes cannot be
+linearized safely. During emission, updates address a captured primary key
+rather than re-evaluating a selector that could match a replacement row.
+
+### Foreign-key provenance
+
+`foreign-key-reference.ts` binds each source to one foreign/referenced field
+pair. A consumer resolves the member; it never supplies a separate field name
+that could select the wrong value.
+
+Planning and final sources are distinct. Literal and planning-field sources can
+feed planning SQL. Final references and lookup SQL remain final-only. A primary
+key transition uses one read source for the old value and one write source for
+the transformed value, so correlation and assignment cannot silently swap.
 
 `createMany`, `updateMany`, `deleteMany`, and relation `set` remain specialized
 because they have set semantics rather than one-record semantics.
@@ -112,6 +177,13 @@ Builders return parameterized `Sql` fragments. The query engine does not match
 provider-specific SQL tokens to recover facts that the compiler already knows.
 Provider error-message and assertion-marker recognition belongs to driver error
 mapping.
+
+Compiler facts required by a later fold travel beside the opaque SQL fragment.
+For example, PostgreSQL create CTE folding receives the target table,
+duplicate-skip disposition, and database-assigned-identity fact directly from
+the create compiler. It does not recognize `ON CONFLICT` or other PostgreSQL
+tokens in rendered SQL. This keeps the fold fast without moving dialect parsing
+back into L6.
 
 ## Strict results
 

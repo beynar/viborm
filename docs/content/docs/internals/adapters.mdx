@@ -76,7 +76,15 @@ interface DatabaseAdapter {
 }
 ```
 
-Each group takes database-agnostic inputs and returns dialect-specific `Sql` fragments. The query engine composes fragments; it never inspects them.
+Each group takes database-agnostic inputs and returns dialect-specific `Sql`
+fragments. The query engine composes fragments, but it does not inspect their
+rendered SQL to recover semantic facts.
+
+If a later compiler fold needs to know a fact such as the target table, whether
+an insert skips duplicates, or whether an identity is database-assigned, L6
+carries that fact beside the `Sql` fragment. It does not recognize PostgreSQL,
+MySQL, or SQLite tokens. Provider error codes and message recognition belong to
+driver error mapping.
 
 ## Available Adapters
 
@@ -98,7 +106,9 @@ The `capabilities` group lets the query engine branch on database features inste
 | `supportsUpsertWhere` | ✅ | ❌ | ✅ |
 | `supportsMutationTargetInSubquery` | ✅ | ❌ | ✅ |
 
-When a capability is false the query engine picks a fallback strategy (e.g. correlated subqueries instead of lateral joins, or a transactional upsert instead of `ON CONFLICT ... WHERE`).
+When a capability is false the query engine picks a capability-specific path
+(for example, correlated subqueries instead of lateral joins, or a
+transactional upsert instead of `ON CONFLICT ... WHERE`).
 
 ## How Adapters Are Used
 
@@ -115,7 +125,8 @@ sql`COALESCE(json_agg(row_to_json(${subquery})), '[]'::json)`
 sql`JSON_ARRAYAGG(JSON_OBJECT(${fields}))`
 ```
 
-The query engine doesn't know which SQL was generated - it just gets a composable fragment.
+The query engine knows the operation meaning and receives a composable fragment;
+the adapter alone owns its dialect spelling.
 
 ## Connection to Other Layers
 

@@ -93,9 +93,25 @@ registry.proxy.user.core.where; // Built through registry access, then cached
 
 This keeps schema definitions focused on structure while operation validation stays centralized.
 
+## Boundary With the Query Engine
+
+An operation schema is the trust boundary for public query input. Its output can
+contain defaults, normalized shorthands, and transformed values, so the query
+engine treats that output as a domain value rather than reparsing the caller's
+raw object.
+
+For nested writes, L6 separates scalar fields from relation payloads. As soon as
+a relation payload is schema-transformed, it becomes a
+`RelationMutationProgram`. The program preserves mutation-kind order, source
+array order, duplicates, and explicit values such as `set: []`. OwnWrite
+analysis and relation emitters consume the same program.
+
+This gives the validation transform one owner and one execution. Downstream
+compilers do not assume that a transform is idempotent.
+
 ## Connection to Other Layers
 
 - **L1 (Validation)**: Operation schemas use `v.*` primitives and `SchemaRegistry`
 - **L2 (Scalars)**: Scalar base schemas and state feed registry scalar schemas
 - **L4 (Relations)**: Relation state feeds nested operation schemas
-- **L6 (Query Engine)**: Query engine validates against these schemas
+- **L6 (Query Engine)**: Validates at the operation boundary, then compiles the schema-transformed values without reparsing them
