@@ -2123,7 +2123,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
   //     which enumerates a three-member union that E6.7 made four (`transitioned`).
   // The selected-record compiler absorbed the conditional update-arm planning refusal:
   // captured descendant outputs are optional until the found arm is selected. The pin is
-  // therefore 29; the removed site is covered by the found/inert dual-substrate witnesses
+  // therefore 28; the removed site is covered by the found/inert dual-substrate witnesses
   // in `e3-arm-dispatch.test.ts`.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
@@ -2138,7 +2138,7 @@ describe("query-engine-v2 route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(29);
+    expect(sites).toBe(28);
   });
 });
 

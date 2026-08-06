@@ -52,6 +52,11 @@ export function assertSelectedUpdateManyDataIsScalar(
 ): void {
   const invalid = findRelationBearingUpdateManyData(source, relations);
   if (!invalid) return;
+  if (invalid.isJunction) {
+    throw new UnsupportedOperationError(
+      `query-engine-v2 nested 'updateMany' on many-to-many relation '${invalid.relationName}' does not support nested relation writes in its data.`
+    );
+  }
   throw new UnsupportedOperationError(
     `query-engine-v2 updateMany for relation '${invalid.relationName}' does not support nested relation writes in its data.`
   );
@@ -89,9 +94,11 @@ function findRelationBearingUpdateManyData(
   | {
       readonly relationName: string;
       readonly relations: Record<string, RelationMutationProgram>;
+      readonly isJunction: boolean;
     }
   | undefined {
   for (const program of Object.values(relations)) {
+    const relation = bindRelation(source, program.relationInfo);
     const target = createQueryScope(
       source.adapter,
       program.relationInfo.targetModel
@@ -104,7 +111,11 @@ function findRelationBearingUpdateManyData(
           input.data
         ).relations;
         if (Object.keys(nested).length > 0) {
-          return { relationName: program.relationInfo.name, relations: nested };
+          return {
+            relationName: program.relationInfo.name,
+            relations: nested,
+            isJunction: relation.kind === "junction",
+          };
         }
       }
     }
