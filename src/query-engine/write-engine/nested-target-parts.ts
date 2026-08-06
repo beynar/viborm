@@ -53,31 +53,9 @@ import {
 import type { StepScope } from "./StepScope";
 import { getStepModelName, UnsupportedOperationError } from "./shared";
 
-/**
- * Update-arm literal-parent recursion.
- *
- * A nested `update`'s target payload builds its OWN child Parts exactly as a root
- * update does — the `RelationUpsertPart.buildArmChildParts` precedent generalized
- * from `upsert`/`connectOrCreate` to the full nested-write surface. The target has
- * already been located by its unique `where` (a to-many/to-one nested update), so
- * its primary key is a compile-time literal ({@link literalParentId}); every child
- * FK edge one level deeper is therefore a known value, not an arm-dependent produced
- * one — the linearity precondition (WHY §4.2) that keeps depth a plain list splice.
- *
- * This is the child-Part builder both {@link RelationWritePart} (a child-held nested
- * update) and the parent-held to-one update arm (family A-remainder, its parent-held
- * projection) call for their located target's data relations. It reuses the SAME
- * per-kind builders the root's `interpretRelation` uses — m2m junction, the correlated
- * write/link/adopt families, the inverse-side to-one — differing only in the
- * final reference source (a compile-time literal here, a planned locate read at the root):
- * one architecture, one vocabulary, depth adds list entries and one parent-id value.
- *
- * A **parent-held FK to-one at depth** (the located target itself holds an FK it would
- * rewrite in its own SET) needs child-SET folding this in-place builder does not carry;
- * Selected-record updates now compile through `RecordUpdateCompiler`. This file keeps
- * only the explicit junction-create ordering that cannot be absorbed without moving
- * the join write after the fresh target's descendants.
- */
+/** Fresh-record and junction-target composition seams. Selected-record recursion lives
+ * in `RecordUpdateCompiler`; this module retains fresh create ownership and the explicit
+ * junction attachment order. */
 
 /**
  * How a located-by-PK target's relations are folded one level deeper — the recursion
@@ -133,15 +111,9 @@ export function buildJunctionTargetRelationParts(
 }
 
 /**
- * X1c — whether a located UPDATE target's data carries the located-target projection
- * of mechanism 1/2 that the in-place child-Part builder cannot fold: a **parent-held
- * to-one write** (the target holds the FK, so a deeper create/connect/update folds its
- * identity into the target's OWN update SET — child-SET folding, not a child edge) or a
- * **non-PK / compound referenced edge** (D4 — the deeper FK references a column the
- * literal/planned parent id does not carry). Either delegates the WHOLE target UPDATE to
- * {@link UpdateOperation} (which does child-SET folding + before-root writes + reorder +
- * the D4 located-row reference at the ROOT); the common child-held-to-PK / m2m / create
- * target stays on the proven {@link RelationWritePart} path.
+ * Whether a fresh junction target needs the whole {@link CreateOperation} compiler:
+ * parent-held relations must fold into its INSERT, while a compound or non-primary-key
+ * child edge needs field-bound references the scalar junction shortcut does not carry.
  */
 export function requiresWholeFreshRecordCompiler(
   targetScope: QueryScope,
@@ -163,14 +135,9 @@ export function requiresWholeFreshRecordCompiler(
 }
 
 /**
- * X1c — a FRESH m2m junction target whose create data carries the parent-held to-one
- * projection (child-SET folding on a fresh row — the FK folds into the target's OWN
- * INSERT, X1b's fresh mechanism) delegates its whole create to {@link CreateOperation}
- * `nestedFresh`. The junction target holds NO foreign key to the enclosing parent (its
- * membership is the join row, written by the junction Part), so the root FK inject is
- * empty — the create subtree is a standalone row keyed by its explicit literal PK, the
- * same PK the junction row references. Reuses the create ROOT for the whole fresh
- * subtree exactly as the located-update reuse does for the update root.
+ * Compile a relation-bearing M2M target through {@link CreateOperation}. The target has
+ * no incoming FK from the enclosing row; the junction Part owns membership and consumes
+ * the created target's referenced value.
  */
 export function buildNestedTargetFreshCreatePart(input: {
   scope: StepScope;
@@ -178,12 +145,8 @@ export function buildNestedTargetFreshCreatePart(input: {
   targetModel: Model<any>;
   data: Record<string, unknown>;
   /**
-   * E4-U3 — the missing-premise pin the arm's own INSERT carried before the whole
-   * create was delegated. The subtree REPLACES that INSERT, so without threading the
-   * pin the delegation would trade a race protection for a shape; `nestedFresh`
-   * already knows how to put it on the subtree's ROOT insert (`rootRacePin`), the same
-   * channel the before-root target subtree uses. Absent for an unconditional `create`
-   * arm, which has no premise to miss.
+   * The missing-premise pin belongs on the subtree's root INSERT. It is absent for an
+   * unconditional create arm.
    */
   racePin?: TargetConstraintPin;
 }): {
@@ -605,14 +568,9 @@ export function buildFreshRecordParts(input: {
 }
 
 /**
- * X1b — a relation-carrying fresh nested `create` at DEPTH is a create SUBTREE.
- *
- * The fresh child, with every relation it carries, is exactly what a `create` ROOT
- * builds — so it is delegated to {@link CreateOperation} in its `nestedFresh` mode,
- * sharing the enclosing operation's scope (no step-id collision), skipping the
- * whole-args re-parse (the enclosing operation already validated the tree) and the
- * terminal read (the enclosing operation owns the result), and folding the located
- * parent's field-bound FK members into its root INSERT.
+ * A relation-bearing nested create is a {@link CreateOperation} subtree. It shares the
+ * enclosing step scope, trusts the already parsed payload, omits a terminal result read,
+ * and folds field-bound incoming FK members into its root INSERT.
  *
  * Every mechanism the create root already supports falls out unchanged at any depth:
  * a parent-held-FK to-one grandchild (a before-parent create whose id the fresh

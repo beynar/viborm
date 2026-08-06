@@ -646,13 +646,9 @@ export class CreateOperation {
     parsedData = buildParsedRelationPrograms(childScope, data)
   ): RecordPlan {
     const model = childScope.model;
-    // T3c (shared-PK parent-held edge absorbed): a record whose primary key IS its
-    // FK gets that PK from the edge fold, not scalar data — so `planNestedCreateIdentity`
-    // would reject it as "primary key not known". Resolve the shared PK from a
-    // COMPILE-TIME-LITERAL edge (a direct-referenced `connect` / a literal-id `create`)
-    // and thread it into the identity so the terminal read can address the created row.
-    // A non-literal edge (non-referenced connect, generated-id create, connectOrCreate)
-    // yields no literal here; the shared-PK decline below still routes those to V1.
+    // A record whose primary key is also its foreign key takes that identity from the
+    // edge, not from scalar data. Resolve it before planning the record so the terminal
+    // read addresses the inserted row; unresolved sources fail at that ownership seam.
     const sharedPk = this.resolveSharedPkIdentity(
       childScope,
       parsedData.relations
@@ -766,7 +762,7 @@ export class CreateOperation {
    * identity is consumed at CONSTRUCTION by `planNestedCreateIdentity`, by
    * {@link freshReferenced} (sibling edges and junction parent sources), and by
    * {@link CreateOperation.freshRootReferenced} — a PUBLIC seam an enclosing
-   * `UpdateOperation` reads while building its own SET, with no `known` at the call
+   * `RecordUpdateCompiler` reads while building its own SET, with no `known` at the call
    * site and no deferral in the final source union (`literal | finalRef`, where a ref
    * names an EMITTED step; ATOM §9 inv. 2 forbids a final-fragment step from
    * referencing a planning step). So the sub-shape stays refused, and the refusal is
@@ -1030,7 +1026,7 @@ export class CreateOperation {
     // many-side helper, its FK resolved from the target's own back-reference) has
     // a child-held position and `type === "manyToOne"`, so it landed here and was refused,
     // while the SAME relation on the SAME schema constructed under `update` —
-    // `UpdateOperation`'s sibling gate asks `isToOne || type === "oneToMany"` and routes
+    // `RecordUpdateCompiler`'s sibling gate asks the bound position and routes
     // it down this very path. It was a create-root capability gap with a narrower
     // predicate than its own update-root twin.
     //
@@ -1358,7 +1354,7 @@ export class CreateOperation {
     // A to-one slot holds ONE row, so two kinds on it name two intents for one slot —
     // the contradiction `interpretParentHeld` refuses above, refused here on the dispatch
     // that reaches the OTHER direction. THAT is this guard's unique coverage: the
-    // child-held to-one DISPATCH positions (this one, and `UpdateOperation`'s inverse
+    // child-held to-one DISPATCH positions (this one, and `RecordUpdateCompiler`'s inverse
     // branch), which the census's to-one two-kinds family covers only at the ARM
     // positions. Without it the loop below built EVERY arm, and which contradiction the
     // user got depended on whether the child's foreign key happened to carry a unique: a
@@ -1368,7 +1364,7 @@ export class CreateOperation {
     //
     // `> 1`, not `!== 1`: a payload naming NO kind (`{ card: {} }`) asks for nothing and
     // is Prisma's no-op, which this loop already answers by building nothing — the same
-    // reading `UpdateOperation.interpretRelation` spells out for its empty payload.
+    // reading `RecordUpdateCompiler.interpretRelation` spells out for its empty payload.
     if (relation.kind === "childHeldToOne" && entries.length > 1) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`

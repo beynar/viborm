@@ -1602,9 +1602,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *     not pin). V2 cannot compile-correlate the occupied guard, so only nested
    *     `create` / `createMany` proceed (their FK literal, incl. a non-PK D4 rewrite, is
    *     resolved by {@link resolveLiteralCreateParent} against the empty-slot accept); any
-   *     other kind routes the tree to V1 ({@link interpretRelation} enforces this). The
-   *     remaining narrower boundary — a non-PK / compound occupied slot under such a
-   *     create — is V1's staged mutation-identity engine, unreached by the estate.
+   *     other kind is refused because {@link interpretRelation} cannot pin that
+   *     pre-transition identity.
    */
   private interpretReferencedKeyTransition(args: {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
@@ -1868,8 +1867,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /** A parent-held to-one `update`: locate the referenced target by the parent's
-   *  (final) FK value, then UPDATE it by the captured PK. Nested-relation update
-   *  data (V1's staged recursion) routes the whole tree to V1. */
+   *  final FK value, then compile its scalar and descendant mutations against the
+   *  captured primary key. */
   private interpretParentHeldUpdate(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: ParentHeldToOne,

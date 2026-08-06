@@ -133,21 +133,9 @@ export type UpsertCorrelation = "global-adopt" | "correlated";
  */
 export type UpsertFamily = "connectOrCreate" | "upsert";
 
-/**
- * The two builders an adopt part reaches through injection rather than through an
- * import — `nested-target-parts` imports THIS module, so a runtime import back would
- * be a cycle. The caller threads the fresh-record function value.
- *
- * - {@link ArmSeam.freshArm} builds the absent → CREATE arm's whole create SUBTREE
- *   (N4-U2).
- * - {@link ArmSeam.nestedChild} builds the found → UPDATE arm's deeper Parts (E3):
- *   the arm's row is LOCATED, which is exactly what a nested `update` target is, so
- *   the arm reuses the located-target child-Part builder instead of a second dispatch
- *   of its own.
- *
- * One seam, not two parameters, because a caller that supplied one and forgot the
- * other would silently narrow what an arm can express.
- */
+/** Record compilers injected across the `nested-target-parts` import cycle.
+ * `freshArm` owns the missing arm's record subtree; `updateRecord` owns the found
+ * arm's selected-record mutation. The Part keeps the decision and membership rules. */
 export interface ArmSeam {
   readonly freshArm: FreshArmBuilder;
   readonly updateRecord: UpdateRecordBuilder;
@@ -850,31 +838,8 @@ export function buildToManyUpsertParts(
     relation.kind !== "childHeldToMany" &&
     !(relation.kind === "childHeldToOne" && family === "connectOrCreate")
   ) {
-    // The inverse-side one-to-one (child-held FK) is the arity-1 case of this
-    // child-held path: `connectOrCreate` adopts it globally,
-    // exactly as the to-many arity does (found → reparent; absent → create with the
-    // parent FK injected, constraint + racePin). A many-to-many target is the
-    // junction's, and an FK-holder-side (parent-held) to-one is a same-row change,
-    // not this child-held Part.
-    // E3-U4 — UNREACHABLE BY CONSTRUCTION since the arm dispatch was replaced.
-    //
-    // This was a REACHABLE typed refusal until E3: `buildArmChildParts` dispatched an
-    // upsert's UPDATE-arm grandchildren on the KIND alone and handed any
-    // `connectOrCreate`/`upsert` straight to this builder, direction unexamined — so a
-    // PARENT-HELD to-one or a many-to-many grandchild landed here with the wrong
-    // `relationInfo.type`. The arm now routes by DIRECTION first, through the same
-    // located-target seam every other located-target caller uses
-    // ({@link ArmSeam.nestedChild}), which sends many-to-many to the junction and stops
-    // the parent-held direction with its own wording
-    // ({@link assertArmEdgeIsChildHeld}) — so the wrong type no longer arrives.
-    //
-    // Every remaining caller had already dispatched the direction before entering:
-    // `UpdateOperation.interpretChildHeld` and `CreateOperation.interpretChildHeld`
-    // (both reached only for the child-held direction, the inverse-side to-one `upsert`
-    // pre-routed to `buildInverseToOneUpsertPart` and absent from `toOneCreateFactory`
-    // under create), and the junction target relation fold (many-to-many
-    // dispatched above it, parent-held stopped above it, `isInverseToOne` split inside
-    // the `upsert` case). The X1c disposition applies: an engine invariant, not a route.
+    // Callers bind and dispatch topology before this builder. Only a child-held to-many,
+    // or the child-held to-one `connectOrCreate` case, can reach this point.
     throw new QueryEngineError(
       `query-engine-v2 internal: relation '${relationName}' reached the child-held adopt builder as '${relationInfo.type}' for a nested ${family}; every caller dispatches the relation direction before this builder.`
     );
@@ -1157,15 +1122,10 @@ function buildOneUpsertPart(
  * a change to the arm's own UPDATE SET (child-SET folding), landing beside the reparent
  * {@link RelationUpsertPart.buildUpdateArm} already writes.
  *
- * The mechanism that folds a located row's SET is the update ROOT's before-target
- * machinery, reached by delegating the WHOLE located target to `UpdateOperation`
- * through the selected-record compiler. This arm cannot take that route as it stands: its
- * UPDATE is one statement carrying the reparent, the upsert-premise `expects` wording
- * and the found pin, and a delegated sub-op would emit a SECOND UPDATE of the same row —
- * forking the premise this part pins. Re-deriving the before-target primitives here
- * instead would fork them a different way (they are private to `UpdateOperation`, and
- * ATOM §4.1 exists to keep one linearization). Measured, named, and left refused rather
- * than smuggled in: the shape stays a typed boundary, not an internal invariant break.
+ * The selected-record compiler owns ordinary located-row SET folding. This adopt seam
+ * also folds the incoming reparent assignment and owns the found premise. A deeper
+ * parent-held edge would have to share that same UPDATE while preserving the arm's pin
+ * and legality timing; that unsupported shape is refused here.
  *
  * A many-to-many edge needs no fold: its membership is a join row the junction writes,
  * correlated to this arm's parent value like any child-held edge.
@@ -1247,18 +1207,9 @@ function assertArmPkStable(
  * `ForeignKeyError` when no row holds it. No wrong value is representable once this
  * refuses at construction, before a statement exists.
  *
- * What such an edge needs is a PER-FIELD parent source — one value per referenced column,
- * which is exactly what {@link referencedFieldValue} already gives the update ROOT, whose
- * locate read unions every referenced column into its own projection. Building that source
- * for this seam is E4's unit; until it exists this is a refusal, not a repair.
- *
- * Its unique coverage is the parent source {@link buildOneUpsertPart} MANUFACTURES for its
- * own update arm — no other caller reaches it, and none changes. Every other source handed
- * to that builder is already whole: the update root's locate-backed `planned` one resolves
- * each referenced column per-field, `CreateOperation.edgeParentId` refuses a compound edge
- * before building a source at all, the adopt classifier refuses past its single-PK surface,
- * and the nested-target builders pin the same condition twice
- * (the whole-record classifier / `referencesTargetPk`).
+ * Such an edge needs one located value per referenced field. This seam exposes only the
+ * located primary key, so it refuses compound and non-primary-key references before SQL
+ * is built.
  */
 function assertArmEdgeReferencesLocatedPk(
   child: QueryScope,
@@ -1284,15 +1235,8 @@ function assertArmEdgeReferencesLocatedPk(
   );
 }
 
-/** An `unknown -> Record` narrowing, NOT a shape check (N7-U-A). An upsert /
- *  connectOrCreate item's `where` / `create` / `update` slots are validated by the
- *  enclosing whole-args parse (`ValidationError: Expected object`) before any Part is
- *  built; a non-record reaching it is an engine invariant break — the X1c disposition,
- *  not a route.
- *
- *  Its item-list sibling (`normalizeUpsertItems`) went with E3's arm dispatch: the arm no
- *  longer unwraps a deeper relation's item array itself, so the only remaining caller of
- *  that narrowing is `nested-target-parts.normalizeItems`, which already owns it. */
+/** Narrow a schema-validated arm object. A non-record here is an engine fault, not a
+ * second user-input validation boundary. */
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (isRecord(value)) return value;
   throw new QueryEngineError(

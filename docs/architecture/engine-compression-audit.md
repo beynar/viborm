@@ -67,7 +67,7 @@ boundary above, the final measured deltas are:
 
 | Surface | Measure | Net |
 | --- | --- | ---: |
-| production TypeScript, `src/**/*.ts` | raw diff | **−626 lines** |
+| production TypeScript, `src/**/*.ts` | raw diff | **−758 lines** |
 | changed production TypeScript | lexical token-bearing lines | **−168 lines** |
 | owned Markdown | whole-file line count | **−4,675 lines** |
 

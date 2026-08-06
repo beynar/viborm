@@ -1137,11 +1137,9 @@ function assertOwnedFkAbsentFromUpdateData(
   }
 }
 
-/** `update`: one targeted correlated part per `{ where, data }` item. A target whose
- *  data carries the located-target projection of mechanism 1/2 (a parent-held to-one
- *  write, or a non-PK / compound referenced edge — D4) delegates its WHOLE update to an
- *  {@link UpdateOperation} nested-target sub-op (X1c); the common child-held-to-PK / m2m
- *  / create target stays on the proven leaf path. */
+/** `update`: one targeted correlated Part per `{ where, data }` item. The Part owns
+ * target selection and failure semantics; its `RecordUpdateCompiler` owns the selected
+ * row's scalar and descendant mutations. */
 export function buildToManyUpdateParts(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "update" }>

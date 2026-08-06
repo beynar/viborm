@@ -83,9 +83,7 @@ import {
 
 type ExecutionMode = "transaction" | "batch";
 
-/** A compiled arm's steps plus the id of the step exposing the `result` output —
- *  the terminal read, or the folded `UPDATE … RETURNING` when it stands in for it,
- *  or a delegated create/update sub-arm's own result step (T3c). */
+/** A compiled arm's steps plus the id of the step exposing its result. */
 interface ArmResult {
   readonly steps: OperationStep[];
   readonly resultId: string;
@@ -180,11 +178,9 @@ export class UpsertOperation {
   // The update-arm RETURNING fold (finding 4 / PERF.md P5): on a RETURNING driver
   // with a scalar-only projection the scalar update arm folds its terminal refetch
   // into the mutation. `false` for a non-returning driver, a relation projection,
-  // or a relation-bearing update arm (which delegates to UpdateOperation).
+  // or a relation-bearing update arm (which uses the selected-record compiler).
   private readonly canFoldUpdateArm: boolean;
-  // T3c — the create arm carries nested relation writes: delegate to a
-  // CreateOperation sub-op (mechanism 2). `undefined` for a scalar create arm
-  // (the inline INSERT path stays).
+  // A relation-bearing create arm uses CreateOperation; scalar create stays inline.
   private readonly createArmOp?: CreateOperation;
   // A relation-bearing found arm reuses this operation's decision read.
   private readonly updateCompiler?: RecordUpdateCompiler;
@@ -208,15 +204,9 @@ export class UpsertOperation {
     this.scope = new StepScope();
     const scope = this.scope;
 
-    // E5-U3 — upsert's ENVELOPE now has one home, the parse boundary
-    // (`upsertEnvelopeSchema`, wired at `routing.ts`): the three required keys, the five
-    // optional names, and the object-ness of the arms. What X2 kept in the engine was
-    // right about the ARMS and only the arms — they are delegated to
-    // CreateOperation/UpdateOperation sub-ops that parse the RAW payload FRESH (so the
-    // envelope hands them back BY REFERENCE, never a transformed copy), and the update
-    // arm's structure stays deferred to the taken branch, so the envelope reads nothing
-    // inside either arm. The narrowing below is what remains of
-    // the three `requireRecord` gates: an engine invariant, not a user boundary.
+    // The parse boundary owns the upsert envelope and proves all three required members
+    // are records. Arm-specific schema transformation stays with each record compiler;
+    // this narrowing only makes the boundary fact visible to TypeScript.
     const where = envelopeRecord(args.where, "where");
     const create = envelopeRecord(args.create, "create");
     const update = envelopeRecord(args.update, "update");
@@ -237,9 +227,9 @@ export class UpsertOperation {
     // `childRacePin`/`getWhereUniqueEntries` already expand the compound key.
     this.parentPrimaryKeys = parentPrimaryKeys;
 
-    // T3c: a scalar arm stays inline; a relation-bearing arm delegates to the
-    // create-root / update-root machinery. Partition each raw arm only to decide;
-    // the delegated operations own validation and program construction.
+    // Scalar arms stay inline. A relation-bearing create uses CreateOperation; a
+    // relation-bearing update uses RecordUpdateCompiler. Partition only to choose the
+    // owner and transform each relation payload once.
     const createPartition = partitionModelData(parent, create);
     const updatePartition = partitionModelData(parent, update);
     const createHasRelations =
@@ -247,17 +237,9 @@ export class UpsertOperation {
     const updateHasRelations =
       Object.keys(updatePartition.relationPayloads).length > 0;
 
-    // CLASS IV (T4c): a **parent-held to-one** relation in the update arm builds a
-    // probe correlated to the located parent's FK (a `firstRowField` of the delegated
-    // update sub-op's locate). When the CREATE arm is taken the parent is ABSENT, so
-    // that FK does not exist — but the delegated arm's locate carries `locateNotFound-
-    // Optional`, which makes its firstRowField outputs OPTIONAL: the superset probe
-    // plans against an empty locate (resolving the FK to `undefined`) instead of
-    // aborting, and the untaken arm's writes never compile. When the update arm IS
-    // taken (found), `compileFoundArm` runs its deferred payload legality — V1's
-    // update-branch validation, only-when-taken — so an invalid update branch rejects
-    // byte-identical and a missing-target upsert taking the create arm never does. No
-    // decline needed; the shape is native.
+    // Compiler-backed update planning publishes optional locate fields: the planning
+    // superset also runs when the create arm is selected and the locate has no row.
+    // Found-arm legality and writes remain deferred until that arm is selected.
 
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
     this.parentWhere = parseValidated(
@@ -272,8 +254,8 @@ export class UpsertOperation {
     this.whereFilters = whereParts.filters;
     this.whereNamesOneConstraint =
       Object.keys(whereParts.discriminator).length === 1;
-    // The scalar arms parse their own scalar data here; the delegated arms leave
-    // it empty (the sub-op validates and builds the FULL payload itself).
+    // Inline create parses its scalar payload here. A relation-bearing create remains
+    // whole for CreateOperation, so `createData` is empty and the SQL fold must decline.
     this.createData = createHasRelations
       ? {}
       : parseValidated(
@@ -309,7 +291,7 @@ export class UpsertOperation {
       : defaultSelect(model);
     // `include` rides alongside the projection (the `create`/`update` surface). A
     // relation projection forces the terminal-read path (lateral joins), never the
-    // scalar RETURNING fold, on both the scalar and delegated arms.
+    // scalar RETURNING fold on either arm shape.
     this.parsedInclude = isRecord(projection?.include)
       ? projection.include
       : undefined;
@@ -343,17 +325,9 @@ export class UpsertOperation {
       setWhere: args.setWhere,
     });
 
-    // T3c — the relation-bearing arms delegate to the create-root / update-root
-    // machinery, sharing this scope so no two arms collide on a step id. Each
-    // defers its own-write barrier to compile (V1's per-branch timing); the update
-    // arm drops its locate postcondition (absent → this upsert's create arm). The
-    // `create`/`update` sub-ops carry the FULL payload; a shape neither root owns
-    // still throws `UnsupportedOperationError`, which PROPAGATES as a typed refusal
-    // (post-P6: no V1 fallback) exactly as a standalone create/update would — the
-    // already-audited decline surface.
-    // The delegated arms shape their own terminal read, so they carry the same
-    // `select`/`include` this upsert would apply (an explicit select, else the
-    // sub-op defaults the scalar projection; `include` rides alongside).
+    // Relation-bearing arms share this step scope with the upsert. Their legality stays
+    // branch-local, and unsupported shapes remain typed refusals. CreateOperation owns
+    // its terminal read; the selected-record compiler feeds this operation's terminal.
     // `select` is forwarded whenever the CALLER asked for a projection — either
     // spelling. `omit` never reaches an arm as itself: it was already desugared
     // into `this.parsedSelect`, so forwarding that is what makes an omit-only
@@ -486,9 +460,8 @@ export class UpsertOperation {
     if (this.onConflictFold) return { steps: [], outputs: {} };
     const steps: StatementStep[] = [this.locate];
     for (const conditional of this.conditionals) steps.push(conditional.probe);
-    // The delegated arms plan their whole superset one level in (ATOM §3 technique
-    // 2): both arms' probes run before any write regardless of which the locate
-    // later selects. Only the taken arm's writes compile.
+    // Both relation-bearing arms contribute planning reads to the guard-free superset;
+    // only the selected arm compiles writes.
     if (this.updateCompiler) {
       steps.push(...conditionalArmPlanning(this.updateCompiler.planning()));
     }
@@ -645,7 +618,7 @@ export class UpsertOperation {
    *
    * **This conjunct also answers a RELATION-BEARING CREATE ARM**, and it is the
    * only thing that does. `this.createData` is `{}` whenever the create payload
-   * carries relations — the constructor leaves the whole payload to the delegated
+   * carries relations — the constructor leaves the whole payload to
    * {@link CreateOperation} — so every conflict-target column reads `undefined`
    * here and the fold declines. A separate `!createHasRelations` conjunct was
    * written first and then removed: falsification found NOTHING in the estate
@@ -714,7 +687,7 @@ export class UpsertOperation {
     };
   }
 
-  /** Add the raceable missing-premise `racePin` to the delegated create root's
+  /** Add the raceable missing-premise `racePin` to the create compiler's root
    *  INSERT step (T3c) — the scalar arm's `childRacePin`, so a concurrent create
    *  loser's unique violation retries into the update arm. */
   private annotateCreateRacePin(
@@ -754,7 +727,7 @@ export class UpsertOperation {
     // UNTAKEN update branch (the create arm is taken) never reaches here. A
     // relation-bearing update arm therefore rejects a barrier / legality violation
     // whether it later updates or skips (the D6 own-write witness; the relation-key /
-    // PK-portability legality the sub-op deferred at construction).
+    // PK-portability legality the branch-local closure deferred at construction).
     this.updateLegality?.();
     const unmatched = this.conditionals.find(
       (conditional) => !this.conditionalMatched(conditional, known)
@@ -1264,7 +1237,7 @@ function isPlainSetUpdate(data: Record<string, unknown>): boolean {
   );
 }
 
-/** The step id a delegated arm's `result` output points at (its terminal read, or
+/** The step id a compiled create arm's `result` output points at (its terminal read, or
  *  a folded `… RETURNING`) — the value the outer upsert re-exposes as `result`. */
 function resultStepId(fragment: OperationFragment, arm: string): string {
   const result = fragment.outputs.result;
