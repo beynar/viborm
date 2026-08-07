@@ -150,8 +150,31 @@ Binding happens at the first topology decision so an earlier validation failure
 still wins and an untaken upsert arm remains inert.
 
 Before emission, OwnWrite analysis rejects nested trees whose writes cannot be
-linearized safely. During emission, updates address a captured primary key
-rather than re-evaluating a selector that could match a replacement row.
+linearized safely. `RecordUpdateCompiler` and relation owners that pass it a
+selected target address the captured primary key rather than re-evaluating the
+selector.
+
+Top-level scalar probe-first upsert follows the same identity rule on the batch
+substrate: its found guard binds the complete selector to the captured primary
+key, and its UPDATE addresses that key. Transaction mode keeps the original
+selector because the locate locks the row. An eligible `ON CONFLICT` fold has no
+planning read, and a relation-bearing found arm uses `RecordUpdateCompiler` with
+its captured identity. Conditional-skip terminal reads use the located primary
+key; post-update terminal reads use the rebuilt primary key.
+
+### Practical write-flow map
+
+| Flow | Shell | Decision/edge owner | Record owner | Planning and identity source | Final order and premise pin |
+| --- | --- | --- | --- | --- | --- |
+| Structural single-statement fast path | The operation shell | The shell that produced the candidate | The specialized shell or record compiler that built the statement | Empty planning; exactly one statement with no unresolved executor-only effect | One direct statement; direct execution may still enforce its postcondition |
+| Fresh record subtree | `CreateOperation` | `CreateOperation` for parent-held edges; relation Parts for child-held and junction edges | `CreateOperation` | Relation probes plus literal, lookup, or demand-driven root output identities | Selected guards, parent-held target work, root INSERT, then child-held or junction descendants; a missing same-target insert uses the root `racePin` |
+| Selected record update | `UpdateOperation` or an enclosing relation Part | The enclosing shell or relation Part | `RecordUpdateCompiler` | Target locate and descendant probes; the locate publishes the captured primary key | Locked premise or batch guard, before-root descendants, root UPDATE, after-root descendants, then terminal read; key transitions decide each side of the root |
+| Parent-held to-one edge | `CreateOperation` or `RecordUpdateCompiler` | The same record compiler, because the edge chooses its root FK columns | The same fresh or selected record compiler | Target literal, lookup, or fresh-target output supplies the FK | Target work runs before the root; the FK folds into the root INSERT or UPDATE; the selected branch uses its locked read, batch guard, or missing-arm `racePin` |
+| Child-held targeted edge | An enclosing create or update shell | The child-held relation Part | `RecordUpdateCompiler` for a selected target; `CreateOperation` for a fresh target | A correlated target read captures the target primary key and parent value | Transaction lock or batch captured-row guard, then the selected target or edge effects in relation order |
+| Junction existing-target mutation | An enclosing create or update shell | `RelationJunctionPart` | `RecordUpdateCompiler` only when the target record changes | Membership or global probes capture target identity and parent membership | Locked decision or batch membership/identity guard, then target and junction effects in the selected branch |
+| Junction fresh-target attachment | An enclosing create or update shell | `RelationJunctionPart` | Junction-local INSERT for an inline target; `CreateOperation` for a delegated target | Literal identity or a demanded inline/delegated INSERT output; a missing same-target create carries `racePin` | Inline: target INSERT, junction INSERT, descendants. Delegated: complete fresh subtree, then junction INSERT |
+| Nested set/bulk relation mutation | An enclosing selected-record flow | `RelationSetPart`, `RelationWritePart`, or `RelationJunctionPart` | None; the specialized Part owns set semantics | Materialized membership sets, filters, and correlated parent values | Guards precede specialized set or bulk effects; zero matches remain legal where the operation contract allows them |
+| Top-level bulk write | `CreateManyOperation`, `BulkCountOperation`, or `ManyAndReturnOperation` | The specialized shell | None; there is no one-record loop | Row-shape grouping, optional preparation writes, and captured output groups | Specialized statements preserve skip and bulk semantics; output folds concatenate rows or sum counts |
 
 Junction compilation also uses exact discriminated state. Inline fresh targets
 emit target INSERT, junction INSERT, then inline descendants. Delegated targets

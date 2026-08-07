@@ -58,10 +58,10 @@ type AndReturnKind =
   | "deleteManyAndReturn";
 
 /**
- * The row-returning arm of the bulk mutations (PLAN P4 item 2a; W3-B made it
- * implicit). Reached only when the client payload carries a `select`. Both kinds
+ * The row-returning arm of the bulk mutations. Reached only when the client
+ * payload carries a `select`. Both kinds
  * return the affected rows, and both are the consumer that makes the census's
- * **ordered source list whose rows concatenate** (ATOM §1) live:
+ * **ordered source list whose rows concatenate** (ATOM “The execution vocabulary”) live:
  *
  * - **returning drivers** (`supportsReturning`): `createManyAndReturn` is one
  *   multi-row `INSERT … VALUES (…),(…) RETURNING …` per contiguous same-shape
@@ -84,7 +84,7 @@ type AndReturnKind =
  *
  * - **non-returning drivers in forced batch**: refused, because public result
  *   parsing cannot be rolled back after an atomic batch commits. That refusal is
- *   KEPT AS CONTRACT (ATOM §7) and now names the public spelling — a bulk write
+ *   KEPT AS CONTRACT (ATOM “Error-order rules”) and now names the public spelling — a bulk write
  *   `with 'select'` — never weakened into a route or a silent divergence. The
  *   `{ count }` arm of the same family is unaffected and still runs there.
  *
@@ -93,7 +93,7 @@ type AndReturnKind =
  * hands back at most `limit` of them. `limit: 0` compiles to the empty plan and
  * parses to `[]` — the row-shaped spelling of `{ count: 0 }`.
  *
- * One operation, two leaves (WHY §4.1); no new step kind, no new executor branch.
+ * One operation, two statement shapes; no new step kind or executor branch.
  */
 export class ManyAndReturnOperation {
   readonly mode: ExecutionMode;
@@ -143,7 +143,7 @@ export class ManyAndReturnOperation {
     this.select = isRecord(this.args.select) ? this.args.select : undefined;
 
     const supportsReturning = engine.adapter.capabilities.supportsReturning;
-    // ATOM §7 refusal (kept as contract): a non-returning driver in forced batch
+    // ATOM “Error-order rules” refusal (kept as contract): a non-returning driver in forced batch
     // cannot resolve the returned identity atomically, because result parsing
     // happens after the atomic unit commits and cannot be rolled back.
     if (this.mode === "batch" && !supportsReturning) {
@@ -451,7 +451,7 @@ export class ManyAndReturnOperation {
    * per-row savepoints, the id of each non-raising row, a refetch by the collected ids.
    * That is what this builds, out of parts that already exist:
    *
-   *  - **the savepoint** is the census `onUniqueConflict: "skip"` effect (ATOM §8), served
+   *  - **the savepoint** is the `onUniqueConflict: "skip"` effect (ATOM “Bulk specializations”), served
    *    by `executeSkippableWrite` — the SAME executor effect the `{ count }` arm has used
    *    on this dialect since P6. Nothing is re-derived here; the step just declares it.
    *  - **the split into one INSERT per row** is `buildCreateManyPlan`'s own
@@ -466,7 +466,7 @@ export class ManyAndReturnOperation {
    *
    * **Which phase the writes run in.** They are the capture fragment. That fragment is not
    * "the reads" — it is what the operation must OBSERVE before the final fragment can be
-   * constructed (`Part.PlanningKnown`, the sanctioned crossing, ATOM §9 inv. 3), and here
+   * constructed (`Part.PlanningKnown`, the sanctioned crossing, ATOM “Planning fragments”), and here
    * the thing to observe is a write's own outcome: no read can tell you whether an INSERT
    * you have not run yet will be skipped. The linearization invariant (§4) is untouched —
    * this arm makes no branch decision from a READ, so there is no decision read to order
@@ -485,7 +485,7 @@ export class ManyAndReturnOperation {
    * maintainer's accepted trade for the shape existing at all on this driver.
    *
    * **The atomic batch stays refused.** A forced-batch non-returning driver never reaches
-   * here: the constructor's ATOM §7 refusal answers first, and it names the substrate
+   * here: the constructor's ATOM “Error-order rules” refusal answers first, and it names the substrate
    * ("because public result parsing cannot be rolled back"). The skip effect's own wall
    * (`OperationExecutor.compileToEntries`, "no atomic-batch lowering") stands behind it.
    * Two reasons, one refusal — a second, skip-specific throw would be a redundant guard.
@@ -566,7 +566,7 @@ export class ManyAndReturnOperation {
   /**
    * The final fragment of {@link buildCreateManySkipCapture}: one refetch per row the
    * capture actually inserted, in input order, riding the frozen ordered reference-list
-   * output (ATOM §1 — the sources concatenate). A skipped row contributes no read and no
+   * output (ATOM “The execution vocabulary” — the sources concatenate). A skipped row contributes no read and no
    * source, which is exactly "input order minus skipped".
    */
   private compileCapturedSkip(

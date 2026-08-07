@@ -78,12 +78,20 @@ foreign/referenced field pair. A transition reads the old value and writes the
 new value. Final operation references cannot enter planning SQL, and lookup SQL
 cannot select a branch.
 
-Writes address the captured primary key, not a selector that can match a
-different row after planning.
+`RecordUpdateCompiler` and relation owners that pass it a selected target write
+by the captured primary key. Scalar probe-first upsert also writes by that key
+in batch mode after guarding that its complete selector and matched conditionals
+still name the captured row. Transaction mode keeps the original selector
+because its locate locks the row. An eligible `ON CONFLICT` fold skips planning;
+a relation-bearing found arm uses the selected-record compiler and its captured
+identity.
 
 ## Branch premises
 
-- Batch found arm: captured-row presence guard, `raceable: false`.
+- Captured-target batch found arm: captured-row presence guard,
+  `raceable: false`.
+- Scalar probe-first upsert batch found arm: reassert the original unique and
+  conditional selector together with the captured primary key.
 - Transaction found arm: locked decision read, no duplicate guard.
 - Missing arm that inserts the same unique target: constraint plus root-write
   `racePin`.

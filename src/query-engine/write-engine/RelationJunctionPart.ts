@@ -725,7 +725,7 @@ export class RelationJunctionPart implements Part {
       const globalRows = known[planningKey(slot.globalProbeId, "rows")];
       if (Array.isArray(globalRows) && globalRows.length > 0) {
         // Exists globally but is not a member of this parent — the correlated
-        // upsert cannot adopt a foreign row: V1's verbatim V7001 (ATOM §4).
+        // upsert cannot adopt a foreign row (ATOM's `Junction relations`).
         throw new NestedWriteError(
           upsertTargetNotFoundForParent(this.relationName),
           this.relationName
@@ -1626,9 +1626,9 @@ export class RelationJunctionPart implements Part {
 // that kind; several kinds coexist on one relation as several Parts in the
 // linear fragment. The adopt family's create arm is INSERT-child + INSERT-join
 // (V1's junction SQL as leaves); its child PK is a literal the create data
-// carries or — for a DB-generated auto-increment target — the child INSERT's
-// produced identity, referenced backward by the join row (resolveCreatePk).
-// The upsert create arm still requires the literal (requireCreatePk).
+// carries or — for a DB-generated target — an inline INSERT or delegated fresh
+// subtree's produced identity, referenced backward by the join row. Upsert uses
+// the same literal-or-produced identity paths.
 // ---------------------------------------------------------------------------
 
 export function buildJunctionParts(input: {

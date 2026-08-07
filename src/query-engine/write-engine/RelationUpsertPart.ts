@@ -80,7 +80,7 @@ import {
  *   context); a Ref materialized later.
  * - `planned`: it was located by a planning read and is inlined as a literal at
  *   compile (update-by-unique context; a final-fragment step may not ref a
- *   planning step — ATOM §9 inv. 2).
+ *   planning step — ATOM “Proof obligations”).
  * - `literal`: it is a compile-time constant — the located-by-PK parent's own
  *   primary key. This is the base case of a first-class value, and it is what a
  *   depth-composed grandchild receives: its parent (a middle upsert located by
@@ -96,13 +96,13 @@ import {
  * caller recovering either source by field name.
  */
 /**
- * How the found branch reads the probe (ATOM §4):
+ * How the found branch reads the probe (ATOM “Relation-owner boundary”):
  * - `global-adopt`: nested upsert under `create` — the parent is fresh, no
  *   correlation is possible, so any globally-matched row is adopted and updated
  *   (the create-input superset).
  * - `correlated`: nested upsert under `update` — a found row is legal only if
  *   it already belongs to this parent; a found-uncorrelated row is the typed
- *   V7001 error (V1's message verbatim). Never `ON CONFLICT` (ATOM §4).
+ *   V7001 error (V1's message verbatim). Never `ON CONFLICT` (ATOM “SQL ownership”).
  */
 export type UpsertCorrelation = "global-adopt" | "correlated";
 
@@ -121,7 +121,7 @@ export type UpsertCorrelation = "global-adopt" | "correlated";
  * correlated probe and have it silently correlate on one member.
  */
 /**
- * Which member of the adopt family this part expresses (ATOM §6 — connectOrCreate
+ * Which member of the adopt family this part expresses (ATOM “Branch premises and pins” — connectOrCreate
  * is the simplest member, upsert-under-create/update adds the update payload):
  * - `upsert`: found → reparent-and-update (or update, correlated); the found
  *   premise carries the V2 extension `Nested upsert premise changed` wording.
@@ -158,7 +158,7 @@ interface RelationUpsertConfigCore {
   readonly updateLegality?: () => void;
   /**
    * The child-held foreign-key columns and the parent columns they reference,
-   * index-aligned (compound keys are per-field, ATOM §1). A single-column edge is
+   * index-aligned (compound keys are per-field, ATOM “Field-bound foreign-key provenance”). A single-column edge is
    * the length-1 case — and the only one the `ref`/`literal` parent-id kinds
    * (create context / depth) support.
    */
@@ -180,7 +180,8 @@ interface RelationUpsertConfigCore {
   /**
    * Depth: nested upsert parts contributed by this child's UPDATE payload. They
    * are emitted only on this part's found+correlated (update) arm — the same
-   * linear fragment, one level deeper (README §5, ATOM §6). This part holds its
+   * linear fragment, one level deeper (README “Three independent facts,” ATOM
+   * “Relation-owner boundary”). This part holds its
    * children (by FK direction), never its parent. Empty at depth 1.
    */
   /**
@@ -208,9 +209,9 @@ export type RelationUpsertConfig = RelationUpsertConfigCore &
   );
 
 /**
- * The to-many nested-upsert child part (README §5's earned `RelationUpsert`
+ * The to-many nested-upsert child part (README “Three independent facts”)
  * module — two operations now compose it, recursively). It contributes one
- * widened probe at planning (ATOM §3 technique 2: one unconditional child read
+ * widened probe at planning (ATOM “Planning fragments”: one unconditional child read
  * including its FK) plus its update-arm children's probes, and, at compile,
  * constructs exactly one taken arm:
  *
@@ -254,7 +255,7 @@ export class RelationUpsertPart implements Part {
       this.updateCompiler?.writeId ?? scope.allocate(`${childName}.update`);
     this.guardId = scope.allocate(`${childName}.guard.exists`);
 
-    // Widened probe (ATOM §3 technique 2): read the child by its own unique key,
+    // Widened probe (ATOM “Planning fragments”): read the child by its own unique key,
     // including every FK column, so compile can decide the three-way. Locked in
     // tx mode.
     this.find = {
@@ -295,7 +296,7 @@ export class RelationUpsertPart implements Part {
           : { rows: { kind: "rows" } },
     };
 
-    // The probe pairs its read with the premise its decision creates (ATOM §2).
+    // The probe pairs its read with the premise its decision creates (ATOM “Branch premises and pins”).
     // Found premise: pinned by the exists guard in batch mode (raceable: false),
     // by the lock in tx mode. Missing premise: enforced by the child's unique
     // constraint (the racePin on the create write), never a notExists guard.
@@ -391,7 +392,7 @@ export class RelationUpsertPart implements Part {
       // did not exist. A relation-carrying arm is the whole create SUBTREE (N4-U2):
       // the subtree owns the INSERT (with this part's racePin on its root record), its
       // own identity, and every relation below, under the fresh-parent elision
-      // (ATOM §4) that makes any correlation beneath it statically empty.
+      // (ATOM “Relation-owner boundary”) that makes any correlation beneath it statically empty.
       return this.createSubtree.compile(scope, known);
     }
     // Found: adopt-and-update (global) or update the correlated child. In batch
@@ -525,7 +526,7 @@ export class RelationUpsertPart implements Part {
   }
 
   /**
-   * The compile-time three-way (ATOM §3 technique 2). `global-adopt` collapses
+   * The compile-time three-way (ATOM “Planning fragments”). `global-adopt` collapses
    * to two arms (found → adopt); `correlated` throws V1's verbatim V7001 on a
    * found-uncorrelated row.
    */
@@ -631,7 +632,7 @@ export class RelationUpsertPart implements Part {
  * parent create (create context, single-field), the located parent id inlined as a
  * literal (update-by-unique context), or a compile-time literal (depth-composed
  * grandchild). All ride in `Sql.values`, so the create INSERT and the update SET
- * consume them identically. One entry per compound-key field (ATOM §1).
+ * consume them identically. One entry per compound-key field (ATOM “Field-bound foreign-key provenance”).
  *
  * One home, two askers (N4-U2): the part's own arms, and — when the create arm is a
  * fresh SUBTREE — the incoming members that subtree's root INSERT folds. A second copy
@@ -890,7 +891,7 @@ function connectOrCreateTargetKey(
 
 /**
  * Build one `RelationUpsertPart` per `connectOrCreate` item — the update-less
- * member of the adopt family (ATOM §6's worked trace). It is always global-adopt
+ * member of the adopt family (ATOM “Branch premises and pins”). It is always global-adopt
  * (`connect` performs a global lookup-and-adopt in both the create and update
  * contexts), so it takes no correlation: found → connect (reparent),
  * absent → create (constraint + `racePin`).
@@ -961,7 +962,7 @@ function buildOneUpsertPart(
   const relationName = relationInfo.name;
   if (relation.foreignFields.length !== relation.referencedFields.length) {
     // The child must hold the foreign key referencing the parent (one column, or an
-    // index-aligned compound key — ATOM §1's per-field precedent).
+    // index-aligned compound key — ATOM “Field-bound foreign-key provenance”).
     //
     // Unreachable by construction (N7-U-A, the X1c disposition). A
     // `.fields("a","b").references("c")` edge is rejected UPSTREAM by the

@@ -20,9 +20,9 @@ type ExecutionMode = "transaction" | "batch";
 type BulkCountKind = "updateMany" | "deleteMany";
 
 /**
- * Root `updateMany` / `deleteMany` (PLAN P4 item 2b). A bulk mutation whose
+ * Root `updateMany` / `deleteMany` with a `{ count }` result. A bulk mutation whose
  * public result is `{ count }` — one write step whose `rowCount` **source**
- * carries the count (ATOM §1). There is no planning read and no decision: the
+ * carries the count (ATOM “The execution vocabulary”). There is no planning read and no decision: the
  * `WHERE` filter is a scalar predicate, so the whole operation is one statement,
  * reusing V1's `buildUpdateMany` / `buildDeleteMany` verbatim. `updateMany`
  * `data` binds to the model's SCALAR-ONLY update schema

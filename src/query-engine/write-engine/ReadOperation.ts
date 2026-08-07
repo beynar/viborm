@@ -24,7 +24,7 @@ import { isRecord, selectExecutionMode } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
 
-/** The read operations V2 owns — each a single read step (PLAN P4 item 1). */
+/** The read operations the engine owns as one statement each. */
 type ReadBase =
   | "findUnique"
   | "findFirst"
@@ -37,15 +37,15 @@ type ReadBase =
 const OR_THROW_SUFFIX = "OrThrow";
 
 /**
- * A read as a single read step (PLAN P4 item 1). `find*`/`count`/`aggregate`/
+ * A read as a single read step. `find*`/`count`/`aggregate`/
  * `groupBy`/`exist` are genuinely single-statement operations: the compiled
  * fragment is EXACTLY ONE read step wrapping the same SQL the V1 read builders
  * produce (`buildFind`/`buildFindUnique`/`buildCount`/`buildAggregate`/
  * `buildGroupBy` — reused, never re-derived), parsed through the same
  * {@link ResultParser}. Planning is empty — a read makes no decision.
  *
- * The kill signal (PLAN P4) is any read needing more than one step; none here
- * do, so every read is one step and the boundary holds.
+ * A read that needed more than one step would not belong to this owner; none do,
+ * so every read keeps the one-step boundary.
  *
  * `OrThrow` is not a postcondition: a `findUnique` returning `null` is a value,
  * not a violated invariant. The absence is surfaced from the *result* — matching
@@ -118,7 +118,7 @@ export class ReadOperation {
   }
 
   planning(): PlanningFragment {
-    // A read makes no decision — planning is empty (PLAN P4 item 1).
+    // A read makes no decision, so planning is empty.
     return { steps: [], outputs: {} };
   }
 

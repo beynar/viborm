@@ -6,9 +6,9 @@ export const OPERATION_VALUE_REFERENCE = Symbol(
 );
 
 /**
- * A promised value: "whatever step X produced under name Y" (ATOM §1 `Ref`).
- * A plain marker that rides inside `Sql.values`; it cannot collide with user
- * data because its `kind` is a unique symbol.
+ * A promised value: "whatever step X produced under name Y" (ATOM's
+ * `The execution vocabulary`). A plain marker that rides inside `Sql.values`;
+ * it cannot collide with user data because its `kind` is a unique symbol.
  */
 export interface OperationValueReference {
   readonly kind: typeof OPERATION_VALUE_REFERENCE;
@@ -17,9 +17,10 @@ export interface OperationValueReference {
 }
 
 /**
- * Where a produced value comes from — capability knowledge (ATOM §1 `Source`).
- * Declaring the source gives every value a stable address consumers use
- * identically under `RETURNING` and `insertId` capabilities.
+ * Where a produced value comes from — capability knowledge (ATOM's
+ * `The execution vocabulary`). Declaring the source gives every value a stable
+ * address consumers use identically under `RETURNING` and `insertId`
+ * capabilities.
  */
 export type StatementOutputSource =
   | { readonly kind: "rows" }
@@ -37,8 +38,9 @@ export type StatementOutputSource =
     };
 
 /**
- * A typed operation failure (ATOM §1 `Failure`). Carries the full V1 taxonomy
- * and the `raceable` bit whose values are fixed by the Pin Rule classes.
+ * A typed operation failure (ATOM's `The execution vocabulary`). Carries the
+ * full V1 taxonomy and the `raceable` bit whose values are fixed by the branch
+ * premise classes.
  */
 export interface Failure {
   readonly kind: "nestedWrite" | "notFound" | "query";
@@ -48,9 +50,9 @@ export interface Failure {
 }
 
 /**
- * A statement postcondition — what constitutes success (ATOM §1 / README §6).
- * Enforced where the substrate allows: transaction mode checks the provider
- * result before commit.
+ * A statement postcondition — what constitutes success (ATOM's `The execution
+ * vocabulary` and README's `Execution atom`). Enforced where the substrate
+ * allows: transaction mode checks the provider result before commit.
  */
 export type Postcondition =
   | { readonly kind: "exactlyOneRow"; readonly failure: Failure }
@@ -62,9 +64,9 @@ export type Postcondition =
 
 /**
  * A pinned unique-target annotation carried by a write whose unique-constraint
- * violation is the raceable signal (ATOM §1 `racePin`). Construct it by reusing
- * the `TargetConstraint` machinery (`uniqueConflictTarget`), never by
- * reinventing target resolution.
+ * violation is the raceable signal (ATOM's `Branch premises and pins`).
+ * Construct it by reusing the `TargetConstraint` machinery
+ * (`uniqueConflictTarget`), never by reinventing target resolution.
  */
 export interface TargetConstraintPin {
   readonly fields: readonly string[];
@@ -77,7 +79,7 @@ export interface StatementStepBase {
   readonly id: string;
   readonly statement: Sql;
   readonly outputs: Readonly<Record<string, StatementOutputSource>>;
-  /** Statement postcondition — what constitutes success (README §6). */
+  /** Statement postcondition — see README's `Execution atom`. */
   readonly expects?: Postcondition;
 }
 
@@ -90,8 +92,9 @@ export interface WriteStep extends StatementStepBase {
   /** Present on writes whose unique-constraint violation is the raceable signal. */
   readonly racePin?: TargetConstraintPin;
   /**
-   * The census's `onUniqueConflict: "skip"` disposition (ATOM §8): a write whose
-   * unique-constraint violation is *absorbed* rather than propagated — the
+   * The `onUniqueConflict: "skip"` bulk disposition (ATOM's `Bulk
+   * specializations`): a write whose unique-constraint violation is *absorbed*
+   * rather than propagated — the
    * `createMany` skipDuplicates row on a dialect whose skip strategy is
    * `recoverableUniqueError` (no portable `ON CONFLICT DO NOTHING` that reports a
    * skipped-row count). It is an **executor effect**, not a plain SQL leaf: the
@@ -121,8 +124,9 @@ export type OperationStep = StatementStep | GuardStep;
 
 /**
  * A fragment output names either a single produced value or an ordered list of
- * them, whose rows concatenate and whose counts sum (ATOM §1) — e.g.
- * `createManyAndReturn` on non-returning drivers and SQLite `createMany`.
+ * them, whose rows concatenate and whose counts sum (ATOM's `The execution
+ * vocabulary`) — e.g. `createManyAndReturn` on non-returning drivers and SQLite
+ * `createMany`.
  */
 export type FragmentOutputSource =
   | OperationValueReference

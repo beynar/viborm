@@ -19,10 +19,10 @@ import { getStepModelName, selectExecutionMode } from "./shared";
 type ExecutionMode = "transaction" | "batch";
 
 /**
- * The root `createMany` (PLAN P2c). It inserts a batch of rows and returns
+ * The root `createMany` inserts a batch of rows and returns
  * `{ count }`. A bulk insert is *one INSERT where the dialect allows*, but two
  * portable facts force a plan of several statements whose counts **sum**
- * (ATOM §1 fragment outputs as ordered source lists):
+ * (ATOM “The execution vocabulary”: fragment outputs are ordered source lists):
  *
  * - rows whose explicit column shapes differ cannot share one `VALUES` clause,
  *   so `buildCreateManyPlan` groups them into contiguous same-shape statements
@@ -30,7 +30,7 @@ type ExecutionMode = "transaction" | "batch";
  * - `skipDuplicates` on a dialect whose strategy is `recoverableUniqueError`
  *   (MySQL — no `ON CONFLICT DO NOTHING` that reports a skipped-row count) has
  *   no plain SQL leaf, so each row runs as a savepoint-wrapped **executor
- *   effect** (`onUniqueConflict: "skip"`, ATOM §8), a unique violation absorbed
+ *   effect** (`onUniqueConflict: "skip"`, ATOM “Bulk specializations”), a unique violation absorbed
  *   as a zero-row result rather than aborting the batch. Dialects whose skip
  *   IS a plain SQL leaf (`ON CONFLICT DO NOTHING`, `INSERT OR IGNORE`) carry the
  *   semantics in the leaf and never set the effect.

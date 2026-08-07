@@ -98,15 +98,21 @@ lookup SQL cannot decide a branch.
 
 ### Branch pins
 
-- Batch found arm: guard the captured row, `raceable: false`.
+- Captured-target batch found arm: guard the captured row, `raceable: false`.
+- Scalar probe-first upsert batch found arm: reassert the original unique and
+  conditional selector together with the captured primary key.
 - Transaction found arm: use the locked read; do not duplicate the guard.
 - Missing same-target insert arm: use the constraint and root-write `racePin`.
 - Same-operation duplicate: add neither guard nor race pin.
 - Keep explicit absence guards only when no same-target constraint enforces the
   premise.
 
-Writes target the captured primary key. Re-evaluating a selector can select a
-wrong row after planning.
+`RecordUpdateCompiler` and relation owners that pass it a selected target write
+by the captured primary key. A scalar probe-first upsert does the same in batch
+mode after guarding that the complete selector still names that captured row.
+Transaction mode keeps the original selector because its locate locks the row.
+The eligible `ON CONFLICT` fold has no planning read, while a relation-bearing
+found arm uses `RecordUpdateCompiler` and its captured identity.
 
 ## Main owners
 

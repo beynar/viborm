@@ -1,4 +1,4 @@
-// The V2 message catalog (PLAN P2a instrument 2).
+// The write-engine message catalog.
 //
 // Every error V2 surfaces on a shape V1 also handles must carry V1's
 // *byte-identical* text — the behavior suites assert message equality, and the
@@ -41,7 +41,7 @@ export function relationTargetNotFound(
  * whose foreign key is required (the rows departing the membership cannot be
  * nulled, so they must be deleted instead). V1 builds this string inline in
  * `RelationRemovals.set`, so it is
- * reproduced verbatim here — the retained `notExists` orphan pin (ATOM §2)
+ * reproduced verbatim here — the retained `notExists` orphan pin (ATOM “Branch premises and pins”)
  * carries it, and the parity oracle asserts it byte-for-byte.
  */
 export function setRequiredOrphan(
@@ -74,7 +74,7 @@ export function m2mDisconnectRequiresSelector(relationName: string): string {
  * V1's raceable failure when the materialized membership set of a M2M
  * `delete`/`deleteMany` changed between the planning read and the atomic batch
  * (V1's `ManyToManyMutations.raceFailure`). Only the staleness path observes it;
- * `raceable: true` per the Pin Rule's materialized-set class (ATOM §2).
+ * `raceable: true` per the Pin Rule's materialized-set class (ATOM “Branch premises and pins”).
  */
 export function m2mMembershipRace(
   relationName: string,
@@ -128,7 +128,7 @@ export function relationOwnsForeignKey(
   return `Relation '${relationName}' owns '${fkFields.join(", ")}'; omit it from nested create and update data.`;
 }
 
-// Extension-only shapes — no V1 behavior to equal (catalogued, PLAN P−1.2).
+// Extension-only shapes — no V1 behavior to equal.
 // These describe shapes V2 supports beyond V1, or V2's own unsupported-shape
 // rejections. They carry a `query-engine-v2` prefix so they never masquerade
 // as a shared-shape message.
@@ -163,7 +163,7 @@ export function upsertTargetVanished(relationName: string): string {
  * unlocked planning read and the atomic batch: planning decided the existing row
  * did NOT match the conditional filter (so the update branch is skipped, a silent
  * no-op per V1's contract), but a concurrent write made it match. This is the
- * retained `notExists` pin (ATOM §2, `raceable: true`); only batch mode observes
+ * retained `notExists` pin (ATOM “Branch premises and pins,” `raceable: true`); only batch mode observes
  * it, and only under staleness — the class (`TransactionError`) is what aborts.
  */
 export function upsertSkipPremiseChanged(

@@ -60,17 +60,17 @@ export interface RelationLinkConfig {
   /**
    * Where the parent id the child FK points at comes from. In the update family
    * this is a **planned** value (the root locate read), inlined as a literal at
-   * compile (a final-fragment step may not ref a planning step, ATOM §9 inv. 2).
+   * compile (a final-fragment step may not ref a planning step, ATOM “Proof obligations”).
    * The disconnect probe, however, IS a planning step, so it correlates by a SQL
-   * `Ref` to that same locate read — technique #1's positive witness (ATOM §3).
+   * `Ref` to that same locate read — planning's correlated-reference technique.
    */
   readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
 }
 
 /**
- * The to-many (child-held-FK) connect/disconnect Part (PLAN P2a). A nested link
- * mutation is a root write plus an FK edge (WHY §4.2): connect sets the child's
+ * The to-many (child-held-FK) connect/disconnect Part. A nested link mutation is
+ * a root write plus an FK edge: connect sets the child's
  * FK to the parent, disconnect nulls it. It composes exactly like the upsert
  * Part — planning probe + compile-the-taken-arm — and adds no vocabulary.
  *
@@ -88,7 +88,7 @@ export interface RelationLinkConfig {
  * assertions inside the atomic unit, and one guard per target is what says which
  * target went missing). See {@link groupLinkTargets} for what may share a group.
  * - **disconnect** plans a *correlated* existence probe — `WHERE unique AND
- *   fk = Ref(locate.id)` — the hard-correlation nested read ATOM §8.1 note (a)
+ *   fk = Ref(locate.id)` — the hard-correlation nested read in ATOM “Planning fragments”
  *   scheduled here: its probe SQL literally carries a `Ref` to the locate
  *   planning step, and it has no found-uncorrelated arm. Present → `UPDATE child
  *   SET fk = NULL WHERE unique`; absent → V1's verbatim `Cannot disconnect … for
@@ -359,7 +359,7 @@ export class RelationLinkPart implements Part {
   }
 
   /** The connect write's FK assignment: every FK column ← its referenced parent
-   *  column value (one entry per compound-key field, ATOM §1). */
+   *  column value (one entry per compound-key field, ATOM “Field-bound foreign-key provenance”). */
   private fkAssignData(known: PlanningKnown): Record<string, unknown> {
     const data: Record<string, unknown> = {};
     for (

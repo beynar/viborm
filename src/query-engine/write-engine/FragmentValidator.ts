@@ -16,8 +16,8 @@ interface StepRecord {
 }
 
 /**
- * The executable contract of ATOM §9, invariants 1-4 plus the Pin-Rule residue
- * of invariant 5. Runs on every fragment before provider access; an invalid
+ * The executable contract of ATOM's `The execution vocabulary` and `Branch
+ * premises and pins`. Runs on every fragment before provider access; an invalid
  * fragment is a typed error, never a silent execution. This is a check on
  * compiler output — cheap enough to run every time — not a defensive parser.
  */

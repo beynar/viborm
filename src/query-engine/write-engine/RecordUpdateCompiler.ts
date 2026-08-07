@@ -788,7 +788,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ")}.`
       );
     }
-    // Compound foreign keys are per-field (ATOM §1): every referenced parent
+    // Compound foreign keys are per-field (ATOM “Field-bound foreign-key provenance”): every referenced parent
     // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
     // to the locate read's select/outputs so a per-field child part reads or refs
     // each one. The whole family (link/adopt/write/set) generalizes together; no
@@ -994,7 +994,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *     read's select/outputs, and the fresh row's FK is resolved PER FIELD at compile from
    *     the row the locate ACTED ON (the wrong-row doctrine: never from re-consulting the
    *     `where`). Compound needs no new mechanism — a compound foreign key is per-field
-   *     (ATOM §1's multi-field produces), and the leaf's inject already loops the FK
+   *     (ATOM “Field-bound foreign-key provenance”), and the leaf's inject already loops the FK
    *     columns index-aligned with the referenced ones. Still `afterRoot: false` — no
    *     referenced value is being rewritten, so all of them already exist before the root
    *     UPDATE runs.
@@ -1215,7 +1215,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    * It was never an unknowable value: the locate read already reads this row. Registering
    * each referenced field in `locateFields` is what makes the locate expose it (its SELECT
    * plus a `firstRowField` output); `plannedParentId` is what makes the create leaf read it
-   * from the LOCATED ROW rather than re-deriving it from the `where` (ATOM §1's Ref, and
+   * from the LOCATED ROW rather than re-deriving it from the `where` (ATOM “Wrong-row protection,” and
    * the wrong-row doctrine's requirement). Compound rides the same call: the leaf's inject
    * loops the FK columns index-aligned with the referenced ones and resolves each by NAME
    * from that row, so the parent-id source names the readStep and the per-field lookup does
@@ -2488,7 +2488,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   /**
    * Emit a before-root target's create SUBTREE into the taken arm (E1 U3). The
-   * subtree's own root INSERT leads, its deeper writes follow in ATOM §4.1 order,
+   * subtree's own root INSERT leads, its deeper writes follow in ATOM “Fresh-record compiler” order,
    * and its guards hoist ahead of every write exactly as a child Part's do. Called
    * ONLY from the arm the compile-time branch takes, which is what keeps an
    * untaken `connectOrCreate`/`upsert` create arm from writing an orphan row.

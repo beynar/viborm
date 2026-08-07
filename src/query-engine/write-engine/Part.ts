@@ -9,8 +9,8 @@ import {
 import type { StepScope } from "./StepScope";
 
 /**
- * Planning outputs handed to `compile` (ATOM §9 invariant 3 — the sanctioned
- * data crossing between the planning and final fragments). Keyed by
+ * Planning outputs handed to `compile` (ATOM's `Planning fragments` — the
+ * sanctioned data crossing between the planning and final fragments). Keyed by
  * {@link planningKey} so two same-model probes under one parent never collide.
  */
 export type PlanningKnown = Readonly<Record<string, unknown>>;
@@ -40,7 +40,8 @@ export function planningKey(step: string, output: string): string {
  * output of every planning read is exposed under its {@link planningKey}, so
  * `compile` receives each probe's and locate read's rows at a stable, collision-
  * free address — the mechanism that lets one planning read feed another's
- * decision (ATOM §3 technique 1) across any number of same-model children.
+ * decision (ATOM's `Planning fragments`) across any number of same-model
+ * children.
  */
 export function planningOutputs(
   steps: readonly StatementStep[]

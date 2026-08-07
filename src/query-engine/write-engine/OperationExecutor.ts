@@ -247,7 +247,7 @@ export class OperationExecutor {
   }
 
   /**
-   * The `prepareBatch` seam of the PendingOperation contract (PLAN P1.5): run
+   * The `prepareBatch` seam of the PendingOperation contract: run
    * planning, compile the taken fragment, and RETURN the atomic-batch entries
    * plus a `parseResult` closure — consumable by the client's shared batch
    * protocol (the `$transaction([...])` array path), which merges entries from
@@ -271,7 +271,7 @@ export class OperationExecutor {
   }
 
   /**
-   * The `$transaction([...])` array seam (PLAN P5 item 2c): lower this operation
+   * The `$transaction([...])` array seam: lower this operation
    * into a {@link PreparedBatchOperation} the client's **shared batch protocol**
    * merges with other pending operations into ONE driver batch. It exposes the
    * body queries, the guard index map (re-attributed by the client at the merge
@@ -353,7 +353,7 @@ export class OperationExecutor {
   }
 
   /**
-   * The single-statement seam (PLAN P5 item 2b): if this operation is one plain
+   * The single-statement seam: if this operation is one plain
    * statement — empty planning, exactly one read/write step with no guard,
    * postcondition, skip effect, unresolved reference, or insert-id scratch — return
    * its compiled plan so the caller can expose it through `prepare()` (the cache
@@ -417,8 +417,8 @@ export class OperationExecutor {
   }
 
   /**
-   * PLAN Phase 6.1 — the planning half of "reduce the round trips on batch-only
-   * drivers". The compiled writes already ride ONE atomic batch; the planning
+   * Planning reads are grouped by dependency level on batch-only drivers. The
+   * compiled writes already ride ONE atomic batch; the planning
    * reads used to ride one `_execute` each, so a tree's planning cost grew with
    * its fan-out — six round trips for four sibling targets.
    *
@@ -524,7 +524,7 @@ export class OperationExecutor {
       );
     }
     const statement = materializeLinearSql(step.statement, values);
-    // A write carrying the census `onUniqueConflict: "skip"` effect (ATOM §8)
+    // A write carrying the `onUniqueConflict: "skip"` effect (ATOM “Bulk specializations”)
     // runs behind a savepoint: a unique violation is absorbed as a zero-row
     // result rather than aborting the surrounding atomic scope (V1's
     // `executeSkippableWrite`). This is a generic executor effect — no
@@ -545,8 +545,8 @@ export class OperationExecutor {
 
   /**
    * Execute one materialized statement, classifying a race against the step's
-   * `racePin` (ATOM §1) so the retry layer **above** the executor (the routed
-   * `PendingOperation` lifecycle, PLAN P5 item 2f) can retry a matched
+   * `racePin` (ATOM “The execution vocabulary”) so the retry layer **above** the
+   * executor (the routed `PendingOperation` lifecycle) can retry a matched
    * insert-branch loser. The marking is invisible — the surfaced error is the
    * same typed `UniqueConstraintError` a non-retrying caller would see.
    */
@@ -590,14 +590,14 @@ export class OperationExecutor {
 
       if (step.expects) {
         // Batch lowering of postconditions is later-phase work. A step carrying
-        // one must fail closed here — never a silent skip (ATOM §1).
+        // one must fail closed here — never a silent skip (ATOM “The execution vocabulary”).
         throw new QueryEngineError(
           `Step '${step.id}' carries a postcondition that is not yet enforced in batch mode.`
         );
       }
 
       if (step.kind === "write" && step.onUniqueConflict === "skip") {
-        // The savepoint-wrapped skip effect (ATOM §8) has no lowering to a plain
+        // The savepoint-wrapped skip effect (ATOM “Bulk specializations”) has no lowering to a plain
         // atomic batch — a batch is one indivisible unit, so a per-row rollback
         // is not expressible. Fail closed rather than silently propagate the
         // violation and abort the whole batch (the recorded batch disposition).
@@ -663,7 +663,7 @@ export class OperationExecutor {
       );
       // An insert-branch loser inside the atomic unit surfaces its pinned unique
       // violation; classify it against any racePin so the retry layer above the
-      // executor converges (V1 parity, PLAN P5 item 2f). The batch is one unit,
+      // executor converges. The batch is one unit,
       // so the failing entry is not individually reported — match the error
       // against every racePin the plan carries (there is one per insert branch).
       if (error instanceof UniqueConstraintError) {
@@ -809,7 +809,7 @@ function failureError(failure: Failure, context: QueryExecutionContext): Error {
     },
   });
   // A `query` guard abort can be raceable too — the sole producer is the
-  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM §2). The
+  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM “Branch premises and pins”). The
   // mark is what lets the routed retry re-plan and converge; dropping it here
   // strands the flag the fragment validator required.
   if (failure.raceable) error.meta.raceable = true;
@@ -833,7 +833,7 @@ function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {
       // before reaching a bind. Its absence has a meaning, and the meaning is SQL
       // NULL: "no row, so this correlated read must match nothing" (`= NULL` is
       // never true). Saying so here is what makes the untaken arm of a two-arm
-      // write's superset planning (ATOM §3 technique 2) behave identically on
+      // write's superset planning (ATOM “Planning fragments”) behave identically on
       // every driver — eight of nine binders coerce `undefined` to NULL, mysql2
       // rejects it outright — so the semantics live in the engine, not in one
       // driver.
@@ -858,7 +858,7 @@ function extractOutputs(
   result: QueryResult<unknown>
 ): Map<string, unknown> {
   const outputs = new Map<string, unknown>();
-  // A write whose skip effect (ATOM §8) ABSORBED a unique violation made no row, so it
+  // A write whose skip effect (ATOM “Bulk specializations”) ABSORBED a unique violation made no row, so it
   // produced no insert id: `executeSkippableWrite` yields the zero-row result and the
   // driver reports nothing to read. That absence is the skip itself, not a driver failure,
   // so the declared output resolves to `undefined` and the consumer decides from the row
@@ -964,7 +964,7 @@ function resolveSingleOutput(
 
 /**
  * An ordered list of refs resolves by concatenating rows or summing counts
- * (ATOM §1). The list is homogeneous: mixing row and count sources is a typed
+ * (ATOM “The execution vocabulary”). The list is homogeneous: mixing row and count sources is a typed
  * error, never a silent coercion.
  */
 function resolveOutputList(

@@ -20,7 +20,7 @@ import { UpsertOperation } from "./UpsertOperation";
 /**
  * Per-tree routing (P6 — the single engine). Construct the V2 operation for the
  * whole payload before any I/O. Every construction error propagates: a
- * `ValidationError`, the own-write preflight rejection, the ATOM §7
+ * `ValidationError`, the own-write preflight rejection, the documented
  * `requiresAtomicResolution` refusal, and — with V1 deleted — an
  * {@link UnsupportedOperationError} for a shape V2 does not express (a parity
  * refusal V1 also rejects, or a documented narrower boundary reached by no
@@ -70,7 +70,7 @@ export function constructRoutedOperation(
   args: Record<string, unknown>
 ): ExecutableOperation | undefined {
   if (!ROUTED_OPERATIONS.has(operation)) return undefined;
-  // The `requiresAtomicResolution` refusal (ATOM §7), reproduced at the ROUTED
+  // The `requiresAtomicResolution` refusal (ATOM “Error-order rules”), reproduced at the ROUTED
   // layer only. A batch-only, non-returning driver cannot resolve a single-row
   // mutation's returned identity atomically — its public result is parsed after
   // the atomic batch commits, and that parse cannot be rolled back — so
@@ -127,7 +127,7 @@ function assertRoutedAtomicResolution(
 
 /**
  * Run a routed V2 operation with the write-race retry policy V1 applies **above**
- * the executor (PLAN P5 item 2f): a surfaced error that {@link isRetryableRace}
+ * the executor: a surfaced error that {@link isRetryableRace}
  * (a create-branch loser whose unique violation matched the failed step's
  * `racePin`, or a self-declared `meta.raceable` guard abort) retries the whole
  * operation ONCE. Re-planning re-reads committed state, so the loser now takes

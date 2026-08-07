@@ -20,6 +20,7 @@ import {
   getDefaultScalarFieldNames,
   getTableName,
 } from "../context/query-scope";
+import { assertUpdateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import {
   buildCreate,
   buildFind,
@@ -31,7 +32,6 @@ import {
   assertPortablePrimaryKeyUpdateInput,
   getUpdatedPrimaryKeyWhere,
 } from "../operations/mutation-identity";
-import { assertUpdateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import type { QueryEngine } from "../query-engine";
 import {
   assertRelationKeyUpdatesAreCompilable,
@@ -82,6 +82,7 @@ import {
   type SubOperationOptions,
   selectExecutionMode,
   UnsupportedOperationError,
+  uniqueSelectorConjuncts,
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -134,9 +135,9 @@ interface Conditional {
  * premise is pinned to the vocabulary the update/delete family already uses. It
  * locates the row by any unique `where`; absent → the create arm (constraint +
  * `racePin`, never a guard); present → the update arm, unless a `targetWhere` /
- * `setWhere` conditional does not match, in which case V1's silent no-op skip
- * fires — pinned by the **retained `notExists`** guard (ATOM §2, `raceable:
- * true`).
+ * `setWhere` conditional does not match, in which case the silent no-op skip
+ * fires — pinned by the **retained `notExists`** guard (ATOM “Branch premises
+ * and pins,” `raceable: true`).
  *
  * Scalar arms stay inline. A relation-bearing create arm uses
  * {@link CreateOperation}; a relation-bearing found arm uses the selected-record
@@ -514,7 +515,7 @@ export class UpsertOperation {
    * `INSERT … ON CONFLICT (target) DO UPDATE SET … RETURNING <select>` is ONE
    * statement that means exactly what a top-level scalar upsert means: "write
    * this row; if the constraint the caller named already holds it, update it
-   * instead." ATOM §4 permits it for precisely this shape and no other, and calls
+   * instead." ATOM “SQL ownership” permits it for precisely this shape and no other, and calls
    * it a NARROW DOOR drawn by semantics rather than syntax. Every conjunct below
    * is the door's frame; a shape that misses any of them keeps the probe-first
    * sequence byte-identically.
@@ -571,7 +572,7 @@ export class UpsertOperation {
    * database-generated identity the create data omits BURNS one sequence value
    * that probe-first never consumed (measured: PostgreSQL `last_value` 100 → 101,
    * SQLite `sqlite_sequence` 2 → 3). Sequence values are explicitly not
-   * gap-free on either dialect, and ATOM §4 names this burn as the divergence a
+   * gap-free on either dialect, and ATOM “SQL ownership” names this burn as the divergence a
    * written disposition covers. See the plan doc's Decision 7.1 record.
    */
   private buildOnConflictFold(parent: QueryScope): WriteStep | undefined {
@@ -746,7 +747,7 @@ export class UpsertOperation {
     unmatched: Conditional,
     locatedRow: Record<string, unknown>
   ): ArmResult {
-    const terminalWhere = this.locatedTerminalWhere(locatedRow);
+    const terminalWhere = this.locatedPrimaryKeyWhere(locatedRow);
     if (this.mode === "transaction") {
       return {
         steps: [this.buildTerminal(terminalWhere)],
@@ -773,15 +774,12 @@ export class UpsertOperation {
   ): ArmResult {
     if (Object.keys(this.locate.outputs).length > 1) {
       const parent = createQueryScope(this.engine.adapter, this.model);
-      const guards = this.conditionalMatchGuards();
+      const guards = this.conditionalMatchGuards(locatedRow);
       if (this.mode === "batch" && this.conditionals.length === 0) {
         guards.push(
           presenceGuard(
             this.foundGuardId,
-            buildFindUnique(parent, {
-              where: this.parentWhere,
-              select: this.pkSelect(),
-            }),
+            this.foundPremiseStatement(parent, locatedRow),
             notFoundFailure(this.locateMissMessage())
           )
         );
@@ -807,17 +805,17 @@ export class UpsertOperation {
         guards.push(
           presenceGuard(
             this.foundGuardId,
-            buildFindUnique(parent, {
-              where: this.parentWhere,
-              select: this.pkSelect(),
-            }),
+            this.foundPremiseStatement(parent, locatedRow),
             notFoundFailure(this.locateMissMessage())
           )
         );
       } else {
-        guards.push(...this.conditionalMatchGuards());
+        guards.push(...this.conditionalMatchGuards(locatedRow));
       }
     }
+    const writeWhere = txMode
+      ? this.parentWhere
+      : this.locatedPrimaryKeyWhere(locatedRow);
     const enforceAffected =
       txMode && this.engine.adapter.capabilities.supportsReturning;
     const affected = enforceAffected
@@ -831,7 +829,7 @@ export class UpsertOperation {
         id: this.updateId,
         kind: "write",
         statement: buildUpdate(parent, {
-          where: this.parentWhere,
+          where: writeWhere,
           data: this.updateData,
           select: this.parsedSelect,
         }),
@@ -844,7 +842,7 @@ export class UpsertOperation {
       id: this.updateId,
       kind: "write",
       statement: buildUpdate(parent, {
-        where: this.parentWhere,
+        where: writeWhere,
         data: this.updateData,
         select: this.pkSelect(),
       }),
@@ -871,16 +869,74 @@ export class UpsertOperation {
   /** Batch-mode `exists` guards pinning each conditional's MATCH premise inside the
    *  atomic unit (`raceable: false`); empty in transaction mode (the locked probe
    *  pins it) or when no conditional is present. */
-  private conditionalMatchGuards(): OperationStep[] {
+  private conditionalMatchGuards(
+    locatedRow: Record<string, unknown>
+  ): OperationStep[] {
     if (this.mode === "transaction") return [];
+    const parent = createQueryScope(this.engine.adapter, this.model);
     return this.conditionals.map((conditional) =>
       presenceGuard(
         conditional.guardId,
-        conditional.probe.statement,
+        this.foundPremiseStatement(parent, locatedRow, conditional),
         queryFailure(
           `query-engine-v2 top-level upsert ${conditional.field} match premise changed before the atomic batch.`
         )
       )
+    );
+  }
+
+  /**
+   * Reassert the exact row selected during planning. A unique selector can move
+   * to another row between the unlocked locate and the atomic batch, so a batch
+   * found premise pairs the complete selector with the captured primary key.
+   * A selector that already names every primary-key member needs no duplicate
+   * predicate and keeps its existing SQL.
+   */
+  private foundPremiseStatement(
+    parent: QueryScope,
+    locatedRow: Record<string, unknown>,
+    conditional?: Conditional
+  ) {
+    if (this.selectorNamesPrimaryKey(parent)) {
+      if (conditional) return conditional.probe.statement;
+      return buildFindUnique(parent, {
+        where: this.parentWhere,
+        select: this.pkSelect(),
+      });
+    }
+    return buildFind(
+      parent,
+      {
+        where: {
+          AND: [
+            ...uniqueSelectorConjuncts(parent, this.parentWhere),
+            ...(conditional ? [conditional.where] : []),
+            this.capturedPrimaryKeyFilter(locatedRow),
+          ],
+        },
+        select: this.pkSelect(),
+      },
+      { limit: 1 }
+    );
+  }
+
+  private selectorNamesPrimaryKey(parent: QueryScope): boolean {
+    const named = new Set(
+      getWhereUniqueEntries(parent, this.parentWhere).map(
+        (entry) => entry.fieldName
+      )
+    );
+    return this.parentPrimaryKeys.every((field) => named.has(field));
+  }
+
+  private capturedPrimaryKeyFilter(
+    locatedRow: Record<string, unknown>
+  ): Record<string, unknown> {
+    return Object.fromEntries(
+      this.parentPrimaryKeys.map((field) => [
+        field,
+        { equals: locatedRow[field] },
+      ])
     );
   }
 
@@ -910,7 +966,7 @@ export class UpsertOperation {
 
   /** The terminal where addressing the located (unchanged) row by its PK — the
    *  skip arm reads the row without mutating it. */
-  private locatedTerminalWhere(
+  private locatedPrimaryKeyWhere(
     locatedRow: Record<string, unknown>
   ): Record<string, unknown> {
     return buildPrimaryKeyWhereUnique(

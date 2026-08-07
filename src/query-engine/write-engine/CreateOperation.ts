@@ -221,7 +221,7 @@ interface ChildCreate {
  * rows are lowered to one-or-more INSERT write steps by `buildCreateManyPlan` —
  * one statement per same-shape group, so a heterogeneous batch (e.g. some rows
  * supplying an increment PK, some omitting it) becomes several contiguous
- * grouped INSERTs, exactly as the root `createMany` family (ATOM §8) and V1's
+ * grouped INSERTs, exactly as the root `createMany` family (ATOM “Bulk specializations”) and V1's
  * grouped execution do. The steps carry no output (the terminal read fetches the
  * created rows).
  */
@@ -408,7 +408,7 @@ export class CreateOperation {
     }
 
     const parent = createQueryScope(engine.adapter, model);
-    // Own-write preflight (ATOM §4): reject any payload whose nested decision
+    // Own-write preflight (ATOM “OwnWrite legality”): reject any payload whose nested decision
     // reads depend on this operation's own writes, before planning. As an upsert
     // create arm — or a nested fresh subtree — the caller runs this per-arm / on
     // the whole enclosing tree, so it is skipped here (V1 checks it inside the
@@ -567,7 +567,7 @@ export class CreateOperation {
    * MEASURED on PGlite before the fold: a root plus two nested children sent four
    * statements (three INSERTs and the terminal read); after, one.
    *
-   * What makes it legal is the fresh-parent elision ladder (ATOM §4): a child of
+   * What makes it legal is the fresh-parent elision ladder (ATOM “Relation-owner boundary”): a child of
    * a row this operation is creating cannot pre-exist, so no correlated probe
    * under it can match and the whole tree needs the database to answer NOTHING
    * before it writes. That is why `guards` and the planning fragment are empty
@@ -806,7 +806,7 @@ export class CreateOperation {
    * {@link CreateOperation.freshRootReferenced} — a PUBLIC seam an enclosing
    * `RecordUpdateCompiler` reads while building its own SET, with no `known` at the call
    * site and no deferral in the final source union (`literal | finalRef`, where a ref
-   * names an EMITTED step; ATOM §9 inv. 2 forbids a final-fragment step from
+   * names an EMITTED step; ATOM “Proof obligations” forbids a final-fragment step from
    * referencing a planning step). So the sub-shape stays refused, and the refusal is
    * raised HERE, where the shared key's source is manufactured: a record whose primary
    * key is its foreign key must take that key from the edge, and a `s.string().id()`
@@ -991,7 +991,7 @@ export class CreateOperation {
       // The junction composes as ordinary Parts. A
       // fresh parent has no existing memberships, so every kind the parse boundary
       // admits here — create/createMany/connect/connectOrCreate/upsert — only ADDS
-      // membership (elision, ATOM §4).
+      // membership (ATOM “Relation-owner boundary”).
       //
       // E5-U1 — `upsert` is the last of them, and it is the beyond-parity superset the
       // parse boundary has documented since P−1.2: Prisma has no `upsert` in a create
@@ -1025,7 +1025,7 @@ export class CreateOperation {
           recordCompilers: this.recordCompilers,
           // T3b-2 (family C): a junction create target whose data carries its own
           // relations folds them one level deeper against the fresh target's explicit
-          // literal PK (mechanism 2, fresh-parent elision — ATOM §4). The fold
+          // literal PK (mechanism 2, fresh-parent elision — ATOM “Relation-owner boundary”). The fold
           // correlates to the junction target's OWN PK, not this fresh parent's.
           nestedBuilder: (
             targetScope,
@@ -1542,7 +1542,7 @@ export class CreateOperation {
     // `skipDuplicates` rides the plan: a dialect whose skip is a SQL leaf carries the semantics in the
     // statement; a `recoverableUniqueError` dialect (MySQL) has no leaf, so each
     // per-row statement carries the savepoint-wrapped `onUniqueConflict: "skip"`
-    // executor effect — exactly as the root `createMany` (ATOM §8, CreateManyOperation).
+    // executor effect — exactly as the root `createMany` (ATOM “Bulk specializations”).
     const plan = buildCreateManyPlan(
       childScope,
       { data: rows, skipDuplicates },
@@ -2015,7 +2015,7 @@ export class CreateOperation {
   ): void {
     // The M2M create-tree surface: create / createMany / connect / connectOrCreate /
     // upsert. Every one of them only ADDS membership to a parent that cannot already
-    // have any (fresh-parent elision, ATOM §4). `createMany` joined the set in N3-U1
+    // have any (fresh-parent elision, ATOM “Relation-owner boundary”). `createMany` joined the set in N3-U1
     // (the `create` slot per row plus the duplicate skip); `upsert` joined it in E5-U1
     // (the adopt family's third member — global lookup, then adopt-and-update).
     //
@@ -2260,7 +2260,7 @@ function targetGeneratesReferencedKey(
 /**
  * A child-held-FK `connect` under a create tree: adopt an existing global row by
  * setting its FK to the freshly-created parent. A fresh parent means the target
- * cannot already be correlated, so this is a pure global reparent (ATOM §4): plan
+ * cannot already be correlated, so this is a pure global reparent (ATOM “Relation-owner boundary”): plan
  * an uncorrelated existence probe, compile `UPDATE child SET fk = parent WHERE
  * unique`, pinned in batch by an `exists` guard. Absent → V1's verbatim
  * `Cannot connect …`. The parent value arrives as a ready {@link referenceSql}

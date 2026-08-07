@@ -189,7 +189,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * Execute through the single engine under exactly ONE
    * {@link observeOperationExecution} wrapper, so the instrumentation shape
    * (SPAN_OPERATION, error logging) is uniform. A construction rejection (a
-   * `ValidationError`, the own-write preflight, the ATOM §7 refusal, an
+   * `ValidationError`, the own-write preflight, a documented substrate refusal, an
    * `UnsupportedOperationError` for a shape the engine does not express) is
    * surfaced through the same observation wrapper.
    */

@@ -406,7 +406,9 @@ The branch owner must pin that premise in the final atomic unit.
 
 In batch mode, an existing-row arm emits a captured-primary-key presence guard.
 Its failure is not retryable because the row was replaced or removed after the
-decision.
+decision. Top-level scalar probe-first upsert binds its original complete
+selector and each matched conditional to that same captured identity; see
+`Wrong-row protection`.
 
 In transaction mode, the locked decision read owns the premise. The owner does
 not add a duplicate guard.
@@ -479,11 +481,11 @@ A no-op transition keeps the ordinary order. Compound members stay ordered.
 
 ## 15. Wrong-row protection
 
-Selectors can include non-unique filters, relation filters, or values that the
-operation itself changes. Re-evaluating that selector after planning can select
-a different row.
+Selectors can include filters or values that the operation itself changes.
+Re-evaluating that selector after planning can select a different row.
 
-Therefore a selected-record mutation:
+Therefore `RecordUpdateCompiler`, and every owner that passes it a captured
+target:
 
 1. captures the target primary key in its owner read;
 2. carries that captured value through planning outputs;
@@ -492,6 +494,22 @@ Therefore a selected-record mutation:
 
 The wrong-row decoy tests are not optional detail. They prove that replacement
 or selector drift cannot redirect an update.
+
+Top-level `UpsertOperation` has three distinct paths:
+
+1. An eligible `ON CONFLICT` fold has no planning read.
+2. A relation-bearing found arm uses `RecordUpdateCompiler` and writes by the
+   primary key captured by the locate.
+3. A scalar probe-first found arm captures the located primary key.
+
+For the third path, transaction mode pins the decision with the locked locate
+and can keep the original selector on its write. Batch mode reasserts the
+complete selector and each matched conditional together with the captured key,
+then writes by that key. The guard fixes the decision at the atomic unit's
+entrance; the write keeps row identity afterward. The conditional-skip arm
+retains its absence guard, while its terminal read addresses the captured
+located primary key. After an update, the terminal read addresses the
+reconstructed post-update primary key.
 
 ## 16. Junction relations
 

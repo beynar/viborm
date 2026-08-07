@@ -105,7 +105,7 @@ export interface RelationWriteConfig {
   readonly kind: RelationWriteKind;
   /**
    * The child-held foreign-key columns and the parent columns they reference,
-   * index-aligned (compound keys are per-field, ATOM §1's multi-field produces).
+   * index-aligned (compound keys are per-field, ATOM “Field-bound foreign-key provenance”).
    * A single-column edge is the length-1 case; nothing else changes.
    */
   readonly childPrimaryKey: string;
@@ -726,14 +726,14 @@ interface SetTarget {
  * The `set` membership Part for a child-held-FK to-many relation. It
  * makes the parent's children exactly the target set: departing children are
  * disconnected (nullable FK) or, if their FK is required, the operation is
- * rejected by the **retained `notExists` orphan guard** (ATOM §2, `raceable:
+ * rejected by the **retained `notExists` orphan guard** (ATOM “Branch premises and pins,” `raceable:
  * true`); target children are (re)parented. `set` adopts globally, so target
  * existence is verified by an *uncorrelated* read (V1's `set` capture) —
  * absent → V1's verbatim `Cannot set … ` (no "for this parent").
  *
  * The departing set is a planning-time correlated read inlined at compile (a SQL
  * `NOT (unique … )` list of runtime cardinality); it never threads a row set
- * through a write boundary (ATOM §3 corollary).
+ * through a write boundary (ATOM “Planning fragments”).
  */
 export class RelationSetPart implements Part {
   private readonly config: RelationSetConfig;
@@ -991,7 +991,7 @@ export class RelationSetPart implements Part {
   }
 
   /** The reparent write's FK assignment: every FK column ← its referenced parent
-   *  column value (one entry per compound-key field, ATOM §1). */
+   *  column value (one entry per compound-key field, ATOM “Field-bound foreign-key provenance”). */
   private fkAssignData(known: PlanningKnown): Record<string, unknown> {
     const data: Record<string, unknown> = {};
     for (let index = 0; index < this.foreignFields.length; index += 1) {

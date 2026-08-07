@@ -13,10 +13,11 @@ export interface NestedUpdateManyInput {
 }
 
 /**
- * **The own-write linearization order (N6-U3, ATOM §4).** The ONE sequence in which
- * sibling mutation kinds on a single relation compose — used both to EMIT the parts
- * and to DERIVE their legality, so the soundness theorem is stated over exactly the
- * order that runs. Read ATOM §4 before touching it; the three stages are:
+ * **The own-write linearization order (ATOM's `Mutation order`).** The ONE sequence
+ * in which sibling mutation kinds on a single relation compose — used both to EMIT
+ * the parts and to DERIVE their legality, so the soundness theorem is stated over
+ * exactly the order that runs. Read that doctrine before touching it; the three
+ * stages are:
  *
  *  1. **named readers** — kinds that address rows they NAME and read committed state
  *     to do it (`disconnect`, `delete`, `update`, `upsert`, `connectOrCreate`). Their

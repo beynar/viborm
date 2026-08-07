@@ -7,15 +7,14 @@ import {
 import type { TargetConstraintPin } from "./OperationFragment";
 
 /**
- * Write-race retry classification (PLAN P5 item 2f), ported from V1's
- * `OperationRuntime` retry policy so the behaviour is byte-identical through the
- * flip. The retry itself lives **above** the executor (in the routed
+ * Write-race retry classification. The retry itself lives **above** the executor
+ * (in the routed
  * `PendingOperation` lifecycle); this module only decides *whether* a surfaced
  * error is a retryable race and lets the executor **mark** the ones it pinned.
  *
  * Two retryable classes, exactly V1's:
  *   1. a `UniqueConstraintError` whose normalized provider attribution matches a
- *      failed write step's `racePin` (the create-branch loser — ATOM §1), or a
+ *      failed write step's `racePin` (the create-branch loser — ATOM “The execution vocabulary”), or a
  *      deadlock/serialization failure raised while a `racePin` write was in
  *      flight — the executor marks these via {@link markRaceable};
  *   2. any EXPECTED failure already carrying `meta.raceable === true` (the guard
