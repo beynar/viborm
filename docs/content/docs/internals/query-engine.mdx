@@ -168,6 +168,12 @@ linearized safely. `RecordUpdateCompiler` and relation owners that pass it a
 selected target address the captured primary key rather than re-evaluating the
 selector.
 
+The compiler exposes one `TargetProjection` for everything it consumes from the
+located row: public model fields and any private physical columns. On an atomic
+batch, the owner extends its existing captured-row guard with equality checks for
+private values that influenced branch selection. This closes membership drift
+without adding a statement or round trip.
+
 Top-level scalar probe-first upsert follows the same identity rule on the batch
 substrate: its found guard binds the complete selector to the captured primary
 key, and its UPDATE addresses that key. Transaction mode keeps the original

@@ -93,6 +93,7 @@ import {
   type ForeignKeyMember,
   fkEquals,
   foreignKeyWriteValue,
+  linkedPolymorphicStorage,
   lowerMembershipWrite,
   pairForeignKeyMembers,
   type RelationMembershipBinding,
@@ -100,6 +101,7 @@ import {
 } from "./relation-membership";
 import { StepScope } from "./StepScope";
 import {
+  capturedSelectorWhere,
   getStepModelName,
   isRecord,
   projectionNamesNoRelation,
@@ -240,7 +242,6 @@ type ParentHeldArm =
       readonly relationInfo: RelationInfo;
       readonly probeId: string;
       readonly guardId: string;
-      readonly guardProbe: Sql;
       readonly guardField: string;
       readonly where: Record<string, unknown>;
       readonly before: RecordPlan;
@@ -882,7 +883,7 @@ export class CreateOperation {
       input.parentHeldArms.push({
         kind: "polymorphic-create",
         before,
-        assignment: this.polymorphicLinked(input.edge, source),
+        assignment: linkedPolymorphicStorage(input.edge, source),
       });
       return;
     }
@@ -906,24 +907,21 @@ export class CreateOperation {
       const childName = getStepModelName(input.edge.targetModel, relationName);
       const probeId = this.scope.allocate(`${childName}.find`);
       const guardId = this.scope.allocate(`${childName}.guard.exists`);
-      const select = { [input.edge.referencedField]: true };
+      const guardField = input.edge.referencedField;
+      const select = { [guardField]: true };
       input.parentHeldArms.push({
         kind: "polymorphic-connectOrCreate",
         relationInfo: input.edge.relationInfo,
         probeId,
         guardId,
-        guardProbe: buildFindUnique(childScope, {
-          where: spec.where,
-          select,
-        }),
-        guardField: input.edge.referencedField,
+        guardField,
         where: spec.where,
         before,
-        foundAssignment: this.polymorphicLinked(input.edge, {
+        foundAssignment: linkedPolymorphicStorage(input.edge, {
           kind: "planningField",
           step: probeId,
         }),
-        missingAssignment: this.polymorphicLinked(input.edge, missingSource),
+        missingAssignment: linkedPolymorphicStorage(input.edge, missingSource),
         racePin: childRacePin(childScope, spec.where),
       });
       this.planningSteps.push({
@@ -967,15 +965,16 @@ export class CreateOperation {
     const childName = getStepModelName(input.edge.targetModel, relationName);
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
-    const select = { [input.edge.referencedField]: true };
+    const guardField = input.edge.referencedField;
+    const select = { [guardField]: true };
     input.parentHeldArms.push({
       kind: "polymorphic-connect-probe",
       relationInfo: input.edge.relationInfo,
       probeId,
       guardId,
-      guardField: input.edge.referencedField,
+      guardField,
       where,
-      assignment: this.polymorphicLinked(input.edge, {
+      assignment: linkedPolymorphicStorage(input.edge, {
         kind: "planningField",
         step: probeId,
       }),
@@ -1008,20 +1007,7 @@ export class CreateOperation {
             edge.referencedField
           ),
         };
-    return this.polymorphicLinked(edge, id);
-  }
-
-  private polymorphicLinked(
-    edge: ResolvedPolymorphicEdge,
-    id: FinalReferenceSource
-  ): PolymorphicStorageValue<FinalReferenceSource> {
-    return {
-      kind: "linked",
-      storage: edge.storage,
-      storedType: edge.storedType,
-      referencedField: edge.referencedField,
-      id,
-    };
+    return linkedPolymorphicStorage(edge, id);
   }
 
   /**
@@ -2211,11 +2197,17 @@ export class CreateOperation {
           guards.push(
             this.connectGuard(
               arm.guardId,
-              buildFindUnique(childScope, {
-                where: { ...arm.where, [arm.guardField]: target },
-                select: { [arm.guardField]: true },
-                forUpdate: true,
-              }),
+              buildFind(
+                childScope,
+                {
+                  where: capturedSelectorWhere(childScope, arm.where, {
+                    [arm.guardField]: target,
+                  }),
+                  select: { [arm.guardField]: true },
+                  forUpdate: true,
+                },
+                { limit: 1 }
+              ),
               arm.relationInfo
             )
           );
@@ -2246,10 +2238,29 @@ export class CreateOperation {
             )
           );
           if (this.mode === "batch") {
+            const target = this.capturedConnectValue(
+              arm.probeId,
+              arm.guardField,
+              arm.relationInfo,
+              known
+            );
+            const childScope = createQueryScope(
+              this.engine.adapter,
+              arm.relationInfo.targetModel
+            );
             guards.push(
               presenceGuard(
                 arm.guardId,
-                arm.guardProbe,
+                buildFind(
+                  childScope,
+                  {
+                    where: capturedSelectorWhere(childScope, arm.where, {
+                      [arm.guardField]: target,
+                    }),
+                    select: { [arm.guardField]: true },
+                  },
+                  { limit: 1 }
+                ),
                 nestedWriteFailure(
                   nestedReplacement("connectOrCreate"),
                   relationName,

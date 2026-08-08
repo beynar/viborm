@@ -11,8 +11,8 @@ import {
 } from "../context";
 import { NestedWriteError, type QueryScope, type RelationInfo } from "../types";
 import {
-  resolvePolymorphicMutationIntent,
   type ResolvedPolymorphicMutation,
+  resolvePolymorphicMutationIntent,
 } from "./polymorphic-mutation";
 
 export interface ConnectOrCreateInput {
@@ -312,9 +312,7 @@ export function buildRelationMutationProgram(
 export interface ParsedRecordPrograms {
   readonly scalarData: Record<string, unknown>;
   readonly relations: Record<string, RelationMutationProgram>;
-  readonly polymorphic: Readonly<
-    Record<string, ResolvedPolymorphicMutation>
-  >;
+  readonly polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>>;
 }
 
 export function buildPolymorphicMutationProgram(
@@ -338,7 +336,7 @@ export function buildPolymorphicMutationProgram(
   }
   return {
     program,
-    mutation: { kind: "targeted", edge: intent.edge, program },
+    mutation: { kind: "targeted", edge: intent.edge },
   };
 }
 

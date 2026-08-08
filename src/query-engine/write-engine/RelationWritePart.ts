@@ -71,10 +71,17 @@ import {
 import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
 import {
+  isRecord,
   pinnedTargetValues,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
+import {
+  buildTargetProjection,
+  capturedTargetColumnPredicate,
+  targetProjectionColumns,
+  targetProjectionOutputs,
+} from "./target-projection";
 
 /**
  * The correlated child-write family: nested `update` / `updateMany` / `delete` /
@@ -395,9 +402,6 @@ export class RelationWritePart implements Part {
    * modes (technique #1) — the literal is not known until that read runs.
    */
   private buildProbe(): ReadStep {
-    const selectedFields = this.updateCompiler?.requiredTargetFields ?? [
-      this.config.childPrimaryKey,
-    ];
     const step: ReadStep = {
       id: this.probeId,
       kind: "read",
@@ -405,28 +409,10 @@ export class RelationWritePart implements Part {
       outputs: {
         rows: { kind: "rows" },
         ...(this.updateCompiler
-          ? Object.fromEntries([
-              ...selectedFields.map((field) => [
-                field,
-                {
-                  kind: "firstRowField" as const,
-                  field,
-                  ...(this.config.kind === "inverseUpsert"
-                    ? { optional: true }
-                    : {}),
-                },
-              ]),
-              ...this.updateCompiler.requiredTargetColumns.map((column) => [
-                column.name,
-                {
-                  kind: "firstRowField" as const,
-                  field: column.name,
-                  ...(this.config.kind === "inverseUpsert"
-                    ? { optional: true }
-                    : {}),
-                },
-              ]),
-            ])
+          ? targetProjectionOutputs(
+              this.updateCompiler.targetProjection,
+              this.config.kind === "inverseUpsert"
+            )
           : {}),
       },
     };
@@ -449,9 +435,14 @@ export class RelationWritePart implements Part {
     useRef: boolean,
     capturedPk?: unknown
   ): Sql {
-    const selectedFields = this.updateCompiler?.requiredTargetFields ?? [
-      this.config.childPrimaryKey,
-    ];
+    const projection =
+      this.updateCompiler?.targetProjection ??
+      buildTargetProjection([this.config.childPrimaryKey]);
+    const selectedFields = projection.fields;
+    const selectedColumns = targetProjectionColumns(
+      this.config.childScope,
+      projection
+    );
     const membership = useRef
       ? planningMembershipCondition(
           this.config.engine,
@@ -467,6 +458,22 @@ export class RelationWritePart implements Part {
           known ?? {},
           this.operationKind
         );
+    const capturedRows = known?.[planningKey(this.probeId, "rows")];
+    const captured =
+      Array.isArray(capturedRows) && isRecord(capturedRows[0])
+        ? capturedRows[0]
+        : undefined;
+    const capturedColumns =
+      captured && this.updateCompiler
+        ? capturedTargetColumnPredicate(
+            this.config.childScope,
+            this.updateCompiler.targetProjection,
+            captured
+          )
+        : undefined;
+    const predicates = [membership.predicate, capturedColumns].filter(
+      (predicate): predicate is Sql => predicate !== undefined
+    );
     return buildFind(
       this.config.childScope,
       {
@@ -487,12 +494,17 @@ export class RelationWritePart implements Part {
       },
       {
         limit: 1,
-        ...(membership.predicate ? { predicate: membership.predicate } : {}),
-        ...(this.updateCompiler?.requiredTargetColumns.length
+        ...(predicates.length
           ? {
-              additionalColumns: this.updateCompiler.requiredTargetColumns.map(
-                (column) => column.sql
-              ),
+              predicate:
+                predicates.length === 1
+                  ? predicates[0]
+                  : this.config.childScope.adapter.operators.and(...predicates),
+            }
+          : {}),
+        ...(selectedColumns.length
+          ? {
+              additionalColumns: selectedColumns.map((column) => column.sql),
             }
           : {}),
       }

@@ -104,8 +104,10 @@ already-selected non-bulk record update except the top-level scalar upsert fold,
 which stays in its shell to preserve the one-statement path.
 
 The update compiler owns scalar SET data, an optional incoming membership,
-nested relations, required target fields, primary-key transitions, the root
-UPDATE, and descendant ordering. For a `parentHeldToOne` edge, the record
+nested relations, the target projection, primary-key transitions, the root
+UPDATE, and descendant ordering. `TargetProjection` groups the public fields
+and private physical columns consumed from the located row. For a
+`parentHeldToOne` edge, the record
 compiler also owns the inline FK fold and the branch needed to construct its
 root statement.
 For child-held and junction edges, relation owners keep the target read,
@@ -197,6 +199,10 @@ mode after guarding that the complete selector still names that captured row.
 Transaction mode keeps the original selector because its locate locks the row.
 The eligible `ON CONFLICT` fold has no planning read, while a relation-bearing
 found arm uses `RecordUpdateCompiler` and its captured identity.
+
+When compilation reads private physical columns to select a mutation branch,
+the batch guard reasserts those captured values before any write. This extends
+the existing guard; it does not add a statement or round trip.
 
 ## Main owners
 

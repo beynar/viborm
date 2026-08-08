@@ -78,8 +78,10 @@ inline junction-target insert remains local to `RelationJunctionPart`.
 
 `RecordUpdateCompiler` compiles each already-selected non-bulk record update. It
 owns scalar SET data, an optional incoming membership, nested relations,
-required target projection, primary-key transitions, the root UPDATE, and
-descendant order. A true no-op returns no compiler before allocating an ID.
+its `TargetProjection`, primary-key transitions, the root UPDATE, and descendant
+order. The projection keeps public model fields and private physical columns in
+one captured-row contract. A true no-op returns no compiler before allocating
+an ID.
 
 For `parentHeldToOne`, the record compiler owns the inline FK fold and the branch
 needed to construct its own INSERT or UPDATE. Child-held and junction relation
@@ -107,6 +109,8 @@ connect, create, and connect-or-create. Selected owners also support correlated
 update and upsert; optional storage supports disconnect and typed target delete.
 When a selected verb depends on current membership, the locate projects the
 private pair as internal columns and the compiler addresses the captured target.
+On the batch substrate, the existing target guard also reasserts every projected
+private value that affected branch selection.
 
 Root createMany is the one bulk specialization. Each row may carry connect-only
 polymorphic memberships. `bulk-polymorphic-connect.ts` groups target probes by

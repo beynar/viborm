@@ -10,7 +10,6 @@ import type {
 } from "../types";
 import { QueryEngineError } from "../types";
 import { resolvePolymorphicEdge } from "./polymorphic-relation";
-import type { RelationMutationProgram } from "./relation-mutation-parser";
 
 /** One atomic private `(type, id)` assignment. A one-column state is unspellable. */
 export type PolymorphicStorageValue<Id> =
@@ -70,7 +69,6 @@ export type ResolvedPolymorphicMutation =
   | {
       readonly kind: "targeted";
       readonly edge: ResolvedPolymorphicEdge;
-      readonly program: RelationMutationProgram;
     }
   | {
       readonly kind: "disconnect";

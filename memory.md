@@ -46,3 +46,7 @@
   type for real public capability boundaries. Impossible compiler states use
   the internal error model; otherwise a semantic inventory reports invented
   product limitations.
+- Before widening a race guard for a proposed representation, trace the public
+  schema to confirm that the representation is reachable. If the current schema
+  makes the added value identical to an existing captured value, the extra guard
+  is speculative redundant defense and must be removed.

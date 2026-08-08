@@ -86,6 +86,11 @@ import {
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
+import {
+  capturedTargetColumnPredicate,
+  targetProjectionColumns,
+  targetProjectionOutputs,
+} from "./target-projection";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -454,8 +459,12 @@ export class UpsertOperation {
         }
       : undefined;
 
-    const locateFields =
-      this.updateCompiler?.requiredTargetFields ?? this.parentPrimaryKeys;
+    const locateFields = this.updateCompiler
+      ? this.updateCompiler.targetProjection.fields
+      : this.parentPrimaryKeys;
+    const locateColumns = this.updateCompiler
+      ? targetProjectionColumns(parent, this.updateCompiler.targetProjection)
+      : [];
     this.locate = {
       id: locateId,
       kind: "read",
@@ -469,12 +478,9 @@ export class UpsertOperation {
           forUpdate: txMode,
         },
         {
-          ...(this.updateCompiler?.requiredTargetColumns.length
+          ...(locateColumns.length
             ? {
-                additionalColumns:
-                  this.updateCompiler.requiredTargetColumns.map(
-                    (column) => column.sql
-                  ),
+                additionalColumns: locateColumns.map((column) => column.sql),
               }
             : {}),
         }
@@ -482,22 +488,17 @@ export class UpsertOperation {
       outputs: updateHasRelations
         ? {
             rows: { kind: "rows" },
-            ...Object.fromEntries([
-              ...locateFields.map((field) => [
-                field,
-                { kind: "firstRowField", field, optional: true },
-              ]),
-              ...(this.updateCompiler?.requiredTargetColumns ?? []).map(
-                (column) => [
-                  column.name,
-                  {
-                    kind: "firstRowField",
-                    field: column.name,
-                    optional: true,
-                  },
-                ]
-              ),
-            ]),
+            ...(this.updateCompiler
+              ? targetProjectionOutputs(
+                  this.updateCompiler.targetProjection,
+                  true
+                )
+              : Object.fromEntries(
+                  locateFields.map((field) => [
+                    field,
+                    { kind: "firstRowField", field, optional: true },
+                  ])
+                )),
           }
         : { rows: { kind: "rows" } },
     };
@@ -899,12 +900,35 @@ export class UpsertOperation {
     locatedRow: Record<string, unknown>,
     conditional?: Conditional
   ) {
+    const capturedColumns = this.updateCompiler
+      ? capturedTargetColumnPredicate(
+          parent,
+          this.updateCompiler.targetProjection,
+          locatedRow
+        )
+      : undefined;
     if (this.selectorNamesPrimaryKey(parent)) {
-      if (conditional) return conditional.probe.statement;
-      return buildFindUnique(parent, {
-        where: this.parentWhere,
-        select: this.pkSelect(),
-      });
+      if (conditional) {
+        if (!capturedColumns) return conditional.probe.statement;
+        return buildFind(
+          parent,
+          {
+            where: {
+              AND: [
+                ...uniqueSelectorConjuncts(parent, this.parentWhere),
+                conditional.where,
+              ],
+            },
+            select: this.pkSelect(),
+          },
+          { limit: 1, predicate: capturedColumns }
+        );
+      }
+      return buildFindUnique(
+        parent,
+        { where: this.parentWhere, select: this.pkSelect() },
+        capturedColumns ? { predicate: capturedColumns } : {}
+      );
     }
     return buildFind(
       parent,
@@ -918,7 +942,7 @@ export class UpsertOperation {
         },
         select: this.pkSelect(),
       },
-      { limit: 1 }
+      { limit: 1, ...(capturedColumns ? { predicate: capturedColumns } : {}) }
     );
   }
 

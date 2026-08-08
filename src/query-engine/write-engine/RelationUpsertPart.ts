@@ -46,7 +46,6 @@ import type {
   GuardStep,
   OperationStep,
   ReadStep,
-  StatementOutputSource,
   StatementStep,
   WriteStep,
 } from "./OperationFragment";
@@ -76,6 +75,11 @@ import {
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
+import {
+  capturedTargetColumnPredicate,
+  targetProjectionColumns,
+  targetProjectionOutputs,
+} from "./target-projection";
 
 /**
  * Where the parent id the child FK points at comes from — a first-class value,
@@ -281,24 +285,9 @@ export class RelationUpsertPart implements Part {
       outputs: this.updateCompiler
         ? {
             rows: { kind: "rows" },
-            ...Object.fromEntries(
-              this.updateCompiler.requiredTargetFields
-                .map((field): [string, StatementOutputSource] => [
-                  field,
-                  { kind: "firstRowField", field, optional: true },
-                ])
-                .concat(
-                  this.updateCompiler.requiredTargetColumns.map(
-                    (column): [string, StatementOutputSource] => [
-                      column.name,
-                      {
-                        kind: "firstRowField",
-                        field: column.name,
-                        optional: true,
-                      },
-                    ]
-                  )
-                )
+            ...targetProjectionOutputs(
+              this.updateCompiler.targetProjection,
+              true
             ),
           }
         : config.publishesLocatedPk
@@ -350,7 +339,9 @@ export class RelationUpsertPart implements Part {
       [this.config.childPrimaryKey]: true,
     };
     for (const field of this.boundProjection().fields) select[field] = true;
-    for (const field of this.updateCompiler?.requiredTargetFields ?? []) {
+    for (const field of this.updateCompiler
+      ? this.updateCompiler.targetProjection.fields
+      : []) {
       select[field] = true;
     }
     return select;
@@ -363,9 +354,12 @@ export class RelationUpsertPart implements Part {
   private probeAdditionalColumns(): readonly Sql[] {
     return [
       ...this.boundProjection().additionalColumns,
-      ...(this.updateCompiler?.requiredTargetColumns.map(
-        (column) => column.sql
-      ) ?? []),
+      ...(this.updateCompiler
+        ? targetProjectionColumns(
+            this.config.childScope,
+            this.updateCompiler.targetProjection
+          ).map((column) => column.sql)
+        : []),
     ];
   }
 
@@ -545,6 +539,19 @@ export class RelationUpsertPart implements Part {
             "upsert"
           )
         : { filters: [], predicate: undefined };
+    const rows = known?.[planningKey(this.probeId, "rows")];
+    const captured = Array.isArray(rows) ? locatedRow(rows) : undefined;
+    const capturedColumns =
+      captured && this.updateCompiler
+        ? capturedTargetColumnPredicate(
+            childScope,
+            this.updateCompiler.targetProjection,
+            captured
+          )
+        : undefined;
+    const predicates = [membership.predicate, capturedColumns].filter(
+      (predicate): predicate is Sql => predicate !== undefined
+    );
     return buildFind(
       childScope,
       {
@@ -561,7 +568,14 @@ export class RelationUpsertPart implements Part {
       },
       {
         limit: 1,
-        ...(membership.predicate ? { predicate: membership.predicate } : {}),
+        ...(predicates.length
+          ? {
+              predicate:
+                predicates.length === 1
+                  ? predicates[0]
+                  : childScope.adapter.operators.and(...predicates),
+            }
+          : {}),
       }
     );
   }

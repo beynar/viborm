@@ -157,6 +157,7 @@ export class ManyToManyStatements {
       );
       if (filter) predicates.push(filter);
     }
+    if (isSql(args.predicate)) predicates.push(args.predicate);
     const selected = buildSelect(
       child,
       isRecord(args.select) ? args.select : undefined,

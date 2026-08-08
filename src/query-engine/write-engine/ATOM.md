@@ -369,7 +369,8 @@ Its caller supplies target-read and root-write labels. The compiler exposes:
 
 - `targetReadId`;
 - `writeId`;
-- `requiredTargetFields`;
+- `targetProjection`, containing required public fields and private physical
+  columns;
 - planning for descendants;
 - final compilation;
 - updated primary-key reconstruction from the captured row.
@@ -398,6 +399,10 @@ For child-held and junction edges it does not own:
 - direct top-level returning folds;
 - top-level conflict folds;
 - enclosing OwnWrite timing.
+
+The caller owns the target read and its batch premise. If the projection contains
+private physical columns, that same guard reasserts their captured values before
+the compiler's writes. No additional guard step is introduced.
 
 For `parentHeldToOne`, it does own the inline FK fold and the branch required to
 construct the root UPDATE. Moving that decision out would require a lifecycle

@@ -4,10 +4,11 @@ import { resolvePolymorphicMutationIntent } from "../builders/polymorphic-mutati
 import { partitionModelData } from "../builders/relation-mutation-parser";
 import { buildWhereUnique } from "../builders/where-unique-builder";
 import { createQueryScope } from "../context/query-scope";
-import { buildFind, buildFindUnique } from "../operations";
+import { buildFind } from "../operations";
 import type { QueryEngine } from "../query-engine";
 import {
   classifyTargetConstraintOverlap,
+  exactTargetConstraintKey,
   normalizeTargetConstraint,
   normalizeWhereUniqueTargetConstraint,
   type TargetConstraint,
@@ -18,20 +19,19 @@ import { relationTargetNotFound } from "./messages";
 import type { GuardStep, ReadStep } from "./OperationFragment";
 import { planningKey } from "./Part";
 import type { StepScope } from "./StepScope";
-import { getStepModelName, isRecord } from "./shared";
+import { capturedSelectorWhere, getStepModelName, isRecord } from "./shared";
 
 interface BulkTarget {
   readonly rowIndex: number;
   readonly edge: ResolvedPolymorphicEdge;
   readonly where: Record<string, unknown>;
   readonly constraint: TargetConstraint;
+  readonly constraintKey: string | undefined;
   readonly guardId: string;
 }
 
 interface BulkProbe {
-  readonly edge: ResolvedPolymorphicEdge;
   readonly targets: readonly BulkTarget[];
-  readonly fields: readonly string[];
   readonly step: ReadStep;
 }
 
@@ -53,10 +53,18 @@ export function prepareBulkPolymorphicConnects(
   scope: StepScope,
   txMode: boolean
 ): PreparedBulkPolymorphicConnects {
+  const polymorphicNames = [...parent.polymorphicRelations.keys()];
+  if (polymorphicNames.length === 0) {
+    return emptyBulkPolymorphicConnects(rows);
+  }
   const scalarRows: Record<string, unknown>[] = [];
   const groupedTargets = new Map<string, BulkTarget[]>();
 
   for (const [rowIndex, row] of rows.entries()) {
+    if (!polymorphicNames.some((name) => Object.hasOwn(row, name))) {
+      scalarRows.push(row);
+      continue;
+    }
     const parsed = partitionModelData(parent, row);
     scalarRows.push(parsed.scalarData);
     for (const { relation, payload } of Object.values(
@@ -81,14 +89,16 @@ export function prepareBulkPolymorphicConnects(
         intent.edge.targetModel,
         relation.name
       );
+      const constraint = normalizeWhereUniqueTargetConstraint(
+        intent.edge.targetModel,
+        intent.payload
+      );
       const target: BulkTarget = {
         rowIndex,
         edge: intent.edge,
         where: intent.payload,
-        constraint: normalizeWhereUniqueTargetConstraint(
-          intent.edge.targetModel,
-          intent.payload
-        ),
+        constraint,
+        constraintKey: exactTargetConstraintKey(constraint),
         guardId: scope.allocate(`${targetName}.guard.exists`),
       };
       const key = `${relation.name}\u0000${intent.edge.publicType}`;
@@ -96,6 +106,10 @@ export function prepareBulkPolymorphicConnects(
       if (group) group.push(target);
       else groupedTargets.set(key, [target]);
     }
+  }
+
+  if (groupedTargets.size === 0) {
+    return emptyBulkPolymorphicConnects(scalarRows);
   }
 
   const probes: BulkProbe[] = [...groupedTargets.values()].map((targets) => {
@@ -107,23 +121,12 @@ export function prepareBulkPolymorphicConnects(
         ...targets.flatMap((target) => [...target.constraint.fields.keys()]),
       ]),
     ];
-    const uniqueTargets = targets.filter(
-      (target, index) =>
-        targets.findIndex(
-          (candidate) =>
-            classifyTargetConstraintOverlap(
-              target.constraint,
-              candidate.constraint
-            ) === "equal"
-        ) === index
-    );
+    const uniqueTargets = uniqueBulkTargets(targets);
     const id = scope.allocate(
       `${getStepModelName(edge.targetModel, edge.relationInfo.name)}.find`
     );
     return {
-      edge,
       targets,
-      fields,
       step: {
         id,
         kind: "read",
@@ -161,19 +164,12 @@ export function prepareBulkPolymorphicConnects(
             `createMany polymorphic probe '${probe.step.id}' did not expose rows.`
           );
         }
+        const rowIndexes = new Map<
+          string,
+          ReadonlyMap<string, Record<string, unknown>>
+        >();
         for (const target of probe.targets) {
-          const found = rows.find(
-            (row): row is Record<string, unknown> =>
-              isRecord(row) &&
-              classifyTargetConstraintOverlap(
-                target.constraint,
-                normalizeTargetConstraint(
-                  target.edge.targetModel,
-                  [...target.constraint.fields.keys()],
-                  row
-                )
-              ) === "equal"
-          );
+          const found = findBulkTarget(rows, target, rowIndexes);
           if (!found) {
             throw new NestedWriteError(
               relationTargetNotFound(target.edge.relationInfo, "connect"),
@@ -188,15 +184,23 @@ export function prepareBulkPolymorphicConnects(
             id: found[target.edge.referencedField],
           });
           if (!txMode) {
+            const guardScope = createQueryScope(
+              engine.adapter,
+              target.edge.targetModel
+            );
             guards.push(
               presenceGuard(
                 target.guardId,
-                buildFindUnique(
-                  createQueryScope(engine.adapter, target.edge.targetModel),
+                buildFind(
+                  guardScope,
                   {
-                    where: target.where,
+                    where: capturedSelectorWhere(guardScope, target.where, {
+                      [target.edge.referencedField]:
+                        found[target.edge.referencedField],
+                    }),
                     select: { [target.edge.referencedField]: true },
-                  }
+                  },
+                  { limit: 1 }
                 ),
                 nestedWriteFailure(
                   relationTargetNotFound(target.edge.relationInfo, "connect"),
@@ -211,4 +215,73 @@ export function prepareBulkPolymorphicConnects(
       return { storageByRow, guards };
     },
   };
+}
+
+function emptyBulkPolymorphicConnects(
+  rows: readonly Record<string, unknown>[]
+): PreparedBulkPolymorphicConnects {
+  return {
+    scalarRows: rows,
+    probes: [],
+    resolve: () => ({
+      storageByRow: rows.map(() => []),
+      guards: [],
+    }),
+  };
+}
+
+function uniqueBulkTargets(targets: readonly BulkTarget[]): BulkTarget[] {
+  const unique: BulkTarget[] = [];
+  const exact = new Set<string>();
+  for (const target of targets) {
+    if (target.constraintKey) {
+      if (exact.has(target.constraintKey)) continue;
+      exact.add(target.constraintKey);
+    } else if (
+      unique.some(
+        (candidate) =>
+          classifyTargetConstraintOverlap(
+            target.constraint,
+            candidate.constraint
+          ) === "equal"
+      )
+    ) {
+      continue;
+    }
+    unique.push(target);
+  }
+  return unique;
+}
+
+function findBulkTarget(
+  rows: readonly unknown[],
+  target: BulkTarget,
+  indexes: Map<string, ReadonlyMap<string, Record<string, unknown>>>
+): Record<string, unknown> | undefined {
+  const fields = [...target.constraint.fields.keys()];
+  if (target.constraintKey) {
+    const fieldKey = fields.join("\u0000");
+    let index = indexes.get(fieldKey);
+    if (!index) {
+      const built = new Map<string, Record<string, unknown>>();
+      for (const row of rows) {
+        if (!isRecord(row)) continue;
+        const key = exactTargetConstraintKey(
+          normalizeTargetConstraint(target.edge.targetModel, fields, row)
+        );
+        if (key) built.set(key, row);
+      }
+      index = built;
+      indexes.set(fieldKey, index);
+    }
+    return index.get(target.constraintKey);
+  }
+  return rows.find(
+    (row): row is Record<string, unknown> =>
+      isRecord(row) &&
+      classifyTargetConstraintOverlap(
+        target.constraint,
+        normalizeTargetConstraint(target.edge.targetModel, fields, row)
+      ) === "equal"
+  );
 }

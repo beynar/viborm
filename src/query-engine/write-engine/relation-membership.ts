@@ -8,7 +8,7 @@ import type {
   PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
 import type { QueryEngine } from "../query-engine";
-import type { QueryScope } from "../types";
+import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
 import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type { OperationValueReference } from "./OperationFragment";
 import { ref } from "./OperationFragment";
@@ -496,16 +496,20 @@ export function resolvePolymorphicStorageValue(
   };
 }
 
-/** Bind a parent value to the one private edge owned by a polymorphic inverse. */
+/** Bind a value to one resolved private polymorphic edge. */
 export function linkedPolymorphicStorage(
-  relation: PolymorphicChildHeldToMany,
+  relation: PolymorphicChildHeldToMany | ResolvedPolymorphicEdge,
   id: FinalReferenceSource
 ): Extract<PolymorphicStorageValue<FinalReferenceSource>, { kind: "linked" }> {
+  const referencedField =
+    "referencedField" in relation
+      ? relation.referencedField
+      : relation.referencedFields[0];
   return {
     kind: "linked",
     storage: relation.storage,
     storedType: relation.storedType,
-    referencedField: relation.referencedFields[0],
+    referencedField,
     id,
   };
 }

@@ -4,6 +4,7 @@ import { QueryEngineError } from "@errors";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
+import { CreateManyOperation } from "@src/query-engine/write-engine/CreateManyOperation";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
@@ -215,6 +216,30 @@ function executeCommentUpdateAfterPlanning(
   return new OperationExecutor(engine).execute(
     new UpdateOperation(engine, polymorphicWriteSchema.comment, args),
     createOperationExecutionContext("comment", "update", engine.instrumentation)
+  );
+}
+
+function executeRequiredCommentCreateManyAfterPlanning(
+  family: PolymorphicWriteFamily,
+  beforeBatch: () => Promise<void>,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const schemas = createSchemaRegistry(polymorphicWriteSchema);
+  const engine = new QueryEngine(
+    new BeforePolymorphicBatchDriver(family.database, beforeBatch),
+    createModelRegistry(polymorphicWriteSchema, schemas)
+  );
+  return new OperationExecutor(engine).execute(
+    new CreateManyOperation(
+      engine,
+      polymorphicWriteSchema.requiredComment,
+      args
+    ),
+    createOperationExecutionContext(
+      "requiredComment",
+      "createMany",
+      engine.instrumentation
+    )
   );
 }
 
@@ -890,6 +915,150 @@ function registerPolymorphicWriteBehavior(
         ).resolves.toBeNull();
       });
 
+      test("direct connectOrCreate does not follow a selector to its replacement row", async () => {
+        const family = getFamily();
+        const original = await family.client.post.create({
+          data: { id: 613, slug: "moving-coc", title: "Original" },
+        });
+        const replacement = await family.client.post.create({
+          data: { id: 614, slug: "replacement-coc", title: "Replacement" },
+        });
+
+        await expect(
+          executeCommentCreateAfterPlanning(
+            family,
+            async () => {
+              await family.client.post.update({
+                where: { id: original.id },
+                data: { slug: "moved-coc" },
+              });
+              await family.client.post.update({
+                where: { id: replacement.id },
+                data: { slug: "moving-coc" },
+              });
+            },
+            {
+              data: {
+                id: 615,
+                body: "must not follow connectOrCreate",
+                commentable: {
+                  connectOrCreate: {
+                    type: "post",
+                    where: { slug: "moving-coc" },
+                    create: { id: 616, slug: "unused-coc", title: "Unused" },
+                  },
+                },
+              },
+            }
+          )
+        ).rejects.toThrow(
+          "Record was replaced by another transaction during nested connectOrCreate"
+        );
+        await expect(
+          family.client.comment.findUnique({ where: { id: 615 } })
+        ).resolves.toBeNull();
+      });
+
+      test("selected connectOrCreate does not follow a selector to its replacement row", async () => {
+        const family = getFamily();
+        const owner = await family.client.comment.create({
+          data: { id: 617, body: "unchanged" },
+        });
+        const original = await family.client.video.create({
+          data: { id: 618, slug: "moving-update-coc", title: "Original" },
+        });
+        const replacement = await family.client.video.create({
+          data: {
+            id: 619,
+            slug: "replacement-update-coc",
+            title: "Replacement",
+          },
+        });
+
+        await expect(
+          executeCommentUpdateAfterPlanning(
+            family,
+            async () => {
+              await family.client.video.update({
+                where: { id: original.id },
+                data: { slug: "moved-update-coc" },
+              });
+              await family.client.video.update({
+                where: { id: replacement.id },
+                data: { slug: "moving-update-coc" },
+              });
+            },
+            {
+              where: { id: owner.id },
+              data: {
+                commentable: {
+                  connectOrCreate: {
+                    type: "video",
+                    where: { slug: "moving-update-coc" },
+                    create: {
+                      id: 620,
+                      slug: "unused-update-coc-race",
+                      title: "Unused",
+                    },
+                  },
+                },
+              },
+            }
+          )
+        ).rejects.toThrow(
+          "Record was replaced by another transaction during nested connectOrCreate"
+        );
+        await expect(storedComments(family)).resolves.toEqual([
+          {
+            id: owner.id,
+            commentable_type: null,
+            commentable_id: null,
+          },
+        ]);
+      });
+
+      test("bulk connect does not follow a selector to its replacement row", async () => {
+        const family = getFamily();
+        const original = await family.client.post.create({
+          data: { id: 622, slug: "moving-bulk", title: "Original" },
+        });
+        const replacement = await family.client.post.create({
+          data: { id: 623, slug: "replacement-bulk", title: "Replacement" },
+        });
+
+        await expect(
+          executeRequiredCommentCreateManyAfterPlanning(
+            family,
+            async () => {
+              await family.client.post.update({
+                where: { id: original.id },
+                data: { slug: "moved-bulk" },
+              });
+              await family.client.post.update({
+                where: { id: replacement.id },
+                data: { slug: "moving-bulk" },
+              });
+            },
+            {
+              data: [
+                {
+                  id: 624,
+                  body: "must not follow bulk selector",
+                  subject: {
+                    connect: { type: "post", where: { slug: "moving-bulk" } },
+                  },
+                },
+              ],
+            }
+          )
+        ).rejects.toThrow(
+          "Cannot connect relation 'subject': target record was not found."
+        );
+        await expect(family.client.requiredComment.findMany()).resolves.toEqual(
+          []
+        );
+      });
+
       test("a direct update fails closed when its captured target is deleted", async () => {
         const family = getFamily();
         const target = await family.client.post.create({
@@ -927,6 +1096,104 @@ function registerPolymorphicWriteBehavior(
             commentable_id: null,
           },
         ]);
+      });
+
+      test("a selected update fails when the owner membership changes after planning", async () => {
+        const family = getFamily();
+        const post = await family.client.post.create({
+          data: { id: 625, slug: "stale-owner-post", title: "Original" },
+        });
+        const video = await family.client.video.create({
+          data: { id: 626, slug: "new-owner-video", title: "Video" },
+        });
+        const owner = await family.client.comment.create({
+          data: {
+            id: 627,
+            body: "owner",
+            commentable: { connect: { type: "post", where: { id: post.id } } },
+          },
+        });
+
+        await expect(
+          executeCommentUpdateAfterPlanning(
+            family,
+            async () => {
+              await family.client.comment.update({
+                where: { id: owner.id },
+                data: {
+                  commentable: {
+                    connect: { type: "video", where: { id: video.id } },
+                  },
+                },
+              });
+            },
+            {
+              where: { id: owner.id },
+              data: {
+                commentable: {
+                  update: {
+                    type: "post",
+                    data: { title: "must not update stale target" },
+                  },
+                },
+              },
+            }
+          )
+        ).rejects.toThrow("No comment record found for update");
+        await expect(
+          family.client.post.findUniqueOrThrow({ where: { id: post.id } })
+        ).resolves.toMatchObject({ title: "Original" });
+        await expect(
+          family.client.comment.findUniqueOrThrow({
+            where: { id: owner.id },
+            include: { commentable: true },
+          })
+        ).resolves.toMatchObject({
+          commentable: { type: "video", data: { id: video.id } },
+        });
+      });
+
+      test("a selected update reasserts its optional filter after planning", async () => {
+        const family = getFamily();
+        const post = await family.client.post.create({
+          data: { id: 628, slug: "moving-filter", title: "Expected" },
+        });
+        const owner = await family.client.comment.create({
+          data: {
+            id: 629,
+            body: "owner",
+            commentable: { connect: { type: "post", where: { id: post.id } } },
+          },
+        });
+
+        await expect(
+          executeCommentUpdateAfterPlanning(
+            family,
+            async () => {
+              await family.client.post.update({
+                where: { id: post.id },
+                data: { title: "Concurrent" },
+              });
+            },
+            {
+              where: { id: owner.id },
+              data: {
+                commentable: {
+                  update: {
+                    type: "post",
+                    where: { title: "Expected" },
+                    data: { title: "must not overwrite" },
+                  },
+                },
+              },
+            }
+          )
+        ).rejects.toThrow(
+          "Cannot update relation 'commentable': target record was not found for this parent."
+        );
+        await expect(
+          family.client.post.findUniqueOrThrow({ where: { id: post.id } })
+        ).resolves.toMatchObject({ title: "Concurrent" });
       });
 
       test("inverse create fails closed when its captured parent is deleted", async () => {

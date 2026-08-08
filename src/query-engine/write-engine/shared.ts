@@ -451,25 +451,9 @@ export function createDataUniqueWhere(
 }
 
 /**
- * A nested target selector, as CONJUNCTS for a locate or a guard: the unique
- * discriminator flattened to one equality per constrained column, plus — since
- * N6-U1 — the extended selector's non-unique FILTER half appended whole.
- *
- * One home, because three seams address "the row the caller named" and must address
- * the SAME row: `RelationWritePart`'s correlated probe and batch guard,
- * `RelationUpsertPart`'s found guard, `RelationJunctionPart`'s captured-selector
- * guard. Before N6-U1 each built the list itself from `getWhereUniqueEntries`; that
- * was complete only while a nested selector was unique-only, and the day the
- * selectors widened, the two that were NOT updated silently dropped the filter
- * half — an excluding filter still wrote (measured: a nested `update` whose filter
- * excluded its target renamed it anyway, and a nested `delete` removed it). A
- * dropped predicate is not a refusal, it is the WRONG ROW, so the assembly lives
- * here rather than at each seam.
- *
- * The split is the module contract of `where-unique-builder`: the discriminator is
- * the only half anything compile-time may read (pins, `racePin` attribution,
- * identity), and the filter half can only ever NARROW which row is addressed. Both
- * halves belong in a locate; only the first may name a value.
+ * The complete relation-target selector as conjuncts: one equality per unique
+ * discriminator field, followed by the optional non-unique filter. Probes and
+ * guards share this owner so both phases address the same row.
  */
 export function uniqueSelectorConjuncts(
   scope: { model: Model<any> },
@@ -481,6 +465,25 @@ export function uniqueSelectorConjuncts(
   );
   if (filters) conjuncts.push(filters);
   return conjuncts;
+}
+
+/** Bind the complete selector to values captured by its planning read. */
+export function capturedSelectorWhere(
+  scope: { model: Model<any> },
+  where: Record<string, unknown>,
+  captured: Readonly<Record<string, unknown>>
+): Record<string, unknown> {
+  const { entries } = partitionWhereUnique(scope, where);
+  const selectorFields = new Set(entries.map((entry) => entry.fieldName));
+  const conjuncts = uniqueSelectorConjuncts(scope, where);
+  for (const [field, value] of Object.entries(captured)) {
+    if (!selectorFields.has(field)) {
+      conjuncts.push({ [field]: { equals: value } });
+    }
+  }
+  return {
+    AND: conjuncts,
+  };
 }
 
 export type ExecutionMode = "transaction" | "batch";

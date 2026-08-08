@@ -2,6 +2,7 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import { getManyToManyJoinInfo } from "../builders/many-to-many-utils";
 import {
@@ -78,11 +79,16 @@ import {
 } from "./relation-membership";
 import type { StepScope } from "./StepScope";
 import {
+  capturedSelectorWhere,
   getStepModelName,
   pinnedTargetValues,
   UnsupportedOperationError,
-  uniqueSelectorConjuncts,
 } from "./shared";
+import {
+  buildTargetProjection,
+  capturedTargetColumnPredicate,
+  targetProjectionColumns,
+} from "./target-projection";
 
 /**
  * One junction Part owns membership probes and effects for every M2M mutation.
@@ -592,13 +598,19 @@ export class RelationJunctionPart implements Part {
     const writes: OperationStep[] = [];
     for (const target of slots) {
       const targetPk = this.requireTarget(target, known, "update");
+      const capturedColumns = this.capturedCompilerPredicate(
+        target.compiler,
+        target.probeId,
+        known
+      );
       if (!this.context.txMode) {
         guards.push(
           this.connectedPresenceGuard(
             target,
             this.membershipLiteral(known),
             "update",
-            targetPk
+            targetPk,
+            capturedColumns
           )
         );
       }
@@ -708,12 +720,21 @@ export class RelationJunctionPart implements Part {
       const memberRows = known[planningKey(slot.membershipProbeId, "rows")];
       if (Array.isArray(memberRows) && memberRows.length > 0) {
         const memberPk = this.pkOf(memberRows[0]);
+        const capturedColumns =
+          slot.update.kind === "member"
+            ? this.capturedCompilerPredicate(
+                slot.update.compiler,
+                slot.membershipProbeId,
+                known
+              )
+            : undefined;
         if (!this.context.txMode) {
           steps.push(
             this.upsertMemberGuard(
               slot,
               this.membershipLiteral(known),
-              memberPk
+              memberPk,
+              capturedColumns
             )
           );
         }
@@ -753,8 +774,16 @@ export class RelationJunctionPart implements Part {
         continue;
       }
       const foundPk = this.pkOf(globalRows[0]);
+      const capturedColumns =
+        slot.update.kind === "global"
+          ? this.capturedCompilerPredicate(
+              slot.update.compiler,
+              slot.globalProbeId,
+              known
+            )
+          : undefined;
       if (!this.context.txMode) {
-        steps.push(this.adoptFoundGuard(slot, foundPk));
+        steps.push(this.adoptFoundGuard(slot, foundPk, capturedColumns));
       }
       if (slot.update.kind === "global") {
         slot.update.assertLegality();
@@ -881,9 +910,14 @@ export class RelationJunctionPart implements Part {
     const probeId =
       compiler?.targetReadId ?? scope.allocate(`${this.childName}.find`);
     const publishesPk = (compiler?.planning().length ?? 0) > 0;
-    const selectedFields = compiler?.requiredTargetFields ?? [
-      this.targetPkField,
-    ];
+    const projection =
+      compiler?.targetProjection ?? buildTargetProjection([this.targetPkField]);
+    const selectedFields = projection.fields;
+    const selectedColumns = targetProjectionColumns(
+      this.childScope,
+      projection,
+      getTableName(this.childScope.model)
+    );
     const statement = connected
       ? this.membershipRead({
           parentValue: this.parentRef(),
@@ -892,11 +926,9 @@ export class RelationJunctionPart implements Part {
           select: Object.fromEntries(
             selectedFields.map((field) => [field, true])
           ),
-          ...(compiler?.requiredTargetColumns.length
+          ...(selectedColumns.length
             ? {
-                additionalColumns: compiler.requiredTargetColumns.map(
-                  (column) => column.sql
-                ),
+                additionalColumns: selectedColumns.map((column) => column.sql),
               }
             : {}),
         })
@@ -1116,18 +1148,21 @@ export class RelationJunctionPart implements Part {
         outputs: { rows: { kind: "rows" } },
       };
     }
-    const fields = update.compiler.requiredTargetFields;
+    const projection = update.compiler.targetProjection;
+    const { fields } = projection;
     return {
       select: Object.fromEntries(fields.map((field) => [field, true])),
-      additionalColumns: update.compiler.requiredTargetColumns.map(
-        (column) => column.sql
-      ),
+      additionalColumns: targetProjectionColumns(
+        this.childScope,
+        projection,
+        getTableName(this.childScope.model)
+      ).map((column) => column.sql),
       outputs: {
         rows: { kind: "rows" },
         ...Object.fromEntries(
           fields.map((field) => [
             field,
-            { kind: "firstRowField", field, optional: true },
+            { kind: "firstRowField" as const, field, optional: true },
           ])
         ),
       },
@@ -1203,6 +1238,7 @@ export class RelationJunctionPart implements Part {
     take?: number;
     select?: Record<string, boolean>;
     additionalColumns?: readonly Sql[];
+    predicate?: Sql;
   }) {
     return this.statements.materialize(this.relationInfo, "membershipRead", {
       parentValue: args.parentValue,
@@ -1214,6 +1250,7 @@ export class RelationJunctionPart implements Part {
       ...(args.additionalColumns?.length
         ? { additionalColumns: args.additionalColumns }
         : {}),
+      ...(args.predicate ? { predicate: args.predicate } : {}),
       ...(args.take !== undefined ? { take: args.take } : {}),
       lock: "transaction",
     });
@@ -1339,11 +1376,12 @@ export class RelationJunctionPart implements Part {
    *  and one site keeps them from drifting. */
   private adoptFoundGuard(
     slot: { readonly guardId: string; readonly where: Record<string, unknown> },
-    capturedPk: unknown
+    capturedPk: unknown,
+    capturedColumns?: Sql
   ): GuardStep {
     return presenceGuard(
       slot.guardId,
-      this.capturedSelectorRead(slot.where, capturedPk),
+      this.capturedSelectorRead(slot.where, capturedPk, capturedColumns),
       nestedWriteFailure(
         nestedReplacement(
           this.plan.kind === "upsert" ? "upsert" : "connectOrCreate"
@@ -1354,33 +1392,24 @@ export class RelationJunctionPart implements Part {
     );
   }
 
-  /**
-   * `SELECT pk FROM child WHERE <selector> AND pk = <capturedPk>` (limit 1): the
-   * row the planning probe locked must STILL be the one the user selector names.
-   * This is V1's captured-PK+selector correlation lowered to SQL — the guard fails
-   * closed when a split-witness moves the selector to a replacement row.
-   *
-   * N6-U1: "the user selector" is the WHOLE extended selector, filter half included
-   * ({@link uniqueSelectorConjuncts}). The membership read that located the row
-   * already compiles both halves (`buildWhereUnique` in the membership read), so
-   * anything less here would re-assert a weaker premise than the one the probe made.
-   */
+  /** Reassert that the complete selector still names the captured target row. */
   private capturedSelectorRead(
     where: Record<string, unknown>,
-    capturedPk: unknown
+    capturedPk: unknown,
+    capturedColumns?: Sql
   ) {
     return buildFind(
       this.childScope,
       {
-        where: {
-          AND: [
-            ...uniqueSelectorConjuncts(this.childScope, where),
-            { [this.targetPkField]: { equals: capturedPk } },
-          ],
-        },
+        where: capturedSelectorWhere(this.childScope, where, {
+          [this.targetPkField]: capturedPk,
+        }),
         select: { [this.targetPkField]: true },
       },
-      { limit: 1 }
+      {
+        limit: 1,
+        ...(capturedColumns ? { predicate: capturedColumns } : {}),
+      }
     );
   }
 
@@ -1390,7 +1419,8 @@ export class RelationJunctionPart implements Part {
   private upsertMemberGuard(
     slot: LocatedUpsertSlot,
     parent: unknown,
-    capturedPk: unknown
+    capturedPk: unknown,
+    capturedColumns?: Sql
   ): GuardStep {
     return {
       id: slot.guardId,
@@ -1401,6 +1431,7 @@ export class RelationJunctionPart implements Part {
           parentValue: parent,
           whereUnique: slot.where,
           where: { [this.targetPkField]: { equals: capturedPk } },
+          ...(capturedColumns ? { predicate: capturedColumns } : {}),
           take: 1,
         }),
       },
@@ -1491,7 +1522,8 @@ export class RelationJunctionPart implements Part {
     target: TargetSlot,
     parent: unknown,
     op: "delete" | "update",
-    capturedPk: unknown
+    capturedPk: unknown,
+    capturedColumns?: Sql
   ): GuardStep {
     return {
       id: target.guardId,
@@ -1506,6 +1538,7 @@ export class RelationJunctionPart implements Part {
           parentValue: parent,
           whereUnique: target.where,
           where: { [this.targetPkField]: { equals: capturedPk } },
+          ...(capturedColumns ? { predicate: capturedColumns } : {}),
           take: 1,
         }),
       },
@@ -1533,6 +1566,23 @@ export class RelationJunctionPart implements Part {
       );
     }
     return this.pkOf(rows[0]);
+  }
+
+  private capturedCompilerPredicate(
+    compiler: RecordUpdateCompiler,
+    probeId: string,
+    known: PlanningKnown
+  ): Sql | undefined {
+    if (compiler.targetReadId !== probeId) return undefined;
+    const rows = known[planningKey(probeId, "rows")];
+    const captured = Array.isArray(rows) ? rows[0] : undefined;
+    if (!isRecord(captured)) return undefined;
+    return capturedTargetColumnPredicate(
+      this.childScope,
+      compiler.targetProjection,
+      captured,
+      getTableName(this.childScope.model)
+    );
   }
 
   private connectedSet(bulk: BulkSlot, known: PlanningKnown): unknown[] {

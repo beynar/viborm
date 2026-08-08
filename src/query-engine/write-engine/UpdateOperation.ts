@@ -70,6 +70,11 @@ import {
   setCanFireReferentialAction,
   uniqueSelectorConjuncts,
 } from "./shared";
+import {
+  capturedTargetColumnPredicate,
+  targetProjectionColumns,
+  targetProjectionOutputs,
+} from "./target-projection";
 
 type ExecutionMode = "transaction" | "batch";
 
@@ -303,8 +308,12 @@ export class UpdateOperation {
           createFresh
         );
 
-    const locateFields =
-      this.compiler?.requiredTargetFields ?? this.parentPrimaryKeys;
+    const locateFields = this.compiler
+      ? this.compiler.targetProjection.fields
+      : this.parentPrimaryKeys;
+    const locateColumns = this.compiler
+      ? targetProjectionColumns(parent, this.compiler.targetProjection)
+      : [];
     this.locate = {
       id: locateId,
       kind: "read",
@@ -317,25 +326,22 @@ export class UpdateOperation {
           ),
           forUpdate: txMode,
         },
-        this.compiler?.requiredTargetColumns.length
+        locateColumns.length
           ? {
-              additionalColumns: this.compiler.requiredTargetColumns.map(
-                (column) => column.sql
-              ),
+              additionalColumns: locateColumns.map((column) => column.sql),
             }
           : {}
       ),
       outputs: {
         rows: { kind: "rows" },
-        ...Object.fromEntries(
-          locateFields.map((field) => [field, { kind: "firstRowField", field }])
-        ),
-        ...Object.fromEntries(
-          (this.compiler?.requiredTargetColumns ?? []).map((column) => [
-            column.name,
-            { kind: "firstRowField", field: column.name },
-          ])
-        ),
+        ...(this.compiler
+          ? targetProjectionOutputs(this.compiler.targetProjection)
+          : Object.fromEntries(
+              locateFields.map((field) => [
+                field,
+                { kind: "firstRowField", field },
+              ])
+            )),
       },
       expects: exactlyOneRow(notFound),
     };
@@ -406,6 +412,13 @@ export class UpdateOperation {
     const failure = notFoundFailure(
       `query-engine-v2 update located no '${getStepModelName(this.model, "record")}' row for its unique where.`
     );
+    const capturedColumns = this.compiler
+      ? capturedTargetColumnPredicate(
+          parent,
+          this.compiler.targetProjection,
+          locatedRow
+        )
+      : undefined;
     if (!this.selectorNamesPrimaryKey()) {
       return presenceGuard(
         this.rootGuardId,
@@ -420,17 +433,24 @@ export class UpdateOperation {
             },
             select: this.pkSelect(),
           },
-          { limit: 1 }
+          {
+            limit: 1,
+            ...(capturedColumns ? { predicate: capturedColumns } : {}),
+          }
         ),
         failure
       );
     }
     return presenceGuard(
       this.rootGuardId,
-      buildFindUnique(parent, {
-        where: this.parentWhere,
-        select: this.pkSelect(),
-      }),
+      buildFindUnique(
+        parent,
+        {
+          where: this.parentWhere,
+          select: this.pkSelect(),
+        },
+        capturedColumns ? { predicate: capturedColumns } : {}
+      ),
       failure
     );
   }

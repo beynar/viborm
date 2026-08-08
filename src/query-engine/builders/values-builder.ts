@@ -118,24 +118,43 @@ export function buildValueGroupsWithRowStorage(
   records: readonly Record<string, unknown>[],
   storageByRow: readonly (readonly PolymorphicStorageValue<unknown>[])[]
 ): ValuesGroup[] {
+  if (records.length === 0) return [];
+  assertApplicationGeneratedValues(ctx, records);
+  const fieldOrder = ctx.model["~"].scalarFieldNames;
   const groups: ValuesGroup[] = [];
   for (let index = 0; index < records.length; index += 1) {
-    const row = buildValueGroups(
+    const record = records[index]!;
+    const fields = fieldOrder.filter(
+      (field) =>
+        !shouldOmitInsertValue(
+          ctx.model["~"].state.scalars[field],
+          record[field]
+        )
+    );
+    const privateValues = lowerPolymorphicStorage(
       ctx,
-      [records[index]!],
-      storageByRow[index]
-    )[0];
-    if (!row) continue;
+      storageByRow[index] ?? []
+    );
+    const columns = [
+      ...fields.map((field) => getColumnName(ctx.model, field)),
+      ...privateValues.columns,
+    ];
+    const values = [
+      ...fields.map((field) =>
+        buildScalarSqlValue(ctx, ctx.model, field, record[field])
+      ),
+      ...privateValues.values,
+    ];
     const previous = groups.at(-1);
     if (
       previous &&
-      previous.columns.length === row.columns.length &&
-      previous.columns.every((column, offset) => column === row.columns[offset])
+      previous.columns.length === columns.length &&
+      previous.columns.every((column, offset) => column === columns[offset])
     ) {
-      previous.values.push(...row.values);
+      previous.values.push(values);
       previous.inputIndexes.push(index);
     } else {
-      groups.push({ ...row, inputIndexes: [index] });
+      groups.push({ columns, values: [values], inputIndexes: [index] });
     }
   }
   return groups;

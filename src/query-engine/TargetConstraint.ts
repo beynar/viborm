@@ -154,6 +154,42 @@ export function classifyTargetConstraintOverlap(
   return "unknown";
 }
 
+/** Stable key for exact constraints; unknown values deliberately stay unkeyed. */
+export function exactTargetConstraintKey(
+  constraint: TargetConstraint
+): string | undefined {
+  if (constraint.certainty !== "exact") return undefined;
+  return JSON.stringify(
+    [...constraint.fields].map(([name, field]) => [
+      name,
+      field.scalarType,
+      exactTargetValueKey(field.value),
+    ])
+  );
+}
+
+function exactTargetValueKey(value: TargetValue): unknown {
+  switch (value.kind) {
+    case "null":
+      return ["null"];
+    case "bigint":
+      return [value.kind, value.value.toString()];
+    case "bytes":
+      return [value.kind, [...value.value]];
+    case "string":
+    case "number":
+    case "boolean":
+    case "date":
+      return [value.kind, value.value];
+    case "unknown":
+      return undefined;
+    default: {
+      const exhaustive: never = value;
+      return exhaustive;
+    }
+  }
+}
+
 function areExactlyEqual(
   left: TargetConstraint,
   right: TargetConstraint
