@@ -73,13 +73,13 @@ outside `BoundRelation`.
 ### Record mutation
 
 `CreateOperation` compiles each non-bulk fresh record subtree. Nested callers
-provide parsed data and field-bound incoming FK members. The explicit inline
-junction-target insert remains local to `RelationJunctionPart`.
+provide parsed data and one optional source-bound membership. The explicit
+inline junction-target insert remains local to `RelationJunctionPart`.
 
-`RecordUpdateCompiler` compiles each already-selected non-bulk record update.
-It owns scalar SET data, incoming FK assignments, nested relations, required
-target projection, primary-key transitions, the root UPDATE, and descendant
-order. A true no-op returns no compiler before allocating an ID.
+`RecordUpdateCompiler` compiles each already-selected non-bulk record update. It
+owns scalar SET data, an optional incoming membership, nested relations,
+required target projection, primary-key transitions, the root UPDATE, and
+descendant order. A true no-op returns no compiler before allocating an ID.
 
 For `parentHeldToOne`, the record compiler owns the inline FK fold and the branch
 needed to construct its own INSERT or UPDATE. Child-held and junction relation
@@ -101,12 +101,18 @@ rejects a foreign same-id row. Optional disconnect and set clear both private
 columns atomically. Nested createMany applies one shared pair to every grouped
 row.
 
-## Foreign-key values
+## Source-bound relation membership
 
-`foreign-key-reference.ts` binds every planning or final source to one
-foreign/referenced field pair. A transition reads the old value and writes the
-new value. Final operation references cannot enter planning SQL, and lookup SQL
-cannot select a branch.
+`relation-membership.ts` owns the two physical child-held representations.
+Ordinary membership is an ordered set of foreign/referenced members.
+Polymorphic membership is fixed storage and discriminator plus one identity
+source. Relation Parts and record compilers receive one of these bindings; they
+do not receive separate FK arrays, private-storage arrays, or relation names to
+reconstruct the same edge. The owner lowers writes, clears, correlations,
+projections, and decoded-row membership tests.
+
+A transition reads the old value and writes the new value. Final operation
+references cannot enter planning SQL, and lookup SQL cannot select a branch.
 
 `RecordUpdateCompiler` and relation owners that pass it a selected target write
 by the captured primary key. Scalar probe-first upsert also writes by that key

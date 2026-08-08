@@ -18,12 +18,8 @@ import {
 import type { QueryEngine } from "../query-engine";
 import { getForeignKeyTargetFields } from "../TargetConstraint";
 import type { QueryScope } from "../types";
-import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
-import type {
-  FinalReferenceSource,
-  ForeignKeyMember,
-} from "./foreign-key-reference";
 import type { TargetConstraintPin } from "./OperationFragment";
+import type { RelationMembershipBinding } from "./relation-membership";
 import type { StepScope } from "./StepScope";
 
 /**
@@ -42,7 +38,7 @@ export interface SubOperationOptions {
    * (`data` — the enclosing operation's whole-args parse validated the whole tree, so this
    * subtree does NOT re-parse; re-parsing a schema's transformed output is non-idempotent,
    * X2). It emits NO terminal read (the enclosing operation owns the result), and it folds
-   * field-bound incoming foreign-key members into its ROOT record's INSERT. Every
+   * one source-bound incoming membership into its ROOT record's INSERT. Every
    * mechanism the create ROOT already
    * supports — a database-generated / compound PK (backward `Ref` / per-field identity),
    * a parent-held-FK to-one grandchild (before-parent create), the fresh-parent adopt
@@ -50,8 +46,7 @@ export interface SubOperationOptions {
    */
   readonly nestedFresh?: {
     readonly data: Record<string, unknown>;
-    readonly incomingForeignKey: readonly ForeignKeyMember[];
-    readonly incomingPolymorphicStorage?: readonly PolymorphicStorageValue<FinalReferenceSource>[];
+    readonly incomingMembership?: RelationMembershipBinding;
     readonly relationName: string;
     /**
      * N4-U2 — the raceable missing-premise pin of an enclosing adopt arm. A nested

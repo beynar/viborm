@@ -5,8 +5,6 @@ import { PGlite } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { beforeAll, describe, expect, test } from "vitest";
 import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
@@ -16,6 +14,8 @@ import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation"
 import { compoundKeyBehaviorSchema } from "@tests/fixtures/compound-key-behavior-schema";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
+import { createSchemaRegistry } from "@validation";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * The route inventory (PLAN P6 needs this pinned, not prose). Every write shape
@@ -1962,7 +1962,7 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     no index to misalign) absorbs connectOrCreate/upsert on compound-referenced child
   //     edges; the surviving refusal covers the m2m junction alone, re-justified (the
   //     join row keys its parent half with ONE column). The correlated-mode collapse risk
-  //     is closed at the TYPE level: UpsertParentBinding's discriminant makes
+  //     is closed at the TYPE level: the bound membership discriminant makes
   //     {correlated, per-field} unspellable, asserted with @ts-expect-error. Witnesses:
   //     compound-relation-adoption(.test|-behavior|-docker.test).ts, per-field decoys.
   //   · **−1, the junction joins the row its own insert made** (RelationJunctionPart):

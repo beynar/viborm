@@ -1,14 +1,13 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
+import type { AnyDriver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import type { WriteStep } from "@src/query-engine/write-engine/OperationFragment";
 import { StepScope } from "@src/query-engine/write-engine/StepScope";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 function createEngine(driver: AnyDriver): QueryEngine {
   const schemas = createSchemaRegistry(producedIdentitySchema);
@@ -31,7 +30,6 @@ function createNestedSquad(
       skipOwnWrite: true,
       nestedFresh: {
         data,
-        incomingForeignKey: [],
         relationName: "",
       },
     }

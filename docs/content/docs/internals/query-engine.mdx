@@ -208,11 +208,18 @@ emit their complete fresh-record subtree before the junction INSERT. These
 orders remain explicit because merging them would require placement policy or
 change observable step order.
 
-### Foreign-key provenance
+### Source-bound relation membership
 
-`foreign-key-reference.ts` binds each source to one foreign/referenced field
-pair. A consumer resolves the member; it never supplies a separate field name
-that could select the wrong value.
+`relation-membership.ts` binds each ordinary source to one
+foreign/referenced field pair, then binds those members to the child-held
+relation. The polymorphic form binds fixed storage and discriminator to one
+identity source. Consumers resolve the membership; they never supply a separate
+field name or private-storage channel that could select the wrong value.
+
+The same owner lowers assignment, clear, planning/final correlation, probe
+projection, and captured-row membership tests. This keeps ordinary and
+polymorphic relation Parts on one control-flow path without hiding their
+different physical storage.
 
 Planning and final sources are distinct. Literal and planning-field sources can
 feed planning SQL. Final references and lookup SQL remain final-only. A primary

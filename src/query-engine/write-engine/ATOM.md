@@ -271,9 +271,9 @@ Direct polymorphic mutation intent is not a bound inverse. It chooses a target
 variant per payload and lowers to `ResolvedPolymorphicMutation` plus one atomic
 private storage assignment.
 
-## 8. Field-bound foreign-key provenance
+## 8. Source-bound relation membership
 
-`foreign-key-reference.ts` owns value provenance for one FK edge.
+`relation-membership.ts` owns child-held membership and its value provenance.
 
 ```ts
 interface ForeignKeyMember {
@@ -289,6 +289,13 @@ interface CorrelatedForeignKeyMember extends ForeignKeyMember {
 
 The member binds a value source to one foreign/referenced field pair. A caller
 never passes an external field name when it resolves the source.
+
+`RelationMembershipBinding` then binds those members to an ordinary child-held
+relation, or binds one identity source to a polymorphic child-held relation's
+fixed storage and discriminator. Its correlated form adds the independent read
+source. This one value feeds assignment, clear, planning/final correlation,
+projection, and found-row classification; emitters do not branch on physical
+storage.
 
 Planning sources are literals or planning fields. Final sources can also be
 operation references, transitioned planning fields, or lookup SQL.
@@ -311,14 +318,14 @@ legality boundary. Binding topology does not perform that check early.
 Nested callers provide:
 
 - already parsed record data;
-- ordered incoming `ForeignKeyMember` values;
+- one optional `RelationMembershipBinding`;
 - an optional race pin for the root insert;
 - a shared step scope.
 
 The compiler owns:
 
 - scalar insert data;
-- incoming FK assignments;
+- incoming membership assignment;
 - parent-held before-writes;
 - child-held descendants;
 - generated identity capture when requested;
@@ -361,7 +368,7 @@ Its caller supplies target-read and root-write labels. The compiler exposes:
 The compiler owns:
 
 - user scalar SET data;
-- field-bound incoming FK assignments;
+- one optional incoming membership assignment;
 - parent-held FK folding;
 - child-held nested mutations;
 - required target projection;

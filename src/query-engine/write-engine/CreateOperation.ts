@@ -32,6 +32,7 @@ import {
   getDefaultScalarFieldNames,
   getTableName,
 } from "../context/query-scope";
+import { assertCreateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import {
   buildCreate,
   buildCreateManyPlan,
@@ -44,17 +45,9 @@ import {
 } from "../operations";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import { planNestedCreateIdentity } from "../operations/mutation-identity";
-import { assertCreateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import type { QueryEngine } from "../query-engine";
 import { ResultParser } from "../result/ResultParser";
 import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
-import {
-  type FinalReferenceSource,
-  type ForeignKeyMember,
-  foreignKeyWriteValue,
-  pairForeignKeyMembers,
-  resolvePolymorphicStorageValue,
-} from "./foreign-key-reference";
 import {
   childRacePin,
   exactlyOneRow,
@@ -92,8 +85,18 @@ import { buildJunctionParts } from "./RelationJunctionPart";
 import {
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
-  fkEquals,
 } from "./RelationUpsertPart";
+import {
+  bindRelationMembership,
+  type FinalReferenceSource,
+  type ForeignKeyMember,
+  fkEquals,
+  foreignKeyWriteValue,
+  lowerMembershipWrite,
+  pairForeignKeyMembers,
+  type RelationMembershipBinding,
+  resolvePolymorphicStorageValue,
+} from "./relation-membership";
 import { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -119,8 +122,7 @@ export interface FreshRecordPart extends Part {
 export type FreshRecordBuilder = (input: {
   readonly childScope: QueryScope;
   readonly data: Record<string, unknown>;
-  readonly incomingForeignKey: readonly ForeignKeyMember[];
-  readonly incomingPolymorphicStorage?: readonly PolymorphicStorageValue<FinalReferenceSource>[];
+  readonly incomingMembership?: RelationMembershipBinding;
   readonly relationName: string;
   readonly racePin?: TargetConstraintPin;
 }) => FreshRecordPart;
@@ -140,9 +142,8 @@ export function buildFreshRecordPart(
       skipOwnWrite: true,
       nestedFresh: {
         data: input.data,
-        incomingForeignKey: input.incomingForeignKey,
-        ...(input.incomingPolymorphicStorage
-          ? { incomingPolymorphicStorage: input.incomingPolymorphicStorage }
+        ...(input.incomingMembership
+          ? { incomingMembership: input.incomingMembership }
           : {}),
         relationName: input.relationName,
         rootRacePin: input.racePin,
@@ -359,9 +360,7 @@ export class CreateOperation {
   /** X1b — a nested fresh subtree emits no terminal read (the enclosing op owns
    *  the result) and injects the located parent's FK into its root INSERT. */
   private readonly suppressTerminal: boolean;
-  private readonly incomingForeignKey: readonly ForeignKeyMember[];
-  private readonly incomingPolymorphicStorage: readonly PolymorphicStorageValue<FinalReferenceSource>[];
-  private readonly incomingRelationName: string;
+  private readonly incomingMembership: RelationMembershipBinding | undefined;
   /** N4-U2 — the enclosing adopt arm's raceable missing-premise pin, carried by this
    *  subtree's ROOT record INSERT (the statement that was the arm's own create leaf
    *  before the arm became a subtree). */
@@ -401,10 +400,7 @@ export class CreateOperation {
     // INSERT at compile.
     const nestedFresh = options.nestedFresh;
     this.suppressTerminal = nestedFresh !== undefined;
-    this.incomingForeignKey = nestedFresh?.incomingForeignKey ?? [];
-    this.incomingPolymorphicStorage =
-      nestedFresh?.incomingPolymorphicStorage ?? [];
-    this.incomingRelationName = nestedFresh?.relationName ?? "";
+    this.incomingMembership = nestedFresh?.incomingMembership;
     this.rootRacePin = nestedFresh?.rootRacePin;
 
     let data: Record<string, unknown>;
@@ -570,14 +566,22 @@ export class CreateOperation {
     const writes: OperationStep[] = [];
     // X1b — the located parent's FK is folded into the root record's INSERT
     // (resolved here at compile: a literal constant, or a planned locate-row value).
-    const rootInject = this.resolveIncomingForeignKey(known);
+    const incoming = this.incomingMembership
+      ? lowerMembershipWrite(
+          this.engine,
+          createQueryScope(this.engine.adapter, this.model),
+          this.incomingMembership,
+          known,
+          "create"
+        )
+      : { data: {}, polymorphicStorage: [] };
     const rootInsertData = this.emitRecord(
       this.root,
-      rootInject,
+      incoming.data,
       known,
       guards,
       writes,
-      this.incomingPolymorphicStorage
+      incoming.polymorphicStorage
     );
     if (this.suppressTerminal) {
       // A nested fresh subtree contributes only its writes/guards; the enclosing
@@ -881,12 +885,9 @@ export class CreateOperation {
       );
     }
     if (
-      this.connectIsCovered(
-        input.coverage,
-        input.edge.targetModel,
-        where,
-        [input.edge.referencedField]
-      )
+      this.connectIsCovered(input.coverage, input.edge.targetModel, where, [
+        input.edge.referencedField,
+      ])
     ) {
       input.parentHeldArms.push({
         kind: "polymorphic-connect-covered",
@@ -931,10 +932,7 @@ export class CreateOperation {
     edge: ResolvedPolymorphicEdge,
     where: Record<string, unknown>
   ): PolymorphicStorageValue<FinalReferenceSource> {
-    const id: FinalReferenceSource = Object.hasOwn(
-      where,
-      edge.referencedField
-    )
+    const id: FinalReferenceSource = Object.hasOwn(where, edge.referencedField)
       ? { kind: "literal", value: where[edge.referencedField] }
       : {
           kind: "lookup",
@@ -1128,19 +1126,13 @@ export class CreateOperation {
     for (const [relationName, program] of Object.entries(relations)) {
       const direct = polymorphic[relationName];
       if (direct?.kind === "targeted") {
-        const create = program.entries.find(
-          (entry) => entry.kind === "create"
-        );
+        const create = program.entries.find((entry) => entry.kind === "create");
         const data = create?.items[0];
-        if (
-          data &&
-          Object.hasOwn(data, direct.edge.referencedField)
-        ) {
+        if (data && Object.hasOwn(data, direct.edge.referencedField)) {
           targets.push({
             model: direct.edge.targetModel,
             key: {
-              [direct.edge.referencedField]:
-                data[direct.edge.referencedField],
+              [direct.edge.referencedField]: data[direct.edge.referencedField],
             },
           });
         }
@@ -1652,38 +1644,36 @@ export class CreateOperation {
           input.afterParts.push(
             // P4 — one Part per key-shape GROUP, so `connect: [a, b, c]` sends one
             // probe and one write instead of six statements.
-            ...groupLinkTargets(childScope, entry.targets).map(
-              (wheres) => {
-                const common = {
-                  engine: this.engine,
-                  childScope,
-                  childName: getStepModelName(
-                    relationInfo.targetModel,
-                    relationName
-                  ),
-                  wheres,
-                  txMode,
-                };
-                return relation.kind === "polymorphicChildHeldToMany"
-                  ? new ChildConnectPart(this.scope, {
-                      ...common,
+            ...groupLinkTargets(childScope, entry.targets).map((wheres) => {
+              const common = {
+                engine: this.engine,
+                childScope,
+                childName: getStepModelName(
+                  relationInfo.targetModel,
+                  relationName
+                ),
+                wheres,
+                txMode,
+              };
+              return relation.kind === "polymorphicChildHeldToMany"
+                ? new ChildConnectPart(this.scope, {
+                    ...common,
+                    relation,
+                    polymorphicStorage: this.childPolymorphicStorage(
+                      input.self,
+                      relation
+                    ),
+                  })
+                : new ChildConnectPart(this.scope, {
+                    ...common,
+                    relation,
+                    fkAssign: this.childFkAssign(
+                      input.self,
                       relation,
-                      polymorphicStorage: this.childPolymorphicStorage(
-                        input.self,
-                        relation
-                      ),
-                    })
-                  : new ChildConnectPart(this.scope, {
-                      ...common,
-                      relation,
-                      fkAssign: this.childFkAssign(
-                        input.self,
-                        relation,
-                        childScope.model
-                      ),
-                    });
-              }
-            )
+                      childScope.model
+                    ),
+                  });
+            })
           );
           break;
         case "connectOrCreate":
@@ -1691,19 +1681,19 @@ export class CreateOperation {
             ...buildConnectOrCreateParts(
               this.scope,
               this.engine,
-              relation,
               entry.items,
               relation.kind === "polymorphicChildHeldToMany"
-                ? {
-                    kind: "polymorphic",
-                    parentId: this.referencedParentSource(
+                ? bindRelationMembership(
+                    relation,
+                    this.referencedParentSource(
                       input.self,
                       relation.referencedFields[0],
                       relationName
-                    ),
-                  }
+                    )
+                  )
                 : {
                     kind: "foreignKey",
+                    relation,
                     members: this.childEdgeMembers(input.self, relation),
                   },
               txMode,
@@ -1716,19 +1706,19 @@ export class CreateOperation {
             ...buildToManyUpsertParts(
               this.scope,
               this.engine,
-              relation,
               entry.items,
               relation.kind === "polymorphicChildHeldToMany"
-                ? {
-                    kind: "polymorphic",
-                    parentId: this.referencedParentSource(
+                ? bindRelationMembership(
+                    relation,
+                    this.referencedParentSource(
                       input.self,
                       relation.referencedFields[0],
                       relationName
-                    ),
-                  }
+                    )
+                  )
                 : {
                     kind: "foreignKey",
+                    relation,
                     members: this.childEdgeMembers(input.self, relation),
                   },
               txMode,
@@ -1835,13 +1825,15 @@ export class CreateOperation {
         "recoverableUniqueError";
     const base = getStepModelName(childScope.model, relation.relationInfo.name);
     input.createManyGroups.push({
-      steps: plan.statements.map((statement): WriteStep => ({
-        id: this.scope.allocate(`${base}.createMany`),
-        kind: "write",
-        statement: statement.sql,
-        outputs: {},
-        ...(recoverUnique ? { onUniqueConflict: "skip" } : {}),
-      })),
+      steps: plan.statements.map(
+        (statement): WriteStep => ({
+          id: this.scope.allocate(`${base}.createMany`),
+          kind: "write",
+          statement: statement.sql,
+          outputs: {},
+          ...(recoverUnique ? { onUniqueConflict: "skip" } : {}),
+        })
+      ),
       databaseAssigned: plan.statements.map((statement) =>
         statement.inputIndexes.some((index) =>
           insertTakesDatabaseAssignedValue(childScope.model, rows[index]!)
@@ -2019,18 +2011,15 @@ export class CreateOperation {
     known: Readonly<Record<string, unknown>>,
     guards: OperationStep[],
     writes: OperationStep[],
-    incomingPolymorphicStorage: readonly PolymorphicStorageValue<FinalReferenceSource>[] = []
+    initialPolymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
   ): EmittedRecordData {
     const insertData: Record<string, unknown> = {
       ...plan.scalarData,
       ...inject,
     };
-    const polymorphicStorage: PolymorphicStorageValue<unknown>[] = [];
-    for (const value of incomingPolymorphicStorage) {
-      polymorphicStorage.push(
-        resolvePolymorphicStorageValue(this.engine, value, known, "create")
-      );
-    }
+    const polymorphicStorage: PolymorphicStorageValue<unknown>[] = [
+      ...initialPolymorphicStorage,
+    ];
     // 1. Before the record INSERT: resolve each parent-held to-one arm — a before-
     //    parent target INSERT (emitted first, its id referenced backward), a covered
     //    connect (pure FK assign), or an uncovered connect/connectOrCreate probe +
@@ -2058,7 +2047,9 @@ export class CreateOperation {
         known,
         guards,
         writes,
-        child.polymorphicStorage
+        (child.polymorphicStorage ?? []).map((value) =>
+          resolvePolymorphicStorageValue(this.engine, value, known, "create")
+        )
       );
     }
     for (const group of plan.createManyGroups) {
@@ -2335,21 +2326,6 @@ export class CreateOperation {
       this.generatedIdentityConsumers.add(record.writeStepId);
     }
     return freshReferenced(record, referencedField);
-  }
-
-  private resolveIncomingForeignKey(
-    known: Readonly<Record<string, unknown>>
-  ): Record<string, unknown> {
-    const assignments: Record<string, unknown> = {};
-    for (const member of this.incomingForeignKey) {
-      assignments[member.foreignField] = referenceSql(
-        this.engine,
-        this.model,
-        member.foreignField,
-        foreignKeyWriteValue(member, known, this.incomingRelationName, "create")
-      );
-    }
-    return assignments;
   }
 
   /**
@@ -2788,17 +2764,13 @@ class ChildConnectPart implements Part {
           ? buildUpdate(this.config.childScope, {
               where: this.config.wheres[0]!,
               data,
-              ...(polymorphicStorage
-                ? { polymorphicStorage }
-                : {}),
+              ...(polymorphicStorage ? { polymorphicStorage } : {}),
               select: this.pkSelect(),
             })
           : buildUpdateMany(this.config.childScope, {
               where: this.groupSelector(),
               data,
-              ...(polymorphicStorage
-                ? { polymorphicStorage }
-                : {}),
+              ...(polymorphicStorage ? { polymorphicStorage } : {}),
             }),
       outputs: {},
     });

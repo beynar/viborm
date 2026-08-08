@@ -1,6 +1,6 @@
 # Query-Engine Compression Audit
 
-**Current as of:** 2026-08-07
+**Current as of:** 2026-08-08
 
 **Historical boundary:** `db3317770ce7e589ba1da849570eda6925c4c478`
 
@@ -47,7 +47,7 @@ symbols:
 | identity | step scope and output references |
 | parsed relation meaning | relation mutation program |
 | topology | bound relation |
-| value provenance | field-bound FK members |
+| value provenance | source-bound relation membership and field-bound FK members |
 | fresh record | `CreateOperation` |
 | selected record | `RecordUpdateCompiler` |
 | edge policy | relation Parts |
@@ -69,7 +69,8 @@ previous standalone scanner lost lexical state after template expressions and
 could count backticks in later comments as code. The corrected figures below
 supersede the older token-line claims.
 
-Against the historical boundary above, the current working tree measures:
+At the last pre-polymorphic compression checkpoint, the historical boundary
+above measured:
 
 | Measure | Historical | Current | Net |
 | --- | ---: | ---: | ---: |
@@ -91,7 +92,7 @@ The final refinement started at `4f696b46ddee4f44c954e3370d98cc371f73a5ee`:
 | write-engine runtime cycles | 1 | 0 | **−1** |
 | `RelationJunctionPart.ts` | 2,565 | 2,242 | **−323** |
 
-The current closure pass changed six executable-owner production files:
+That closure pass changed six executable-owner production files:
 
 | Measure | Before | After | Net |
 | --- | ---: | ---: | ---: |
@@ -107,12 +108,12 @@ work in `execution-context.ts` accounts for another 16 physical and 14
 token-start lines in the working-tree total and is not attributed to this
 pass. Architecture Markdown is also excluded from production compression.
 
-The corrected token measure changes the conclusion: the long compression series
+The corrected token measure changed the conclusion: the long compression series
 removed physical size, functions, branches, cycles, false concepts, and ownership
 surfaces, but it did not reduce token-start production lines against the
-historical boundary. The current closure pass itself removes 9 such lines.
+historical boundary. That closure pass itself removed 9 such lines.
 
-The durable concept count remains approximately 17. Exact junction state and
+The durable concept count remained approximately 17. Exact junction state and
 the type-only compiler seam are representations of existing responsibilities,
 not new semantic owners. This refinement instead deleted or merged compatibility
 carriers: `OwnWritePreflight`, `canonicalRecordUpdateData`,
@@ -122,7 +123,7 @@ carriers: `OwnWritePreflight`, `canonicalRecordUpdateData`,
 configuration channels, the inverse-upsert local selected-update builder, and
 `updateArmUsesCompiler`.
 
-The closure pass adds no durable concept. It removes the `RelationWriteKind`
+The closure pass added no durable concept. It removed the `RelationWriteKind`
 carrier and the false optional inverse-upsert subtree state, reuses the bound
 relation already present in an OwnWrite footprint, and removes the junction
 disconnect slot's dummy update payload. The resulting exact slot aliases are
@@ -132,6 +133,27 @@ Three false ownership surfaces disappeared: OwnWrite's pass-through preflight,
 the duplicate nested fresh-record compiler surface, and the inverse to-one
 upsert's private selected-update path. The junction's optional aligned arrays
 also became one exact input variant and one exact allocated plan.
+
+The inverse-polymorphic feature then expanded the engine. The source-bound
+membership pass started at `2751a454c638f111e7d2467a347a6366d52875eb` and
+compressed the feature without removing behavior:
+
+| Measure | Before | After | Net |
+| --- | ---: | ---: | ---: |
+| query-engine physical lines | 37,408 | 37,166 | **−242** |
+| query-engine token-start lines | 28,525 | 28,354 | **−171** |
+| query-engine branch nodes | 3,345 | 3,304 | **−41** |
+| write-engine physical lines | 19,637 | 19,395 | **−242** |
+| write-engine token-start lines | 14,637 | 14,466 | **−171** |
+| write-engine branch nodes | 1,467 | 1,426 | **−41** |
+| write-engine runtime cycles | 0 | 0 | **0** |
+
+This pass replaced the dual incoming-FK/private-storage compiler channels with
+one exact membership binding. It also deleted `UpsertParentBinding`, the
+planning/final polymorphic identity wrappers, and the relation emitters' local
+assignment, clear, correlation, projection, storage, and found-row helper
+families. The stronger carrier adds no durable responsibility, so the grouped
+concept count remains approximately 17.
 
 `QueryMetadata` remains only as a deprecated compatibility alias. It is not a
 runtime concept and does not increase this count.
@@ -147,9 +169,9 @@ forms. It does not contain topology or execution deduplication.
 ### BoundRelation: where the edge is stored
 
 The bound relation classifies an edge as parent-held to-one, child-held to-one,
-child-held to-many, or junction. It carries ordered topology only. It does not
-contain scopes, identities, value sources, transition values, SQL, or branch
-policy.
+child-held to-many, polymorphic child-held to-many, or junction. It carries
+ordered topology only. It does not contain scopes, identities, value sources,
+transition values, SQL, or branch policy.
 
 Parent and child are recursive, edge-relative roles: parent is the enclosing
 source record whose relation field is being compiled, and child is its target.
@@ -157,7 +179,8 @@ source record whose relation field is being compiled, and child is its target.
 
 ### CreateOperation: one fresh record
 
-The create compiler receives parsed data and field-bound incoming FK members.
+The create compiler receives parsed data and one optional source-bound incoming
+membership.
 It owns the root insert, generated identity demand, nested record effects, and
 fresh subtree order. The explicit inline junction-target insert and
 `createMany` remain specialized. A fresh parent stores its post-insert
@@ -168,8 +191,9 @@ create-many groups in `CreateOperation`; a selected parent uses
 ### RecordUpdateCompiler: one selected record
 
 The update compiler receives scalar data, relation programs, a captured target,
-and optional incoming FK assignments. It owns the root SET, nested relations,
-required target projection, primary-key transition logic, and descendant order.
+and one optional source-bound incoming membership. It owns the root SET, nested
+relations, required target projection, primary-key transition logic, and
+descendant order.
 It returns no compiler for a true no-op before allocating a step ID.
 
 For `parentHeldToOne`, the compiler also owns the inline FK fold and branch that
@@ -182,6 +206,20 @@ path.
 Child-held and junction owners keep selector and parent correlation, membership,
 found/missing decisions, not-found behavior, guards, race pins, junction writes,
 and standalone edge effects. They pass the captured target to the record compiler.
+
+### One source-bound membership value
+
+Ordinary child-held relations and polymorphic inverse relations have different
+physical storage, but the write engine asks the same questions of both: how to
+assign membership, clear it, correlate a planning or final statement, project
+the columns needed by a branch, and decide whether a captured row belongs to the
+parent. `relation-membership.ts` answers those questions from one discriminated
+value. Link, set, targeted-write, upsert, create, and selected-update code no
+longer reconstruct those rules from parallel relation/source/storage inputs.
+
+This does not merge direct polymorphic intent or junction membership. Direct
+intent selects a target variant from the payload; junction membership is a join
+row. Neither has the same invariant as a child-held edge.
 
 ## Why the remaining branches are real
 

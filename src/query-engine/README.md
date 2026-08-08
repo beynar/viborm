@@ -101,8 +101,9 @@ whose relation field is being compiled; child is its target. A
 
 `CreateOperation` compiles non-bulk fresh record subtrees.
 `RecordUpdateCompiler` compiles non-bulk updates for an already-selected record.
-The record compiler owns scalar assignments, incoming FK values, nested record
-effects, required target fields, primary-key transitions, and root-write order.
+The record compiler owns scalar assignments, an optional incoming membership,
+nested record effects, required target fields, primary-key transitions, and
+root-write order.
 
 Relation Parts still own target reads, parent correlation, membership,
 found/missing decisions, not-found failures, guards, race pins, junction

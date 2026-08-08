@@ -2,23 +2,14 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
-import {
-  bindRelation,
-  type ChildHeldToMany,
-  type ChildHeldToOne,
-  type PolymorphicChildHeldToMany,
-} from "../builders/relation-data-builder";
-import { buildPolymorphicMembershipPredicate } from "../builders/correlation-utils";
-import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
+import { bindRelation } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type ConnectOrCreateInput,
   type NormalizedRelationUpsert,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import {
-  getWhereUniqueEntries,
-} from "../builders/where-unique-builder";
+import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique, buildUpdate } from "../operations";
 import {
@@ -31,32 +22,19 @@ import {
   assertRelationKeyUpdatesAreCompilable,
   assertSelectedUpdateManyDataIsScalar,
 } from "../relation-key-legality";
-import type { QueryScope } from "../types";
 import {
   classifyTargetConstraintOverlap,
   getCreatedWhereUniqueTarget,
   normalizeWhereUniqueTargetConstraint,
   type TargetConstraint,
 } from "../TargetConstraint";
-import {
-  type CorrelatedForeignKeyMember,
-  type FinalReferenceSource,
-  type ForeignKeyMember,
-  foreignKeyResolvedReadValue,
-  foreignKeyWriteValue,
-  foreignKeyWriteValueWith,
-  linkedPolymorphicStorage,
-  literalReferenceValue,
-  polymorphicFinalIdentitySql,
-  resolvePolymorphicStorageValue,
-} from "./foreign-key-reference";
+import type { QueryScope } from "../types";
 import {
   affectedRows,
   childRacePin,
   existsGuard,
   nestedWriteFailure,
   presenceGuard,
-  referenceSql,
 } from "./fragment-builders";
 import {
   nestedReplacement,
@@ -78,6 +56,17 @@ import type {
   RecordCompilerSeam,
   RecordUpdateCompiler,
 } from "./RecordUpdateCompiler";
+import {
+  type CorrelatedRelationMembershipBinding,
+  type ForeignKeyMember,
+  finalMembershipCondition,
+  fkEquals,
+  literalReferenceValue,
+  lowerMembershipWrite,
+  membershipProjection,
+  type RelationMembershipBinding,
+  recordHasMembership,
+} from "./relation-membership";
 import type { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -147,12 +136,6 @@ export type UpsertCorrelation = "global-adopt" | "correlated";
  */
 export type UpsertFamily = "connectOrCreate" | "upsert";
 
-type ChildHeldRelation =
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToMany;
-type OrdinaryChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
-
 /**
  * Everything the part needs. Correlated members add a planning source to the same
  * foreign/referenced pair that owns the final write source.
@@ -170,7 +153,6 @@ interface RelationUpsertConfigCore {
   /** Whether the probe publishes its captured primary key as a `firstRowField`
    *  output (set exactly when the update arm's grandchildren `planned`-read it). */
   readonly publishesLocatedPk?: boolean;
-  readonly relation: ChildHeldRelation;
   readonly where: Record<string, unknown>;
   readonly updateData: Readonly<Record<string, unknown>>;
   readonly updateCompiler?: RecordUpdateCompiler;
@@ -215,39 +197,14 @@ interface RelationUpsertConfigCore {
 export type RelationUpsertConfig = RelationUpsertConfigCore &
   (
     | {
-        readonly relation: OrdinaryChildHeldRelation;
         readonly correlation: "global-adopt";
-        readonly members: readonly ForeignKeyMember[];
+        readonly membership: RelationMembershipBinding;
       }
     | {
-        readonly relation: OrdinaryChildHeldRelation;
         readonly correlation: "correlated";
-        readonly members: readonly CorrelatedForeignKeyMember[];
-      }
-    | {
-        readonly relation: PolymorphicChildHeldToMany;
-        readonly correlation: "global-adopt";
-        readonly parentId: FinalReferenceSource;
-      }
-    | {
-        readonly relation: PolymorphicChildHeldToMany;
-        readonly correlation: "correlated";
-        readonly parentId: FinalReferenceSource;
-        readonly membershipReadSource: FinalReferenceSource;
+        readonly membership: CorrelatedRelationMembershipBinding;
       }
   );
-
-export type UpsertParentBinding =
-  | {
-      readonly kind: "foreignKey";
-      readonly members: readonly ForeignKeyMember[];
-      readonly correlationMembers?: readonly CorrelatedForeignKeyMember[];
-    }
-  | {
-      readonly kind: "polymorphic";
-      readonly parentId: FinalReferenceSource;
-      readonly membershipReadSource?: FinalReferenceSource;
-    };
 
 /**
  * The to-many nested-upsert child part (README “Three independent facts”)
@@ -280,7 +237,7 @@ export class RelationUpsertPart implements Part {
   private readonly duplicateOfEarlier: boolean;
 
   private get relationName(): string {
-    return this.config.relation.relationInfo.name;
+    return this.config.membership.relation.relationInfo.name;
   }
 
   constructor(scope: StepScope, config: RelationUpsertConfig) {
@@ -290,7 +247,7 @@ export class RelationUpsertPart implements Part {
     this.createSubtree = config.createSubtree;
     this.duplicateOfEarlier = config.duplicateOfEarlier ?? false;
     const { childScope, childName, where, txMode } = config;
-    const relationName = config.relation.relationInfo.name;
+    const relationName = config.membership.relation.relationInfo.name;
     this.probeId = config.probeId;
     this.updateId =
       this.updateCompiler?.writeId ?? scope.allocate(`${childName}.update`);
@@ -302,15 +259,19 @@ export class RelationUpsertPart implements Part {
     this.find = {
       id: this.probeId,
       kind: "read",
-      statement: buildFindUnique(childScope, {
-        where,
-        select: this.identitySelect(),
-        forUpdate: txMode,
-      }, {
-        ...(this.polymorphicProjection().length > 0
-          ? { additionalColumns: this.polymorphicProjection() }
-          : {}),
-      }),
+      statement: buildFindUnique(
+        childScope,
+        {
+          where,
+          select: this.identitySelect(),
+          forUpdate: txMode,
+        },
+        {
+          ...(this.boundProjection().additionalColumns.length > 0
+            ? { additionalColumns: this.boundProjection().additionalColumns }
+            : {}),
+        }
+      ),
       // N4-U1: when the update arm's grandchildren take this probe's captured primary
       // key as their parent value, the probe must PUBLISH it so their planning probes
       // can `Ref` it in SQL. The output is OPTIONAL because an empty probe is this
@@ -377,28 +338,15 @@ export class RelationUpsertPart implements Part {
     const select: Record<string, boolean> = {
       [this.config.childPrimaryKey]: true,
     };
-    if ("members" in this.config) {
-      for (const member of this.config.members) {
-        select[member.foreignField] = true;
-      }
-    }
+    for (const field of this.boundProjection().fields) select[field] = true;
     for (const field of this.updateCompiler?.requiredTargetFields ?? []) {
       select[field] = true;
     }
     return select;
   }
 
-  private polymorphicProjection(): readonly Sql[] {
-    const relation = this.config.relation;
-    if (relation.kind !== "polymorphicChildHeldToMany") return [];
-    const { adapter, rootAlias } = this.config.childScope;
-    return [relation.storage.typeColumn, relation.storage.idColumn].map(
-      (column) =>
-        adapter.identifiers.aliased(
-          adapter.identifiers.column(rootAlias, column.name),
-          column.name
-        )
-    );
+  private boundProjection() {
+    return membershipProjection(this.config.childScope, this.config.membership);
   }
 
   /** The address consumers read this part's probe rows from in `known`. */
@@ -566,10 +514,17 @@ export class RelationUpsertPart implements Part {
   ): Sql {
     const config = this.config;
     const { childScope, where, childPrimaryKey } = config;
-    const predicate =
+    const membership =
       known && config.correlation === "correlated"
-        ? this.polymorphicMembershipPredicate(known)
-        : undefined;
+        ? finalMembershipCondition(
+            config.engine,
+            childScope,
+            config.membership,
+            childScope.rootAlias,
+            known,
+            "upsert"
+          )
+        : { filters: [], predicate: undefined };
     return buildFind(
       childScope,
       {
@@ -579,25 +534,15 @@ export class RelationUpsertPart implements Part {
             ...(capturedPk === undefined
               ? []
               : [{ [childPrimaryKey]: { equals: capturedPk } }]),
-            ...(known &&
-            config.correlation === "correlated" &&
-            "members" in config
-              ? config.members.map((member) => ({
-                  [member.foreignField]: {
-                    equals: foreignKeyResolvedReadValue(
-                      member,
-                      known,
-                      this.relationName,
-                      "upsert"
-                    ),
-                  },
-                }))
-              : []),
+            ...membership.filters,
           ],
         },
         select: this.identitySelect(),
       },
-      { limit: 1, ...(predicate ? { predicate } : {}) }
+      {
+        limit: 1,
+        ...(membership.predicate ? { predicate: membership.predicate } : {}),
+      }
     );
   }
 
@@ -613,38 +558,11 @@ export class RelationUpsertPart implements Part {
     if (rows.length === 0) return "create";
     const config = this.config;
     if (config.correlation === "global-adopt") return "found";
-    const record = locatedRow(rows);
-    if ("membershipReadSource" in config) {
-      const relation = config.relation;
-      const identity = foreignKeyWriteValue(
-        {
-          foreignField: relation.storage.idColumn.name,
-          referencedField: relation.referencedFields[0],
-          writeSource: config.membershipReadSource,
-        },
-        known,
-        this.relationName,
-        "upsert"
-      );
-      const correlated =
-        record?.[relation.storage.typeColumn.name] === relation.storedType &&
-        fkEquals(record?.[relation.storage.idColumn.name], identity);
-      if (correlated) return "found";
-      throw new NestedWriteError(
-        upsertTargetNotFoundForParent(this.relationName),
-        this.relationName
-      );
+    if (
+      recordHasMembership(config.membership, locatedRow(rows), known, "upsert")
+    ) {
+      return "found";
     }
-    // Correlated: found only if EVERY child FK column already equals its
-    // referenced parent column (a compound edge correlates per-field). A partial
-    // or foreign match is the found-uncorrelated V7001 (V1's verbatim message).
-    const correlated = config.members.every((member) =>
-      fkEquals(
-        record?.[member.foreignField],
-        foreignKeyResolvedReadValue(member, known, this.relationName, "upsert")
-      )
-    );
-    if (correlated) return "found";
     throw new NestedWriteError(
       upsertTargetNotFoundForParent(this.relationName),
       this.relationName
@@ -660,7 +578,13 @@ export class RelationUpsertPart implements Part {
   ): WriteStep {
     const { childScope, txMode } = this.config;
     const relationName = this.relationName;
-    const polymorphicStorage = this.polymorphicWriteStorage(known);
+    const membership = lowerMembershipWrite(
+      this.config.engine,
+      childScope,
+      this.config.membership,
+      known,
+      this.family
+    );
     const step: WriteStep = {
       id: this.updateId,
       kind: "write",
@@ -670,9 +594,11 @@ export class RelationUpsertPart implements Part {
           ...this.config.updateData,
           // global-adopt reparents to the new parent; correlated re-sets the
           // same value (idempotent). Both land the FK the terminal read expects.
-          ...this.fkAssignData(known),
+          ...membership.data,
         },
-        ...(polymorphicStorage ? { polymorphicStorage } : {}),
+        ...(membership.polymorphicStorage.length > 0
+          ? { polymorphicStorage: membership.polymorphicStorage }
+          : {}),
         select: this.identitySelect(),
       }),
       outputs: {},
@@ -712,99 +638,6 @@ export class RelationUpsertPart implements Part {
         : step
     );
   }
-
-  private fkAssignData(known: PlanningKnown): Record<string, unknown> {
-    if (!("members" in this.config)) return {};
-    return fkAssignData(
-      this.config.engine,
-      this.config.childScope,
-      this.config.members,
-      {
-        relationName: this.relationName,
-        known,
-      }
-    );
-  }
-
-  private polymorphicMembershipPredicate(
-    known: PlanningKnown
-  ): Sql | undefined {
-    const config = this.config;
-    if (
-      !("membershipReadSource" in config)
-    ) {
-      return undefined;
-    }
-    return buildPolymorphicMembershipPredicate(
-      config.childScope,
-      config.relation,
-      config.childScope.rootAlias,
-      polymorphicFinalIdentitySql(
-        config.engine,
-        config.relation,
-        config.membershipReadSource,
-        known,
-        "upsert"
-      )
-    );
-  }
-
-  private polymorphicWriteStorage(
-    known: PlanningKnown
-  ): readonly PolymorphicStorageValue<unknown>[] | undefined {
-    const config = this.config;
-    if (!("parentId" in config)) {
-      return undefined;
-    }
-    return [
-      resolvePolymorphicStorageValue(
-        config.engine,
-        linkedPolymorphicStorage(config.relation, config.parentId),
-        known,
-        this.family
-      ),
-    ];
-  }
-}
-
-/**
- * The FK columns an adopt arm writes, each a cast SQL expression: a `Ref` to the
- * parent create (create context, single-field), the located parent id inlined as a
- * literal (update-by-unique context), or a compile-time literal (depth-composed
- * grandchild). All ride in `Sql.values`, so the create INSERT and the update SET
- * consume them identically. One entry per compound-key field (ATOM “Field-bound foreign-key provenance”).
- *
- * One home, two askers (N4-U2): the part's own arms, and — when the create arm is a
- * fresh SUBTREE — the incoming members that subtree's root INSERT folds. A second copy
- * is how a create arm and an update arm would come to disagree about which parent a
- * row belongs to.
- */
-function fkAssignData(
-  engine: QueryEngine,
-  childScope: QueryScope,
-  members: readonly ForeignKeyMember[],
-  context: {
-    readonly relationName: string;
-    readonly known: PlanningKnown;
-  }
-): Record<string, unknown> {
-  const { relationName, known } = context;
-  const data: Record<string, unknown> = {};
-  for (const member of members) {
-    data[member.foreignField] = referenceSql(
-      engine,
-      childScope.model,
-      member.foreignField,
-      foreignKeyWriteValueWith(
-        member,
-        known,
-        relationName,
-        "upsert",
-        (reference) => reference
-      )
-    );
-  }
-  return data;
 }
 
 /**
@@ -901,44 +734,6 @@ function unwrapSetOperand(value: unknown): unknown {
     : value;
 }
 
-export function fkEquals(childFk: unknown, parentId: unknown): boolean {
-  if (Object.is(childFk, parentId)) return true;
-  // Cross-driver numeric normalization (bigint vs number ids).
-  if (
-    (typeof childFk === "number" || typeof childFk === "bigint") &&
-    (typeof parentId === "number" || typeof parentId === "bigint")
-  ) {
-    return BigInt(childFk) === BigInt(parentId);
-  }
-  return false;
-}
-
-/** The parent id a child edge takes from a value the enclosing fragment PRODUCES —
- *  the create context's backward `Ref` (N4-U4 widened its source from "this record's own
- *  generated key" to any produced referenced value, so the ref arrives already built). */
-export function plannedParentId(readStep: string): FinalReferenceSource {
-  return { kind: "planningField", step: readStep };
-}
-
-export function literalParentId(value: unknown): FinalReferenceSource {
-  return { kind: "literal", value };
-}
-
-/** E6.7 — the located value with the root SET's operand applied, per referenced column,
- *  at compile. `readStep` and `field` are `planned`'s, because the READ is identical; only
- *  the phase at which the value becomes knowable differs. */
-export function transitionedParentId(
-  readStep: string,
-  field: string,
-  transition: (before: unknown, field: string) => unknown
-): FinalReferenceSource {
-  return {
-    kind: "transitionedPlanningField",
-    step: readStep,
-    apply: (before) => transition(before, field),
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Recursive to-many upsert composition. One shared builder folds a
 // nested upsert relation into a `RelationUpsertPart`; when that child's UPDATE
@@ -955,13 +750,60 @@ export function transitionedParentId(
 export function buildToManyUpsertParts(
   scope: StepScope,
   engine: QueryEngine,
-  relation: ChildHeldRelation,
   items: readonly NormalizedRelationUpsert[],
-  parent: UpsertParentBinding,
+  membership: RelationMembershipBinding,
   txMode: boolean,
   seam: RecordCompilerSeam,
   family: UpsertFamily = "upsert"
 ): RelationUpsertPart[] {
+  return buildUpsertParts(
+    scope,
+    engine,
+    items,
+    { correlation: "global-adopt", membership },
+    txMode,
+    seam,
+    family
+  );
+}
+
+export function buildCorrelatedToManyUpsertParts(
+  scope: StepScope,
+  engine: QueryEngine,
+  items: readonly NormalizedRelationUpsert[],
+  membership: CorrelatedRelationMembershipBinding,
+  txMode: boolean,
+  seam: RecordCompilerSeam
+): RelationUpsertPart[] {
+  return buildUpsertParts(
+    scope,
+    engine,
+    items,
+    { correlation: "correlated", membership },
+    txMode,
+    seam,
+    "upsert"
+  );
+}
+
+function buildUpsertParts(
+  scope: StepScope,
+  engine: QueryEngine,
+  items: readonly NormalizedRelationUpsert[],
+  parent:
+    | {
+        readonly correlation: "global-adopt";
+        readonly membership: RelationMembershipBinding;
+      }
+    | {
+        readonly correlation: "correlated";
+        readonly membership: CorrelatedRelationMembershipBinding;
+      },
+  txMode: boolean,
+  seam: RecordCompilerSeam,
+  family: UpsertFamily
+): RelationUpsertPart[] {
+  const relation = parent.membership.relation;
   const { relationInfo } = relation;
   const relationName = relationInfo.name;
   if (
@@ -1007,7 +849,6 @@ export function buildToManyUpsertParts(
     return buildOneUpsertPart(
       scope,
       engine,
-      relation,
       item,
       parent,
       txMode,
@@ -1056,24 +897,23 @@ function isSameOperationConnectOrCreateDuplicate(
 export function buildConnectOrCreateParts(
   scope: StepScope,
   engine: QueryEngine,
-  relation: ChildHeldRelation,
   items: readonly ConnectOrCreateInput[],
-  parent: UpsertParentBinding,
+  membership: RelationMembershipBinding,
   txMode: boolean,
   seam: RecordCompilerSeam
 ): RelationUpsertPart[] {
-  return buildAdoptParts(scope, engine, relation, items, parent, txMode, seam);
+  return buildAdoptParts(scope, engine, items, membership, txMode, seam);
 }
 
 function buildAdoptParts(
   scope: StepScope,
   engine: QueryEngine,
-  relation: ChildHeldRelation,
   items: readonly AdoptMutationItem[],
-  parent: UpsertParentBinding,
+  membership: RelationMembershipBinding,
   txMode: boolean,
   seam: RecordCompilerSeam
 ): RelationUpsertPart[] {
+  const relation = membership.relation;
   const { relationInfo } = relation;
   const child = createQueryScope(engine.adapter, relationInfo.targetModel);
   const createdSelectors: TargetConstraint[] = [];
@@ -1086,9 +926,8 @@ function buildAdoptParts(
     return buildOneUpsertPart(
       scope,
       engine,
-      relation,
       item,
-      parent,
+      { correlation: "global-adopt", membership },
       txMode,
       seam,
       "connectOrCreate",
@@ -1106,14 +945,22 @@ interface AdoptMutationItem {
 function buildOneUpsertPart(
   scope: StepScope,
   engine: QueryEngine,
-  relation: ChildHeldRelation,
   item: AdoptMutationItem,
-  parent: UpsertParentBinding,
+  parent:
+    | {
+        readonly correlation: "global-adopt";
+        readonly membership: RelationMembershipBinding;
+      }
+    | {
+        readonly correlation: "correlated";
+        readonly membership: CorrelatedRelationMembershipBinding;
+      },
   txMode: boolean,
   seam: RecordCompilerSeam,
   family: UpsertFamily,
   duplicateOfEarlier = false
 ): RelationUpsertPart {
+  const relation = parent.membership.relation;
   const { relationInfo } = relation;
   const relationName = relationInfo.name;
   if (relation.foreignFields.length !== relation.referencedFields.length) {
@@ -1139,7 +986,9 @@ function buildOneUpsertPart(
   // INSERT folds the parent key through its incoming members. A kept key would meet that fold
   // there and write the column twice.
   const ordinaryMembers =
-    parent.kind === "foreignKey" ? parent.members : undefined;
+    parent.membership.kind === "foreignKey"
+      ? parent.membership.members
+      : undefined;
   const rawCreate = requireRecord(
     item.create,
     `${relationName}.${family}.create`
@@ -1201,9 +1050,9 @@ function buildOneUpsertPart(
     );
   }
   const parentId =
-    parent.kind === "foreignKey"
-      ? parent.members[0]?.writeSource
-      : parent.parentId;
+    parent.membership.kind === "foreignKey"
+      ? parent.membership.members[0]?.writeSource
+      : parent.membership.writeSource;
   if (!parentId) {
     throw new QueryEngineError(
       `query-engine-v2 internal: relation '${relationName}' reached the upsert part with no foreign-key member.`
@@ -1219,11 +1068,9 @@ function buildOneUpsertPart(
       pinnedTarget
     );
   }
-  const incomingPolymorphicStorage =
-    relation.kind === "polymorphicChildHeldToMany" &&
-    parent.kind === "polymorphic"
-      ? [linkedPolymorphicStorage(relation, parent.parentId)]
-      : undefined;
+  const incomingMembership = parent.membership;
+  const correlatedMembership: CorrelatedRelationMembershipBinding | undefined =
+    parent.correlation === "correlated" ? parent.membership : undefined;
   const updateCompiler = update
     ? seam.updateSelected({
         scope,
@@ -1234,11 +1081,9 @@ function buildOneUpsertPart(
         polymorphic: childUpdate.polymorphic,
         targetRead: { label: `${childName}.find` },
         rootWrite: { label: `${childName}.update` },
-        ...(ordinaryMembers ? { incomingForeignKey: ordinaryMembers } : {}),
-        ...(incomingPolymorphicStorage &&
-        parent.kind === "polymorphic" &&
-        !parent.membershipReadSource
-          ? { incomingPolymorphicStorage }
+        ...(incomingMembership.kind === "foreignKey" ||
+        parent.correlation === "global-adopt"
+          ? { incomingMembership }
           : {}),
         relationName,
         pinnedTarget,
@@ -1262,8 +1107,7 @@ function buildOneUpsertPart(
   const createSubtree = seam.createFresh({
     childScope: child,
     data: create,
-    incomingForeignKey: ordinaryMembers ?? [],
-    ...(incomingPolymorphicStorage ? { incomingPolymorphicStorage } : {}),
+    incomingMembership,
     relationName,
     racePin: childRacePin(child, where),
   });
@@ -1273,7 +1117,6 @@ function buildOneUpsertPart(
     childScope: child,
     childName,
     probeId,
-    relation,
     where,
     updateData: childUpdate.scalarData,
     childPrimaryKey,
@@ -1284,49 +1127,18 @@ function buildOneUpsertPart(
     updateLegality,
     createSubtree,
   };
-  if (relation.kind === "polymorphicChildHeldToMany") {
-    if (parent.kind !== "polymorphic") {
-      throw new QueryEngineError(
-        `query-engine-v2 internal: polymorphic relation '${relationName}' reached the adopt builder with an ordinary foreign-key binding.`
-      );
-    }
-    return new RelationUpsertPart(
-      scope,
-      parent.membershipReadSource
-        ? {
-            ...common,
-            relation,
-            correlation: "correlated",
-            parentId: parent.parentId,
-            membershipReadSource: parent.membershipReadSource,
-          }
-        : {
-            ...common,
-            relation,
-            correlation: "global-adopt",
-            parentId: parent.parentId,
-          }
-    );
-  }
-  if (parent.kind !== "foreignKey") {
-    throw new QueryEngineError(
-      `query-engine-v2 internal: ordinary relation '${relationName}' reached the adopt builder with polymorphic storage.`
-    );
-  }
   return new RelationUpsertPart(
     scope,
-    parent.correlationMembers
+    correlatedMembership
       ? {
           ...common,
-          relation,
           correlation: "correlated",
-          members: parent.correlationMembers,
+          membership: correlatedMembership,
         }
       : {
           ...common,
-          relation,
           correlation: "global-adopt",
-          members: parent.members,
+          membership: incomingMembership,
         }
   );
 }

@@ -6,10 +6,9 @@ import type {
   ChildHeldToOne,
   PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
-import { buildPolymorphicMembershipPredicate } from "../builders/correlation-utils";
-import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import type { RelationMutationEntry } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
+import { getTableName } from "../context/query-scope";
 import {
   buildFind,
   buildFindUnique,
@@ -18,22 +17,7 @@ import {
 } from "../operations";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
-import { getTableName } from "../context/query-scope";
-import {
-  type FinalReferenceSource,
-  foreignKeyCorrelationValue,
-  foreignKeyWriteValue,
-  linkedPolymorphicStorage,
-  planningSourceFromFinal,
-  polymorphicFinalIdentitySql,
-  polymorphicPlanningIdentitySql,
-  resolvePolymorphicStorageValue,
-} from "./foreign-key-reference";
-import {
-  nestedWriteFailure,
-  presenceGuard,
-  referenceSql,
-} from "./fragment-builders";
+import { nestedWriteFailure, presenceGuard } from "./fragment-builders";
 import {
   countDistinctTargets,
   groupLinkTargets,
@@ -43,6 +27,19 @@ import { relationTargetNotFound } from "./messages";
 import type { OperationStep, ReadStep, WriteStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
+import {
+  bindCorrelatedRelationMembership,
+  bindRelationMembership,
+  type CorrelatedRelationMembershipBinding,
+  type FinalReferenceSource,
+  finalMembershipCondition,
+  type LoweredMembershipWrite,
+  lowerEmptyMembership,
+  lowerMembershipWrite,
+  planningMembershipCondition,
+  planningSourceFromFinal,
+  type RelationMembershipBinding,
+} from "./relation-membership";
 import type { StepScope } from "./StepScope";
 
 export type LinkKind = "connect" | "disconnect";
@@ -51,12 +48,10 @@ type LinkedRelation =
   | ChildHeldToMany
   | PolymorphicChildHeldToMany;
 
-export interface RelationLinkConfig {
+interface RelationLinkConfigBase {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relation: LinkedRelation;
-  readonly kind: LinkKind;
   /**
    * The child unique locators this Part links — one **key-shape group** (P4), in
    * input order. A one-entry group is the arity-1 case and keeps every statement
@@ -68,16 +63,22 @@ export interface RelationLinkConfig {
   /** `disconnect: true` — null every child currently connected to the parent. */
   readonly disconnectAll?: boolean;
   readonly childPrimaryKey: string;
-  /**
-   * Where the parent id the child FK points at comes from. In the update family
-   * this is a **planned** value (the root locate read), inlined as a literal at
-   * compile (a final-fragment step may not ref a planning step, ATOM “Proof obligations”).
-   * The disconnect probe, however, IS a planning step, so it correlates by a SQL
-   * `Ref` to that same locate read — planning's correlated-reference technique.
-   */
-  readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
 }
+
+type ConnectRelationLinkConfig = RelationLinkConfigBase & {
+  readonly kind: "connect";
+  readonly membership: RelationMembershipBinding;
+};
+
+type DisconnectRelationLinkConfig = RelationLinkConfigBase & {
+  readonly kind: "disconnect";
+  readonly membership: CorrelatedRelationMembershipBinding;
+};
+
+export type RelationLinkConfig =
+  | ConnectRelationLinkConfig
+  | DisconnectRelationLinkConfig;
 
 /**
  * The to-many (child-held-FK) connect/disconnect Part. A nested link mutation is
@@ -146,7 +147,7 @@ export class RelationLinkPart implements Part {
 
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     if (this.config.kind === "connect") return this.compileConnect(known);
-    return this.compileDisconnect(known);
+    return this.compileDisconnect(known, this.config);
   }
 
   /** The uncorrelated (connect) / correlated (disconnect) existence probe. */
@@ -179,9 +180,10 @@ export class RelationLinkPart implements Part {
     }
     // Disconnect: correlate the probe to the located parent by a SQL Ref — the
     // hard-correlation read that carries technique #1's positive witness.
-    const predicate = this.membershipPredicate(
-      undefined,
-      true,
+    const membership = planningMembershipCondition(
+      this.config.engine,
+      childScope,
+      this.config.membership,
       childScope.rootAlias
     );
     return {
@@ -191,14 +193,14 @@ export class RelationLinkPart implements Part {
         childScope,
         {
           where: {
-            AND: [...this.selectorConjuncts(), ...this.correlationFilters()],
+            AND: [...this.selectorConjuncts(), ...membership.filters],
           },
           select,
           forUpdate: txMode,
         },
         {
           ...(wheres.length === 1 ? { limit: 1 } : {}),
-          ...(predicate ? { predicate } : {}),
+          ...(membership.predicate ? { predicate: membership.predicate } : {}),
         }
       ),
       outputs: { rows: { kind: "rows" } },
@@ -231,14 +233,25 @@ export class RelationLinkPart implements Part {
     steps.push({
       id: this.writeId,
       kind: "write",
-      statement: this.linkWrite(this.fkAssignData(known), known),
+      statement: this.linkWrite(
+        lowerMembershipWrite(
+          this.config.engine,
+          this.config.childScope,
+          this.config.membership,
+          known,
+          "connect"
+        )
+      ),
       outputs: {},
     });
     return steps;
   }
 
-  private compileDisconnect(known: PlanningKnown): readonly OperationStep[] {
-    if (this.config.disconnectAll) return [this.buildDisconnectAll(known)];
+  private compileDisconnect(
+    known: PlanningKnown,
+    config: DisconnectRelationLinkConfig
+  ): readonly OperationStep[] {
+    if (config.disconnectAll) return [this.buildDisconnectAll(known, config)];
     this.requireProbeFoundAll(known, "disconnect");
     const { childScope } = this.config;
     const wheres = this.requiredWheres();
@@ -246,10 +259,13 @@ export class RelationLinkPart implements Part {
     if (!this.config.txMode) {
       // Batch: pin that each child is still connected to this parent.
       for (const [index, where] of wheres.entries()) {
-        const predicate = this.membershipPredicate(
+        const membership = finalMembershipCondition(
+          this.config.engine,
+          childScope,
+          config.membership,
+          childScope.rootAlias,
           known,
-          false,
-          childScope.rootAlias
+          "disconnect"
         );
         steps.push(
           presenceGuard(
@@ -260,14 +276,16 @@ export class RelationLinkPart implements Part {
                 where: {
                   AND: [
                     ...this.uniqueEqualityFilters(where),
-                    ...this.guardCorrelationFilters(known),
+                    ...membership.filters,
                   ],
                 },
                 select: { [this.config.childPrimaryKey]: true },
               },
               {
                 limit: 1,
-                ...(predicate ? { predicate } : {}),
+                ...(membership.predicate
+                  ? { predicate: membership.predicate }
+                  : {}),
               }
             ),
             this.disconnectFailure()
@@ -278,7 +296,7 @@ export class RelationLinkPart implements Part {
     steps.push({
       id: this.writeId,
       kind: "write",
-      statement: this.linkWrite(this.fkNullData(), known),
+      statement: this.linkWrite(lowerEmptyMembership(config.membership)),
       outputs: {},
     });
     return steps;
@@ -293,25 +311,25 @@ export class RelationLinkPart implements Part {
    * the guard that admits the write, while the key columns are exactly what the
    * guard re-asserts.
    */
-  private linkWrite(
-    data: Record<string, unknown>,
-    known: PlanningKnown
-  ): Sql {
+  private linkWrite(membership: LoweredMembershipWrite): Sql {
     const { childScope } = this.config;
     const wheres = this.requiredWheres();
-    const polymorphicStorage = this.polymorphicWriteStorage(known);
     if (wheres.length === 1) {
       return buildUpdate(childScope, {
         where: wheres[0]!,
-        data,
-        ...(polymorphicStorage ? { polymorphicStorage } : {}),
+        data: membership.data,
+        ...(membership.polymorphicStorage.length > 0
+          ? { polymorphicStorage: membership.polymorphicStorage }
+          : {}),
         select: { [this.config.childPrimaryKey]: true },
       });
     }
     return buildUpdateMany(childScope, {
       where: this.groupSelector(),
-      data,
-      ...(polymorphicStorage ? { polymorphicStorage } : {}),
+      data: membership.data,
+      ...(membership.polymorphicStorage.length > 0
+        ? { polymorphicStorage: membership.polymorphicStorage }
+        : {}),
     });
   }
 
@@ -327,24 +345,32 @@ export class RelationLinkPart implements Part {
     return [this.groupSelector()];
   }
 
-  private buildDisconnectAll(known: PlanningKnown): WriteStep {
+  private buildDisconnectAll(
+    known: PlanningKnown,
+    config: DisconnectRelationLinkConfig
+  ): WriteStep {
     const { childScope } = this.config;
-    const predicate = this.membershipPredicate(
+    const condition = finalMembershipCondition(
+      this.config.engine,
+      childScope,
+      config.membership,
+      getTableName(childScope.model),
       known,
-      false,
-      getTableName(childScope.model)
+      "disconnect"
     );
-    const polymorphicStorage = this.polymorphicWriteStorage(known);
+    const membership = lowerEmptyMembership(config.membership);
     return {
       id: this.writeId,
       kind: "write",
       statement: buildUpdateMany(childScope, {
-        ...(this.config.relation.kind === "polymorphicChildHeldToMany"
-          ? {}
-          : { where: { AND: this.guardCorrelationFilters(known) } }),
-        data: this.fkNullData(),
-        ...(predicate ? { predicate } : {}),
-        ...(polymorphicStorage ? { polymorphicStorage } : {}),
+        ...(condition.filters.length > 0
+          ? { where: { AND: condition.filters } }
+          : {}),
+        data: membership.data,
+        ...(condition.predicate ? { predicate: condition.predicate } : {}),
+        ...(membership.polymorphicStorage.length > 0
+          ? { polymorphicStorage: membership.polymorphicStorage }
+          : {}),
       }),
       outputs: {},
     };
@@ -367,7 +393,7 @@ export class RelationLinkPart implements Part {
    * can compare exactly.
    */
   private requireProbeFoundAll(known: PlanningKnown, kind: LinkKind): void {
-    const { relationInfo } = this.config.relation;
+    const { relationInfo } = this.config.membership.relation;
     const relationName = relationInfo.name;
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
@@ -387,7 +413,7 @@ export class RelationLinkPart implements Part {
   }
 
   private connectFailure() {
-    const { relationInfo } = this.config.relation;
+    const { relationInfo } = this.config.membership.relation;
     return nestedWriteFailure(
       relationTargetNotFound(relationInfo, "connect"),
       relationInfo.name,
@@ -396,146 +422,12 @@ export class RelationLinkPart implements Part {
   }
 
   private disconnectFailure() {
-    const { relationInfo } = this.config.relation;
+    const { relationInfo } = this.config.membership.relation;
     return nestedWriteFailure(
       relationTargetNotFound(relationInfo, "disconnect"),
       relationInfo.name,
       false
     );
-  }
-
-  /** The connect write's FK assignment: every FK column ← its referenced parent
-   *  column value (one entry per compound-key field, ATOM “Field-bound foreign-key provenance”). */
-  private fkAssignData(known: PlanningKnown): Record<string, unknown> {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") return {};
-    const data: Record<string, unknown> = {};
-    for (
-      let index = 0;
-      index < this.config.relation.foreignFields.length;
-      index += 1
-    ) {
-      const fkField = this.config.relation.foreignFields[index]!;
-      data[fkField] = referenceSql(
-        this.config.engine,
-        this.config.childScope.model,
-        fkField,
-        this.parentReferenced(known, index)
-      );
-    }
-    return data;
-  }
-
-  /** The disconnect write's FK assignment: null every FK column. */
-  private fkNullData(): Record<string, unknown> {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") return {};
-    const data: Record<string, unknown> = {};
-    for (const foreignField of this.config.relation.foreignFields) {
-      data[foreignField] = { set: null };
-    }
-    return data;
-  }
-
-  /** The disconnect probe's `fk_i = Ref(locate.referenced_i)` clauses — the
-   *  technique #1 markers, one per compound-key field — or, under a depth-composed
-   *  LITERAL parent (a located-by-PK nested target, an upsert UPDATE arm named by its
-   *  own primary key), that parent's compile-time constant inlined. One home for both
-   *  provenances through one field-bound member. */
-  private correlationFilters(): Record<string, unknown>[] {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") return [];
-    const { relationInfo, foreignFields, referencedFields } =
-      this.config.relation;
-    return foreignFields.map((foreignField, index) => {
-      const referencedField = referencedFields[index]!;
-      return {
-        [foreignField]: {
-          equals: foreignKeyCorrelationValue({
-            foreignField,
-            referencedField,
-            writeSource: this.config.parentId,
-            readSource: planningSourceFromFinal(
-              this.config.parentId,
-              relationInfo.name,
-              "disconnect"
-            ),
-          }),
-        },
-      };
-    });
-  }
-
-  /** The batch disconnect guard's `fk_i = <literal referenced_i>` clauses. */
-  private guardCorrelationFilters(
-    known: PlanningKnown
-  ): Record<string, unknown>[] {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") return [];
-    return this.config.relation.foreignFields.map((foreignField, index) => ({
-      [foreignField]: { equals: this.parentReferenced(known, index) },
-    }));
-  }
-
-  /** The concrete value of the parent column the FK field `index` references
-   *  (never a Ref — inlined at compile). */
-  private parentReferenced(known: PlanningKnown, index: number): unknown {
-    const { relationInfo, foreignFields, referencedFields } =
-      this.config.relation;
-    return foreignKeyWriteValue(
-      {
-        foreignField: foreignFields[index]!,
-        referencedField: referencedFields[index]!,
-        writeSource: this.config.parentId,
-      },
-      known,
-      relationInfo.name,
-      this.config.kind
-    );
-  }
-
-  private membershipPredicate(
-    known: PlanningKnown | undefined,
-    planning: boolean,
-    qualifier: string
-  ): Sql | undefined {
-    const relation = this.config.relation;
-    if (relation.kind !== "polymorphicChildHeldToMany") return undefined;
-    const storage = linkedPolymorphicStorage(relation, this.config.parentId);
-    const identity = planning
-      ? polymorphicPlanningIdentitySql(
-          this.config.engine,
-          storage,
-          this.config.kind
-        )
-      : polymorphicFinalIdentitySql(
-          this.config.engine,
-          relation,
-          this.config.parentId,
-          known ?? {},
-          this.config.kind
-        );
-    return buildPolymorphicMembershipPredicate(
-      this.config.childScope,
-      relation,
-      qualifier,
-      identity
-    );
-  }
-
-  private polymorphicWriteStorage(
-    known: PlanningKnown
-  ): readonly PolymorphicStorageValue<unknown>[] | undefined {
-    const relation = this.config.relation;
-    if (relation.kind !== "polymorphicChildHeldToMany") return undefined;
-    const value: PolymorphicStorageValue<FinalReferenceSource> =
-      this.config.kind === "connect"
-        ? linkedPolymorphicStorage(relation, this.config.parentId)
-        : { kind: "empty", storage: relation.storage };
-    return [
-      resolvePolymorphicStorageValue(
-        this.config.engine,
-        value,
-        known,
-        this.config.kind
-      ),
-    ];
   }
 
   private uniqueEqualityFilters(
@@ -550,7 +442,7 @@ export class RelationLinkPart implements Part {
     const wheres = this.config.wheres;
     if (!wheres || wheres.length === 0) {
       throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relation.relationInfo.name}' requires a unique where.`
+        `query-engine-v2 ${this.config.kind} for relation '${this.config.membership.relation.relationInfo.name}' requires a unique where.`
       );
     }
     return wheres;
@@ -578,22 +470,43 @@ export function buildToManyLinkParts(
     engine,
     childScope,
     childName,
-    relation,
-    kind: entry.kind,
     childPrimaryKey,
-    parentId,
     txMode,
   } as const;
-  if (entry.kind === "disconnect" && entry.target.kind === "current") {
-    return [new RelationLinkPart(scope, { ...base, disconnectAll: true })];
+  if (entry.kind === "connect") {
+    const membership = bindRelationMembership(relation, parentId);
+    return groupLinkTargets(childScope, entry.targets).map(
+      (wheres) =>
+        new RelationLinkPart(scope, {
+          ...base,
+          kind: "connect",
+          membership,
+          wheres,
+        })
+    );
   }
-  const targets =
-    entry.kind === "connect"
-      ? entry.targets
-      : entry.target.kind === "selectors"
-        ? entry.target.targets
-        : [];
-  return groupLinkTargets(childScope, targets).map(
-    (wheres) => new RelationLinkPart(scope, { ...base, wheres })
+  const membership = bindCorrelatedRelationMembership(
+    relation,
+    planningSourceFromFinal(parentId, relation.relationInfo.name, "disconnect"),
+    parentId
+  );
+  if (entry.target.kind === "current") {
+    return [
+      new RelationLinkPart(scope, {
+        ...base,
+        kind: "disconnect",
+        membership,
+        disconnectAll: true,
+      }),
+    ];
+  }
+  return groupLinkTargets(childScope, entry.target.targets).map(
+    (wheres) =>
+      new RelationLinkPart(scope, {
+        ...base,
+        kind: "disconnect",
+        membership,
+        wheres,
+      })
   );
 }

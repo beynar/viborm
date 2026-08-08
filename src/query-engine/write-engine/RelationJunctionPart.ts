@@ -36,15 +36,6 @@ import {
 import type { QueryScope } from "../types";
 import type { FreshRecordPart } from "./CreateOperation";
 import {
-  type CorrelatedForeignKeyMember,
-  type FinalReferenceSource,
-  type ForeignKeyMember,
-  foreignKeyCorrelationValue,
-  foreignKeyResolvedReadValue,
-  foreignKeyWriteValueWith,
-  planningSourceFromFinal,
-} from "./foreign-key-reference";
-import {
   childRacePin,
   exactlyOneRow,
   nestedWriteFailure,
@@ -75,7 +66,16 @@ import type {
   RecordCompilerSeam,
   RecordUpdateCompiler,
 } from "./RecordUpdateCompiler";
-import { literalParentId } from "./RelationUpsertPart";
+import {
+  type CorrelatedForeignKeyMember,
+  type FinalReferenceSource,
+  type ForeignKeyMember,
+  foreignKeyCorrelationValue,
+  foreignKeyResolvedReadValue,
+  foreignKeyWriteValueWith,
+  literalParentId,
+  planningSourceFromFinal,
+} from "./relation-membership";
 import type { StepScope } from "./StepScope";
 import {
   getStepModelName,
@@ -1723,7 +1723,6 @@ export function buildJunctionParts(input: {
     const subtree = input.recordCompilers.createFresh({
       childScope,
       data: create,
-      incomingForeignKey: [],
       relationName: "",
       ...(racePin ? { racePin } : {}),
     });

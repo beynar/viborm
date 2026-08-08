@@ -1,21 +1,20 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { describe, expect, test } from "vitest";
 import {
   type CorrelatedForeignKeyMember,
   type ForeignKeyMember,
+  literalParentId,
   pairForeignKeyMembers,
-} from "@src/query-engine/write-engine/foreign-key-reference";
-import { literalParentId } from "@src/query-engine/write-engine/RelationUpsertPart";
-import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
+} from "@src/query-engine/write-engine/relation-membership";
 import {
   compoundAdoptSchema,
   registerCompoundAdoptBehavior,
 } from "@tests/contracts/engine/write/compound-relation-adoption-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
+import { describe, expect, test } from "vitest";
 
 async function setup(driver: PGliteDriver) {
   const client = createClient({ schema: compoundAdoptSchema, driver }) as any;

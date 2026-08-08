@@ -6,8 +6,6 @@ import type {
   ChildHeldToOne,
   PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
-import { buildPolymorphicMembershipPredicate } from "../builders/correlation-utils";
-import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import type {
   NestedUpdateManyInput,
   NormalizedRelationUpsert,
@@ -18,6 +16,7 @@ import {
   partitionModelData,
 } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
+import { getTableName } from "../context/query-scope";
 import {
   buildDelete,
   buildDeleteMany,
@@ -33,23 +32,10 @@ import {
   assertSelectedUpdateManyDataIsScalar,
 } from "../relation-key-legality";
 import type { QueryScope } from "../types";
-import { getTableName } from "../context/query-scope";
-import {
-  type FinalReferenceSource,
-  foreignKeyCorrelationValue,
-  foreignKeyWriteValue,
-  linkedPolymorphicStorage,
-  pairForeignKeyMembers,
-  planningSourceFromFinal,
-  polymorphicFinalIdentitySql,
-  polymorphicPlanningIdentitySql,
-  resolvePolymorphicStorageValue,
-} from "./foreign-key-reference";
 import {
   exactlyOneRow,
   nestedWriteFailure,
   presenceGuard,
-  referenceSql,
 } from "./fragment-builders";
 import {
   relationOwnsForeignKey,
@@ -70,6 +56,18 @@ import type {
   RecordCompilerSeam,
   RecordUpdateCompiler,
 } from "./RecordUpdateCompiler";
+import {
+  bindCorrelatedRelationMembership,
+  bindRelationMembership,
+  type CorrelatedRelationMembershipBinding,
+  type FinalReferenceSource,
+  finalMembershipCondition,
+  lowerEmptyMembership,
+  lowerMembershipWrite,
+  planningMembershipCondition,
+  planningSourceFromFinal,
+  type RelationMembershipBinding,
+} from "./relation-membership";
 import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
 import {
@@ -106,16 +104,9 @@ interface RelationWriteContext {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relation: ChildHeldRelation;
-  /**
-   * The child-held foreign-key columns and the parent columns they reference,
-   * index-aligned (compound keys are per-field, ATOM “Field-bound foreign-key provenance”).
-   * A single-column edge is the length-1 case; nothing else changes.
-   */
+  readonly membership: CorrelatedRelationMembershipBinding;
   readonly childPrimaryKey: string;
   readonly recordCompilers: RecordCompilerSeam;
-  /** The located parent id (a planning value, inlined as a literal at compile). */
-  readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
   /** Targeted (`update`/`delete`): the child's unique locator. */
   readonly where?: Record<string, unknown>;
@@ -159,7 +150,7 @@ export class RelationWritePart implements Part {
   private readonly isNoOpUpdate: boolean = false;
 
   private get relationName(): string {
-    return this.config.relation.relationInfo.name;
+    return this.config.membership.relation.relationInfo.name;
   }
 
   private get operationKind() {
@@ -358,35 +349,41 @@ export class RelationWritePart implements Part {
   }
 
   private buildUpdateMany(known: PlanningKnown): WriteStep {
-    const predicate = this.polymorphicMembershipPredicate(
+    const membership = finalMembershipCondition(
+      this.config.engine,
+      this.config.childScope,
+      this.config.membership,
+      getTableName(this.config.childScope.model),
       known,
-      false,
-      getTableName(this.config.childScope.model)
+      "updateMany"
     );
     return {
       id: this.writeId,
       kind: "write",
       statement: buildUpdateMany(this.config.childScope, {
-        where: this.correlatedFilter(known),
+        where: this.correlatedFilter(membership.filters),
         data: this.updateScalarData,
-        ...(predicate ? { predicate } : {}),
+        ...(membership.predicate ? { predicate: membership.predicate } : {}),
       }),
       outputs: {},
     };
   }
 
   private buildDeleteMany(known: PlanningKnown): WriteStep {
-    const predicate = this.polymorphicMembershipPredicate(
+    const membership = finalMembershipCondition(
+      this.config.engine,
+      this.config.childScope,
+      this.config.membership,
+      getTableName(this.config.childScope.model),
       known,
-      false,
-      getTableName(this.config.childScope.model)
+      "deleteMany"
     );
     return {
       id: this.writeId,
       kind: "write",
       statement: buildDeleteMany(this.config.childScope, {
-        where: this.correlatedFilter(known),
-        ...(predicate ? { predicate } : {}),
+        where: this.correlatedFilter(membership.filters),
+        ...(membership.predicate ? { predicate: membership.predicate } : {}),
       }),
       outputs: {},
     };
@@ -445,11 +442,21 @@ export class RelationWritePart implements Part {
     const selectedFields = this.updateCompiler?.requiredTargetFields ?? [
       this.config.childPrimaryKey,
     ];
-    const predicate = this.polymorphicMembershipPredicate(
-      known,
-      useRef,
-      this.config.childScope.rootAlias
-    );
+    const membership = useRef
+      ? planningMembershipCondition(
+          this.config.engine,
+          this.config.childScope,
+          this.config.membership,
+          this.config.childScope.rootAlias
+        )
+      : finalMembershipCondition(
+          this.config.engine,
+          this.config.childScope,
+          this.config.membership,
+          this.config.childScope.rootAlias,
+          known ?? {},
+          this.operationKind
+        );
     return buildFind(
       this.config.childScope,
       {
@@ -457,10 +464,7 @@ export class RelationWritePart implements Part {
           AND: [
             ...this.optionalWhereFilters(),
             ...this.targetFilters(),
-            ...(this.config.relation.kind ===
-            "polymorphicChildHeldToMany"
-              ? []
-              : this.correlationFilters(known, useRef)),
+            ...membership.filters,
             ...(capturedPk === undefined
               ? []
               : [{ [this.config.childPrimaryKey]: { equals: capturedPk } }]),
@@ -471,94 +475,27 @@ export class RelationWritePart implements Part {
         ),
         forUpdate: this.config.txMode,
       },
-      { limit: 1, ...(predicate ? { predicate } : {}) }
+      {
+        limit: 1,
+        ...(membership.predicate ? { predicate: membership.predicate } : {}),
+      }
     );
   }
 
   /** `WHERE fk = <parentLiteral> [AND filter]` for a bulk write. */
   private correlatedFilter(
-    known: PlanningKnown
+    filters: readonly Record<string, unknown>[]
   ): Record<string, unknown> | undefined {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") {
-      const filter = this.config.filter;
-      return filter && Object.keys(filter).length > 0 ? filter : undefined;
-    }
     const correlation =
-      this.config.relation.foreignFields.length === 1
-        ? this.correlationFilters(known, false)[0]!
-        : { AND: this.correlationFilters(known, false) };
+      filters.length === 0
+        ? undefined
+        : filters.length === 1
+          ? filters[0]!
+          : { AND: filters };
     const filter = this.config.filter;
-    return filter && Object.keys(filter).length > 0
-      ? { AND: [correlation, filter] }
-      : correlation;
-  }
-
-  /** `fk_i = <parent_i>` for every compound-key field. A planned parent uses a
-   * SQL reference during planning; a literal parent is already a compile-time
-   * constant and is inlined in both phases. */
-  private correlationFilters(
-    known: PlanningKnown | undefined,
-    useRef: boolean
-  ): Record<string, unknown>[] {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") {
-      return [];
-    }
-    return this.config.relation.foreignFields.map((fkField, index) => {
-      const referencedField = this.config.relation.referencedFields[index]!;
-      const member = {
-        foreignField: fkField,
-        referencedField,
-        writeSource: this.config.parentId,
-      };
-      return {
-        [fkField]: {
-          equals: useRef
-            ? foreignKeyCorrelationValue({
-                ...member,
-                readSource: planningSourceFromFinal(
-                  this.config.parentId,
-                  this.relationName,
-                  this.operationKind
-                ),
-              })
-            : foreignKeyWriteValue(
-                member,
-                known,
-                this.relationName,
-                this.operationKind
-              ),
-        },
-      };
-    });
-  }
-
-  private polymorphicMembershipPredicate(
-    known: PlanningKnown | undefined,
-    useRef: boolean,
-    qualifier: string
-  ): Sql | undefined {
-    const relation = this.config.relation;
-    if (relation.kind !== "polymorphicChildHeldToMany") return undefined;
-    const storage = linkedPolymorphicStorage(relation, this.config.parentId);
-    const parentIdentity = useRef
-      ? polymorphicPlanningIdentitySql(
-          this.config.engine,
-          storage,
-          this.operationKind
-        )
-      : polymorphicFinalIdentitySql(
-          this.config.engine,
-          relation,
-          this.config.parentId,
-          known ?? {},
-          this.operationKind
-        );
-    return buildPolymorphicMembershipPredicate(
-      this.config.childScope,
-      relation,
-      qualifier,
-      parentIdentity
-    );
+    const hasFilter = filter && Object.keys(filter).length > 0;
+    if (!correlation) return hasFilter ? filter : undefined;
+    return hasFilter ? { AND: [correlation, filter] } : correlation;
   }
 
   private buildUpdateCompiler(
@@ -650,7 +587,7 @@ export class RelationWritePart implements Part {
     if (rows.length === 0) {
       throw new NestedWriteError(
         relationTargetNotFound(
-          this.config.relation.relationInfo,
+          this.config.membership.relation.relationInfo,
           this.targetedOp()
         ),
         this.relationName
@@ -669,7 +606,7 @@ export class RelationWritePart implements Part {
   private targetFailure() {
     return nestedWriteFailure(
       relationTargetNotFound(
-        this.config.relation.relationInfo,
+        this.config.membership.relation.relationInfo,
         this.targetedOp()
       ),
       this.relationName,
@@ -710,15 +647,13 @@ export interface RelationSetConfig {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relation: ChildHeldRelation;
+  readonly membership: RelationMembershipBinding;
+  /** Reads may use the pre-transition source while writes use the new value. */
+  readonly departingMembership: CorrelatedRelationMembershipBinding;
   readonly childPrimaryKey: string;
   readonly requiredFk: boolean;
   readonly requiredFields: readonly string[];
   readonly targets: readonly Record<string, unknown>[];
-  readonly parentId: FinalReferenceSource;
-  /** Source used to find current members when it differs from the assignment
-   * source. A non-cascade key transition reads the old key and writes the new. */
-  readonly membershipReadSource?: FinalReferenceSource;
   readonly txMode: boolean;
 }
 
@@ -752,15 +687,7 @@ export class RelationSetPart implements Part {
   private readonly departingRead?: ReadStep;
 
   private get relationName(): string {
-    return this.config.relation.relationInfo.name;
-  }
-
-  private get foreignFields(): readonly string[] {
-    return this.config.relation.foreignFields;
-  }
-
-  private get referencedFields(): readonly string[] {
-    return this.config.relation.referencedFields;
+    return this.config.membership.relation.relationInfo.name;
   }
 
   constructor(scope: StepScope, config: RelationSetConfig) {
@@ -855,7 +782,10 @@ export class RelationSetPart implements Part {
               { limit: 1 }
             ),
             nestedWriteFailure(
-              relationTargetNotFound(this.config.relation.relationInfo, "set"),
+              relationTargetNotFound(
+                this.config.membership.relation.relationInfo,
+                "set"
+              ),
               this.relationName,
               false
             )
@@ -864,8 +794,10 @@ export class RelationSetPart implements Part {
       }
     }
     if (capturedPks.length > 0) {
-      const polymorphicStorage = this.polymorphicStorage(
-        this.config.parentId,
+      const membership = lowerMembershipWrite(
+        this.config.engine,
+        this.config.childScope,
+        this.config.membership,
         known,
         "set"
       );
@@ -877,8 +809,10 @@ export class RelationSetPart implements Part {
         statement: buildUpdateMany(this.config.childScope, {
           // Reparent captured rows by PK, never by a selector that can move.
           where: { [this.config.childPrimaryKey]: { in: capturedPks } },
-          data: this.fkAssignData(known),
-          ...(polymorphicStorage ? { polymorphicStorage } : {}),
+          data: membership.data,
+          ...(membership.polymorphicStorage.length > 0
+            ? { polymorphicStorage: membership.polymorphicStorage }
+            : {}),
         }),
         outputs: {},
       });
@@ -918,20 +852,25 @@ export class RelationSetPart implements Part {
       }
       return;
     }
-    const predicate = this.departingPredicate(
+    const condition = finalMembershipCondition(
+      this.config.engine,
+      this.config.childScope,
+      this.config.departingMembership,
+      getTableName(this.config.childScope.model),
       known,
-      false,
-      getTableName(this.config.childScope.model)
+      "set"
     );
-    const polymorphicStorage = this.emptyPolymorphicStorage();
+    const membership = lowerEmptyMembership(this.config.membership);
     steps.push({
       id: this.orphanNullId,
       kind: "write",
       statement: buildUpdateMany(this.config.childScope, {
-        where: this.departingWhere(known, false),
-        data: this.fkNullData(),
-        ...(predicate ? { predicate } : {}),
-        ...(polymorphicStorage ? { polymorphicStorage } : {}),
+        where: this.departingWhere(condition.filters),
+        data: membership.data,
+        ...(condition.predicate ? { predicate: condition.predicate } : {}),
+        ...(membership.polymorphicStorage.length > 0
+          ? { polymorphicStorage: membership.polymorphicStorage }
+          : {}),
       }),
       outputs: {},
     });
@@ -952,28 +891,39 @@ export class RelationSetPart implements Part {
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Sql {
-    const predicate = this.departingPredicate(
-      known,
-      useRef,
-      this.config.childScope.rootAlias
-    );
+    const membership = useRef
+      ? planningMembershipCondition(
+          this.config.engine,
+          this.config.childScope,
+          this.config.departingMembership,
+          this.config.childScope.rootAlias
+        )
+      : finalMembershipCondition(
+          this.config.engine,
+          this.config.childScope,
+          this.config.departingMembership,
+          this.config.childScope.rootAlias,
+          known ?? {},
+          "set"
+        );
     return buildFind(
       this.config.childScope,
       {
-        where: this.departingWhere(known, useRef),
+        where: this.departingWhere(membership.filters),
         select: { [this.config.childPrimaryKey]: true },
         forUpdate: this.config.txMode,
       },
-      { limit: 1, ...(predicate ? { predicate } : {}) }
+      {
+        limit: 1,
+        ...(membership.predicate ? { predicate: membership.predicate } : {}),
+      }
     );
   }
 
   /** `fk_i = <parent_i> [AND …] AND NOT (unique(t1) OR unique(t2) …)`. */
   private departingWhere(
-    known: PlanningKnown | undefined,
-    useRef: boolean
+    correlation: readonly Record<string, unknown>[]
   ): Record<string, unknown> | undefined {
-    const correlation = this.correlationFilters(known, useRef);
     const exclusion =
       this.targets.length === 0
         ? []
@@ -1001,7 +951,10 @@ export class RelationSetPart implements Part {
     }
     if (rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(this.config.relation.relationInfo, "set"),
+        relationTargetNotFound(
+          this.config.membership.relation.relationInfo,
+          "set"
+        ),
         this.relationName
       );
     }
@@ -1013,126 +966,6 @@ export class RelationSetPart implements Part {
       );
     }
     return (first as Record<string, unknown>)[this.config.childPrimaryKey];
-  }
-
-  /** The reparent write's FK assignment: every FK column ← its referenced parent
-   *  column value (one entry per compound-key field, ATOM “Field-bound foreign-key provenance”). */
-  private fkAssignData(known: PlanningKnown): Record<string, unknown> {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") return {};
-    const data: Record<string, unknown> = {};
-    for (let index = 0; index < this.foreignFields.length; index += 1) {
-      const fkField = this.foreignFields[index]!;
-      data[fkField] = referenceSql(
-        this.config.engine,
-        this.config.childScope.model,
-        fkField,
-        foreignKeyWriteValue(
-          {
-            foreignField: fkField,
-            referencedField: this.referencedFields[index]!,
-            writeSource: this.config.parentId,
-          },
-          known,
-          this.relationName,
-          "set"
-        )
-      );
-    }
-    return data;
-  }
-
-  /** The departing-null write's FK assignment: null every FK column. */
-  private fkNullData(): Record<string, unknown> {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") return {};
-    const data: Record<string, unknown> = {};
-    for (const fkField of this.foreignFields) data[fkField] = { set: null };
-    return data;
-  }
-
-  /** `fk_i = <parent_i>` for every compound-key field — a SQL `Ref` at planning
-   *  (technique #1), or the inlined literal at compile. Reads the DEPARTING-side
-   *  parent value ({@link RelationSetConfig.membershipReadSource}), which is the
-   *  assigned one everywhere except under a non-cascade transition. */
-  private correlationFilters(
-    known: PlanningKnown | undefined,
-    useRef: boolean
-  ): Record<string, unknown>[] {
-    if (this.config.relation.kind === "polymorphicChildHeldToMany") return [];
-    const source = this.config.membershipReadSource ?? this.config.parentId;
-    return this.foreignFields.map((fkField, index) => {
-      const member = {
-        foreignField: fkField,
-        referencedField: this.referencedFields[index]!,
-        writeSource: source,
-      };
-      return {
-        [fkField]: {
-          equals: useRef
-            ? foreignKeyCorrelationValue({
-                ...member,
-                readSource: planningSourceFromFinal(
-                  source,
-                  this.relationName,
-                  "set"
-                ),
-              })
-            : foreignKeyWriteValue(member, known, this.relationName, "set"),
-        },
-      };
-    });
-  }
-
-  private departingPredicate(
-    known: PlanningKnown | undefined,
-    useRef: boolean,
-    qualifier: string
-  ): Sql | undefined {
-    const relation = this.config.relation;
-    if (relation.kind !== "polymorphicChildHeldToMany") return undefined;
-    const source =
-      this.config.membershipReadSource ?? this.config.parentId;
-    const storage = linkedPolymorphicStorage(relation, source);
-    const identity = useRef
-      ? polymorphicPlanningIdentitySql(this.config.engine, storage, "set")
-      : polymorphicFinalIdentitySql(
-          this.config.engine,
-          relation,
-          source,
-          known ?? {},
-          "set"
-        );
-    return buildPolymorphicMembershipPredicate(
-      this.config.childScope,
-      relation,
-      qualifier,
-      identity
-    );
-  }
-
-  private polymorphicStorage(
-    source: FinalReferenceSource,
-    known: PlanningKnown,
-    kind: "set"
-  ): readonly PolymorphicStorageValue<unknown>[] | undefined {
-    const relation = this.config.relation;
-    if (relation.kind !== "polymorphicChildHeldToMany") return undefined;
-    return [
-      resolvePolymorphicStorageValue(
-        this.config.engine,
-        linkedPolymorphicStorage(relation, source),
-        known,
-        kind
-      ),
-    ];
-  }
-
-  private emptyPolymorphicStorage():
-    | readonly PolymorphicStorageValue<unknown>[]
-    | undefined {
-    const relation = this.config.relation;
-    return relation.kind === "polymorphicChildHeldToMany"
-      ? [{ kind: "empty", storage: relation.storage }]
-      : undefined;
   }
 
   private uniqueEqualityFilters(
@@ -1266,15 +1099,11 @@ export function buildInverseToOneUpsertPart(
   // The found arm cannot move the child away by assigning its relation-owned FK.
   assertOwnedFkAbsentFromUpdateData(base, input.update);
   // A relation-bearing create arm uses the ordinary fresh-record compiler; its
-  // incoming FK is injected into the subtree's root INSERT.
+  // incoming membership is injected into the subtree's root INSERT.
   const subtree = base.recordCompilers.createFresh({
     childScope: base.childScope,
     data: createData,
-    incomingForeignKey: pairForeignKeyMembers(
-      base.relation.foreignFields,
-      base.relation.referencedFields,
-      base.relation.referencedFields.map(() => base.parentId)
-    ),
+    incomingMembership: bindRelationMembership(base.relation, base.parentId),
     relationName,
   });
   return new RelationWritePart(base.scope, {
@@ -1354,17 +1183,25 @@ export function buildToManySetPart(
   membershipReadSource?: FinalReferenceSource
 ): RelationSetPart {
   const requiredFields = requiredForeignKeyFields(base.relation);
+  const readSource = membershipReadSource ?? base.parentId;
   return new RelationSetPart(base.scope, {
-    membershipReadSource,
     engine: base.engine,
     childScope: base.childScope,
     childName: base.childName,
-    relation: base.relation,
+    membership: bindRelationMembership(base.relation, base.parentId),
+    departingMembership: bindCorrelatedRelationMembership(
+      base.relation,
+      planningSourceFromFinal(
+        readSource,
+        base.relation.relationInfo.name,
+        "set"
+      ),
+      readSource
+    ),
     childPrimaryKey: base.childPrimaryKey,
     requiredFk: requiredFields.length > 0,
     requiredFields,
     targets: entry.targets,
-    parentId: base.parentId,
     txMode: base.txMode,
   });
 }
@@ -1377,11 +1214,18 @@ function partConfig(
     engine: base.engine,
     childScope: base.childScope,
     childName: base.childName,
-    relation: base.relation,
+    membership: bindCorrelatedRelationMembership(
+      base.relation,
+      planningSourceFromFinal(
+        base.parentId,
+        base.relation.relationInfo.name,
+        kind
+      ),
+      base.parentId
+    ),
     kind,
     childPrimaryKey: base.childPrimaryKey,
     recordCompilers: base.recordCompilers,
-    parentId: base.parentId,
     txMode: base.txMode,
   };
 }

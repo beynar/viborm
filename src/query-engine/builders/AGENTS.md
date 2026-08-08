@@ -97,8 +97,9 @@ values, reference sources, transition state, junction metadata, SQL, or
 execution policy.
 
 Bind at the first topology decision. Early binding can change which schema or
-arm-specific failure surfaces first. Field/value pairing and arity checks stay
-in `write-engine/foreign-key-reference.ts` after existing legality checks.
+arm-specific failure surfaces first. Field/value pairing, source resolution,
+and membership lowering stay in `write-engine/relation-membership.ts` after
+existing legality checks.
 
 ## Parse-once rule
 

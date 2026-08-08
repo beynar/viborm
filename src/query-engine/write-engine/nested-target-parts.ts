@@ -1,15 +1,15 @@
 import { QueryEngineError } from "@errors";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   bindRelation,
   type ChildHeldToMany,
   type ChildHeldToOne,
   type PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
-import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
-import {
-  type RelationMutationEntry,
-  type RelationMutationProgram,
+import type {
+  RelationMutationEntry,
+  RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { buildValueGroups } from "../builders/values-builder";
 import { createQueryScope } from "../context/query-scope";
@@ -17,30 +17,17 @@ import { buildCreateManyPlan } from "../operations/create";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
-import {
-  type FinalReferenceSource,
-  type ForeignKeyMember,
-  foreignKeyWriteValue,
-  linkedPolymorphicStorage,
-  literalReferenceSource,
-  pairCorrelatedForeignKeyMembers,
-  pairForeignKeyMembers,
-  planningSourceFromFinal,
-  resolvePolymorphicStorageValue,
-} from "./foreign-key-reference";
 import { referenceScalarSql, referenceSql } from "./fragment-builders";
-import type {
-  OperationStep,
-  StatementStep,
-} from "./OperationFragment";
+import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
+import type { RecordCompilerSeam } from "./RecordUpdateCompiler";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
   buildConnectOrCreateParts,
+  buildCorrelatedToManyUpsertParts,
   buildToManyUpsertParts,
 } from "./RelationUpsertPart";
-import type { RecordCompilerSeam } from "./RecordUpdateCompiler";
 import {
   buildInverseToOneUpsertPart,
   buildToManyDeleteManyParts,
@@ -50,6 +37,19 @@ import {
   buildToManyUpdateParts,
   buildToOneUpdatePart,
 } from "./RelationWritePart";
+import {
+  bindCorrelatedRelationMembership,
+  bindRelationMembership,
+  type FinalReferenceSource,
+  type ForeignKeyMember,
+  foreignKeyWriteValue,
+  linkedPolymorphicStorage,
+  literalReferenceSource,
+  pairCorrelatedForeignKeyMembers,
+  pairForeignKeyMembers,
+  planningSourceFromFinal,
+  resolvePolymorphicStorageValue,
+} from "./relation-membership";
 import type { StepScope } from "./StepScope";
 import { getStepModelName, UnsupportedOperationError } from "./shared";
 
@@ -275,18 +275,8 @@ function foldJunctionChildHeldEntry(args: {
         buildConnectOrCreateParts(
           scope,
           engine,
-          relation,
           entry.items,
-          relation.kind === "polymorphicChildHeldToMany"
-            ? { kind: "polymorphic", parentId }
-            : {
-                kind: "foreignKey",
-                members: pairForeignKeyMembers(
-                  relation.foreignFields,
-                  relation.referencedFields,
-                  relation.referencedFields.map(() => parentId)
-                ),
-              },
+          bindRelationMembership(relation, parentId),
           txMode,
           recordCompilers
         )
@@ -303,36 +293,54 @@ function foldJunctionChildHeldEntry(args: {
         parts.push(buildInverseToOneUpsertPart(writeBase, item));
         return;
       }
-      const members =
-        relation.kind === "polymorphicChildHeldToMany"
-          ? undefined
-          : pairCorrelatedForeignKeyMembers(
-              relation.foreignFields,
-              relation.referencedFields,
-              relation.referencedFields.map(() =>
-                planningSourceFromFinal(parentId, relationName, "upsert")
+      if (relation.kind === "polymorphicChildHeldToMany") {
+        if (membershipReadSource) {
+          push(
+            buildCorrelatedToManyUpsertParts(
+              scope,
+              engine,
+              entry.items,
+              bindCorrelatedRelationMembership(
+                relation,
+                planningSourceFromFinal(
+                  membershipReadSource,
+                  relationName,
+                  "upsert"
+                ),
+                parentId
               ),
-              relation.referencedFields.map(() => parentId)
-            );
+              txMode,
+              recordCompilers
+            )
+          );
+        } else {
+          push(
+            buildToManyUpsertParts(
+              scope,
+              engine,
+              entry.items,
+              bindRelationMembership(relation, parentId),
+              txMode,
+              recordCompilers
+            )
+          );
+        }
+        return;
+      }
+      const members = pairCorrelatedForeignKeyMembers(
+        relation.foreignFields,
+        relation.referencedFields,
+        relation.referencedFields.map(() =>
+          planningSourceFromFinal(parentId, relationName, "upsert")
+        ),
+        relation.referencedFields.map(() => parentId)
+      );
       push(
-        buildToManyUpsertParts(
+        buildCorrelatedToManyUpsertParts(
           scope,
           engine,
-          relation,
           entry.items,
-          members
-            ? {
-                kind: "foreignKey",
-                members,
-                correlationMembers: members,
-              }
-            : {
-                kind: "polymorphic",
-                parentId,
-                ...(membershipReadSource
-                  ? { membershipReadSource }
-                  : {}),
-              },
+          { kind: "foreignKey", relation, members },
           txMode,
           recordCompilers
         )
@@ -378,21 +386,7 @@ function foldJunctionChildHeldEntry(args: {
           recordCompilers.createFresh({
             childScope,
             data,
-            incomingForeignKey:
-              relation.kind === "polymorphicChildHeldToMany"
-                ? []
-                : pairForeignKeyMembers(
-                    relation.foreignFields,
-                    relation.referencedFields,
-                    relation.referencedFields.map(() => parentId)
-                  ),
-            ...(relation.kind === "polymorphicChildHeldToMany"
-              ? {
-                  incomingPolymorphicStorage: [
-                    linkedPolymorphicStorage(relation, parentId),
-                  ],
-                }
-              : {}),
+            incomingMembership: bindRelationMembership(relation, parentId),
             relationName,
           })
         )

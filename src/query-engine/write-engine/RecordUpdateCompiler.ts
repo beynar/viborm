@@ -7,6 +7,11 @@ import {
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
 import {
+  bindResolvedPolymorphicEdge,
+  type PolymorphicStorageValue,
+  type ResolvedPolymorphicMutation,
+} from "../builders/polymorphic-mutation";
+import {
   bindRelation,
   buildConnectSubqueryForField,
   type ChildHeldToMany,
@@ -14,11 +19,6 @@ import {
   type ParentHeldToOne,
   type PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
-import {
-  bindResolvedPolymorphicEdge,
-  type PolymorphicStorageValue,
-  type ResolvedPolymorphicMutation,
-} from "../builders/polymorphic-mutation";
 import type {
   NormalizedRelationUpsert,
   RelationMutationEntry,
@@ -44,23 +44,8 @@ import {
   assertSelectedUpdateManyDataIsScalar,
 } from "../relation-key-legality";
 import { classifyRelationKeyScalarUpdate } from "../TargetConstraint";
-import type {
-  QueryScope,
-  RelationInfo,
-} from "../types";
+import type { QueryScope, RelationInfo } from "../types";
 import type { FreshRecordBuilder, FreshRecordPart } from "./CreateOperation";
-import {
-  type FinalReferenceSource,
-  type ForeignKeyMember,
-  foreignKeyCorrelationValue,
-  foreignKeyWriteValue,
-  linkedPolymorphicStorage,
-  literalReferenceSource,
-  pairCorrelatedForeignKeyMembers,
-  pairForeignKeyMembers,
-  planningSourceFromFinal,
-  resolvePolymorphicStorageValue,
-} from "./foreign-key-reference";
 import {
   absenceGuard,
   affectedRows,
@@ -81,13 +66,13 @@ import {
 import {
   buildJunctionTargetRelationParts,
   buildLiteralParentCreateManyPart,
-  buildPolymorphicParentCreateManyPart,
   buildPlannedParentCreateManyPart,
+  buildPolymorphicParentCreateManyPart,
 } from "./nested-target-parts";
 import {
   bucketOperationSteps,
-  type OperationStep,
   type Failure,
+  type OperationStep,
   type ReadStep,
   type StatementStep,
   type TargetConstraintPin,
@@ -99,10 +84,7 @@ import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
   buildConnectOrCreateParts,
-  buildToManyUpsertParts,
-  literalParentId,
-  plannedParentId,
-  transitionedParentId,
+  buildCorrelatedToManyUpsertParts,
 } from "./RelationUpsertPart";
 import {
   buildInverseToOneUpsertPart,
@@ -114,6 +96,24 @@ import {
   buildToOneUpdatePart,
   updateManyCarriesRelations,
 } from "./RelationWritePart";
+import {
+  bindCorrelatedRelationMembership,
+  bindRelationMembership,
+  type FinalReferenceSource,
+  type ForeignKeyMember,
+  foreignKeyCorrelationValue,
+  foreignKeyWriteValue,
+  literalParentId,
+  literalReferenceSource,
+  lowerMembershipWrite,
+  pairCorrelatedForeignKeyMembers,
+  pairForeignKeyMembers,
+  plannedParentId,
+  planningSourceFromFinal,
+  type RelationMembershipBinding,
+  resolvePolymorphicStorageValue,
+  transitionedParentId,
+} from "./relation-membership";
 import { assertRelationCanDisconnect } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
 import {
@@ -125,10 +125,8 @@ import {
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
-type ChildHeldRelation =
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToMany;
+type ChildHeldRelation = OrdinaryChildHeldRelation | PolymorphicChildHeldToMany;
+type OrdinaryChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
 
 export interface RecordUpdateCompiler {
   readonly targetReadId: string;
@@ -149,13 +147,10 @@ export interface RecordUpdateCompilerInput {
   readonly targetScope: QueryScope;
   readonly scalarData: Record<string, unknown>;
   readonly relations: Readonly<Record<string, RelationMutationProgram>>;
-  readonly polymorphic?: Readonly<
-    Record<string, ResolvedPolymorphicMutation>
-  >;
+  readonly polymorphic?: Readonly<Record<string, ResolvedPolymorphicMutation>>;
   readonly targetRead: StepAddress;
   readonly rootWrite: StepAddress;
-  readonly incomingForeignKey?: readonly ForeignKeyMember[];
-  readonly incomingPolymorphicStorage?: readonly PolymorphicStorageValue<FinalReferenceSource>[];
+  readonly incomingMembership?: RelationMembershipBinding;
   readonly relationName: string;
   /** Returning-driver affected-row failure for this selected root write. */
   readonly rootWriteFailure?: Failure;
@@ -178,8 +173,7 @@ export function buildRecordUpdateCompiler(
     Object.keys(input.scalarData).length === 0 &&
     Object.keys(input.relations).length === 0 &&
     Object.keys(input.polymorphic ?? {}).length === 0 &&
-    (input.incomingForeignKey?.length ?? 0) === 0 &&
-    (input.incomingPolymorphicStorage?.length ?? 0) === 0
+    input.incomingMembership === undefined
   ) {
     return undefined;
   }
@@ -377,12 +371,13 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   readonly requiredTargetFields: readonly string[];
 
   private readonly engine: QueryEngine;
+  private readonly targetScope: QueryScope;
   private readonly model: QueryScope["model"];
   private readonly scope: StepScope;
   private readonly relationName: string;
   private readonly rootWriteFailure: Failure | undefined;
   private readonly pinnedTarget: Readonly<Record<string, unknown>>;
-  private readonly incomingForeignKey: readonly ForeignKeyMember[];
+  private readonly incomingMembership: RelationMembershipBinding | undefined;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly parentIdSource: ReturnType<typeof plannedParentId>;
   private readonly childParts: readonly Part[];
@@ -397,15 +392,19 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private readonly createFresh: FreshRecordBuilder;
   private readonly recordCompilers: RecordCompilerSeam;
 
-  constructor(input: RecordUpdateCompilerInput, createFresh: FreshRecordBuilder) {
+  constructor(
+    input: RecordUpdateCompilerInput,
+    createFresh: FreshRecordBuilder
+  ) {
     this.engine = input.engine;
+    this.targetScope = input.targetScope;
     this.model = input.targetScope.model;
     this.scope = input.scope;
     this.mode = selectExecutionMode(input.engine, "update");
     this.relationName = input.relationName;
     this.rootWriteFailure = input.rootWriteFailure;
     this.pinnedTarget = input.pinnedTarget ?? {};
-    this.incomingForeignKey = input.incomingForeignKey ?? [];
+    this.incomingMembership = input.incomingMembership;
     this.createFresh = createFresh;
     this.recordCompilers = {
       createFresh,
@@ -429,9 +428,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const afterRootParts: Part[] = [];
     const toOneLinks: ToOneLink[] = [];
     const parentHeldTargets: ParentHeldTarget[] = [];
-    const polymorphicStorage: PolymorphicStorageValue<FinalReferenceSource>[] = [
-      ...(input.incomingPolymorphicStorage ?? []),
-    ];
+    const polymorphicStorage: PolymorphicStorageValue<FinalReferenceSource>[] =
+      [];
     const relationKeyGuards: RelationKeyGuard[] = [];
     const locateFields = new Set<string>(parentPrimaryKeys);
     const parentFkLocateFields = new Set<string>();
@@ -486,7 +484,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       [...locateFields].some((field) => Object.hasOwn(parentSet, field));
     this.needsRootUpdate =
       Object.keys(parentSet).length > 0 ||
-      this.incomingForeignKey.length > 0 ||
+      this.incomingMembership !== undefined ||
       polymorphicStorage.length > 0 ||
       parentHeldTargets.some(
         (target) =>
@@ -584,7 +582,16 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       beforeRootWrites,
       writes
     );
-    Object.assign(rootExtraSet, this.buildIncomingForeignKeySet(known));
+    const incoming = this.incomingMembership
+      ? lowerMembershipWrite(
+          this.engine,
+          this.targetScope,
+          this.incomingMembership,
+          known,
+          "update"
+        )
+      : { data: {}, polymorphicStorage: [] };
+    Object.assign(rootExtraSet, incoming.data);
     for (const part of this.childParts) {
       bucketOperationSteps(part.compile(this.scope, known), guards, writes);
     }
@@ -603,15 +610,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       );
     }
     const steps: OperationStep[] = [...guards, ...beforeRootWrites];
-    const polymorphicStorage = this.polymorphicStorage.map((value) =>
-      resolvePolymorphicStorageValue(this.engine, value, known, "update")
-    );
+    const polymorphicStorage = [
+      ...this.polymorphicStorage.map((value) =>
+        resolvePolymorphicStorageValue(this.engine, value, known, "update")
+      ),
+      ...incoming.polymorphicStorage,
+    ];
     const rootUpdate = this.needsRootUpdate
-      ? this.buildRootUpdate(
-          locatedRow,
-          rootExtraSet,
-          polymorphicStorage
-        )
+      ? this.buildRootUpdate(locatedRow, rootExtraSet, polymorphicStorage)
       : undefined;
     // A root SET that rewrites a child-referenced column (a PK transition
     // `id: 2`, or a literal on a non-PK referenced unique) must land AFTER the
@@ -644,21 +650,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       steps.push(...afterRootWrites);
     }
     return steps;
-  }
-
-  private buildIncomingForeignKeySet(
-    known: Readonly<Record<string, unknown>>
-  ): Record<string, unknown> {
-    const data: Record<string, unknown> = {};
-    for (const member of this.incomingForeignKey) {
-      data[member.foreignField] = referenceSql(
-        this.engine,
-        this.model,
-        member.foreignField,
-        foreignKeyWriteValue(member, known, this.relationName, "update")
-      );
-    }
-    return data;
   }
 
   private compileRelationKeyGuards(
@@ -1060,10 +1051,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const target = parent.afterRoot ? input.afterRootParts : input.childParts;
     const push = (parts: readonly Part[]) => target.push(...parts);
     const pushFresh = (
-      entry: Extract<
-        RelationMutationEntry,
-        { kind: "create" | "createMany" }
-      >
+      entry: Extract<RelationMutationEntry, { kind: "create" | "createMany" }>
     ): void => {
       if (entry.kind === "create") {
         push(
@@ -1071,10 +1059,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             this.createFresh({
               childScope,
               data,
-              incomingForeignKey: [],
-              incomingPolymorphicStorage: [
-                linkedPolymorphicStorage(relation, parent.write),
-              ],
+              incomingMembership: bindRelationMembership(
+                relation,
+                parent.write
+              ),
               relationName,
             })
           )
@@ -1125,6 +1113,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     } as const;
 
     for (const entry of entries) {
+      // biome-ignore lint/style/useDefaultSwitchClause: RelationMutationEntry is exhaustively discriminated.
       switch (entry.kind) {
         case "create":
           pushFresh(entry);
@@ -1168,9 +1157,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             buildConnectOrCreateParts(
               input.scope,
               this.engine,
-              relation,
               entry.items,
-              { kind: "polymorphic", parentId: parent.write },
+              bindRelationMembership(relation, parent.write),
               input.txMode,
               this.recordCompilers
             )
@@ -1178,16 +1166,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           break;
         case "upsert":
           push(
-            buildToManyUpsertParts(
+            buildCorrelatedToManyUpsertParts(
               input.scope,
               this.engine,
-              relation,
               entry.items,
-              {
-                kind: "polymorphic",
-                parentId: parent.write,
-                membershipReadSource: parent.read,
-              },
+              bindCorrelatedRelationMembership(
+                relation,
+                planningSourceFromFinal(parent.read, relationName, "upsert"),
+                parent.write
+              ),
               input.txMode,
               this.recordCompilers
             )
@@ -1290,7 +1277,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private interpretChildHeldCreate(args: {
     entry: Extract<RelationMutationEntry, { kind: "create" | "createMany" }>;
-    relation: ChildHeldRelation;
+    relation: OrdinaryChildHeldRelation;
     childScope: QueryScope;
     childName: string;
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
@@ -1320,7 +1307,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           this.createFresh({
             childScope: leaf.childScope,
             data,
-            incomingForeignKey: leaf.members,
+            incomingMembership: {
+              kind: "foreignKey",
+              relation,
+              members: leaf.members,
+            },
             relationName: leaf.relationName,
           })
         )
@@ -1374,7 +1365,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  The three survivors are typed refusals, not oversights — see each throw. */
   private resolveCreateParent(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ChildHeldRelation
+    relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
     const relationName = relation.relationInfo.name;
     const referencedFields = relation.referencedFields;
@@ -1516,7 +1507,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private transitionedCreateParent(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ChildHeldRelation
+    relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
     const relationName = relation.relationInfo.name;
     const referencedFields = relation.referencedFields;
@@ -1584,7 +1575,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private locatedCreateParent(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ChildHeldRelation
+    relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
     const referencedFields = relation.referencedFields;
     // The shortcut asks the CALLER'S unique `where` whether it pins this column to a
@@ -1667,15 +1658,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           writeSources
         );
         pushAdopt(
-          buildToManyUpsertParts(
+          buildCorrelatedToManyUpsertParts(
             input.scope,
             this.engine,
-            relation,
             entry.items,
             {
               kind: "foreignKey",
+              relation,
               members,
-              correlationMembers: members,
             },
             input.txMode,
             this.recordCompilers
@@ -1690,10 +1680,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           buildConnectOrCreateParts(
             input.scope,
             this.engine,
-            relation,
             entry.items,
             {
               kind: "foreignKey",
+              relation,
               members: pairForeignKeyMembers(
                 foreignFields,
                 referencedFields,
@@ -1849,10 +1839,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           buildConnectOrCreateParts(
             input.scope,
             this.engine,
-            relation,
             entry.items,
             {
               kind: "foreignKey",
+              relation,
               members: pairForeignKeyMembers(
                 foreignFields,
                 referencedFields,
@@ -2104,7 +2094,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       this.createFresh({
         childScope,
         data: createData,
-        incomingForeignKey: members,
+        incomingMembership: { kind: "foreignKey", relation, members },
         relationName,
       })
     );
@@ -2704,7 +2694,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       subtree: this.createFresh({
         childScope,
         data: createData,
-        incomingForeignKey: [],
         relationName: "",
         ...(rootRacePin ? { racePin: rootRacePin } : {}),
       }),
@@ -3260,10 +3249,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     if (this.mode === "transaction") return [];
     const guardStatement = link.connect.capturedGuardField
       ? buildFindUnique(
-          createQueryScope(
-            this.engine.adapter,
-            relationInfo.targetModel
-          ),
+          createQueryScope(this.engine.adapter, relationInfo.targetModel),
           {
             where: this.capturedConnectWhere(
               rows,

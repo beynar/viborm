@@ -103,10 +103,11 @@ inline junction-target insert. `RecordUpdateCompiler` compiles each
 already-selected non-bulk record update except the top-level scalar upsert fold,
 which stays in its shell to preserve the one-statement path.
 
-The update compiler owns scalar SET data, incoming FK assignments, nested
-relations, required target fields, primary-key transitions, the root UPDATE,
-and descendant ordering. For a `parentHeldToOne` edge, the record compiler also
-owns the inline FK fold and the branch needed to construct its root statement.
+The update compiler owns scalar SET data, an optional incoming membership,
+nested relations, required target fields, primary-key transitions, the root
+UPDATE, and descendant ordering. For a `parentHeldToOne` edge, the record
+compiler also owns the inline FK fold and the branch needed to construct its
+root statement.
 For child-held and junction edges, relation owners keep the target read,
 correlation, membership, found/missing decision, guards, race pins, not-found
 failure, and standalone edge effects. A true no-op allocates no step ID.
@@ -157,12 +158,16 @@ strict row parser. Optional empty or known-target orphan storage returns
 `null`; a required orphan throws `QueryEngineError`; unknown or half-null
 storage is malformed provider data.
 
-### Foreign-key provenance
+### Source-bound relation membership
 
-`write-engine/foreign-key-reference.ts` binds each value source to one
-foreign/referenced field pair. Transitioned keys use distinct old-read and
-new-write sources. Final operation references cannot enter planning SQL, and
-lookup SQL cannot decide a branch.
+`write-engine/relation-membership.ts` binds child-held topology to its value
+provenance once. Ordinary membership carries ordered field-bound FK members;
+polymorphic membership carries the same parent source beside its fixed storage
+and discriminator. The owner alone lowers membership into assignments,
+planning/final predicates, probe projections, empty assignments, and decoded-row
+tests. Transitioned keys use distinct old-read and new-write sources. Final
+operation references cannot enter planning SQL, and lookup SQL cannot decide a
+branch.
 
 ### Branch pins
 
@@ -205,7 +210,7 @@ found arm uses `RecordUpdateCompiler` and its captured identity.
 | `builders/polymorphic-relation.ts` | direct member resolution |
 | `builders/polymorphic-read-builder.ts` | direct CASE projection and correlated filters |
 | `builders/polymorphic-mutation.ts` | resolved direct intent and atomic private storage value |
-| `write-engine/foreign-key-reference.ts` | field-bound FK provenance |
+| `write-engine/relation-membership.ts` | child-held membership and value provenance |
 | `ManyToManyStatements.ts` | junction SQL materialization |
 | `result/polymorphic-result-parser.ts` | strict discriminator dispatch and orphan semantics |
 
