@@ -1,6 +1,6 @@
 ---
 title: Relations Overview
-description: Define relationships between models — oneToOne, oneToMany, manyToOne, and manyToMany
+description: Define ordinary and polymorphic relationships between models
 icon: git-branch
 ---
 
@@ -22,6 +22,7 @@ The thunk `() => targetModel` comes first to handle circular references between 
 | `s.oneToMany()` | One record relates to many | User → Posts |
 | `s.manyToOne()` | Many records relate to one | Post → Author |
 | `s.manyToMany()` | Many relate to many | Post ↔ Tags |
+| `s.polymorphic()` | One record relates to one of several model types | Comment → Post or Video |
 
 ## Quick Example
 
@@ -131,5 +132,10 @@ This is the canonical reference — the per-relation pages link back here.
     title="Many-to-Many"
     description="Multiple records to multiple records"
     href="/docs/schema/relations/many-to-many"
+  />
+  <Card
+    title="Polymorphic Relations"
+    description="One typed relation to several independent target models"
+    href="/docs/schema/relations/polymorphic"
   />
 </CardGroup>
