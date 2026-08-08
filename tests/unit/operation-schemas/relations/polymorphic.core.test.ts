@@ -46,6 +46,21 @@ const remark = s.model({
     )
     .name("commentable"),
 });
+const optionalArticle = s.model({
+  id: s.string().id(),
+  comments: s.oneToMany(() => optionalRemark).name("optionalCommentable"),
+});
+const optionalRemark = s.model({
+  id: s.string().id(),
+  body: s.string(),
+  commentable: s
+    .polymorphic(
+      { article: () => optionalArticle },
+      { values: { article: "content.optional-article.v1" } }
+    )
+    .name("optionalCommentable")
+    .optional(),
+});
 const auditLog = s.model({
   id: s.string().id(),
 });
@@ -74,6 +89,8 @@ const registry = createSchemaRegistry({
   optionalOwner,
   article,
   remark,
+  optionalArticle,
+  optionalRemark,
   auditLog,
   folder,
   folderEntry,
@@ -188,7 +205,7 @@ describe("polymorphic operation schema factories", () => {
     ).toBe(true);
   });
 
-  test("inverse one-to-many exposes only create and supplies the child edge", () => {
+  test("inverse one-to-many exposes the safe mutation family", () => {
     expect(
       accepts(registry.proxy.article.core.create, {
         id: "article-1",
@@ -200,10 +217,9 @@ describe("polymorphic operation schema factories", () => {
         comments: { create: [{ id: "remark-2", body: "second" }] },
       })
     ).toBe(true);
-    for (const unsupported of [
+    for (const supported of [
       { connect: { id: "remark-1" } },
       { createMany: { data: [{ id: "remark-1", body: "first" }] } },
-      { disconnect: { id: "remark-1" } },
       { delete: { id: "remark-1" } },
       {
         update: {
@@ -211,7 +227,6 @@ describe("polymorphic operation schema factories", () => {
           data: { body: "changed" },
         },
       },
-      { set: [] },
       {
         upsert: {
           where: { id: "remark-1" },
@@ -228,14 +243,130 @@ describe("polymorphic operation schema factories", () => {
     ]) {
       expect(
         accepts(registry.proxy.article.core.update, {
-          comments: unsupported,
+          comments: supported,
+        })
+      ).toBe(true);
+    }
+
+    expect(
+      accepts(registry.proxy.article.core.create, {
+        id: "article-2",
+        comments: {
+          connect: { id: "remark-1" },
+          connectOrCreate: {
+            where: { id: "remark-2" },
+            create: { id: "remark-2", body: "second" },
+          },
+          upsert: {
+            where: { id: "remark-3" },
+            create: { id: "remark-3", body: "third" },
+            update: { body: "changed" },
+          },
+        },
+      })
+    ).toBe(true);
+
+    for (const updateOnly of [
+      {
+        update: {
+          where: { id: "remark-1" },
+          data: { body: "changed" },
+        },
+      },
+      { delete: { id: "remark-1" } },
+      { disconnect: { id: "remark-1" } },
+      { set: [] },
+    ]) {
+      expect(
+        accepts(registry.proxy.article.core.create, {
+          id: "article-3",
+          comments: updateOnly,
         })
       ).toBe(false);
     }
+
+    for (const requiredOnly of [
+      { disconnect: { id: "remark-1" } },
+      { set: [] },
+    ]) {
+      expect(
+        accepts(registry.proxy.article.core.update, {
+          comments: requiredOnly,
+        })
+      ).toBe(false);
+      expect(
+        accepts(registry.proxy.optionalArticle.core.update, {
+          comments: requiredOnly,
+        })
+      ).toBe(true);
+    }
+
+    expect(
+      accepts(registry.proxy.article.core.update, {
+        comments: {
+          updateMany: { where: { body: "first" }, data: { body: "changed" } },
+          deleteMany: { body: "obsolete" },
+        },
+      })
+    ).toBe(true);
     expect(
       accepts(registry.proxy.remark.core.create, {
         id: "remark-3",
         body: "standalone",
+      })
+    ).toBe(false);
+  });
+
+  test("inverse mutation data cannot restate its owning direct edge", () => {
+    const directOwner = {
+      connect: { type: "article", where: { id: "article-2" } },
+    };
+
+    expect(
+      accepts(registry.proxy.article.core.create, {
+        id: "article-1",
+        comments: {
+          create: {
+            id: "remark-1",
+            body: "first",
+            commentable: directOwner,
+          },
+        },
+      })
+    ).toBe(false);
+    expect(
+      accepts(registry.proxy.article.core.update, {
+        comments: {
+          updateMany: {
+            where: { body: "first" },
+            data: { body: "changed", commentable: directOwner },
+          },
+        },
+      })
+    ).toBe(false);
+    expect(
+      accepts(registry.proxy.article.core.update, {
+        comments: {
+          update: {
+            where: { id: "remark-1" },
+            data: { body: "changed", commentable: directOwner },
+          },
+        },
+      })
+    ).toBe(false);
+    expect(
+      accepts(registry.proxy.article.core.update, {
+        comments: {
+          upsert: {
+            where: { id: "remark-1" },
+            create: {
+              id: "remark-1",
+              body: "first",
+              commentable: directOwner,
+            },
+            update: { body: "changed", commentable: directOwner },
+          },
+        },
       })
     ).toBe(false);
   });
@@ -260,6 +391,21 @@ describe("polymorphic operation schema factories", () => {
         },
       })
     ).toBe(true);
+
+    expect(
+      accepts(registry.proxy.article.core.create, {
+        id: "article-1",
+        comments: {
+          createMany: { data: [{ id: "entry-1", body: "first" }] },
+        },
+      })
+    ).toBe(true);
+    expect(
+      accepts(registry.proxy.folder.core.create, {
+        id: "folder-1",
+        entries: { createMany: { data: [{ id: "entry-1" }] } },
+      })
+    ).toBe(false);
   });
 
   test("inverse topology stays lazy until create validation", () => {

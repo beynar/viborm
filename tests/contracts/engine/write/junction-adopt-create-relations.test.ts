@@ -84,6 +84,7 @@ const adoptRelationsSchema = (() => {
         .optional(),
       posts: s.manyToMany(() => post),
       notes: s.oneToMany(() => note),
+      polymorphicNotes: s.oneToMany(() => polymorphicNote).name("subject"),
     })
     .map("e2u2_tags");
   const note = s
@@ -156,6 +157,24 @@ const adoptRelationsSchema = (() => {
         .references("id"),
     })
     .map("e2u2_mark_notes");
+  const polymorphicNote = s
+    .model({
+      id: s.string().id(),
+      body: s.string(),
+      subject: s
+        .polymorphic(
+          { tag: () => tag, mark: () => mark },
+          {
+            values: {
+              tag: "junction.tag.v1",
+              mark: "junction.mark.v1",
+            },
+          }
+        )
+        .name("subject")
+        .optional(),
+    })
+    .map("e2u2_polymorphic_notes");
   return {
     user,
     post,
@@ -167,6 +186,7 @@ const adoptRelationsSchema = (() => {
     boardPost,
     mark,
     markNote,
+    polymorphicNote,
   };
 })();
 
@@ -274,6 +294,54 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         await expect(
           client.note.findUnique({ where: { id: "n-root" } })
         ).resolves.toEqual({ id: "n-root", body: "root", tagId: "t-root" });
+      } finally {
+        await client.$disconnect();
+      }
+    }, 30_000);
+
+    test("a fresh inline junction target globally adopts through a polymorphic inverse", async () => {
+      const client = await setup(makeDriver());
+      try {
+        await client.polymorphicNote.create({
+          data: { id: "pn-loose", body: "before adoption" },
+        });
+        await client.post.update({
+          where: { id: "post1" },
+          data: {
+            tags: {
+              connectOrCreate: {
+                where: { id: "t-polymorphic" },
+                create: {
+                  id: "t-polymorphic",
+                  name: "polymorphic target",
+                  polymorphicNotes: {
+                    upsert: {
+                      where: { id: "pn-loose" },
+                      create: {
+                        id: "pn-loose",
+                        body: "must not create",
+                      },
+                      update: { body: "after adoption" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        await expect(
+          client.polymorphicNote.findUniqueOrThrow({
+            where: { id: "pn-loose" },
+            include: { subject: true },
+          })
+        ).resolves.toMatchObject({
+          body: "after adoption",
+          subject: {
+            type: "tag",
+            data: { id: "t-polymorphic" },
+          },
+        });
       } finally {
         await client.$disconnect();
       }

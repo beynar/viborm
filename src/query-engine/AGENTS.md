@@ -78,18 +78,23 @@ once at its trust boundary and pass transformed meaning downstream.
 ### Relation topology
 
 `bindRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
-`childHeldToMany`, or `junction`. `BoundRelation` carries ordered topology only.
-It does not carry scopes, identities, value sources, transition state, SQL, or
-branch policy. Bind at the first topology decision so error order and untaken
-arm behavior do not move.
+`childHeldToMany`, `polymorphicChildHeldToMany`, or `junction`.
+`BoundRelation` carries ordered topology only. It does not carry scopes,
+runtime identities, value sources, transition state, SQL, or branch policy.
+Bind at the first topology decision so error order and untaken arm behavior do
+not move.
 
-Polymorphic storage does not enter `BoundRelation`. After schema transformation,
+A `polymorphicChildHeldToMany` is a fixed inverse topology. It carries the
+private type/id storage, the inverse's stored discriminator, and the one parent
+field the private identity references. Its physical membership is exactly
+`child.id = parent.referenced AND child.type = storedType`.
+
+Direct polymorphic payloads remain separate. After schema transformation,
 `ResolvedPolymorphicMutation` selects one concrete direct target or a targetless
-disconnect. Its companion `ResolvedPolymorphicEdge` can reuse ordinary target
-lookup/create semantics, while `PolymorphicStorageValue` owns the atomic private
-`(type, id)` assignment. `ResolvedPolymorphicInverse` remains an honest
-child-held ordinary inverse with a fixed discriminator; do not coerce direct and
-inverse facts into one topology.
+disconnect. `ResolvedPolymorphicEdge` reuses ordinary target lookup/create
+semantics, while `PolymorphicStorageValue` owns the atomic private `(type, id)`
+assignment. A payload-selected direct edge and a schema-fixed inverse topology
+are different facts and must not be coerced into one carrier.
 
 ### Record compilers
 
@@ -128,13 +133,21 @@ correlation owner to add both `child.<private id> = parent.<referenced field>`
 and `child.<private type> = <fixed stored discriminator>` to include,
 `some`/`every`/`none`, and count SQL.
 
-`CreateOperation` owns direct create/connect storage on a fresh owner and
-inverse child creation below a fresh parent. `RecordUpdateCompiler` owns direct
-connect/disconnect storage on a selected owner and inverse child creation below
-a selected parent. They reuse the existing parent-held lookup, existence,
-guard, race-pin, and retry machinery; child-held and junction relation ownership
-does not move. The implementation adds no runtime step kind, database round
-trip, or generic polymorphic strategy.
+`CreateOperation` owns direct create/connect storage on a fresh owner and fresh
+inverse targets. `RecordUpdateCompiler` owns direct connect/disconnect storage
+on a selected owner and selected inverse-target updates. Existing child-held
+relation Parts own inverse probes, exact membership, found/missing branches,
+guards, pins, link/set/delete effects, and bulk statements. Nested inverse
+`createMany` remains grouped. The implementation adds no runtime step kind,
+database round trip, or generic polymorphic strategy.
+
+For inverse writes, connect and connect-or-create adopt globally. A fresh-parent
+upsert also adopts globally. A selected-parent upsert requires the found row to
+already have the exact fixed membership; a same-id row with another
+discriminator is foreign and fails V7001. During a parent referenced-value
+transition, membership reads use the old value and create/adopt writes use the
+new value. Existing members are not rewritten because the database has no
+polymorphic foreign key or automatic referential action.
 
 Strict results keep a separate polymorphic expected-shape map and parser. The
 existing adapter/driver relation decode chain receives result kind
@@ -189,7 +202,7 @@ found arm uses `RecordUpdateCompiler` and its captured identity.
 | `write-engine/OperationFragment.ts` | step and fragment vocabulary |
 | `builders/relation-mutation-parser.ts` | parsed mutation programs |
 | `builders/relation-data-builder.ts` | bound relation topology |
-| `builders/polymorphic-relation.ts` | direct member and inverse binding resolution |
+| `builders/polymorphic-relation.ts` | direct member resolution |
 | `builders/polymorphic-read-builder.ts` | direct CASE projection and correlated filters |
 | `builders/polymorphic-mutation.ts` | resolved direct intent and atomic private storage value |
 | `write-engine/foreign-key-reference.ts` | field-bound FK provenance |
@@ -212,8 +225,9 @@ lifecycle hook, or shared utility landfill.
 7. First-create-wins remains local to connect-or-create.
 8. One invariant has one guard.
 9. Use direct owner imports; do not recreate a query-engine barrel.
-10. Keep polymorphic private storage outside public scalars and ordinary FK
-    topology; write both private columns through one storage value.
+10. Keep polymorphic private storage outside public scalars. Direct payloads
+    write both columns through one storage value; fixed inverse topology binds
+    the same pair with its schema-owned discriminator.
 11. Every inverse polymorphic predicate includes both id correlation and exact
     discriminator equality.
 12. Keep ordinary read and write fast paths unchanged when no polymorphic field

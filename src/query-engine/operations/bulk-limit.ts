@@ -48,7 +48,8 @@ export function buildBulkLimitWhere(
   ctx: QueryScope,
   where: Sql | undefined,
   filter: Record<string, unknown> | undefined,
-  limit: number | undefined
+  limit: number | undefined,
+  predicate?: Sql
 ): BulkLimitParts {
   if (limit === undefined) {
     return { where, suffix: undefined };
@@ -60,7 +61,7 @@ export function buildBulkLimitWhere(
     };
   }
   return {
-    where: buildPrimaryKeyLimitWhere(ctx, filter, limit),
+    where: buildPrimaryKeyLimitWhere(ctx, filter, limit, predicate),
     suffix: undefined,
   };
 }
@@ -68,15 +69,16 @@ export function buildBulkLimitWhere(
 /**
  * `(pk…) IN (SELECT pk… FROM t WHERE <filter> LIMIT n)`.
  *
- * The subquery is built by `buildFind` on a FRESH scope, so it gets its own
- * alias (`t0`, …) and cannot be confused with the unaliased mutation target it
- * is nested inside. The outer columns stay qualified by table name, which is how
- * the uncapped bulk writes already address the mutation target.
+ * The subquery is built by `buildFind` on a fresh scope. Public filters use a
+ * fresh alias. A trusted predicate already names the mutation table, so that
+ * name becomes the inner alias and resolves inside the subquery instead of
+ * correlating back to the outer mutation row.
  */
 function buildPrimaryKeyLimitWhere(
   ctx: QueryScope,
   filter: Record<string, unknown> | undefined,
-  limit: number
+  limit: number,
+  predicate: Sql | undefined
 ): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
@@ -95,7 +97,7 @@ function buildPrimaryKeyLimitWhere(
       adapter,
       model: ctx.model,
       nextAlias: ctx.nextAlias,
-      rootAlias: ctx.nextAlias(),
+      rootAlias: predicate ? tableName : ctx.nextAlias(),
       polymorphicRelations: ctx.polymorphicRelations,
     },
     {
@@ -104,7 +106,7 @@ function buildPrimaryKeyLimitWhere(
         primaryKeyFields.map((field) => [field, true])
       ),
     },
-    { limit }
+    { limit, ...(predicate ? { predicate } : {}) }
   );
 
   return adapter.operators.in(target, adapter.subqueries.scalar(capped));

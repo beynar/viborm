@@ -4,7 +4,9 @@ import {
   bindRelation,
   type ChildHeldToMany,
   type ChildHeldToOne,
+  type PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   type RelationMutationEntry,
   type RelationMutationProgram,
@@ -19,12 +21,14 @@ import {
   type FinalReferenceSource,
   type ForeignKeyMember,
   foreignKeyWriteValue,
+  linkedPolymorphicStorage,
   literalReferenceSource,
   pairCorrelatedForeignKeyMembers,
   pairForeignKeyMembers,
   planningSourceFromFinal,
+  resolvePolymorphicStorageValue,
 } from "./foreign-key-reference";
-import { referenceSql } from "./fragment-builders";
+import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type {
   OperationStep,
   StatementStep,
@@ -210,6 +214,7 @@ function foldJunctionTargetRelation(input: {
       scope,
       engine,
       parentId,
+      membershipReadSource: input.membershipReadSource,
       txMode,
       parts: input.parts,
     });
@@ -221,11 +226,12 @@ function foldJunctionChildHeldEntry(args: {
   recordCompilers: RecordCompilerSeam;
   childScope: QueryScope;
   childName: string;
-  relation: ChildHeldToOne | ChildHeldToMany;
+  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldToMany;
   writeBase: Parameters<typeof buildToManyUpdateParts>[0];
   scope: StepScope;
   engine: QueryEngine;
   parentId: FinalReferenceSource;
+  membershipReadSource?: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -239,6 +245,7 @@ function foldJunctionChildHeldEntry(args: {
     scope,
     engine,
     parentId,
+    membershipReadSource,
     txMode,
     parts,
   } = args;
@@ -270,11 +277,16 @@ function foldJunctionChildHeldEntry(args: {
           engine,
           relation,
           entry.items,
-          pairForeignKeyMembers(
-            relation.foreignFields,
-            relation.referencedFields,
-            relation.referencedFields.map(() => parentId)
-          ),
+          relation.kind === "polymorphicChildHeldToMany"
+            ? { kind: "polymorphic", parentId }
+            : {
+                kind: "foreignKey",
+                members: pairForeignKeyMembers(
+                  relation.foreignFields,
+                  relation.referencedFields,
+                  relation.referencedFields.map(() => parentId)
+                ),
+              },
           txMode,
           recordCompilers
         )
@@ -291,22 +303,36 @@ function foldJunctionChildHeldEntry(args: {
         parts.push(buildInverseToOneUpsertPart(writeBase, item));
         return;
       }
-      const members = pairCorrelatedForeignKeyMembers(
-        relation.foreignFields,
-        relation.referencedFields,
-        relation.referencedFields.map(() =>
-          planningSourceFromFinal(parentId, relationName, "upsert")
-        ),
-        relation.referencedFields.map(() => parentId)
-      );
+      const members =
+        relation.kind === "polymorphicChildHeldToMany"
+          ? undefined
+          : pairCorrelatedForeignKeyMembers(
+              relation.foreignFields,
+              relation.referencedFields,
+              relation.referencedFields.map(() =>
+                planningSourceFromFinal(parentId, relationName, "upsert")
+              ),
+              relation.referencedFields.map(() => parentId)
+            );
       push(
         buildToManyUpsertParts(
           scope,
           engine,
           relation,
           entry.items,
-          members,
-          members,
+          members
+            ? {
+                kind: "foreignKey",
+                members,
+                correlationMembers: members,
+              }
+            : {
+                kind: "polymorphic",
+                parentId,
+                ...(membershipReadSource
+                  ? { membershipReadSource }
+                  : {}),
+              },
           txMode,
           recordCompilers
         )
@@ -347,17 +373,26 @@ function foldJunctionChildHeldEntry(args: {
     case "create": {
       // Every non-bulk fresh record is a CreateOperation subtree. Its field-bound
       // incoming members resolve literal and planned parents through the same compiler.
-      const members = pairForeignKeyMembers(
-        relation.foreignFields,
-        relation.referencedFields,
-        relation.referencedFields.map(() => parentId)
-      );
       parts.push(
         ...entry.items.map((data) =>
           recordCompilers.createFresh({
             childScope,
             data,
-            incomingForeignKey: members,
+            incomingForeignKey:
+              relation.kind === "polymorphicChildHeldToMany"
+                ? []
+                : pairForeignKeyMembers(
+                    relation.foreignFields,
+                    relation.referencedFields,
+                    relation.referencedFields.map(() => parentId)
+                  ),
+            ...(relation.kind === "polymorphicChildHeldToMany"
+              ? {
+                  incomingPolymorphicStorage: [
+                    linkedPolymorphicStorage(relation, parentId),
+                  ],
+                }
+              : {}),
             relationName,
           })
         )
@@ -367,6 +402,20 @@ function foldJunctionChildHeldEntry(args: {
     case "createMany": {
       // Literal parents inject now; planned parents inject the captured value at
       // compile. Skip semantics are independent of that provenance.
+      if (relation.kind === "polymorphicChildHeldToMany") {
+        parts.push(
+          buildPolymorphicParentCreateManyPart({
+            scope,
+            engine,
+            childScope,
+            childName,
+            relation,
+            parentId,
+            createManyEntry: entry,
+          })
+        );
+        return;
+      }
       const members = pairForeignKeyMembers(
         relation.foreignFields,
         relation.referencedFields,
@@ -569,6 +618,66 @@ export function buildPlannedParentCreateManyPart(input: {
     if (plan.statements.length !== stepIds.length) {
       throw new QueryEngineError(
         `query-engine-v2 planned-parent createMany on relation '${relationName}' compiled ${plan.statements.length} statements for ${stepIds.length} allocated step ids.`
+      );
+    }
+    return plan.statements.map((statement, index) => ({
+      id: stepIds[index]!,
+      kind: "write" as const,
+      statement: statement.sql,
+      outputs: {},
+      ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
+    }));
+  });
+}
+
+export function buildPolymorphicParentCreateManyPart(input: {
+  scope: StepScope;
+  engine: QueryEngine;
+  childScope: QueryScope;
+  childName: string;
+  relation: PolymorphicChildHeldToMany;
+  parentId: FinalReferenceSource;
+  createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
+}): Part {
+  const { scope, engine, childScope, childName, relation, parentId } = input;
+  const { userRows, skipDuplicates, recoverUnique } = planNestedCreateMany({
+    engine,
+    childScope,
+    relationName: relation.relationInfo.name,
+    createManyEntry: input.createManyEntry,
+  });
+  if (userRows.length === 0) return new LiteralParentWriteParts([]);
+  const shapeStorage: PolymorphicStorageValue<unknown> = {
+    ...linkedPolymorphicStorage(relation, parentId),
+    id: referenceScalarSql(
+      engine,
+      relation.storage.idColumn.scalar,
+      relation.storage.idColumn.name,
+      null
+    ),
+  };
+  const stepIds = buildCreateManyPlan(
+    childScope,
+    { data: userRows, skipDuplicates },
+    false,
+    shapeStorage
+  ).statements.map(() => scope.allocate(`${childName}.createMany`));
+  return new PlannedParentCreatePart((known) => {
+    const storage = resolvePolymorphicStorageValue(
+      engine,
+      linkedPolymorphicStorage(relation, parentId),
+      known,
+      "create"
+    );
+    const plan = buildCreateManyPlan(
+      childScope,
+      { data: userRows, skipDuplicates },
+      false,
+      storage
+    );
+    if (plan.statements.length !== stepIds.length) {
+      throw new QueryEngineError(
+        `query-engine-v2 polymorphic createMany on relation '${relation.relationInfo.name}' compiled ${plan.statements.length} statements for ${stepIds.length} allocated step ids.`
       );
     }
     return plan.statements.map((statement, index) => ({

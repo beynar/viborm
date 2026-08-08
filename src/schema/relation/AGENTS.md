@@ -301,14 +301,16 @@ Direct create accepts exactly one of:
 
 Direct update accepts `connect`, plus `{ disconnect: true }` only when the
 relation is optional. A bound inverse `oneToMany` keeps its ordinary read,
-filter, count, order, and pagination surface but exposes only nested `create`
-for writes.
+filter, count, order, and pagination surface and exposes the safe child-held
+write family: create/createMany/connect/connectOrCreate/upsert on create, plus
+update/updateMany/delete/deleteMany on update. Optional storage also exposes
+disconnect and set.
 
-V1 refuses direct update-through, `set`, `upsert`, and `connectOrCreate`, and it
-refuses inverse connect/createMany/disconnect/delete/update/set/upsert/
-connectOrCreate. A root or nested scalar-only `createMany` is unavailable when
-its target model has a required polymorphic field; optional polymorphic fields
-do not block bulk creation.
+Direct update-through, `set`, `upsert`, and `connectOrCreate` remain refused.
+Root createMany stays scalar-only and is unavailable when its target has a
+required polymorphic field. Inverse nested createMany may satisfy its one owning
+required polymorphic relation, but remains unavailable when another required
+polymorphic relation would be unsatisfied.
 
 ---
 

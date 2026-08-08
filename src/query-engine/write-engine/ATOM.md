@@ -217,6 +217,7 @@ type BoundRelation =
   | ParentHeldToOne
   | ChildHeldToOne
   | ChildHeldToMany
+  | PolymorphicChildHeldToMany
   | JunctionRelation;
 ```
 
@@ -224,8 +225,9 @@ Classification is ordered:
 
 1. `manyToMany` is `junction`;
 2. a relation whose current model holds the FK is `parentHeldToOne`;
-3. a child-held to-one is `childHeldToOne`;
-4. the remaining child-held relation is `childHeldToMany`.
+3. a resolved polymorphic inverse is `polymorphicChildHeldToMany`;
+4. an ordinary child-held to-one is `childHeldToOne`;
+5. the remaining ordinary child-held relation is `childHeldToMany`.
 
 A fields-less `manyToOne` is therefore child-held to-one from the current
 source position.
@@ -236,6 +238,19 @@ A bound FK relation carries:
 - ordered foreign fields;
 - ordered referenced fields;
 - the `onUpdate` action.
+
+The polymorphic child-held variant additionally carries its private storage and
+fixed stored discriminator. Its one identity field references the parent field
+at the same index. It expresses a conjunction, not two independent links:
+
+```text
+child.privateIdentity = parent.referenced
+AND child.privateType = storedDiscriminator
+```
+
+The discriminator participates in membership scope equality, OwnWrite
+footprints, read correlation, target probes, set departure, and bulk predicates.
+A same-id row with another discriminator is a different membership.
 
 It does not carry:
 
@@ -251,6 +266,10 @@ It does not carry:
 Bind at the first topology decision. Do not bind all relations early: that can
 move malformed-metadata errors ahead of schema errors or into an untaken upsert
 arm.
+
+Direct polymorphic mutation intent is not a bound inverse. It chooses a target
+variant per payload and lowers to `ResolvedPolymorphicMutation` plus one atomic
+private storage assignment.
 
 ## 8. Field-bound foreign-key provenance
 

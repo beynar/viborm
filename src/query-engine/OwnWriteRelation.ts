@@ -187,7 +187,7 @@ export class OwnWriteRelation {
     this.ledger.assertMembershipRead(
       this.relationName,
       operation,
-      this.membershipEndpoints(constraint),
+      this.membershipEndpoints(constraint, "read"),
       this.membershipScope,
       this.membershipOrientation
     );
@@ -265,7 +265,7 @@ export class OwnWriteRelation {
     const constraint = createIdentityConstraint(this.target, summary.data);
     ledger.appendMembership(
       summary.operation,
-      this.membershipEndpoints(constraint),
+      this.membershipEndpoints(constraint, "write"),
       this.membershipScope,
       "physical",
       "operation"
@@ -286,7 +286,7 @@ export class OwnWriteRelation {
     const ledger = this.membershipLedger ?? this.ledger;
     ledger.appendMembership(
       operation,
-      this.membershipEndpoints(constraint),
+      this.membershipEndpoints(constraint, "write"),
       this.membershipScope,
       "physical",
       "operation"
@@ -304,18 +304,25 @@ export class OwnWriteRelation {
   private isRelatedHeldRelation(): boolean {
     return (
       this.boundRelation.kind === "childHeldToOne" ||
-      this.boundRelation.kind === "childHeldToMany"
+      this.boundRelation.kind === "childHeldToMany" ||
+      this.boundRelation.kind === "polymorphicChildHeldToMany"
     );
   }
 
   private membershipEndpoints(
-    targetConstraint: TargetConstraint
+    targetConstraint: TargetConstraint,
+    access: "read" | "write"
   ): ReturnType<typeof getRelationMembershipEndpoints> {
+    const currentConstraint =
+      access === "read" &&
+      this.boundRelation.kind === "polymorphicChildHeldToMany"
+        ? this.node.currentReadConstraint
+        : this.node.currentConstraint;
     return getRelationMembershipEndpoints(
       this.ctx,
       this.boundRelation,
       this.membershipScope,
-      this.node.currentConstraint,
+      currentConstraint,
       targetConstraint
     );
   }

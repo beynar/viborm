@@ -2,6 +2,9 @@ import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { createQueryScope } from "@query-engine/context";
+import { buildDeleteMany } from "@query-engine/operations/delete";
+import { buildUpdateMany } from "@query-engine/operations/update";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { createSchemaRegistry } from "@validation";
@@ -167,6 +170,40 @@ describe("the per-dialect spelling of a nonzero limit", () => {
       );
       expect(statement).not.toMatch(NATIVE_LIMIT);
       expect(statement).not.toMatch(PK_SUBQUERY);
+    }
+  });
+
+  test("an internal predicate is scoped to the capped PK subquery", () => {
+    const queryEngine = engine("PGlite");
+    const ctx = createQueryScope(queryEngine.adapter, schema.gadget);
+    const tableName = "limit_plan_gadgets";
+    const predicate = ctx.adapter.operators.eq(
+      ctx.adapter.identifiers.column(tableName, "code"),
+      ctx.adapter.literals.value("kept")
+    );
+    const statements = [
+      buildUpdateMany(ctx, {
+        where: { name: { equals: "Alpha" } },
+        data: { qty: { set: 1 } },
+        limit: 1,
+        predicate,
+      }),
+      buildDeleteMany(ctx, {
+        where: { name: { equals: "Alpha" } },
+        limit: 1,
+        predicate,
+      }),
+    ];
+
+    for (const statement of statements) {
+      const prepared = new PGliteDriver()._prepare(statement);
+      expect(prepared.sql).toContain(
+        'FROM "limit_plan_gadgets" AS "limit_plan_gadgets"'
+      );
+      expect(prepared.sql).toContain(
+        '"limit_plan_gadgets"."code" = $'
+      );
+      expect(prepared.params).toContain("kept");
     }
   });
 });

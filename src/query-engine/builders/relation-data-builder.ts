@@ -5,14 +5,20 @@
  */
 
 import type { Model } from "@schema/model";
-import type { ReferentialAction } from "@schema/relation";
-import { type Sql, sql } from "@sql";
-import { createChildScope, getColumnName, getTableName } from "../context";
-import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import {
-  findInverseRelationState,
+  getPolymorphicInverseBinding,
+  type AnyRelation,
+  type PolymorphicStorage,
+  type ReferentialAction,
+} from "@schema/relation";
+import { type Sql, sql } from "@sql";
+import {
+  createChildScope,
+  getColumnName,
   getPrimaryKeyFields,
-} from "./correlation-utils";
+  getTableName,
+} from "../context";
+import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import {
   hideMutationTarget,
   readsMutationTarget,
@@ -24,7 +30,7 @@ interface BoundRelationBase {
   readonly sourceModel: Model<any>;
 }
 
-interface BoundForeignKeyRelation extends BoundRelationBase {
+export interface BoundForeignKeyRelation extends BoundRelationBase {
   readonly foreignFields: readonly string[];
   readonly referencedFields: readonly string[];
   readonly onUpdate: ReferentialAction | undefined;
@@ -42,6 +48,14 @@ export interface ChildHeldToMany extends BoundForeignKeyRelation {
   readonly kind: "childHeldToMany";
 }
 
+export interface PolymorphicChildHeldToMany extends BoundForeignKeyRelation {
+  readonly kind: "polymorphicChildHeldToMany";
+  readonly foreignFields: readonly [string];
+  readonly referencedFields: readonly [string];
+  readonly storage: PolymorphicStorage;
+  readonly storedType: string;
+}
+
 export interface JunctionRelation extends BoundRelationBase {
   readonly kind: "junction";
 }
@@ -50,6 +64,7 @@ export type BoundRelation =
   | ParentHeldToOne
   | ChildHeldToOne
   | ChildHeldToMany
+  | PolymorphicChildHeldToMany
   | JunctionRelation;
 
 /** Bind one relation to its structural position relative to the current model. */
@@ -77,6 +92,9 @@ export function bindRelation(
     };
   }
 
+  const polymorphicInverse = bindPolymorphicInverse(ctx, relationInfo);
+  if (polymorphicInverse) return polymorphicInverse;
+
   const inverse = findInverseRelationState(ctx.model, relationInfo);
   if (!inverse) {
     throw new QueryEngineError(
@@ -100,6 +118,112 @@ export function bindRelation(
     return { kind: "childHeldToOne", ...foreignKey };
   }
   return { kind: "childHeldToMany", ...foreignKey };
+}
+
+function bindPolymorphicInverse(
+  ctx: QueryScope,
+  relationInfo: RelationInfo
+): PolymorphicChildHeldToMany | undefined {
+  if (relationInfo.type !== "oneToMany") return undefined;
+  const binding = getPolymorphicInverseBinding(
+    relationInfo.targetModel,
+    ctx.model,
+    relationInfo.relation["~"].state.name
+  );
+  if (!binding) return undefined;
+
+  const storage = relationInfo.targetModel["~"].getPolymorphicStorage(
+    binding.relationKey
+  );
+  const member = storage?.members.get(binding.publicType);
+  if (!storage || !member) {
+    throw new QueryEngineError(
+      `Polymorphic inverse '${relationInfo.name}' has no resolved storage binding.`
+    );
+  }
+
+  return {
+    kind: "polymorphicChildHeldToMany",
+    relationInfo,
+    sourceModel: ctx.model,
+    foreignFields: [storage.idColumn.name],
+    referencedFields: [member.referencedField],
+    onUpdate: undefined,
+    storage,
+    storedType: binding.storedType,
+  };
+}
+
+/**
+ * Find the ordinary inverse relation on the target model that owns the FK.
+ * An explicit relation name disambiguates multiple back-references.
+ */
+export function findInverseRelationState(
+  sourceModel: Model<any>,
+  relationInfo: RelationInfo
+):
+  | {
+      fields: string[];
+      references: string[] | undefined;
+      onUpdate: ReferentialAction | undefined;
+    }
+  | undefined {
+  const { targetModel } = relationInfo;
+  const currentRelationName = relationInfo.relation["~"].state.name;
+  const potentialInverses: Array<{
+    relationName?: string;
+    fields: string[];
+    references: string[] | undefined;
+    onUpdate: ReferentialAction | undefined;
+  }> = [];
+  const targetRelations: Record<string, AnyRelation> =
+    targetModel["~"].state.relations ?? {};
+
+  for (const relation of Object.values(targetRelations)) {
+    const state = relation["~"].state;
+    const fields = state.fields;
+    if (state.getter?.() === sourceModel && fields && fields.length > 0) {
+      potentialInverses.push({
+        relationName: state.name,
+        fields,
+        references: state.references,
+        onUpdate: state.onUpdate,
+      });
+    }
+  }
+
+  if (potentialInverses.length === 0) return undefined;
+  if (potentialInverses.length === 1) {
+    const inverse = potentialInverses[0]!;
+    return {
+      fields: inverse.fields,
+      references: inverse.references,
+      onUpdate: inverse.onUpdate,
+    };
+  }
+
+  if (currentRelationName) {
+    const inverse = potentialInverses.find(
+      (candidate) => candidate.relationName === currentRelationName
+    );
+    if (inverse) {
+      return {
+        fields: inverse.fields,
+        references: inverse.references,
+        onUpdate: inverse.onUpdate,
+      };
+    }
+  }
+
+  const sourceName =
+    sourceModel["~"].names.ts ?? sourceModel["~"].state.tableName ?? "unknown";
+  const targetName =
+    targetModel["~"].names.ts ?? targetModel["~"].state.tableName ?? "unknown";
+  throw new QueryEngineError(
+    `Ambiguous relation '${relationInfo.name}' on model '${sourceName}': ` +
+      `multiple relations on '${targetName}' point back to it. ` +
+      "Add .name() to both sides of each relation to disambiguate."
+  );
 }
 
 /**

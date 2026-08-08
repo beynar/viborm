@@ -6,7 +6,6 @@ import {
   bindRelation,
 } from "./builders/relation-data-builder";
 import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
-import { resolvePolymorphicInverse } from "./builders/polymorphic-relation";
 import { getRelationInfo, getRelationNames } from "./context";
 import {
   buildScalarUpdatePredicateFootprints,
@@ -29,6 +28,15 @@ export type RelationMembershipScope =
         readonly foreignKey: string;
         readonly referencedKey: string;
       }[];
+    }
+  | {
+      readonly kind: "polymorphicForeignKey";
+      readonly holder: Model<any>;
+      readonly referenced: Model<any>;
+      readonly typeField: string;
+      readonly storedType: string;
+      readonly identityField: string;
+      readonly referencedField: string;
     };
 
 export function getRelationMembershipScope(
@@ -47,6 +55,17 @@ export function getRelationMembershipScope(
       junctionTable: joinInfo.junctionTableName,
       firstField: orderedFields[0],
       secondField: orderedFields[1],
+    };
+  }
+  if (relation.kind === "polymorphicChildHeldToMany") {
+    return {
+      kind: "polymorphicForeignKey",
+      holder: relation.relationInfo.targetModel,
+      referenced: relation.sourceModel,
+      typeField: relation.storage.typeColumn.name,
+      storedType: relation.storedType,
+      identityField: relation.storage.idColumn.name,
+      referencedField: relation.referencedFields[0],
     };
   }
 
@@ -92,6 +111,19 @@ export function relationMembershipScopesEqual(
       left.secondField === right.secondField
     );
   }
+  if (
+    left.kind === "polymorphicForeignKey" &&
+    right.kind === "polymorphicForeignKey"
+  ) {
+    return (
+      left.holder === right.holder &&
+      left.referenced === right.referenced &&
+      left.typeField === right.typeField &&
+      left.storedType === right.storedType &&
+      left.identityField === right.identityField &&
+      left.referencedField === right.referencedField
+    );
+  }
   if (left.kind !== "foreignKey" || right.kind !== "foreignKey") return false;
   return (
     left.holder === right.holder &&
@@ -120,7 +152,6 @@ export function buildRootUpdateMembershipFootprints(
   const footprints: RootMembershipFootprint[] = [];
   for (const mutation of Object.values(relations)) {
     const relationInfo = mutation.relationInfo;
-    if (resolvePolymorphicInverse(ctx, relationInfo)) continue;
     const relation = bindRelation(ctx, relationInfo);
     if (relation.kind === "junction") continue;
     if (
@@ -147,7 +178,6 @@ export function buildTransitiveUpdateMembershipFootprints(
   for (const relationName of getRelationNames(ctx.model)) {
     const relationInfo = getRelationInfo(ctx, relationName);
     if (!relationInfo) continue;
-    if (resolvePolymorphicInverse(ctx, relationInfo)) continue;
     const relation = bindRelation(ctx, relationInfo);
     if (relation.kind === "junction") continue;
     if (

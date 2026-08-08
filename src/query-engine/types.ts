@@ -217,16 +217,6 @@ export interface ResolvedPolymorphicEdge {
   readonly relationInfo: RelationInfo;
 }
 
-/** One honest ordinary inverse bound to a child's polymorphic storage. */
-export interface ResolvedPolymorphicInverse {
-  readonly relationInfo: RelationInfo;
-  readonly childRelationKey: string;
-  readonly publicType: string;
-  readonly storedType: string;
-  readonly sourceReferencedField: string;
-  readonly storage: PolymorphicStorage;
-}
-
 /**
  * Relation info extracted from model for query building
  */

@@ -5,11 +5,12 @@ import type {
   ParentHeldToOne,
 } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
-import type { OwnWriteFootprint } from "./OwnWriteLedger";
+import type { OwnWriteFootprint, OwnWriteLedger } from "./OwnWriteLedger";
 import type { OwnWriteRelation } from "./OwnWriteRelation";
 import {
   classifyRelationKeyScalarUpdate,
   classifyTargetConstraintOverlap,
+  getCreatedWhereUniqueTarget,
   getFilterPredicateFields,
   getFilterTargetConstraint,
   getTargetIdentityFields,
@@ -70,18 +71,32 @@ export class OwnWriteSteps {
       case "connect":
         this.processConnect(entry);
         return;
-      case "connectOrCreate":
-        for (const input of dedupeConnectOrCreateItems(
-          this.relation,
-          entry.items
-        )) {
-          const selector = this.relation.assertConnectOrCreateDecision(
-            input.where
+      case "connectOrCreate": {
+        const entryLedger = this.relation.ledger.fork();
+        const priorItems: ConnectOrCreateAnalysis[] = [];
+        for (const {
+          input,
+          target,
+          repeatedSelector,
+        } of prepareConnectOrCreateItems(this.relation, entry.items)) {
+          const selector = assertConnectOrCreateDecision(
+            this.relation,
+            entryLedger,
+            priorItems,
+            input,
+            target,
+            repeatedSelector
           );
+          const checkpoint = this.relation.ledger.checkpoint();
           this.relation.appendCreateSummary("connectOrCreate", input.create);
           this.relation.appendMembership("connectOrCreate", selector);
+          priorItems.push({
+            target,
+            writes: this.relation.ledger.deltaSince(checkpoint),
+          });
         }
         return;
+      }
       case "disconnect":
         this.processDisconnect(entry);
         return;
@@ -342,8 +357,22 @@ function processConnectOrCreateBranches(
   relation: OwnWriteRelation,
   entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
 ): void {
-  for (const input of dedupeConnectOrCreateItems(relation, entry.items)) {
-    const selector = relation.assertConnectOrCreateDecision(input.where);
+  const entryLedger = relation.ledger.fork();
+  const priorItems: ConnectOrCreateAnalysis[] = [];
+  for (const {
+    input,
+    target,
+    repeatedSelector,
+  } of prepareConnectOrCreateItems(relation, entry.items)) {
+    const selector = assertConnectOrCreateDecision(
+      relation,
+      entryLedger,
+      priorItems,
+      input,
+      target,
+      repeatedSelector
+    );
+    const checkpoint = relation.ledger.checkpoint();
     analyzeAlternativeBranches(relation, [
       (createBranch) => {
         const insertSummary = createBranch.getInsertSummary(
@@ -365,6 +394,10 @@ function processConnectOrCreateBranches(
         foundBranch.appendMembership("connectOrCreate", selector);
       },
     ]);
+    priorItems.push({
+      target,
+      writes: relation.ledger.deltaSince(checkpoint),
+    });
   }
 }
 
@@ -495,32 +528,85 @@ function buildToOneUpdateFootprint(
 }
 
 /**
- * Duplicate connectOrCreate selectors are one OwnWrite decision. The source program
- * remains lossless; this analysis-local view preserves first-create-wins without
- * changing what emitters receive.
+ * A repeated connectOrCreate selector is suppressed only after an earlier
+ * create is proven to satisfy it. Otherwise both planning decisions and both
+ * create subtrees remain visible to OwnWrite analysis.
  */
-function dedupeConnectOrCreateItems(
+function prepareConnectOrCreateItems(
   relation: OwnWriteRelation,
   items: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>["items"]
-): Extract<RelationMutationEntry, { kind: "connectOrCreate" }>["items"] {
-  if (items.length <= 1) return items;
-
-  const uniqueItems: (typeof items)[number][] = [];
+): readonly {
+  readonly input: (typeof items)[number];
+  readonly target: TargetConstraint;
+  readonly repeatedSelector: boolean;
+}[] {
+  const uniqueItems: {
+    readonly input: (typeof items)[number];
+    readonly target: TargetConstraint;
+    readonly repeatedSelector: boolean;
+  }[] = [];
   const seenTargets: TargetConstraint[] = [];
+  const createdTargets: TargetConstraint[] = [];
   for (const item of items) {
     const target = normalizeWhereUniqueTargetConstraint(
       relation.target,
       item.where
     );
-    const isDuplicate = seenTargets.some(
+    const isDuplicate = createdTargets.some(
+      (createdTarget) =>
+        classifyTargetConstraintOverlap(createdTarget, target) === "equal"
+    );
+    if (isDuplicate) continue;
+    const repeatedSelector = seenTargets.some(
       (seenTarget) =>
         classifyTargetConstraintOverlap(seenTarget, target) === "equal"
     );
-    if (isDuplicate) continue;
-    uniqueItems.push(item);
+    uniqueItems.push({
+      input: item,
+      target,
+      repeatedSelector,
+    });
     seenTargets.push(target);
+    const createdTarget = getCreatedWhereUniqueTarget(
+      relation.target,
+      item.where,
+      item.create
+    );
+    if (createdTarget) createdTargets.push(createdTarget);
   }
   return uniqueItems;
+}
+
+interface ConnectOrCreateAnalysis {
+  readonly target: TargetConstraint;
+  readonly writes: OwnWriteFootprint[];
+}
+
+function assertConnectOrCreateDecision(
+  relation: OwnWriteRelation,
+  entryLedger: OwnWriteLedger,
+  priorItems: readonly ConnectOrCreateAnalysis[],
+  input: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>["items"][number],
+  target: TargetConstraint,
+  repeatedSelector: boolean
+): TargetConstraint {
+  if (!repeatedSelector) {
+    return relation.assertConnectOrCreateDecision(input.where);
+  }
+
+  // A repeated probe shares the entry's pre-write premise with its exact
+  // selector lineage. Keep every intervening alternate-selector write: those
+  // may still create the row this probe names and must retain the refusal.
+  const decisionLedger = entryLedger.fork();
+  for (const prior of priorItems) {
+    if (classifyTargetConstraintOverlap(prior.target, target) === "equal") {
+      continue;
+    }
+    decisionLedger.mergeDeltas(prior.writes);
+  }
+  return relation
+    .fork(decisionLedger, relation.membershipLedger?.fork())
+    .assertConnectOrCreateDecision(input.where);
 }
 
 function buildReboundTargetConstraint(

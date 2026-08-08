@@ -1,14 +1,9 @@
-import {
-  getPolymorphicInverseBinding,
-  manyToOne,
-} from "@schema/relation";
+import { manyToOne } from "@schema/relation";
 import {
   QueryEngineError,
   type PolymorphicRelationInfo,
   type QueryScope,
-  type RelationInfo,
   type ResolvedPolymorphicEdge,
-  type ResolvedPolymorphicInverse,
 } from "../types";
 
 /** Resolve one validated public discriminator without conflating direct and inverse topology. */
@@ -48,38 +43,5 @@ export function resolvePolymorphicEdge(
       fields: [relation.storage.idColumn.name],
       references: [member.referencedField],
     },
-  };
-}
-
-/** Resolve an ordinary one-to-many inverse against the child's private storage. */
-export function resolvePolymorphicInverse(
-  scope: QueryScope,
-  relationInfo: RelationInfo
-): ResolvedPolymorphicInverse | undefined {
-  if (relationInfo.type !== "oneToMany") return undefined;
-  const binding = getPolymorphicInverseBinding(
-    relationInfo.targetModel,
-    scope.model,
-    relationInfo.relation["~"].state.name
-  );
-  if (!binding) return undefined;
-
-  const storage = relationInfo.targetModel["~"].getPolymorphicStorage(
-    binding.relationKey
-  );
-  const member = storage?.members.get(binding.publicType);
-  if (!storage || !member) {
-    throw new QueryEngineError(
-      `Polymorphic inverse '${relationInfo.name}' has no resolved storage binding.`
-    );
-  }
-
-  return {
-    relationInfo,
-    childRelationKey: binding.relationKey,
-    publicType: binding.publicType,
-    storedType: binding.storedType,
-    sourceReferencedField: member.referencedField,
-    storage,
   };
 }

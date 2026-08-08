@@ -4,7 +4,10 @@ import type { Sql } from "@sql";
 import type {
   ChildHeldToMany,
   ChildHeldToOne,
+  PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
+import { buildPolymorphicMembershipPredicate } from "../builders/correlation-utils";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import type {
   NestedUpdateManyInput,
   NormalizedRelationUpsert,
@@ -30,12 +33,17 @@ import {
   assertSelectedUpdateManyDataIsScalar,
 } from "../relation-key-legality";
 import type { QueryScope } from "../types";
+import { getTableName } from "../context/query-scope";
 import {
   type FinalReferenceSource,
   foreignKeyCorrelationValue,
   foreignKeyWriteValue,
+  linkedPolymorphicStorage,
   pairForeignKeyMembers,
   planningSourceFromFinal,
+  polymorphicFinalIdentitySql,
+  polymorphicPlanningIdentitySql,
+  resolvePolymorphicStorageValue,
 } from "./foreign-key-reference";
 import {
   exactlyOneRow,
@@ -89,7 +97,10 @@ import {
  * §3 corollary): the located parent id is inlined at compile as a literal, and
  * every correlation is expressed in SQL.
  */
-type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
+type ChildHeldRelation =
+  | ChildHeldToOne
+  | ChildHeldToMany
+  | PolymorphicChildHeldToMany;
 
 interface RelationWriteContext {
   readonly engine: QueryEngine;
@@ -347,23 +358,35 @@ export class RelationWritePart implements Part {
   }
 
   private buildUpdateMany(known: PlanningKnown): WriteStep {
+    const predicate = this.polymorphicMembershipPredicate(
+      known,
+      false,
+      getTableName(this.config.childScope.model)
+    );
     return {
       id: this.writeId,
       kind: "write",
       statement: buildUpdateMany(this.config.childScope, {
         where: this.correlatedFilter(known),
         data: this.updateScalarData,
+        ...(predicate ? { predicate } : {}),
       }),
       outputs: {},
     };
   }
 
   private buildDeleteMany(known: PlanningKnown): WriteStep {
+    const predicate = this.polymorphicMembershipPredicate(
+      known,
+      false,
+      getTableName(this.config.childScope.model)
+    );
     return {
       id: this.writeId,
       kind: "write",
       statement: buildDeleteMany(this.config.childScope, {
         where: this.correlatedFilter(known),
+        ...(predicate ? { predicate } : {}),
       }),
       outputs: {},
     };
@@ -422,6 +445,11 @@ export class RelationWritePart implements Part {
     const selectedFields = this.updateCompiler?.requiredTargetFields ?? [
       this.config.childPrimaryKey,
     ];
+    const predicate = this.polymorphicMembershipPredicate(
+      known,
+      useRef,
+      this.config.childScope.rootAlias
+    );
     return buildFind(
       this.config.childScope,
       {
@@ -429,7 +457,10 @@ export class RelationWritePart implements Part {
           AND: [
             ...this.optionalWhereFilters(),
             ...this.targetFilters(),
-            ...this.correlationFilters(known, useRef),
+            ...(this.config.relation.kind ===
+            "polymorphicChildHeldToMany"
+              ? []
+              : this.correlationFilters(known, useRef)),
             ...(capturedPk === undefined
               ? []
               : [{ [this.config.childPrimaryKey]: { equals: capturedPk } }]),
@@ -440,12 +471,18 @@ export class RelationWritePart implements Part {
         ),
         forUpdate: this.config.txMode,
       },
-      { limit: 1 }
+      { limit: 1, ...(predicate ? { predicate } : {}) }
     );
   }
 
   /** `WHERE fk = <parentLiteral> [AND filter]` for a bulk write. */
-  private correlatedFilter(known: PlanningKnown): Record<string, unknown> {
+  private correlatedFilter(
+    known: PlanningKnown
+  ): Record<string, unknown> | undefined {
+    if (this.config.relation.kind === "polymorphicChildHeldToMany") {
+      const filter = this.config.filter;
+      return filter && Object.keys(filter).length > 0 ? filter : undefined;
+    }
     const correlation =
       this.config.relation.foreignFields.length === 1
         ? this.correlationFilters(known, false)[0]!
@@ -463,6 +500,9 @@ export class RelationWritePart implements Part {
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
+    if (this.config.relation.kind === "polymorphicChildHeldToMany") {
+      return [];
+    }
     return this.config.relation.foreignFields.map((fkField, index) => {
       const referencedField = this.config.relation.referencedFields[index]!;
       const member = {
@@ -490,6 +530,35 @@ export class RelationWritePart implements Part {
         },
       };
     });
+  }
+
+  private polymorphicMembershipPredicate(
+    known: PlanningKnown | undefined,
+    useRef: boolean,
+    qualifier: string
+  ): Sql | undefined {
+    const relation = this.config.relation;
+    if (relation.kind !== "polymorphicChildHeldToMany") return undefined;
+    const storage = linkedPolymorphicStorage(relation, this.config.parentId);
+    const parentIdentity = useRef
+      ? polymorphicPlanningIdentitySql(
+          this.config.engine,
+          storage,
+          this.operationKind
+        )
+      : polymorphicFinalIdentitySql(
+          this.config.engine,
+          relation,
+          this.config.parentId,
+          known ?? {},
+          this.operationKind
+        );
+    return buildPolymorphicMembershipPredicate(
+      this.config.childScope,
+      relation,
+      qualifier,
+      parentIdentity
+    );
   }
 
   private buildUpdateCompiler(
@@ -795,6 +864,11 @@ export class RelationSetPart implements Part {
       }
     }
     if (capturedPks.length > 0) {
+      const polymorphicStorage = this.polymorphicStorage(
+        this.config.parentId,
+        known,
+        "set"
+      );
       steps.push({
         // The first target's write id, because this statement replaces exactly
         // the writes those targets used to emit one at a time.
@@ -804,6 +878,7 @@ export class RelationSetPart implements Part {
           // Reparent captured rows by PK, never by a selector that can move.
           where: { [this.config.childPrimaryKey]: { in: capturedPks } },
           data: this.fkAssignData(known),
+          ...(polymorphicStorage ? { polymorphicStorage } : {}),
         }),
         outputs: {},
       });
@@ -843,12 +918,20 @@ export class RelationSetPart implements Part {
       }
       return;
     }
+    const predicate = this.departingPredicate(
+      known,
+      false,
+      getTableName(this.config.childScope.model)
+    );
+    const polymorphicStorage = this.emptyPolymorphicStorage();
     steps.push({
       id: this.orphanNullId,
       kind: "write",
       statement: buildUpdateMany(this.config.childScope, {
         where: this.departingWhere(known, false),
         data: this.fkNullData(),
+        ...(predicate ? { predicate } : {}),
+        ...(polymorphicStorage ? { polymorphicStorage } : {}),
       }),
       outputs: {},
     });
@@ -869,6 +952,11 @@ export class RelationSetPart implements Part {
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Sql {
+    const predicate = this.departingPredicate(
+      known,
+      useRef,
+      this.config.childScope.rootAlias
+    );
     return buildFind(
       this.config.childScope,
       {
@@ -876,7 +964,7 @@ export class RelationSetPart implements Part {
         select: { [this.config.childPrimaryKey]: true },
         forUpdate: this.config.txMode,
       },
-      { limit: 1 }
+      { limit: 1, ...(predicate ? { predicate } : {}) }
     );
   }
 
@@ -884,13 +972,12 @@ export class RelationSetPart implements Part {
   private departingWhere(
     known: PlanningKnown | undefined,
     useRef: boolean
-  ): Record<string, unknown> {
+  ): Record<string, unknown> | undefined {
     const correlation = this.correlationFilters(known, useRef);
-    const membership =
+    const exclusion =
       this.targets.length === 0
-        ? correlation
+        ? []
         : [
-            ...correlation,
             {
               NOT: {
                 OR: this.targets.map((target) => ({
@@ -899,6 +986,8 @@ export class RelationSetPart implements Part {
               },
             },
           ];
+    const membership = [...correlation, ...exclusion];
+    if (membership.length === 0) return undefined;
     return membership.length === 1 ? membership[0]! : { AND: membership };
   }
 
@@ -929,6 +1018,7 @@ export class RelationSetPart implements Part {
   /** The reparent write's FK assignment: every FK column ← its referenced parent
    *  column value (one entry per compound-key field, ATOM “Field-bound foreign-key provenance”). */
   private fkAssignData(known: PlanningKnown): Record<string, unknown> {
+    if (this.config.relation.kind === "polymorphicChildHeldToMany") return {};
     const data: Record<string, unknown> = {};
     for (let index = 0; index < this.foreignFields.length; index += 1) {
       const fkField = this.foreignFields[index]!;
@@ -953,6 +1043,7 @@ export class RelationSetPart implements Part {
 
   /** The departing-null write's FK assignment: null every FK column. */
   private fkNullData(): Record<string, unknown> {
+    if (this.config.relation.kind === "polymorphicChildHeldToMany") return {};
     const data: Record<string, unknown> = {};
     for (const fkField of this.foreignFields) data[fkField] = { set: null };
     return data;
@@ -966,6 +1057,7 @@ export class RelationSetPart implements Part {
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
+    if (this.config.relation.kind === "polymorphicChildHeldToMany") return [];
     const source = this.config.membershipReadSource ?? this.config.parentId;
     return this.foreignFields.map((fkField, index) => {
       const member = {
@@ -988,6 +1080,59 @@ export class RelationSetPart implements Part {
         },
       };
     });
+  }
+
+  private departingPredicate(
+    known: PlanningKnown | undefined,
+    useRef: boolean,
+    qualifier: string
+  ): Sql | undefined {
+    const relation = this.config.relation;
+    if (relation.kind !== "polymorphicChildHeldToMany") return undefined;
+    const source =
+      this.config.membershipReadSource ?? this.config.parentId;
+    const storage = linkedPolymorphicStorage(relation, source);
+    const identity = useRef
+      ? polymorphicPlanningIdentitySql(this.config.engine, storage, "set")
+      : polymorphicFinalIdentitySql(
+          this.config.engine,
+          relation,
+          source,
+          known ?? {},
+          "set"
+        );
+    return buildPolymorphicMembershipPredicate(
+      this.config.childScope,
+      relation,
+      qualifier,
+      identity
+    );
+  }
+
+  private polymorphicStorage(
+    source: FinalReferenceSource,
+    known: PlanningKnown,
+    kind: "set"
+  ): readonly PolymorphicStorageValue<unknown>[] | undefined {
+    const relation = this.config.relation;
+    if (relation.kind !== "polymorphicChildHeldToMany") return undefined;
+    return [
+      resolvePolymorphicStorageValue(
+        this.config.engine,
+        linkedPolymorphicStorage(relation, source),
+        known,
+        kind
+      ),
+    ];
+  }
+
+  private emptyPolymorphicStorage():
+    | readonly PolymorphicStorageValue<unknown>[]
+    | undefined {
+    const relation = this.config.relation;
+    return relation.kind === "polymorphicChildHeldToMany"
+      ? [{ kind: "empty", storage: relation.storage }]
+      : undefined;
   }
 
   private uniqueEqualityFilters(

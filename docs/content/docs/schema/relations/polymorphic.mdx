@@ -396,10 +396,11 @@ await client.comment.update({
 `connect` and `create` are exact one-intent inputs. They cannot be combined in
 one payload.
 
-## Create from the inverse side
+## Write from the inverse side
 
-The inverse side supports nested `create`. The parent fixes both the variant and
-the target ID, so the child payload does not repeat `commentable`:
+An inverse polymorphic `oneToMany` behaves like an ordinary child-held to-many
+relation. The parent fixes both the variant and the target ID, so child create
+and update payloads do not repeat `commentable`:
 
 ```ts
 await client.post.update({
@@ -428,6 +429,44 @@ await client.post.create({
 });
 ```
 
+On create, the inverse relation supports `create`, scalar-only `createMany`,
+`connect`, `connectOrCreate`, and `upsert`. On update it also supports `update`,
+`updateMany`, `delete`, and `deleteMany`.
+
+```ts
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    comments: {
+      connect: { id: "comment_1" },
+      update: {
+        where: { id: "comment_2" },
+        data: { body: "Revised" },
+      },
+      createMany: {
+        data: [{ body: "One" }, { body: "Two" }],
+        skipDuplicates: true,
+      },
+    },
+  },
+});
+```
+
+`connect` locates a row globally and adopts it. `connectOrCreate` does the same
+or creates it, with first-create-wins for duplicate inputs. An upsert below a
+new parent also adopts globally. Below an existing parent, the found row must
+already belong to that exact parent variant; a same-ID row owned by another
+variant is rejected.
+
+If the direct polymorphic relation is optional, inverse `disconnect` and `set`
+are also available. Both private columns are cleared together. `set: []`
+disconnects every current member, while same-ID rows with another discriminator
+remain untouched. Required storage rejects both operations before SQL.
+
+Nested inverse `createMany` stays scalar-only and applies the one enclosing
+`(type, identity)` pair to every row. It is unavailable when another required
+polymorphic relation on the child would remain unsatisfied.
+
 ## Integrity and orphan behavior
 
 VibORM treats the private pair as one atomic value:
@@ -446,17 +485,20 @@ possible.
 
 ## Current limits
 
-The first release keeps the write and storage contracts intentionally narrow:
+The current release keeps these boundaries:
 
 - Every target needs one portable, single-column primary key. Compound target
   IDs and database-native primary-key overrides are not supported.
 - Direct writes support `connect`, `create`, and optional `disconnect`. They do
   not support update-through, `set`, `upsert`, or `connectOrCreate`.
-- Inverse writes support nested `create` only.
+- Inverse one-to-many writes have ordinary child-held mutation parity, subject
+  to the direct relation's optionality for `disconnect` and `set`.
 - Polymorphic many-to-many and inverse one-to-one relations are not supported.
 - `orderBy` cannot traverse a direct polymorphic relation.
-- Relation payloads are not accepted by `createMany`. A model with a required
-  polymorphic relation cannot use scalar-only `createMany`; use `create`.
+- Root `createMany` rows remain scalar-only and cannot contain relation
+  payloads. A model with a required polymorphic relation therefore cannot use
+  root `createMany`; use `create`. Inverse nested `createMany` is the exception
+  described above because its enclosing relation supplies the one storage pair.
 - Cross-table foreign keys and automatic referential actions are not available.
 
 These constraints are expressed in schema and operation validation. Unsupported

@@ -1,16 +1,17 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
-import { bindRelation } from "./builders/relation-data-builder";
+import {
+  type BoundRelation,
+  bindRelation,
+} from "./builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type RelationMutationProgram,
 } from "./builders/relation-mutation-parser";
-import { resolvePolymorphicInverse } from "./builders/polymorphic-relation";
 import {
   type DependencyOperation,
   type OwnWriteDependencyFamily,
   OwnWriteLedger,
 } from "./OwnWriteLedger";
-import { createChildScope } from "./context";
 import {
   type OwnWriteCreateSummary,
   OwnWriteRelation,
@@ -95,6 +96,7 @@ export class OwnWriteNode {
   readonly ctx: QueryScope;
   readonly family: OwnWriteDependencyFamily;
   readonly ledger: OwnWriteLedger;
+  readonly currentReadConstraint: TargetConstraint;
   readonly currentConstraint: TargetConstraint;
   readonly transitiveMembershipFootprints: readonly RootMembershipFootprint[];
 
@@ -108,6 +110,7 @@ export class OwnWriteNode {
     this.ctx = ctx;
     this.family = family;
     this.ledger = ledger;
+    this.currentReadConstraint = getCurrentReadConstraint(ctx, family);
     this.currentConstraint = getCurrentConstraint(ctx, family);
     this.transitiveMembershipFootprints =
       family.kind === "update"
@@ -142,12 +145,10 @@ export class OwnWriteNode {
     );
 
     for (const [groupIndex, relationEntries] of relationGroups.entries()) {
-      for (const [, mutation] of relationEntries) {
-        if (resolvePolymorphicInverse(this.ctx, mutation.relationInfo)) {
-          this.analyzePolymorphicInverseCreates(mutation);
-          continue;
-        }
-        const boundRelation = bindRelation(this.ctx, mutation.relationInfo);
+      for (const entry of relationEntries) {
+        const { mutation } = entry;
+        const boundRelation =
+          entry.boundRelation ?? bindRelation(this.ctx, mutation.relationInfo);
         OwnWriteRelation.create(
           this,
           mutation,
@@ -217,48 +218,6 @@ export class OwnWriteNode {
     }
   }
 
-  /**
-   * An inverse polymorphic create has no membership decision to read. Analyze
-   * each already parsed child subtree for its own target and relation effects,
-   * but do not manufacture an ordinary FK topology for the private edge.
-   */
-  private analyzePolymorphicInverseCreates(
-    program: RelationMutationProgram
-  ): void {
-    const entry = program.entries[0];
-    if (!(entry && program.entries.length === 1 && entry.kind === "create")) {
-      throw new TypeError(
-        `Polymorphic inverse '${program.relationInfo.name}' reached OwnWrite with a non-create mutation.`
-      );
-    }
-    const childCtx = createChildScope(
-      this.ctx,
-      program.relationInfo.targetModel,
-      this.ctx.rootAlias
-    );
-    for (const data of entry.items) {
-      const parsed = buildParsedRelationPrograms(childCtx, data);
-      const nestedLedger = this.ledger.fork();
-      const checkpoint = nestedLedger.checkpoint();
-      nestedLedger.withNestedScope(() => {
-        new OwnWriteNode(
-          this.analyzer,
-          childCtx,
-          { kind: "create", rootOperation: "create", scalarData: parsed.scalarData },
-          nestedLedger
-        ).analyze(parsed.relations);
-      });
-      this.ledger.mergeDeltas(
-        nestedLedger
-          .deltaSince(checkpoint)
-          .filter(
-            (footprint) =>
-              footprint.dimension !== "targetExistence" ||
-              footprint.visibility === "operation"
-          )
-      );
-    }
-  }
 }
 
 export function analyzeOwnWriteTree(
@@ -339,25 +298,41 @@ function getCurrentConstraint(
   return results.at(-1) ?? selector;
 }
 
+function getCurrentReadConstraint(
+  ctx: QueryScope,
+  family: OwnWriteDependencyFamily
+): TargetConstraint {
+  if (family.kind === "create") {
+    return createIdentityConstraint(ctx.model, family.scalarData);
+  }
+  return family.selector
+    ? selectorConstraint(ctx.model, family.selector)
+    : unknownConstraint(ctx.model);
+}
+
 function getRelationEntryGroups(
   ctx: QueryScope,
   relations: Record<string, RelationMutationProgram>,
   family: OwnWriteDependencyFamily["kind"]
-): [string, RelationMutationProgram][][] {
-  if (family === "update") return [Object.entries(relations)];
-  const currentHoldsFk: [string, RelationMutationProgram][] = [];
-  const relatedHoldsFk: [string, RelationMutationProgram][] = [];
-  for (const entry of Object.entries(relations)) {
-    const relationInfo = entry[1].relationInfo;
-    if (resolvePolymorphicInverse(ctx, relationInfo)) {
-      relatedHoldsFk.push(entry);
-      continue;
-    }
-    if (bindRelation(ctx, relationInfo).kind === "parentHeldToOne") {
+): RelationAnalysisEntry[][] {
+  if (family === "update") {
+    return [Object.values(relations).map((mutation) => ({ mutation }))];
+  }
+  const currentHoldsFk: RelationAnalysisEntry[] = [];
+  const relatedHoldsFk: RelationAnalysisEntry[] = [];
+  for (const mutation of Object.values(relations)) {
+    const boundRelation = bindRelation(ctx, mutation.relationInfo);
+    const entry = { mutation, boundRelation };
+    if (boundRelation.kind === "parentHeldToOne") {
       currentHoldsFk.push(entry);
     } else {
       relatedHoldsFk.push(entry);
     }
   }
   return [currentHoldsFk, relatedHoldsFk];
+}
+
+interface RelationAnalysisEntry {
+  readonly mutation: RelationMutationProgram;
+  readonly boundRelation?: BoundRelation;
 }

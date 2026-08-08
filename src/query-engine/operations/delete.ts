@@ -20,6 +20,8 @@ interface DeleteArgs {
 
 interface DeleteManyArgs {
   where?: Record<string, unknown>;
+  /** Trusted internal predicate composed after the public filter. */
+  predicate?: Sql;
   /**
    * Cap on the number of rows the DELETE may affect (Prisma 6.x `limit`).
    * WHICH rows are removed is unspecified — there is no `orderBy` on a bulk
@@ -84,14 +86,25 @@ export function buildDeleteMany(ctx: QueryScope, args: DeleteManyArgs): Sql {
   // stay correlated (the unaliased DELETE target is addressable by its name).
   // mutationTable lets relation filters wrap subqueries that select from the
   // mutated table on dialects that reject that (MySQL error 1093).
-  const whereSql = buildWhere(
+  const publicWhere = buildWhere(
     { ...ctx, mutationTable: tableName },
     args.where,
     tableName
   );
+  const whereSql = args.predicate
+    ? publicWhere
+      ? adapter.operators.and(publicWhere, args.predicate)
+      : args.predicate
+    : publicWhere;
 
   // Apply the row cap: a native LIMIT suffix, or a PK-subquery WHERE.
-  const limited = buildBulkLimitWhere(ctx, whereSql, args.where, args.limit);
+  const limited = buildBulkLimitWhere(
+    ctx,
+    whereSql,
+    args.where,
+    args.limit,
+    args.predicate
+  );
 
   // Build DELETE
   const table = adapter.identifiers.escape(tableName);

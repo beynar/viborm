@@ -12,6 +12,7 @@ import {
   type ChildHeldToMany,
   type ChildHeldToOne,
   type ParentHeldToOne,
+  type PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
 import {
   bindResolvedPolymorphicEdge,
@@ -24,7 +25,6 @@ import type {
   RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { buildParsedRelationPrograms } from "../builders/relation-mutation-parser";
-import { resolvePolymorphicInverse } from "../builders/polymorphic-relation";
 import { createQueryScope, getTableName } from "../context/query-scope";
 import {
   buildDeleteMany,
@@ -54,6 +54,7 @@ import {
   type ForeignKeyMember,
   foreignKeyCorrelationValue,
   foreignKeyWriteValue,
+  linkedPolymorphicStorage,
   literalReferenceSource,
   pairCorrelatedForeignKeyMembers,
   pairForeignKeyMembers,
@@ -80,6 +81,7 @@ import {
 import {
   buildJunctionTargetRelationParts,
   buildLiteralParentCreateManyPart,
+  buildPolymorphicParentCreateManyPart,
   buildPlannedParentCreateManyPart,
 } from "./nested-target-parts";
 import {
@@ -123,7 +125,10 @@ import {
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
-type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
+type ChildHeldRelation =
+  | ChildHeldToOne
+  | ChildHeldToMany
+  | PolymorphicChildHeldToMany;
 
 export interface RecordUpdateCompiler {
   readonly targetReadId: string;
@@ -150,6 +155,7 @@ export interface RecordUpdateCompilerInput {
   readonly targetRead: StepAddress;
   readonly rootWrite: StepAddress;
   readonly incomingForeignKey?: readonly ForeignKeyMember[];
+  readonly incomingPolymorphicStorage?: readonly PolymorphicStorageValue<FinalReferenceSource>[];
   readonly relationName: string;
   /** Returning-driver affected-row failure for this selected root write. */
   readonly rootWriteFailure?: Failure;
@@ -172,7 +178,8 @@ export function buildRecordUpdateCompiler(
     Object.keys(input.scalarData).length === 0 &&
     Object.keys(input.relations).length === 0 &&
     Object.keys(input.polymorphic ?? {}).length === 0 &&
-    (input.incomingForeignKey?.length ?? 0) === 0
+    (input.incomingForeignKey?.length ?? 0) === 0 &&
+    (input.incomingPolymorphicStorage?.length ?? 0) === 0
   ) {
     return undefined;
   }
@@ -422,7 +429,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const afterRootParts: Part[] = [];
     const toOneLinks: ToOneLink[] = [];
     const parentHeldTargets: ParentHeldTarget[] = [];
-    const polymorphicStorage: PolymorphicStorageValue<FinalReferenceSource>[] = [];
+    const polymorphicStorage: PolymorphicStorageValue<FinalReferenceSource>[] = [
+      ...(input.incomingPolymorphicStorage ?? []),
+    ];
     const relationKeyGuards: RelationKeyGuard[] = [];
     const locateFields = new Set<string>(parentPrimaryKeys);
     const parentFkLocateFields = new Set<string>();
@@ -436,31 +445,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           txMode,
           toOneLinks,
           polymorphicStorage,
-        });
-        continue;
-      }
-      const polymorphicInverse = resolvePolymorphicInverse(
-        input.targetScope,
-        program.relationInfo
-      );
-      if (polymorphicInverse) {
-        this.interpretPolymorphicInverseCreate({
-          input: {
-            scope: input.scope,
-            parent: input.targetScope,
-            program,
-            parentIdSource,
-            txMode,
-            childParts,
-            afterRootParts,
-            toOneLinks,
-            parentHeldTargets,
-            relationKeyGuards,
-            locateFields,
-            parentFkLocateFields,
-            rootScalarData: input.scalarData,
-          },
-          inverse: polymorphicInverse,
         });
         continue;
       }
@@ -889,6 +873,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
 
+    if (relation.kind === "polymorphicChildHeldToMany") {
+      this.interpretPolymorphicChildHeld(input, relation, entries);
+      return;
+    }
+
     // Child-held direction (the target holds the FK). One-to-many is the plural
     // case; the inverse-side one-to-one is its arity-1 case
     // — the same correlated/global-adopt child writes, differing only in the to-one
@@ -994,7 +983,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           }
         : undefined;
     const engine = this.engine;
-    const writeBase = {
+    const writeBase: Parameters<typeof buildToManyUpdateParts>[0] = {
       scope: input.scope,
       engine,
       relation,
@@ -1004,7 +993,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       parentId: input.parentIdSource,
       txMode: input.txMode,
       recordCompilers: this.recordCompilers,
-    } as const;
+    };
 
     // Multiple mutation kinds may coexist on one relation (V1's `{ delete,
     // deleteMany }`, `{ update, updateMany }`, …). Each present kind contributes
@@ -1053,66 +1042,207 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     }
   }
 
-  /**
-   * Compile the sole V1 inverse mutation without pretending that private storage
-   * is an ordinary foreign key. The parent identity keeps the same literal,
-   * located, and transitioned provenance used by ordinary child-held creates.
-   */
-  private interpretPolymorphicInverseCreate(args: {
-    readonly input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
-    readonly inverse: NonNullable<ReturnType<typeof resolvePolymorphicInverse>>;
-  }): void {
-    const { input, inverse } = args;
-    const entry = input.program.entries[0];
-    if (!(entry && input.program.entries.length === 1 && entry.kind === "create")) {
-      throw new QueryEngineError(
-        `query-engine internal: polymorphic inverse '${input.program.relationInfo.name}' requires one create operation.`
-      );
-    }
+  private interpretPolymorphicChildHeld(
+    input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
+    relation: PolymorphicChildHeldToMany,
+    entries: readonly RelationMutationEntry[]
+  ): void {
+    const relationName = relation.relationInfo.name;
     const childScope = createQueryScope(
       this.engine.adapter,
-      input.program.relationInfo.targetModel
+      relation.relationInfo.targetModel
     );
-    const parent = this.resolvePolymorphicInverseCreateParent(input, inverse);
-    const assignment: PolymorphicStorageValue<FinalReferenceSource> = {
-      kind: "linked",
-      storage: inverse.storage,
-      storedType: inverse.storedType,
-      referencedField: inverse.sourceReferencedField,
-      id: parent.id,
-    };
+    const childName = getStepModelName(
+      relation.relationInfo.targetModel,
+      relationName
+    );
+    const parent = this.resolvePolymorphicParent(input, relation);
     const target = parent.afterRoot ? input.afterRootParts : input.childParts;
-    for (const data of entry.items) {
-      target.push(
-        this.createFresh({
+    const push = (parts: readonly Part[]) => target.push(...parts);
+    const pushFresh = (
+      entry: Extract<
+        RelationMutationEntry,
+        { kind: "create" | "createMany" }
+      >
+    ): void => {
+      if (entry.kind === "create") {
+        push(
+          entry.items.map((data) =>
+            this.createFresh({
+              childScope,
+              data,
+              incomingForeignKey: [],
+              incomingPolymorphicStorage: [
+                linkedPolymorphicStorage(relation, parent.write),
+              ],
+              relationName,
+            })
+          )
+        );
+        return;
+      }
+      push([
+        buildPolymorphicParentCreateManyPart({
+          scope: input.scope,
+          engine: this.engine,
           childScope,
-          data,
-          incomingForeignKey: [],
-          incomingPolymorphicStorage: [assignment],
-          relationName: input.program.relationInfo.name,
-        })
+          childName,
+          relation,
+          parentId: parent.write,
+          createManyEntry: entry,
+        }),
+      ]);
+    };
+    const needsTargetIdentity = entries.some(
+      (entry) => entry.kind !== "create" && entry.kind !== "createMany"
+    );
+    if (!needsTargetIdentity) {
+      for (const entry of entries) {
+        if (entry.kind === "create" || entry.kind === "createMany") {
+          pushFresh(entry);
+        }
+      }
+      return;
+    }
+
+    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
+    const [childPrimaryKey] = childPrimaryKeys;
+    if (childPrimaryKeys.length !== 1 || childPrimaryKey === undefined) {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 update requires a child with one primary key for relation '${relationName}'.`
       );
+    }
+    const writeBase = {
+      scope: input.scope,
+      engine: this.engine,
+      relation,
+      childName,
+      childScope,
+      childPrimaryKey,
+      parentId: parent.read,
+      txMode: input.txMode,
+      recordCompilers: this.recordCompilers,
+    } as const;
+
+    for (const entry of entries) {
+      switch (entry.kind) {
+        case "create":
+          pushFresh(entry);
+          break;
+        case "createMany":
+          pushFresh(entry);
+          break;
+        case "connect":
+          push(
+            buildToManyLinkParts(
+              input.scope,
+              this.engine,
+              relation,
+              childName,
+              childScope,
+              childPrimaryKey,
+              entry,
+              parent.write,
+              input.txMode
+            )
+          );
+          break;
+        case "disconnect":
+          assertRelationCanDisconnect(relation);
+          push(
+            buildToManyLinkParts(
+              input.scope,
+              this.engine,
+              relation,
+              childName,
+              childScope,
+              childPrimaryKey,
+              entry,
+              parent.read,
+              input.txMode
+            )
+          );
+          break;
+        case "connectOrCreate":
+          push(
+            buildConnectOrCreateParts(
+              input.scope,
+              this.engine,
+              relation,
+              entry.items,
+              { kind: "polymorphic", parentId: parent.write },
+              input.txMode,
+              this.recordCompilers
+            )
+          );
+          break;
+        case "upsert":
+          push(
+            buildToManyUpsertParts(
+              input.scope,
+              this.engine,
+              relation,
+              entry.items,
+              {
+                kind: "polymorphic",
+                parentId: parent.write,
+                membershipReadSource: parent.read,
+              },
+              input.txMode,
+              this.recordCompilers
+            )
+          );
+          break;
+        case "update":
+          push(buildToManyUpdateParts(writeBase, entry));
+          break;
+        case "updateMany":
+          if (!updateManyCarriesRelations(childScope, entry.items)) {
+            push(buildToManyUpdateManyParts(writeBase, entry));
+          }
+          break;
+        case "delete":
+          push(buildToManyDeleteParts(writeBase, entry));
+          break;
+        case "deleteMany":
+          push(buildToManyDeleteManyParts(writeBase, entry));
+          break;
+        case "set":
+          assertRelationCanDisconnect(relation);
+          push([
+            buildToManySetPart(
+              { ...writeBase, parentId: parent.write },
+              entry,
+              parent.read
+            ),
+          ]);
+          break;
+      }
     }
   }
 
-  private resolvePolymorphicInverseCreateParent(
+  private resolvePolymorphicParent(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    inverse: NonNullable<ReturnType<typeof resolvePolymorphicInverse>>
-  ): { readonly id: FinalReferenceSource; readonly afterRoot: boolean } {
-    const field = inverse.sourceReferencedField;
+    relation: PolymorphicChildHeldToMany
+  ): {
+    readonly read: FinalReferenceSource;
+    readonly write: FinalReferenceSource;
+    readonly afterRoot: boolean;
+  } {
+    const field = relation.referencedFields[0];
+    const pinned = this.pinnedTargetValue(field);
+    const read = pinned
+      ? literalParentId(pinned.value)
+      : plannedParentId(this.targetReadId);
+    if (!pinned) input.parentFkLocateFields.add(field);
     if (!Object.hasOwn(input.rootScalarData, field)) {
-      const pinned = this.pinnedTargetValue(field);
-      if (pinned) {
-        return { id: literalParentId(pinned.value), afterRoot: false };
-      }
-      input.locateFields.add(field);
-      return { id: plannedParentId(this.targetReadId), afterRoot: false };
+      return { read, write: read, afterRoot: false };
     }
 
-    const pinned = this.pinnedTargetValue(field);
     if (pinned) {
       return {
-        id: literalParentId(
+        read,
+        write: literalParentId(
           getUpdatedPrimaryKeyValue(
             this.model,
             field,
@@ -1125,17 +1255,16 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       };
     }
 
-    input.parentFkLocateFields.add(field);
     const model = this.model;
     const operand = input.rootScalarData[field];
-    const relationName = input.program.relationInfo.name;
     return {
-      id: transitionedParentId(this.targetReadId, field, (before) => {
+      read,
+      write: transitionedParentId(this.targetReadId, field, (before) => {
         const classified = classifyRelationKeyScalarUpdate(operand);
         const literal = classified.resolved ? classified.value : operand;
         if (literal === null || isSql(literal)) {
           throw new UnsupportedOperationError(
-            `query-engine update nested create on relation '${relationName}' references a non-literal rewritten column '${field}'.`
+            `query-engine update nested create on relation '${relation.relationInfo.name}' references a non-literal rewritten column '${field}'.`
           );
         }
         return getUpdatedPrimaryKeyValue(
@@ -1543,8 +1672,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             this.engine,
             relation,
             entry.items,
-            members,
-            members,
+            {
+              kind: "foreignKey",
+              members,
+              correlationMembers: members,
+            },
             input.txMode,
             this.recordCompilers
           )
@@ -1560,11 +1692,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             this.engine,
             relation,
             entry.items,
-            pairForeignKeyMembers(
-              foreignFields,
-              referencedFields,
-              referencedFields.map(() => adoptParentId)
-            ),
+            {
+              kind: "foreignKey",
+              members: pairForeignKeyMembers(
+                foreignFields,
+                referencedFields,
+                referencedFields.map(() => adoptParentId)
+              ),
+            },
             input.txMode,
             this.recordCompilers
           )
@@ -1716,11 +1851,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             this.engine,
             relation,
             entry.items,
-            pairForeignKeyMembers(
-              foreignFields,
-              referencedFields,
-              referencedFields.map(() => adoptParentId)
-            ),
+            {
+              kind: "foreignKey",
+              members: pairForeignKeyMembers(
+                foreignFields,
+                referencedFields,
+                referencedFields.map(() => adoptParentId)
+              ),
+            },
             input.txMode,
             this.recordCompilers
           )

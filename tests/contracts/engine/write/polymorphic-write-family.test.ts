@@ -9,6 +9,7 @@ import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation"
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
+import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import {
   BatchOnlyPGliteDriver,
@@ -40,6 +41,7 @@ const polymorphicWriteSchema = (() => {
         .optional()
         .name("boardPost"),
       comments: s.oneToMany(() => comment).name("commentable"),
+      requiredComments: s.oneToMany(() => requiredComment).name("subject"),
     })
     .unique(["slug", "title"])
     .map("poly_write_posts");
@@ -55,6 +57,7 @@ const polymorphicWriteSchema = (() => {
   const comment = s
     .model({
       id: s.int().id().increment(),
+      code: s.string().unique().nullable(),
       body: s.string(),
       boardId: s.int().nullable(),
       board: s
@@ -107,6 +110,12 @@ interface StoredComment {
   readonly commentable_id: number | null;
 }
 
+interface StoredRequiredComment {
+  readonly id: number;
+  readonly subject_type: string;
+  readonly subject_id: number;
+}
+
 class BeforePolymorphicBatchDriver extends BatchOnlyPGliteDriver {
   private beforeBatch: (() => Promise<void>) | undefined;
 
@@ -133,6 +142,30 @@ async function storedComments(
 ): Promise<StoredComment[]> {
   return family.client.$queryRawUnsafe<StoredComment>(
     'SELECT "id", "commentable_type", "commentable_id" FROM "poly_write_comments" ORDER BY "id"'
+  );
+}
+
+async function storedRequiredComments(
+  family: PolymorphicWriteFamily
+): Promise<StoredRequiredComment[]> {
+  return family.client.$queryRawUnsafe<StoredRequiredComment>(
+    'SELECT "id", "subject_type", "subject_id" FROM "poly_write_required_comments" ORDER BY "id"'
+  );
+}
+
+function executePostUpdate(
+  family: PolymorphicWriteFamily,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const schemas = createSchemaRegistry(polymorphicWriteSchema);
+  const engine = new QueryEngine(
+    family.driver,
+    createModelRegistry(polymorphicWriteSchema, schemas)
+  );
+  return executeRoutedOperation(
+    new OperationExecutor(engine),
+    new UpdateOperation(engine, polymorphicWriteSchema.post, args),
+    createOperationExecutionContext("post", "update", engine.instrumentation)
   );
 }
 
@@ -205,7 +238,8 @@ function executePostUpdateAfterPlanning(
     new BeforePolymorphicBatchDriver(family.database, beforeBatch),
     createModelRegistry(polymorphicWriteSchema, schemas)
   );
-  return new OperationExecutor(engine).execute(
+  return executeRoutedOperation(
+    new OperationExecutor(engine),
     new UpdateOperation(engine, polymorphicWriteSchema.post, args),
     createOperationExecutionContext("post", "update", engine.instrumentation)
   );
@@ -614,6 +648,86 @@ function registerPolymorphicWriteBehavior(
           })
         ).resolves.toEqual([]);
       });
+
+      test("inverse update does not follow a captured member to a replacement row", async () => {
+        const family = getFamily();
+        const parent = await family.client.post.create({
+          data: { id: 640, slug: "replaced-member", title: "Replaced member" },
+        });
+        const member = await family.client.comment.create({
+          data: {
+            id: 641,
+            body: "captured member",
+            commentable: {
+              connect: { type: "post", where: { id: parent.id } },
+            },
+          },
+        });
+
+        await expect(
+          executePostUpdateAfterPlanning(
+            family,
+            async () => {
+              await family.client.comment.delete({ where: { id: member.id } });
+              await family.client.comment.create({
+                data: { id: member.id, body: "replacement row" },
+              });
+            },
+            {
+              where: { id: parent.id },
+              data: {
+                comments: {
+                  update: {
+                    where: { id: member.id },
+                    data: { body: "must not follow" },
+                  },
+                },
+              },
+            }
+          )
+        ).rejects.toThrow(
+          "Cannot update relation 'comments': target record was not found for this parent."
+        );
+        await expect(
+          family.client.comment.findUniqueOrThrow({ where: { id: member.id } })
+        ).resolves.toMatchObject({ body: "replacement row" });
+      });
+
+      test("inverse connectOrCreate retries a missing-arm unique race and adopts the winner", async () => {
+        const family = getFamily();
+        const parent = await family.client.post.create({
+          data: { id: 645, slug: "coc-race", title: "Connect or create race" },
+        });
+        await executePostUpdateAfterPlanning(
+          family,
+          async () => {
+            await family.client.comment.create({
+              data: { id: 646, body: "concurrent winner" },
+            });
+          },
+          {
+            where: { id: parent.id },
+            data: {
+              comments: {
+                connectOrCreate: {
+                  where: { id: 646 },
+                  create: { id: 646, body: "must lose the race" },
+                },
+              },
+            },
+          }
+        );
+
+        await expect(
+          family.client.comment.findUniqueOrThrow({
+            where: { id: 646 },
+            include: { commentable: true },
+          })
+        ).resolves.toMatchObject({
+          body: "concurrent winner",
+          commentable: { type: "post", data: { id: parent.id } },
+        });
+      });
     }
 
     test("a failed owner insert rolls back its freshly created polymorphic target", async () => {
@@ -682,6 +796,900 @@ function registerPolymorphicWriteBehavior(
       await expect(
         client.requiredComment.findUniqueOrThrow({ where: { id: 602 } })
       ).resolves.toMatchObject({ body: "existing" });
+    });
+
+    test("inverse createMany applies one storage pair to every inserted row and preserves skip behavior", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: { id: 700, slug: "inverse-create-many", title: "Bulk parent" },
+      });
+      await client.comment.create({
+        data: { id: 702, body: "occupied and unlinked" },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          comments: {
+            createMany: {
+              data: [
+                { id: 701, body: "first bulk child" },
+                { id: 702, body: "must be skipped" },
+              ],
+              skipDuplicates: true,
+            },
+          },
+        },
+      });
+
+      expect(await storedComments(family)).toEqual([
+        {
+          id: 701,
+          commentable_type: "content.post.v1",
+          commentable_id: post.id,
+        },
+        { id: 702, commentable_type: null, commentable_id: null },
+      ]);
+      await expect(
+        client.comment.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toMatchObject([
+        { id: 701, body: "first bulk child" },
+        { id: 702, body: "occupied and unlinked" },
+      ]);
+
+      const requiredParent = await client.post.create({
+        data: {
+          id: 710,
+          slug: "required-inverse-create-many",
+          title: "Required bulk parent",
+          requiredComments: {
+            createMany: {
+              data: [
+                { id: 711, body: "required first" },
+                { id: 712, body: "required second" },
+              ],
+            },
+          },
+        },
+      });
+      expect(await storedRequiredComments(family)).toEqual([
+        {
+          id: 711,
+          subject_type: "required.post.v1",
+          subject_id: requiredParent.id,
+        },
+        {
+          id: 712,
+          subject_type: "required.post.v1",
+          subject_id: requiredParent.id,
+        },
+      ]);
+    });
+
+    test("inverse connect adopts globally and optional disconnect clears the exact pair", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: { id: 100, slug: "inverse-link", title: "Inverse link" },
+      });
+      await client.video.create({
+        data: { id: post.id, slug: "inverse-link-decoy", title: "Decoy" },
+      });
+      const free = await client.comment.create({
+        data: { id: 101, body: "free target" },
+      });
+      const decoy = await client.comment.create({
+        data: {
+          id: 102,
+          body: "wrong discriminator",
+          commentable: { connect: { type: "video", where: { id: post.id } } },
+        },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: { comments: { connect: { id: free.id } } },
+      });
+      await expect(
+        client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { comments: { orderBy: { id: "asc" } } },
+        })
+      ).resolves.toMatchObject({ comments: [{ id: free.id }] });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: { comments: { disconnect: { id: free.id } } },
+      });
+      expect(await storedComments(family)).toEqual([
+        { id: free.id, commentable_type: null, commentable_id: null },
+        {
+          id: decoy.id,
+          commentable_type: "content.video.v1",
+          commentable_id: post.id,
+        },
+      ]);
+    });
+
+    test("required inverse membership refuses disconnect and set before effects", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: { id: 120, slug: "required-owner", title: "Required owner" },
+      });
+      const child = await client.requiredComment.create({
+        data: {
+          id: 121,
+          body: "required child",
+          subject: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+
+      await expect(
+        Promise.resolve().then(() =>
+          executePostUpdate(family, {
+            where: { id: post.id },
+            data: { requiredComments: { disconnect: { id: child.id } } },
+          })
+        )
+      ).rejects.toThrow();
+      await expect(
+        Promise.resolve().then(() =>
+          executePostUpdate(family, {
+            where: { id: post.id },
+            data: { requiredComments: { set: [] } },
+          })
+        )
+      ).rejects.toThrow();
+      expect(await storedRequiredComments(family)).toEqual([
+        {
+          id: child.id,
+          subject_type: "required.post.v1",
+          subject_id: post.id,
+        },
+      ]);
+    });
+
+    test("inverse selected update recurses through the record compiler and refuses wrong-type decoys", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { id: 200, slug: "inverse-update", title: "Inverse update" },
+      });
+      await client.video.create({
+        data: { id: post.id, slug: "inverse-update-decoy", title: "Decoy" },
+      });
+      const member = await client.comment.create({
+        data: {
+          id: 201,
+          body: "member before",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const decoy = await client.comment.create({
+        data: {
+          id: 202,
+          body: "decoy before",
+          commentable: { connect: { type: "video", where: { id: post.id } } },
+        },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          comments: {
+            update: {
+              where: { id: member.id },
+              data: {
+                body: "member after",
+                board: { create: { name: "compiler recursion" } },
+              },
+            },
+          },
+        },
+      });
+      await expect(
+        client.comment.findUniqueOrThrow({
+          where: { id: member.id },
+          include: { board: true },
+        })
+      ).resolves.toMatchObject({
+        body: "member after",
+        board: { name: "compiler recursion" },
+      });
+
+      await expect(
+        client.post.update({
+          where: { id: post.id },
+          data: {
+            comments: {
+              update: {
+                where: { id: decoy.id },
+                data: { body: "must not change" },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow(
+        "Cannot update relation 'comments': target record was not found for this parent."
+      );
+      await expect(
+        client.comment.findUniqueOrThrow({ where: { id: decoy.id } })
+      ).resolves.toMatchObject({ body: "decoy before" });
+    });
+
+    test("inverse bulk update and delete always keep the discriminator in membership", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { id: 300, slug: "inverse-bulk", title: "Inverse bulk" },
+      });
+      await client.video.create({
+        data: { id: post.id, slug: "inverse-bulk-decoy", title: "Decoy" },
+      });
+      await client.comment.create({
+        data: {
+          id: 301,
+          body: "bulk candidate one",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      await client.comment.create({
+        data: {
+          id: 302,
+          body: "bulk candidate two",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const decoy = await client.comment.create({
+        data: {
+          id: 303,
+          body: "bulk candidate decoy",
+          commentable: { connect: { type: "video", where: { id: post.id } } },
+        },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          comments: {
+            updateMany: {
+              where: { body: { contains: "bulk candidate" } },
+              data: { body: "bulk updated" },
+            },
+          },
+        },
+      });
+      await expect(
+        client.comment.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toMatchObject([
+        { id: 301, body: "bulk updated" },
+        { id: 302, body: "bulk updated" },
+        { id: decoy.id, body: "bulk candidate decoy" },
+      ]);
+
+      await client.post.update({
+        where: { id: post.id },
+        data: { comments: { deleteMany: { body: "bulk updated" } } },
+      });
+      await expect(client.comment.findMany()).resolves.toMatchObject([
+        { id: decoy.id, body: "bulk candidate decoy" },
+      ]);
+    });
+
+    test("inverse targeted delete requires the exact membership", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { id: 350, slug: "inverse-delete", title: "Inverse delete" },
+      });
+      await client.video.create({
+        data: { id: post.id, slug: "inverse-delete-decoy", title: "Decoy" },
+      });
+      const member = await client.comment.create({
+        data: {
+          id: 351,
+          body: "delete member",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const decoy = await client.comment.create({
+        data: {
+          id: 352,
+          body: "keep decoy",
+          commentable: { connect: { type: "video", where: { id: post.id } } },
+        },
+      });
+
+      await expect(
+        client.post.update({
+          where: { id: post.id },
+          data: { comments: { delete: { id: decoy.id } } },
+        })
+      ).rejects.toThrow(
+        "Cannot delete relation 'comments': target record was not found for this parent."
+      );
+      await client.post.update({
+        where: { id: post.id },
+        data: { comments: { delete: { id: member.id } } },
+      });
+      await expect(client.comment.findMany()).resolves.toMatchObject([
+        { id: decoy.id, body: "keep decoy" },
+      ]);
+    });
+
+    test("inverse set adopts, retains, departs, and ignores same-id wrong-type rows", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: { id: 400, slug: "inverse-set", title: "Inverse set" },
+      });
+      const otherPost = await client.post.create({
+        data: { id: 401, slug: "inverse-set-other", title: "Other" },
+      });
+      await client.video.create({
+        data: { id: post.id, slug: "inverse-set-decoy", title: "Decoy" },
+      });
+      const retained = await client.comment.create({
+        data: {
+          id: 410,
+          body: "retained",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const departing = await client.comment.create({
+        data: {
+          id: 411,
+          body: "departing",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const adopted = await client.comment.create({
+        data: {
+          id: 412,
+          body: "adopted",
+          commentable: {
+            connect: { type: "post", where: { id: otherPost.id } },
+          },
+        },
+      });
+      const decoy = await client.comment.create({
+        data: {
+          id: 413,
+          body: "wrong type",
+          commentable: { connect: { type: "video", where: { id: post.id } } },
+        },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          comments: { set: [{ id: retained.id }, { id: adopted.id }] },
+        },
+      });
+      expect(await storedComments(family)).toEqual([
+        {
+          id: retained.id,
+          commentable_type: "content.post.v1",
+          commentable_id: post.id,
+        },
+        { id: departing.id, commentable_type: null, commentable_id: null },
+        {
+          id: adopted.id,
+          commentable_type: "content.post.v1",
+          commentable_id: post.id,
+        },
+        {
+          id: decoy.id,
+          commentable_type: "content.video.v1",
+          commentable_id: post.id,
+        },
+      ]);
+
+      await client.post.update({
+        where: { id: post.id },
+        data: { comments: { set: [] } },
+      });
+      expect(await storedComments(family)).toEqual([
+        { id: retained.id, commentable_type: null, commentable_id: null },
+        { id: departing.id, commentable_type: null, commentable_id: null },
+        { id: adopted.id, commentable_type: null, commentable_id: null },
+        {
+          id: decoy.id,
+          commentable_type: "content.video.v1",
+          commentable_id: post.id,
+        },
+      ]);
+    });
+
+    test("inverse connectOrCreate adopts existing rows and keeps first-create-wins duplicates", async () => {
+      const { client } = getFamily();
+      const existing = await client.comment.create({
+        data: { id: 501, body: "existing target" },
+      });
+      const connected = await client.comment.create({
+        data: { id: 503, body: "connected target" },
+      });
+
+      const post = await client.post.create({
+        data: {
+          id: 500,
+          slug: "inverse-connect-or-create",
+          title: "Inverse connect or create",
+          comments: {
+            connect: { id: connected.id },
+            connectOrCreate: [
+              {
+                where: { id: existing.id },
+                create: { id: existing.id, body: "must not create" },
+              },
+              {
+                where: { id: 502 },
+                create: { id: 502, body: "first create wins" },
+              },
+              {
+                where: { id: 502 },
+                create: { id: 502, body: "must lose" },
+              },
+            ],
+          },
+        },
+        include: { comments: { orderBy: { id: "asc" } } },
+      });
+
+      expect(post.comments).toMatchObject([
+        { id: existing.id, body: "existing target" },
+        { id: 502, body: "first create wins" },
+        { id: connected.id, body: "connected target" },
+      ]);
+    });
+
+    test("inverse connectOrCreate deduplicates a generated id by its unique selector", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: {
+          id: 520,
+          slug: "inverse-generated-connect-or-create",
+          title: "Generated connect or create",
+          comments: {
+            connectOrCreate: [
+              {
+                where: { code: "generated-target" },
+                create: {
+                  code: "generated-target",
+                  body: "first generated create wins",
+                },
+              },
+              {
+                where: { code: "generated-target" },
+                create: {
+                  code: "generated-target",
+                  body: "must lose",
+                },
+              },
+            ],
+          },
+        },
+        include: { comments: true },
+      });
+
+      expect(post.comments).toHaveLength(1);
+      expect(post.comments[0]).toMatchObject({
+        code: "generated-target",
+        body: "first generated create wins",
+      });
+      await expect(storedComments(family)).resolves.toEqual([
+        {
+          id: post.comments[0]?.id,
+          commentable_type: "content.post.v1",
+          commentable_id: post.id,
+        },
+      ]);
+    });
+
+    test("inverse connectOrCreate deduplicates equal selectors despite different create ids", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: {
+          id: 530,
+          slug: "inverse-selector-dedup",
+          title: "Selector dedup",
+          comments: {
+            connectOrCreate: [
+              {
+                where: { code: "same-selector" },
+                create: {
+                  id: 531,
+                  code: "same-selector",
+                  body: "first selector create wins",
+                },
+              },
+              {
+                where: { code: "same-selector" },
+                create: {
+                  id: 532,
+                  code: "same-selector",
+                  body: "must lose",
+                },
+              },
+            ],
+          },
+        },
+        include: { comments: true },
+      });
+
+      expect(post.comments).toMatchObject([
+        {
+          id: 531,
+          code: "same-selector",
+          body: "first selector create wins",
+        },
+      ]);
+      await expect(
+        client.comment.findUnique({ where: { id: 532 } })
+      ).resolves.toBeNull();
+    });
+
+    test("inverse connectOrCreate does not deduplicate when create misses its selector", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: {
+          id: 540,
+          slug: "inverse-selector-mismatch",
+          title: "Selector mismatch",
+          comments: {
+            connectOrCreate: [
+              {
+                where: { code: "wanted-selector" },
+                create: {
+                  id: 541,
+                  code: "different-created-row",
+                  body: "first independent create",
+                },
+              },
+              {
+                where: { code: "wanted-selector" },
+                create: {
+                  id: 542,
+                  code: "wanted-selector",
+                  body: "second create must run",
+                },
+              },
+            ],
+          },
+        },
+        include: { comments: { orderBy: { id: "asc" } } },
+      });
+
+      expect(post.comments).toMatchObject([
+        {
+          id: 541,
+          code: "different-created-row",
+          body: "first independent create",
+        },
+        {
+          id: 542,
+          code: "wanted-selector",
+          body: "second create must run",
+        },
+      ]);
+    });
+
+    test("inverse connectOrCreate treats reordered unique fields as one selector", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: {
+          id: 550,
+          slug: "inverse-reordered-selector",
+          title: "Reordered selector",
+          comments: {
+            connectOrCreate: [
+              {
+                where: { id: 551, code: "same-row" },
+                create: {
+                  id: 551,
+                  code: "same-row",
+                  body: "first create wins",
+                },
+              },
+              {
+                where: { code: "same-row", id: 551 },
+                create: {
+                  id: 551,
+                  code: "same-row",
+                  body: "must lose",
+                },
+              },
+            ],
+          },
+        },
+        include: { comments: true },
+      });
+
+      expect(post.comments).toMatchObject([
+        { id: 551, code: "same-row", body: "first create wins" },
+      ]);
+    });
+
+    test("inverse connectOrCreate analyzes relation work after a selector mismatch", async () => {
+      const { client } = getFamily();
+
+      await expect(
+        client.post.create({
+          data: {
+            id: 560,
+            slug: "inverse-own-write-selector-mismatch",
+            title: "OwnWrite selector mismatch",
+            comments: {
+              connectOrCreate: [
+                {
+                  where: { code: "wanted-own-write-selector" },
+                  create: {
+                    id: 562,
+                    code: "different-created-row",
+                    body: "first independent create",
+                  },
+                },
+                {
+                  where: { code: "wanted-own-write-selector" },
+                  create: {
+                    id: 563,
+                    code: "wanted-own-write-selector",
+                    body: "second relation-bearing create",
+                    board: {
+                      create: {
+                        id: 561,
+                        name: "nested own-write board",
+                        posts: {
+                          upsert: {
+                            where: { id: 564 },
+                            create: {
+                              id: 564,
+                              slug: "nested-own-write-post",
+                              title: "Nested own-write post",
+                            },
+                            update: { title: "Must not update nested post" },
+                          },
+                          connectOrCreate: {
+                            where: { id: 564 },
+                            create: {
+                              id: 564,
+                              slug: "must-not-create-nested-post",
+                              title: "Must not create nested post",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        })
+      ).rejects.toThrow("depends on an earlier 'upsert' target write");
+
+      await expect(
+        client.post.findUnique({ where: { id: 560 } })
+      ).resolves.toBeNull();
+    });
+
+    test("inverse upsert distinguishes member, missing, and foreign memberships", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { id: 600, slug: "inverse-upsert", title: "Inverse upsert" },
+      });
+      await client.video.create({
+        data: { id: post.id, slug: "inverse-upsert-decoy", title: "Decoy" },
+      });
+      const member = await client.comment.create({
+        data: {
+          id: 601,
+          body: "member before",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const foreign = await client.comment.create({
+        data: {
+          id: 603,
+          body: "foreign before",
+          commentable: { connect: { type: "video", where: { id: post.id } } },
+        },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          comments: {
+            upsert: [
+              {
+                where: { id: member.id },
+                create: { id: member.id, body: "must not create" },
+                update: { body: "member after" },
+              },
+              {
+                where: { id: 602 },
+                create: { id: 602, body: "missing create" },
+                update: { body: "must not update" },
+              },
+            ],
+          },
+        },
+      });
+      await expect(
+        client.comment.findMany({
+          where: { id: { in: [member.id, 602] } },
+          orderBy: { id: "asc" },
+        })
+      ).resolves.toMatchObject([
+        { id: member.id, body: "member after" },
+        { id: 602, body: "missing create" },
+      ]);
+
+      await expect(
+        client.post.update({
+          where: { id: post.id },
+          data: {
+            comments: {
+              upsert: {
+                where: { id: foreign.id },
+                create: { id: foreign.id, body: "must not create" },
+                update: { body: "must not update" },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow(
+        "Cannot upsert relation 'comments': target record was not found for this parent."
+      );
+      await expect(
+        client.comment.findUniqueOrThrow({ where: { id: foreign.id } })
+      ).resolves.toMatchObject({ body: "foreign before" });
+    });
+
+    test("fresh-parent inverse upsert globally adopts an existing target", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const target = await client.comment.create({
+        data: { id: 651, body: "global before" },
+      });
+
+      const post = await client.post.create({
+        data: {
+          id: 650,
+          slug: "fresh-parent-upsert",
+          title: "Fresh parent upsert",
+          comments: {
+            upsert: {
+              where: { id: target.id },
+              create: { id: target.id, body: "must not create" },
+              update: { body: "global after" },
+            },
+          },
+        },
+        include: { comments: true },
+      });
+
+      expect(post.comments).toMatchObject([
+        { id: target.id, body: "global after" },
+      ]);
+      expect(await storedComments(family)).toEqual([
+        {
+          id: target.id,
+          commentable_type: "content.post.v1",
+          commentable_id: post.id,
+        },
+      ]);
+    });
+
+    test("inverse writes read the old parent key and adopt with the transitioned key", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: { id: 800, slug: "transition-owner", title: "Transition" },
+      });
+      const oldMember = await client.comment.create({
+        data: {
+          id: 801,
+          body: "old membership",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const adopted = await client.comment.create({
+        data: { id: 802, body: "adopt after transition" },
+      });
+
+      const updated = await client.post.update({
+        where: { id: post.id },
+        data: {
+          id: { increment: 1 },
+          comments: {
+            connect: { id: adopted.id },
+            create: { id: 803, body: "create after transition" },
+          },
+        },
+      });
+      expect(updated.id).toBe(801);
+      expect(await storedComments(family)).toEqual([
+        {
+          id: oldMember.id,
+          commentable_type: "content.post.v1",
+          commentable_id: 800,
+        },
+        {
+          id: adopted.id,
+          commentable_type: "content.post.v1",
+          commentable_id: 801,
+        },
+        {
+          id: 803,
+          commentable_type: "content.post.v1",
+          commentable_id: 801,
+        },
+      ]);
+    });
+
+    test("correlated upsert keeps existing membership across a parent key transition", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: {
+          id: 820,
+          slug: "transition-upsert-owner",
+          title: "Transition upsert",
+        },
+      });
+      const empty = await client.comment.create({
+        data: {
+          id: 821,
+          body: "empty update",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const changed = await client.comment.create({
+        data: {
+          id: 822,
+          body: "before scalar update",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+
+      const updated = await client.post.update({
+        where: { id: post.id },
+        data: {
+          id: { increment: 1 },
+          comments: {
+            upsert: [
+              {
+                where: { id: empty.id },
+                create: { id: empty.id, body: "must not create" },
+                update: {},
+              },
+              {
+                where: { id: changed.id },
+                create: { id: changed.id, body: "must not create" },
+                update: { body: "after scalar update" },
+              },
+            ],
+          },
+        },
+      });
+
+      expect(updated.id).toBe(821);
+      expect(await storedComments(family)).toEqual([
+        {
+          id: empty.id,
+          commentable_type: "content.post.v1",
+          commentable_id: 820,
+        },
+        {
+          id: changed.id,
+          commentable_type: "content.post.v1",
+          commentable_id: 820,
+        },
+      ]);
+      await expect(
+        client.comment.findUniqueOrThrow({ where: { id: changed.id } })
+      ).resolves.toMatchObject({ body: "after scalar update" });
     });
 
     test("inverse create consumes a generated parent id", async () => {

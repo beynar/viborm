@@ -37,3 +37,8 @@
 - In zsh, never use `path` as a loop or local variable: it is tied to `PATH` and
   makes later commands disappear. Use a concern-specific name such as
   `report_file`, then verify the remaining commands ran.
+- Treat a SQL predicate's value provenance and its statement qualifier as
+  independent facts. A planning value can be correct while an alias copied from
+  a read statement makes the final write invalid. Pass the physical or aliased
+  qualifier at the statement boundary, and verify the same mutation on both
+  transaction and atomic-batch substrates.

@@ -154,14 +154,21 @@ export function buildCreateMany(
 export function buildCreateManyPlan(
   ctx: QueryScope,
   args: Record<string, unknown>,
-  returnRows: boolean
+  returnRows: boolean,
+  sharedPolymorphicStorage?: PolymorphicStorageValue<unknown>
 ): CreateManyPlan {
   const data = getCreateManyData(args.data);
   if (data.length === 0) {
     throw new QueryEngineError("No data to insert for createMany.");
   }
   const skipDuplicates = args.skipDuplicates === true;
-  const valueGroups = splitDefaultGroupsIntoRows(buildValueGroups(ctx, data));
+  const valueGroups = splitDefaultGroupsIntoRows(
+    buildValueGroups(
+      ctx,
+      data,
+      sharedPolymorphicStorage ? [sharedPolymorphicStorage] : []
+    )
+  );
   assertPortableCreateManySkip(
     skipDuplicates,
     valueGroups.some((group) => group.columns.length === 0)

@@ -5,7 +5,7 @@
  * Handles cursor-based pagination and distinct.
  */
 
-import type { Sql } from "@sql";
+import { type Sql, sql } from "@sql";
 import { buildDistinctColumns } from "../builders/distinct-builder";
 import { buildOrderByParts } from "../builders/orderby-builder";
 import { buildSelectWithAliases } from "../builders/select-builder";
@@ -37,10 +37,18 @@ export interface FindManyArgs extends FindArgs {
   take?: number;
 }
 
+/** Internal SQL facts that refine a normal find without entering public input. */
+export interface FindSqlOptions {
+  /** A trusted predicate already built for this query's table reference. */
+  predicate?: Sql;
+  /** Projection expressions that already carry their result aliases. */
+  additionalColumns?: readonly Sql[];
+}
+
 /**
  * Options for buildFind
  */
-export interface FindOptions {
+export interface FindOptions extends FindSqlOptions {
   /** Limit number of results (1 for findFirst, take value for findMany, undefined for no limit) */
   limit?: number | undefined;
 }
@@ -72,7 +80,9 @@ export function buildFind(
     args.include,
     rootAlias
   );
-  const columns = selectResult.sql;
+  const columns = options.additionalColumns?.length
+    ? sql.join([selectResult.sql, ...options.additionalColumns], ", ")
+    : selectResult.sql;
   const columnAliases = selectResult.aliases;
   const lateralJoins = selectResult.lateralJoins;
 
@@ -81,6 +91,12 @@ export function buildFind(
 
   // Build WHERE with cursor conditions
   let where = buildWhere(ctx, args.where, rootAlias);
+
+  if (options.predicate) {
+    where = where
+      ? adapter.operators.and(where, options.predicate)
+      : options.predicate;
+  }
 
   if (pagination.cursorCondition) {
     where = where

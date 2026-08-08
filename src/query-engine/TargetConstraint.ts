@@ -3,7 +3,10 @@ import type { Model } from "@schema/model";
 import type { ScalarType } from "@schema/scalars/common";
 import { isSql } from "@sql";
 import { isRecord } from "@validation/value-guards";
-import { getWhereUniqueEntries } from "./builders/where-unique-builder";
+import {
+  getWhereUniqueEntries,
+  getWhereUniqueFilters,
+} from "./builders/where-unique-builder";
 
 type ExactTargetValue =
   | { readonly kind: "null" }
@@ -66,6 +69,31 @@ export function normalizeTargetConstraint(
     hasValue: Object.hasOwn(values, fieldName),
     value: values[fieldName],
   }));
+}
+
+/**
+ * Return the exact selector that a same-operation create makes visible.
+ *
+ * `where` and `create` are independent public inputs. Equal selectors are not
+ * duplicates until an earlier create is proven to satisfy that selector, and
+ * extended filters cannot be proven from the unique discriminator alone.
+ */
+export function getCreatedWhereUniqueTarget(
+  model: Model<any>,
+  where: Record<string, unknown>,
+  create: Readonly<Record<string, unknown>>
+): TargetConstraint | undefined {
+  if (getWhereUniqueFilters({ model }, where)) return undefined;
+
+  const selector = normalizeWhereUniqueTargetConstraint(model, where);
+  const created = normalizeTargetConstraint(
+    model,
+    [...selector.fields.keys()],
+    create
+  );
+  return classifyTargetConstraintOverlap(selector, created) === "equal"
+    ? selector
+    : undefined;
 }
 
 function buildTargetConstraint(

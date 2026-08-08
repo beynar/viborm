@@ -143,12 +143,16 @@ function isComparableKeyValue(value: unknown): boolean {
   );
 }
 
-function canonicalTargetKey(entries: readonly WhereUniqueEntry[]): string {
+export function canonicalTargetKey(
+  entries: readonly WhereUniqueEntry[]
+): string {
   return JSON.stringify(
-    entries.map((entry) => [
-      entry.fieldName,
-      typeof entry.value,
-      String(entry.value),
-    ])
+    [...entries]
+      .sort((left, right) => left.fieldName.localeCompare(right.fieldName))
+      .map((entry) => [
+        entry.fieldName,
+        typeof entry.value,
+        String(entry.value),
+      ])
   );
 }

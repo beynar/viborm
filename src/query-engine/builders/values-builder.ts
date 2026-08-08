@@ -42,7 +42,11 @@ export function buildValues(
   polymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
 ): ValuesResult {
   const records = Array.isArray(data) ? data : [data];
-  const groups = buildValueGroups(ctx, records);
+  const groups = buildValueGroups(
+    ctx,
+    records,
+    records.length === 1 ? polymorphicStorage : []
+  );
   if (groups.length === 0) {
     return { columns: [], values: [] };
   }
@@ -51,20 +55,13 @@ export function buildValues(
       "Heterogeneous insert rows require grouped execution."
     );
   }
-  const group = groups[0]!;
-  if (polymorphicStorage.length === 0) {
-    return { columns: group.columns, values: group.values };
-  }
-  if (records.length !== 1) {
+  if (polymorphicStorage.length > 0 && records.length !== 1) {
     throw new QueryEngineError(
       "Polymorphic storage assignments require one record."
     );
   }
-  const privateValues = lowerPolymorphicStorage(ctx, polymorphicStorage);
-  return {
-    columns: [...group.columns, ...privateValues.columns],
-    values: [[...(group.values[0] ?? []), ...privateValues.values]],
-  };
+  const group = groups[0]!;
+  return { columns: group.columns, values: group.values };
 }
 
 function lowerPolymorphicStorage(
@@ -88,7 +85,8 @@ function lowerPolymorphicStorage(
 /** Build independently executable VALUES groups for heterogeneous rows. */
 export function buildValueGroups(
   ctx: QueryScope,
-  records: readonly Record<string, unknown>[]
+  records: readonly Record<string, unknown>[],
+  polymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
 ): ValuesGroup[] {
   if (records.length === 0) {
     return [];
@@ -99,14 +97,24 @@ export function buildValueGroups(
   const shapes = planInsertRowShapes(fieldOrder, records, (field, value) =>
     shouldOmitInsertValue(ctx.model["~"].state.scalars[field], value)
   );
+  const privateValues =
+    polymorphicStorage.length > 0
+      ? lowerPolymorphicStorage(ctx, polymorphicStorage)
+      : undefined;
 
   return shapes.map((shape) => ({
-    columns: shape.fields.map((field) => getColumnName(ctx.model, field)),
+    columns: [
+      ...shape.fields.map((field) => getColumnName(ctx.model, field)),
+      ...(privateValues?.columns ?? []),
+    ],
     inputIndexes: [...shape.inputIndexes],
     values: shape.rows.map((record) =>
-      shape.fields.map((field) =>
-        buildScalarSqlValue(ctx, ctx.model, field, record[field])
-      )
+      [
+        ...shape.fields.map((field) =>
+          buildScalarSqlValue(ctx, ctx.model, field, record[field])
+        ),
+        ...(privateValues?.values ?? []),
+      ]
     ),
   }));
 }

@@ -2124,8 +2124,14 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     which enumerates a three-member union that E6.7 made four (`transitioned`).
   // The selected-record compiler absorbed the conditional update-arm planning refusal:
   // captured descendant outputs are optional until the found arm is selected. The pin is
-  // therefore 28; the removed site is covered by the found/inert dual-substrate witnesses
+  // therefore 30; the removed site is covered by the found/inert dual-substrate witnesses
   // in `nested-arm-dispatch.test.ts`.
+  //
+  // 30 -> 31 (bound polymorphic inverse write parity): create/createMany retain their
+  // identity-free fresh-record path. The newly exposed targeted inverse verbs require
+  // one captured child primary key, matching the ordinary selected-record compiler's
+  // existing portable boundary. Compound-child targeting is a narrower, reviewed
+  // refusal; it does not affect the previously supported inverse create surface.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -2136,7 +2142,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(30);
+    expect(sites).toBe(31);
   });
 });
 

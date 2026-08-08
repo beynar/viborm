@@ -261,7 +261,7 @@ The direct and inverse paths are deliberately different:
 | Path | Read meaning | Write meaning |
 | --- | --- | --- |
 | direct field | One correlated CASE statement, one exact discriminator arm per configured target | `CreateOperation` owns fresh-owner connect/create; `RecordUpdateCompiler` owns selected-owner connect/disconnect |
-| inverse `oneToMany` | Ordinary include/filter/count plus `child.id = parent.pk AND child.type = fixed discriminator` | Nested create only, through the same fresh-record compiler with incoming private storage |
+| inverse `oneToMany` | Ordinary include/filter/count plus `child.id = parent.pk AND child.type = fixed discriminator` | Ordinary child-held relation Parts own the full safe to-many mutation family; record compilers own fresh and selected child records |
 
 Direct include/select supports target-specific nested projections. A configured
 variant omitted from the projection object still uses that target's default
@@ -289,13 +289,16 @@ known-target orphan storage returns `null`. A required known-target orphan
 throws `QueryEngineError`. Unknown discriminators and half-null storage are
 malformed provider results.
 
-V1 exposes direct `connect`, direct `create`, optional direct `disconnect`, and
-inverse nested `create`. It refuses direct update-through, `set`, `upsert`, and
-`connectOrCreate`, plus all inverse writes except create. A scalar-only root or
-nested `createMany` is unavailable when its target model has a required
-polymorphic field. The feature adds no runtime step kind, executor protocol, or
-adapter semantic namespace. Direct writes retain their existing statement
-counts, and reads add no client-side round trip beyond their one statement.
+Direct writes expose `connect`, `create`, and optional `disconnect`; direct
+update-through, `set`, `upsert`, and `connectOrCreate` remain refused. A bound
+inverse `oneToMany` exposes create/createMany/connect/connectOrCreate/upsert on
+create, the ordinary targeted and bulk update/delete family on update, and
+disconnect/set only for optional storage. Exact membership always includes both
+the fixed discriminator and parent identity. Root createMany remains
+scalar-only; inverse nested createMany can satisfy its owning required relation
+but not another required polymorphic relation. The feature adds no runtime step
+kind, executor protocol, adapter semantic namespace, or round trip beyond the
+ordinary child-held analogue.
 
 ## SQL and adapter boundary
 

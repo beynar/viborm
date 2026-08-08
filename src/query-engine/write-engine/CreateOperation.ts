@@ -18,6 +18,7 @@ import {
   type ChildHeldToMany,
   type ChildHeldToOne,
   type ParentHeldToOne,
+  type PolymorphicChildHeldToMany,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -25,7 +26,6 @@ import {
   type RelationMutationEntry,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import { resolvePolymorphicInverse } from "../builders/polymorphic-relation";
 import { buildInsert, buildValueGroups } from "../builders/values-builder";
 import {
   createQueryScope,
@@ -106,7 +106,10 @@ import {
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
-type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
+type ChildHeldRelation =
+  | ChildHeldToOne
+  | ChildHeldToMany
+  | PolymorphicChildHeldToMany;
 
 export interface FreshRecordPart extends Part {
   readonly rootWriteId: string;
@@ -793,21 +796,6 @@ export class CreateOperation {
         });
         continue;
       }
-      const polymorphicInverse = resolvePolymorphicInverse(
-        childScope,
-        program.relationInfo
-      );
-      if (polymorphicInverse) {
-        this.interpretPolymorphicInverseCreate({
-          childScope,
-          self,
-          program,
-          inverse: polymorphicInverse,
-          txMode,
-          childCreates,
-        });
-        continue;
-      }
       this.interpretRelation({
         childScope,
         self,
@@ -837,49 +825,6 @@ export class CreateOperation {
       createManyGroups,
       afterParts,
     };
-  }
-
-  /**
-   * The V1 inverse surface has one operation: create. The ordinary public
-   * `oneToMany` names the child record, while the resolved inverse owns the
-   * private `(type, id)` edge written into that child's root INSERT.
-   */
-  private interpretPolymorphicInverseCreate(input: {
-    readonly childScope: QueryScope;
-    readonly self: RecordIdentity;
-    readonly program: RelationMutationProgram;
-    readonly inverse: NonNullable<ReturnType<typeof resolvePolymorphicInverse>>;
-    readonly txMode: boolean;
-    readonly childCreates: ChildCreate[];
-  }): void {
-    const entry = input.program.entries[0];
-    if (!(entry && input.program.entries.length === 1 && entry.kind === "create")) {
-      throw new QueryEngineError(
-        `query-engine internal: polymorphic inverse '${input.program.relationInfo.name}' requires one create operation.`
-      );
-    }
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      input.program.relationInfo.targetModel
-    );
-    const assignment: PolymorphicStorageValue<FinalReferenceSource> = {
-      kind: "linked",
-      storage: input.inverse.storage,
-      storedType: input.inverse.storedType,
-      referencedField: input.inverse.sourceReferencedField,
-      id: this.referencedParentSource(
-        input.self,
-        input.inverse.sourceReferencedField,
-        input.program.relationInfo.name
-      ),
-    };
-    for (const data of entry.items) {
-      input.childCreates.push({
-        record: this.buildRecord(childScope, data, input.txMode),
-        inject: {},
-        polymorphicStorage: [assignment],
-      });
-    }
   }
 
   private interpretPolymorphicRelation(input: {
@@ -1081,8 +1026,8 @@ export class CreateOperation {
     const producedBy = new Map<string, string>();
     for (const [relationName, program] of Object.entries(relations)) {
       if (polymorphic[relationName]?.kind === "targeted") continue;
-      if (resolvePolymorphicInverse(childScope, program.relationInfo)) continue;
       const relation = bindRelation(childScope, program.relationInfo);
+      if (relation.kind === "polymorphicChildHeldToMany") continue;
       if (relation.kind !== "parentHeldToOne") continue;
       const sharedForeignFields = relation.foreignFields.filter(
         (foreignField) => recordPk.includes(foreignField)
@@ -1201,8 +1146,8 @@ export class CreateOperation {
         }
         continue;
       }
-      if (resolvePolymorphicInverse(childScope, program.relationInfo)) continue;
       const relation = bindRelation(childScope, program.relationInfo);
+      if (relation.kind === "polymorphicChildHeldToMany") continue;
       if (relation.kind !== "parentHeldToOne") continue;
       const createEntry = program.entries.find(
         (entry) => entry.kind === "create"
@@ -1708,23 +1653,36 @@ export class CreateOperation {
             // P4 — one Part per key-shape GROUP, so `connect: [a, b, c]` sends one
             // probe and one write instead of six statements.
             ...groupLinkTargets(childScope, entry.targets).map(
-              (wheres) =>
-                new ChildConnectPart(this.scope, {
+              (wheres) => {
+                const common = {
                   engine: this.engine,
                   childScope,
                   childName: getStepModelName(
                     relationInfo.targetModel,
                     relationName
                   ),
-                  relation,
                   wheres,
-                  fkAssign: this.childFkAssign(
-                    input.self,
-                    relation,
-                    childScope.model
-                  ),
                   txMode,
-                })
+                };
+                return relation.kind === "polymorphicChildHeldToMany"
+                  ? new ChildConnectPart(this.scope, {
+                      ...common,
+                      relation,
+                      polymorphicStorage: this.childPolymorphicStorage(
+                        input.self,
+                        relation
+                      ),
+                    })
+                  : new ChildConnectPart(this.scope, {
+                      ...common,
+                      relation,
+                      fkAssign: this.childFkAssign(
+                        input.self,
+                        relation,
+                        childScope.model
+                      ),
+                    });
+              }
             )
           );
           break;
@@ -1735,7 +1693,19 @@ export class CreateOperation {
               this.engine,
               relation,
               entry.items,
-              this.childEdgeMembers(input.self, relation),
+              relation.kind === "polymorphicChildHeldToMany"
+                ? {
+                    kind: "polymorphic",
+                    parentId: this.referencedParentSource(
+                      input.self,
+                      relation.referencedFields[0],
+                      relationName
+                    ),
+                  }
+                : {
+                    kind: "foreignKey",
+                    members: this.childEdgeMembers(input.self, relation),
+                  },
               txMode,
               this.recordCompilers
             )
@@ -1748,8 +1718,19 @@ export class CreateOperation {
               this.engine,
               relation,
               entry.items,
-              this.childEdgeMembers(input.self, relation),
-              undefined,
+              relation.kind === "polymorphicChildHeldToMany"
+                ? {
+                    kind: "polymorphic",
+                    parentId: this.referencedParentSource(
+                      input.self,
+                      relation.referencedFields[0],
+                      relationName
+                    ),
+                  }
+                : {
+                    kind: "foreignKey",
+                    members: this.childEdgeMembers(input.self, relation),
+                  },
               txMode,
               this.recordCompilers
             )
@@ -1776,11 +1757,19 @@ export class CreateOperation {
     relation: ChildHeldRelation,
     items: readonly Record<string, unknown>[]
   ): void {
-    const inject = this.childFkAssign(input.self, relation, childScope.model);
+    const inject =
+      relation.kind === "polymorphicChildHeldToMany"
+        ? {}
+        : this.childFkAssign(input.self, relation, childScope.model);
+    const polymorphicStorage =
+      relation.kind === "polymorphicChildHeldToMany"
+        ? [this.childPolymorphicStorage(input.self, relation)]
+        : undefined;
     for (const item of items) {
       input.childCreates.push({
         record: this.buildRecord(childScope, item, input.txMode),
         inject,
+        ...(polymorphicStorage ? { polymorphicStorage } : {}),
       });
     }
   }
@@ -1811,7 +1800,10 @@ export class CreateOperation {
         groups.some((group) => group.columns.length === 0)
       );
     }
-    const inject = this.childFkAssign(input.self, relation, childScope.model);
+    const inject =
+      relation.kind === "polymorphicChildHeldToMany"
+        ? {}
+        : this.childFkAssign(input.self, relation, childScope.model);
     const rows = userRows.map((row) => ({ ...row, ...inject }));
     if (rows.length === 0) return;
     // Lower to grouped INSERTs (buildCreateManyPlan): one statement per same-shape
@@ -1822,10 +1814,20 @@ export class CreateOperation {
     // statement; a `recoverableUniqueError` dialect (MySQL) has no leaf, so each
     // per-row statement carries the savepoint-wrapped `onUniqueConflict: "skip"`
     // executor effect — exactly as the root `createMany` (ATOM “Bulk specializations”).
+    const sharedPolymorphicStorage =
+      relation.kind === "polymorphicChildHeldToMany"
+        ? resolvePolymorphicStorageValue(
+            this.engine,
+            this.childPolymorphicStorage(input.self, relation),
+            undefined,
+            "create"
+          )
+        : undefined;
     const plan = buildCreateManyPlan(
       childScope,
       { data: rows, skipDuplicates },
-      false
+      false,
+      sharedPolymorphicStorage
     );
     const recoverUnique =
       skipDuplicates &&
@@ -1833,12 +1835,12 @@ export class CreateOperation {
         "recoverableUniqueError";
     const base = getStepModelName(childScope.model, relation.relationInfo.name);
     input.createManyGroups.push({
-      steps: plan.statements.map((statement) => ({
+      steps: plan.statements.map((statement): WriteStep => ({
         id: this.scope.allocate(`${base}.createMany`),
-        kind: "write" as const,
+        kind: "write",
         statement: statement.sql,
         outputs: {},
-        ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
+        ...(recoverUnique ? { onUniqueConflict: "skip" } : {}),
       })),
       databaseAssigned: plan.statements.map((statement) =>
         statement.inputIndexes.some((index) =>
@@ -1863,7 +1865,7 @@ export class CreateOperation {
   /** The FK columns a child edge writes ← its referenced parent columns. */
   private childFkAssign(
     self: RecordIdentity,
-    relation: ChildHeldRelation,
+    relation: ChildHeldToOne | ChildHeldToMany,
     childModel: Model<any>
   ): Record<string, unknown> {
     const relationName = relation.relationInfo.name;
@@ -1883,6 +1885,26 @@ export class CreateOperation {
       );
     }
     return assign;
+  }
+
+  private childPolymorphicStorage(
+    self: RecordIdentity,
+    relation: PolymorphicChildHeldToMany
+  ): Extract<
+    PolymorphicStorageValue<FinalReferenceSource>,
+    { kind: "linked" }
+  > {
+    return {
+      kind: "linked",
+      storage: relation.storage,
+      storedType: relation.storedType,
+      referencedField: relation.referencedFields[0],
+      id: this.referencedParentSource(
+        self,
+        relation.referencedFields[0],
+        relation.relationInfo.name
+      ),
+    };
   }
 
   /** The parent value a child FK references — a `Ref` to the value this record's own
@@ -1958,7 +1980,7 @@ export class CreateOperation {
    */
   private childEdgeMembers(
     self: RecordIdentity,
-    relation: ChildHeldRelation
+    relation: ChildHeldToOne | ChildHeldToMany
   ): ForeignKeyMember[] {
     const relationName = relation.relationInfo.name;
     const sources = relation.referencedFields.map((referenced) =>
@@ -2653,16 +2675,29 @@ function targetGeneratesReferencedKey(
  * one `UPDATE … WHERE key IN (a,b,c)`. A one-target group keeps the arity-1
  * statements verbatim. The batch presence guards stay per target.
  */
-interface ChildConnectConfig {
+interface ChildConnectContext {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relation: ChildHeldRelation;
   /** One key-shape group of connect targets, in input order. */
   readonly wheres: readonly Record<string, unknown>[];
-  readonly fkAssign: Record<string, unknown>;
   readonly txMode: boolean;
 }
+
+type ChildConnectConfig = ChildConnectContext &
+  (
+    | {
+        readonly relation: ChildHeldToOne | ChildHeldToMany;
+        readonly fkAssign: Record<string, unknown>;
+      }
+    | {
+        readonly relation: PolymorphicChildHeldToMany;
+        readonly polymorphicStorage: Extract<
+          PolymorphicStorageValue<FinalReferenceSource>,
+          { kind: "linked" }
+        >;
+      }
+  );
 
 class ChildConnectPart implements Part {
   private readonly config: ChildConnectConfig;
@@ -2743,6 +2778,8 @@ class ChildConnectPart implements Part {
         );
       }
     }
+    const polymorphicStorage = this.resolvedPolymorphicStorage(known);
+    const data = "fkAssign" in this.config ? this.config.fkAssign : {};
     steps.push({
       id: this.writeId,
       kind: "write",
@@ -2750,12 +2787,18 @@ class ChildConnectPart implements Part {
         this.config.wheres.length === 1
           ? buildUpdate(this.config.childScope, {
               where: this.config.wheres[0]!,
-              data: this.config.fkAssign,
+              data,
+              ...(polymorphicStorage
+                ? { polymorphicStorage }
+                : {}),
               select: this.pkSelect(),
             })
           : buildUpdateMany(this.config.childScope, {
               where: this.groupSelector(),
-              data: this.config.fkAssign,
+              data,
+              ...(polymorphicStorage
+                ? { polymorphicStorage }
+                : {}),
             }),
       outputs: {},
     });
@@ -2770,6 +2813,22 @@ class ChildConnectPart implements Part {
     return Object.fromEntries(
       getPrimaryKeyFields(this.config.childScope.model).map((f) => [f, true])
     );
+  }
+
+  private resolvedPolymorphicStorage(
+    known: PlanningKnown
+  ): readonly PolymorphicStorageValue<unknown>[] | undefined {
+    if (!("polymorphicStorage" in this.config)) {
+      return undefined;
+    }
+    return [
+      resolvePolymorphicStorageValue(
+        this.config.engine,
+        this.config.polymorphicStorage,
+        known,
+        "connect"
+      ),
+    ];
   }
 }
 

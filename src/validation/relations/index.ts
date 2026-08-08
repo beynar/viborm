@@ -22,6 +22,11 @@ import {
 } from "@schema/relation/polymorphic";
 import v, { type V } from "..";
 import { lazyRecord } from "../lazy";
+import type { ScalarSchemas } from "../model";
+import {
+  getNestedScalarCreateWithOmittedRequiredKeys,
+  type NestedScalarCreateWithOmittedRequiredKeys,
+} from "../model/core/create";
 import { type CountFilterSchema, countFilterFactory } from "./count-filter";
 import {
   type ToManyCreateSchema,
@@ -35,11 +40,7 @@ import {
   toManyFilterFactory,
   toOneFilterFactory,
 } from "./filter";
-import type {
-  GetTargetSchemas,
-  SchemaGetter,
-  TargetModel,
-} from "./helpers";
+import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 import {
   type ToManyOrderBySchema,
   type ToOneOrderBySchema,
@@ -63,6 +64,10 @@ import {
   toManyUpdateFactory,
   toOneUpdateFactory,
 } from "./update";
+import {
+  applyCreateManyAvailability,
+  type CreateManyAvailability,
+} from "./create-many-availability";
 
 // =============================================================================
 // SCHEMA BUNDLES
@@ -147,7 +152,7 @@ type PolymorphicInverseRelationKey<
       }
     ? Extract<
         RelationKey,
-        keyof GetTargetSchemas<S>["core"]["create"]["entries"]
+        string & keyof GetTargetSchemas<S>["core"]["create"]["entries"]
       >
     : never;
 
@@ -177,13 +182,130 @@ type PolymorphicInverseCreateTarget<
   readonly [PolymorphicInverseRelationKey<S, Source>]
 >;
 
+type PolymorphicInverseUpdateTarget<
+  S extends RelationState,
+  Source extends AnyModel,
+> = V.Omit<
+  GetTargetSchemas<S>["core"]["update"],
+  readonly [
+    Extract<
+      PolymorphicInverseRelationKey<S, Source>,
+      keyof GetTargetSchemas<S>["core"]["update"]["entries"]
+    >,
+  ]
+>;
+
+type PolymorphicInverseRelationState<
+  S extends RelationState,
+  Source extends AnyModel,
+> = PolymorphicInverseRelationKey<S, Source> extends infer RelationKey
+  ? RelationKey extends keyof TargetModel<S>["~"]["state"]["polymorphicRelations"]
+    ? TargetModel<S>["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"]
+    : never
+  : never;
+
+type PolymorphicInverseIsOptional<
+  S extends RelationState,
+  Source extends AnyModel,
+> = [PolymorphicInverseRelationState<S, Source>] extends [never]
+  ? false
+  : PolymorphicInverseRelationState<S, Source> extends { optional: true }
+    ? true
+    : false;
+
+type PolymorphicInverseCreateManyData<S extends RelationState> =
+  NestedScalarCreateWithOmittedRequiredKeys<
+    TargetModel<S>,
+    ScalarSchemas<TargetModel<S>>,
+    readonly []
+  >;
+
+type AvailablePolymorphicInverseCreateMany<S extends RelationState> = V.Object<
+  {
+    data: () => V.Array<PolymorphicInverseCreateManyData<S>>;
+    skipDuplicates: V.Boolean<{ optional: true }>;
+  },
+  { atLeast: ["data"] }
+>;
+
+type PolymorphicInverseCreateMany<
+  S extends RelationState,
+  Source extends AnyModel,
+> = CreateManyAvailability<
+  TargetModel<S>,
+  AvailablePolymorphicInverseCreateMany<S>,
+  PolymorphicInverseRelationKey<S, Source>
+>;
+
 type PolymorphicInverseCreateEntries<
   S extends RelationState,
   Source extends AnyModel,
 > = {
-  create: () => V.SingleOrArray<
-    PolymorphicInverseCreateTarget<S, Source>
+  create: () => V.SingleOrArray<PolymorphicInverseCreateTarget<S, Source>>;
+  createMany: PolymorphicInverseCreateMany<S, Source>;
+  connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
+  connectOrCreate: V.SingleOrArray<
+    V.Object<
+      {
+        where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+        create: () => PolymorphicInverseCreateTarget<S, Source>;
+      },
+      { partial: false }
+    >
   >;
+  upsert: V.SingleOrArray<
+    V.Object<
+      {
+        where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+        create: () => PolymorphicInverseCreateTarget<S, Source>;
+        update: () => PolymorphicInverseUpdateTarget<S, Source>;
+      },
+      { partial: false }
+    >
+  >;
+};
+
+type PolymorphicInverseUpdateEntries<
+  S extends RelationState,
+  Source extends AnyModel,
+> = Omit<PolymorphicInverseCreateEntries<S, Source>, "upsert"> & {
+  delete: () => V.SingleOrArray<
+    GetTargetSchemas<S>["core"]["whereUniqueExtended"]
+  >;
+  update: V.SingleOrArray<
+    V.Object<
+      {
+        where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
+        data: () => PolymorphicInverseUpdateTarget<S, Source>;
+      },
+      { atLeast: ["where", "data"] }
+    >
+  >;
+  updateMany: V.SingleOrArray<
+    V.Object<
+      {
+        where: () => GetTargetSchemas<S>["core"]["where"];
+        data: () => PolymorphicInverseUpdateTarget<S, Source>;
+      },
+      { atLeast: ["data"] }
+    >
+  >;
+  upsert: V.SingleOrArray<
+    V.Object<
+      {
+        where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
+        create: () => PolymorphicInverseCreateTarget<S, Source>;
+        update: () => PolymorphicInverseUpdateTarget<S, Source>;
+      },
+      { partial: false }
+    >
+  >;
+  deleteMany: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["where"]>;
+};
+
+type OptionalPolymorphicInverseUpdateEntries<S extends RelationState> = {
+  disconnect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
+  set: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
 };
 
 type PolymorphicInverseToManySchemas<
@@ -194,7 +316,12 @@ type PolymorphicInverseToManySchemas<
     PolymorphicInverseCreateEntries<S, Source>,
     { optional: true }
   >;
-  update: V.Object<PolymorphicInverseCreateEntries<S, Source>>;
+  update: V.Object<
+    PolymorphicInverseUpdateEntries<S, Source> &
+      (PolymorphicInverseIsOptional<S, Source> extends true
+        ? OptionalPolymorphicInverseUpdateEntries<S>
+        : Record<never, never>)
+  >;
 };
 
 export type GetRelationSchemas<
@@ -245,29 +372,137 @@ export const getRelationSchemas = <
       }
       return inverseBinding;
     };
-    const getInverseCreateSchema = () => {
+    const getInverseMutationSchemas = () => {
       const binding = getInverseBinding();
       if (!binding) return undefined;
+      const targetModel: TargetModel<S> = state.getter();
+      const runtimeTargetModel: AnyModel = state.getter();
+      const inverseOptional =
+        runtimeTargetModel["~"].state.polymorphicRelations[
+          binding.relationKey
+        ]?.["~"].state.optional === true;
       const getCreateSchema = () =>
         v.omit(targetSchemas().core.create, [binding.relationKey]);
-      return { getCreateSchema };
+      const getUpdateSchema = () =>
+        v.omit(targetSchemas().core.update, [binding.relationKey]);
+      const getCreateManyDataSchema = () => {
+        const schemas = targetSchemas();
+        const noOmittedRequiredKeys: readonly [] = [];
+        return getNestedScalarCreateWithOmittedRequiredKeys(
+          targetModel,
+          {
+            scalars: schemas.scalars,
+            relations: schemas.relations,
+            polymorphic: schemas.polymorphic,
+          },
+          noOmittedRequiredKeys
+        );
+      };
+      const createMany = applyCreateManyAvailability(
+        targetModel,
+        v.object(
+          {
+            data: () => v.array(getCreateManyDataSchema()),
+            skipDuplicates: v.boolean({ optional: true }),
+          },
+          { atLeast: ["data"] }
+        ),
+        binding.relationKey
+      );
+      const connectOrCreate = v.singleOrArray(
+        v.object(
+          {
+            where: () => targetSchemas().core.whereUnique,
+            create: getCreateSchema,
+          },
+          { partial: false }
+        )
+      );
+      const createUpsert = v.singleOrArray(
+        v.object(
+          {
+            where: () => targetSchemas().core.whereUnique,
+            create: getCreateSchema,
+            update: getUpdateSchema,
+          },
+          { partial: false }
+        )
+      );
+      return {
+        inverseOptional,
+        getCreateSchema,
+        getUpdateSchema,
+        createMany,
+        connectOrCreate,
+        createUpsert,
+      };
     };
     return {
       ...schemas,
       create: v.lazy(() => {
-        const inverse = getInverseCreateSchema();
+        const inverse = getInverseMutationSchemas();
         if (!inverse) return schemas.create;
         return v.object(
-          { create: () => v.singleOrArray(inverse.getCreateSchema()) },
+          {
+            create: () => v.singleOrArray(inverse.getCreateSchema()),
+            createMany: inverse.createMany,
+            connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
+            connectOrCreate: inverse.connectOrCreate,
+            upsert: inverse.createUpsert,
+          },
           { optional: true }
         );
       }),
       update: v.lazy(() => {
-        const inverse = getInverseCreateSchema();
+        const inverse = getInverseMutationSchemas();
         if (!inverse) return schemas.update;
-        return v.object({
+        const update = v.singleOrArray(
+          v.object(
+            {
+              where: () => targetSchemas().core.whereUniqueExtended,
+              data: inverse.getUpdateSchema,
+            },
+            { atLeast: ["where", "data"] }
+          )
+        );
+        const updateMany = v.singleOrArray(
+          v.object(
+            {
+              where: () => targetSchemas().core.where,
+              data: inverse.getUpdateSchema,
+            },
+            { atLeast: ["data"] }
+          )
+        );
+        const upsert = v.singleOrArray(
+          v.object(
+            {
+              where: () => targetSchemas().core.whereUniqueExtended,
+              create: inverse.getCreateSchema,
+              update: inverse.getUpdateSchema,
+            },
+            { partial: false }
+          )
+        );
+        const entries = v.object({
           create: () => v.singleOrArray(inverse.getCreateSchema()),
+          createMany: inverse.createMany,
+          connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
+          delete: () =>
+            v.singleOrArray(targetSchemas().core.whereUniqueExtended),
+          connectOrCreate: inverse.connectOrCreate,
+          update,
+          updateMany,
+          upsert,
+          deleteMany: () => v.singleOrArray(targetSchemas().core.where),
         });
+        return inverse.inverseOptional
+          ? entries.extend({
+              disconnect: () =>
+                v.singleOrArray(targetSchemas().core.whereUnique),
+              set: () => v.singleOrArray(targetSchemas().core.whereUnique),
+            })
+          : entries;
       }),
     } as unknown as GetRelationSchemas<S, Source>;
   }

@@ -182,6 +182,33 @@ describe("connectOrCreate own-write dependency", () => {
     ).toThrow("depends on an earlier 'connectOrCreate' target write");
   });
 
+  test("a repeated selector still sees an intervening alternate-selector write", () => {
+    const plan = relationMutation(schema, parent, {
+      connectOrCreate: [
+        {
+          where: { id: 1 },
+          create: { id: 3, code: "first", enabled: false },
+        },
+        {
+          where: { id: 2 },
+          create: { id: 1, code: "intervening", enabled: true },
+        },
+        {
+          where: { id: 1 },
+          create: { id: 4, code: "third", enabled: false },
+        },
+      ],
+    });
+
+    expect(() =>
+      assertNoRelationsOwnWriteDependencies(plan.ctx, plan.relations, {
+        kind: "update",
+        scalarData: {},
+        selector: undefined,
+      })
+    ).toThrow("depends on an earlier 'connectOrCreate' target write");
+  });
+
   // RETARGETED by N6-U3, and the CLAIM is preserved rather than dropped: a write whose
   // identity the payload does not spell must classify as `unknown`, never as disjoint,
   // so a later read fails closed. Only the pair carrying it had to move. The old pair

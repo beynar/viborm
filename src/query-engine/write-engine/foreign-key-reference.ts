@@ -1,5 +1,6 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
+import type { PolymorphicChildHeldToMany } from "../builders/relation-data-builder";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import type { QueryEngine } from "../query-engine";
 import { referenceScalarSql } from "./fragment-builders";
@@ -167,7 +168,7 @@ export function resolvePolymorphicStorageValue(
   engine: QueryEngine,
   value: PolymorphicStorageValue<FinalReferenceSource>,
   known: PlanningKnown | undefined,
-  kind: "connect" | "create" | "update"
+  kind: string
 ): PolymorphicStorageValue<unknown> {
   if (value.kind === "empty") return value;
   const { storage, referencedField } = value;
@@ -190,6 +191,80 @@ export function resolvePolymorphicStorageValue(
       resolved
     ),
   };
+}
+
+/** Resolve the identity half of a private polymorphic edge for a planning SQL
+ * predicate. The discriminator stays schema-bound; only the parent identity has
+ * runtime provenance. */
+export function polymorphicPlanningIdentitySql(
+  engine: QueryEngine,
+  value: Extract<
+    PolymorphicStorageValue<FinalReferenceSource>,
+    { kind: "linked" }
+  >,
+  kind: string
+): Sql {
+  const { storage, referencedField } = value;
+  const resolved = foreignKeyCorrelationValue({
+    foreignField: storage.idColumn.name,
+    referencedField,
+    writeSource: value.id,
+    readSource: planningSourceFromFinal(
+      value.id,
+      storage.relationName,
+      kind
+    ),
+  });
+  return referenceScalarSql(
+    engine,
+    storage.idColumn.scalar,
+    storage.idColumn.name,
+    resolved
+  );
+}
+
+/** Bind a parent value to the one private edge owned by a polymorphic inverse. */
+export function linkedPolymorphicStorage(
+  relation: PolymorphicChildHeldToMany,
+  id: FinalReferenceSource
+): Extract<
+  PolymorphicStorageValue<FinalReferenceSource>,
+  { kind: "linked" }
+> {
+  return {
+    kind: "linked",
+    storage: relation.storage,
+    storedType: relation.storedType,
+    referencedField: relation.referencedFields[0],
+    id,
+  };
+}
+
+/** Resolve the identity half of a private edge for final-fragment SQL. */
+export function polymorphicFinalIdentitySql(
+  engine: QueryEngine,
+  relation: PolymorphicChildHeldToMany,
+  id: FinalReferenceSource,
+  known: PlanningKnown,
+  kind: string
+): Sql {
+  const value = linkedPolymorphicStorage(relation, id);
+  const resolved = foreignKeyWriteValue(
+    {
+      foreignField: relation.storage.idColumn.name,
+      referencedField: relation.referencedFields[0],
+      writeSource: id,
+    },
+    known,
+    relation.relationInfo.name,
+    kind
+  );
+  return referenceScalarSql(
+    engine,
+    value.storage.idColumn.scalar,
+    value.storage.idColumn.name,
+    resolved
+  );
 }
 
 export function foreignKeyWriteValueWith(

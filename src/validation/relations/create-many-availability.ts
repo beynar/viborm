@@ -19,19 +19,27 @@ type IsAny<Value> = 0 extends 1 & Value ? true : false;
 export type CreateManyAvailability<
   M extends AnyModel,
   AvailableSchema extends VibSchema,
+  SatisfiedPolymorphicRelation extends string = never,
 > = IsAny<M["~"]["state"]> extends true
   ? AvailableSchema
-  : [RequiredPolymorphicRelationKeys<M>] extends [never]
+  : [
+        Exclude<
+          RequiredPolymorphicRelationKeys<M>,
+          SatisfiedPolymorphicRelation
+        >,
+      ] extends [never]
     ? AvailableSchema
     : VibSchema<never, never>;
 
 /** The scalar-only bulk boundary cannot construct a required polymorphic edge. */
 export function getCreateManyRefusal(
-  model: AnyModel
+  model: AnyModel,
+  satisfiedPolymorphicRelation?: string
 ): { readonly relation: string; readonly message: string } | undefined {
   const relations: Readonly<Record<string, AnyPolymorphicRelation>> =
     model["~"].state.polymorphicRelations;
   for (const [relation, definition] of Object.entries(relations)) {
+    if (relation === satisfiedPolymorphicRelation) continue;
     if (definition["~"].state.optional === true) continue;
     const modelName =
       model["~"].names.ts ?? model["~"].state.tableName ?? "model";
@@ -46,14 +54,17 @@ export function getCreateManyRefusal(
 export function applyCreateManyAvailability<
   M extends AnyModel,
   AvailableSchema extends VibSchema,
+  const SatisfiedPolymorphicRelation extends string = never,
 >(
   model: M,
-  availableSchema: AvailableSchema
-): CreateManyAvailability<M, AvailableSchema>;
+  availableSchema: AvailableSchema,
+  satisfiedPolymorphicRelation?: SatisfiedPolymorphicRelation
+): CreateManyAvailability<M, AvailableSchema, SatisfiedPolymorphicRelation>;
 export function applyCreateManyAvailability(
   model: AnyModel,
-  availableSchema: VibSchema
+  availableSchema: VibSchema,
+  satisfiedPolymorphicRelation?: string
 ): VibSchema {
-  const refusal = getCreateManyRefusal(model);
+  const refusal = getCreateManyRefusal(model, satisfiedPolymorphicRelation);
   return refusal ? v.refused(refusal.message) : availableSchema;
 }

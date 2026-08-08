@@ -90,6 +90,30 @@ export function getRelationInfo(
   };
 }
 
+/** Return the named compound primary-key constraint and its ordered members. */
+export function getCompoundIdConstraint(
+  model: Model<any>
+): { name: string; fields: string[] } | undefined {
+  const compoundId = model["~"].state.compoundId;
+  if (!compoundId) return undefined;
+  const name = Object.keys(compoundId)[0];
+  const entries = name ? compoundId[name]?.entries : undefined;
+  if (!(name && entries)) return undefined;
+  const fields = Object.keys(entries);
+  return fields.length > 0 ? { name, fields } : undefined;
+}
+
+/** Return the ordered scalar fields that form the model primary key. */
+export function getPrimaryKeyFields(model: Model<any>): string[] {
+  const compound = getCompoundIdConstraint(model);
+  if (compound) return compound.fields;
+
+  for (const name of model["~"].scalarFieldNames) {
+    if (model["~"].state.scalars[name]?.["~"].state.isId) return [name];
+  }
+  return ["id"];
+}
+
 export { getColumnName, getTableName } from "@schema/model";
 
 export function getScalarFieldNames(model: Model<any>): string[] {

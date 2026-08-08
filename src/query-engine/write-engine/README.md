@@ -58,9 +58,17 @@ Execution-specific deduplication stays with the consumer that owns it.
 ### Relation position
 
 `BoundRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
-`childHeldToMany`, or `junction`. It stores topology only: source model, ordered
-FK fields, referenced fields, and update action. It does not store scopes,
-identities, value sources, transition state, SQL, or branch policy.
+`childHeldToMany`, `polymorphicChildHeldToMany`, or `junction`. It stores
+topology only: source model, ordered storage fields, referenced fields, and the
+schema-fixed discriminator needed by a polymorphic inverse. It does not store
+scopes, runtime identities, value sources, transition state, SQL, or branch
+policy.
+
+The polymorphic child-held variant means one exact physical membership:
+private identity equals the parent referenced value and private type equals the
+stored discriminator. Reads, probes, bulk filters, OwnWrite, and set membership
+all consume that same bound fact. Direct payload-selected polymorphic edges stay
+outside `BoundRelation`.
 
 ### Record mutation
 
@@ -85,6 +93,13 @@ Relation owners pass captured targets to the selected-record compiler.
 The two record compilers recurse through the type-only `RecordCompilerSeam`
 (`createFresh`, `updateSelected`). No runtime import cycle or strategy object is
 required.
+
+Polymorphic inverse relation Parts use the same child-held family. Connect and
+connect-or-create adopt globally; fresh-parent upsert does the same. A
+selected-parent upsert is correlated to the exact `(type, identity)` pair and
+rejects a foreign same-id row. Optional disconnect and set clear both private
+columns atomically. Nested createMany applies one shared pair to every grouped
+row.
 
 ## Foreign-key values
 
