@@ -20,6 +20,8 @@ const values = Object.freeze({
   second: "content.second.v1",
 });
 const relation = s.polymorphic(targets, { values });
+const defaultedRelation = s.polymorphic(targets);
+const explicitlyDefaultedRelation = s.polymorphic(targets, undefined);
 
 type _targetKeysRemainExact = Expect<
   Equal<keyof typeof relation["~"]["state"]["targets"], "target" | "second">
@@ -30,17 +32,29 @@ type _storedValueRemainsLiteral = Expect<
     "content.target.v1"
   >
 >;
+type _defaultedStoredValuesUseLiteralPublicKeys = Expect<
+  Equal<
+    typeof defaultedRelation["~"]["state"]["values"],
+    { readonly target: "target"; readonly second: "second" }
+  >
+>;
+type _explicitUndefinedUsesTheSameDefaults = Expect<
+  Equal<
+    typeof explicitlyDefaultedRelation["~"]["state"]["values"],
+    typeof defaultedRelation["~"]["state"]["values"]
+  >
+>;
 
+// @ts-expect-error - non-fresh values still require every target key
 s.polymorphic(targets, {
-  // @ts-expect-error - non-fresh values still require every target key
   values: { target: "content.target.v1" },
 });
 const extraValues = Object.freeze({
   ...values,
   other: "content.other.v1",
 });
+// @ts-expect-error - non-fresh values refuse extra keys structurally
 s.polymorphic(targets, {
-  // @ts-expect-error - non-fresh values refuse extra keys structurally
   values: extraValues,
 });
 

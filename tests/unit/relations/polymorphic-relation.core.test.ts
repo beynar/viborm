@@ -6,6 +6,43 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("polymorphic relation carrier", () => {
+  it("defaults stored discriminators to the public target keys", () => {
+    let targetReads = 0;
+    const post = s.model({ id: s.string().id() });
+    const video = s.model({ id: s.string().id() });
+    const relation = s.polymorphic({
+      post: () => {
+        targetReads += 1;
+        return post;
+      },
+      video: () => {
+        targetReads += 1;
+        return video;
+      },
+    });
+
+    expect(relation["~"].state.values).toEqual({
+      post: "post",
+      video: "video",
+    });
+    expect(Object.isFrozen(relation["~"].state.values)).toBe(true);
+    expect(targetReads).toBe(0);
+    expect(relation["~"].targetEntries()).toEqual([
+      {
+        publicType: "post",
+        targetGetter: expect.any(Function),
+        targetModel: post,
+        storedType: "post",
+      },
+      {
+        publicType: "video",
+        targetGetter: expect.any(Function),
+        targetModel: video,
+        storedType: "video",
+      },
+    ]);
+  });
+
   it("keeps polymorphic fields separate from scalars and ordinary relations", () => {
     const post = s.model({ id: s.string().id() });
     const video = s.model({ id: s.string().id() });

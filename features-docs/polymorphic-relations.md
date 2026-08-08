@@ -132,20 +132,13 @@ engine must not duplicate those refusals with a second guard.
 const comment = s.model({
   id: s.string().id().ulid(),
   body: s.string(),
-  commentable: s.polymorphic(
-    {
+  commentable: s
+    .polymorphic({
       post: () => post,
       video: () => video,
       photo: () => photo,
-    },
-    {
-      values: {
-        post: "content.post.v1",
-        video: "content.video.v1",
-        photo: "content.photo.v1",
-      },
-    }
-  ).name("commentableTarget"),
+    })
+    .name("commentableTarget"),
 });
 ```
 
@@ -154,20 +147,32 @@ narrowing. Each target is its own lazy getter. This is intentional: the original
 getter-of-map prototype, `() => ({ post, video })`, forced
 `keyof ReturnType<G>` while recursive models were still initializing and
 collapsed self/mutual declarations to `any`. A getter map exposes the exact
-public keys without evaluating any model body. `values` therefore stays exact
-for fresh and non-fresh objects while recursion remains lazy. There is no
-short-form API in V1.
+public keys without evaluating any model body. When the second argument is
+omitted, each stored discriminator defaults to its public key. An explicit
+`{ values }` map remains exact for fresh and non-fresh objects and replaces all
+defaults; partial maps are rejected. This keeps recursion lazy while allowing
+durable namespaced values where the application needs them.
+
+```ts
+s.polymorphic(
+  { post: () => post, video: () => video },
+  {
+    values: {
+      post: "content.post.v1",
+      video: "content.video.v1",
+    },
+  }
+)
+```
 
 An optional relation uses the normal chainable form:
 
 ```ts
 commentable: s
-  .polymorphic({ post: () => post, video: () => video, photo: () => photo }, {
-    values: {
-      post: "content.post.v1",
-      video: "content.video.v1",
-      photo: "content.photo.v1",
-    },
+  .polymorphic({
+    post: () => post,
+    video: () => video,
+    photo: () => photo,
   })
   .name("commentableTarget")
   .optional()
@@ -1305,8 +1310,8 @@ A checked execution item below was run on 2026-08-08 under the serialized,
 memory-capped launchers.
 
 - [x] The three Y0 decisions are recorded and reflected in public types.
-- [x] The public API is `s.polymorphic(targets, { values })` with chainable
-      `.name()` and `.optional()`.
+- [x] The public API is `s.polymorphic(targets, { values }?)` with public-key
+      discriminator defaults and chainable `.name()` and `.optional()`.
 - [x] Final type-suite execution confirms recursive literal discriminator
       inference and public typo probes.
 - [x] Hidden storage never appears as public model scalars.

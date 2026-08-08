@@ -228,6 +228,10 @@ type ValuesFor<Targets extends PolymorphicTargetGetters> = {
   readonly [Key in Extract<keyof Targets, string>]: string;
 };
 
+type DefaultValuesFor<Targets extends PolymorphicTargetGetters> = {
+  readonly [Key in Extract<keyof Targets, string>]: Key;
+};
+
 type NoExtraKeys<Given, Allowed> = Record<
   Exclude<keyof Given, keyof Allowed>,
   never
@@ -279,6 +283,17 @@ export class PolymorphicRelation<State extends PolymorphicRelationState> {
 
 export type AnyPolymorphicRelation = PolymorphicRelation<PolymorphicRelationState>;
 
+export function polymorphic<const Targets extends PolymorphicTargetGetters>(
+  targets: Targets,
+  options?: undefined
+): PolymorphicRelation<
+  {
+    readonly type: "polymorphic";
+    readonly targets: Targets;
+    readonly values: DefaultValuesFor<Targets>;
+  }
+>;
+
 export function polymorphic<
   const Targets extends PolymorphicTargetGetters,
   const Values extends ValuesFor<Targets>,
@@ -293,12 +308,29 @@ export function polymorphic<
     readonly targets: Targets;
     readonly values: Values;
   }
-> {
+>;
+
+export function polymorphic(
+  targets: PolymorphicTargetGetters,
+  options?: {
+    readonly values: Readonly<Record<string, string>>;
+  }
+): AnyPolymorphicRelation {
   return new PolymorphicRelation({
     type: "polymorphic",
     targets,
-    values: options.values,
+    values: options?.values ?? defaultStoredValues(targets),
   });
+}
+
+function defaultStoredValues(
+  targets: PolymorphicTargetGetters
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Reflect.ownKeys(targets)
+      .filter((key): key is string => typeof key === "string")
+      .map((key) => [key, key])
+  );
 }
 
 function snapshotRecord<Value>(value: Value): Value {

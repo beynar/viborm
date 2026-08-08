@@ -50,15 +50,10 @@ const polymorphicRelationSchema = (() => {
     .model({
       id: s.int().id().increment(),
       body: s.string(),
-      subject: s.polymorphic(
-        { post: () => post, video: () => video },
-        {
-          values: {
-            post: "required.post.v1",
-            video: "required.video.v1",
-          },
-        }
-      ),
+      subject: s.polymorphic({
+        post: () => post,
+        video: () => video,
+      }),
     })
     .map("poly_contract_required_comments");
 

@@ -97,6 +97,21 @@ s.manyToMany(() => target)
   .name("tags")             // Custom relation name
 ```
 
+### Polymorphic Relations
+
+```ts
+s.polymorphic({
+  post: () => post,
+  video: () => video,
+})
+  .optional()               // Both private storage columns may be null
+  .name("commentable")      // Pairing label for inverse relations
+```
+
+The public target keys are also the stored discriminators by default. Pass an
+exact `{ values }` second argument only when you need custom persistent values.
+See [Polymorphic Relations](/docs/schema/relations/polymorphic).
+
 ## Referential Actions
 
 `.onDelete()` and `.onUpdate()` accept one of four actions:

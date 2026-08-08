@@ -48,15 +48,10 @@ describe("polymorphic definition rules", () => {
   it("builds one trusted private storage descriptor", () => {
     const post = s.model({ id: s.string().id() });
     const video = s.model({ id: s.string().id() });
-    const commentable = s.polymorphic(
-      { post: () => post, video: () => video },
-      {
-        values: {
-          post: "content.post.v1",
-          video: "content.video.v1",
-        },
-      }
-    );
+    const commentable = s.polymorphic({
+      post: () => post,
+      video: () => video,
+    });
     const comment = s.model({ id: s.string().id(), commentable });
 
     const result = validateSchema({ post, video, comment });
@@ -75,7 +70,7 @@ describe("polymorphic definition rules", () => {
       [
         "post",
         {
-          storedType: "content.post.v1",
+          storedType: "post",
           targetModel: post,
           referencedField: "id",
         },
@@ -83,7 +78,7 @@ describe("polymorphic definition rules", () => {
       [
         "video",
         {
-          storedType: "content.video.v1",
+          storedType: "video",
           targetModel: video,
           referencedField: "id",
         },

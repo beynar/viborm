@@ -388,8 +388,10 @@ at Y6.0, after schema metadata exists.
 
 ### Y0.1 Discriminator durability
 
-Approved: stable stored values are configured separately from public map keys.
-There is no short-form or implicit public-key fallback in V1.
+Amended after V1 implementation: omitting the second argument defaults each
+stored discriminator to its public map key. Stable stored values can still be
+configured separately when a domain-qualified or versioned identifier is
+needed.
 
 The concrete recommendation is the exact-key second argument from the design:
 
@@ -402,8 +404,9 @@ s.polymorphic({ post: () => post, video: () => video }, {
 })
 ```
 
-Every target key must occur exactly once in `values`; there is no implicit
-public-key fallback under this option.
+When `{ values }` is present, every target key must occur exactly once and no
+extra key is accepted. The explicit map replaces the defaults as one complete
+value; there is no partial public-key fallback.
 
 The decision must define:
 
@@ -1575,7 +1578,7 @@ alone is not treated as a passing result.
 
 ### Public API
 
-- [x] `s.polymorphic(targets, { values })`, `.name()`, and `.optional()` are public.
+- [x] `s.polymorphic(targets, { values }?)`, `.name()`, and `.optional()` are public.
 - [x] Exact connect/create/update/filter/include schema unions are implemented.
 - [x] `{ type, is, isNot }` is refused and omitted variant overrides keep default projection.
 - [x] Variant-specific result narrowing is implemented.

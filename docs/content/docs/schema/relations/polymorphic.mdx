@@ -44,8 +44,8 @@ It is a relation feature, not an object-inheritance feature.
 
 ## Model a polymorphic relation
 
-The target map defines the public variants. The `values` map defines the stable
-discriminators stored in the database.
+The target map defines the public variants. By default, each public key is also
+the discriminator stored in the database.
 
 ```ts
 import { s } from "viborm";
@@ -67,18 +67,10 @@ const comment = s.model({
   id: s.string().id().ulid(),
   body: s.string(),
   commentable: s
-    .polymorphic(
-      {
-        post: () => post,
-        video: () => video,
-      },
-      {
-        values: {
-          post: "content.post.v1",
-          video: "content.video.v1",
-        },
-      }
-    )
+    .polymorphic({
+      post: () => post,
+      video: () => video,
+    })
     .name("commentable")
     .optional(),
 });
@@ -90,21 +82,23 @@ The declaration has four important parts:
 |------|---------|
 | `post` and `video` keys | Public discriminators used in inputs and result narrowing |
 | `() => post` and `() => video` | Lazy target getters, which keep circular model declarations safe |
-| `values` | Stable, unique strings persisted in the private type column |
+| Optional `values` argument | Custom stable strings persisted instead of the public keys |
 | `.name("commentable")` | Pairing label used by inverse `oneToMany` relations |
 
-The keys in `values` must exactly match the target-map keys. Stored values are
-case-sensitive and must remain stable after data exists. Prefer versioned,
-domain-qualified values such as `content.post.v1` instead of class or table
-names that may later change.
+With no second argument, VibORM stores `"post"` and `"video"`. This is the
+smallest useful form and does not depend on model or table names.
 
-### Required and optional relations
+### Custom stored discriminators
 
-The relation is required by default:
+Pass an explicit `values` map when the database identifier should be
+namespaced, versioned, or independent of the public API key:
 
 ```ts
-subject: s.polymorphic(
-  { post: () => post, video: () => video },
+commentable: s.polymorphic(
+  {
+    post: () => post,
+    video: () => video,
+  },
   {
     values: {
       post: "content.post.v1",
@@ -114,20 +108,31 @@ subject: s.polymorphic(
 )
 ```
 
+The second argument is all-or-nothing: its keys must exactly match the target
+map. Stored values are case-sensitive and must remain stable after data exists.
+Prefer versioned, domain-qualified values instead of class or table names that
+may later change.
+
+### Required and optional relations
+
+The relation is required by default:
+
+```ts
+subject: s.polymorphic({
+  post: () => post,
+  video: () => video,
+})
+```
+
 A required relation must be supplied when its owner is created. Add
 `.optional()` when both private storage columns may be null:
 
 ```ts
 commentable: s
-  .polymorphic(
-    { post: () => post, video: () => video },
-    {
-      values: {
-        post: "content.post.v1",
-        video: "content.video.v1",
-      },
-    }
-  )
+  .polymorphic({
+    post: () => post,
+    video: () => video,
+  })
   .optional()
 ```
 
@@ -154,7 +159,7 @@ VibORM generates two private columns on the owner table and a composite index.
 For the `commentable` field above, the logical shape is:
 
 ```sql
-commentable_type TEXT         -- "content.post.v1" or "content.video.v1"
+commentable_type TEXT         -- "post" or "video" by default
 commentable_id   <target PK>  -- ID in the selected target table
 INDEX (commentable_type, commentable_id)
 ```
@@ -179,8 +184,8 @@ erDiagram
     string title
     int duration
   }
-  COMMENT }o--o| POST : "type = content.post.v1"
-  COMMENT }o--o| VIDEO : "type = content.video.v1"
+  COMMENT }o--o| POST : "type = post"
+  COMMENT }o--o| VIDEO : "type = video"
 ```
 
 A relational database cannot create one foreign-key constraint whose target
@@ -319,7 +324,7 @@ const posts = await client.post.findMany({
 
 Every inverse include, filter, and count matches both
 `commentable_id = post.id` and
-`commentable_type = "content.post.v1"`. A video with the same ID cannot leak
+`commentable_type = "post"`. A video with the same ID cannot leak
 into the post's comments.
 
 ## Write the direct relation

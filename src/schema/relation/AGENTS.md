@@ -95,22 +95,17 @@ s.polymorphic(
   {
     post: () => post,
     video: () => video,
-  },
-  {
-    values: {
-      post: "content.post.v1",
-      video: "content.video.v1",
-    },
   }
 )
   .name("commentable")
   .optional()
 ```
 
-The target-map key is the public query/result discriminator. `values` contains
-the stable stored discriminator and is complete and exact. Each target has its
-own getter so recursive declarations stay lazy without widening the outer key
-map. V1 has no short form that derives stored values from public keys.
+The target-map key is the public query/result discriminator and, by default,
+the stored discriminator. Pass the optional exact `{ values }` argument when
+storage needs stable namespaced or versioned values. There is no partial
+fallback when that argument is present. Each target has its own getter so
+recursive declarations stay lazy without widening the outer key map.
 
 ---
 
