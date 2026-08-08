@@ -1,3 +1,4 @@
+import type { CacheExecutionOptions } from "@cache";
 import { MemoryCache } from "@cache/drivers/memory";
 import {
   createInstrumentationContext,
@@ -13,7 +14,7 @@ const options = {
   ttlMs: 10_000,
   swr: false,
   bypass: false,
-};
+} satisfies CacheExecutionOptions;
 
 describe("cache instrumentation isolation", () => {
   it("preserves cached execution when a log callback fails", async () => {

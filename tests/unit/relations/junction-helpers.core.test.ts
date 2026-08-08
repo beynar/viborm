@@ -1,4 +1,4 @@
-import { hydrateSchemaNames, s } from "@schema";
+import { type AnyRelation, hydrateSchemaNames, s } from "@schema";
 import {
   findPairedManyToManyState,
   generateJunctionFieldName,
@@ -281,7 +281,8 @@ describe("many-to-many relation builder", () => {
 
     const post = s.model({ id: s.string().id(), tags: configured });
     hydrateSchemaNames({ post, tag });
-    expect(configured["~"].state.source).toBe(post);
+    const boundRelation: AnyRelation = configured;
+    expect(boundRelation["~"].state.source).toBe(post);
   });
 });
 
@@ -325,8 +326,10 @@ describe("to-one and to-many relation builders", () => {
     });
     hydrateSchemaNames({ source, target });
 
-    expect(configuredToOne["~"].state.source).toBe(source);
-    expect(configuredToMany["~"].state.source).toBe(source);
+    const boundToOne: AnyRelation = configuredToOne;
+    const boundToMany: AnyRelation = configuredToMany;
+    expect(boundToOne["~"].state.source).toBe(source);
+    expect(boundToMany["~"].state.source).toBe(source);
   });
 });
 

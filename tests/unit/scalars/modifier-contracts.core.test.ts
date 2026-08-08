@@ -92,7 +92,7 @@ const SCHEMA_CASES = [
     "decimal",
     () => {
       const before = decimal();
-      const schema = v.decimal();
+      const schema = v.string();
       return { before, after: before.schema(schema), schema, value: "4.2" };
     },
   ],
@@ -100,7 +100,7 @@ const SCHEMA_CASES = [
     "datetime",
     () => {
       const before = dateTime();
-      const schema = v.isoTimestamp();
+      const schema = v.string();
       return {
         before,
         after: before.schema(schema),
@@ -113,7 +113,7 @@ const SCHEMA_CASES = [
     "date",
     () => {
       const before = date();
-      const schema = v.isoDate();
+      const schema = v.string();
       return {
         before,
         after: before.schema(schema),
@@ -126,7 +126,7 @@ const SCHEMA_CASES = [
     "time",
     () => {
       const before = time();
-      const schema = v.isoTime();
+      const schema = v.string();
       return {
         before,
         after: before.schema(schema),
@@ -332,7 +332,7 @@ describe("scalar modifier contracts", () => {
     const before = enumScalar(["PENDING", "ACTIVE"]);
     const after = before.name("status");
 
-    expect(before["~"].state.enumName).toBeUndefined();
+    expect("enumName" in before["~"].state).toBe(false);
     expect(after["~"].state.enumName).toBe("status");
   });
 });

@@ -31,7 +31,7 @@ describe("lazy schema reflection", () => {
 
     expect(schema.type).toBe("lazyRef");
     expect(schema.entries).toBe(target.entries);
-    expect(schema.wrapped).toBe(target);
+    expect(Reflect.get(schema, "wrapped")).toBe(target);
     expect(parse(schema, { name: "Ada" }).issues).toBeUndefined();
     expect(
       schema["~standard"].jsonSchema.output({ target: "draft-07" })

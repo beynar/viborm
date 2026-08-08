@@ -14,10 +14,11 @@ describe("scalar modifier combinations", () => {
     [{ nullable: true, optional: true, array: true }, null],
   ] as const)("composes options %j", (options, accepted) => {
     const schema = v.string(options);
+    const isArray = "array" in options && options.array;
 
     expect(parse(schema, accepted).issues).toBeUndefined();
-    expect(parse(schema, options.array ? [1] : 1)).toEqual(
-      options.array
+    expect(parse(schema, isArray ? [1] : 1)).toEqual(
+      isArray
         ? { issues: [{ message: "Expected string", path: [0] }] }
         : { issues: [{ message: "Expected string" }] }
     );
@@ -115,7 +116,10 @@ describe("scalar modifier combinations", () => {
       "~standard": {
         version: 1 as const,
         vendor: "external",
-        validate: async (value: string) => ({ value }),
+        validate: async (value: unknown) =>
+          typeof value === "string"
+            ? { value }
+            : { issues: [{ message: "Expected string" }] },
       },
     } satisfies StandardSchemaV1<string, string>;
 
