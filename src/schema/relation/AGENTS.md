@@ -6,7 +6,8 @@
 
 ## Purpose
 
-Defines relationships between models (oneToOne, manyToOne, oneToMany, manyToMany) using a chainable API with thunks for circular references.
+Defines ordinary single-target relations and polymorphic multi-target to-one
+relations with immutable chainable APIs and lazy target getters.
 
 In schema taxonomy, relations are one concrete kind of model field. The other
 concrete kind is scalar. Keep `field` wording when referring to model keys,
@@ -34,6 +35,7 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 | `to-one.ts` | `ToOneRelation` class + `oneToOne`, `manyToOne` factories |
 | `to-many.ts` | `ToManyRelation` class + `oneToMany` factory |
 | `many-to-many.ts` | `ManyToManyRelation` class + `manyToMany` factory |
+| `polymorphic.ts` | `PolymorphicRelation`, private-storage metadata, and inverse binding |
 | `helpers.ts` | Junction table utilities for many-to-many |
 | `index.ts` | Re-exports everything |
 
@@ -47,6 +49,7 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 | `manyToOne` | This model | post → author | `is`, `isNot` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()` |
 | `oneToMany` | Other model | author → posts | `some`, `every`, `none` | `.name()` only (FK is on other side) |
 | `manyToMany` | Join table | posts ↔ tags | `some`, `every`, `none` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()` |
+| `polymorphic` | Private `(type, id)` pair on this model | comment → post or video | correlated `type` + `is`/`isNot` | `.name()`, `.optional()` |
 
 ---
 
@@ -84,6 +87,30 @@ s.manyToMany(() => tag)
   .onUpdate("cascade")
   .name("tags")
 ```
+
+### Polymorphic Relations
+
+```typescript
+s.polymorphic(
+  {
+    post: () => post,
+    video: () => video,
+  },
+  {
+    values: {
+      post: "content.post.v1",
+      video: "content.video.v1",
+    },
+  }
+)
+  .name("commentable")
+  .optional()
+```
+
+The target-map key is the public query/result discriminator. `values` contains
+the stable stored discriminator and is complete and exact. Each target has its
+own getter so recursive declarations stay lazy without widening the outer key
+map. V1 has no short form that derives stored values from public keys.
 
 ---
 
@@ -138,6 +165,19 @@ const post = s.model({
   author: s.manyToOne(() => user).fields("authorId").references("id"),
 });
 ```
+
+### Rule 5: Polymorphic Relations Are a Third Field Category
+
+`PolymorphicRelation` is not an `AnyRelation` and `"polymorphic"` is not an
+ordinary `RelationType`. A model stores polymorphic fields separately in
+`ModelState.polymorphicRelations`; private storage never enters
+`ModelState.scalars` or the public field surface.
+
+Client construction hydrates field names, then runs the mandatory full schema
+definition gate when any polymorphic field exists. That gate validates lazy
+targets, exact discriminator maps, portable single-column primary keys,
+generated-name collisions, inverse pairing, and private storage. Downstream
+query and migration code trusts the resulting cached `PolymorphicStorage`.
 
 ---
 
@@ -201,6 +241,13 @@ class ManyToManyRelation<State extends ManyToManyRelationState> {
   name(name: string): ManyToManyRelation<State & { name: string }>
   get "~"(): { state: State; setSource(source: AnyModel): void }
 }
+
+// PolymorphicRelation - for a private multi-target to-one edge
+class PolymorphicRelation<State extends PolymorphicRelationState> {
+  name(name: string): PolymorphicRelation<State & { name: string }>
+  optional(): PolymorphicRelation<State & { optional: true }>
+  get "~"(): { state: State; targetEntries(): readonly ResolvedPolymorphicTargetEntry[] }
+}
 ```
 
 **Why standalone classes?** Inheritance caused TypeScript inference issues. Each class defines its own methods for cleaner types.
@@ -248,6 +295,26 @@ update: {
 }
 ```
 
+### Polymorphic V1 Inputs
+
+Direct create accepts exactly one of:
+
+```typescript
+{ connect: { type: "post", where: { id: "post_1" } } }
+{ create: { type: "video", data: { title: "New video" } } }
+```
+
+Direct update accepts `connect`, plus `{ disconnect: true }` only when the
+relation is optional. A bound inverse `oneToMany` keeps its ordinary read,
+filter, count, order, and pagination surface but exposes only nested `create`
+for writes.
+
+V1 refuses direct update-through, `set`, `upsert`, and `connectOrCreate`, and it
+refuses inverse connect/createMany/disconnect/delete/update/set/upsert/
+connectOrCreate. A root or nested scalar-only `createMany` is unavailable when
+its target model has a required polymorphic field; optional polymorphic fields
+do not block bulk creation.
+
 ---
 
 ## Referential Actions
@@ -272,6 +339,21 @@ s.manyToOne(() => user)
 ---
 
 ## Invisible Knowledge
+
+### Public and Stored Discriminators Are Different
+
+Renaming a public target-map key is metadata-only when its stable stored value
+and physical target remain unchanged. Changing or removing a stored value, or
+retargeting it, requires explicit migration-history acknowledgement after the
+caller performs the needed DML.
+
+### Polymorphic Storage Has No Database Foreign Key
+
+The owner table gets private `<relation>_type` and `<relation>_id` columns plus a
+composite `(type, id)` index. No portable foreign key can point to several
+tables. Optional missing known targets parse as `null`; required missing targets
+raise `QueryEngineError`; unknown or half-null storage is malformed provider
+data.
 
 ### Why standalone classes instead of inheritance
 Early versions used a `Relation` base class, but TypeScript struggled with method return types. Standalone classes with explicit method signatures provide cleaner type inference.

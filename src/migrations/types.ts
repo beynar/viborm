@@ -5,6 +5,26 @@
 export interface SchemaSnapshot {
   tables: TableDef[];
   enums?: EnumDef[] | undefined;
+  /**
+   * Generated-file history for polymorphic discriminator members.
+   * This is descriptive metadata only; the structural differ ignores it.
+   */
+  polymorphicStorage?: readonly PolymorphicSnapshotStorage[] | undefined;
+}
+
+export interface PolymorphicSnapshotMember {
+  readonly publicType: string;
+  readonly storedType: string;
+  readonly targetTable: string;
+  readonly referencedColumn: string;
+}
+
+export interface PolymorphicSnapshotStorage {
+  readonly ownerTable: string;
+  readonly relation: string;
+  readonly typeColumn: string;
+  readonly idColumn: string;
+  readonly members: readonly PolymorphicSnapshotMember[];
 }
 
 export interface TableDef {
@@ -624,9 +644,38 @@ export interface GenerateOptions {
   resolver?: Resolver;
   /** Resolver for enum value removals */
   enumValueResolver?: EnumValueResolver;
+  /**
+   * Acknowledges that separate DML has migrated a destructive polymorphic
+   * discriminator-history change. VibORM does not generate that DML.
+   */
+  polymorphicMemberResolver?: PolymorphicMemberResolver;
   /** Don't write files, just return what would be generated */
   dryRun?: boolean;
 }
+
+export interface PolymorphicMemberHistoryChange {
+  readonly kind:
+    | "storedValueChanged"
+    | "memberRemoved"
+    | "memberRetargeted";
+  readonly ownerTable: string;
+  readonly relation: string;
+  readonly typeColumn: string;
+  readonly from: PolymorphicSnapshotMember;
+  readonly to: PolymorphicSnapshotMember | undefined;
+  readonly description: string;
+  acknowledgeMigrated(): "acknowledged";
+  reject(): "reject";
+}
+
+export type PolymorphicMemberResolver = (
+  change: PolymorphicMemberHistoryChange
+) =>
+  | "acknowledged"
+  | "reject"
+  | undefined
+  | void
+  | Promise<"acknowledged" | "reject" | undefined | void>;
 
 export interface GenerateResult {
   /** Generated migration entry (null if no changes) */

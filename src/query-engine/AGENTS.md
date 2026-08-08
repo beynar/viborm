@@ -83,6 +83,14 @@ It does not carry scopes, identities, value sources, transition state, SQL, or
 branch policy. Bind at the first topology decision so error order and untaken
 arm behavior do not move.
 
+Polymorphic storage does not enter `BoundRelation`. After schema transformation,
+`ResolvedPolymorphicMutation` selects one concrete direct target or a targetless
+disconnect. Its companion `ResolvedPolymorphicEdge` can reuse ordinary target
+lookup/create semantics, while `PolymorphicStorageValue` owns the atomic private
+`(type, id)` assignment. `ResolvedPolymorphicInverse` remains an honest
+child-held ordinary inverse with a fixed discriminator; do not coerce direct and
+inverse facts into one topology.
+
 ### Record compilers
 
 `CreateOperation` compiles each non-bulk fresh record subtree except the explicit
@@ -104,6 +112,37 @@ boundary, not a strategy framework. Runtime imports inside `write-engine` must
 remain acyclic.
 
 Direct top-level scalar folds and bulk operations remain specialized.
+
+### Polymorphic relations
+
+Direct polymorphic projection is compiled by
+`builders/polymorphic-read-builder.ts` as one correlated CASE expression with
+one branch per configured member. Each branch compares the stored discriminator
+with adapter-owned exact-text equality and reuses the normal nested target
+selection builder. It emits one SQL statement and no client-side per-row query.
+Ordinary relations retain their existing LATERAL/correlated capability path.
+
+Direct filters are type-correlated: `type`, `type + is`, `type + isNot`, or
+`null` for an optional field. An inverse `oneToMany` uses the central
+correlation owner to add both `child.<private id> = parent.<referenced field>`
+and `child.<private type> = <fixed stored discriminator>` to include,
+`some`/`every`/`none`, and count SQL.
+
+`CreateOperation` owns direct create/connect storage on a fresh owner and
+inverse child creation below a fresh parent. `RecordUpdateCompiler` owns direct
+connect/disconnect storage on a selected owner and inverse child creation below
+a selected parent. They reuse the existing parent-held lookup, existence,
+guard, race-pin, and retry machinery; child-held and junction relation ownership
+does not move. The implementation adds no runtime step kind, database round
+trip, or generic polymorphic strategy.
+
+Strict results keep a separate polymorphic expected-shape map and parser. The
+existing adapter/driver relation decode chain receives result kind
+`"polymorphic"`, then `polymorphic-result-parser.ts` validates the internal
+carrier, chooses the exact target shape, and delegates target rows to the normal
+strict row parser. Optional empty or known-target orphan storage returns
+`null`; a required orphan throws `QueryEngineError`; unknown or half-null
+storage is malformed provider data.
 
 ### Foreign-key provenance
 
@@ -150,8 +189,12 @@ found arm uses `RecordUpdateCompiler` and its captured identity.
 | `write-engine/OperationFragment.ts` | step and fragment vocabulary |
 | `builders/relation-mutation-parser.ts` | parsed mutation programs |
 | `builders/relation-data-builder.ts` | bound relation topology |
+| `builders/polymorphic-relation.ts` | direct member and inverse binding resolution |
+| `builders/polymorphic-read-builder.ts` | direct CASE projection and correlated filters |
+| `builders/polymorphic-mutation.ts` | resolved direct intent and atomic private storage value |
 | `write-engine/foreign-key-reference.ts` | field-bound FK provenance |
 | `ManyToManyStatements.ts` | junction SQL materialization |
+| `result/polymorphic-result-parser.ts` | strict discriminator dispatch and orphan semantics |
 
 Keep the type-only `QueryMetadata` compatibility export, adapter `batchRefs`,
 and `ManyToManyStatements`. `QueryMetadata` is not a runtime boundary. Do not
@@ -169,6 +212,12 @@ lifecycle hook, or shared utility landfill.
 7. First-create-wins remains local to connect-or-create.
 8. One invariant has one guard.
 9. Use direct owner imports; do not recreate a query-engine barrel.
+10. Keep polymorphic private storage outside public scalars and ordinary FK
+    topology; write both private columns through one storage value.
+11. Every inverse polymorphic predicate includes both id correlation and exact
+    discriminator equality.
+12. Keep ordinary read and write fast paths unchanged when no polymorphic field
+    is selected or mutated.
 
 ## Validation
 

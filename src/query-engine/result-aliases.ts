@@ -6,6 +6,10 @@
 export const VECTOR_DISTANCE_RESULT_KEY = "0viborm_vector_distance" as const;
 export const RELATION_COUNTS_RESULT_KEY = "0viborm_relation_counts" as const;
 export const EMPTY_ROW_RESULT_KEY = "0viborm_empty_row" as const;
+/** Private envelope tag for one direct polymorphic result carrier. */
+export const POLYMORPHIC_RESULT_STATE_KEY = "__viborm_state" as const;
+export const POLYMORPHIC_RESULT_STATE_LINKED = "linked" as const;
+export const POLYMORPHIC_RESULT_STATE_INVALID = "invalid" as const;
 
 export type AggregateResultName = "_count" | "_avg" | "_sum" | "_min" | "_max";
 

@@ -8,7 +8,11 @@ import type { DatabaseAdapter } from "@adapters";
 import type { QueryExecutionContext } from "@drivers/driver";
 import type { QueryResult } from "@drivers/types";
 import type { Model } from "@schema/model";
-import type { AnyRelation } from "@schema/relation";
+import type {
+  AnyPolymorphicRelation,
+  AnyRelation,
+  PolymorphicStorage,
+} from "@schema/relation";
 import type { SchemaRegistryLookup } from "@validation";
 
 // Re-export errors from unified error hierarchy
@@ -155,12 +159,25 @@ export interface ExpectedAggregateResultShape {
   fields?: ReadonlySet<string>;
 }
 
+/** Exact target-specific result contracts for one polymorphic projection. */
+export interface ExpectedPolymorphicResultShape {
+  readonly optional: boolean;
+  readonly variants: ReadonlyMap<
+    string,
+    {
+      readonly model: Model<any>;
+      readonly shape: ExpectedResultShape;
+    }
+  >;
+}
+
 /** Exact raw columns and nested projections expected for one returned row. */
 export interface ExpectedResultShape {
   /** Raw statement carrier declared by the compiled operation result. */
   carrier: "rows" | "count" | "existence";
   rawKeys: readonly string[];
   relations: ReadonlyMap<string, ExpectedResultShape>;
+  polymorphic: ReadonlyMap<string, ExpectedPolymorphicResultShape>;
   aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;
   relationCounts: ReadonlySet<string>;
   /**
@@ -179,6 +196,35 @@ export interface QueryScope {
   readonly nextAlias: () => string;
   readonly rootAlias: string;
   readonly mutationTable?: string;
+  /** Validated direct polymorphic fields, cached for this model scope. */
+  readonly polymorphicRelations: ReadonlyMap<string, PolymorphicRelationInfo>;
+}
+
+/** One validated direct polymorphic field on the current model. */
+export interface PolymorphicRelationInfo {
+  readonly name: string;
+  readonly relation: AnyPolymorphicRelation;
+  readonly storage: PolymorphicStorage;
+}
+
+/** One direct polymorphic member resolved after schema transformation. */
+export interface ResolvedPolymorphicEdge {
+  readonly publicType: string;
+  readonly storedType: string;
+  readonly targetModel: Model<any>;
+  readonly referencedField: string;
+  readonly storage: PolymorphicStorage;
+  readonly relationInfo: RelationInfo;
+}
+
+/** One honest ordinary inverse bound to a child's polymorphic storage. */
+export interface ResolvedPolymorphicInverse {
+  readonly relationInfo: RelationInfo;
+  readonly childRelationKey: string;
+  readonly publicType: string;
+  readonly storedType: string;
+  readonly sourceReferencedField: string;
+  readonly storage: PolymorphicStorage;
 }
 
 /**

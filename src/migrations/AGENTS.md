@@ -25,6 +25,7 @@ Provides two approaches for syncing TypeScript schema to the database:
 | `differ.ts` | Compare snapshots, detect changes |
 | `resolver.ts` | Ambiguous/destructive change resolution |
 | `types.ts` | SchemaSnapshot, DiffOperation, MigrationEntry types |
+| `generate/polymorphic-history.ts` | Non-SQL history for stable polymorphic members |
 
 ### Subdirectories
 
@@ -86,6 +87,7 @@ Later: apply() reads files → execute in transaction
 interface SchemaSnapshot {
   tables: TableDef[];
   enums?: EnumDef[];  // PostgreSQL only
+  polymorphicStorage?: PolymorphicSnapshotStorage[]; // generated-file metadata
 }
 
 interface TableDef {
@@ -97,6 +99,9 @@ interface TableDef {
   uniqueConstraints: UniqueConstraintDef[];
 }
 ```
+
+`polymorphicStorage` is descriptive generated-file history. It is not a table
+or DDL operation, and the structural differ ignores it.
 
 ### Migration Journal
 
@@ -224,6 +229,37 @@ Each migration is applied in a transaction. Failure rolls back that migration.
 
 The journal tracks which migrations exist. The database tracks which are applied.
 
+### Rule 6: Polymorphic Storage Is Relation-Owned
+
+A direct polymorphic field serializes two private columns and one composite
+index from its validated `PolymorphicStorage` descriptor:
+
+```text
+<relation>_type
+<relation>_id
+<mappedOwnerTable>_<relation>_poly_idx  ON (type, id)
+```
+
+Required relations make both columns non-null; optional relations make both
+nullable. They never enter public scalar state, and no cross-target database FK
+or V1 CHECK constraint is emitted. Existing migration-driver scalar and index
+primitives generate PostgreSQL, MySQL, SQLite, and libSQL DDL.
+
+The snapshot also records each public discriminator, stable stored value,
+physical target table, and referenced column. `generate/polymorphic-history.ts`
+is the sole comparator after accepted structural renames. Public-key rename
+with stable storage/target metadata is safe. Stored-value change, member
+removal, or member retarget is refused unless
+`polymorphicMemberResolver` returns that change's
+`acknowledgeMigrated()` result after separate DML has migrated the data. VibORM
+does not synthesize that DML.
+
+Adding a target can be metadata-only. `generate()` then updates the snapshot
+without creating SQL, a migration file, or a journal entry. `push()` compares
+live structure only: introspected text columns cannot recover discriminator
+history, so push cannot detect a stored-value rename, removal, or retarget.
+Push users must migrate data before changing those mappings.
+
 ---
 
 ## Anti-Patterns
@@ -235,6 +271,8 @@ The journal tracks which migrations exist. The database tracks which are applied
 | Skipping storage driver | Can't use file-based operations | Use `createFsStorageDriver()` |
 | Hardcoded dialect SQL | Breaks other databases | Use `migrationDriver.generateDDL()` |
 | Silent destructive ops | Unexpected data loss | Require confirmation |
+| Treating polymorphic metadata as DDL | Duplicates structural ownership | Keep history in `generate/polymorphic-history.ts` |
+| Expecting push to infer discriminator history | Live text columns contain no public-member history | Use generated snapshots and explicit data migration |
 
 ---
 
@@ -289,6 +327,7 @@ src/migrations/
 │       └── fs.ts      # Filesystem storage
 ├── generate/
 │   ├── index.ts       # generate(), preview()
+│   ├── polymorphic-history.ts # Stable member-history comparison
 │   ├── file-writer.ts # Migration file formatting
 │   ├── journal.ts     # Journal operations
 │   └── snapshot.ts    # Snapshot operations

@@ -10,12 +10,14 @@ import type { AnyRelation, ReferentialAction } from "@schema/relation";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import { resolvePolymorphicInverse } from "./polymorphic-relation";
 
 /**
  * Build correlation condition between parent and related table.
  *
  * For manyToOne relations: uses fields/references directly
  * For oneToMany/oneToOne: finds inverse relation on target model to get FK info
+ * For a resolved polymorphic inverse: binds its private id and fixed stored type
  * For manyToMany: will need junction table handling (not yet implemented)
  *
  * @param ctx - Query context
@@ -32,7 +34,24 @@ export function buildCorrelation(
   relatedAlias: string
 ): Sql {
   const { adapter } = ctx;
+  const polymorphicInverse = resolvePolymorphicInverse(ctx, relationInfo);
   const state = relationInfo.relation["~"].state;
+  const namedPolymorphicInverse =
+    polymorphicInverse &&
+    state.name !== undefined &&
+    relationInfo.targetModel["~"].state.polymorphicRelations[
+      polymorphicInverse.childRelationKey
+    ]?.["~"].state.name === state.name
+      ? polymorphicInverse
+      : undefined;
+  if (namedPolymorphicInverse) {
+    return buildPolymorphicInverseCorrelation(
+      ctx,
+      namedPolymorphicInverse,
+      parentAlias,
+      relatedAlias
+    );
+  }
 
   // Get field names for correlation - either from this relation or inverse
   let parentFields: string[];
@@ -48,17 +67,25 @@ export function buildCorrelation(
   } else if (state.type === "oneToMany" || state.type === "oneToOne") {
     // For oneToMany/oneToOne without explicit fields, find the inverse manyToOne
     const inverseInfo = findInverseRelation(ctx, relationInfo);
-    if (!inverseInfo) {
+    if (inverseInfo) {
+      // For oneToMany: parent.id = related.authorId
+      // The inverse relation has: fields = [authorId], references = [id]
+      // So we need: parent's references = related's fields
+      parentFields = inverseInfo.references;
+      relatedFields = inverseInfo.fields;
+    } else if (polymorphicInverse) {
+      return buildPolymorphicInverseCorrelation(
+        ctx,
+        polymorphicInverse,
+        parentAlias,
+        relatedAlias
+      );
+    } else {
       throw new QueryEngineError(
         `Relation '${relationInfo.name}' on model '${getModelName(ctx.model)}' requires an inverse relation ` +
           `on '${getModelName(relationInfo.targetModel)}' with explicit 'fields' and 'references'.`
       );
     }
-    // For oneToMany: parent.id = related.authorId
-    // The inverse relation has: fields = [authorId], references = [id]
-    // So we need: parent's references = related's fields
-    parentFields = inverseInfo.references;
-    relatedFields = inverseInfo.fields;
   } else if (state.type === "manyToMany") {
     // manyToMany requires junction table handling - callers should use getManyToManyJoinInfo() instead
     throw new QueryEngineError(
@@ -96,6 +123,33 @@ export function buildCorrelation(
   return conditions.length === 1
     ? conditions[0]!
     : adapter.operators.and(...conditions);
+}
+
+function buildPolymorphicInverseCorrelation(
+  ctx: QueryScope,
+  inverse: NonNullable<ReturnType<typeof resolvePolymorphicInverse>>,
+  parentAlias: string,
+  relatedAlias: string
+): Sql {
+  const childId = ctx.adapter.identifiers.column(
+    relatedAlias,
+    inverse.storage.idColumn.name
+  );
+  const parentReference = ctx.adapter.identifiers.column(
+    parentAlias,
+    getColumnName(ctx.model, inverse.sourceReferencedField)
+  );
+  const childType = ctx.adapter.identifiers.column(
+    relatedAlias,
+    inverse.storage.typeColumn.name
+  );
+  return ctx.adapter.operators.and(
+    ctx.adapter.operators.eq(childId, parentReference),
+    ctx.adapter.operators.exactTextEq(
+      childType,
+      ctx.adapter.literals.value(inverse.storedType)
+    )
+  );
 }
 
 /**

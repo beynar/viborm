@@ -82,7 +82,19 @@ export function usePGliteSchemaFamily<const S extends Schema>(
         ? new PGliteDriver({ client: database })
         : new BatchOnlyPGliteDriver({ client: database });
     const client = createClient({ schema, driver });
-    await push(client, { force: true });
+    try {
+      await push(client, { force: true });
+    } catch (setupError) {
+      try {
+        await client.$disconnect();
+      } catch (disconnectError) {
+        throw new AggregateError(
+          [setupError, disconnectError],
+          "PGlite behavior database setup and cleanup failed"
+        );
+      }
+      throw setupError;
+    }
     const tables = await client.$queryRawUnsafe<PublicTable>(
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
     );
@@ -142,7 +154,24 @@ export function useBehaviorDatabase<const S extends Schema>(
     const driver = source.createDriver();
     const stateDriver = source.createStateDriver?.() ?? driver;
     const client = createClient({ schema, driver: stateDriver });
-    await push(client, { force: true });
+    try {
+      await push(client, { force: true });
+    } catch (setupError) {
+      const cleanup = await Promise.allSettled([
+        client.$disconnect(),
+        ...(driver === stateDriver ? [] : [driver.disconnect()]),
+      ]);
+      const cleanupErrors = cleanup.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : []
+      );
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [setupError, ...cleanupErrors],
+          "Behavior database setup and cleanup failed"
+        );
+      }
+      throw setupError;
+    }
     return {
       driver,
       client,

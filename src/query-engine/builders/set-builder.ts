@@ -9,7 +9,14 @@ import { isSql, type Sql, sql } from "@sql";
 import { getColumnName, getScalarFieldNames, isRelation } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
 import { assertExactDecimalOperation } from "./decimal-portability";
-import { scalarValueLiteral } from "./values-builder";
+import {
+  polymorphicStorageMembers,
+  type PolymorphicStorageValue,
+} from "./polymorphic-mutation";
+import {
+  buildScalarSqlValueForScalar,
+  scalarValueLiteral,
+} from "./values-builder";
 
 /**
  * Build SET clause for UPDATE from update data
@@ -22,7 +29,8 @@ import { scalarValueLiteral } from "./values-builder";
 export function buildSet(
   ctx: QueryScope,
   data: Record<string, unknown>,
-  alias?: string
+  alias?: string,
+  polymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
 ): Sql {
   const { adapter } = ctx;
   const assignments: Sql[] = [];
@@ -51,11 +59,37 @@ export function buildSet(
     }
   }
 
+  appendPolymorphicAssignments(ctx, assignments, alias, polymorphicStorage);
+
   if (assignments.length === 0) {
     throw new QueryEngineError("No fields to update");
   }
 
   return sql.join(assignments, ", ");
+}
+
+function appendPolymorphicAssignments(
+  ctx: QueryScope,
+  assignments: Sql[],
+  alias: string | undefined,
+  values: readonly PolymorphicStorageValue<unknown>[]
+): void {
+  for (const { column, value } of polymorphicStorageMembers(ctx, values)) {
+    const target = alias
+      ? ctx.adapter.identifiers.column(alias, column.name)
+      : ctx.adapter.identifiers.escape(column.name);
+    assignments.push(
+      ctx.adapter.set.assign(
+        target,
+        buildScalarSqlValueForScalar(
+          ctx,
+          column.scalar,
+          column.name,
+          value
+        )
+      )
+    );
+  }
 }
 
 /**

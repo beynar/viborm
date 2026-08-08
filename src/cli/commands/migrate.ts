@@ -79,7 +79,7 @@ function generateCommand(): Command {
 
         // 3. Display results
         if (result.operations.length === 0 || !result.entry) {
-          p.note("No schema changes detected.", "Status");
+          p.note(result.message, "Status");
         } else {
           displayOperations(result.operations);
 

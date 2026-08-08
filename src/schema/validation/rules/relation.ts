@@ -2,7 +2,10 @@
 
 import { isValidSchemaIdentifier } from "../../identifier";
 import type { Model } from "../../model";
-import type { RelationType } from "../../relation";
+import {
+  getPolymorphicInverseBinding,
+  type RelationType,
+} from "../../relation";
 import {
   generateJunctionFieldName,
   generateJunctionTableName,
@@ -85,7 +88,16 @@ export function relationHasInverse(
     if (!targetName) continue;
 
     const expected = INVERSE[type];
-    if (!hasInverse(target, name, expected, ctx)) {
+    if (
+      !hasInverse(
+        target,
+        model,
+        name,
+        expected,
+        rel["~"].state.name,
+        ctx
+      )
+    ) {
       errors.push({
         code: MISSING_INVERSE_CODE[type],
         message: `'${rname}' (${type}) in '${name}' missing inverse ${expected} in '${targetName}'`,
@@ -521,13 +533,21 @@ export function noCircularRequiredChain(
 
 function hasInverse(
   target: Model<any>,
+  source: Model<any>,
   sourceName: string,
   expectedType: RelationType,
+  pairingName: string | undefined,
   ctx: ValidationContext
 ): boolean {
   for (const rel of getRelationValues(target)) {
     const t = findModelName(ctx, rel["~"].state.getter());
     if (t === sourceName && rel["~"].state.type === expectedType) return true;
+  }
+  if (
+    expectedType === "manyToOne" &&
+    getPolymorphicInverseBinding(target, source, pairingName)
+  ) {
+    return true;
   }
   return false;
 }

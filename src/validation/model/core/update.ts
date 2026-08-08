@@ -55,7 +55,9 @@ export type UpdateSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
-  ScalarUpdateSchema<M, F>["entries"] & RelationUpdateSchema<M, F>["entries"]
+  ScalarUpdateSchema<M, F>["entries"] &
+    RelationUpdateSchema<M, F>["entries"] &
+    V.FromObject<F["polymorphic"], "update">["entries"]
 >;
 export const getUpdateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   fieldSchemas: F
@@ -68,5 +70,11 @@ export const getUpdateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     fieldSchemas.relations,
     "update"
   );
-  return scalarUpdate.extend(relationUpdate.entries);
+  const polymorphicUpdate = v.fromObject<F["polymorphic"], "update">(
+    fieldSchemas.polymorphic,
+    "update"
+  );
+  return scalarUpdate
+    .extend(relationUpdate.entries)
+    .extend(polymorphicUpdate.entries);
 };

@@ -28,6 +28,8 @@ import type {
   EnumDef,
   ForeignKeyDef,
   IndexDef,
+  PolymorphicSnapshotMember,
+  PolymorphicSnapshotStorage,
   PrimaryKeyDef,
   ReferentialAction,
   SchemaSnapshot,
@@ -87,6 +89,7 @@ export function serializeModels(
   const tables: TableDef[] = [];
   const enums: EnumDef[] = [];
   const enumsSet = new Set<string>();
+  const polymorphicStorage: PolymorphicSnapshotStorage[] = [];
 
   for (const [modelName, model] of Object.entries(models)) {
     const modelState = model["~"].state;
@@ -233,6 +236,59 @@ export function serializeModels(
       if (isTotalIndex(declared)) {
         declaredIndexColumns.push(columns);
       }
+    }
+
+    // Polymorphic storage is relation-owned, so it never appears in the public
+    // scalar map. Its cached descriptor is the single source for the two
+    // private columns, their index, and generated-file member history.
+    for (const storage of model["~"].polymorphicStorage.values()) {
+      const typeScalarState = storage.typeColumn.scalar["~"].state;
+      const idScalarState = storage.idColumn.scalar["~"].state;
+      columns.push(
+        {
+          name: storage.typeColumn.name,
+          type: migrationDriver.mapScalarType(
+            storage.typeColumn.scalar,
+            typeScalarState
+          ),
+          nullable: storage.typeColumn.nullable,
+        },
+        {
+          name: storage.idColumn.name,
+          type: migrationDriver.mapScalarType(
+            storage.idColumn.scalar,
+            idScalarState
+          ),
+          nullable: storage.idColumn.nullable,
+        }
+      );
+      indexes.push({
+        name: storage.indexName,
+        columns: [storage.typeColumn.name, storage.idColumn.name],
+        unique: false,
+      });
+
+      const members: PolymorphicSnapshotMember[] = [];
+      for (const [publicType, member] of storage.members) {
+        const targetModelName = member.targetModel["~"].names.ts;
+        members.push({
+          publicType,
+          storedType: member.storedType,
+          targetTable: getModelTableName(
+            member.targetModel,
+            targetModelName?.toLowerCase() ?? "unknown"
+          ),
+          referencedColumn:
+            member.targetModel["~"].getFieldName(member.referencedField).sql,
+        });
+      }
+      polymorphicStorage.push({
+        ownerTable: tableName,
+        relation: storage.relationName,
+        typeColumn: storage.typeColumn.name,
+        idColumn: storage.idColumn.name,
+        members,
+      });
     }
 
     // A `oneToOne` foreign key gets a unique constraint at the bottom of the
@@ -580,6 +636,7 @@ export function serializeModels(
   return {
     tables: tables.map((table) => migrationDriver.finalizeTable(table)),
     enums: enums.length > 0 ? enums : undefined,
+    ...(polymorphicStorage.length > 0 ? { polymorphicStorage } : {}),
   };
 }
 

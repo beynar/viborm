@@ -61,6 +61,7 @@ import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/
 import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
 import { nestedWriteConcurrencyContract } from "@tests/contracts/drivers/behaviors/nested-write-concurrency-behavior";
 import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
+import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
 import {
   fullScalarRoundtripContract,
@@ -655,6 +656,10 @@ describeIf("pg Driver", () => {
 
   omitContract.register({
     driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  polymorphicRelationContract.register({
+    name: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 

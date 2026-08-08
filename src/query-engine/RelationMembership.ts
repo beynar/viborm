@@ -6,6 +6,7 @@ import {
   bindRelation,
 } from "./builders/relation-data-builder";
 import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
+import { resolvePolymorphicInverse } from "./builders/polymorphic-relation";
 import { getRelationInfo, getRelationNames } from "./context";
 import {
   buildScalarUpdatePredicateFootprints,
@@ -119,6 +120,7 @@ export function buildRootUpdateMembershipFootprints(
   const footprints: RootMembershipFootprint[] = [];
   for (const mutation of Object.values(relations)) {
     const relationInfo = mutation.relationInfo;
+    if (resolvePolymorphicInverse(ctx, relationInfo)) continue;
     const relation = bindRelation(ctx, relationInfo);
     if (relation.kind === "junction") continue;
     if (
@@ -145,6 +147,7 @@ export function buildTransitiveUpdateMembershipFootprints(
   for (const relationName of getRelationNames(ctx.model)) {
     const relationInfo = getRelationInfo(ctx, relationName);
     if (!relationInfo) continue;
+    if (resolvePolymorphicInverse(ctx, relationInfo)) continue;
     const relation = bindRelation(ctx, relationInfo);
     if (relation.kind === "junction") continue;
     if (

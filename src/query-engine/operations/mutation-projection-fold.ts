@@ -33,7 +33,10 @@ import type { QueryParts } from "@adapters";
 import { getColumnName } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { buildSelectWithAliases } from "../builders/select-builder";
-import { getScalarFieldNames } from "../context";
+import {
+  getPolymorphicRelationInfo,
+  getScalarFieldNames,
+} from "../context";
 import type { QueryScope } from "../types";
 
 /**
@@ -59,13 +62,31 @@ const SIBLING_CTE_PREFIX = "__viborm_write_";
  * set either: the CTE is plumbing, and what reaches the caller is decided by the
  * outer `SELECT`, which applies `.omit()` exactly as the terminal read does.
  */
-function returningEveryColumn(ctx: QueryScope): Sql {
-  return sql.join(
-    getScalarFieldNames(ctx.model).map((field) =>
-      ctx.adapter.identifiers.escape(getColumnName(ctx.model, field))
-    ),
-    ", "
+function returningEveryColumn(
+  ctx: QueryScope,
+  select: Record<string, unknown> | undefined,
+  include: Record<string, unknown> | undefined
+): Sql {
+  const columns = getScalarFieldNames(ctx.model).map((field) =>
+    ctx.adapter.identifiers.escape(getColumnName(ctx.model, field))
   );
+  for (const relationName of ctx.model["~"].polymorphicRelationNames) {
+    const selected = select?.[relationName];
+    const included = include?.[relationName];
+    if (
+      (selected === false || selected === undefined) &&
+      (included === false || included === undefined)
+    ) {
+      continue;
+    }
+    const relation = getPolymorphicRelationInfo(ctx, relationName);
+    if (!relation) continue;
+    columns.push(
+      ctx.adapter.identifiers.escape(relation.storage.typeColumn.name),
+      ctx.adapter.identifiers.escape(relation.storage.idColumn.name)
+    );
+  }
+  return sql.join(columns, ", ");
 }
 
 /**
@@ -96,7 +117,7 @@ export function buildMutationProjectionFold(
     {
       name: MUTATION_CTE,
       query: sql`${args.mutation} ${adapter.mutations.returning(
-        returningEveryColumn(ctx)
+        returningEveryColumn(ctx, args.select, args.include)
       )}`,
     },
     ...(args.siblings ?? []).map((query, index) => ({

@@ -182,6 +182,12 @@ export interface DatabaseAdapter {
    * Computed values and functions
    */
   expressions: {
+    /** Portable searched CASE expression. */
+    caseWhen: (
+      branches: readonly { readonly when: Sql; readonly then: Sql }[],
+      otherwise: Sql
+    ) => Sql;
+
     // Arithmetic
     add: (left: Sql, right: Sql) => Sql;
     subtract: (left: Sql, right: Sql) => Sql;
@@ -230,6 +236,10 @@ export interface DatabaseAdapter {
    * Database-specific JSON building and extraction
    */
   json: {
+    /** Convert a SQL predicate into a JSON boolean value. */
+    boolean: (condition: Sql) => Sql;
+    /** Preserve a SQL expression as a JSON document when embedding it in JSON. */
+    document: (expression: Sql) => Sql;
     /** Build JSON object from key-value pairs */
     object: (pairs: [string, Sql][]) => Sql;
     /** Build JSON array from items */

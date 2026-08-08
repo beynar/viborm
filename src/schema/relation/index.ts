@@ -11,6 +11,21 @@ export {
   getJunctionTableName,
 } from "./helpers";
 export { ManyToManyRelation, manyToMany } from "./many-to-many";
+export {
+  type AnyPolymorphicRelation,
+  type GetPolymorphicInverseBinding,
+  getPolymorphicInverseBinding,
+  getPolymorphicInverseCandidates,
+  isPolymorphicRelation,
+  PolymorphicRelation,
+  polymorphic,
+  type PolymorphicRelationState,
+  type PolymorphicInverseBinding,
+  type PolymorphicStorage,
+  type PolymorphicStorageColumn,
+  type PolymorphicStorageMember,
+  type PolymorphicTargetGetters,
+} from "./polymorphic";
 export { oneToMany, ToManyRelation } from "./to-many";
 // =============================================================================
 // RELATION CLASSES

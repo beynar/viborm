@@ -63,6 +63,83 @@ type VOmit<T, K extends string> = {
   [P in keyof T as P extends K ? never : P]: T[P];
 };
 
+type OmittedKeyUnion<TKeys> = TKeys extends readonly PropertyKey[]
+  ? Extract<TKeys[number], string>
+  : never;
+
+type KeepRequirementGroup<Group, OmittedKeys extends string> =
+  Group extends readonly string[]
+    ? [Extract<Group[number], OmittedKeys>] extends [never]
+      ? Group
+      : never
+    : never;
+
+type KeepRequirementKeySetGroup<Group, OmittedKeys extends string> =
+  Group extends readonly (readonly string[])[]
+    ? [Extract<Group[number][number], OmittedKeys>] extends [never]
+      ? Group
+      : never
+    : never;
+
+type ActiveRequirementGroups<Groups, OmittedKeys extends string> =
+  Groups extends readonly [
+    infer Group extends readonly string[],
+    ...infer Rest extends readonly (readonly string[])[],
+  ]
+    ? KeepRequirementGroup<Group, OmittedKeys> extends never
+      ? ActiveRequirementGroups<Rest, OmittedKeys>
+      : readonly [
+          KeepRequirementGroup<Group, OmittedKeys>,
+          ...ActiveRequirementGroups<Rest, OmittedKeys>,
+        ]
+    : Groups extends readonly (infer Group extends readonly string[])[]
+      ? readonly Exclude<
+          KeepRequirementGroup<Group, OmittedKeys>,
+          never
+        >[]
+      : readonly [];
+
+type ActiveRequirementKeySetGroups<Groups, OmittedKeys extends string> =
+  Groups extends readonly [
+    infer Group extends readonly (readonly string[])[],
+    ...infer Rest extends readonly (readonly (readonly string[])[])[],
+  ]
+    ? KeepRequirementKeySetGroup<Group, OmittedKeys> extends never
+      ? ActiveRequirementKeySetGroups<Rest, OmittedKeys>
+      : readonly [
+          KeepRequirementKeySetGroup<Group, OmittedKeys>,
+          ...ActiveRequirementKeySetGroups<Rest, OmittedKeys>,
+        ]
+    : Groups extends readonly (infer Group extends
+          readonly (readonly string[])[])[]
+      ? readonly Exclude<
+          KeepRequirementKeySetGroup<Group, OmittedKeys>,
+          never
+        >[]
+      : readonly [];
+
+type ActiveOmitRequirements<TOpts, OmittedKeys extends string> = Omit<
+  TOpts,
+  "requiresOneOf" | "requiresOneOfKeySets"
+> &
+  (TOpts extends {
+    requiresOneOf: infer Groups extends readonly (readonly string[])[];
+  }
+    ? {
+        requiresOneOf: ActiveRequirementGroups<Groups, OmittedKeys>;
+      }
+    : unknown) &
+  (TOpts extends {
+    requiresOneOfKeySets: infer Groups extends readonly (readonly (readonly string[])[])[];
+  }
+    ? {
+        requiresOneOfKeySets: ActiveRequirementKeySetGroups<
+          Groups,
+          OmittedKeys
+        >;
+      }
+    : unknown);
+
 /**
  * Compute input type based on partial option.
  * Default is partial: true, so only non-partial when explicitly { partial: false }
@@ -73,13 +150,22 @@ type ComputeObjectInput<TEntries, TOpts> = TOpts extends {
   omit: infer OmitKeys extends readonly string[];
 }
   ? TOpts extends { partial: false }
-    ? VOmit<InferInputShape<TEntries>, OmitKeys[number]>
+    ? ApplyRequiresOneOf<
+        VOmit<InferInputShape<TEntries>, OmitKeys[number]>,
+        ActiveOmitRequirements<TOpts, OmitKeys[number]>
+      >
     : TOpts extends { atLeast: infer Keys extends readonly string[] }
-      ? VOmit<
-          RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>,
-          OmitKeys[number]
+      ? ApplyRequiresOneOf<
+          VOmit<
+            RequireKeys<Partial<InferInputShape<TEntries>>, Keys[number]>,
+            OmitKeys[number]
+          >,
+          ActiveOmitRequirements<TOpts, OmitKeys[number]>
         >
-      : VOmit<Partial<InferInputShape<TEntries>>, OmitKeys[number]>
+      : ApplyRequiresOneOf<
+          VOmit<Partial<InferInputShape<TEntries>>, OmitKeys[number]>,
+          ActiveOmitRequirements<TOpts, OmitKeys[number]>
+        >
   : TOpts extends { partial: false }
     ? ApplyRequiresOneOf<InferInputShape<TEntries>, TOpts>
     : TOpts extends { atLeast: infer Keys extends readonly string[] }
@@ -256,6 +342,21 @@ export interface ObjectSchema<
     options?: TNewTOpts
   ): ObjectSchema<TEntries & TNewEntries, TOpts & TNewTOpts>;
 }
+
+/** An object schema whose parser omits keys from both its input and output. */
+export type OmittedObjectSchema<
+  TEntries,
+  TOpts extends ObjectOptions | undefined,
+  TKeys extends readonly PropertyKey[] | undefined,
+> = ObjectSchema<
+  TEntries,
+  TOpts,
+  ApplyObjectOptionsInput<ComputeObjectInput<TEntries, TOpts>, TOpts>,
+  ApplyObjectOptionsOutput<
+    VOmit<InferOutputShape<TEntries>, OmittedKeyUnion<TKeys>>,
+    TOpts
+  >
+>;
 
 // =============================================================================
 // Object Schema Implementation

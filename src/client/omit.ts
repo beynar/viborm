@@ -33,6 +33,7 @@
 
 import { VibORMError, VibORMErrorCode } from "@errors";
 import type { AnyModel } from "@schema/model";
+import type { AnyPolymorphicRelation } from "@schema/relation";
 import { projectableScalarNames } from "@validation/model/core/projection";
 import { isRecord as isPlainRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
@@ -250,13 +251,31 @@ const rewriteRelationMap = (
   resolve: ClientOmitResolver
 ): Record<string, unknown> => {
   const relations = model["~"].state.relations;
+  const polymorphicRelations = model["~"].state.polymorphicRelations;
   let changed = false;
   const next: Record<string, unknown> = { ...map };
 
   for (const key of Object.keys(map)) {
     const relation = Object.hasOwn(relations, key) ? relations[key] : undefined;
-    if (!relation) continue;
     const value = map[key];
+
+    const polymorphicRelation = Object.hasOwn(polymorphicRelations, key)
+      ? polymorphicRelations[key]
+      : undefined;
+    if (polymorphicRelation) {
+      const rewritten = rewritePolymorphicRelation(
+        polymorphicRelation,
+        value,
+        resolve
+      );
+      if (rewritten !== value) {
+        next[key] = rewritten;
+        changed = true;
+      }
+      continue;
+    }
+
+    if (!relation) continue;
     const target = relation["~"].state.getter() as AnyModel;
 
     if (value === true) {
@@ -276,4 +295,54 @@ const rewriteRelationMap = (
   }
 
   return changed ? next : map;
+};
+
+/**
+ * A polymorphic projection object overrides individual variants; absent keys
+ * still project that target's default scalars. Visit every configured target so
+ * client defaults apply to both explicit and defaulted variants.
+ */
+const rewritePolymorphicRelation = (
+  relation: AnyPolymorphicRelation,
+  value: unknown,
+  resolve: ClientOmitResolver
+): unknown => {
+  if (value !== true && !isPlainRecord(value)) return value;
+
+  const projection: Record<string, unknown> =
+    value === true ? {} : { ...value };
+  let changed = false;
+
+  for (const { publicType, targetModel } of relation["~"].targetEntries()) {
+    // Client construction runs the mandatory polymorphic definition gate before
+    // any query rewrite, so the cached hostile-boundary value is now a model.
+    const target = targetModel as AnyModel;
+    const variant = value === true ? undefined : value[publicType];
+
+    if (variant === true) {
+      const defaults = resolve(target);
+      if (!defaults) continue;
+      projection[publicType] = { omit: { ...defaults } };
+      changed = true;
+      continue;
+    }
+
+    if (isPlainRecord(variant)) {
+      const rewritten = rewriteNode(target, variant, resolve);
+      if (rewritten !== variant) {
+        projection[publicType] = rewritten;
+        changed = true;
+      }
+      continue;
+    }
+
+    if (variant === undefined) {
+      const defaults = resolve(target);
+      if (!defaults) continue;
+      projection[publicType] = { omit: { ...defaults } };
+      changed = true;
+    }
+  }
+
+  return changed ? projection : value;
 };

@@ -17,7 +17,9 @@ import { isSql, type Sql, sql } from "@sql";
 import {
   createChildScope,
   getColumnName,
+  getPolymorphicRelationInfo,
   getRelationInfo,
+  isPolymorphicRelation,
   isRelation,
   isScalarField,
 } from "../context";
@@ -28,6 +30,7 @@ import {
   type BuildNestedWhere,
   buildRelationFilterSql,
 } from "./relation-filter-builder";
+import { buildPolymorphicFilterSql } from "./polymorphic-read-builder";
 import { assertSupportedScalarFilterOperator } from "./scalar-filter-operators";
 import { scalarValueLiteral } from "./values-builder";
 
@@ -111,6 +114,25 @@ export function buildWhere(
       if (relationCondition) {
         conditions.push(relationCondition);
       }
+      continue;
+    }
+
+    if (isPolymorphicRelation(ctx.model, key)) {
+      const relation = getPolymorphicRelationInfo(ctx, key);
+      if (!relation) {
+        throw new QueryEngineError(
+          `Polymorphic relation '${key}' has no validated storage metadata.`
+        );
+      }
+      conditions.push(
+        buildPolymorphicFilterSql(
+          buildNestedWhere,
+          ctx,
+          relation,
+          value,
+          alias
+        )
+      );
       continue;
     }
 

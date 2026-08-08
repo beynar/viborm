@@ -6,6 +6,10 @@ import {
 } from "@cache/schema";
 import type { AnyModel } from "@schema/model";
 import v, { type V } from "../../primitives/v";
+import {
+  applyCreateManyAvailability,
+  type CreateManyAvailability,
+} from "../../relations/create-many-availability";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
 import { restrictToScalarProjection } from "./bulk-write-projection";
@@ -70,7 +74,7 @@ export const getCreateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * See `restrictToScalarProjection` for why — it replaces a projection that
  * returned silently wrong values — and for the message both refusals carry.
  */
-export type CreateManyArgs<
+type AvailableCreateManyArgs<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
@@ -83,6 +87,10 @@ export type CreateManyArgs<
   },
   { atLeast: ["data"] }
 >;
+export type CreateManyArgs<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = CreateManyAvailability<M, AvailableCreateManyArgs<M, F>>;
 export const getCreateManyArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
@@ -90,7 +98,7 @@ export const getCreateManyArgs = <
   model: M,
   core: CoreSchemas<M, F>
 ): CreateManyArgs<M, F> => {
-  return withOmitProjection(
+  const availableSchema = withOmitProjection(
     restrictToScalarProjection(
       v.object(
         {
@@ -108,6 +116,7 @@ export const getCreateManyArgs = <
     model,
     "createMany"
   );
+  return applyCreateManyAvailability(model, availableSchema);
 };
 
 // =============================================================================

@@ -12,6 +12,10 @@ import {
   type NestedScalarCreateWithOmittedRequiredKeys,
 } from "../model/core/create";
 import { type V, v } from "../primitives/v";
+import {
+  applyCreateManyAvailability,
+  type CreateManyAvailability,
+} from "./create-many-availability";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 
 // =============================================================================
@@ -139,6 +143,25 @@ export type CreateManyDataSchema<
   InverseRequiredKeys<S, Source>
 >;
 
+type AvailableNestedCreateManySchema<
+  S extends RelationState,
+  Source extends AnyModel,
+> = V.Object<
+  {
+    data: () => V.Array<CreateManyDataSchema<S, Source>>;
+    skipDuplicates: V.Boolean<{ optional: true }>;
+  },
+  { atLeast: ["data"] }
+>;
+
+export type NestedCreateManySchema<
+  S extends RelationState,
+  Source extends AnyModel,
+> = CreateManyAvailability<
+  TargetModel<S>,
+  AvailableNestedCreateManySchema<S, Source>
+>;
+
 // =============================================================================
 // CREATE FACTORY IMPLEMENTATIONS
 // =============================================================================
@@ -209,13 +232,7 @@ export type ToManyCreateSchema<
 > = V.Object<
   {
     create: () => V.SingleOrArray<CreateWithOmittedFk<S, Source>>;
-    createMany: V.Object<
-      {
-        data: () => V.Array<CreateManyDataSchema<S, Source>>;
-        skipDuplicates: V.Boolean<{ optional: true }>;
-      },
-      { atLeast: ["data"] }
-    >;
+    createMany: NestedCreateManySchema<S, Source>;
     connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
     connectOrCreate: () => V.SingleOrArray<
       V.Object<
@@ -278,22 +295,28 @@ export const toManyCreateFactory = <
       {
         scalars: schemas.scalars,
         relations: schemas.relations,
+        polymorphic: schemas.polymorphic,
       },
       fkFields
     );
   };
 
+  const createManySchema = applyCreateManyAvailability(
+    state.getter() as TargetModel<S>,
+    v.object(
+      {
+        data: () => v.array(getCreateManyDataSchema()),
+        skipDuplicates: v.boolean({ optional: true }),
+      },
+      { atLeast: ["data"] }
+    )
+  );
+
   return v.object(
     {
       create: () => v.singleOrArray(getCreateSchema()),
       // createMany only accepts scalar fields - no nested relation mutations
-      createMany: v.object(
-        {
-          data: () => v.array(getCreateManyDataSchema()),
-          skipDuplicates: v.boolean({ optional: true }),
-        },
-        { atLeast: ["data"] }
-      ),
+      createMany: createManySchema,
       connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
       connectOrCreate: () =>
         v.singleOrArray(

@@ -11,13 +11,18 @@ import {
 } from "../builders/where-unique-builder";
 import {
   createChildScope,
+  getPolymorphicRelationInfo,
   getRelationInfo,
   getTableName,
 } from "../context/query-scope";
 import type { QueryEngine } from "../query-engine";
 import { getForeignKeyTargetFields } from "../TargetConstraint";
 import type { QueryScope } from "../types";
-import type { ForeignKeyMember } from "./foreign-key-reference";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
+import type {
+  FinalReferenceSource,
+  ForeignKeyMember,
+} from "./foreign-key-reference";
 import type { TargetConstraintPin } from "./OperationFragment";
 import type { StepScope } from "./StepScope";
 
@@ -46,6 +51,7 @@ export interface SubOperationOptions {
   readonly nestedFresh?: {
     readonly data: Record<string, unknown>;
     readonly incomingForeignKey: readonly ForeignKeyMember[];
+    readonly incomingPolymorphicStorage?: readonly PolymorphicStorageValue<FinalReferenceSource>[];
     readonly relationName: string;
     /**
      * N4-U2 — the raceable missing-premise pin of an enclosing adopt arm. A nested
@@ -115,7 +121,10 @@ export function selectProjectsRelation(
 ): boolean {
   if (!select) return false;
   return Object.keys(select).some(
-    (key) => key === "_count" || model["~"].relationSet.has(key)
+    (key) =>
+      key === "_count" ||
+      model["~"].relationSet.has(key) ||
+      model["~"].polymorphicRelationSet.has(key)
   );
 }
 
@@ -234,6 +243,13 @@ function payloadReachesTable(
     // NOT in this set: `where: { manager: null }` is a to-one absence filter,
     // which reads the related table to establish the absence.
     if (entry === false || entry === undefined) continue;
+    const polymorphic = getPolymorphicRelationInfo(scope, key);
+    if (polymorphic) {
+      if (polymorphicPayloadReachesTable(scope, polymorphic, entry, table)) {
+        return true;
+      }
+      continue;
+    }
     const relation = getRelationInfo(scope, key);
     if (relation) {
       if (getTableName(relation.targetModel) === table) return true;
@@ -246,6 +262,37 @@ function payloadReachesTable(
       continue;
     }
     if (payloadReachesTable(scope, entry, table)) return true;
+  }
+  return false;
+}
+
+function polymorphicPayloadReachesTable(
+  scope: QueryScope,
+  relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
+  value: unknown,
+  table: string
+): boolean {
+  if (isRecordValue(value) && typeof value.type === "string") {
+    const nested = isRecordValue(value.is)
+      ? value.is
+      : isRecordValue(value.isNot)
+        ? value.isNot
+        : undefined;
+    if (!nested) return false;
+    const member = relation.storage.members.get(value.type);
+    if (!member) return false;
+    if (getTableName(member.targetModel) === table) return true;
+    const child = createChildScope(scope, member.targetModel, scope.rootAlias);
+    return payloadReachesTable(child, nested, table);
+  }
+
+  for (const [publicType, member] of relation.storage.members) {
+    if (getTableName(member.targetModel) === table) return true;
+    if (!isRecordValue(value)) continue;
+    const override = value[publicType];
+    if (!isRecordValue(override)) continue;
+    const child = createChildScope(scope, member.targetModel, scope.rootAlias);
+    if (payloadReachesTable(child, override, table)) return true;
   }
   return false;
 }

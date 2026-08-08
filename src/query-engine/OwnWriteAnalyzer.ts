@@ -4,11 +4,13 @@ import {
   buildParsedRelationPrograms,
   type RelationMutationProgram,
 } from "./builders/relation-mutation-parser";
+import { resolvePolymorphicInverse } from "./builders/polymorphic-relation";
 import {
   type DependencyOperation,
   type OwnWriteDependencyFamily,
   OwnWriteLedger,
 } from "./OwnWriteLedger";
+import { createChildScope } from "./context";
 import {
   type OwnWriteCreateSummary,
   OwnWriteRelation,
@@ -141,6 +143,10 @@ export class OwnWriteNode {
 
     for (const [groupIndex, relationEntries] of relationGroups.entries()) {
       for (const [, mutation] of relationEntries) {
+        if (resolvePolymorphicInverse(this.ctx, mutation.relationInfo)) {
+          this.analyzePolymorphicInverseCreates(mutation);
+          continue;
+        }
         const boundRelation = bindRelation(this.ctx, mutation.relationInfo);
         OwnWriteRelation.create(
           this,
@@ -207,6 +213,49 @@ export class OwnWriteNode {
         "targetPredicate",
         footprint.constraint,
         footprint.changedFields
+      );
+    }
+  }
+
+  /**
+   * An inverse polymorphic create has no membership decision to read. Analyze
+   * each already parsed child subtree for its own target and relation effects,
+   * but do not manufacture an ordinary FK topology for the private edge.
+   */
+  private analyzePolymorphicInverseCreates(
+    program: RelationMutationProgram
+  ): void {
+    const entry = program.entries[0];
+    if (!(entry && program.entries.length === 1 && entry.kind === "create")) {
+      throw new TypeError(
+        `Polymorphic inverse '${program.relationInfo.name}' reached OwnWrite with a non-create mutation.`
+      );
+    }
+    const childCtx = createChildScope(
+      this.ctx,
+      program.relationInfo.targetModel,
+      this.ctx.rootAlias
+    );
+    for (const data of entry.items) {
+      const parsed = buildParsedRelationPrograms(childCtx, data);
+      const nestedLedger = this.ledger.fork();
+      const checkpoint = nestedLedger.checkpoint();
+      nestedLedger.withNestedScope(() => {
+        new OwnWriteNode(
+          this.analyzer,
+          childCtx,
+          { kind: "create", rootOperation: "create", scalarData: parsed.scalarData },
+          nestedLedger
+        ).analyze(parsed.relations);
+      });
+      this.ledger.mergeDeltas(
+        nestedLedger
+          .deltaSince(checkpoint)
+          .filter(
+            (footprint) =>
+              footprint.dimension !== "targetExistence" ||
+              footprint.visibility === "operation"
+          )
       );
     }
   }
@@ -300,6 +349,10 @@ function getRelationEntryGroups(
   const relatedHoldsFk: [string, RelationMutationProgram][] = [];
   for (const entry of Object.entries(relations)) {
     const relationInfo = entry[1].relationInfo;
+    if (resolvePolymorphicInverse(ctx, relationInfo)) {
+      relatedHoldsFk.push(entry);
+      continue;
+    }
     if (bindRelation(ctx, relationInfo).kind === "parentHeldToOne") {
       currentHoldsFk.push(entry);
     } else {

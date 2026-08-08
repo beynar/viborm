@@ -1,7 +1,9 @@
-import type { AnyRelation } from "@schema/relation";
+import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
+import type { Model } from "@schema/model";
 import type { Scalar } from "@schema/scalars";
 import type {
   ExpectedAggregateResultShape,
+  ExpectedPolymorphicResultShape,
   ExpectedResultShape,
   Operation,
 } from "../types";
@@ -15,6 +17,14 @@ export interface RowValueParsers {
     value: unknown,
     operation: Operation,
     shape?: ExpectedResultShape
+  ): unknown;
+  parsePolymorphic(
+    model: Model<any>,
+    relationName: string,
+    relation: AnyPolymorphicRelation,
+    value: unknown,
+    operation: Operation,
+    shape?: ExpectedPolymorphicResultShape
   ): unknown;
   parseAggregate(
     operation: Operation,

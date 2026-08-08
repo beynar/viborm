@@ -12,6 +12,7 @@ import type { AnyModel, Model } from "@schema/model";
 import type { RelationState } from "@schema/relation/types";
 import { getModelSchemas, type ModelSchemas } from "./model";
 import { getRelationsSchemas } from "./relations";
+import { getPolymorphicRelationsSchemas } from "./relations/polymorphic";
 import type { GetTargetSchemas } from "./relations/helpers";
 import { getScalarsSchemas } from "./scalars";
 import type { SchemaRegistryLookup, SchemaRegistryOperation } from "./types";
@@ -67,10 +68,19 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
   ): ModelSchemas<AnyModel> => {
     const scalars = getScalarsSchemas(model);
     const relations = getRelationsSchemas(model, this.createSchemasGetter);
-    const { args, core } = getModelSchemas(model, { scalars, relations });
+    const polymorphic = getPolymorphicRelationsSchemas(
+      model,
+      this.getModelSchemas
+    );
+    const { args, core } = getModelSchemas(model, {
+      scalars,
+      relations,
+      polymorphic,
+    });
     return {
       scalars,
       relations,
+      polymorphic,
       args,
       core,
     } as unknown as ModelSchemas<AnyModel>;

@@ -1,6 +1,7 @@
 import { NestedWriteError, UnsupportedOperationError } from "@errors";
 import { getPrimaryKeyFields } from "./builders/correlation-utils";
 import { bindRelation } from "./builders/relation-data-builder";
+import { resolvePolymorphicInverse } from "./builders/polymorphic-relation";
 import {
   buildParsedRelationPrograms,
   type RelationMutationProgram,
@@ -74,6 +75,7 @@ export function assertPinnedTransitionIsCompilable(
   if (Object.hasOwn(pinnedTarget, primaryKey)) return;
 
   for (const program of Object.values(relations)) {
+    if (resolvePolymorphicInverse(targetScope, program.relationInfo)) continue;
     const relation = bindRelation(targetScope, program.relationInfo);
     if (relation.kind === "junction") continue;
     if (
@@ -98,6 +100,7 @@ function findRelationBearingUpdateManyData(
     }
   | undefined {
   for (const program of Object.values(relations)) {
+    if (resolvePolymorphicInverse(source, program.relationInfo)) continue;
     const relation = bindRelation(source, program.relationInfo);
     const target = createQueryScope(
       source.adapter,
@@ -137,6 +140,7 @@ export function assertRelationKeyUpdatesAreCompilable(
   const primaryKeyFields = new Set(getPrimaryKeyFields(ctx.model));
 
   for (const mutation of Object.values(relations)) {
+    if (resolvePolymorphicInverse(ctx, mutation.relationInfo)) continue;
     const relation = bindRelation(ctx, mutation.relationInfo);
     if (relation.kind === "junction") continue;
     const relationKeyFields =

@@ -12,6 +12,7 @@ import {
 } from "../result-aliases";
 import {
   type ExpectedAggregateResultShape,
+  type ExpectedPolymorphicResultShape,
   type ExpectedResultShape,
   type Operation,
   QueryEngineError,
@@ -49,7 +50,8 @@ function createShape(
   rawKeys: string[],
   relations = new Map<string, ExpectedResultShape>(),
   aggregates = new Map<string, ExpectedAggregateResultShape>(),
-  relationCounts = new Set<string>()
+  relationCounts = new Set<string>(),
+  polymorphic = new Map<string, ExpectedPolymorphicResultShape>()
 ): ExpectedResultShape {
   if (new Set(rawKeys).size !== rawKeys.length) {
     throw new QueryEngineError(
@@ -60,6 +62,7 @@ function createShape(
     carrier: "rows",
     rawKeys,
     relations,
+    polymorphic,
     aggregates,
     relationCounts,
   };
@@ -88,6 +91,7 @@ function buildModelShape(
 ): ExpectedResultShape {
   const rawKeys: string[] = [];
   const relations = new Map<string, ExpectedResultShape>();
+  const polymorphic = new Map<string, ExpectedPolymorphicResultShape>();
   const selectedOutputKeys = new Set<string>();
   const scalars = model["~"].state.scalars;
   const modelRelations = model["~"].state.relations;
@@ -130,6 +134,13 @@ function buildModelShape(
     relations,
     selectedOutputKeys
   );
+  addSelectedPolymorphicRelations(
+    model,
+    select,
+    rawKeys,
+    polymorphic,
+    selectedOutputKeys
+  );
 
   if (hasVectorDistance && selectedOutputKeys.has("_distance")) {
     throw new QueryEngineError(
@@ -141,6 +152,13 @@ function buildModelShape(
     include,
     rawKeys,
     relations,
+    selectedOutputKeys
+  );
+  addSelectedPolymorphicRelations(
+    model,
+    include,
+    rawKeys,
+    polymorphic,
     selectedOutputKeys
   );
 
@@ -175,7 +193,13 @@ function buildModelShape(
     rawKeys.push(EMPTY_ROW_RESULT_KEY);
   }
 
-  return createShape(rawKeys, relations, new Map(), relationCounts);
+  return createShape(
+    rawKeys,
+    relations,
+    new Map(),
+    relationCounts,
+    polymorphic
+  );
 }
 
 /**
@@ -207,6 +231,51 @@ function addSelectedRelations(
       relationName,
       pagesBackward(value) ? { ...shape, reversed: true } : shape
     );
+  }
+}
+
+function addSelectedPolymorphicRelations(
+  model: Model<any>,
+  selection: Record<string, unknown> | undefined,
+  rawKeys: string[],
+  polymorphic: Map<string, ExpectedPolymorphicResultShape>,
+  selectedOutputKeys: Set<string>
+): void {
+  const modelRelations = model["~"].state.polymorphicRelations;
+  for (const [relationName, value] of selectedEntries(selection)) {
+    const relation = getOwnValue(modelRelations, relationName);
+    if (!relation) continue;
+    const storage = model["~"].getPolymorphicStorage(relationName);
+    if (!storage) {
+      throw new QueryEngineError(
+        `Polymorphic relation '${relationName}' has no validated storage metadata.`
+      );
+    }
+
+    const projection = isRecord(value) ? value : undefined;
+    const variants = new Map<
+      string,
+      { readonly model: Model<any>; readonly shape: ExpectedResultShape }
+    >();
+    for (const [publicType, member] of storage.members) {
+      const override = getOwnValue(projection, publicType);
+      variants.set(publicType, {
+        model: member.targetModel,
+        shape: buildModelShape(
+          member.targetModel,
+          override === undefined || override === true
+            ? {}
+            : getNestedSelection(override)
+        ),
+      });
+    }
+
+    rawKeys.push(relationName);
+    selectedOutputKeys.add(relationName);
+    polymorphic.set(relationName, {
+      optional: relation["~"].state.optional === true,
+      variants,
+    });
   }
 }
 

@@ -7,9 +7,11 @@ import {
 } from "../builders/correlation-utils";
 import {
   buildRelationMutationProgram,
+  buildPolymorphicMutationProgram,
   partitionModelData,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
+import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
   createQueryScope,
@@ -123,6 +125,7 @@ export class UpdateOperation {
 
     const partitioned = partitionModelData(parent, data);
     const relations: Record<string, RelationMutationProgram> = {};
+    const polymorphic: Record<string, ResolvedPolymorphicMutation> = {};
     for (const [relationName, relationPayload] of Object.entries(
       partitioned.relationPayloads
     )) {
@@ -143,6 +146,29 @@ export class UpdateOperation {
         parsedRelation
       );
       if (program) relations[relationName] = program;
+    }
+    for (const [relationName, relationPayload] of Object.entries(
+      partitioned.polymorphicPayloads
+    )) {
+      const relationSchemas = parentSchemas.polymorphic[relationName];
+      if (!relationSchemas) {
+        throw new QueryEngineError(
+          `query-engine internal: no validation schema exists for polymorphic relation '${relationName}', which the model declares.`
+        );
+      }
+      const parsedRelation = parseValidated(
+        relationSchemas.update,
+        relationPayload.payload,
+        "update",
+        `data.${relationName}`
+      );
+      const built = buildPolymorphicMutationProgram(
+        parent,
+        relationPayload.relation,
+        parsedRelation
+      );
+      if (built.program) relations[relationName] = built.program;
+      polymorphic[relationName] = built.mutation;
     }
 
     assertRelationKeyUpdatesAreCompilable(
@@ -212,6 +238,7 @@ export class UpdateOperation {
     const writeIsOneStatement =
       engine.adapter.capabilities.supportsReturning &&
       Object.keys(relations).length === 0 &&
+      Object.keys(polymorphic).length === 0 &&
       Object.keys(scalarData).length > 0;
     const cteProjectionFold =
       engine.adapter.capabilities.supportsCteWithMutations &&
@@ -272,6 +299,7 @@ export class UpdateOperation {
             targetScope: parent,
             scalarData,
             relations,
+            polymorphic,
             targetRead: { id: locateId },
             rootWrite: { id: this.updateId },
             relationName: "record",

@@ -43,6 +43,7 @@ import {
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { PreparedBatchGuard } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
+import { validatePolymorphicSchemaOrThrow } from "@schema/validation/validator";
 import { createSchemaRegistry } from "@validation";
 import {
   applyClientOmit,
@@ -629,6 +630,7 @@ export class VibORM<C extends VibORMConfig> {
     // unchanged so their own code survives.
     const orm = assertConstructed(() => {
       hydrateSchemaNames(config.schema);
+      validatePolymorphicSchemaOrThrow(config.schema);
       return new VibORM<C>(config);
     });
 

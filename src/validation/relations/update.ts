@@ -12,7 +12,9 @@ import type {
   CreateManyDataSchema,
   CreateWithOmittedFk,
   InverseRequiredKeys,
+  NestedCreateManySchema,
 } from "./create";
+import { applyCreateManyAvailability } from "./create-many-availability";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 import {
   AMBIGUOUS_TO_ONE_UPDATE,
@@ -217,13 +219,7 @@ export type ToManyUpdateSchema<
   Source extends AnyModel,
 > = V.Object<{
   create: () => V.SingleOrArray<CreateWithOmittedFk<S, Source>>;
-  createMany: V.Object<
-    {
-      data: () => V.Array<CreateManyDataSchema<S, Source>>;
-      skipDuplicates: V.Boolean<{ optional: true }>;
-    },
-    { atLeast: ["data"] }
-  >;
+  createMany: NestedCreateManySchema<S, Source>;
   connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
   disconnect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
   delete: () => V.SingleOrArray<
@@ -298,10 +294,22 @@ export const toManyUpdateFactory = <
       {
         scalars: schemas.scalars,
         relations: schemas.relations,
+        polymorphic: schemas.polymorphic,
       },
       fkFields
     );
   };
+
+  const createManySchema = applyCreateManyAvailability(
+    state.getter() as TargetModel<S>,
+    v.object(
+      {
+        data: () => v.array(getCreateManyDataSchema()),
+        skipDuplicates: v.boolean({ optional: true }),
+      },
+      { atLeast: ["data"] }
+    )
+  );
 
   const connectOrCreateSchema = v.object(
     {
@@ -338,13 +346,7 @@ export const toManyUpdateFactory = <
 
   return v.object({
     create: () => v.singleOrArray(getCreateSchema()),
-    createMany: v.object(
-      {
-        data: () => v.array(getCreateManyDataSchema()),
-        skipDuplicates: v.boolean({ optional: true }),
-      },
-      { atLeast: ["data"] }
-    ),
+    createMany: createManySchema,
     connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
     // Prisma parity: boolean disconnect is a to-one concept; on to-many it
     // would silently wipe every association, so it is rejected here.

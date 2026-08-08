@@ -165,6 +165,7 @@ payload said no, the driver cannot do it, or the record was not there.
 | `CheckConstraintError` | `V3004` | A CHECK constraint was violated |
 | `ValueTooLongError` | `V3005` | A value exceeded the column's declared length (PostgreSQL and MySQL only) |
 | `ValidationError` | `V4001` | The payload failed validation before any I/O |
+| `SchemaValidationError` | `V4002` | The model graph failed schema validation before the client, migration, or query could run |
 | `TransactionError` | `V5001`, `V5002`, `V5003`, `V5004`, `V5005` | A transaction failed, timed out, deadlocked, lost serialization, or was given an option this driver refuses |
 | `InvalidTransactionInputError` | `V5005` | `$transaction([...])` was handed something that is not a pending operation |
 | `NotFoundError` | `V6001` | An `…OrThrow` read, or a targeted write, matched no record |

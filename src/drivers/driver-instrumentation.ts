@@ -21,7 +21,7 @@ import {
 } from "@instrumentation/spans";
 import { getNoopTracer } from "@instrumentation/tracer";
 import type { Operation } from "@query-engine/types";
-import type { RelationType } from "@schema/relation/types";
+import type { RelationResultKind } from "@adapters/adapter-result-parser";
 import type { Sql } from "@sql";
 import {
   BATCH_DIAGNOSTIC_PARAMS,
@@ -70,8 +70,8 @@ export interface DriverResultParser {
 
   parseRelation?: (
     value: unknown,
-    type: RelationType,
-    next: (value: unknown, type: RelationType) => unknown
+    type: RelationResultKind,
+    next: (value: unknown, type: RelationResultKind) => unknown
   ) => unknown;
 
   parseField?: (

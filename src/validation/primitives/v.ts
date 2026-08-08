@@ -41,7 +41,11 @@ import type { NullableSchema } from "./nullable";
 import { maybeNullable, nullable } from "./nullable";
 import type { IntegerSchema, NumberSchema } from "./number";
 import { integer, number } from "./number";
-import type { ObjectOptions, ObjectSchema } from "./object";
+import type {
+  ObjectOptions,
+  ObjectSchema,
+  OmittedObjectSchema,
+} from "./object";
 import { object } from "./object";
 import { omit } from "./omit";
 import type {
@@ -75,6 +79,13 @@ import type { UnionSchema } from "./union";
 import { union } from "./union";
 import type { VectorSchema } from "./vector";
 import { vector } from "./vector";
+
+type OmitOptions<
+  TOptions extends ObjectOptions | undefined,
+  TKeys extends readonly PropertyKey[] | undefined,
+> = (TOptions extends ObjectOptions ? Omit<TOptions, "omit"> : object) & {
+  omit: TKeys;
+};
 
 // =============================================================================
 // Runtime Namespace (v.string(), v.number(), etc.)
@@ -346,8 +357,14 @@ export namespace V {
    */
   export type Omit<
     TSchema extends ObjectSchema<any, any>,
-    TKeys extends readonly (keyof TSchema["entries"])[],
-  > = ObjectSchema<TSchema["entries"], TSchema["options"] & { omit: TKeys }>;
+    TKeys extends
+      | readonly (keyof TSchema["entries"])[]
+      | undefined,
+  > = OmittedObjectSchema<
+    TSchema["entries"],
+    OmitOptions<TSchema["options"], TKeys>,
+    TKeys
+  >;
 
   /**
    * Type-level from object schema.

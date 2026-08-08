@@ -534,6 +534,7 @@ export class RelationWritePart implements Part {
       targetScope: this.config.childScope,
       scalarData: parsed.scalarData,
       relations: parsed.relations,
+      polymorphic: parsed.polymorphic,
       targetRead: { label: `${this.config.childName}.find` },
       rootWrite: { label: `${this.config.childName}.update` },
       relationName: this.relationName,

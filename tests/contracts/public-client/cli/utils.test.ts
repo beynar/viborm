@@ -22,7 +22,10 @@ import {
   formatDuration,
   loadConfig,
 } from "@src/cli/utils";
-import { validateSchemaOrThrow } from "@src/schema/validation";
+import {
+  SchemaValidationError,
+  validateSchemaOrThrow,
+} from "@src/schema/validation";
 import {
   makeTempProject,
   type TempProject,
@@ -118,6 +121,38 @@ describe("loadConfig", () => {
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
       /Make sure you're running with a TypeScript loader/
+    );
+  });
+
+  it("preserves an import-time polymorphic schema validation error", async () => {
+    writeConfigFixture(project, {
+      schemaBody: `
+        const target = s.model({ id: s.string().id() });
+        const owner = s.model({
+          id: s.string().id(),
+          target: s.polymorphic(
+            { target: () => target },
+            { values: {} }
+          ),
+        });
+        const schema = { target, owner };
+      `,
+    });
+
+    const thrown = await loadConfig({ config: project.configPath }).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+
+    expect(thrown).toBeInstanceOf(SchemaValidationError);
+    if (!(thrown instanceof SchemaValidationError)) {
+      throw new Error("expected the original SchemaValidationError");
+    }
+    expect(thrown.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "P003" })])
+    );
+    expect(thrown.message).not.toContain(
+      "Make sure you're running with a TypeScript loader"
     );
   });
 

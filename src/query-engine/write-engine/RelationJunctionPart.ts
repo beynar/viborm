@@ -1901,6 +1901,7 @@ export function buildJunctionParts(input: {
             targetScope: childScope,
             scalarData: parsed.scalarData,
             relations: parsed.relations,
+            polymorphic: parsed.polymorphic,
             targetRead: { label: `${childName}.find` },
             rootWrite: { label: `${childName}.update` },
             relationName,
@@ -2060,7 +2061,8 @@ export function buildJunctionParts(input: {
           const pinnedTarget = pinnedTargetValues(childScope, item.where);
           const hasUpdate =
             Object.keys(parsed.scalarData).length +
-              Object.keys(parsed.relations).length >
+              Object.keys(parsed.relations).length +
+              Object.keys(parsed.polymorphic).length >
             0;
           if (hasUpdate) {
             assertPinnedTransitionIsCompilable(
@@ -2078,6 +2080,7 @@ export function buildJunctionParts(input: {
                 targetScope: childScope,
                 scalarData: parsed.scalarData,
                 relations: parsed.relations,
+                polymorphic: parsed.polymorphic,
                 targetRead: {
                   id: input.freshParent
                     ? item.probes.global

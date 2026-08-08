@@ -997,7 +997,7 @@ function buildOneUpsertPart(
         );
   const childUpdate =
     update === undefined
-      ? { scalarData: {}, relations: {} }
+      ? { scalarData: {}, relations: {}, polymorphic: {} }
       : buildParsedRelationPrograms(child, update);
   const childPrimaryKeys = getPrimaryKeyFields(child.model);
   if (childPrimaryKeys.length !== 1) {
@@ -1052,6 +1052,7 @@ function buildOneUpsertPart(
         targetScope: child,
         scalarData: childUpdate.scalarData,
         relations: childUpdate.relations,
+        polymorphic: childUpdate.polymorphic,
         targetRead: { label: `${childName}.find` },
         rootWrite: { label: `${childName}.update` },
         incomingForeignKey: members,

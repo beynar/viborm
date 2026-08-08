@@ -74,6 +74,7 @@ import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
 import { optionalRelationParityContract } from "@tests/contracts/drivers/behaviors/optional-relation-parity-behavior";
 import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
 import { orderingPlanContract } from "@tests/contracts/drivers/behaviors/ordering-plan-behavior";
+import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
 import { readPathRegressionContract } from "@tests/contracts/drivers/behaviors/read-path-regression-behavior";
 import { relationFilterMutationContract } from "@tests/contracts/drivers/behaviors/relation-filter-mutation-behavior";
@@ -881,6 +882,10 @@ describe("SQLite3 Driver", () => {
 
   optionalRelationParityContract.register({
     driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  polymorphicRelationContract.register({
+    name: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });
   upsertAtomicityContract.register({

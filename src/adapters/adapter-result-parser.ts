@@ -1,3 +1,7 @@
+import type { RelationType } from "../schema/relation/types";
+
+export type RelationResultKind = RelationType | "polymorphic";
+
 export interface AdapterResultParser {
   /**
    * When `true`, {@link AdapterResultParser.parseField} performs NO
@@ -58,7 +62,7 @@ export interface AdapterResultParser {
    */
   parseRelation: (
     value: unknown,
-    type: import("../schema/relation/types").RelationType,
+    type: RelationResultKind,
     next: (value?: unknown) => unknown
   ) => unknown;
 

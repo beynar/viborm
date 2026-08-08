@@ -53,6 +53,7 @@ import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-w
 import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
 import { optionalRelationParityContract } from "@tests/contracts/drivers/behaviors/optional-relation-parity-behavior";
 import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
+import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
 import { readPathRegressionContract } from "@tests/contracts/drivers/behaviors/read-path-regression-behavior";
 import { relationFilterMutationContract } from "@tests/contracts/drivers/behaviors/relation-filter-mutation-behavior";
@@ -206,6 +207,10 @@ describe("LibSQL Driver", () => {
 
   optionalRelationParityContract.register({
     driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+  });
+  polymorphicRelationContract.register({
+    name: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });
 

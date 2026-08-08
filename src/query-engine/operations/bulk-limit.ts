@@ -96,6 +96,7 @@ function buildPrimaryKeyLimitWhere(
       model: ctx.model,
       nextAlias: ctx.nextAlias,
       rootAlias: ctx.nextAlias(),
+      polymorphicRelations: ctx.polymorphicRelations,
     },
     {
       ...(filter ? { where: filter } : {}),

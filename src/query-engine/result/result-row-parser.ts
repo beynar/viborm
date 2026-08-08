@@ -1,4 +1,5 @@
-import type { AnyRelation } from "@schema/relation";
+import type { Model } from "@schema/model";
+import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import {
   EMPTY_ROW_RESULT_KEY,
@@ -131,8 +132,7 @@ function parseRowArray(
     ctx,
     operation,
     keys,
-    model["~"].state.scalars,
-    model["~"].state.relations,
+    model,
     shape,
     parsers
   );
@@ -155,8 +155,7 @@ function parseRow(
     ctx,
     operation,
     keys,
-    model["~"].state.scalars,
-    model["~"].state.relations,
+    model,
     shape,
     parsers
   )(row);
@@ -170,11 +169,14 @@ export function createRowParser(
   ctx: ResultParser,
   operation: Operation,
   keys: string[],
-  scalars: Record<string, Scalar>,
-  relations: Record<string, AnyRelation>,
+  model: Model<any>,
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers
 ): (row: Record<string, unknown>) => Record<string, unknown> {
+  const scalars: Record<string, Scalar> = model["~"].state.scalars;
+  const relations: Record<string, AnyRelation> = model["~"].state.relations;
+  const polymorphicRelations: Record<string, AnyPolymorphicRelation> =
+    model["~"].state.polymorphicRelations;
   const len = keys.length;
   const steps: ((result: Record<string, unknown>, value: unknown) => void)[] =
     new Array(len);
@@ -265,6 +267,23 @@ export function createRowParser(
           value,
           operation,
           relationShape
+        );
+      };
+      continue;
+    }
+
+    const polymorphicRelation = getOwnValue(polymorphicRelations, key);
+    if (polymorphicRelation) {
+      allIdentity = false;
+      const polymorphicShape = shape?.polymorphic.get(key);
+      steps[i] = (result, value) => {
+        result[key] = parsers.parsePolymorphic(
+          model,
+          key,
+          polymorphicRelation,
+          value,
+          operation,
+          polymorphicShape
         );
       };
       continue;

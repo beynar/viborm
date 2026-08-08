@@ -16,6 +16,7 @@ import type {
   VibORMClient,
 } from "../client/client";
 import type { AnyDriver } from "../drivers/driver";
+import { isVibORMError } from "../errors";
 import type { MigrationStorageDriver } from "../migrations/storage/driver";
 import type { AnyModel } from "../schema/model";
 import { validateSchemaOrThrow } from "../schema/validation";
@@ -205,6 +206,7 @@ async function importModule(filePath: string): Promise<any> {
     const module = await import(pathToFileURL(filePath).href);
     return module;
   } catch (e) {
+    if (isVibORMError(e)) throw e;
     if (filePath.endsWith(".ts") || filePath.endsWith(".mts")) {
       throw new Error(
         `Failed to load ${filePath}.\n\n` +

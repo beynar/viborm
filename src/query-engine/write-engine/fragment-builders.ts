@@ -1,9 +1,10 @@
 import type { Model } from "@schema/model";
+import type { Scalar } from "@schema/scalars/base";
 import { isSql, type Sql } from "@sql";
 import {
   decimalLiteral,
-  getScalarCastType,
-  getScalarType,
+  getScalarCastTypeForScalar,
+  getScalarTypeForScalar,
 } from "../builders/values-builder";
 import { getWhereUniqueFilters } from "../builders/where-unique-builder";
 import type { QueryEngine } from "../query-engine";
@@ -67,13 +68,28 @@ export function referenceSql(
   field: string,
   value: unknown
 ): Sql {
-  const cast = getScalarCastType(model, field);
+  return referenceScalarSql(
+    engine,
+    model["~"].state.scalars[field],
+    field,
+    value
+  );
+}
+
+/** Destination-aware deferred value lowering for private and public columns. */
+export function referenceScalarSql(
+  engine: QueryEngine,
+  scalar: Scalar | undefined,
+  field: string,
+  value: unknown
+): Sql {
+  const cast = getScalarCastTypeForScalar(scalar);
   if (isConcreteFkValue(value)) {
     if (cast === "decimal") {
       return decimalLiteral(engine.adapter, field, value);
     }
     if (
-      getScalarType(model, field) === "datetime" &&
+      getScalarTypeForScalar(scalar) === "datetime" &&
       typeof value === "string"
     ) {
       return engine.adapter.literals.dateTime(value);

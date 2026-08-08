@@ -39,6 +39,7 @@ export const DRIVER_CONTRACT_IDS = {
   "partialIndexCoverageContract": "drivers.partial-index-coverage",
   "partialIndexPredicateChurnContract": "drivers.partial-index-predicate-churn",
   "partialIndexRefusalContract": "drivers.partial-index-refusal",
+  "polymorphicRelationContract": "drivers.polymorphic-relation",
   "prismaParityContract": "drivers.prisma-parity",
   "readPathRegressionContract": "drivers.read-path-regression",
   "relationFilterMutationContract": "drivers.relation-filter-mutation",

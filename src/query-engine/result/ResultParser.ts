@@ -3,15 +3,17 @@ import type { DatabaseAdapter } from "@adapters";
 import type { AnyDriver } from "@drivers";
 import { isVibORMError } from "@errors";
 import type { Model } from "@schema/model";
-import type { AnyRelation } from "@schema/relation";
-import type { RelationType } from "@schema/relation/types";
+import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
+import type { RelationResultKind } from "@adapters/adapter-result-parser";
 import type { Scalar } from "@schema/scalars";
 import {
   type ExpectedResultShape,
+  type ExpectedPolymorphicResultShape,
   isBatchOperation,
   type Operation,
 } from "../types";
 import { parseRelationValueDefault } from "./relation-result-parser";
+import { parsePolymorphicValueDefault } from "./polymorphic-result-parser";
 import { parseAggregateResult } from "./result-aggregate-parser";
 import {
   isResultRow,
@@ -29,6 +31,13 @@ type RelationParser = (
   operation: Operation,
   shape?: ExpectedResultShape
 ) => unknown;
+type PolymorphicParser = (
+  ownerModel: Model<any>,
+  relationName: string,
+  value: unknown,
+  operation: Operation,
+  shape?: ExpectedPolymorphicResultShape
+) => unknown;
 type ResultParserChain = (
   value: unknown,
   operation: Operation,
@@ -42,6 +51,10 @@ export class ResultParser {
   readonly driver: AnyDriver | undefined;
   private readonly fieldChains = new WeakMap<Scalar, FieldParser>();
   private readonly relationChains = new WeakMap<AnyRelation, RelationParser>();
+  private readonly polymorphicChains = new WeakMap<
+    AnyPolymorphicRelation,
+    PolymorphicParser
+  >();
   private resultChain: ResultParserChain | undefined;
 
   /**
@@ -133,12 +146,38 @@ export class ResultParser {
     return chain;
   }
 
+  private getPolymorphicChain(
+    relation: AnyPolymorphicRelation,
+    parsers: RowValueParsers
+  ): PolymorphicParser {
+    const existing = this.polymorphicChains.get(relation);
+    if (existing) return existing;
+    const chain = this.createPolymorphicChain(relation, parsers);
+    this.polymorphicChains.set(relation, chain);
+    return chain;
+  }
+
   private createRowValueParsers(): RowValueParsers {
     const parsers: RowValueParsers = {
       parseField: (scalar, value, operation) =>
         this.getFieldChain(scalar)(value, operation),
       parseRelation: (relation, value, operation, shape) =>
         this.getRelationChain(relation, parsers)(value, operation, shape),
+      parsePolymorphic: (
+        model,
+        relationName,
+        relation,
+        value,
+        operation,
+        shape
+      ) =>
+        this.getPolymorphicChain(relation, parsers)(
+          model,
+          relationName,
+          value,
+          operation,
+          shape
+        ),
       parseAggregate: (operation, key, raw, scalars, expected) =>
         parseAggregateResult(
           this,
@@ -184,7 +223,7 @@ export class ResultParser {
     const relationType = relation["~"].state.type;
     const adapterParse = (
       value: unknown,
-      type: RelationType,
+      type: RelationResultKind,
       operation: Operation,
       shape?: ExpectedResultShape
     ) =>
@@ -221,6 +260,43 @@ export class ResultParser {
         adapterParse(transformed ?? value, relationType, operation, shape)
       );
     };
+  }
+
+  private createPolymorphicChain(
+    relation: AnyPolymorphicRelation,
+    parsers: RowValueParsers
+  ): PolymorphicParser {
+    const adapterParse = (
+      ownerModel: Model<any>,
+      relationName: string,
+      value: unknown,
+      operation: Operation,
+      shape?: ExpectedPolymorphicResultShape
+    ) =>
+      this.adapter.result.parseRelation(value, "polymorphic", (transformed) =>
+        parsePolymorphicValueDefault(
+          this,
+          ownerModel,
+          relationName,
+          relation,
+          transformed ?? value,
+          operation,
+          shape,
+          parsers
+        )
+      );
+    const driverParseRelation = this.driver?.result?.parseRelation;
+    if (!driverParseRelation) return adapterParse;
+    return (ownerModel, relationName, value, operation, shape) =>
+      driverParseRelation(value, "polymorphic", (transformed) =>
+        adapterParse(
+          ownerModel,
+          relationName,
+          transformed ?? value,
+          operation,
+          shape
+        )
+      );
   }
 
   private createFieldChain(scalar: Scalar): FieldParser {

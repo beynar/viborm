@@ -2,7 +2,13 @@
 // Main API for defining models, scalars, and relations
 
 import { model } from "./model";
-import { manyToMany, manyToOne, oneToMany, oneToOne } from "./relation";
+import {
+  manyToMany,
+  manyToOne,
+  oneToMany,
+  oneToOne,
+  polymorphic,
+} from "./relation";
 import {
   bigInt,
   blob,
@@ -77,6 +83,7 @@ export const s = {
   manyToOne,
   oneToMany,
   manyToMany,
+  polymorphic,
 };
 
 // =============================================================================
@@ -106,7 +113,9 @@ export type { Getter, ReferentialAction, RelationType } from "./relation";
 export * from "./relation";
 export {
   type AnyRelation,
+  type AnyPolymorphicRelation,
   ManyToManyRelation,
+  PolymorphicRelation,
   ToManyRelation,
   ToOneRelation,
 } from "./relation";

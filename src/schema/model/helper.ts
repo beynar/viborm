@@ -1,11 +1,16 @@
-import type { AnyRelation } from "@schema/relation";
+import {
+  type AnyPolymorphicRelation,
+  type AnyRelation,
+  isPolymorphicRelation,
+} from "@schema/relation";
 import type { Scalar } from "@schema/scalars/base";
 
 /**
  * Record of model fields - the canonical type for scalar and relation definitions.
  * Supports both Scalar instances and relation instances.
  */
-export type ModelShape = Record<string, Scalar | AnyRelation>;
+export type AnyModelField = Scalar | AnyRelation | AnyPolymorphicRelation;
+export type ModelShape = Record<string, AnyModelField>;
 
 export type NameFromKeys<
   TFields extends string[],
@@ -53,6 +58,10 @@ export type RelationKeys<T extends ModelShape> = {
   [K in keyof T]: T[K] extends AnyRelation ? ToString<K> : never;
 }[keyof T];
 
+export type PolymorphicRelationKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends AnyPolymorphicRelation ? ToString<K> : never;
+}[keyof T];
+
 export type RequiredScalarKeys<T extends ModelShape> = {
   [K in keyof T]: T[K] extends Scalar
     ? T[K]["~"]["state"]["optional"] extends true
@@ -91,6 +100,12 @@ export type RelationMap<T extends ModelShape> = {
   [K in RelationKeys<T>]: T[K] extends AnyRelation ? T[K] : never;
 };
 
+export type PolymorphicRelationMap<T extends ModelShape> = {
+  [K in PolymorphicRelationKeys<T>]: T[K] extends AnyPolymorphicRelation
+    ? T[K]
+    : never;
+};
+
 export type UniqueScalarMap<T extends ModelShape> = {
   [K in UniqueScalarKeys<T>]: T[K] extends Scalar ? T[K] : never;
 };
@@ -109,15 +124,54 @@ function isRelation(value: unknown): value is AnyRelation {
   );
 }
 
+const SCALAR_TYPES = new Set<string>([
+  "string",
+  "int",
+  "float",
+  "decimal",
+  "boolean",
+  "datetime",
+  "date",
+  "time",
+  "bigint",
+  "json",
+  "blob",
+  "vector",
+  "point",
+  "enum",
+]);
+
+function isScalar(value: unknown): value is Scalar {
+  if ((typeof value !== "object" || value === null) && typeof value !== "function") {
+    return false;
+  }
+  const internal = Reflect.get(value, "~");
+  if (typeof internal !== "object" || internal === null) return false;
+  const state = Reflect.get(internal, "state");
+  if (typeof state !== "object" || state === null) return false;
+  const type = Reflect.get(state, "type");
+  return typeof type === "string" && SCALAR_TYPES.has(type);
+}
+
 export const extractScalarMap = <T extends ModelShape>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
-      if (!isRelation(value)) {
+      if (isScalar(value)) {
         acc[key] = value;
       }
       return acc;
     },
     {} as ScalarMap<T>
+  );
+};
+
+export const extractPolymorphicRelationMap = <T extends ModelShape>(fields: T) => {
+  return Object.entries(fields).reduce(
+    (acc, [key, value]) => {
+      if (isPolymorphicRelation(value)) acc[key] = value;
+      return acc;
+    },
+    {} as PolymorphicRelationMap<T>
   );
 };
 
@@ -137,7 +191,7 @@ export const extractUniqueScalarMap = <T extends ModelShape>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
       if (
-        !isRelation(value) &&
+        isScalar(value) &&
         (value["~"].state.isUnique || value["~"].state.isId)
       ) {
         acc[key] = value;

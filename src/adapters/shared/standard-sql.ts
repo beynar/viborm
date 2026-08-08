@@ -333,8 +333,24 @@ export const createLogicalOperators = (
 
 export const createCommonExpressions = (): Pick<
   DatabaseAdapter["expressions"],
-  "add" | "subtract" | "multiply" | "divide" | "upper" | "lower" | "coalesce"
+  | "caseWhen"
+  | "add"
+  | "subtract"
+  | "multiply"
+  | "divide"
+  | "upper"
+  | "lower"
+  | "coalesce"
 > => ({
+  caseWhen: (branches, otherwise): Sql =>
+    branches.length === 0
+      ? otherwise
+      : sql`CASE ${sql.join(
+          branches.map(
+            (branch) => sql`WHEN ${branch.when} THEN ${branch.then}`
+          ),
+          " "
+        )} ELSE ${otherwise} END`,
   add: (left: Sql, right: Sql): Sql => sql`(${left} + ${right})`,
   subtract: (left: Sql, right: Sql): Sql => sql`(${left} - ${right})`,
   multiply: (left: Sql, right: Sql): Sql => sql`(${left} * ${right})`,

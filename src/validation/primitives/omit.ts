@@ -20,13 +20,15 @@ import type { V } from "./v";
  */
 export function omit<
   TSchema extends ObjectSchema<any, any>,
-  const TKeys extends readonly (keyof TSchema["entries"])[] | undefined,
+  const TKeys extends
+    | readonly (keyof TSchema["entries"])[]
+    | undefined,
 >(
   schema: TSchema,
   keys: TKeys
-): V.Object<TSchema["entries"], TSchema["options"] & { omit: TKeys }> {
+): V.Omit<TSchema, TKeys> {
   return object(schema.entries, {
     ...(schema.options || {}),
     omit: keys,
-  }) as V.Object<TSchema["entries"], TSchema["options"] & { omit: TKeys }>;
+  }) as V.Omit<TSchema, TKeys>;
 }

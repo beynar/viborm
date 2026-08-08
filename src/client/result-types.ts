@@ -7,7 +7,7 @@
 
 import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
-import type { AnyRelation } from "@schema/relation";
+import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
@@ -277,6 +277,25 @@ export type GetRelationType<R extends AnyRelation> = R["~"]["state"]["type"];
 export type GetRelationOptional<R extends AnyRelation> =
   R["~"]["state"]["optional"];
 
+/** The configured target state at one public discriminator. */
+type GetPolymorphicTargetState<
+  R extends AnyPolymorphicRelation,
+  PublicType extends PropertyKey,
+> = PublicType extends keyof R["~"]["state"]["targets"]
+  ? R["~"]["state"]["targets"][PublicType] extends () => infer Target
+    ? Target extends Model<infer TargetState>
+      ? TargetState extends ModelState
+        ? TargetState
+        : never
+      : never
+    : never
+  : never;
+
+type PolymorphicPublicTypes<R extends AnyPolymorphicRelation> = Extract<
+  keyof R["~"]["state"]["targets"],
+  string
+>;
+
 // =============================================================================
 // RELATION RESULT
 // =============================================================================
@@ -304,6 +323,50 @@ export type InferRelationResult<R extends AnyRelation> = WrapRelation<
   R,
   InferModelOutput<GetTargetModelState<R>>
 >;
+
+/**
+ * One configured polymorphic target. A missing projection key does not filter
+ * that discriminator; it keeps the target model's default scalar output.
+ */
+type InferPolymorphicVariant<
+  R extends AnyPolymorphicRelation,
+  PublicType extends PolymorphicPublicTypes<R>,
+  Override,
+> = Override extends true
+  ? InferModelOutput<GetPolymorphicTargetState<R, PublicType>>
+  : Override extends object
+    ? InferSelectInclude<GetPolymorphicTargetState<R, PublicType>, Override>
+    : InferModelOutput<GetPolymorphicTargetState<R, PublicType>>;
+
+type PolymorphicProjectionAt<
+  Projection,
+  PublicType extends PropertyKey,
+> = PublicType extends keyof Projection ? Projection[PublicType] : undefined;
+
+/**
+ * Exhaustive direct polymorphic result. Projection objects override individual
+ * targets; omitted targets remain in the union with their default projection.
+ */
+type PolymorphicVariants<
+  R extends AnyPolymorphicRelation,
+  Projection = undefined,
+> = {
+  [PublicType in PolymorphicPublicTypes<R>]: {
+    readonly type: PublicType;
+    readonly data: InferPolymorphicVariant<
+      R,
+      PublicType,
+      PolymorphicProjectionAt<Projection, PublicType>
+    >;
+  };
+}[PolymorphicPublicTypes<R>];
+
+export type InferPolymorphicResult<
+  R extends AnyPolymorphicRelation,
+  Projection = undefined,
+> = R["~"]["state"]["optional"] extends true
+  ? PolymorphicVariants<R, Projection> | null
+  : PolymorphicVariants<R, Projection>;
 
 // =============================================================================
 // SELECT/INCLUDE RESULT INFERENCE
@@ -386,6 +449,7 @@ type InferUnselectedRow<
  */
 export type InferSelectResult<S extends ModelState, Selection> = Prettify<
   InferSelectedFields<S, Selection> &
+    InferSelectedPolymorphicFields<S, Selection> &
     InferVectorDistanceSelection<S, Selection> &
     InferRelationCountSelection<S, Selection>
 >;
@@ -395,8 +459,10 @@ type InferSelectedFields<S extends ModelState, Selection> = {
     ? Selection[K] extends true
       ? K
       : never
-    : Selection[K] extends true | object
-      ? K
+    : S["shape"][K] extends AnyRelation
+      ? Selection[K] extends true | object
+        ? K
+        : never
       : never]: S["shape"][K] extends Scalar
     ? InferScalarOutput<S["shape"][K]>
     : S["shape"][K] extends AnyRelation
@@ -407,6 +473,29 @@ type InferSelectedFields<S extends ModelState, Selection> = {
           : never
       : never;
 };
+
+type InferSelectedPolymorphicFields<
+  S extends ModelState,
+  Selection,
+> = string extends keyof S["polymorphicRelations"]
+  ? unknown
+  : keyof S["polymorphicRelations"] extends never
+    ? unknown
+    : {
+        [K in keyof Selection &
+          keyof S["polymorphicRelations"] as Selection[K] extends true | object
+          ? K
+          : never]: S["polymorphicRelations"][K] extends AnyPolymorphicRelation
+          ? Selection[K] extends true
+            ? InferPolymorphicResult<S["polymorphicRelations"][K]>
+            : Selection[K] extends object
+              ? InferPolymorphicResult<
+                  S["polymorphicRelations"][K],
+                  Selection[K]
+                >
+              : never
+          : never;
+      };
 
 type VectorScalarFieldKeys<S extends ModelState> = {
   [K in keyof S["shape"]]: S["shape"][K] extends Scalar
@@ -474,8 +563,29 @@ export type InferIncludeResult<S extends ModelState, Include> = Prettify<
           ? InferRelationNodeResult<S["relations"][K], Include[K]>
           : never
       : never;
-  } & InferRelationCountSelection<S, Include>
+  } & InferIncludedPolymorphicFields<S, Include> &
+    InferRelationCountSelection<S, Include>
 >;
+
+type InferIncludedPolymorphicFields<
+  S extends ModelState,
+  Include,
+> = string extends keyof S["polymorphicRelations"]
+  ? unknown
+  : keyof S["polymorphicRelations"] extends never
+    ? unknown
+    : {
+        [K in keyof Include &
+          keyof S["polymorphicRelations"] as Include[K] extends true | object
+          ? K
+          : never]: S["polymorphicRelations"][K] extends AnyPolymorphicRelation
+          ? Include[K] extends true
+            ? InferPolymorphicResult<S["polymorphicRelations"][K]>
+            : Include[K] extends object
+              ? InferPolymorphicResult<S["polymorphicRelations"][K], Include[K]>
+              : never
+          : never;
+      };
 
 /**
  * Nested select result for a relation

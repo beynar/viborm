@@ -33,6 +33,16 @@ type CreateRequirementKeySetGroup<M extends AnyModel> = {
       : readonly [readonly ScalarKey[], readonly [Extract<K, string>]]
     : never;
 }[keyof ModelStateOf<M>["relations"]];
+type PolymorphicCreateRequirementKeySetGroup<M extends AnyModel> = {
+  [K in keyof ModelStateOf<M>["polymorphicRelations"]]: ModelStateOf<M>["polymorphicRelations"][K]["~"]["state"] extends {
+    optional: true;
+  }
+    ? never
+    : readonly [readonly [Extract<K, string>]];
+}[keyof ModelStateOf<M>["polymorphicRelations"]];
+type CreateRequirementGroup<M extends AnyModel> =
+  | CreateRequirementKeySetGroup<M>
+  | PolymorphicCreateRequirementKeySetGroup<M>;
 type OmittedRequiredKeyUnion<TKeys extends readonly string[] | undefined> =
   TKeys extends readonly (infer Key extends string)[] ? Key : never;
 type ScalarCreateEntries<F extends { scalars: Record<string, unknown> }> =
@@ -161,6 +171,14 @@ function getFkRequirementKeySets(state: ModelState): string[][][] {
     }
   }
 
+  for (const [relationName, relation] of Object.entries(
+    state.polymorphicRelations
+  )) {
+    if (!relation["~"].state.optional) {
+      groups.push([[relationName]]);
+    }
+  }
+
   return groups;
 }
 
@@ -234,10 +252,11 @@ export type CreateSchema<
   F extends ScalarSchemas<M>,
 > = V.Object<
   V.FromObject<F["scalars"], "create">["entries"] &
-    V.FromObject<F["relations"], "create">["entries"],
+    V.FromObject<F["relations"], "create">["entries"] &
+    V.FromObject<F["polymorphic"], "create">["entries"],
   {
     atLeast: NestedRequiredScalarKeys<M, F>[];
-    requiresOneOfKeySets: readonly CreateRequirementKeySetGroup<M>[];
+    requiresOneOfKeySets: readonly CreateRequirementGroup<M>[];
   }
 >;
 export const getCreateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
@@ -269,16 +288,21 @@ export const getCreateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     fieldSchemas.relations,
     "create"
   );
+  const polymorphicCreate = v.fromObject<F["polymorphic"], "create">(
+    fieldSchemas.polymorphic,
+    "create"
+  );
 
   return v.object(
     {
       ...scalarCreate.entries,
       ...relationCreate.entries,
+      ...polymorphicCreate.entries,
     },
     {
       atLeast: requiredScalars as NestedRequiredScalarKeys<M, F>[],
       requiresOneOfKeySets:
-        fkRequirementKeySets as unknown as readonly CreateRequirementKeySetGroup<M>[],
+        fkRequirementKeySets as unknown as readonly CreateRequirementGroup<M>[],
     }
   );
 };

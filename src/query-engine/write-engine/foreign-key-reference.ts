@@ -1,5 +1,8 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
+import type { QueryEngine } from "../query-engine";
+import { referenceScalarSql } from "./fragment-builders";
 import type { OperationValueReference } from "./OperationFragment";
 import { ref } from "./OperationFragment";
 import type { PlanningKnown } from "./Part";
@@ -157,6 +160,36 @@ export function foreignKeyWriteValue(
     relationName,
     kind
   );
+}
+
+/** Resolve and destination-lower the id member of one atomic private edge. */
+export function resolvePolymorphicStorageValue(
+  engine: QueryEngine,
+  value: PolymorphicStorageValue<FinalReferenceSource>,
+  known: PlanningKnown | undefined,
+  kind: "connect" | "create" | "update"
+): PolymorphicStorageValue<unknown> {
+  if (value.kind === "empty") return value;
+  const { storage, referencedField } = value;
+  const resolved = foreignKeyWriteValue(
+    {
+      foreignField: storage.idColumn.name,
+      referencedField,
+      writeSource: value.id,
+    },
+    known,
+    storage.relationName,
+    kind
+  );
+  return {
+    ...value,
+    id: referenceScalarSql(
+      engine,
+      storage.idColumn.scalar,
+      storage.idColumn.name,
+      resolved
+    ),
+  };
 }
 
 export function foreignKeyWriteValueWith(

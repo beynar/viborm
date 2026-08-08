@@ -1,5 +1,5 @@
+import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
-import type { Scalar } from "@schema/scalars";
 import type { ExpectedResultShape, Operation } from "../types";
 import type { ResultParser } from "./ResultParser";
 import {
@@ -45,9 +45,6 @@ export function parseRelationValueDefault(
 
   // Get target model from relation thunk
   const targetModel = relationState.getter();
-  const targetScalars = targetModel["~"].state.scalars;
-  const targetRelations = targetModel["~"].state.relations;
-
   if (isToMany) {
     if (!Array.isArray(value)) {
       return malformedResult(
@@ -72,8 +69,7 @@ export function parseRelationValueDefault(
       ctx,
       operation,
       keys,
-      targetScalars,
-      targetRelations,
+      targetModel,
       shape,
       parsers
     );
@@ -95,8 +91,7 @@ export function parseRelationValueDefault(
     ctx,
     operation,
     value,
-    targetScalars,
-    targetRelations,
+    targetModel,
     shape,
     parsers
   );
@@ -106,8 +101,7 @@ function deserializeWithSchema(
   ctx: ResultParser,
   operation: Operation,
   obj: Record<string, unknown>,
-  scalars: Record<string, Scalar>,
-  relations: Record<string, AnyRelation>,
+  model: Model<any>,
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers
 ): Record<string, unknown> {
@@ -116,8 +110,7 @@ function deserializeWithSchema(
     ctx,
     operation,
     keys,
-    scalars,
-    relations,
+    model,
     shape,
     parsers
   )(obj);

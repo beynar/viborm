@@ -11,8 +11,10 @@ import {
   createChildScope,
   getColumnName,
   getDefaultScalarFieldNames,
+  getPolymorphicRelationInfo,
   getRelationInfo,
   getScalarFieldNames,
+  isPolymorphicRelation,
   isRelation,
 } from "../context";
 import {
@@ -30,6 +32,7 @@ import {
   type IncludeStrategy,
 } from "./include-builder";
 import { buildRelationCount } from "./relation-count-builder";
+import { buildPolymorphicRead } from "./polymorphic-read-builder";
 import { buildVectorDistanceExpression } from "./vector-distance-builder";
 
 /**
@@ -284,6 +287,26 @@ function buildSelectPairs(
             lateralJoins.push(includeResult.lateralJoin);
           }
         }
+        continue;
+      }
+
+      if (isPolymorphicRelation(ctx.model, key)) {
+        const relation = getPolymorphicRelationInfo(ctx, key);
+        if (!relation) {
+          throw new QueryEngineError(
+            `Polymorphic relation '${key}' has no validated storage metadata.`
+          );
+        }
+        pairs.push([
+          key,
+          buildPolymorphicRead(
+            buildSubquerySelection,
+            ctx,
+            relation,
+            value,
+            alias
+          ),
+        ]);
       }
     }
     if (hasDistanceSelect && hasDistanceOutputField) {
@@ -370,6 +393,26 @@ function buildSelectPairs(
             lateralJoins.push(includeResult.lateralJoin);
           }
         }
+        continue;
+      }
+
+      if (isPolymorphicRelation(ctx.model, key)) {
+        const relation = getPolymorphicRelationInfo(ctx, key);
+        if (!relation) {
+          throw new QueryEngineError(
+            `Polymorphic relation '${key}' has no validated storage metadata.`
+          );
+        }
+        pairs.push([
+          key,
+          buildPolymorphicRead(
+            buildSubquerySelection,
+            ctx,
+            relation,
+            value,
+            alias
+          ),
+        ]);
       }
     }
   }

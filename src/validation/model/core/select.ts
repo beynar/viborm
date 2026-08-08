@@ -156,9 +156,10 @@ export type SelectSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
-  V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
+    V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
     V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"] &
-    V.FromObject<F["relations"], "select">["entries"] & {
+    V.FromObject<F["relations"], "select">["entries"] &
+    V.FromObject<F["polymorphic"], "select">["entries"] & {
       _count: CountSchema<F>;
     }
 >;
@@ -232,10 +233,15 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     fieldSchemas.relations,
     "select"
   );
+  const polymorphicEntries = v.fromObject<F["polymorphic"], "select">(
+    fieldSchemas.polymorphic,
+    "select"
+  );
 
   return v.object({
     ...scalarEntries,
     ...relationEntries.entries,
+    ...polymorphicEntries.entries,
     // Accepts `true` (count every to-many relation) or the explicit
     // { select: { <relation>: true | { where } } } object.
     _count: getCountSchema(model, fieldSchemas),
@@ -250,12 +256,15 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * Build include schema - nested include for each relation
  */
 
-type RelationSchemaBundle = { relations: Record<string, any> };
+type RelationSchemaBundle = {
+  relations: Record<string, any>;
+  polymorphic: Record<string, any>;
+};
 
 export type IncludeSchema<F extends RelationSchemaBundle> = V.Object<
   V.FromObject<F["relations"], "include", { optional: true }>["entries"] & {
     _count: CountSchema<F>;
-  }
+  } & V.FromObject<F["polymorphic"], "include", { optional: true }>["entries"]
 >;
 
 export const getIncludeSchema = <F extends RelationSchemaBundle>(
@@ -270,9 +279,17 @@ export const getIncludeSchema = <F extends RelationSchemaBundle>(
   >(schemas.relations, "include", {
     optional: true,
   });
+  const polymorphicEntries = v.fromObject<
+    F["polymorphic"],
+    "include",
+    { optional: true }
+  >(schemas.polymorphic, "include", {
+    optional: true,
+  });
 
   return v.object({
     ...relationEntries.entries,
+    ...polymorphicEntries.entries,
     // Prisma supports `_count` under include as well as select — both the
     // `true` shorthand and the explicit object; mirror the select-schema entry
     // (the query engine already builds _count in include position).

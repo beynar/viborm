@@ -16,7 +16,11 @@ export {
 export { toManyUpdateFactory, toOneUpdateFactory } from "./update";
 
 import type { AnyModel } from "@schema/model";
-import v from "..";
+import {
+  type GetPolymorphicInverseBinding,
+  getPolymorphicInverseBinding,
+} from "@schema/relation/polymorphic";
+import v, { type V } from "..";
 import { lazyRecord } from "../lazy";
 import { type CountFilterSchema, countFilterFactory } from "./count-filter";
 import {
@@ -31,7 +35,11 @@ import {
   toManyFilterFactory,
   toOneFilterFactory,
 } from "./filter";
-import type { SchemaGetter } from "./helpers";
+import type {
+  GetTargetSchemas,
+  SchemaGetter,
+  TargetModel,
+} from "./helpers";
 import {
   type ToManyOrderBySchema,
   type ToOneOrderBySchema,
@@ -124,11 +132,82 @@ export type ToManySchemas<S extends RelationState, Source extends AnyModel> = {
   countFilter: CountFilterSchema<S>;
 };
 
+type PolymorphicInverseBindingFor<
+  S extends RelationState,
+  Source extends AnyModel,
+> = GetPolymorphicInverseBinding<TargetModel<S>, Source, S["name"]>;
+
+type PolymorphicInverseRelationKey<
+  S extends RelationState,
+  Source extends AnyModel,
+> = [PolymorphicInverseBindingFor<S, Source>] extends [never]
+  ? never
+  : PolymorphicInverseBindingFor<S, Source> extends {
+        readonly relationKey: infer RelationKey;
+      }
+    ? Extract<
+        RelationKey,
+        keyof GetTargetSchemas<S>["core"]["create"]["entries"]
+      >
+    : never;
+
+type HasExactPolymorphicInverse<
+  S extends RelationState,
+  Source extends AnyModel,
+> = [PolymorphicInverseRelationKey<S, Source>] extends [never]
+  ? false
+  : string extends PolymorphicInverseRelationKey<S, Source>
+    ? false
+    : true;
+
+type HasNamedTargetPolymorphicRelations<S extends RelationState> =
+  string extends keyof TargetModel<S>["~"]["state"]["polymorphicRelations"]
+    ? false
+    : [keyof TargetModel<S>["~"]["state"]["polymorphicRelations"]] extends [
+          never,
+        ]
+      ? false
+      : true;
+
+type PolymorphicInverseCreateTarget<
+  S extends RelationState,
+  Source extends AnyModel,
+> = V.Omit<
+  GetTargetSchemas<S>["core"]["create"],
+  readonly [PolymorphicInverseRelationKey<S, Source>]
+>;
+
+type PolymorphicInverseCreateEntries<
+  S extends RelationState,
+  Source extends AnyModel,
+> = {
+  create: () => V.SingleOrArray<
+    PolymorphicInverseCreateTarget<S, Source>
+  >;
+};
+
+type PolymorphicInverseToManySchemas<
+  S extends RelationState,
+  Source extends AnyModel,
+> = Omit<ToManySchemas<S, Source>, "create" | "update"> & {
+  create: V.Object<
+    PolymorphicInverseCreateEntries<S, Source>,
+    { optional: true }
+  >;
+  update: V.Object<PolymorphicInverseCreateEntries<S, Source>>;
+};
+
 export type GetRelationSchemas<
   S extends RelationState,
   Source extends AnyModel,
 > = S["type"] extends "manyToMany" | "oneToMany"
-  ? ToManySchemas<S, Source>
+  ? S["type"] extends "oneToMany"
+    ? HasNamedTargetPolymorphicRelations<S> extends true
+      ? HasExactPolymorphicInverse<S, Source> extends true
+        ? PolymorphicInverseToManySchemas<S, Source>
+        : ToManySchemas<S, Source>
+      : ToManySchemas<S, Source>
+    : ToManySchemas<S, Source>
   : ToOneSchemas<S, Source>;
 
 // =============================================================================
@@ -149,6 +228,49 @@ export const getRelationSchemas = <
   targetSchemas: T
 ) => {
   const isToMany = state.type === "manyToMany" || state.type === "oneToMany";
+  if (state.type === "oneToMany") {
+    const schemas = toManySchemas(state, source, targetSchemas);
+    let inverseBinding:
+      | ReturnType<typeof getPolymorphicInverseBinding>
+      | undefined;
+    let inverseBindingResolved = false;
+    const getInverseBinding = () => {
+      if (!inverseBindingResolved) {
+        inverseBinding = getPolymorphicInverseBinding(
+          state.getter(),
+          source,
+          state.name
+        );
+        inverseBindingResolved = true;
+      }
+      return inverseBinding;
+    };
+    const getInverseCreateSchema = () => {
+      const binding = getInverseBinding();
+      if (!binding) return undefined;
+      const getCreateSchema = () =>
+        v.omit(targetSchemas().core.create, [binding.relationKey]);
+      return { getCreateSchema };
+    };
+    return {
+      ...schemas,
+      create: v.lazy(() => {
+        const inverse = getInverseCreateSchema();
+        if (!inverse) return schemas.create;
+        return v.object(
+          { create: () => v.singleOrArray(inverse.getCreateSchema()) },
+          { optional: true }
+        );
+      }),
+      update: v.lazy(() => {
+        const inverse = getInverseCreateSchema();
+        if (!inverse) return schemas.update;
+        return v.object({
+          create: () => v.singleOrArray(inverse.getCreateSchema()),
+        });
+      }),
+    } as unknown as GetRelationSchemas<S, Source>;
+  }
   return (
     isToMany
       ? toManySchemas(state, source, targetSchemas)

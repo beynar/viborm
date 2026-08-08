@@ -543,13 +543,78 @@ type ClauseGuard<Arg, Payload, K extends string> = K extends keyof Arg
     : unknown
   : unknown;
 
-type NoExtraOperationKeys<Arg, Payload> = Arg &
+type ValueAt<Container, Key extends PropertyKey> = Container extends unknown
+  ? Key extends keyof Container
+    ? Container[Key]
+    : never
+  : never;
+
+type PolymorphicVariantKeys<Relation> = Relation extends {
+  readonly "~": {
+    readonly state: { readonly targets: infer Targets };
+  };
+}
+  ? keyof Targets
+  : never;
+
+type UsedPolymorphicFields<Clause, Relations> = Extract<
+  SpelledClauseKeys<NonNullable<Clause>>,
+  keyof Relations
+>;
+
+type PolymorphicVariantMapGuard<Projection, Relation> = Record<
+  Exclude<
+    SpelledClauseKeys<Exclude<Projection, boolean | null | undefined>>,
+    PolymorphicVariantKeys<Relation>
+  >,
+  never
+>;
+
+type PolymorphicClauseGuard<Clause, Relations> = [
+  UsedPolymorphicFields<Clause, Relations>,
+] extends [never]
+  ? unknown
+  : {
+      [RelationName in UsedPolymorphicFields<
+        Clause,
+        Relations
+      >]?: PolymorphicVariantMapGuard<
+        ValueAt<NonNullable<Clause>, RelationName>,
+        Relations[RelationName]
+      >;
+    };
+
+/**
+ * Seal only the finite discriminator map at a direct polymorphic projection.
+ * Looking inside one variant would resolve recursive target models during
+ * generic inference and crosses the measured depth-three type-cost boundary.
+ */
+type DirectPolymorphicProjectionGuard<
+  Arg,
+  M extends Model<any>,
+  Clause extends "select" | "include",
+> = M extends Model<infer State>
+  ? string extends keyof State["polymorphicRelations"]
+    ? unknown
+    : Clause extends keyof Arg
+      ? {
+          [Key in Clause]?: PolymorphicClauseGuard<
+            Arg[Key],
+            State["polymorphicRelations"]
+          >;
+        }
+      : unknown
+  : unknown;
+
+type NoExtraOperationKeys<Arg, Payload, M extends Model<any>> = Arg &
   Record<Exclude<keyof Arg, keyof Payload>, never> &
   ClauseGuard<Arg, Payload, "where"> &
   ClauseGuard<Arg, Payload, "select"> &
   ClauseGuard<Arg, Payload, "include"> &
   ClauseGuard<Arg, Payload, "orderBy"> &
-  ClauseGuard<Arg, Payload, "omit">;
+  ClauseGuard<Arg, Payload, "omit"> &
+  DirectPolymorphicProjectionGuard<Arg, M, "select"> &
+  DirectPolymorphicProjectionGuard<Arg, M, "include">;
 
 /**
  * Operation type - returns PendingOperation which implements PromiseLike
@@ -567,11 +632,12 @@ type Operation<
   ? <Arg extends RemoveCacheKey<C, Payload>>(
       args?: NoExtraOperationKeys<
         Exclude<Arg, undefined>,
-        Exclude<RemoveCacheKey<C, Payload>, undefined>
+        Exclude<RemoveCacheKey<C, Payload>, undefined>,
+        M
       >
     ) => PendingOperation<OperationResult<O, M, Arg, DefaultOmit>>
   : <Arg extends RemoveCacheKey<C, Payload>>(
-      args: NoExtraOperationKeys<Arg, RemoveCacheKey<C, Payload>>
+      args: NoExtraOperationKeys<Arg, RemoveCacheKey<C, Payload>, M>
     ) => PendingOperation<OperationResult<O, M, Arg, DefaultOmit>>;
 
 /**
@@ -586,11 +652,12 @@ type CachedOperation<
   ? <Arg extends Payload>(
       args?: NoExtraOperationKeys<
         Exclude<Arg, undefined>,
-        Exclude<Payload, undefined>
+        Exclude<Payload, undefined>,
+        M
       >
     ) => Promise<OperationResult<O, M, Arg, DefaultOmit>>
   : <Arg extends Payload>(
-      args: NoExtraOperationKeys<Arg, Payload>
+      args: NoExtraOperationKeys<Arg, Payload, M>
     ) => Promise<OperationResult<O, M, Arg, DefaultOmit>>;
 
 /**

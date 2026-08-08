@@ -8,6 +8,10 @@ import {
 } from "../builders/correlation-utils";
 import { isMissingGeneratedIncrement } from "../builders/generated-scalar";
 import {
+  bindResolvedPolymorphicEdge,
+  type PolymorphicStorageValue,
+} from "../builders/polymorphic-mutation";
+import {
   type BoundRelation,
   bindRelation,
   buildConnectSubqueryForField,
@@ -17,9 +21,11 @@ import {
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
+  type ParsedRecordPrograms,
   type RelationMutationEntry,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
+import { resolvePolymorphicInverse } from "../builders/polymorphic-relation";
 import { buildInsert, buildValueGroups } from "../builders/values-builder";
 import {
   createQueryScope,
@@ -41,12 +47,13 @@ import { planNestedCreateIdentity } from "../operations/mutation-identity";
 import { assertCreateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import type { QueryEngine } from "../query-engine";
 import { ResultParser } from "../result/ResultParser";
-import type { QueryScope } from "../types";
+import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
 import {
   type FinalReferenceSource,
   type ForeignKeyMember,
   foreignKeyWriteValue,
   pairForeignKeyMembers,
+  resolvePolymorphicStorageValue,
 } from "./foreign-key-reference";
 import {
   childRacePin,
@@ -110,6 +117,7 @@ export type FreshRecordBuilder = (input: {
   readonly childScope: QueryScope;
   readonly data: Record<string, unknown>;
   readonly incomingForeignKey: readonly ForeignKeyMember[];
+  readonly incomingPolymorphicStorage?: readonly PolymorphicStorageValue<FinalReferenceSource>[];
   readonly relationName: string;
   readonly racePin?: TargetConstraintPin;
 }) => FreshRecordPart;
@@ -130,6 +138,9 @@ export function buildFreshRecordPart(
       nestedFresh: {
         data: input.data,
         incomingForeignKey: input.incomingForeignKey,
+        ...(input.incomingPolymorphicStorage
+          ? { incomingPolymorphicStorage: input.incomingPolymorphicStorage }
+          : {}),
         relationName: input.relationName,
         rootRacePin: input.racePin,
       },
@@ -200,6 +211,24 @@ type ParentHeldArm =
        *  so today this is always present here; the type admits the withholding
        *  because the one function that mints the pin owns that decision. */
       readonly racePin: TargetConstraintPin | undefined;
+    }
+  | {
+      readonly kind: "polymorphic-connect-covered";
+      readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
+    }
+  | {
+      readonly kind: "polymorphic-connect-probe";
+      readonly relation: ParentHeldToOne;
+      readonly guardId: string;
+      readonly probeId: string;
+      readonly guardField: string;
+      readonly where: Record<string, unknown>;
+      readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
+    }
+  | {
+      readonly kind: "polymorphic-create";
+      readonly before: RecordPlan;
+      readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
     };
 
 /** A before-parent target key that lets a sibling `connect` adopt it without a probe. */
@@ -214,6 +243,8 @@ interface ChildCreate {
   readonly record: RecordPlan;
   /** The FK columns this child writes ← their referenced parent columns. */
   readonly inject: Record<string, unknown>;
+  /** An inverse polymorphic edge writes its private pair instead of a public FK. */
+  readonly polymorphicStorage?: readonly PolymorphicStorageValue<FinalReferenceSource>[];
 }
 
 /**
@@ -259,6 +290,11 @@ interface RecordPlan {
   readonly childCreates: readonly ChildCreate[];
   readonly createManyGroups: readonly CreateManyGroup[];
   readonly afterParts: readonly Part[];
+}
+
+interface EmittedRecordData {
+  readonly data: Record<string, unknown>;
+  readonly polymorphicStorage: readonly PolymorphicStorageValue<unknown>[];
 }
 
 /** The record identity a child edge resolves its FK value against. */
@@ -321,6 +357,7 @@ export class CreateOperation {
    *  the result) and injects the located parent's FK into its root INSERT. */
   private readonly suppressTerminal: boolean;
   private readonly incomingForeignKey: readonly ForeignKeyMember[];
+  private readonly incomingPolymorphicStorage: readonly PolymorphicStorageValue<FinalReferenceSource>[];
   private readonly incomingRelationName: string;
   /** N4-U2 — the enclosing adopt arm's raceable missing-premise pin, carried by this
    *  subtree's ROOT record INSERT (the statement that was the arm's own create leaf
@@ -362,6 +399,8 @@ export class CreateOperation {
     const nestedFresh = options.nestedFresh;
     this.suppressTerminal = nestedFresh !== undefined;
     this.incomingForeignKey = nestedFresh?.incomingForeignKey ?? [];
+    this.incomingPolymorphicStorage =
+      nestedFresh?.incomingPolymorphicStorage ?? [];
     this.incomingRelationName = nestedFresh?.relationName ?? "";
     this.rootRacePin = nestedFresh?.rootRacePin;
 
@@ -534,7 +573,8 @@ export class CreateOperation {
       rootInject,
       known,
       guards,
-      writes
+      writes,
+      this.incomingPolymorphicStorage
     );
     if (this.suppressTerminal) {
       // A nested fresh subtree contributes only its writes/guards; the enclosing
@@ -611,7 +651,7 @@ export class CreateOperation {
   private buildTreeFold(
     guards: readonly OperationStep[],
     writes: readonly OperationStep[],
-    rootInsertData: Record<string, unknown>
+    rootInsertData: EmittedRecordData
   ): WriteStep | undefined {
     const statementWrites = writes.filter(
       (step): step is WriteStep => step.kind === "write"
@@ -643,7 +683,11 @@ export class CreateOperation {
       id: this.root.writeStepId,
       kind: "write",
       statement: buildMutationProjectionFold(parent, {
-        mutation: buildInsertStatement(parent, rootInsertData),
+        mutation: buildInsertStatement(
+          parent,
+          rootInsertData.data,
+          rootInsertData.polymorphicStorage
+        ),
         siblings: siblings.map((step) => step.statement),
         ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
       }),
@@ -685,7 +729,10 @@ export class CreateOperation {
     data: Record<string, unknown>,
     txMode: boolean,
     presetWriteStepId?: string,
-    parsedData = buildParsedRelationPrograms(childScope, data)
+    parsedData: ParsedRecordPrograms = buildParsedRelationPrograms(
+      childScope,
+      data
+    )
   ): RecordPlan {
     const model = childScope.model;
     // A record whose primary key is also its foreign key takes that identity from the
@@ -693,7 +740,8 @@ export class CreateOperation {
     // read addresses the inserted row; unresolved sources fail at that ownership seam.
     const sharedPk = this.resolveSharedPkIdentity(
       childScope,
-      parsedData.relations
+      parsedData.relations,
+      parsedData.polymorphic
     );
     const { identity, generatedField } = planNestedCreateIdentity(model, {
       ...parsedData.scalarData,
@@ -725,12 +773,41 @@ export class CreateOperation {
     // arms so coverage is order-insensitive, exactly as V1's group-0 analysis.
     const coverage = this.beforeParentCoverage(
       childScope,
-      parsedData.relations
+      parsedData.relations,
+      parsedData.polymorphic
     );
 
     for (const [relationName, program] of Object.entries(
       parsedData.relations
     )) {
+      const polymorphic = parsedData.polymorphic[relationName];
+      if (polymorphic?.kind === "targeted") {
+        this.interpretPolymorphicRelation({
+          childScope,
+          self,
+          program,
+          edge: polymorphic.edge,
+          txMode,
+          coverage,
+          parentHeldArms,
+        });
+        continue;
+      }
+      const polymorphicInverse = resolvePolymorphicInverse(
+        childScope,
+        program.relationInfo
+      );
+      if (polymorphicInverse) {
+        this.interpretPolymorphicInverseCreate({
+          childScope,
+          self,
+          program,
+          inverse: polymorphicInverse,
+          txMode,
+          childCreates,
+        });
+        continue;
+      }
       this.interpretRelation({
         childScope,
         self,
@@ -759,6 +836,183 @@ export class CreateOperation {
       childCreates,
       createManyGroups,
       afterParts,
+    };
+  }
+
+  /**
+   * The V1 inverse surface has one operation: create. The ordinary public
+   * `oneToMany` names the child record, while the resolved inverse owns the
+   * private `(type, id)` edge written into that child's root INSERT.
+   */
+  private interpretPolymorphicInverseCreate(input: {
+    readonly childScope: QueryScope;
+    readonly self: RecordIdentity;
+    readonly program: RelationMutationProgram;
+    readonly inverse: NonNullable<ReturnType<typeof resolvePolymorphicInverse>>;
+    readonly txMode: boolean;
+    readonly childCreates: ChildCreate[];
+  }): void {
+    const entry = input.program.entries[0];
+    if (!(entry && input.program.entries.length === 1 && entry.kind === "create")) {
+      throw new QueryEngineError(
+        `query-engine internal: polymorphic inverse '${input.program.relationInfo.name}' requires one create operation.`
+      );
+    }
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      input.program.relationInfo.targetModel
+    );
+    const assignment: PolymorphicStorageValue<FinalReferenceSource> = {
+      kind: "linked",
+      storage: input.inverse.storage,
+      storedType: input.inverse.storedType,
+      referencedField: input.inverse.sourceReferencedField,
+      id: this.referencedParentSource(
+        input.self,
+        input.inverse.sourceReferencedField,
+        input.program.relationInfo.name
+      ),
+    };
+    for (const data of entry.items) {
+      input.childCreates.push({
+        record: this.buildRecord(childScope, data, input.txMode),
+        inject: {},
+        polymorphicStorage: [assignment],
+      });
+    }
+  }
+
+  private interpretPolymorphicRelation(input: {
+    readonly childScope: QueryScope;
+    readonly self: RecordIdentity;
+    readonly program: RelationMutationProgram;
+    readonly edge: ResolvedPolymorphicEdge;
+    readonly txMode: boolean;
+    readonly coverage: readonly CreatedTarget[];
+    readonly parentHeldArms: ParentHeldArm[];
+  }): void {
+    const relation = bindResolvedPolymorphicEdge(input.edge);
+    const relationName = input.edge.relationInfo.name;
+    const entry = input.program.entries[0];
+    if (!(entry && input.program.entries.length === 1)) {
+      throw new QueryEngineError(
+        `query-engine internal: direct polymorphic relation '${relationName}' requires one target operation.`
+      );
+    }
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      input.edge.targetModel
+    );
+    if (entry.kind === "create") {
+      const createData = entry.items[0];
+      if (!createData) {
+        throw new QueryEngineError(
+          `query-engine internal: polymorphic create on relation '${relationName}' has no item.`
+        );
+      }
+      const before = this.buildRecord(childScope, createData, input.txMode);
+      const source = this.recordReferenced(before, input.edge.referencedField);
+      if (!source) {
+        throw new UnsupportedOperationError(
+          `query-engine create cannot resolve referenced field '${input.edge.referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
+        );
+      }
+      input.parentHeldArms.push({
+        kind: "polymorphic-create",
+        before,
+        assignment: this.polymorphicLinked(input.edge, source),
+      });
+      return;
+    }
+    if (entry.kind !== "connect") {
+      throw new QueryEngineError(
+        `query-engine internal: kind '${entry.kind}' reached direct polymorphic create relation '${relationName}'.`
+      );
+    }
+    const where = entry.targets[0];
+    if (!where) {
+      throw new QueryEngineError(
+        `query-engine internal: polymorphic connect on relation '${relationName}' has no target.`
+      );
+    }
+    if (
+      this.connectIsCovered(
+        input.coverage,
+        input.edge.targetModel,
+        where,
+        [input.edge.referencedField]
+      )
+    ) {
+      input.parentHeldArms.push({
+        kind: "polymorphic-connect-covered",
+        assignment: this.polymorphicConnectAssignment(
+          input.childScope,
+          input.edge,
+          where
+        ),
+      });
+      return;
+    }
+    const childName = getStepModelName(input.edge.targetModel, relationName);
+    const probeId = this.scope.allocate(`${childName}.find`);
+    const guardId = this.scope.allocate(`${childName}.guard.exists`);
+    const select = { [input.edge.referencedField]: true };
+    input.parentHeldArms.push({
+      kind: "polymorphic-connect-probe",
+      relation,
+      probeId,
+      guardId,
+      guardField: input.edge.referencedField,
+      where,
+      assignment: this.polymorphicLinked(input.edge, {
+        kind: "planningField",
+        step: probeId,
+      }),
+    });
+    this.planningSteps.push({
+      id: probeId,
+      kind: "read",
+      statement: buildFindUnique(childScope, {
+        where,
+        select,
+        forUpdate: input.txMode,
+      }),
+      outputs: { rows: { kind: "rows" } },
+    });
+  }
+
+  private polymorphicConnectAssignment(
+    owner: QueryScope,
+    edge: ResolvedPolymorphicEdge,
+    where: Record<string, unknown>
+  ): PolymorphicStorageValue<FinalReferenceSource> {
+    const id: FinalReferenceSource = Object.hasOwn(
+      where,
+      edge.referencedField
+    )
+      ? { kind: "literal", value: where[edge.referencedField] }
+      : {
+          kind: "lookup",
+          statement: buildConnectSubqueryForField(
+            owner,
+            edge.relationInfo,
+            where,
+            edge.referencedField
+          ),
+        };
+    return this.polymorphicLinked(edge, id);
+  }
+
+  private polymorphicLinked(
+    edge: ResolvedPolymorphicEdge,
+    id: FinalReferenceSource
+  ): PolymorphicStorageValue<FinalReferenceSource> {
+    return {
+      kind: "linked",
+      storage: edge.storage,
+      storedType: edge.storedType,
+      referencedField: edge.referencedField,
+      id,
     };
   }
 
@@ -819,12 +1073,15 @@ export class CreateOperation {
    */
   private resolveSharedPkIdentity(
     childScope: QueryScope,
-    relations: Record<string, RelationMutationProgram>
+    relations: Record<string, RelationMutationProgram>,
+    polymorphic: ParsedRecordPrograms["polymorphic"]
   ): SharedPkIdentity {
     const recordPk = getPrimaryKeyFields(childScope.model);
     const identity: Record<string, unknown> = {};
     const producedBy = new Map<string, string>();
     for (const [relationName, program] of Object.entries(relations)) {
+      if (polymorphic[relationName]?.kind === "targeted") continue;
+      if (resolvePolymorphicInverse(childScope, program.relationInfo)) continue;
       const relation = bindRelation(childScope, program.relationInfo);
       if (relation.kind !== "parentHeldToOne") continue;
       const sharedForeignFields = relation.foreignFields.filter(
@@ -919,10 +1176,32 @@ export class CreateOperation {
    */
   private beforeParentCoverage(
     childScope: QueryScope,
-    relations: Record<string, RelationMutationProgram>
+    relations: Record<string, RelationMutationProgram>,
+    polymorphic: ParsedRecordPrograms["polymorphic"]
   ): CreatedTarget[] {
     const targets: CreatedTarget[] = [];
-    for (const program of Object.values(relations)) {
+    for (const [relationName, program] of Object.entries(relations)) {
+      const direct = polymorphic[relationName];
+      if (direct?.kind === "targeted") {
+        const create = program.entries.find(
+          (entry) => entry.kind === "create"
+        );
+        const data = create?.items[0];
+        if (
+          data &&
+          Object.hasOwn(data, direct.edge.referencedField)
+        ) {
+          targets.push({
+            model: direct.edge.targetModel,
+            key: {
+              [direct.edge.referencedField]:
+                data[direct.edge.referencedField],
+            },
+          });
+        }
+        continue;
+      }
+      if (resolvePolymorphicInverse(childScope, program.relationInfo)) continue;
       const relation = bindRelation(childScope, program.relationInfo);
       if (relation.kind !== "parentHeldToOne") continue;
       const createEntry = program.entries.find(
@@ -1717,27 +1996,48 @@ export class CreateOperation {
     inject: Record<string, unknown>,
     known: Readonly<Record<string, unknown>>,
     guards: OperationStep[],
-    writes: OperationStep[]
-  ): Record<string, unknown> {
+    writes: OperationStep[],
+    incomingPolymorphicStorage: readonly PolymorphicStorageValue<FinalReferenceSource>[] = []
+  ): EmittedRecordData {
     const insertData: Record<string, unknown> = {
       ...plan.scalarData,
       ...inject,
     };
+    const polymorphicStorage: PolymorphicStorageValue<unknown>[] = [];
+    for (const value of incomingPolymorphicStorage) {
+      polymorphicStorage.push(
+        resolvePolymorphicStorageValue(this.engine, value, known, "create")
+      );
+    }
     // 1. Before the record INSERT: resolve each parent-held to-one arm — a before-
     //    parent target INSERT (emitted first, its id referenced backward), a covered
     //    connect (pure FK assign), or an uncovered connect/connectOrCreate probe +
     //    pin. Each folds its FK value into `insertData`.
     for (const arm of plan.parentHeldArms) {
-      this.emitParentHeldArm(arm, insertData, known, guards, writes);
+      this.emitParentHeldArm(
+        arm,
+        insertData,
+        polymorphicStorage,
+        known,
+        guards,
+        writes
+      );
     }
 
     // 2. The record's own INSERT.
-    writes.push(this.buildInsertStep(plan, insertData));
+    writes.push(this.buildInsertStep(plan, insertData, polymorphicStorage));
 
     // 3. After the INSERT: child-held creates (recurse), createMany, and the
     //    adopt/M2M Parts — all correlated to this record's (fresh) identity.
     for (const child of plan.childCreates) {
-      this.emitRecord(child.record, child.inject, known, guards, writes);
+      this.emitRecord(
+        child.record,
+        child.inject,
+        known,
+        guards,
+        writes,
+        child.polymorphicStorage
+      );
     }
     for (const group of plan.createManyGroups) {
       for (const step of group.steps) writes.push(step);
@@ -1745,13 +2045,14 @@ export class CreateOperation {
     for (const part of plan.afterParts) {
       bucketOperationSteps(part.compile(this.scope, known), guards, writes);
     }
-    return insertData;
+    return { data: insertData, polymorphicStorage };
   }
 
   /** Resolve one parent-held arm and emit its target before the record INSERT. */
   private emitParentHeldArm(
     arm: ParentHeldArm,
     insertData: Record<string, unknown>,
+    polymorphicStorage: PolymorphicStorageValue<unknown>[],
     known: Readonly<Record<string, unknown>>,
     guards: OperationStep[],
     writes: OperationStep[]
@@ -1798,6 +2099,61 @@ export class CreateOperation {
         }
         return;
       }
+      case "polymorphic-connect-covered":
+        polymorphicStorage.push(
+          resolvePolymorphicStorageValue(
+            this.engine,
+            arm.assignment,
+            known,
+            "connect"
+          )
+        );
+        return;
+      case "polymorphic-connect-probe":
+        this.requireConnectFound(arm.probeId, arm.relation, known);
+        polymorphicStorage.push(
+          resolvePolymorphicStorageValue(
+            this.engine,
+            arm.assignment,
+            known,
+            "connect"
+          )
+        );
+        if (this.mode === "batch") {
+          const target = this.capturedConnectValue(
+            arm.probeId,
+            arm.guardField,
+            arm.relation,
+            known
+          );
+          const childScope = createQueryScope(
+            this.engine.adapter,
+            arm.relation.relationInfo.targetModel
+          );
+          guards.push(
+            this.connectGuard(
+              arm.guardId,
+              buildFindUnique(childScope, {
+                where: { ...arm.where, [arm.guardField]: target },
+                select: { [arm.guardField]: true },
+                forUpdate: true,
+              }),
+              arm.relation
+            )
+          );
+        }
+        return;
+      case "polymorphic-create":
+        this.emitBeforeParent(arm.before, undefined, known, guards, writes);
+        polymorphicStorage.push(
+          resolvePolymorphicStorageValue(
+            this.engine,
+            arm.assignment,
+            known,
+            "create"
+          )
+        );
+        return;
       default: {
         const _exhaustive: never = arm;
         throw new QueryEngineError(
@@ -1868,9 +2224,28 @@ export class CreateOperation {
     }
   }
 
+  private capturedConnectValue(
+    probeId: string,
+    field: string,
+    relation: ParentHeldToOne,
+    known: Readonly<Record<string, unknown>>
+  ): unknown {
+    this.requireConnectFound(probeId, relation, known);
+    const rows = known[planningKey(probeId, "rows")];
+    const row = Array.isArray(rows) ? rows[0] : undefined;
+    if (!isRecord(row) || row[field] === undefined || row[field] === null) {
+      throw new NestedWriteError(
+        `query-engine create connect probe for relation '${relation.relationInfo.name}' did not expose '${field}'.`,
+        relation.relationInfo.name
+      );
+    }
+    return row[field];
+  }
+
   private buildInsertStep(
     plan: RecordPlan,
-    insertData: Record<string, unknown>
+    insertData: Record<string, unknown>,
+    polymorphicStorage: readonly PolymorphicStorageValue<unknown>[]
   ): WriteStep {
     const { childScope, generatedField, writeStepId } = plan;
     const txMode = this.mode === "transaction";
@@ -1893,7 +2268,8 @@ export class CreateOperation {
         statement: buildInsert(
           childScope,
           getTableName(childScope.model),
-          insertData
+          insertData,
+          polymorphicStorage
         ),
         outputs: {},
         ...racePin,
@@ -1910,9 +2286,15 @@ export class CreateOperation {
         txMode && returning
           ? buildCreate(childScope, {
               data: insertData,
+              polymorphicStorage,
               select: { [generatedField]: true },
             })
-          : buildInsert(childScope, getTableName(childScope.model), insertData),
+          : buildInsert(
+              childScope,
+              getTableName(childScope.model),
+              insertData,
+              polymorphicStorage
+            ),
       outputs: {
         id:
           txMode && returning

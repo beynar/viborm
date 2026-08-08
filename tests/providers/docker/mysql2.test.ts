@@ -75,6 +75,7 @@ import { nonReturningMutationAtomicityContract } from "@tests/contracts/drivers/
 import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
 import { optionalRelationParityContract } from "@tests/contracts/drivers/behaviors/optional-relation-parity-behavior";
 import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
+import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
 import { readPathRegressionContract } from "@tests/contracts/drivers/behaviors/read-path-regression-behavior";
 import { relationFilterMutationContract } from "@tests/contracts/drivers/behaviors/relation-filter-mutation-behavior";
@@ -296,6 +297,10 @@ describeIf("MySQL2 Driver", () => {
 
   omitContract.register({
     driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+  polymorphicRelationContract.register({
+    name: "MySQL2",
     createDriver: createMySQL2Driver,
   });
 

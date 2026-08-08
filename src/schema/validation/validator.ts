@@ -136,3 +136,16 @@ export function validateSchemaOrThrow(
 ): void {
   new SchemaValidator().registerAll(models).validateOrThrow(rules);
 }
+
+/** Mandatory definition gate for the feature-owned private storage contract.
+ * Ordinary schemas keep their current client-construction behavior. */
+export function validatePolymorphicSchemaOrThrow(
+  models: Record<string, Model<any>>
+): void {
+  const hasPolymorphicRelation = Object.values(models).some(
+    (model) =>
+      Object.keys(model["~"].state.polymorphicRelations).length > 0
+  );
+  if (!hasPolymorphicRelation) return;
+  new SchemaValidator().registerAll(models).validateOrThrow();
+}

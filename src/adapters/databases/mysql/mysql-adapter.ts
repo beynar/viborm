@@ -272,6 +272,10 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   json = {
+    boolean: (condition: Sql): Sql =>
+      sql`JSON_EXTRACT(CASE WHEN ${condition} THEN 'true' ELSE 'false' END, '$')`,
+    document: (expression: Sql): Sql => expression,
+
     object: (pairs: [string, Sql][]): Sql => {
       if (pairs.length === 0) return sql.raw`JSON_OBJECT()`;
       const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
@@ -611,7 +615,7 @@ export class MySQLAdapter implements DatabaseAdapter {
 
     parseRelation: (
       value: unknown,
-      _type: import("../../../schema/relation/types").RelationType,
+      _type: import("../../adapter-result-parser").RelationResultKind,
       next: (value?: unknown) => unknown
     ): unknown => {
       // MySQL returns JSON as strings - parse before delegating

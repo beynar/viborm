@@ -6,6 +6,7 @@
  */
 
 import { type Sql, sql } from "@sql";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import { isRecord } from "@validation/value-guards";
 import { buildSelect } from "../builders/select-builder";
 import {
@@ -19,6 +20,7 @@ import { assertPortableCreateManySkip } from "./create-many-portability";
 
 interface CreateArgs {
   data: Record<string, unknown>;
+  polymorphicStorage?: readonly PolymorphicStorageValue<unknown>[];
   select?: Record<string, unknown>;
   include?: Record<string, unknown>;
 }
@@ -60,12 +62,13 @@ export interface CreateManyPlan {
  */
 export function buildInsertStatement(
   ctx: QueryScope,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  polymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
 ): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
-  const { columns, values } = buildValues(ctx, data);
+  const { columns, values } = buildValues(ctx, data, polymorphicStorage);
 
   if (values.length === 0) {
     throw new QueryEngineError("No data to insert");
@@ -79,7 +82,11 @@ export function buildInsertStatement(
 
 export function buildCreate(ctx: QueryScope, args: CreateArgs): Sql {
   const { adapter } = ctx;
-  const insertSql = buildInsertStatement(ctx, args.data);
+  const insertSql = buildInsertStatement(
+    ctx,
+    args.data,
+    args.polymorphicStorage ?? []
+  );
 
   // Build RETURNING clause if supported (no alias for INSERT RETURNING)
   // Note: MySQL doesn't support RETURNING, so this will be empty

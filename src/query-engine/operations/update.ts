@@ -6,6 +6,7 @@
  */
 
 import { type Sql, sql } from "@sql";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import { buildSelect } from "../builders/select-builder";
 import { buildSet } from "../builders/set-builder";
 import { buildWhere } from "../builders/where-builder";
@@ -17,6 +18,7 @@ import { buildBulkLimitWhere } from "./bulk-limit";
 interface UpdateArgs {
   where: Record<string, unknown>;
   data: Record<string, unknown>;
+  polymorphicStorage?: readonly PolymorphicStorageValue<unknown>[];
   select?: Record<string, unknown>;
   include?: Record<string, unknown>;
 }
@@ -114,7 +116,11 @@ function processRelationOperations(
  */
 export function buildUpdateStatement(
   ctx: QueryScope,
-  args: { where: Record<string, unknown>; data: Record<string, unknown> }
+  args: {
+    where: Record<string, unknown>;
+    data: Record<string, unknown>;
+    polymorphicStorage?: readonly PolymorphicStorageValue<unknown>[];
+  }
 ): Sql {
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
@@ -123,7 +129,12 @@ export function buildUpdateStatement(
   const processedData = processRelationOperations(ctx, args.data);
 
   // Build SET clause with processed data
-  const setSql = buildSet(ctx, processedData);
+  const setSql = buildSet(
+    ctx,
+    processedData,
+    undefined,
+    args.polymorphicStorage ?? []
+  );
 
   // Build WHERE qualified by table name — the same spelling `buildUpdateMany`
   // uses, and for the same two reasons: the unaliased UPDATE target is

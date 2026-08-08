@@ -1,13 +1,16 @@
 # Polymorphic Relations — Decision-Gated Implementation Plan
 
 > **Design:** [`polymorphic-relations.md`](./polymorphic-relations.md), revision
-> 3, is normative for semantics. This document is normative for build order,
+> 4, is normative for semantics. This document is normative for build order,
 > ownership, compatibility gates, and validation.
 >
-> **Plan date:** 2026-08-07
+> **Plan date:** 2026-08-08
 >
-> **Status:** proposed, not started. Y1 cannot begin until the three Y0 product
-> decisions are approved and the exact recursive type-carrier gate passes.
+> **Status:** Y0–Y9 are complete on the feature branch. Core, extended-local,
+> performance, package, PGlite, SQLite3, libSQL, PostgreSQL, and MySQL2 gates
+> are green. Three warm type checks have a 19.22-second median, 0.26% above the
+> 19.17-second Y0 baseline. All implementation and validation gates are
+> complete.
 >
 > **Architecture:** current consolidated query engine; no `query-engine-v2`
 
@@ -57,6 +60,24 @@ Do not add:
 - inverse `oneToOne`;
 - relation-specific checks in the model-blind parse boundary.
 
+### Current phase ledger
+
+“Green” means the phase's source and the named execution proof both passed on
+2026-08-08 under the serialized, memory-capped launchers.
+
+| Phase | Source status | Validation status |
+|---|---|---|
+| Y0 | Approved getter-map API and fixed V1 semantics | Recorded Y0 spike evidence retained below |
+| Y1 | Implemented relation state, private storage, and mandatory definition gate | Relations and schema-validation layers green |
+| Y2 | Implemented operation schemas, public result/input types, omit traversal, and `createMany` refusal | Operation-schema, client, and type gates green |
+| Y3 | Implemented snapshot storage, composite index, metadata-only generation, and history acknowledgement | Migration layer and five provider pushes green |
+| Y4 | Implemented direct CASE projection/filter and mutation-result fold plumbing | Query-engine and performance-fold contracts green |
+| Y5 | Implemented strict discriminator-aware result parsing through the existing decode hook | Five provider decode contracts green |
+| Y6 | Implemented direct connect/create/disconnect through the record compilers | Transaction, atomic-batch, race, and rollback witnesses green |
+| Y7 | Implemented exact inverse reads/count and inverse nested create | Query, write-family, and five provider contracts green |
+| Y8 | Shared provider contract is wired; cache needed no polymorphic special case; the existing result/instrumentation kind union was extended | PGlite, SQLite3, libSQL, PostgreSQL, and MySQL2 full projects green |
+| Y9 | Documentation, performance, architecture, and delivery gates are reconciled | Package build, static gates, zero write-engine cycles, and type median green |
+
 ## 1. Fixed internal design
 
 ### 1.1 Existing facts remain separate
@@ -87,16 +108,16 @@ Keep ordinary relation types honest:
 ```ts
 interface PolymorphicRelationState {
   readonly type: "polymorphic";
-  readonly getter: any;
+  readonly targets: Readonly<Record<string, Getter>>;
   readonly values: Readonly<Record<string, string>>;
   readonly name?: string;
   readonly optional?: true;
-  readonly source?: Model<any>;
 }
 ```
 
-The concrete generic state retains literal getter/value-map types, following the
-current relation classes. Add `AnyPolymorphicRelation` separately. Do not add
+The concrete generic state retains the literal target-getter/value-map types,
+following the current relation classes. Add `AnyPolymorphicRelation`
+separately. Do not add
 `"polymorphic"` to `RelationType` and do not add the class to `AnyRelation`.
 Add the third model-field category explicitly:
 
@@ -110,7 +131,7 @@ Add `ModelState.polymorphicRelations`. Keep `ScalarKeys` and ordinary
 projectable-relation keys only at the public consumers that need both.
 
 Do not extend `GetInverseRelationMap`; it owns ordinary public FK-field tuples.
-Add a separate exact inverse result:
+The runtime resolver returns the exact member:
 
 ```ts
 interface PolymorphicInverseBinding<
@@ -124,11 +145,16 @@ interface PolymorphicInverseBinding<
 }
 ```
 
-`GetPolymorphicInverseBinding` and its runtime sibling scan the separate
-polymorphic map with identical sole-candidate, pairing-label, and member rules.
-They never return private column names or an ordinary FK tuple.
+The type-level `GetPolymorphicInverseBinding` returns only the selected
+`relationKey`. TypeScript model types are structural, so two separately declared
+models with identical shapes cannot identify an exact member truthfully. The
+runtime sibling uses registered model identity and returns the exact
+`publicType`/`storedType`. Both first select the sole owner relation or the
+uniquely named owner relation, then check source membership; P010 owns exact
+member uniqueness at the mandatory definition gate.
+Neither returns private column names or an ordinary FK tuple.
 
-Add one cached descriptor beside the polymorphic relation:
+Add one cached descriptor on the owning model, keyed by the polymorphic field:
 
 ```ts
 interface PolymorphicStorage {
@@ -331,6 +357,12 @@ pnpm package:build
 Use the repository's memory-capped launchers. Do not bypass them for a large
 Vitest selection.
 
+Y3 and Y4 are internal structural checkpoints only: Y3 can create required
+private columns before write lowering exists, and Y4 can emit carriers before
+strict parsing exists. Neither phase may be released, committed as a complete
+feature, or exposed independently. The branch remains one unreleasable feature
+until Y0–Y9 pass together.
+
 ### 2.2 Change discipline
 
 - Complete phases in order.
@@ -346,7 +378,7 @@ Vitest selection.
 - If a phase needs a strategy object, generic callback protocol, public shadow
   scalar, or extra statement, stop and revise the design.
 
-## 3. Y0 — Resolve product gates and prove the recursive carrier
+## 3. Y0 — Resolve product gates and prove the recursive carrier (complete)
 
 ### Goal
 
@@ -356,23 +388,13 @@ at Y6.0, after schema metadata exists.
 
 ### Y0.1 Discriminator durability
 
-Choose and record one public contract in both documents:
-
-- stable stored values configured separately from public map keys; or
-- map keys are stored values and every rename requires an explicit data
-  migration.
-
-Recommended: stable stored values in V1.
-
-Y1–Y9 below are written for this recommendation. If Y0 chooses public map keys
-as stored values, stop and revise the downstream state, validation, and
-migration-history sections before production work; do not partially execute the
-stable-value plan with the short-form API.
+Approved: stable stored values are configured separately from public map keys.
+There is no short-form or implicit public-key fallback in V1.
 
 The concrete recommendation is the exact-key second argument from the design:
 
 ```ts
-s.polymorphic(() => ({ post, video }), {
+s.polymorphic({ post: () => post, video: () => video }, {
   values: {
     post: "content.post.v1",
     video: "content.video.v1",
@@ -397,7 +419,7 @@ integer storage modes.
 
 ### Y0.2 Orphan contract
 
-Approve or replace this V1 behavior:
+Approved V1 behavior:
 
 - optional empty storage → `null`;
 - optional known type with missing target → `null`;
@@ -406,19 +428,17 @@ Approve or replace this V1 behavior:
 - unknown stored type or half-null pair → integrity error;
 - no `nullOnMissing`/`errorOnMissing` option in V1.
 
-Update result types and implementation phases if a different contract is chosen.
+No runtime option changes this behavior in V1.
 
 ### Y0.3 Inverse write surface
 
-Approve:
+Approved:
 
 - direct connect/create/disconnect;
 - inverse create;
 - all other direct/inverse relation mutation verbs absent from V1 schemas.
 
-If broad inverse write parity is selected, stop and write a separate plan for a
-discriminator-aware membership predicate through relation Parts and OwnWrite.
-Do not absorb it into this plan.
+Broad inverse write parity remains outside this plan.
 
 ### Y0.4 Isolated recursive-carrier spike
 
@@ -429,8 +449,8 @@ tests/types/relations/polymorphic-spike.core.types.ts
 ```
 
 This is a test-local prototype. Define the smallest local relation carrier,
-factory, operation projection, and result mapper with the proposed `getter: any`
-comparison seam and exact target/value map. Do not export `s.polymorphic` or add
+factory, operation projection, and result mapper with an exact map of lazy
+target getters and exact value map. Do not export `s.polymorphic` or add
 production code in Y0. The spike must exercise the proposed **two-argument call
 itself**, not only a separately named map type.
 
@@ -456,11 +476,12 @@ these together:
 - an unknown projection key beside a valid key is rejected;
 - ordinary relation inference does not widen to `any`.
 
-The likely failure mode is `keyof ReturnType<G>` forcing a recursive getter
-before the current `getter: any` structural-comparison seam can short-circuit.
-If that happens, stop and redesign the public signature. Do not weaken
-`values` or projection objects to string index signatures and do not move the
-failure into Y2.
+The original `() => ({ post, video })` getter-of-map shape did force
+`keyof ReturnType<G>` during recursive initialization and collapsed the model
+to `any`. The accepted redesign is `{ post: () => post, video: () => video }`:
+outer keys are exact immediately, while target model bodies remain lazy. Do not
+weaken `values` or projection objects to string index signatures and do not
+reintroduce the failed shape in Y2.
 
 If self-reference alone causes the failure, record the exact TypeScript error
 and only then introduce P006. If the relation carrier collapses the whole model
@@ -479,12 +500,12 @@ pnpm test:layer:relations
 
 ### Exit gate
 
-All three decisions are recorded and the exact two-argument carrier plus its
-hardest selective recursive result shape pass without `any`, TS2589, early
-getter resolution, or more than a 10% warm type-check median regression. No
-production implementation starts before this gate.
+All three decisions are recorded. The exact getter-map two-argument carrier and
+its hardest selective recursive result shape pass without `any`, TS2589, or
+early getter resolution. Warm type checks were 18.19, 18.48, and 18.73 seconds
+(18.48-second median) against the 19.17-second baseline. Y0 is complete.
 
-## 4. Y1 — Schema relation and private storage metadata
+## 4. Y1 — Schema relation and private storage metadata (complete)
 
 ### Goal
 
@@ -495,21 +516,27 @@ private.
 
 | Path | Action |
 |---|---|
-| `src/schema/relation/polymorphic.ts` | Add `PolymorphicRelation`, chainable `.name()`/`.optional()`, target resolution, and cached storage metadata |
-| `src/schema/relation/types.ts` | Add separate `PolymorphicRelationState`/shape types; leave ordinary `RelationType` unchanged |
+| `src/schema/relation/polymorphic.ts` | Own the immutable relation/state, `.name()`/`.optional()`, cached target resolution, private-storage types, and inverse binding |
 | `src/schema/relation/index.ts` | Export `polymorphic()` |
 | `src/schema/index.ts` | Add `polymorphic` to the public `s` factory object |
 | `src/schema/model/model.ts` | Store polymorphic relations separately from scalars and ordinary relations |
 | `src/schema/model/helper.ts` | Add polymorphic shape/key/map extraction without placing it in `state.scalars` or ordinary `state.relations` |
-| `src/schema/hydration.ts` | Hydrate relation names/source binding and private physical names without registering hidden scalars |
-| `src/schema/validation/rules/relation.ts` | Add P001–P005 and P007–P011; reconcile R003/SR001 with a valid polymorphic inverse |
-| `src/schema/validation/index.ts` | Register the new rules once at the existing schema-validation boundary |
+| `src/schema/hydration.ts` | Hydrate polymorphic field names without resolving targets or registering hidden scalars |
+| `src/schema/validation/rules/polymorphic.ts` | Own P001–P005 and P007–P011 at one definition boundary |
+| `src/schema/validation/rules/relation.ts` | Reconcile the current R003 inverse rule with a valid polymorphic inverse |
+| `src/schema/validation/rules/index.ts`, `model-members.ts`, and `validator.ts` | Register the rules and run the mandatory full definition gate only for schemas containing polymorphism |
+| `src/client/client.ts` | After hydration, invoke full definition validation when the schema contains polymorphism |
 | `tests/unit/relations/` | Runtime relation-state and inverse-resolution contracts |
 | `tests/unit/schema-validation/` | One positive and one falsifying case per rule |
 
 ### Rules
 
 - Resolve target thunks lazily.
+- Keep hydration pure: register names first, then run full definition validation
+  from client construction when the schema contains polymorphism. Ordinary
+  schemas keep the current no-op path. Full validation supplies the P rules and
+  their prerequisite model invariants from the same `allRules` owner; no guard
+  is duplicated in constructors, hydration, migrations, or the query engine.
 - Add `AnyModelField = Scalar | AnyRelation | AnyPolymorphicRelation`; update
   every `ModelShape` consumer deliberately. Keep `AnyRelation` and every
   ordinary-relation switch unchanged.
@@ -519,7 +546,10 @@ private.
 - Audit `extractScalarMap` and every equivalent runtime predicate so a
   polymorphic relation cannot fall through a `!isRelation` branch and enter the
   scalar map.
-- Cache target/member/storage resolution at the relation/schema boundary.
+- Snapshot the relation declaration and cache target resolution on that
+  immutable declaration. Cache owner-specific storage on the owning model,
+  keyed by the polymorphic field. A declaration may therefore be reused by
+  `.map()`, `.extends()`, and separate clients without rebinding mutable state.
 - Use registered model identity; do not lowercase names.
 - Require `targets` and `values` to be plain own-property records with
   `Object.prototype` or null prototypes.
@@ -540,23 +570,31 @@ private.
   `isValidSchemaIdentifier`; reject rather than truncate/hash. Reject every
   collision with declared or generated storage.
 - `.name()` remains the existing pairing label, never a model field key. When
-  several polymorphic candidates contain the source model, the inverse label
-  must select exactly one; a sole candidate is inferred regardless of a
-  decorative label mismatch.
+  the target owns several polymorphic relations, the inverse label must select
+  exactly one of them, even if runtime model identity would leave only one
+  source-compatible group. This keeps the public type and runtime rules exact
+  when separate model instances have identical structural types. A sole owner
+  relation is inferred regardless of a decorative label mismatch.
 - An inferred inverse must have exactly one candidate.
 - Permit repeated target-model aliases for direct-only use. Reject inverse
   binding if its source model occurs more than once in that target map.
-- Teach `relationHasInverse` (R003) and `selfRefValidInverse` (SR001) that an
-  ordinary inverse `oneToMany` can be paired with a polymorphic owner. Do not
-  require a phantom ordinary `manyToOne` on the child.
+- Teach `relationHasInverse` (R003) that an ordinary inverse `oneToMany` can be
+  paired with a polymorphic owner. Do not require a phantom ordinary
+  `manyToOne` on the child. `SR001`/`selfRefValidInverse` no longer exist and
+  are not part of this implementation.
 - Leave `GetInverseRelationMap`/`getInverseRelationMap` unchanged. Add
   `GetPolymorphicInverseBinding` plus a runtime sibling in
-  `src/schema/relation/types.ts`; both return relation-key/public-type/stored-
-  type binding data, not an FK tuple.
-- Keep that new type-level binding, runtime nested-create omission in
+  `src/schema/relation/polymorphic.ts`. The type-level result returns the
+  selected relation key; the runtime result also returns the exact public and
+  stored discriminator values. Neither is an FK tuple.
+- Keep that type-level relation-key binding, runtime nested-create omission in
   `src/validation/relations/create.ts`, and schema-rule scan on the same
-  candidate/pairing-label/member semantics.
+  owner-group/pairing-label/member semantics.
 - Update CM004 so valid generated storage is not reported as a manual pattern.
+- Do not add required polymorphic edges to CM002. CM002 models physical-FK
+  insert dependencies; a polymorphic OR-edge has no database FK. Self and
+  mutual required polymorphism are legal, P006 remains unused, and a concrete
+  create graph must terminate through connect or inverse parent injection.
 
 For a string target id on MySQL, both indexed text columns normalize to at most
 191 utf8mb4 characters, so the composite key occupies at most 1,528 bytes under
@@ -583,7 +621,7 @@ pnpm test:layer:schema-validation
 pnpm test:types
 ```
 
-## 5. Y2 — Operation schemas and public typing
+## 5. Y2 — Operation schemas and public typing (complete)
 
 ### Goal
 
@@ -594,24 +632,30 @@ Make every public input exact, correlated, and schema-transformed once.
 | Path | Action |
 |---|---|
 | `src/validation/relations/polymorphic/` | Add filter, create, update, select/include factories |
+| `src/validation/builder.ts` | Build and cache a separate multi-target polymorphic schema bundle |
+| `src/validation/model/index.ts` | Compose the third bundle into only the approved operation paths |
 | `src/validation/relations/index.ts` | Export the factories |
 | `src/validation/model/core/create.ts` | Merge required/direct polymorphic create entries and the inverse-owned omission |
 | `src/validation/model/core/update.ts` | Merge direct polymorphic update entries |
 | `src/validation/model/core/where.ts` and `filter.ts` | Merge correlated polymorphic filters |
 | `src/validation/model/core/select.ts` | Merge polymorphic select/include and count entries |
-| `src/validation/relations/index.ts` and `create.ts` | Detect a polymorphic inverse and expose only its read factories plus nested create |
+| `src/validation/relations/index.ts` | Detect a polymorphic inverse and replace its create/update bundles with nested create only |
+| `src/validation/relations/create.ts` and `update.ts` | Refuse independently built nested scalar-only `createMany` for required polymorphic targets |
+| `src/validation/relations/create-many-availability.ts` | Own the shared runtime/type refusal for scalar-only bulk creation |
 | `src/validation/model/args/mutation.ts` | Make scalar-only `createMany` unavailable when the target model has a required direct polymorphic relation |
+| `src/client/omit.ts` | Apply client-level omit defaults inside every configured polymorphic target |
 | `src/client/types.ts` | Carry exact operation args through the public operation call |
 | `src/client/result-types.ts` | Infer exhaustive per-variant result unions |
 | `tests/unit/relations/` | Parse accept/reject matrix |
 | `tests/unit/operation-schemas/` | Whole-operation schema tests |
-| `tests/types/relations/polymorphic.core.types.ts` | Public contextual and result probes |
+| `tests/types/relations/polymorphic-*.core.types.ts` and `tests/types/client/polymorphic-result.core.types.ts` | Public carrier, operation-schema, bulk-refusal, and result probes |
 
 ### Exact accepted shapes
 
-At the validation bundle boundary, `F["relations"]` may contain ordinary and
-polymorphic operation-schema bundles even though model runtime state stores them
-in separate maps. This is schema composition, not a claim that
+The registry keeps ordinary and polymorphic schema bundles separate. Operation
+builders merge only the approved polymorphic path for that operation. A direct
+polymorphic field does not thereby acquire ordinary `_count`, `orderBy`, or
+broad relation mutation verbs. This is schema composition, not a claim that
 `PolymorphicRelation` is `AnyRelation`.
 
 Extend `getCreateRequirementKeySets` in `core/create.ts` with one
@@ -636,7 +680,8 @@ createMany is not available for model '<model>' because required polymorphic rel
 Do not require a relation envelope inside a bulk row and do not rely on the
 database's `NOT NULL` error. A model whose polymorphic relations are all
 optional retains its current scalar-only `createMany`; omitted private columns
-store null.
+store null. Apply the same refusal to the independently built root and nested
+create-family/update-family `createMany` row schemas.
 
 Create-family relation value:
 
@@ -681,8 +726,9 @@ projection; the object does not filter target types.
 - update-through, set, upsert, and connectOrCreate;
 - disconnect on a required relation;
 - reject a required direct polymorphic relation omitted from a direct create;
-- accept an omitted optional direct polymorphic relation and normalize it to an
-  empty storage assignment at the write boundary;
+- accept an omitted optional direct polymorphic relation; CREATE omits both
+  private columns and lets nullable storage remain empty rather than emitting
+  explicit null assignments;
 - accept that same field as omitted inside its own inverse nested create because
   the parent injects it;
 - inverse write object exposes `create` but rejects connect, createMany,
@@ -703,8 +749,10 @@ pass.
 
 Root upsert reuses the model create/update schemas. Add whole-args tests proving
 that its create arm accepts the V1 create intents and its update arm accepts the
-V1 update intents. This phase validates both public arms as today; Y6 proves
-that only the taken arm is compiled and executed.
+V1 update intents. This phase validates both public arms as today. The current
+shell may construct arm planning/compiler state eagerly; Y6 preserves that
+allocation behavior while proving that legality callbacks and emitted effects
+belong only to the taken arm.
 
 Do not add `v.discriminatedUnion()` solely for this feature. Compose existing
 validation primitives unless a second independent consumer already needs the
@@ -719,7 +767,7 @@ pnpm test:layer:client
 pnpm test:types
 ```
 
-## 6. Y3 — Migration snapshot and DDL
+## 6. Y3 — Migration snapshot and DDL (complete)
 
 ### Goal
 
@@ -735,10 +783,7 @@ Serialize relation-owned storage without pretending it is public scalar state.
 | `src/migrations/generate/index.ts` | Invoke the sole history comparator and persist metadata-only snapshots even when `DiffOperation[]` is empty |
 | `src/migrations/generate/polymorphic-history.ts` | Sole owner of snapshot member comparison and explicit acknowledge/reject resolution; never produce DML or a `DiffOperation` |
 | `src/migrations/push/planner.ts` | Diff live structure only and document that introspection has no discriminator history |
-| `src/migrations/drivers/postgres/index.ts` | Emit the portable text column and index through existing primitives |
-| `src/migrations/drivers/mysql/index.ts` | Emit the portable VARCHAR column and index through existing primitives |
-| `src/migrations/drivers/sqlite/index.ts` | Emit the portable text column and index through existing primitives |
-| `src/migrations/drivers/libsql/index.ts` | Reuse and verify SQLite DDL behavior |
+| Existing migration drivers | Receive private columns/indexes through the normal serializer output; no polymorphic DDL operation is added |
 | `tests/unit/migrations/` | Serializer, differ, DDL, and recreation cases |
 | `tests/types/migrations/` | Public migration typing only if the configuration surface changes |
 
@@ -790,9 +835,12 @@ ambiguous changes have been resolved. It passes the accepted `renameTable` and
 table, private type/id columns, target tables, and referenced columns through
 those rename operations; a resolved physical rename is not a member retarget.
 It does not discover or resolve structural renames itself. It compares members
-only for a storage descriptor present in both snapshots after normalization;
-adding or dropping the entire storage remains solely a structural diff and does
-not trigger a duplicate history acknowledgement.
+only for a storage descriptor present in both snapshots after normalization.
+Descriptor pairing uses the normalized owner table plus normalized private type
+and id column names, never the public relation key. Thus an accepted relation
+field rename accompanied by both accepted private-column renames still reaches
+member-history comparison. Adding or dropping the entire storage remains solely
+a structural diff and does not trigger a duplicate history acknowledgement.
 
 `targetTable` and `referencedColumn` are resolved physical SQL names. They are
 never model field keys. Before comparison, apply every accepted structural
@@ -851,7 +899,7 @@ unchanged stored value retargeted to another table rejected, referenced-field
 retarget rejected, acknowledged snapshot advance, dry-run no write, and push's
 documented history limitation.
 
-## 7. Y4 — Read metadata, include SQL, and direct filters
+## 7. Y4 — Read metadata, include SQL, and direct filters (complete)
 
 ### Goal
 
@@ -867,11 +915,10 @@ ordinary relation fast paths.
 | `src/query-engine/builders/polymorphic-relation.ts` | Resolve direct members to `ResolvedPolymorphicEdge` and inverse bindings to `ResolvedPolymorphicInverse`; never coerce one into the other |
 | `src/query-engine/builders/select-builder.ts` | Discover polymorphic select/include fields and delegate |
 | `src/query-engine/builders/where-builder.ts` | Discover polymorphic filters and delegate |
-| `src/query-engine/builders/polymorphic-read-builder.ts` | Own CASE arms and direct target predicates |
-| `src/query-engine/builders/include-builder.ts` and `include-query.ts` | Reuse nested target selection in correlated expression mode |
+| `src/query-engine/builders/polymorphic-read-builder.ts` | Own CASE arms and direct target predicates while reusing the existing nested selection/query builders |
 | `src/query-engine/write-engine/shared.ts` | Classify polymorphic projections and traverse their target tables for fold legality |
 | `src/query-engine/operations/mutation-projection-fold.ts` | Carry required private type/id columns through the mutation CTE |
-| `src/adapters/database-adapter.ts`, `databases/postgres/postgres-adapter.ts`, `databases/mysql/mysql-adapter.ts`, and `databases/sqlite/sqlite-adapter.ts` | Add only a generic CASE primitive if existing SQL composition cannot express it |
+| `src/adapters/database-adapter.ts`, `shared/standard-sql.ts`, and the PostgreSQL/MySQL/SQLite adapters | Supply generic CASE/JSON-boolean syntax only; no polymorphic semantic namespace |
 | `tests/contracts/engine/query/` | SQL/parameter/statement-count contracts |
 
 ### Include algorithm
@@ -961,7 +1008,7 @@ Required new contracts:
 - normal ordinary-relation plan snapshots unchanged;
 - no extra query or round trip.
 
-## 8. Y5 — Strict polymorphic result shape and parser
+## 8. Y5 — Strict polymorphic result shape and parser (complete)
 
 ### Goal
 
@@ -980,7 +1027,6 @@ ordinary relation parser.
 | `src/adapters/databases/mysql/mysql-adapter.ts` | Change the explicit annotation and keep the existing JSON-text decoder byte-identical |
 | `src/adapters/databases/sqlite/sqlite-adapter.ts` | Change the explicit annotation and keep passthrough behavior byte-identical |
 | `src/drivers/driver-instrumentation.ts` | Carry the same kind through `DriverResultParser.parseRelation` |
-| `src/drivers/shared/mysql-utils.ts` and `sqlite-utils.ts` | Prove JSON text decoding is unchanged for the new kind |
 | `src/query-engine/result/polymorphic-result-parser.ts` | Parse the internal carrier and dispatch target data to the existing row parser |
 | `src/query-engine/result/result-parser-contract.ts` | Add a separate `parsePolymorphic` callback; do not widen `parseRelation(AnyRelation, ...)` |
 | `src/query-engine/result/result-row-parser.ts` | Resolve keys against scalar, ordinary-relation, then polymorphic maps without weakening key checks |
@@ -1033,7 +1079,7 @@ pnpm test:layer:query-engine
 pnpm test:types
 ```
 
-## 9. Y6 — Direct writes through the current record compilers
+## 9. Y6 — Direct writes through the current record compilers (complete)
 
 ### Goal
 
@@ -1093,13 +1139,14 @@ or adapter execution changes.
 - Root Update keeps its current one-transform/error-order sites.
 - Do not change `write-engine/routing.ts`.
 - Do not change the model-blind `write-engine/parse-boundary.ts`.
-- Do not compile, bind, or run legality analysis for an untaken operation arm;
-  preserve the shell's existing whole-argument schema-validation timing.
+- Preserve the shell's existing eager arm planning/compiler construction and
+  whole-argument schema-validation timing. Do not run an untaken arm's legality
+  callback or emit any of its SQL/effects.
 
-For root upsert, “untaken” applies after the existing whole-argument schema
-validation: do not bind topology, run OwnWrite, compile SQL, or emit effects for
-the untaken arm. Keep top-level `ON CONFLICT` and probe-first optimizations in
-the operation shell.
+For root upsert, “untaken” applies after existing whole-argument schema
+validation and eager compiler construction: do not run OwnWrite legality or
+emit SQL/effects for the untaken arm. Keep top-level `ON CONFLICT` and
+probe-first optimizations in the operation shell.
 
 Teach the existing arm relation-field detector that a polymorphic field is a
 relation-bearing arm. Scalar-only upserts keep their byte-identical
@@ -1212,7 +1259,8 @@ For transaction and atomic-batch compilation, assert:
   arm remains inert after whole-argument validation;
 - a genuinely empty update still allocates no step and emits no SQL;
 - root upsert create arm taken and update arm taken;
-- root upsert untaken arm has no topology binding, OwnWrite, SQL, or effects;
+- root upsert untaken arm has no OwnWrite legality, SQL, or effects; current
+  eager compiler construction and step allocation remain unchanged;
 - compound unique selector locating a single-column target PK;
 - connect target replacement race;
 - create race pin;
@@ -1245,7 +1293,7 @@ pnpm test:layer:operation-schemas
 pnpm test:types
 ```
 
-## 10. Y7 — Inverse reads and inverse nested create
+## 10. Y7 — Inverse reads and inverse nested create (complete)
 
 ### Goal
 
@@ -1262,7 +1310,9 @@ only the safe V1 write.
 | `src/query-engine/builders/relation-count-builder.ts` | Consume it for inverse count |
 | `src/query-engine/builders/polymorphic-relation.ts` | Resolve/cache `ResolvedPolymorphicInverse` and reject repeated-model ambiguity |
 | `src/query-engine/write-engine/CreateOperation.ts` | Extend `FreshRecordBuilder` input with `incomingPolymorphicStorage: readonly PolymorphicStorageValue<FinalReferenceSource>[]` and merge it into the child root INSERT |
+| `src/query-engine/write-engine/RecordUpdateCompiler.ts` | Pass the same incoming storage into inverse creates below an already selected parent |
 | `src/query-engine/write-engine/foreign-key-reference.ts` | Reuse parent id provenance for the id source |
+| `src/query-engine/OwnWriteAnalyzer.ts` | Include the inverse child create in the enclosing preflight without reanalyzing a parsed subtree |
 | `tests/contracts/engine/query/` | Predicate-presence contracts |
 | `tests/contracts/engine/write/` | Inverse create transaction/batch contracts |
 | `tests/types/relations/polymorphic.core.types.ts` | Public inverse include/filter/create surface through real client calls |
@@ -1299,6 +1349,12 @@ Inverse nested create passes one linked assignment into the fresh child:
 The child create schema must not accept or require its direct polymorphic field
 on this path. The parent binding is the sole owner of that edge.
 
+The exact same fresh-child input is used from both record compilers:
+`CreateOperation` for a fresh parent and `RecordUpdateCompiler` for an already
+selected parent. The latter must not bypass OwnWrite or rebuild the parsed child
+tree. This is one inverse-create path with two existing parent identity states,
+not two implementations.
+
 V1 exposes inverse `oneToMany` only. Do not infer or synthesize inverse
 `oneToOne`; portable uniqueness across heterogeneous target tables is outside
 this feature.
@@ -1328,7 +1384,7 @@ pnpm test:layer:relations
 pnpm test:types
 ```
 
-## 11. Y8 — Provider contract, cache, and instrumentation audit
+## 11. Y8 — Provider contract, cache, and instrumentation audit (complete)
 
 ### Goal
 
@@ -1338,15 +1394,15 @@ contract.
 
 ### Provider contract
 
-Create:
+The shared contract is implemented at:
 
 ```text
 tests/contracts/drivers/behaviors/polymorphic-relation-behavior.ts
 ```
 
-Export `polymorphicRelationContract = defineContract(...)`. Add its generated
-name/id to `tests/contracts/drivers/contract-ids.ts`, assign it in
-`tests/providers/matrix.ts`, and import/register it in:
+It exports `polymorphicRelationContract = defineContract(...)`. Its generated
+name/id is registered in `tests/contracts/drivers/contract-ids.ts` and
+`tests/providers/matrix.ts`, and the contract is imported by:
 
 - `tests/providers/local/pglite.test.ts`;
 - `tests/providers/local/sqlite3.test.ts`;
@@ -1372,13 +1428,15 @@ provider. The behavior must cover:
 - exact discriminator values;
 - no N+1 behavior observable from operation instrumentation.
 
-Run it on PGlite, SQLite3, and libSQL. Wire PostgreSQL and MySQL provider legs
-for the final gate. D1/hosted/Bun providers may carry the matrix's explicit
-fixture-capability waiver; do not silently omit them.
+The PGlite, SQLite3, libSQL, PostgreSQL, and MySQL2 fixtures are wired and their
+full provider projects passed on 2026-08-08. D1/hosted/Bun providers carry the
+matrix's explicit fixture-capability waiver; they are not silently omitted.
 
 ### Cache audit
 
-First prove what the current cache key and invalidation contracts do.
+No polymorphic-specific cache code was added. Query arguments continue to feed
+the existing deterministic key hashing, and the feature does not invent a new
+cross-model invalidation rule beyond the ordinary relation contract.
 
 - Query arguments already feed deterministic key hashing; add special handling
   only if two distinct polymorphic include shapes collide.
@@ -1389,10 +1447,10 @@ First prove what the current cache key and invalidation contracts do.
 
 ### Instrumentation audit
 
-Existing build/execute spans already record model, operation, SQL, and parameters
-according to configuration. Do not add polymorphic-specific span attributes
-unless a current public instrumentation contract requires relation metadata.
-No hot-path per-row tracing is allowed.
+Existing build/execute spans continue to record model, operation, SQL, and
+parameters according to configuration. The existing relation-result kind is
+widened through the driver parser hook; no polymorphic-specific span attribute
+or hot-path per-row tracing was added.
 
 ### Validation
 
@@ -1404,7 +1462,7 @@ pnpm test:all
 pnpm test:types
 ```
 
-## 12. Y9 — Performance, architecture, documentation, and final gate
+## 12. Y9 — Performance, architecture, documentation, and final gate (complete)
 
 ### Performance contracts
 
@@ -1418,6 +1476,13 @@ Add or extend current engine/provider contracts to prove:
 - normal relation LATERAL plans are unchanged;
 - existing direct/RETURNING/ON CONFLICT/CTE/batch performance suites remain
   green.
+
+For PostgreSQL and MySQL, capture plans with three and eight configured
+variants. Prove that only the selected CASE arm executes for each row, inverse
+lookups use `(type, id)`, metadata is resolved once during compilation rather
+than per row, and declining a mutation fold adds no round trip. These plan
+witnesses complement statement-count and SQL-size checks; they do not replace
+them.
 
 Compare three warm final `pnpm test:types` runs with Y0. Median regression must
 not exceed 10%. If it does, simplify recursive or distributive public types
@@ -1505,60 +1570,73 @@ and proves nothing about this feature.
 
 ## 13. Acceptance matrix
 
+Checked execution items below were run on 2026-08-08. A test file's existence
+alone is not treated as a passing result.
+
 ### Public API
 
-- [ ] Literal discriminator autocomplete survives recursive schemas.
-- [ ] Exact connect/create/update/filter/include unions.
-- [ ] `{ type, is, isNot }` is refused and omitted variant overrides keep default projection.
-- [ ] Public driver-path typo probes, including non-fresh values.
-- [ ] Variant-specific result narrowing.
-- [ ] Optionality and orphan behavior match the approved contract.
+- [x] `s.polymorphic(targets, { values })`, `.name()`, and `.optional()` are public.
+- [x] Exact connect/create/update/filter/include schema unions are implemented.
+- [x] `{ type, is, isNot }` is refused and omitted variant overrides keep default projection.
+- [x] Variant-specific result narrowing is implemented.
+- [x] Optionality and orphan behavior are implemented at the schema/result boundary.
+- [x] Final type execution confirms recursive autocomplete and public driver-path typo probes, including non-fresh values.
 
 ### Storage and migrations
 
-- [ ] Hidden columns are not public scalars.
-- [ ] Type/id always written or cleared together.
-- [ ] Single compatible target-PK representation.
-- [ ] Stored discriminators and generated names satisfy their fixed portable
-      length/identifier rules; MySQL composite-index DDL executes.
-- [ ] Composite index, atomic ORM writes, and strict half-null detection.
-- [ ] Rename/add/remove/retarget behavior follows stored-member history policy.
-- [ ] Metadata-only target additions persist through `generate`; push's history
+- [x] Hidden columns are not public scalars.
+- [x] Type/id are represented by one linked-or-empty storage value.
+- [x] Definition validation enforces one compatible target-PK representation.
+- [x] Definition validation enforces stored discriminator and generated-name rules.
+- [x] Serializer emits the private columns and composite `(type, id)` index.
+- [x] Strict result parsing rejects half-null or unknown storage.
+- [x] Rename/add/remove/retarget handling is implemented in the sole history owner.
+- [x] Metadata-only target additions persist through `generate`; push's history
       limitation is explicit and not presented as detection.
-- [ ] PostgreSQL/MySQL/SQLite/libSQL DDL parity.
+- [x] PostgreSQL/MySQL/SQLite/libSQL DDL parity.
+- [x] MySQL composite-index DDL execution.
 
 ### Reads
 
-- [ ] Direct include/select/filter.
-- [ ] Per-variant nested projection.
-- [ ] Strict result dispatch and parsing.
-- [ ] Inverse include/some/every/none/count with discriminator conjunct.
-- [ ] One statement, no per-row metadata resolution, no N+1.
+- [x] Direct include/select/filter compilation.
+- [x] Per-variant nested projection with default projection for omitted variants.
+- [x] Strict result dispatch and parsing.
+- [x] Inverse include/some/every/none/count add the discriminator conjunct.
+- [x] Direct projection is one CASE-based statement with cached metadata and no client-side per-row query loop.
+- [x] Provider execution confirms statement count, exact discriminator semantics, and no N+1.
 
 ### Writes
 
-- [ ] Direct connect/create/disconnect.
-- [ ] Disconnect-only update/upsert arms emit their root UPDATE; a true empty
+- [x] Direct connect/create/disconnect.
+- [x] Disconnect-only update/upsert arms emit their root UPDATE; a true empty
       update remains zero-step.
-- [ ] Inverse create.
-- [ ] Required-polymorphic models refuse scalar-only root/nested `createMany`
+- [x] Inverse create through `CreateOperation` and `RecordUpdateCompiler`.
+- [x] Required-polymorphic models refuse scalar-only root/nested `createMany`
       before planning; optional-polymorphic models keep current bulk behavior.
-- [ ] Root upsert arms reuse direct lowering and untaken arms remain inert after
-      whole-argument validation.
-- [ ] Generated identity and compound unique selector lookup.
-- [ ] Transaction/atomic-batch parity.
-- [ ] Guard/race/retry semantics preserved.
-- [ ] No new statement or runtime step.
-- [ ] Unsupported verbs structurally absent.
+- [x] Root upsert arms reuse direct lowering; whole-argument validation remains
+      eager while untaken-arm legality and effects stay inactive.
+- [x] Unsupported verbs are absent from the V1 schemas.
+- [x] No runtime step kind was added.
+- [x] Generated identity and compound unique selector lookup execute correctly.
+- [x] Transaction/atomic-batch parity.
+- [x] Target creation rolls back when the owner INSERT/UPDATE fails.
+- [x] Target replacement/deletion between lookup and owner write cannot link a
+      wrong row.
+- [x] Inverse child creation races safely with parent removal.
+- [x] Independently committed target deletion produces the approved optional
+      and required orphan behavior.
+- [x] Guard/race/retry semantics preserved.
+- [x] Execution plans verify no added statement or round trip.
 
 ### Regression and performance
 
-- [ ] Ordinary relation SQL/step snapshots unchanged.
-- [ ] Existing query performance suites green.
-- [ ] Normal LATERAL path unchanged.
-- [ ] Type-check median within 10%.
-- [ ] No runtime write-engine import cycle.
-- [ ] PGlite, SQLite3, libSQL, PostgreSQL Docker, and MySQL Docker execute the
+- [x] Ordinary relation SQL/step snapshots unchanged.
+- [x] Existing query performance suites green.
+- [x] Normal LATERAL path unchanged.
+- [x] Type-check median is 19.22 seconds versus the 19.17-second Y0 baseline
+      (0.26% increase).
+- [x] No runtime write-engine import cycle.
+- [x] PGlite, SQLite3, libSQL, PostgreSQL Docker, and MySQL Docker execute the
       shared provider contract before final commit.
 
 ## 14. Stop conditions

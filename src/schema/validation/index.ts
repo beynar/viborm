@@ -26,6 +26,8 @@ export {
   noCircularRequiredChain,
   noOrphanFkFields,
   polymorphicRelationWarning,
+  polymorphicRules,
+  validatePolymorphicRelations,
   relationHasInverse,
   relationNameUnique,
   relationPairFkSingleSide,
@@ -47,4 +49,5 @@ export {
   SchemaValidator,
   validateSchema,
   validateSchemaOrThrow,
+  validatePolymorphicSchemaOrThrow,
 } from "./validator";

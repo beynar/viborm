@@ -14,6 +14,7 @@
 import { isValidSchemaIdentifier } from "./identifier";
 import type { Model, NameRegistry } from "./model";
 import type { AnyRelation } from "./relation";
+import type { AnyPolymorphicRelation } from "./relation/polymorphic";
 import type { Scalar } from "./scalars/base";
 import type { SchemaNames } from "./scalars/common";
 
@@ -93,6 +94,15 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
 
     // Set the source model on the relation
     relation["~"].setSource(model);
+  }
+
+  for (const relationKey of Object.keys(
+    state.polymorphicRelations as Record<string, AnyPolymorphicRelation>
+  )) {
+    registry.polymorphicRelations.set(relationKey, {
+      ts: relationKey,
+      sql: relationKey,
+    });
   }
 
   // Operation schemas are built by SchemaRegistry, not during name hydration.

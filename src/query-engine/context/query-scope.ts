@@ -1,6 +1,16 @@
 import type { DatabaseAdapter } from "@adapters";
 import type { Model } from "@schema/model";
-import type { QueryScope, RelationInfo } from "../types";
+import type { AnyPolymorphicRelation } from "@schema/relation";
+import type {
+  PolymorphicRelationInfo,
+  QueryScope,
+  RelationInfo,
+} from "../types";
+
+const polymorphicRelationsByModel = new WeakMap<
+  Model<any>,
+  ReadonlyMap<string, PolymorphicRelationInfo>
+>();
 
 export function createQueryScope(
   adapter: DatabaseAdapter,
@@ -13,6 +23,7 @@ export function createQueryScope(
     model,
     nextAlias,
     rootAlias: nextAlias(),
+    polymorphicRelations: getPolymorphicRelations(model),
   };
 }
 
@@ -27,7 +38,31 @@ export function createChildScope(
     nextAlias: parent.nextAlias,
     rootAlias: alias,
     mutationTable: parent.mutationTable,
+    polymorphicRelations: getPolymorphicRelations(model),
   };
+}
+
+function getPolymorphicRelations(
+  model: Model<any>
+): ReadonlyMap<string, PolymorphicRelationInfo> {
+  const cached = polymorphicRelationsByModel.get(model);
+  if (cached) return cached;
+  const fields = new Map<string, PolymorphicRelationInfo>();
+  const relations: Readonly<Record<string, AnyPolymorphicRelation>> =
+    model["~"].state.polymorphicRelations;
+  for (const [name, relation] of Object.entries(relations)) {
+    const storage = model["~"].getPolymorphicStorage(name);
+    if (storage) fields.set(name, { name, relation, storage });
+  }
+  polymorphicRelationsByModel.set(model, fields);
+  return fields;
+}
+
+export function getPolymorphicRelationInfo(
+  scope: QueryScope,
+  relationName: string
+): PolymorphicRelationInfo | undefined {
+  return scope.polymorphicRelations.get(relationName);
 }
 
 export function getRelationInfo(
@@ -94,4 +129,11 @@ export function isNullableScalarField(
 
 export function isRelation(model: Model<any>, fieldName: string): boolean {
   return model["~"].relationSet.has(fieldName);
+}
+
+export function isPolymorphicRelation(
+  model: Model<any>,
+  fieldName: string
+): boolean {
+  return model["~"].polymorphicRelationSet.has(fieldName);
 }

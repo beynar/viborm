@@ -206,6 +206,9 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   json = {
+    boolean: (condition: Sql): Sql => condition,
+    document: (expression: Sql): Sql => expression,
+
     object: (pairs: [string, Sql][]): Sql => {
       if (pairs.length === 0) return sql.raw`'{}'::json`;
       const args = pairs.flatMap(([key, value]) => [sql`${key}::text`, value]);
@@ -517,7 +520,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     parseRelation: (
       _value: unknown,
-      _type: import("../../../schema/relation/types").RelationType,
+      _type: import("../../adapter-result-parser").RelationResultKind,
       next: (value?: unknown) => unknown
     ): unknown => {
       // PostgreSQL returns native JSON objects - passthrough

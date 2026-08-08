@@ -174,6 +174,10 @@ export async function planPush(
   options: PushOptions
 ): Promise<PushPlan> {
   const desired = serializeModels(client.$schema, { migrationDriver });
+  // Live introspection sees the private columns and index, but a text
+  // discriminator cannot reveal historical public/stored member mappings.
+  // Push therefore compares structure only. Stored-value history is owned by
+  // file-based generate(), where both serialized snapshots are available.
   const current = await introspectSchema(client.$driver, migrationDriver);
   const diffResult = await diff(current, desired, {
     canonicalizeIndexPredicate: buildIndexPredicateCanonicalizer(

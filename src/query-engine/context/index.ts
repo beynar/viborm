@@ -9,11 +9,13 @@ export {
   createQueryScope,
   getColumnName,
   getDefaultScalarFieldNames,
+  getPolymorphicRelationInfo,
   getRelationInfo,
   getRelationNames,
   getScalarFieldNames,
   getTableName,
   isNullableScalarField,
+  isPolymorphicRelation,
   isRelation,
   isScalarField,
 } from "./query-scope";

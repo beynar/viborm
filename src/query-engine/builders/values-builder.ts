@@ -8,12 +8,17 @@
 import type { CastType, DatabaseAdapter } from "@adapters/database-adapter";
 import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { Model } from "@schema/model";
+import type { Scalar } from "@schema/scalars/base";
 import { isSql, type Sql } from "@sql";
 import { canonicalizeDecimal } from "@validation/primitives/decimal";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
 import { shouldOmitInsertValue } from "./generated-scalar";
 import { planInsertRowShapes } from "./insert-row-shapes";
+import {
+  polymorphicStorageMembers,
+  type PolymorphicStorageValue,
+} from "./polymorphic-mutation";
 
 export interface ValuesResult {
   columns: string[];
@@ -33,7 +38,8 @@ export interface ValuesGroup extends ValuesResult {
  */
 export function buildValues(
   ctx: QueryScope,
-  data: Record<string, unknown> | Record<string, unknown>[]
+  data: Record<string, unknown> | Record<string, unknown>[],
+  polymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
 ): ValuesResult {
   const records = Array.isArray(data) ? data : [data];
   const groups = buildValueGroups(ctx, records);
@@ -45,7 +51,38 @@ export function buildValues(
       "Heterogeneous insert rows require grouped execution."
     );
   }
-  return { columns: groups[0]!.columns, values: groups[0]!.values };
+  const group = groups[0]!;
+  if (polymorphicStorage.length === 0) {
+    return { columns: group.columns, values: group.values };
+  }
+  if (records.length !== 1) {
+    throw new QueryEngineError(
+      "Polymorphic storage assignments require one record."
+    );
+  }
+  const privateValues = lowerPolymorphicStorage(ctx, polymorphicStorage);
+  return {
+    columns: [...group.columns, ...privateValues.columns],
+    values: [[...(group.values[0] ?? []), ...privateValues.values]],
+  };
+}
+
+function lowerPolymorphicStorage(
+  ctx: QueryScope,
+  values: readonly PolymorphicStorageValue<unknown>[]
+): { readonly columns: string[]; readonly values: Sql[] } {
+  const members = polymorphicStorageMembers(ctx, values);
+  return {
+    columns: members.map(({ column }) => column.name),
+    values: members.map(({ column, value }) =>
+      buildScalarSqlValueForScalar(
+        ctx,
+        column.scalar,
+        column.name,
+        value
+      )
+    ),
+  };
 }
 
 /** Build independently executable VALUES groups for heterogeneous rows. */
@@ -148,6 +185,17 @@ export function buildScalarSqlValue(
   fieldName: string,
   value: unknown
 ): Sql {
+  const field = model["~"].state.scalars[fieldName];
+  return buildScalarSqlValueForScalar(ctx, field, fieldName, value);
+}
+
+/** Lower a value against an explicit destination scalar, including private columns. */
+export function buildScalarSqlValueForScalar(
+  ctx: QueryScope,
+  field: Scalar | undefined,
+  fieldName: string,
+  value: unknown
+): Sql {
   if (value === undefined || value === null) {
     return ctx.adapter.literals.null();
   }
@@ -163,7 +211,6 @@ export function buildScalarSqlValue(
   }
 
   // Get scalar type if available
-  const field = model["~"].state.scalars[fieldName];
   const scalarState = field?.["~"]?.state;
   const scalarType = scalarState?.type;
 
@@ -265,6 +312,12 @@ export function getScalarType(
   return model["~"].state.scalars[fieldName]?.["~"].state.type;
 }
 
+export function getScalarTypeForScalar(
+  scalar: Scalar | undefined
+): string | undefined {
+  return scalar?.["~"].state.type;
+}
+
 /**
  * The cast a value must wear to land in this field's column domain.
  *
@@ -316,15 +369,36 @@ export function getScalarCastType(
   }
 }
 
+export function getScalarCastTypeForScalar(
+  scalar: Scalar | undefined
+): CastType | undefined {
+  switch (getScalarTypeForScalar(scalar)) {
+    case "int":
+    case "bigint":
+      return "integer";
+    case "float":
+      return "numeric";
+    case "decimal":
+      return "decimal";
+    case "boolean":
+      return "boolean";
+    case "string":
+      return "text";
+    default:
+      return undefined;
+  }
+}
+
 /**
  * Build a single INSERT statement
  */
 export function buildInsert(
   ctx: QueryScope,
   tableName: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  polymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
 ): Sql {
-  const { columns, values } = buildValues(ctx, data);
+  const { columns, values } = buildValues(ctx, data, polymorphicStorage);
 
   if (values.length === 0) {
     throw new QueryEngineError("No columns to insert");

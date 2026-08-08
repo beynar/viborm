@@ -62,6 +62,7 @@ import {
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
+import { SchemaValidationError } from "@schema/validation";
 import ts from "typescript";
 import {
   REPOSITORY_ROOT,
@@ -257,6 +258,21 @@ const REGISTRY: readonly RegistryRow[] = [
     prismaCode: null,
   },
   {
+    name: "SchemaValidationError",
+    make: () =>
+      new SchemaValidationError([
+        {
+          code: "P001",
+          message: "Polymorphic values must be unique",
+          severity: "error",
+        },
+      ]),
+    code: VibORMErrorCode.INVALID_INPUT,
+    driverFailure: false,
+    classification: "failure",
+    prismaCode: null,
+  },
+  {
     name: "TransactionError",
     make: () => new TransactionError("Transaction failed"),
     code: VibORMErrorCode.TRANSACTION_FAILED,
@@ -304,7 +320,7 @@ const REGISTRY: readonly RegistryRow[] = [
 ];
 
 /** The census pin. Moves only when a class is deliberately added or removed. */
-const REGISTRY_COUNT = 23;
+const REGISTRY_COUNT = 24;
 
 /* ------------------------------------------------------------------ *
  * Source discovery: the registry cannot quietly fall behind the tree. *
@@ -642,6 +658,7 @@ describe("surface 3 — the prismaCode map", () => {
       "PendingOperationError",
       "QueryEngineError",
       "QueryError",
+      "SchemaValidationError",
       "TransactionError",
       "UnsupportedOperationError",
     ]);
@@ -719,7 +736,10 @@ describe("surface 5 — the execution-context clone table", () => {
     // ValidationError is deliberately absent from the array: it clones through
     // cloneValidationError (issues need structural copying). Any other absence
     // is the downgrade bug returning.
-    const handledElsewhere = new Set(["ValidationError"]);
+    const handledElsewhere = new Set([
+      "SchemaValidationError",
+      "ValidationError",
+    ]);
     const missing = REGISTRY.filter(
       (row) =>
         !(handledElsewhere.has(row.name) || cloneTable.includes(row.name))

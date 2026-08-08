@@ -3,8 +3,17 @@ import {
   type ToOneUpdateEnvelope,
 } from "@validation/relations/to-one-update-form";
 import { isRecord } from "@validation/value-guards";
-import { getRelationInfo, isRelation } from "../context";
+import {
+  getPolymorphicRelationInfo,
+  getRelationInfo,
+  isPolymorphicRelation,
+  isRelation,
+} from "../context";
 import { NestedWriteError, type QueryScope, type RelationInfo } from "../types";
+import {
+  resolvePolymorphicMutationIntent,
+  type ResolvedPolymorphicMutation,
+} from "./polymorphic-mutation";
 
 export interface ConnectOrCreateInput {
   readonly where: Record<string, unknown>;
@@ -59,6 +68,17 @@ export interface PartitionedModelData {
       string,
       {
         readonly relationInfo: RelationInfo;
+        readonly payload: unknown;
+      }
+    >
+  >;
+  readonly polymorphicPayloads: Readonly<
+    Record<
+      string,
+      {
+        readonly relation: NonNullable<
+          ReturnType<typeof getPolymorphicRelationInfo>
+        >;
         readonly payload: unknown;
       }
     >
@@ -158,9 +178,23 @@ export function partitionModelData(
     string,
     { readonly relationInfo: RelationInfo; readonly payload: unknown }
   > = {};
+  const polymorphicPayloads: Record<
+    string,
+    {
+      readonly relation: NonNullable<
+        ReturnType<typeof getPolymorphicRelationInfo>
+      >;
+      readonly payload: unknown;
+    }
+  > = {};
 
   for (const [key, value] of Object.entries(data)) {
     if (value === undefined) continue;
+    if (isPolymorphicRelation(ctx.model, key)) {
+      const relation = getPolymorphicRelationInfo(ctx, key);
+      if (relation) polymorphicPayloads[key] = { relation, payload: value };
+      continue;
+    }
     if (!isRelation(ctx.model, key)) {
       scalarData[key] = value;
       continue;
@@ -170,7 +204,7 @@ export function partitionModelData(
     if (relationInfo) relationPayloads[key] = { relationInfo, payload: value };
   }
 
-  return { scalarData, relationPayloads };
+  return { scalarData, relationPayloads, polymorphicPayloads };
 }
 
 export function buildRelationMutationProgram(
@@ -275,14 +309,45 @@ export function buildRelationMutationProgram(
   return entries.length > 0 ? { relationInfo, entries } : undefined;
 }
 
+export interface ParsedRecordPrograms {
+  readonly scalarData: Record<string, unknown>;
+  readonly relations: Record<string, RelationMutationProgram>;
+  readonly polymorphic: Readonly<
+    Record<string, ResolvedPolymorphicMutation>
+  >;
+}
+
+export function buildPolymorphicMutationProgram(
+  ctx: QueryScope,
+  relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
+  parsedPayload: unknown
+): {
+  readonly program?: RelationMutationProgram;
+  readonly mutation: ResolvedPolymorphicMutation;
+} {
+  const intent = resolvePolymorphicMutationIntent(ctx, relation, parsedPayload);
+  if (intent.kind === "disconnect") return { mutation: intent };
+  const program = buildRelationMutationProgram(intent.edge.relationInfo, {
+    [intent.operation]: intent.payload,
+  });
+  if (!program) {
+    throw new NestedWriteError(
+      `Polymorphic relation '${relation.name}' produced no target mutation.`,
+      relation.name
+    );
+  }
+  return {
+    program,
+    mutation: { kind: "targeted", edge: intent.edge, program },
+  };
+}
+
 export function buildParsedRelationPrograms(
   ctx: QueryScope,
   parsedData: Record<string, unknown>
-): {
-  scalarData: Record<string, unknown>;
-  relations: Record<string, RelationMutationProgram>;
-} {
-  const { scalarData, relationPayloads } = partitionModelData(ctx, parsedData);
+): ParsedRecordPrograms {
+  const { scalarData, relationPayloads, polymorphicPayloads } =
+    partitionModelData(ctx, parsedData);
   const relations: Record<string, RelationMutationProgram> = {};
   for (const [relationName, { relationInfo, payload }] of Object.entries(
     relationPayloads
@@ -290,7 +355,15 @@ export function buildParsedRelationPrograms(
     const program = buildRelationMutationProgram(relationInfo, payload);
     if (program) relations[relationName] = program;
   }
-  return { scalarData, relations };
+  const polymorphic: Record<string, ResolvedPolymorphicMutation> = {};
+  for (const [relationName, { relation, payload }] of Object.entries(
+    polymorphicPayloads
+  )) {
+    const built = buildPolymorphicMutationProgram(ctx, relation, payload);
+    if (built.program) relations[relationName] = built.program;
+    polymorphic[relationName] = built.mutation;
+  }
+  return { scalarData, relations, polymorphic };
 }
 
 function hasRelationMutationInput(

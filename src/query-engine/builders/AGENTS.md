@@ -17,6 +17,9 @@ adapter methods for dialect syntax and keep values parameterized.
 | --- | --- |
 | `relation-mutation-parser.ts` | scalar/relation partition and lossless mutation programs |
 | `relation-data-builder.ts` | bound relation topology and relation SQL data |
+| `polymorphic-relation.ts` | direct member and inverse binding resolution |
+| `polymorphic-read-builder.ts` | direct CASE projection and correlated target filters |
+| `polymorphic-mutation.ts` | resolved direct intent and atomic private `(type, id)` values |
 | `where-builder.ts` | scalar and logical filters |
 | `relation-filter-builder.ts` | relation `some`/`every`/`none` and `is`/`isNot` |
 | `include-builder.ts` | nested relation reads and JSON projection |
@@ -63,6 +66,19 @@ no-ops. It does not contain execution deduplication.
 
 Downstream code consumes `program.entries`. Do not inspect the raw payload,
 normalize arrays again, or recreate a per-kind optional mutation bag.
+
+Polymorphic relation payloads use a companion map instead of changing
+`RelationMutationProgram`. A targeted `connect` or `create` appears in the
+ordinary program map after its public discriminator resolves to one concrete
+edge; the companion supplies its storage/discriminator fact. A targetless
+`disconnect` appears only in the companion and becomes an empty private storage
+assignment. The record compiler must count that companion as root work.
+
+`PolymorphicStorageValue` is the only write representation for the private
+columns. Its linked and empty variants always lower type and id together. Never
+add hidden keys to scalar data, call `getColumnName` for a private column, or
+expose an arbitrary physical-column escape in `values-builder.ts` or
+`set-builder.ts`.
 
 ## Bound relation topology
 
@@ -114,6 +130,17 @@ key captured by its owner read, not a re-evaluated selector.
 Compound FK and referenced-field arrays remain in schema order. Do not sort or
 re-pair them in a builder.
 
+A direct polymorphic read uses one portable CASE expression with a correlated
+target subquery per configured variant. It uses exact-text discriminator
+equality and the existing nested selection builder. The variant count controls
+SQL size; returned row count does not create more statements. Ordinary relation
+LATERAL selection remains unchanged.
+
+An inverse polymorphic `oneToMany` is still an ordinary public relation, but its
+membership predicate is two-part: private id correlation followed by exact
+stored-discriminator equality. `correlation-utils.ts` owns this conjunction for
+include, filters, and count. Never rebuild it at individual call sites.
+
 ## Anti-patterns
 
 - stateful builder objects;
@@ -122,6 +149,9 @@ re-pair them in a builder.
 - reparsing canonical nested data;
 - raw relation-mutation key inspection downstream;
 - early relation binding that changes failure timing;
+- treating a multi-target relation as `AnyRelation` or `BoundRelation`;
+- writing one private polymorphic storage column without the other;
+- omitting the discriminator conjunct from an inverse predicate;
 - a generic payload walker;
 - concern-free `utils` or `helpers` modules.
 

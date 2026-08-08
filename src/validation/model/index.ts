@@ -1,5 +1,6 @@
 import type { AnyModel } from "@schema/model";
 import type { GetRelationsSchemas } from "@validation/relations";
+import type { GetPolymorphicRelationsSchemas } from "@validation/relations/polymorphic";
 import type { GetScalarsSchemas } from "@validation/scalars";
 import { type ArgsSchemas, getArgsSchemas } from "./args";
 import { type CoreSchemas, getCoreSchemas } from "./core";
@@ -10,6 +11,7 @@ export type { CoreSchemas } from "./core";
 export type ScalarSchemas<M extends AnyModel> = {
   scalars: GetScalarsSchemas<M>;
   relations: GetRelationsSchemas<M>;
+  polymorphic: GetPolymorphicRelationsSchemas<M>;
 };
 
 export type AnyScalarSchemas = ScalarSchemas<AnyModel>;
@@ -26,6 +28,7 @@ export type ModelSchemas<
   args: ArgsSchemas<M, F>;
   scalars: F["scalars"];
   relations: F["relations"];
+  polymorphic: F["polymorphic"];
 };
 
 export type ModelStateSchemas<M extends AnyModel> = ModelSchemas<
@@ -66,5 +69,6 @@ export const getModelSchemas = <
     args,
     scalars: schemas.scalars,
     relations: schemas.relations,
+    polymorphic: schemas.polymorphic,
   };
 };

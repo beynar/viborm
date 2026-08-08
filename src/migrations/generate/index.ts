@@ -26,6 +26,7 @@ import {
 } from "../utils";
 import { formatDownMigrationContent, invertOperations } from "./down";
 import { formatMigrationContent } from "./file-writer";
+import { resolvePolymorphicMemberHistory } from "./polymorphic-history";
 
 /**
  * Generates a new migration file by comparing the schema with the last snapshot.
@@ -44,6 +45,7 @@ export async function generate(
     storageDriver,
     resolver = strictResolver,
     enumValueResolver,
+    polymorphicMemberResolver,
     dryRun = false,
   } = options;
 
@@ -88,6 +90,17 @@ export async function generate(
     enumValueResolver
   );
 
+  // Structural renames establish the physical identity used by polymorphic
+  // member history. The history check never emits SQL; it only refuses unsafe
+  // metadata advancement unless the caller attests that separate DML ran.
+  const polymorphicMetadataChanged =
+    await resolvePolymorphicMemberHistory(
+      previousSnapshot,
+      currentSnapshot,
+      finalOperations,
+      polymorphicMemberResolver
+    );
+
   // 5b. Lift forward-reference FKs out of CREATE TABLE so the generated
   // migration file orders every referenced table before its constraint
   // (Postgres/MySQL). No-op on SQLite/LibSQL (inline FKs, lazy resolution).
@@ -98,6 +111,10 @@ export async function generate(
 
   // 6. Check if there are any changes
   if (finalOperations.length === 0) {
+    if (polymorphicMetadataChanged && !dryRun) {
+      await storage.writeSnapshot(currentSnapshot);
+    }
+
     return {
       entry: null,
       sql: [],
@@ -105,8 +122,12 @@ export async function generate(
       operations: [],
       downSql: [],
       downWarnings: [],
-      written: false,
-      message: "No schema changes detected.",
+      written: polymorphicMetadataChanged && !dryRun,
+      message: polymorphicMetadataChanged
+        ? dryRun
+          ? "Would update polymorphic migration metadata snapshot."
+          : "Updated polymorphic migration metadata snapshot."
+        : "No schema changes detected.",
     };
   }
 

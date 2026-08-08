@@ -7,9 +7,11 @@ import {
 } from "../builders/correlation-utils";
 import {
   buildRelationMutationProgram,
+  buildPolymorphicMutationProgram,
   partitionModelData,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
+import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import { buildInsert } from "../builders/values-builder";
 import {
   getWhereUniqueEntries,
@@ -230,10 +232,16 @@ export class UpsertOperation {
     // owner and transform each relation payload once.
     const createPartition = partitionModelData(parent, create);
     const updatePartition = partitionModelData(parent, update);
+    const createRequiresPolymorphicRelation = [...
+      parent.polymorphicRelations.values(),
+    ].some(({ relation }) => relation["~"].state.optional !== true);
     const createHasRelations =
-      Object.keys(createPartition.relationPayloads).length > 0;
+      Object.keys(createPartition.relationPayloads).length > 0 ||
+      Object.keys(createPartition.polymorphicPayloads).length > 0 ||
+      createRequiresPolymorphicRelation;
     const updateHasRelations =
-      Object.keys(updatePartition.relationPayloads).length > 0;
+      Object.keys(updatePartition.relationPayloads).length > 0 ||
+      Object.keys(updatePartition.polymorphicPayloads).length > 0;
 
     // Compiler-backed update planning publishes optional locate fields: the planning
     // superset also runs when the create arm is selected and the locate has no row.
@@ -350,6 +358,7 @@ export class UpsertOperation {
         )
       : undefined;
     const updateRelations: Record<string, RelationMutationProgram> = {};
+    const updatePolymorphic: Record<string, ResolvedPolymorphicMutation> = {};
     if (updateHasRelations) {
       for (const [relationName, relationPayload] of Object.entries(
         updatePartition.relationPayloads
@@ -372,6 +381,29 @@ export class UpsertOperation {
         );
         if (program) updateRelations[relationName] = program;
       }
+      for (const [relationName, relationPayload] of Object.entries(
+        updatePartition.polymorphicPayloads
+      )) {
+        const relationSchemas = parentSchemas.polymorphic[relationName];
+        if (!relationSchemas) {
+          throw new QueryEngineError(
+            `query-engine internal: no validation schema exists for polymorphic relation '${relationName}', which the model declares.`
+          );
+        }
+        const parsedRelation = parseValidated(
+          relationSchemas.update,
+          relationPayload.payload,
+          "update",
+          `data.${relationName}`
+        );
+        const built = buildPolymorphicMutationProgram(
+          parent,
+          relationPayload.relation,
+          parsedRelation
+        );
+        if (built.program) updateRelations[relationName] = built.program;
+        updatePolymorphic[relationName] = built.mutation;
+      }
     }
     const createFresh: FreshRecordBuilder = (input) =>
       buildFreshRecordPart(scope, engine, input);
@@ -383,6 +415,7 @@ export class UpsertOperation {
             targetScope: parent,
             scalarData: this.updateData,
             relations: updateRelations,
+            polymorphic: updatePolymorphic,
             targetRead: { id: locateId },
             rootWrite: { id: this.updateId },
             relationName: "record",

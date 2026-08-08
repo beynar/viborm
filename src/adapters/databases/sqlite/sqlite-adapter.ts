@@ -265,6 +265,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   json = {
+    boolean: (condition: Sql): Sql =>
+      sql`json(CASE WHEN ${condition} THEN 'true' ELSE 'false' END)`,
+    // SQLite drops the JSON subtype across scalar-subquery boundaries. Restore it
+    // before embedding the value in json_object/json_array, or an object becomes a
+    // quoted JSON string inside the outer document.
+    document: (expression: Sql): Sql => sql`json(${expression})`,
+
     object: (pairs: [string, Sql][]): Sql => {
       if (pairs.length === 0) return sql.raw`json_object()`;
       const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
@@ -600,7 +607,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     parseRelation: (
       _value: unknown,
-      _type: import("../../../schema/relation/types").RelationType,
+      _type: import("../../adapter-result-parser").RelationResultKind,
       next: (value?: unknown) => unknown
     ): unknown => next(),
 

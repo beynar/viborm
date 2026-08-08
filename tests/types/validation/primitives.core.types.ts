@@ -1,4 +1,11 @@
-import { type InferInput, v } from "@src/validation";
+import { type InferInput, type InferOutput, v } from "@src/validation";
+
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends <Value>() =>
+    Value extends Right ? 1 : 2
+    ? true
+    : false;
+type Expect<Value extends true> = Value;
 
 const personSchema = v.object({
   name: v.string(),
@@ -14,3 +21,12 @@ const refusedPerson: PersonInput = { name: "Ada", nmae: "typo" };
 
 void acceptedPerson;
 void refusedPerson;
+
+const withoutName = v.omit(personSchema, ["name"] as const);
+type PersonWithoutName = InferOutput<typeof withoutName>;
+type _omittedOutputDropsTheKey = Expect<
+  Equal<Extract<"name", keyof PersonWithoutName>, never>
+>;
+type _omittedOutputKeepsOtherKeys = Expect<
+  Equal<Extract<"age", keyof PersonWithoutName>, "age">
+>;

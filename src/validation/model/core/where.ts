@@ -22,7 +22,8 @@ export type WhereSchemaBase<
   F extends ScalarSchemas<M>,
 > = V.Object<
   V.FromObject<F["scalars"], "filter">["entries"] &
-    V.FromObject<F["relations"], "filter">["entries"]
+    V.FromObject<F["relations"], "filter">["entries"] &
+    V.FromObject<F["polymorphic"], "filter">["entries"]
 >;
 
 export type WhereSchema<
@@ -54,6 +55,10 @@ export const getWhereSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     fieldSchemas.relations,
     "filter"
   );
+  const polymorphicFilter = v.fromObject<F["polymorphic"], "filter">(
+    fieldSchemas.polymorphic,
+    "filter"
+  );
 
   // Create the recursive where schema with AND/OR/NOT using thunks
   const whereSchema = v
@@ -64,7 +69,8 @@ export const getWhereSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
       NOT: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
     })
     .extend(scalarFilter.entries)
-    .extend(relationFilter.entries);
+    .extend(relationFilter.entries)
+    .extend(polymorphicFilter.entries);
 
   // A `where` is the operand-callback scope boundary: `ctx.fields` inside it
   // names THIS model's columns. A nested relation filter embeds the TARGET
