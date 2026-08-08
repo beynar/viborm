@@ -28,7 +28,7 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | Layer | Location | Owns | Doesn't Own | Guide |
 |-------|----------|------|-------------|-------|
 | **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` operation schemas | Scalar logic, domain rules | [validation/AGENTS.md](src/validation/AGENTS.md) |
-| **L2: Scalars** | `src/schema/scalars/` | Scalar classes, State generics, base scalar schemas | Operation schemas | [schema/scalars/AGENTS.md](src/schema/scalars/AGENTS.md) |
+| **L2: Scalars** | `src/schema/scalars/`, `src/schema/field-ref.ts`, `src/schema/hydration.ts` | Scalar classes, State generics, base scalar schemas, runtime schema metadata | Operation schemas | [schema/scalars/AGENTS.md](src/schema/scalars/AGENTS.md) |
 | **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation | — |
 | **L4: Relations** | `src/schema/relation/` | Relation types, relation state, source binding | Query execution | [schema/relation/AGENTS.md](src/schema/relation/AGENTS.md) |
 | **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation | Runtime validation | — |
@@ -289,7 +289,7 @@ estate sites into TS2589 and takes the type-check from 34s to 172s; keying
 `.references()` through the relation getter was measured at 123 estate errors.
 "We could not" is a claim like any other — measure it.
 
-The gate lives in `tests/client/contextual-typing-gate.test.ts`. It is enforced
+The gate lives in `tests/types/client/contextual-typing-gate.core.types.ts`. It is enforced
 by `pnpm test:types`, not by a runtime assertion: a `@ts-expect-error` that stops
 being an error is itself an error (TS2578), so a regression that re-opens a
 surface turns the type-check red.
@@ -312,27 +312,66 @@ already guards the same invariant (removed before merge, PR #18). The house
 discipline is one guard per invariant, in the invariant's single home, with a
 falsification proving THAT guard fires — not two guards half-trusted.
 
+Shared representation predicates live in `src/validation/value-guards.ts`.
+Reuse `isRecord`, `isString`, `isFunction`, `isNumber`, `isBoolean`, `isBigInt`,
+and `isDate` instead of recreating their exact checks. Keep stronger boundary
+rules local to their semantic owner, such as hostile diagnostic reads,
+plain-prototype checks, finite/integer checks, promise-like values, and JSON
+records.
+
+Runtime validation failures use `ValidationError.source` to name their owning
+boundary. Operation failures keep V4001 and Prisma P2009. Registry,
+schema-builder, and JSON Schema failures use V4002 without a Prisma equivalent.
+No raw `Error` may escape `src/validation`; Standard Schema validators return
+issues, and `SchemaRegistry` translates thrown external-validator failures.
+
 ---
 
 ## Build/Test Commands
 
 ```bash
 # Development
-pnpm build              # tsc with noEmit - type-checks only, compiles nothing
-pnpm package:build      # tsdown - actual package build (dist output)
-pnpm type-check         # Type check only (alias for the same tsc --noEmit check)
-pnpm test               # Run all tests
-pnpm test:watch         # Watch mode
+pnpm build               # tsc with noEmit - type-checks only, compiles nothing
+pnpm package:build       # tsdown - actual package build (dist output)
+pnpm test:types          # Complete TypeScript check, including .core.types.ts
+pnpm test                # Type-check plus the trusted aggregate core
+pnpm test:core           # All core runtime projects
+pnpm test:all            # Every credential-free extended/provider/package check
+pnpm test:coverage       # Core layers plus full write-engine V8 coverage
+pnpm test:coverage:instrumentation # Memory-capped L11 report; 100% in all four metrics
+pnpm test:coverage:scalars # Memory-capped L2 report; 100% in all four metrics
+pnpm test:coverage:relations # Memory-capped L4 report; 100% in all four metrics
+pnpm test:coverage:schema # Memory-capped runtime schema-metadata report; 100% in all four metrics
+pnpm test:coverage:sql   # Memory-capped SQL-fragment report; 100% in all four metrics
+pnpm test:coverage:schema-validation # Memory-capped L5 report; 100% in all four metrics
+pnpm test:coverage:validation # Memory-capped L1/L3 report; 100% in all four metrics
+pnpm test:coverage:write-engine # Memory-capped full write-engine report; numeric gate
+pnpm test:package        # Build once and validate every declared export
+pnpm test:providers      # Docker and hosted projects; missing services skip visibly
+pnpm test:watch          # Core projects only
 
-# Single file/pattern
-pnpm vitest run tests/validation/string.test.ts
-pnpm vitest run -t "validates strings"
+# Fast layer feedback (all 12 follow this form and enforce a 30 second budget)
+pnpm test:layer:validation
+pnpm test:layer:query-engine
+pnpm test:layer:drivers
+pnpm test:layer:client
 
-# Database tests (requires Docker)
-pnpm test:pg            # PostgreSQL
-pnpm test:mysql         # MySQL  
-pnpm test:sqlite        # SQLite
+# Large selections must use the package scripts. Vitest runs one file at a time
+# with a 768 MB heap. Full tsc has a measured 4 GB cap. Launchers stop the whole
+# process group on timeout or interruption so workers cannot survive.
 ```
+
+Ordinary PGlite contracts use one `usePGliteSchemaFamily` per compatible schema
+and substrate. The fixture pushes once, truncates tables between tests, and owns
+disconnect. Fresh databases are reserved for DDL, lifecycle, destructive
+schema, independently committed concurrency, staleness/race, and
+rollback-isolation contracts. Never overlap a Vitest, layer, or TypeScript run;
+the launchers enforce a workspace lock.
+
+A witness retained only to execute incidental implementation metadata for a
+numeric coverage gate belongs at the bottom of its owning layer file under
+`describe("coverage low value")`. It is not evidence for a behavioral contract
+and must not be mixed into one.
 
 ---
 

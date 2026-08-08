@@ -17,6 +17,7 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import type { Client, Config, Connection } from "@planetscale/database";
+import { isRecord } from "@validation/value-guards";
 import {
   Driver,
   type DriverResultParser,
@@ -194,10 +195,6 @@ export class PlanetScaleDriver extends Driver<
     }
     super.transactionCleanupFailed(error);
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // ============================================================

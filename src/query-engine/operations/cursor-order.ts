@@ -6,6 +6,7 @@
  */
 
 import { type Sql, sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { assertExactDecimalOperation } from "../builders/decimal-portability";
 import type { WhereUniqueEntry } from "../builders/where-unique-builder";
 import {
@@ -36,10 +37,6 @@ export interface NormalizedCursorOrder {
 type ParsedOrder = {
   direction: CursorOrderDirection;
   nulls: CursorNullPlacement;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
 export function normalizeCursorOrder(
@@ -163,7 +160,7 @@ function parseRequestedScalarOrder(
         return undefined;
       }
 
-      // This path REPLACES buildOrderBy whenever a window is present (`take`,
+      // This path replaces the ordinary order-by builder whenever a window is present (`take`,
       // `skip` with `take`, `cursor`, and every `findFirst`), so the decimal
       // gate that lives in the orderby-builder has to be repeated here or the
       // ordinary paginated spelling escapes it entirely.

@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isBoolean } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -31,7 +32,7 @@ const BOOLEAN_ERROR = Object.freeze({
  * Validate that a value is a boolean.
  */
 function validateBoolean(value: unknown) {
-  return typeof value === "boolean" ? ok(value) : BOOLEAN_ERROR;
+  return isBoolean(value) ? ok(value) : BOOLEAN_ERROR;
 }
 
 /**

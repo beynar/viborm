@@ -209,6 +209,14 @@ export function safeOwnPropertyDescriptor(
   }
 }
 
+export function isArrayValue(value: unknown): value is unknown[] {
+  try {
+    return Array.isArray(value);
+  } catch {
+    return false;
+  }
+}
+
 export function safeArrayLength(value: readonly unknown[]): number {
   const length = safeRead(value, "length");
   return typeof length === "number" &&
@@ -346,7 +354,7 @@ export function freezeDiagnosticValue<T>(value: T): T {
   if (typeof value !== "object" || value === null) return value;
   try {
     for (const key of Reflect.ownKeys(value)) {
-      const descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+      const descriptor = safeOwnPropertyDescriptor(value, key);
       if (descriptor && "value" in descriptor) {
         freezeDiagnosticValue(descriptor.value);
       }

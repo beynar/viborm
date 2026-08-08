@@ -13,9 +13,7 @@ import {
   SPAN_OPERATION,
 } from "@instrumentation";
 import type { InstrumentationContext } from "@instrumentation/context";
-import { ignoreObserverFailure } from "@instrumentation/ignore-observer-failure";
 import { isErrorLogged } from "@instrumentation/logged-errors";
-import { runWithTracer } from "@instrumentation/run-with-tracer";
 import { getNoopTracer, type VibORMSpanOptions } from "@instrumentation/tracer";
 import { isCacheManagedExecution } from "./cache-flow";
 import type { PendingOperation } from "./pending-operation";
@@ -83,29 +81,22 @@ export function observeOperationExecution<T>(
       return await execute(spanAttributes);
     } catch (error) {
       if (isUnloggedError(error)) {
-        try {
-          ignoreObserverFailure(
-            logger?.error(
-              createErrorLogEvent({
-                error: sanitizeErrorForLogging(error),
-                model: pending.modelName,
-                operation,
-                correlationId: executionContext.correlationId,
-                duration: Date.now() - startedAt,
-              })
-            )
-          );
-        } catch {
-          // Instrumentation is observational and cannot alter query behavior.
-        }
+        logger?.error(
+          createErrorLogEvent({
+            error: sanitizeErrorForLogging(error),
+            model: pending.modelName,
+            operation,
+            correlationId: executionContext.correlationId,
+            duration: Date.now() - startedAt,
+          })
+        );
       }
       throw error;
     }
   };
 
   if (!isCacheManagedExecution(options) && tracer) {
-    return runWithTracer(
-      tracer,
+    return tracer.startActiveSpan(
       { name: SPAN_OPERATION, attributes: spanAttributes },
       executeObserved
     );
@@ -134,27 +125,20 @@ export async function observePendingBatchPhase<T, R>(
         diagnostics: instrumentation?.config.diagnostics,
         forceContext: true,
       });
-      try {
-        ignoreObserverFailure(
-          instrumentation?.logger?.error(
-            createErrorLogEvent({
-              error: attributed,
-              model: executionContext.model,
-              operation: executionContext.operation,
-              correlationId: executionContext.correlationId,
-              duration: Date.now() - startedAt,
-            })
-          )
-        );
-      } catch {
-        // Instrumentation cannot replace the attributed operation failure.
-      }
+      instrumentation?.logger?.error(
+        createErrorLogEvent({
+          error: attributed,
+          model: executionContext.model,
+          operation: executionContext.operation,
+          correlationId: executionContext.correlationId,
+          duration: Date.now() - startedAt,
+        })
+      );
       throw attributed;
     }
   };
 
-  return runWithTracer(
-    instrumentation?.tracer ?? getNoopTracer(),
+  return (instrumentation?.tracer ?? getNoopTracer()).startActiveSpan(
     {
       name: SPAN_OPERATION,
       attributes: {

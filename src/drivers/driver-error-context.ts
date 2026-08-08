@@ -25,12 +25,20 @@ import {
   UniqueConstraintError,
   UnsupportedOperationError,
   ValidationError,
+  type ValidationErrorSource,
   ValueTooLongError,
   VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
 } from "@errors";
 import type { Operation } from "@query-engine/types";
+import {
+  isArrayValue,
+  isError,
+  isRecord,
+  safeArrayLength,
+  safeOwnPropertyDescriptor,
+} from "../errors/diagnostic-safety";
 
 export interface DriverErrorShape {
   code?: string | number;
@@ -86,7 +94,7 @@ export function attachExecutionContext(
   const snapshot = VibORMError.prototype.toJSON.call(error);
   const snapshotMeta = readProperty(snapshot, "meta");
   const mergedMeta = sanitizeErrorMetadata(
-    isRecordValue(snapshotMeta) ? snapshotMeta : {},
+    isRecord(snapshotMeta) ? snapshotMeta : {},
     context.diagnostics
   );
   const forceContext = context.forceContext !== false;
@@ -131,7 +139,7 @@ function cloneVibORMError(
     : VibORMErrorCode.INTERNAL_ERROR;
   const cause = getTrustedErrorCause(error);
   const options = {
-    ...(isErrorValue(cause) ? { cause } : {}),
+    ...(isError(cause) ? { cause } : {}),
     diagnostics,
     meta,
   };
@@ -160,11 +168,60 @@ function cloneValidationError(
   meta: VibORMErrorMeta,
   diagnostics: DiagnosticDisclosure | undefined
 ): ValidationError | undefined {
-  const operation = readProperty(error, "operation");
+  const source = snapshotValidationSource(readProperty(error, "source"));
   const issues = readProperty(error, "issues");
-  if (!(isOperation(operation) && isArrayValue(issues))) return undefined;
+  if (!(source && isArrayValue(issues))) return undefined;
   const issueSnapshot = snapshotValidationIssues(issues);
-  return new ValidationError(operation, issueSnapshot, { diagnostics, meta });
+  const cause = getTrustedErrorCause(error);
+  return new ValidationError(source, issueSnapshot, {
+    ...(isError(cause) ? { cause } : {}),
+    diagnostics,
+    meta,
+  });
+}
+
+function snapshotValidationSource(
+  value: unknown
+): ValidationErrorSource | undefined {
+  if (!isRecord(value)) return undefined;
+  const kind = readProperty(value, "kind");
+  if (kind === "operation") {
+    const operation = readProperty(value, "operation");
+    const model = readProperty(value, "model");
+    if (!isOperation(operation)) return undefined;
+    return {
+      kind,
+      operation,
+      ...(typeof model === "string" ? { model } : {}),
+    };
+  }
+  if (kind === "registry") {
+    const model = readProperty(value, "model");
+    const property = readProperty(value, "property");
+    return {
+      kind,
+      ...(typeof model === "string" ? { model } : {}),
+      ...(typeof property === "string" ? { property } : {}),
+    };
+  }
+  if (kind === "schema-builder") {
+    const builder = readProperty(value, "builder");
+    const path = readProperty(value, "path");
+    if (!(typeof builder === "string" && typeof path === "string")) {
+      return undefined;
+    }
+    return { kind, builder, path };
+  }
+  if (kind === "json-schema") {
+    const target = readProperty(value, "target");
+    const schemaType = readProperty(value, "schemaType");
+    return {
+      kind,
+      ...(typeof target === "string" ? { target } : {}),
+      ...(typeof schemaType === "string" ? { schemaType } : {}),
+    };
+  }
+  return undefined;
 }
 
 function snapshotValidationIssues(value: unknown[]): Array<{
@@ -172,21 +229,10 @@ function snapshotValidationIssues(value: unknown[]): Array<{
   message: string;
 }> {
   const issues: Array<{ path: string; message: string }> = [];
-  const rawLength = readProperty(value, "length");
-  const length =
-    typeof rawLength === "number" && Number.isSafeInteger(rawLength)
-      ? Math.min(rawLength, 128)
-      : 0;
+  const length = Math.min(safeArrayLength(value), 128);
   for (let index = 0; index < length; index += 1) {
-    let descriptor: PropertyDescriptor | undefined;
-    try {
-      descriptor = Reflect.getOwnPropertyDescriptor(value, String(index));
-    } catch {
-      continue;
-    }
-    if (
-      !(descriptor && "value" in descriptor && isRecordValue(descriptor.value))
-    ) {
+    const descriptor = safeOwnPropertyDescriptor(value, String(index));
+    if (!(descriptor && "value" in descriptor && isRecord(descriptor.value))) {
       continue;
     }
     const path = readProperty(descriptor.value, "path");
@@ -263,30 +309,6 @@ function getCloneConstructor(error: VibORMError): unknown {
 
 function isVibORMErrorCode(value: unknown): value is VibORMErrorCode {
   return Object.values(VibORMErrorCode).some((code) => code === value);
-}
-
-function isRecordValue(value: unknown): value is Record<string, unknown> {
-  try {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-  } catch {
-    return false;
-  }
-}
-
-function isArrayValue(value: unknown): value is unknown[] {
-  try {
-    return Array.isArray(value);
-  } catch {
-    return false;
-  }
-}
-
-function isErrorValue(value: unknown): value is Error {
-  try {
-    return value instanceof Error;
-  } catch {
-    return false;
-  }
 }
 
 export function buildMeta(

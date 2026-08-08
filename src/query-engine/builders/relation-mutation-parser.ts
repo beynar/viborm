@@ -1,20 +1,27 @@
+import {
+  splitToOneUpdateTarget,
+  type ToOneUpdateEnvelope,
+} from "@validation/relations/to-one-update-form";
+import { isRecord } from "@validation/value-guards";
 import { getRelationInfo, isRelation } from "../context";
 import { NestedWriteError, type QueryScope, type RelationInfo } from "../types";
-import type {
-  ConnectOrCreateInput,
-  CreateManyInput,
-  NestedUpdateInput,
-  NestedUpdateManyInput,
-  NestedUpsertInput,
-  RelationMutation,
-  SeparatedData,
-} from "./relation-data-builder";
+
+export interface ConnectOrCreateInput {
+  readonly where: Record<string, unknown>;
+  readonly create: Record<string, unknown>;
+}
+
+export interface NestedUpdateManyInput {
+  readonly where?: Record<string, unknown>;
+  readonly data: Record<string, unknown>;
+}
 
 /**
- * **The own-write linearization order (N6-U3, ATOM §4).** The ONE sequence in which
- * sibling mutation kinds on a single relation compose — used both to EMIT the parts
- * and to DERIVE their legality, so the soundness theorem is stated over exactly the
- * order that runs. Read ATOM §4 before touching it; the three stages are:
+ * **The own-write linearization order (ATOM's `Mutation order`).** The ONE sequence
+ * in which sibling mutation kinds on a single relation compose — used both to EMIT
+ * the parts and to DERIVE their legality, so the soundness theorem is stated over
+ * exactly the order that runs. Read that doctrine before touching it; the three
+ * stages are:
  *
  *  1. **named readers** — kinds that address rows they NAME and read committed state
  *     to do it (`disconnect`, `delete`, `update`, `upsert`, `connectOrCreate`). Their
@@ -28,7 +35,7 @@ import type {
  * could not bound.** What survives rejection is then only a genuine payload
  * contradiction — two kinds naming the SAME row — never an artefact of the order.
  */
-export const RELATION_MUTATION_KEYS = [
+const RELATION_MUTATION_KEYS = [
   // 1 — named readers
   "disconnect",
   "delete",
@@ -45,49 +52,112 @@ export const RELATION_MUTATION_KEYS = [
   "createMany",
 ] as const;
 
-export type RelationMutationKind = (typeof RELATION_MUTATION_KEYS)[number];
-
-/**
- * **Prisma's boolean no-op arm (N7-U-B).** A to-one `disconnect` / `delete` is typed
- * `v.boolean()` at the parse boundary, so the only value other than `true` any payload
- * can carry is the literal `false` — and `false` means DO NOTHING. Measured live against
- * Prisma 7.9.1 (`@prisma/adapter-pg`, Postgres): `user.update({ data: { profile:
- * { disconnect: false } } })` and `{ delete: false }` both return the parent unchanged,
- * with the child row and its foreign key untouched, on the inverse side AND the
- * parent-held side alike; the same payloads spelled `true` null the key / delete the row.
- *
- * The kind list is where that is spelled ONCE, because it is the single derivation point
- * for "which kinds does this payload ask for" — the six V2 dispatches and the own-write
- * legality walk all read it (ATOM §4). A kind that asks for nothing is not in the list,
- * so no arm is built for it, no legality footprint is derived from it, and no site
- * downstream has to re-ask whether the boolean was `true`.
- */
-export function getRelationMutationKinds(
-  mutation: RelationMutation
-): RelationMutationKind[] {
-  return RELATION_MUTATION_KEYS.filter(
-    (kind) => mutation[kind] !== undefined && mutation[kind] !== false
-  );
+export interface PartitionedModelData {
+  readonly scalarData: Record<string, unknown>;
+  readonly relationPayloads: Readonly<
+    Record<
+      string,
+      {
+        readonly relationInfo: RelationInfo;
+        readonly payload: unknown;
+      }
+    >
+  >;
 }
 
-export function assertSingleRelationInput(
-  relationInfo: RelationInfo,
-  operation: string,
-  inputs: readonly unknown[]
-): void {
-  if (!relationInfo.isToOne || inputs.length <= 1) return;
-  throw new NestedWriteError(
-    `Cannot use multiple '${operation}' inputs for to-one relation '${relationInfo.name}'.`,
-    relationInfo.name
-  );
+export interface CorrelatedRelationMutationTarget {
+  readonly kind: "correlated";
+  readonly filter?: Record<string, unknown>;
 }
 
-export function separateData(
+export interface UniqueRelationMutationTarget {
+  readonly kind: "unique";
+  readonly where: Record<string, unknown>;
+}
+
+export interface NormalizedRelationUpdate {
+  readonly target:
+    | CorrelatedRelationMutationTarget
+    | UniqueRelationMutationTarget;
+  readonly data: Record<string, unknown>;
+}
+
+export interface NormalizedRelationUpsert {
+  readonly target:
+    | CorrelatedRelationMutationTarget
+    | UniqueRelationMutationTarget;
+  readonly create: Record<string, unknown>;
+  readonly update: Record<string, unknown>;
+}
+
+export type CurrentOrSelectorTargets =
+  | { readonly kind: "current" }
+  | {
+      readonly kind: "selectors";
+      readonly targets: readonly Record<string, unknown>[];
+    };
+
+export type RelationMutationEntry =
+  | {
+      readonly kind: "create";
+      readonly items: readonly Record<string, unknown>[];
+    }
+  | {
+      readonly kind: "createMany";
+      readonly rows: readonly Record<string, unknown>[];
+      readonly skipDuplicates?: boolean;
+    }
+  | {
+      readonly kind: "connect";
+      readonly targets: readonly Record<string, unknown>[];
+    }
+  | {
+      readonly kind: "connectOrCreate";
+      readonly items: readonly ConnectOrCreateInput[];
+    }
+  | {
+      readonly kind: "disconnect";
+      readonly target: CurrentOrSelectorTargets;
+    }
+  | {
+      readonly kind: "delete";
+      readonly target: CurrentOrSelectorTargets;
+    }
+  | {
+      readonly kind: "set";
+      readonly targets: readonly Record<string, unknown>[];
+    }
+  | {
+      readonly kind: "update";
+      readonly items: readonly NormalizedRelationUpdate[];
+    }
+  | {
+      readonly kind: "updateMany";
+      readonly items: readonly NestedUpdateManyInput[];
+    }
+  | {
+      readonly kind: "deleteMany";
+      readonly filters: readonly Record<string, unknown>[];
+    }
+  | {
+      readonly kind: "upsert";
+      readonly items: readonly NormalizedRelationUpsert[];
+    };
+
+export interface RelationMutationProgram {
+  readonly relationInfo: RelationInfo;
+  readonly entries: readonly RelationMutationEntry[];
+}
+
+export function partitionModelData(
   ctx: QueryScope,
   data: Record<string, unknown>
-): SeparatedData {
+): PartitionedModelData {
   const scalarData: Record<string, unknown> = {};
-  const relations: Record<string, RelationMutation> = {};
+  const relationPayloads: Record<
+    string,
+    { readonly relationInfo: RelationInfo; readonly payload: unknown }
+  > = {};
 
   for (const [key, value] of Object.entries(data)) {
     if (value === undefined) continue;
@@ -97,94 +167,130 @@ export function separateData(
     }
 
     const relationInfo = getRelationInfo(ctx, key);
-    if (!relationInfo) continue;
-    const mutation = parseRelationMutation(relationInfo, value);
-    if (mutation) relations[key] = mutation;
+    if (relationInfo) relationPayloads[key] = { relationInfo, payload: value };
   }
 
-  return { scalarData, relations };
+  return { scalarData, relationPayloads };
 }
 
-function parseRelationMutation(
+export function buildRelationMutationProgram(
   relationInfo: RelationInfo,
-  value: unknown
-): RelationMutation | undefined {
-  if (!hasRelationMutationInput(value)) {
-    if (isRecord(value) && Object.keys(value).length > 0) {
+  parsedPayload: unknown
+): RelationMutationProgram | undefined {
+  if (!hasRelationMutationInput(parsedPayload)) {
+    if (isRecord(parsedPayload) && Object.keys(parsedPayload).length > 0) {
       throw new NestedWriteError(
-        `Unsupported nested write operation on relation '${relationInfo.name}': ${Object.keys(value).join(", ")}`,
+        `Unsupported nested write operation on relation '${relationInfo.name}': ${Object.keys(parsedPayload).join(", ")}`,
         relationInfo.name
       );
     }
     return undefined;
   }
 
-  const input = value as Record<string, unknown>;
-  // `payload` keeps the narrowed record itself: this parser is the one place the
-  // relation payload stops being `unknown`, so a reader that needs the WHOLE payload
-  // (not one normalized kind) takes it from here rather than narrowing again.
-  const mutation: RelationMutation = { relationInfo, payload: input };
-  for (const key of RELATION_MUTATION_KEYS) {
-    if (!(key in input) || input[key] === undefined) continue;
-    switch (key) {
-      case "connect":
-        mutation.connect = input.connect as
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
-      case "disconnect":
-        mutation.disconnect = input.disconnect as
-          | boolean
-          | Record<string, unknown>
-          | Record<string, unknown>[];
-        break;
+  const entries: RelationMutationEntry[] = [];
+  for (const kind of RELATION_MUTATION_KEYS) {
+    const value = parsedPayload[kind];
+    if (value === undefined || value === false) continue;
+
+    switch (kind) {
       case "create":
-        mutation.create = input.create as
-          | Record<string, unknown>
-          | Record<string, unknown>[];
+        entries.push({
+          kind,
+          items: parseSingleOrArrayRecord(value, relationInfo, kind),
+        });
         break;
-      case "createMany":
-        mutation.createMany = input.createMany as CreateManyInput;
+      case "createMany": {
+        const envelope = requireRecordEnvelope(relationInfo, kind, value);
+        entries.push({
+          kind,
+          rows: requireRecordArrayField(relationInfo, kind, envelope, "data"),
+          ...(typeof envelope.skipDuplicates === "boolean"
+            ? { skipDuplicates: envelope.skipDuplicates }
+            : {}),
+        });
+        break;
+      }
+      case "connect":
+        entries.push({
+          kind,
+          targets: parseSingleOrArrayRecord(value, relationInfo, kind),
+        });
         break;
       case "connectOrCreate":
-        mutation.connectOrCreate = input.connectOrCreate as
-          | ConnectOrCreateInput
-          | ConnectOrCreateInput[];
+        entries.push({
+          kind,
+          items: parseConnectOrCreateItems(relationInfo, value),
+        });
         break;
+      case "disconnect":
       case "delete":
-        mutation.delete = input.delete as
-          | boolean
-          | Record<string, unknown>
-          | Record<string, unknown>[];
+        entries.push({
+          kind,
+          target:
+            value === true
+              ? { kind: "current" }
+              : {
+                  kind: "selectors",
+                  targets: parseSingleOrArrayRecord(value, relationInfo, kind),
+                },
+        });
         break;
       case "set":
-        mutation.set = Array.isArray(input.set)
-          ? (input.set as Record<string, unknown>[])
-          : ([input.set] as Record<string, unknown>[]);
+        entries.push({
+          kind,
+          targets: parseSingleOrArrayRecord(value, relationInfo, kind),
+        });
         break;
       case "update":
-        mutation.update = parseNestedUpdateInput(relationInfo, input.update);
+        entries.push({
+          kind,
+          items: parseNormalizedUpdates(relationInfo, value),
+        });
         break;
       case "updateMany":
-        mutation.updateMany = parseNestedUpdateManyInput(
-          relationInfo,
-          input.updateMany
-        );
-        break;
-      case "upsert":
-        mutation.upsert = parseNestedUpsertInput(relationInfo, input.upsert);
+        entries.push({
+          kind,
+          items: parseNormalizedUpdateMany(relationInfo, value),
+        });
         break;
       case "deleteMany":
-        mutation.deleteMany = parseNestedDeleteManyInput(
-          relationInfo,
-          input.deleteMany
-        );
+        entries.push({
+          kind,
+          filters: parseNormalizedDeleteMany(relationInfo, value),
+        });
         break;
-      default:
+      case "upsert":
+        entries.push({
+          kind,
+          items: parseNormalizedUpserts(relationInfo, value),
+        });
         break;
+      default: {
+        const exhaustive: never = kind;
+        throw new TypeError(`Unknown relation mutation kind: ${exhaustive}`);
+      }
     }
   }
-  return mutation;
+
+  return entries.length > 0 ? { relationInfo, entries } : undefined;
+}
+
+export function buildParsedRelationPrograms(
+  ctx: QueryScope,
+  parsedData: Record<string, unknown>
+): {
+  scalarData: Record<string, unknown>;
+  relations: Record<string, RelationMutationProgram>;
+} {
+  const { scalarData, relationPayloads } = partitionModelData(ctx, parsedData);
+  const relations: Record<string, RelationMutationProgram> = {};
+  for (const [relationName, { relationInfo, payload }] of Object.entries(
+    relationPayloads
+  )) {
+    const program = buildRelationMutationProgram(relationInfo, payload);
+    if (program) relations[relationName] = program;
+  }
+  return { scalarData, relations };
 }
 
 function hasRelationMutationInput(
@@ -197,47 +303,92 @@ function hasRelationMutationInput(
   });
 }
 
-function parseNestedUpdateInput(
+function parseConnectOrCreateItems(
   relationInfo: RelationInfo,
   value: unknown
-): Record<string, unknown> | NestedUpdateInput | NestedUpdateInput[] {
-  if (relationInfo.isToOne)
-    return requireRecordEnvelope(relationInfo, "update", value);
+): ConnectOrCreateInput[] {
+  return parseSingleOrArrayRecord(value, relationInfo, "connectOrCreate").map(
+    (input) => ({
+      where: requireRecordField(
+        relationInfo,
+        "connectOrCreate",
+        input,
+        "where"
+      ),
+      create: requireRecordField(
+        relationInfo,
+        "connectOrCreate",
+        input,
+        "create"
+      ),
+    })
+  );
+}
+
+function parseNormalizedUpdates(
+  relationInfo: RelationInfo,
+  value: unknown
+): NormalizedRelationUpdate[] {
+  if (relationInfo.isToOne) {
+    // `parsedPayload` is deliberately an unknown carrier, but the to-one update
+    // schema has already normalized this branch to its canonical envelope.
+    const target = splitToOneUpdateTarget(value as ToOneUpdateEnvelope);
+    return [
+      {
+        target: {
+          kind: "correlated",
+          ...(target.filter ? { filter: target.filter } : {}),
+        },
+        data: target.data,
+      },
+    ];
+  }
+
   return parseSingleOrArrayRecord(value, relationInfo, "update").map(
     (input) => ({
-      where: requireRecordField(relationInfo, "update", input, "where"),
+      target: {
+        kind: "unique",
+        where: requireRecordField(relationInfo, "update", input, "where"),
+      },
       data: requireRecordField(relationInfo, "update", input, "data"),
     })
   );
 }
 
-function parseNestedUpdateManyInput(
+function parseNormalizedUpdateMany(
   relationInfo: RelationInfo,
   value: unknown
-): NestedUpdateManyInput | NestedUpdateManyInput[] {
+): NestedUpdateManyInput[] {
   rejectToOneOperation(relationInfo, "updateMany");
   return parseSingleOrArrayRecord(value, relationInfo, "updateMany").map(
-    (input) => {
-      const parsed: NestedUpdateManyInput = {
-        data: requireRecordField(relationInfo, "updateMany", input, "data"),
-      };
-      if (input.where !== undefined) {
-        parsed.where = requireRecordField(
-          relationInfo,
-          "updateMany",
-          input,
-          "where"
-        );
-      }
-      return parsed;
-    }
+    (input): NestedUpdateManyInput => ({
+      data: requireRecordField(relationInfo, "updateMany", input, "data"),
+      ...(input.where === undefined
+        ? {}
+        : {
+            where: requireRecordField(
+              relationInfo,
+              "updateMany",
+              input,
+              "where"
+            ),
+          }),
+    })
   );
 }
 
-function parseNestedUpsertInput(
+function parseNormalizedDeleteMany(
   relationInfo: RelationInfo,
   value: unknown
-): NestedUpsertInput | NestedUpsertInput[] {
+): Record<string, unknown>[] {
+  rejectToOneOperation(relationInfo, "deleteMany");
+  return parseSingleOrArrayRecord(value, relationInfo, "deleteMany");
+}
+
+function parseNormalizedUpserts(
+  relationInfo: RelationInfo,
+  value: unknown
+): NormalizedRelationUpsert[] {
   if (relationInfo.isToOne && Array.isArray(value)) {
     throw new NestedWriteError(
       `Malformed nested 'upsert' operation on relation '${relationInfo.name}': expected a single object envelope for to-one relations.`,
@@ -245,32 +396,19 @@ function parseNestedUpsertInput(
       { meta: { operation: "upsert" } }
     );
   }
-  const parsed = parseSingleOrArrayRecord(value, relationInfo, "upsert").map(
-    (input) => {
-      const upsertInput: NestedUpsertInput = {
-        create: requireRecordField(relationInfo, "upsert", input, "create"),
-        update: requireRecordField(relationInfo, "upsert", input, "update"),
-      };
-      if (relationInfo.isToMany) {
-        upsertInput.where = requireRecordField(
-          relationInfo,
-          "upsert",
-          input,
-          "where"
-        );
-      }
-      return upsertInput;
-    }
-  );
-  return relationInfo.isToOne ? parsed[0]! : parsed;
-}
 
-function parseNestedDeleteManyInput(
-  relationInfo: RelationInfo,
-  value: unknown
-): Record<string, unknown> | Record<string, unknown>[] {
-  rejectToOneOperation(relationInfo, "deleteMany");
-  return parseSingleOrArrayRecord(value, relationInfo, "deleteMany");
+  return parseSingleOrArrayRecord(value, relationInfo, "upsert").map(
+    (input) => ({
+      target: relationInfo.isToOne
+        ? { kind: "correlated" }
+        : {
+            kind: "unique",
+            where: requireRecordField(relationInfo, "upsert", input, "where"),
+          },
+      create: requireRecordField(relationInfo, "upsert", input, "create"),
+      update: requireRecordField(relationInfo, "upsert", input, "update"),
+    })
+  );
 }
 
 function parseSingleOrArrayRecord(
@@ -311,6 +449,21 @@ function requireRecordField(
   );
 }
 
+function requireRecordArrayField(
+  relationInfo: RelationInfo,
+  operation: string,
+  input: Record<string, unknown>,
+  field: string
+): Record<string, unknown>[] {
+  const value = input[field];
+  if (Array.isArray(value) && value.every(isRecord)) return value;
+  throw new NestedWriteError(
+    `Malformed nested '${operation}' operation on relation '${relationInfo.name}': expected '${field}' to be an array of objects.`,
+    relationInfo.name,
+    { meta: { operation, field } }
+  );
+}
+
 function rejectToOneOperation(
   relationInfo: RelationInfo,
   operation: string
@@ -321,8 +474,4 @@ function rejectToOneOperation(
     relationInfo.name,
     { meta: { operation } }
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

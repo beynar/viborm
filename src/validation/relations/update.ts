@@ -86,10 +86,7 @@ const toOneUpdateTargetFactory = <
   let ownsDataKey: boolean | undefined;
   const targetOwnsDataField = (): boolean => {
     if (ownsDataKey === undefined) {
-      const { entries } = targetSchemas().core.update as unknown as {
-        entries?: Record<string, unknown>;
-      };
-      ownsDataKey = entries === undefined || Object.hasOwn(entries, "data");
+      ownsDataKey = Object.hasOwn(targetSchemas().core.update.entries, "data");
     }
     return ownsDataKey;
   };

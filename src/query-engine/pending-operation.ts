@@ -7,10 +7,10 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { PendingOperationError } from "@errors";
 import type { Model } from "@schema/model";
-import { isSql, type Sql } from "@sql";
+import type { Sql } from "@sql";
 import type {
   ExecutableOperation,
-  SingleStatementPlan,
+  SingleStatementCandidate,
 } from "../query-engine/write-engine/OperationExecutor";
 import { OperationExecutor } from "../query-engine/write-engine/OperationExecutor";
 import {
@@ -65,7 +65,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
   private executorInstance: OperationExecutor | undefined;
   // The single-statement plan, memoized: `null` uncomputed, `undefined` when the
   // operation is multi-statement (runs through the atomic-batch seam).
-  private singlePlan: SingleStatementPlan | undefined | null = null;
+  private singlePlan: SingleStatementCandidate | undefined | null = null;
 
   private constructor(
     engine: QueryEngine,
@@ -155,7 +155,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * The single-statement plan for this operation, memoized. `undefined` means the
    * operation is multi-statement (it uses the atomic-batch seam instead).
    */
-  private resolveSinglePlan(): SingleStatementPlan | undefined {
+  private resolveSinglePlan(): SingleStatementCandidate | undefined {
     if (this.singlePlan !== null) return this.singlePlan;
     this.singlePlan = this.executor().singleStatementPlan(
       this.resolveOperation()
@@ -189,7 +189,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * Execute through the single engine under exactly ONE
    * {@link observeOperationExecution} wrapper, so the instrumentation shape
    * (SPAN_OPERATION, error logging) is uniform. A construction rejection (a
-   * `ValidationError`, the own-write preflight, the ATOM §7 refusal, an
+   * `ValidationError`, the own-write preflight, a documented substrate refusal, an
    * `UnsupportedOperationError` for a shape the engine does not express) is
    * surfaced through the same observation wrapper.
    */
@@ -314,13 +314,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * assertion is enforced after execution, and `build()` still wants its SQL.
    */
   buildStatement(): Sql | undefined {
-    const operation = this.resolveOperation();
-    if (operation.planning().steps.length > 0) return undefined;
-    const fragment = operation.compile({});
-    if (fragment.steps.length !== 1) return undefined;
-    const [step] = fragment.steps;
-    if (!step || step.kind === "guard") return undefined;
-    return isSql(step.statement) ? step.statement : undefined;
+    return this.executor().buildStatement(this.resolveOperation());
   }
 
   async prepareBatch(

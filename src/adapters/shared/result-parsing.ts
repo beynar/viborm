@@ -1,3 +1,5 @@
+import { isRecord } from "@validation/value-guards";
+
 /**
  * Shared Result Parsing Utilities
  *
@@ -136,8 +138,8 @@ export function normalizeCountResult(
   }
 
   // Handle single object
-  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
-    const countValue = extractCountValue(raw as Record<string, unknown>);
+  if (isRecord(raw)) {
+    const countValue = extractCountValue(raw);
     if (countValue !== undefined) {
       return [{ [COUNT_RESULT_KEY]: countValue }];
     }

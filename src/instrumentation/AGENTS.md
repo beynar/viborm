@@ -59,13 +59,18 @@ All instrumentation flows through a single context object:
 
 ```typescript
 interface InstrumentationContext {
-  config: InstrumentationConfig;     // Original user config
-  tracer?: TracerWrapper;            // Tracer (if tracing enabled)
-  logger?: Logger;                   // Logger (if logging enabled)
+  config: ResolvedInstrumentationConfig; // Frozen internal snapshot
+  tracer: TracerWrapper;                  // Real or no-op tracer
+  logger?: Logger;                        // Logger when logging is enabled
 }
 ```
 
-Context is created once at client initialization and passed to all layers (query engine, cache, drivers) via `setInstrumentation()`.
+The public `InstrumentationConfig` is read once when the client is created.
+Disclosure flags, handlers, and ignore patterns are copied into an immutable
+snapshot. The context then flows through the query engine and an execution-
+context `WeakMap`; transaction engines reuse the same trusted context. Internal
+driver setters connect a driver to that context, but they are not an alternative
+public client configuration shape.
 
 ### Tracer Wrapper
 
@@ -157,7 +162,20 @@ ATTR_CACHE_RESULT     // "hit", "miss", "stale", "bypass"
 
 ## Core Rules
 
-### Rule 1: Optional Dependency
+### Rule 1: One Trust Boundary
+
+Configuration becomes trusted only in `createInstrumentationContext()`. It is
+resolved and frozen there, so downstream instrumentation must not revalidate
+logger, tracer, timestamp, duration, span-option, or disclosure shapes.
+
+User callbacks, console methods, diagnostic values, and the OpenTelemetry
+API/provider remain untrusted boundaries. Contain their failures where they are
+invoked without changing the application result or error. Diagnostic array and
+property reads use `src/errors/diagnostic-safety.ts`; unrelated domain predicates
+remain with their semantic owners. Generic string and callable narrowing uses
+`src/validation/value-guards.ts`; do not recreate primitive predicates here.
+
+### Rule 2: Optional Dependency
 OpenTelemetry is a peer dependency, not required. All tracing code must handle missing OTel gracefully:
 
 ```typescript
@@ -166,10 +184,15 @@ const otel = await import("@opentelemetry/api").catch(() => null);
 if (!otel) return fn();  // Execute without tracing
 ```
 
-### Rule 2: Instance-Scoped State
+### Rule 3: Instance-Scoped State
 All mutable state lives inside `createTracerWrapper()` closure, not at module level. This ensures serverless compatibility (Cloudflare Workers, Lambda).
 
-**One deliberate exception:** `logged-errors.ts` keeps a module-scoped `WeakSet<Error>`. The rule exists so nothing survives a request in a reused isolate; a `WeakSet` holds no strong reference, so an entry disappears with the error that keyed it and an error never outlives its request. It also cannot live on an `InstrumentationContext` — every execution context carries a fresh frozen *copy* of it (`snapshotExecutionContext`), so the driver and the query engine never see the same context object. See the module header.
+**Two deliberate weak-reference exceptions:** `logged-errors.ts` keeps a
+module-scoped `WeakSet<Error>` so one failure is logged once across execution
+layers. `drivers/execution-context.ts` keeps a `WeakMap` from each frozen
+execution snapshot to the same trusted instrumentation context. Neither
+collection retains request objects, and both entries disappear with their weak
+keys.
 
 ```typescript
 // ✅ Correct: state inside closure
@@ -182,7 +205,7 @@ function createTracerWrapper() {
 let globalOtel: OTelAPI | null = null;  // Breaks serverless
 ```
 
-### Rule 3: Eager OTel Loading
+### Rule 4: Eager OTel Loading
 OTel is loaded once when tracer is created, not on every span:
 
 ```typescript
@@ -196,7 +219,7 @@ async startActiveSpan(options, fn) {
 }
 ```
 
-### Rule 4: Context Propagation
+### Rule 5: Context Propagation
 Always use `context.with()` to ensure proper span parenting:
 
 ```typescript
@@ -210,12 +233,12 @@ span.end();
 await childOperation();  // No parent context
 ```
 
-### Rule 5: SQL Sensitivity
+### Rule 6: SQL Sensitivity
 SQL and params are opt-in via config to prevent accidental PII exposure:
 
 ```typescript
 tracing: {
-  includeSql: true,      // Show SQL in traces (default: true)
+  includeSql: true,      // Show SQL in traces (default: false)
   includeParams: false,  // Show params in traces (default: false - PII risk!)
 }
 ```
@@ -362,8 +385,22 @@ SWR revalidation happens after the response is sent. If we don't use `root: true
 ### Why Separate Tracer and Logger
 They serve different purposes: tracing is for distributed tracing systems (Jaeger, Zipkin), logging is for local debugging and monitoring. Users may want one without the other.
 
-### Why Default includeSql=true, includeParams=false
-SQL queries are generally safe to log and extremely useful for debugging. Parameters might contain PII (user data, API keys), so they're opt-in only.
+### Why Both Disclosure Defaults Are False
+SQL can reveal table, column, tenant, and business-domain details. Parameters
+can contain PII, credentials, or other secrets. Both are therefore opt-in for
+logs, traces, and error diagnostics.
+
+## Verification
+
+```bash
+pnpm test:layer:instrumentation       # Runtime sentinels + public type probes, under 30 seconds
+pnpm test:coverage:instrumentation    # Memory-capped, one-worker, 100% four-metric gate
+```
+
+The dedicated coverage command reports only `src/instrumentation/**/*.ts` to
+`coverage/instrumentation`. It enforces 100% statements, lines, functions, and
+branches without coverage exclusions. The repository-wide coverage command is
+diagnostic and has no global percentage threshold.
 
 ---
 

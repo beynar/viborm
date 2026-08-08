@@ -93,29 +93,45 @@ sequenceDiagram
     participant C as Client
     participant V as Validator
     participant P as PendingOperation
-    participant Q as OperationCompiler
+    participant Q as OperationShell
     participant A as Adapter
-    participant R as OperationRuntime
+    participant R as OperationExecutor
     participant D as Driver
     participant DB as Database
-    participant O as OperationResults
+    participant O as StrictResults
 
-    U->>C: orm.user.findMany({ where: { name: "Alice" } })
+    U->>C: orm.model.operation(args)
     C->>P: Create lazy operation
-    P->>V: Validate on execution
-    V-->>Q: Validated operation
-    Q->>A: Build adapter-backed Sql fragments
-    A-->>Q: Parameterized Sql
-    Q-->>R: OperationProgram
-    R->>D: Execute statement, transaction, or atomic batch
-    D->>DB: Query
+    P->>V: Validate at the operation boundary
+    V-->>Q: Schema-transformed input
+    opt planning SQL is required
+        Q->>A: Build planning SQL by semantic concern
+        A-->>Q: Parameterized Sql fragments
+    end
+    Q-->>R: Guard-free PlanningFragment
+    opt planning statements exist
+        R->>D: Execute planning statements
+        D->>DB: Planning query or preparation write
+        DB-->>D: Provider results
+        D-->>R: Declared planning outputs
+    end
+    R->>Q: Compile with known planning outputs
+    Q->>A: Build selected final SQL
+    A-->>Q: Parameterized Sql fragments
+    Q-->>R: OperationFragment
+    R->>D: Execute directly, in a transaction, or as an atomic batch
+    D->>DB: Selected statements
     DB-->>D: Raw results
-    D-->>R: Provider results
-    R->>O: Resolve declared program result
+    D-->>R: Normalized provider results
+    R->>O: Resolve declared fragment outputs
     O-->>P: Typed result
     P-->>C: Resolve Promise-like operation
-    C-->>U: User[]
+    C-->>U: Typed value
 ```
+
+This shows the general two-phase path. When planning is empty and final
+compilation produces one representable statement, the executor uses the direct
+path and adds no transaction or batch envelope.
 
 ## Layer Boundaries
 
@@ -137,7 +153,7 @@ These layers handle **query building and execution**.
 
 | Layer | Purpose |
 |-------|---------|
-| L6: Query Engine | Compiles one database-agnostic operation program and resolves its declared result (WHAT) |
+| L6: Query Engine | Compiles guard-free planning and one selected final fragment, executes it, and resolves its declared result (WHAT) |
 | L7: Adapters | Database-specific SQL syntax (HOW) |
 | L8: Drivers | Connection management and execution |
 

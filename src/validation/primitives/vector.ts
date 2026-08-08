@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isNumber } from "../value-guards";
 import { buildSchema, fail, ok } from "./helpers";
 
 // =============================================================================
@@ -51,7 +52,7 @@ function createVectorValidator(dimensions?: number) {
 
     const len = value.length;
     for (let i = 0; i < len; i++) {
-      if (typeof value[i] !== "number" || Number.isNaN(value[i])) {
+      if (!isNumber(value[i]) || Number.isNaN(value[i])) {
         return fail(`Expected number at index ${i}`);
       }
     }

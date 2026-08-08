@@ -7,7 +7,6 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
-  type Probe,
 } from "./OperationFragment";
 
 interface StepRecord {
@@ -17,8 +16,8 @@ interface StepRecord {
 }
 
 /**
- * The executable contract of ATOM §9, invariants 1-4 plus the Pin-Rule residue
- * of invariant 5. Runs on every fragment before provider access; an invalid
+ * The executable contract of ATOM's `The execution vocabulary` and `Branch
+ * premises and pins`. Runs on every fragment before provider access; an invalid
  * fragment is a typed error, never a silent execution. This is a check on
  * compiler output — cheap enough to run every time — not a defensive parser.
  */
@@ -27,51 +26,6 @@ export function validateFragment(fragment: OperationFragment): void {
   assertBackwardLocalReferences(fragment.steps, records);
   assertOutputsResolvable(fragment, records);
   assertGuardPinRule(fragment.steps);
-}
-
-/**
- * Invariant 5's probe/pin disposition: a decision is legal only when consumed
- * through a probe whose pins obey the Pin Rule. Existing-row premises are pinned
- * `raceable: false`; a same-model-INSERT missing premise is enforced by the
- * constraint (`"constraint"`) and never by a guard — a missing-branch guard is
- * legal only for the retained `notExists` pins, which are `raceable: true`.
- */
-export function validateProbe(probe: Probe): void {
-  if (probe.read.kind !== "read") {
-    throw new QueryEngineError(
-      `Probe read '${probe.read.id}' must be a read step; found '${probe.read.kind}'.`
-    );
-  }
-  assertFoundPin(probe.pin.whenFound);
-  assertMissingPin(probe.pin.whenMissing);
-}
-
-function assertFoundPin(pin: Probe["pin"]["whenFound"]): void {
-  if (pin === "none") return;
-  if (pin.premise.kind !== "exists") {
-    throw new QueryEngineError(
-      `Probe found-pin '${pin.id}' must pin an existing-row premise with an exists guard.`
-    );
-  }
-  if (pin.failure.raceable) {
-    throw new QueryEngineError(
-      `Probe found-pin '${pin.id}' pins an existing-row premise and must be raceable: false.`
-    );
-  }
-}
-
-function assertMissingPin(pin: Probe["pin"]["whenMissing"]): void {
-  if (pin === "constraint" || pin === "none") return;
-  if (pin.premise.kind !== "notExists") {
-    throw new QueryEngineError(
-      `Probe missing-pin '${pin.id}' may only carry a notExists guard for the retained pins; a same-model-INSERT premise must be enforced by the constraint.`
-    );
-  }
-  if (!pin.failure.raceable) {
-    throw new QueryEngineError(
-      `Probe missing-pin '${pin.id}' is the production-FATAL create-branch pin: a notExists guard on a missing premise must never be raceable: false.`
-    );
-  }
 }
 
 function indexSteps(

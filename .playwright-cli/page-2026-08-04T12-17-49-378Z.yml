@@ -1,0 +1,305 @@
+- generic [active] [ref=f1e1]:
+  - link "Skip to content" [ref=f1e2] [cursor=pointer]:
+    - /url: "#blume-content"
+  - banner [ref=f1e3]:
+    - link "VibORM" [ref=f1e4] [cursor=pointer]:
+      - /url: /
+    - navigation "Sections" [ref=f1e6]:
+      - link "Documentation" [ref=f1e7] [cursor=pointer]:
+        - /url: /docs
+      - link "Internal" [ref=f1e8] [cursor=pointer]:
+        - /url: /docs/internals
+    - button "Search" [ref=f1e10] [cursor=pointer]:
+      - generic [ref=f1e16]: ⌘K
+    - generic [ref=f1e17]:
+      - link "GitHub repository" [ref=f1e18] [cursor=pointer]:
+        - /url: https://github.com/beynar/viborm
+      - button "Toggle color theme" [ref=f1e21] [cursor=pointer]
+  - main [ref=f1e27]:
+    - generic [ref=f1e28]:
+      - generic [ref=f1e29]:
+        - generic [ref=f1e30]: Types update when your schema does
+        - heading "The type-safe ORM without the generate step." [level=1] [ref=f1e32]:
+          - generic [ref=f1e33]: The type-safe ORM
+          - generic [ref=f1e34]: without the generate step.
+        - paragraph [ref=f1e35]: Define a schema in TypeScript and query PostgreSQL, MySQL, or SQLite with a fully inferred, Prisma-inspired client. No code generation. No stale types.
+        - generic [ref=f1e36]:
+          - generic [ref=f1e37]: $
+          - code [ref=f1e38]: pnpm add viborm
+          - button "Copy" [ref=f1e39] [cursor=pointer]
+        - generic [ref=f1e46]:
+          - link "Start building" [ref=f1e47] [cursor=pointer]:
+            - /url: /docs/getting-started/quick-start
+          - link "View on GitHub" [ref=f1e50] [cursor=pointer]:
+            - /url: https://github.com/beynar/viborm
+      - generic [ref=f1e57]:
+        - generic [ref=f1e58]:
+          - generic [ref=f1e59]: VibORM
+          - generic [ref=f1e64]:
+            - text: Search documentation
+            - generic [ref=f1e69]: ⌘K
+        - generic [ref=f1e75]:
+          - complementary [ref=f1e76]:
+            - paragraph [ref=f1e77]: Documentation
+            - navigation [ref=f1e78]:
+              - generic [ref=f1e79]: Quick Start
+              - generic [ref=f1e82]: Schema
+              - generic [ref=f1e87]: Client API
+              - generic [ref=f1e93]: Relations
+              - generic [ref=f1e99]: Migrations
+          - generic [ref=f1e102]:
+            - generic [ref=f1e103]: Quick Start
+            - heading "From schema to typed query in one file." [level=2] [ref=f1e106]
+            - paragraph [ref=f1e107]: Your schema is the type source. Every filter, relation, selection, and result is inferred directly from it.
+            - generic [ref=f1e108]:
+              - generic [ref=f1e110]:
+                - text: schema.ts
+                - code [ref=f1e113]:
+                  - generic [ref=f1e114]: "import { s } from \"viborm\";"
+                  - generic [ref=f1e115]: "export const user = s.model({"
+                  - generic [ref=f1e116]: "id: s.string().id().ulid(),"
+                  - generic [ref=f1e117]: "email: s.string().unique(),"
+                  - generic [ref=f1e118]: "posts: s.oneToMany(() => post),"
+                  - generic [ref=f1e119]: "});"
+                  - generic [ref=f1e120]: "export const post = s.model({"
+                  - generic [ref=f1e121]: "id: s.string().id().ulid(),"
+                  - generic [ref=f1e122]: "title: s.string(),"
+                  - generic [ref=f1e123]: "published: s.boolean().default(false),"
+                  - generic [ref=f1e124]: "authorId: s.string(),"
+                  - generic [ref=f1e125]: "author: s.manyToOne(() => user)"
+                  - generic [ref=f1e126]: .fields("authorId")
+                  - generic [ref=f1e127]: .references("id"),
+                  - generic [ref=f1e128]: "});"
+              - generic [ref=f1e130]:
+                - text: query.ts
+                - code [ref=f1e133]:
+                  - generic [ref=f1e134]: "const authors = await client.user.findMany({"
+                  - generic [ref=f1e135]: "where: {"
+                  - generic [ref=f1e136]: "email: { contains: \"@company.com\" },"
+                  - generic [ref=f1e137]: "},"
+                  - generic [ref=f1e138]: "include: {"
+                  - generic [ref=f1e139]: "posts: {"
+                  - generic [ref=f1e140]: "where: { published: true },"
+                  - generic [ref=f1e141]: "orderBy: { title: \"asc\" },"
+                  - generic [ref=f1e142]: "},"
+                  - generic [ref=f1e143]: "},"
+                  - generic [ref=f1e144]: "});"
+            - generic [ref=f1e145]:
+              - generic [ref=f1e146]: Typed filters
+              - generic [ref=f1e151]: Typed relations
+              - generic [ref=f1e156]: Typed results
+      - generic [ref=f1e161]:
+        - generic [ref=f1e162]:
+          - paragraph [ref=f1e163]: Everything stays connected
+          - heading "The schema is the single source of truth." [level=2] [ref=f1e164]
+          - paragraph [ref=f1e165]: Change a field and TypeScript follows the change into filters, writes, relations, selections, and returned records immediately.
+        - generic [ref=f1e166]:
+          - article [ref=f1e167]:
+            - heading "Inference, not generation" [level=3] [ref=f1e173]
+            - paragraph [ref=f1e174]: Types flow from immutable schema definitions into every client operation and result.
+          - article [ref=f1e175]:
+            - heading "Prisma-inspired client" [level=3] [ref=f1e179]
+            - paragraph [ref=f1e180]: Use familiar create, find, update, upsert, delete, aggregation, and transaction APIs.
+          - article [ref=f1e181]:
+            - heading "One ORM, three dialects" [level=3] [ref=f1e188]
+            - paragraph [ref=f1e189]: Keep one schema and one query surface across PostgreSQL, MySQL, and SQLite.
+          - article [ref=f1e190]:
+            - heading "Relations stay typed" [level=3] [ref=f1e197]
+            - paragraph [ref=f1e198]: Model one-to-one, one-to-many, and many-to-many relations with typed nested reads and writes.
+          - article [ref=f1e199]:
+            - heading "Standard Schema V1" [level=3] [ref=f1e205]
+            - paragraph [ref=f1e206]: Validate through the Standard Schema interface and interoperate with its growing ecosystem.
+          - article [ref=f1e207]:
+            - heading "Drivers for your runtime" [level=3] [ref=f1e211]
+            - paragraph [ref=f1e212]: Run on Node.js, Bun, serverless databases, and Cloudflare D1 through focused drivers.
+      - generic [ref=f1e213]:
+        - generic [ref=f1e214]:
+          - heading "Everything from CRUD to vectors." [level=2] [ref=f1e215]
+          - paragraph [ref=f1e216]: A typed relational core, database extensions, and production tooling in one ORM.
+        - list [ref=f1e217]:
+          - listitem [ref=f1e218]:
+            - link "Type-safe CRUD Typed create, read, update, delete, and upsert operations" [ref=f1e219] [cursor=pointer]:
+              - /url: /docs/client
+              - generic [ref=f1e222]:
+                - generic [ref=f1e223]: Type-safe CRUD
+                - generic [ref=f1e224]: Typed create, read, update, delete, and upsert operations
+          - listitem [ref=f1e225]:
+            - link "Composable queries Typed filters, selections, includes, sorting, and pagination" [ref=f1e226] [cursor=pointer]:
+              - /url: /docs/client/filtering
+              - generic [ref=f1e229]:
+                - generic [ref=f1e230]: Composable queries
+                - generic [ref=f1e231]: Typed filters, selections, includes, sorting, and pagination
+          - listitem [ref=f1e232]:
+            - link "Relation filters Filter through to-one and to-many relations at any depth" [ref=f1e233] [cursor=pointer]:
+              - /url: /docs/client/filtering/relations
+              - generic [ref=f1e239]:
+                - generic [ref=f1e240]: Relation filters
+                - generic [ref=f1e241]: Filter through to-one and to-many relations at any depth
+          - listitem [ref=f1e242]:
+            - link "Aggregates & groupBy Count, sum, average, min, max, and grouped results" [ref=f1e243] [cursor=pointer]:
+              - /url: /docs/client/group-by
+              - generic [ref=f1e246]:
+                - generic [ref=f1e247]: Aggregates & groupBy
+                - generic [ref=f1e248]: Count, sum, average, min, max, and grouped results
+          - listitem [ref=f1e249]:
+            - link "Nested writes Create, connect, update, and disconnect related records" [ref=f1e250] [cursor=pointer]:
+              - /url: /docs/client/nested-writes
+              - generic [ref=f1e257]:
+                - generic [ref=f1e258]: Nested writes
+                - generic [ref=f1e259]: Create, connect, update, and disconnect related records
+          - listitem [ref=f1e260]:
+            - link "Transactions Interactive transactions and atomic batch execution" [ref=f1e261] [cursor=pointer]:
+              - /url: /docs/client/transactions
+              - generic [ref=f1e264]:
+                - generic [ref=f1e265]: Transactions
+                - generic [ref=f1e266]: Interactive transactions and atomic batch execution
+          - listitem [ref=f1e267]:
+            - link "Implicit many-to-many Automatic junction tables with typed reads and writes" [ref=f1e268] [cursor=pointer]:
+              - /url: /docs/schema/relations/many-to-many
+              - generic [ref=f1e274]:
+                - generic [ref=f1e275]: Implicit many-to-many
+                - generic [ref=f1e276]: Automatic junction tables with typed reads and writes
+          - listitem [ref=f1e277]:
+            - link "JSON & scalar lists Typed JSON values and portable scalar-list storage" [ref=f1e278] [cursor=pointer]:
+              - /url: /docs/schema/scalars/json
+              - generic [ref=f1e284]:
+                - generic [ref=f1e285]: JSON & scalar lists
+                - generic [ref=f1e286]: Typed JSON values and portable scalar-list storage
+          - listitem [ref=f1e287]:
+            - link "Vector similarity pgvector embeddings, distance selection, and ordering" [ref=f1e288] [cursor=pointer]:
+              - /url: /docs/schema/scalars/vector
+              - generic [ref=f1e293]:
+                - generic [ref=f1e294]: Vector similarity
+                - generic [ref=f1e295]: pgvector embeddings, distance selection, and ordering
+          - listitem [ref=f1e296]:
+            - link "Geospatial types PostgreSQL point, PostGIS geometry, and geography types" [ref=f1e297] [cursor=pointer]:
+              - /url: /docs/schema/native-types#point-postgresql-only
+              - generic [ref=f1e303]:
+                - generic [ref=f1e304]: Geospatial types
+                - generic [ref=f1e305]: PostgreSQL point, PostGIS geometry, and geography types
+          - listitem [ref=f1e306]:
+            - link "Raw SQL Parameterized tagged templates and SQL composition helpers" [ref=f1e307] [cursor=pointer]:
+              - /url: /docs/client/raw-sql
+              - generic [ref=f1e310]:
+                - generic [ref=f1e311]: Raw SQL
+                - generic [ref=f1e312]: Parameterized tagged templates and SQL composition helpers
+          - listitem [ref=f1e313]:
+            - link "Standard Schema V1 Reusable operation schemas with JSON Schema export" [ref=f1e314] [cursor=pointer]:
+              - /url: /docs/internals/validation/standard-schema
+              - generic [ref=f1e319]:
+                - generic [ref=f1e320]: Standard Schema V1
+                - generic [ref=f1e321]: Reusable operation schemas with JSON Schema export
+          - listitem [ref=f1e322]:
+            - link "Query cache TTL, stale-while-revalidate, and automatic invalidation" [ref=f1e323] [cursor=pointer]:
+              - /url: /docs/cache
+              - generic [ref=f1e329]:
+                - generic [ref=f1e330]: Query cache
+                - generic [ref=f1e331]: TTL, stale-while-revalidate, and automatic invalidation
+          - listitem [ref=f1e332]:
+            - link "Migrations Schema push and versioned migration workflows" [ref=f1e333] [cursor=pointer]:
+              - /url: /docs/migration
+              - generic [ref=f1e336]:
+                - generic [ref=f1e337]: Migrations
+                - generic [ref=f1e338]: Schema push and versioned migration workflows
+          - listitem [ref=f1e339]:
+            - link "Observability OpenTelemetry tracing and structured query logging" [ref=f1e340] [cursor=pointer]:
+              - /url: /docs/instrumentation
+              - generic [ref=f1e343]:
+                - generic [ref=f1e344]: Observability
+                - generic [ref=f1e345]: OpenTelemetry tracing and structured query logging
+          - listitem [ref=f1e346]:
+            - link "Runtime drivers PostgreSQL, MySQL, SQLite, serverless, and edge runtimes" [ref=f1e347] [cursor=pointer]:
+              - /url: /docs/drivers
+              - generic [ref=f1e350]:
+                - generic [ref=f1e351]: Runtime drivers
+                - generic [ref=f1e352]: PostgreSQL, MySQL, SQLite, serverless, and edge runtimes
+        - link "Explore all features" [ref=f1e354] [cursor=pointer]:
+          - /url: /docs
+      - generic [ref=f1e357]:
+        - generic [ref=f1e358]:
+          - paragraph [ref=f1e359]: Adapter-owned SQL
+          - heading "Write the query once. Choose the database at the edge." [level=2] [ref=f1e360]
+          - paragraph [ref=f1e361]: VibORM keeps query intent separate from dialect syntax. You keep the same model and client API while the adapter handles the SQL each database needs.
+          - link "Explore every driver" [ref=f1e362] [cursor=pointer]:
+            - /url: /docs/drivers
+        - generic [ref=f1e365]:
+          - article [ref=f1e366]:
+            - generic [ref=f1e373]:
+              - heading "PostgreSQL" [level=3] [ref=f1e374]
+              - paragraph [ref=f1e375]: pg, postgres.js, Neon HTTP, PGlite, and Bun SQL
+          - article [ref=f1e380]:
+            - generic [ref=f1e387]:
+              - heading "MySQL" [level=3] [ref=f1e388]
+              - paragraph [ref=f1e389]: mysql2, PlanetScale, and Bun SQL
+          - article [ref=f1e394]:
+            - generic [ref=f1e398]:
+              - heading "SQLite" [level=3] [ref=f1e399]
+              - paragraph [ref=f1e400]: sqlite3, libSQL, Bun SQLite, and Cloudflare D1
+      - generic [ref=f1e405]:
+        - generic [ref=f1e406]:
+          - paragraph [ref=f1e407]: Database isomorphisms
+          - heading "Same feature set. Change the database, not the application." [level=2] [ref=f1e408]
+          - paragraph [ref=f1e409]: VibORM gives PostgreSQL, MySQL, and SQLite one portable schema and client API, so switching drivers does not require rewriting application code.
+        - generic [ref=f1e410]:
+          - generic [ref=f1e411]:
+            - generic [ref=f1e412]: VibORM concept
+            - generic [ref=f1e413]: PostgreSQL
+            - generic [ref=f1e414]: MySQL
+            - generic [ref=f1e415]: SQLite
+          - article [ref=f1e416]:
+            - generic [ref=f1e422]:
+              - heading "Scalar lists" [level=3] [ref=f1e423]
+              - code [ref=f1e424]: s.string().array()
+            - code [ref=f1e426]: text[]
+            - code [ref=f1e428]: JSON
+            - code [ref=f1e430]: JSON text
+          - article [ref=f1e431]:
+            - generic [ref=f1e437]:
+              - heading "Enums" [level=3] [ref=f1e438]
+              - code [ref=f1e439]: s.enum([…])
+            - code [ref=f1e441]: Named ENUM type
+            - code [ref=f1e443]: ENUM(…)
+            - code [ref=f1e445]: TEXT + CHECK
+          - article [ref=f1e446]:
+            - generic [ref=f1e454]:
+              - heading "Booleans" [level=3] [ref=f1e455]
+              - code [ref=f1e456]: s.boolean()
+            - code [ref=f1e458]: boolean
+            - code [ref=f1e460]: TINYINT(1)
+            - code [ref=f1e462]: INTEGER 0/1
+          - article [ref=f1e463]:
+            - generic [ref=f1e471]:
+              - heading "Date and time" [level=3] [ref=f1e472]
+              - code [ref=f1e473]: s.dateTime()
+            - code [ref=f1e475]: timestamptz
+            - code [ref=f1e477]: DATETIME(3)
+            - code [ref=f1e479]: ISO TEXT
+          - article [ref=f1e480]:
+            - generic [ref=f1e489]:
+              - heading "Exact decimals" [level=3] [ref=f1e490]
+              - code [ref=f1e491]: s.decimal()
+            - code [ref=f1e493]: numeric
+            - code [ref=f1e495]: DECIMAL(65,30)
+            - code [ref=f1e497]: TEXT
+        - paragraph [ref=f1e498]: One schema. One query API. Three database engines.
+      - generic [ref=f1e503]:
+        - heading "Define your schema. Keep moving." [level=2] [ref=f1e507]
+        - paragraph [ref=f1e508]: Start with an in-process PostgreSQL database, then move to your production driver without changing the way you model or query data.
+        - generic [ref=f1e509]:
+          - link "Read the quick start" [ref=f1e510] [cursor=pointer]:
+            - /url: /docs/getting-started/quick-start
+          - link "Browse the client API" [ref=f1e513] [cursor=pointer]:
+            - /url: /docs/client
+  - contentinfo [ref=f1e514]:
+    - generic [ref=f1e515]:
+      - generic [ref=f1e516]: VibORM
+      - navigation [ref=f1e520]:
+        - link "Documentation" [ref=f1e521] [cursor=pointer]:
+          - /url: /docs
+        - link "Client API" [ref=f1e522] [cursor=pointer]:
+          - /url: /docs/client
+        - link "Drivers" [ref=f1e523] [cursor=pointer]:
+          - /url: /docs/drivers
+        - link "GitHub" [ref=f1e524] [cursor=pointer]:
+          - /url: https://github.com/beynar/viborm
+      - paragraph [ref=f1e525]: Open source under the ISC license.

@@ -4,7 +4,6 @@ import {
   decimalLiteral,
   getScalarCastType,
   getScalarType,
-  isBatchValueRef,
 } from "../builders/values-builder";
 import { getWhereUniqueFilters } from "../builders/where-unique-builder";
 import type { QueryEngine } from "../query-engine";
@@ -20,7 +19,7 @@ import {
 } from "./OperationFragment";
 
 /**
- * Lower a value to destination-field-aware SQL (ATOM §1 / §6), wrapped in the
+ * Lower a value to destination-field-aware SQL (ATOM “Field-bound foreign-key provenance”), wrapped in the
  * adapter's cast for the target column. The `value` may be a symbolic `Ref`
  * (materialized later, create context) or a concrete planning literal (inlined
  * now, update-by-unique context); both ride inside `Sql.values` identically, so
@@ -91,8 +90,7 @@ function isConcreteFkValue(value: unknown): boolean {
     value !== null &&
     value !== undefined &&
     !isSql(value) &&
-    !isOperationValueReference(value) &&
-    !isBatchValueRef(value)
+    !isOperationValueReference(value)
   );
 }
 
@@ -154,25 +152,15 @@ export function queryFailure(message: string): Failure {
   return { kind: "query", message, raceable: false };
 }
 
-/**
- * A raceable `query` failure — the abort class for a **retained `notExists`
- * pin** (ATOM §2): the top-level upsert's targetWhere/setWhere skip premise (no
- * INSERT exists for a constraint to fire on, so the constraint cannot enforce
- * it). `raceable: true` per the Pin Rule's materialized-condition class, which
- * the fragment validator requires of every `notExists` guard.
- */
+/** A raceable query failure for a retained absence premise. No same-target
+ * constraint can enforce it, and fragment validation requires `raceable: true`. */
 export function raceableQueryFailure(message: string): Failure {
   return { kind: "query", message, raceable: true };
 }
 
-/**
- * A **retained `notExists` pin** (ATOM §2, the Pin Rule's own exception): batch
- * mode pins that a conditional premise still does NOT hold (`raceable: true`).
- * The only P2b user is the top-level upsert skip branch — planning decided the
- * existing row does not match targetWhere/setWhere (silent no-op, V1's contract);
- * this guard aborts the batch if a concurrent write made it match. Transaction
- * mode pins the same premise with the locked planning read, needing no guard.
- */
+/** Pin that a conditional premise still does not hold. The top-level upsert
+ * skip branch uses it after its captured-row presence guard; transaction mode
+ * gets both facts from the locked planning read. */
 export function absenceGuard(
   id: string,
   statement: Sql,
@@ -187,12 +175,13 @@ export function absenceGuard(
 }
 
 /**
- * An existing-row premise guard (ATOM §2): pinned `raceable: false`, carrying an
+ * An existing-row premise guard (ATOM “Branch premises and pins”): pinned `raceable: false`, carrying an
  * arbitrary typed {@link Failure}. Emitted only in batch mode; transaction mode
  * pins the same premise with a locked planning read. This is the reusable
  * adapter-assertion pin behind the found-upsert premise, the connect/disconnect
- * target premise, and the batch-mode `affectedRows` enforcement (ATOM §8.1 note
- * (b)) — all one existing-row premise, never a `notExists` create-branch guard.
+ * target premise, and the batch-mode `affectedRows` enforcement (ATOM “Branch
+ * premises and pins”) — all one existing-row premise, never a `notExists`
+ * create-branch guard.
  */
 export function presenceGuard(
   id: string,
@@ -203,7 +192,7 @@ export function presenceGuard(
 }
 
 /**
- * The found-branch exists guard (ATOM §2) for the nested upsert: an existing-row
+ * The found-branch exists guard (ATOM “Branch premises and pins”) for the nested upsert: an existing-row
  * premise pinned `raceable: false`, carrying V1's `Nested upsert premise changed`
  * message. A thin wrapper over {@link presenceGuard}.
  */

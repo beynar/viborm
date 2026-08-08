@@ -20,6 +20,7 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
+import { isRecord } from "@validation/value-guards";
 import { type Clock, type ClockTimer, systemClock } from "../../clock";
 
 /** Prisma's isolation-level spellings, exactly. */
@@ -178,9 +179,6 @@ export function transactionMaxWaitError(
     }
   );
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isIsolationLevel = (value: unknown): value is TransactionIsolationLevel =>
   TRANSACTION_ISOLATION_LEVELS.includes(value as TransactionIsolationLevel);

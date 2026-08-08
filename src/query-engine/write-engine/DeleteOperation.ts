@@ -21,8 +21,10 @@ import {
 import {
   type OperationFragment,
   type OperationStep,
+  type PlanningFragment,
+  type ReadStep,
   ref,
-  type StatementStep,
+  type WriteStep,
 } from "./OperationFragment";
 import { planningKey, planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
@@ -37,12 +39,12 @@ import {
 type ExecutionMode = "transaction" | "batch";
 
 /**
- * The root `delete` (PLAN P2a). It locates the row by any unique `where`,
+ * The root `delete` locates the row by any unique `where`,
  * captures its selected shape as the result **before** removing it (portable
  * across drivers with and without `RETURNING`), then deletes it. The `notFound`
  * postcondition is a locate-read postcondition enforced at planning on both
  * substrates; batch mode additionally pins the row's presence inside the atomic
- * unit so a concurrent delete aborts the batch typed (ATOM §8.1 note (b)).
+ * unit so a concurrent delete aborts the batch typed (ATOM “Branch premises and pins”).
  *
  * The mainstream shape folds (query-performance-plan Phase 3): a scalar-projected
  * delete on a RETURNING driver in transaction mode is ONE
@@ -60,17 +62,17 @@ export class DeleteOperation {
   private readonly parsedSelect: Record<string, unknown> | undefined;
   private readonly parsedInclude: Record<string, unknown> | undefined;
   private readonly parentPrimaryKeys: readonly string[];
-  private readonly locate: StatementStep;
+  private readonly locate: ReadStep;
   private readonly readId: string;
   private readonly deleteId: string;
   private readonly rootGuardId: string;
-  private readonly foldStep: StatementStep | undefined;
+  private readonly foldStep: WriteStep | undefined;
   /** THE projection predicate, in ONE spelling: does the result shape name no
    *  relation at all? Two sites need exactly this question — the Phase 3 fold gate
    *  and the terminal read's `FOR UPDATE` — so they ask it once. See
    *  {@link projectionNamesNoRelation}. */
   private readonly projectionIsScalarOnly: boolean;
-  /** PLAN Phase 6.2 — the fold's presence premise on a batch-only driver, where
+  /** The fold's presence premise on a batch-only driver, where
    *  no JS postcondition can run. `undefined` in transaction mode (the fold's
    *  own `expects` carries it) and wherever `foldStep` is undefined. */
   private readonly foldGuard: OperationStep | undefined;
@@ -227,7 +229,7 @@ export class DeleteOperation {
           ...(txMode ? { expects: affectedRows(1, foldNotFound) } : {}),
         }
       : undefined;
-    // PLAN Phase 6.2, the delete projection of the update fold: on a batch-only
+    // On a batch-only driver, the delete projection of the update fold is
     // driver the plan is `[presence guard, DELETE … RETURNING]` — one round trip,
     // no postcondition, so the `$transaction([...])` array seam (which merges
     // operations into ONE batch and therefore cannot honour a JS check that runs
@@ -239,7 +241,7 @@ export class DeleteOperation {
       canFold && !txMode ? this.buildRootPresenceGuard() : undefined;
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     // The RETURNING fold is a single self-contained statement — it consumes no
     // planning value, and empty planning is what makes it statement-atomic.
     if (this.foldStep) return { steps: [], outputs: {} };
@@ -281,7 +283,7 @@ export class DeleteOperation {
     // could be concurrently rewritten). Transaction mode only — batch mode keeps
     // the original `where` so the write and its presence guard pin the same row.
     const where = this.writeWhere(locatedRow);
-    const readFull: StatementStep = {
+    const readFull: ReadStep = {
       id: this.readId,
       kind: "read",
       statement: buildFindUnique(parent, {
@@ -310,7 +312,7 @@ export class DeleteOperation {
       }),
       outputs: { result: { kind: "rows" } },
     };
-    const deleteRow: StatementStep = {
+    const deleteRow: WriteStep = {
       id: this.deleteId,
       kind: "write",
       statement: buildDelete(parent, { where }),
@@ -331,7 +333,7 @@ export class DeleteOperation {
       steps.push(this.buildRootPresenceGuard());
     }
     // Capture the row, then delete it — both in the final fragment, so the
-    // result output resolves fragment-locally at parse (ATOM §9 inv. 4).
+    // result output resolves fragment-locally at parse (ATOM “Proof obligations”).
     steps.push(readFull, deleteRow);
     return { steps, outputs: { result: ref(this.readId, "result") } };
   }

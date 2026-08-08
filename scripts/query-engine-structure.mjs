@@ -2,9 +2,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 
-const ROOT = resolve(import.meta.dirname, "..");
+const ROOT = process.env.QUERY_ENGINE_CENSUS_ROOT
+  ? resolve(process.env.QUERY_ENGINE_CENSUS_ROOT)
+  : resolve(import.meta.dirname, "..");
 const QUERY_ENGINE = join(ROOT, "src/query-engine");
-const NESTED_WRITES = join(QUERY_ENGINE, "operations/nested-writes");
+const WRITE_ENGINE = join(QUERY_ENGINE, "write-engine");
 
 function listTypeScriptFiles(directory) {
   if (!existsSync(directory)) return [];
@@ -56,6 +58,34 @@ function hasRuntimeImport(importClause) {
   return importClause.namedBindings.elements.some(
     (element) => !element.isTypeOnly
   );
+}
+
+function countTokenLines(sourceFile) {
+  const tokenLineNumbers = new Set();
+
+  // Walk parser-owned tokens: a standalone scanner cannot rescan template tails
+  // correctly and can misclassify later comments that contain backticks.
+  function visit(node) {
+    if (ts.isJSDoc(node)) return;
+    const children = node.getChildren(sourceFile);
+    if (children.length > 0) {
+      for (const child of children) visit(child);
+      return;
+    }
+    if (
+      node.kind < ts.SyntaxKind.FirstToken ||
+      node.kind > ts.SyntaxKind.LastToken ||
+      node.kind === ts.SyntaxKind.EndOfFileToken
+    ) {
+      return;
+    }
+    tokenLineNumbers.add(
+      sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line
+    );
+  }
+
+  visit(sourceFile);
+  return tokenLineNumbers.size;
 }
 
 function getRuntimeModule(node) {
@@ -160,6 +190,7 @@ function measure(directory) {
   const graph = new Map(files.map((file) => [file, []]));
   const largeFiles = [];
   let lines = 0;
+  let tokenLines = 0;
   let functions = 0;
   let parameters = 0;
   let highParameterFunctions = 0;
@@ -179,6 +210,7 @@ function measure(directory) {
       ts.ScriptTarget.Latest,
       true
     );
+    tokenLines += countTokenLines(sourceFile);
     const dependencies = graph.get(file);
 
     function visit(node) {
@@ -212,6 +244,7 @@ function measure(directory) {
   return {
     files: files.length,
     lines,
+    tokenLines,
     functions,
     parameters,
     highParameterFunctions,
@@ -235,9 +268,11 @@ const report = {
     importCycles:
       "Strongly connected components of runtime imports internal to the measured directory; type-only imports are excluded.",
     lines: "Physical newline count, equivalent to wc -l for these files.",
+    tokenLines:
+      "Physical lines on which at least one parser-owned TypeScript token starts; comments and blank lines are excluded.",
   },
   queryEngine: measure(QUERY_ENGINE),
-  nestedWrites: measure(NESTED_WRITES),
+  writeEngine: measure(WRITE_ENGINE),
 };
 
 console.log(JSON.stringify(report, null, 2));

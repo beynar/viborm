@@ -1,4 +1,5 @@
 import type { VibSchema } from "../types";
+import { isRecord } from "../value-guards";
 import { createSchema, fail, ok } from "./helpers";
 
 // =============================================================================
@@ -69,14 +70,14 @@ export function rawRecord(): RawRecordSchema {
   return createSchema<Record<string, unknown>, Record<string, unknown>>(
     "rawRecord",
     (input) => {
-      if (!input || typeof input !== "object" || Array.isArray(input)) {
+      if (!isRecord(input)) {
         return fail(
           `Expected object, received ${
             Array.isArray(input) ? "array" : typeof input
           }`
         );
       }
-      return ok(input as Record<string, unknown>);
+      return ok(input);
     }
   ) as RawRecordSchema;
 }

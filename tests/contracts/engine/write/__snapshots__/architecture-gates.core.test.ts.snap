@@ -1,0 +1,31 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`write engine structural gates (PLAN P0) > (c) freezes the fragment module's exported type surface 1`] = `
+"export interface Failure { readonly kind: "nestedWrite" | "notFound" | "query"; readonly message: string; readonly relation?: string; readonly raceable: boolean; }
+
+export type FragmentOutputSource = | OperationValueReference | readonly OperationValueReference[];
+
+export interface GuardStep { readonly id: string; readonly kind: "guard"; readonly premise: { readonly kind: "exists" | "notExists"; readonly statement: Sql; }; readonly failure: Failure; }
+
+export interface OperationFragment { readonly steps: readonly OperationStep[]; readonly outputs: Readonly<Record<string, FragmentOutputSource>>; }
+
+export type OperationStep = StatementStep | GuardStep;
+
+export interface OperationValueReference { readonly kind: typeof OPERATION_VALUE_REFERENCE; readonly step: string; readonly output: string; }
+
+export interface PlanningFragment { readonly steps: readonly StatementStep[]; readonly outputs: Readonly<Record<string, FragmentOutputSource>>; }
+
+export type Postcondition = | { readonly kind: "exactlyOneRow"; readonly failure: Failure } | { readonly kind: "affectedRows"; readonly expected: number | { readonly min: number }; readonly failure: Failure; };
+
+export interface ReadStep extends StatementStepBase { readonly kind: "read"; }
+
+export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kind: "rowCount" } | { readonly kind: "insertId" } | { readonly kind: "firstRowField"; readonly field: string; readonly optional?: boolean; };
+
+export type StatementStep = ReadStep | WriteStep;
+
+export interface StatementStepBase { readonly id: string; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; }
+
+export interface TargetConstraintPin { readonly fields: readonly string[]; readonly table: string; readonly columns: readonly string[]; readonly constraints: readonly string[]; }
+
+export interface WriteStep extends StatementStepBase { readonly kind: "write"; readonly racePin?: TargetConstraintPin; readonly onUniqueConflict?: "skip"; }"
+`;

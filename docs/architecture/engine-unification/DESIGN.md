@@ -1,17 +1,20 @@
 # Nested-Write Engine Unification — THE Design
 
-> **Superseded historical design.** The operation-program implementation in
-> [`query-engine-operation-program-implementation-plan.md`](../query-engine-operation-program-implementation-plan.md)
-> replaced the interpreter/mode architecture described here. This document is
-> retained as the decision record that preceded the migration; the current
-> query-engine guides and architecture gates are authoritative.
+> **Superseded historical design.** The operation-program implementation first
+> replaced the interpreter/mode architecture described here, and the current
+> fragment/record-compiler architecture later replaced that program. This file
+> preserves the original argument, names, paths, and milestones except for
+> blocks explicitly labelled **Successor correction**. It is not an
+> implementation guide. [`ATOM.md`](../../../src/query-engine/write-engine/ATOM.md)
+> is the current doctrine.
 
 Historical status: **decided**. Anchor: branch `prisma-parity`, commit `2fa49b6`.
 This document supersedes the four candidate designs in this directory
 (`design-total-ir.md`, `design-one-interpreter.md`, `design-type-driven.md`,
-`design-strangler.md`). Those documents remain as the record of the argument;
-implementers work from **this** document. The six `map-*.md` files are the
-ground truth this design is checked against; where this document cites an
+`design-strangler.md`) at its historical anchor. Those documents remain as the
+record of the argument; current implementation does not proceed from any of
+them. The six `map-*.md` files are the ground truth this design was checked
+against; where this document cites an
 invariant (I1–I11), a divergence (D1–D9 or a named `DIVERGENCE-*`), or a
 section (e.g. map-shared §D.5), it refers to those maps.
 
@@ -792,11 +795,15 @@ invariant (parent-holds-FK connect ⇒ `target`; child-holds-FK connect ⇒
 
 ### 5.5 The Pin Rule (normative; resolves F1)
 
+> **Successor correction.** Rule 2 records the current fragment engine's
+> two-guard conditional-skip rule, proved after this historical design. It is
+> not part of the original design at the anchor above.
+
 > **Pin what live locks; let constraints enforce what live cannot lock.**
 >
-> 1. A premise about an **existing row** (upsert existing-branch
->    `uniqueExists`; `uniqueWithWhereExists/Missing` for targetWhere/
->    setWhere; correlated existence; connectOrCreate found-branch) **is
+> 1. A premise about the **identity of an existing row** (upsert
+>    existing-branch `uniqueExists`; `uniqueWithWhereExists`; correlated
+>    existence; connectOrCreate found-branch) **is
 >    pinned** in planned mode. Live mode holds these rows under the open
 >    transaction (top-level upsert even under `FOR UPDATE`), so a concurrent
 >    modification cannot slip between decision and write there; the pin is
@@ -804,7 +811,13 @@ invariant (parent-holds-FK connect ⇒ `target`; child-holds-FK connect ⇒
 >    typed, instead of waiting. These failures are **non-raceable** (live's
 >    own behavior for the one reachable case — deleted-during-upsert — is a
 >    hard typed error, not a retry).
-> 2. A premise of the form "**no row with unique key K exists**" guarding a
+> 2. A conditional upsert skip has two independent premises. The selector must
+>    still name the captured row; that presence pin is non-raceable. The same
+>    captured row must still fail `targetWhere` or `setWhere`; that absence pin
+>    is raceable because a retry can re-plan a false-to-true change. Identity is
+>    checked first. The absence pin uses `NOT EXISTS (selector ∧ captured key ∧
+>    condition)`, not SQL negation, so UNKNOWN remains a no-match.
+> 3. A premise of the form "**no row with unique key K exists**" guarding a
 >    branch that INSERTs into the same model (connectOrCreate missing
 >    branch, upsert create branch, nested-upsert absent branch, m2m
 >    connectOrCreate missing branch) **is not pinned**. Live cannot lock an
@@ -818,15 +831,14 @@ invariant (parent-holds-FK connect ⇒ `target`; child-holds-FK connect ⇒
 >    production today at `batch-plan.ts:397-399`). It was also *stricter
 >    than live semantics* in the edge where the create payload does not
 >    carry K.
-> 3. A premise that is a **materialized set**, not a re-checkable predicate
+> 4. A premise that is a **materialized set**, not a re-checkable predicate
 >    (filtered M2M deleteMany membership), is pinned by the
 >    symmetric-difference guards (§9), whose failures are **raceable**
 >    (retry re-plans membership and converges — §1.2 A6).
 
-Consequences: the only `notExists` pins left in the system are the
-targetWhere/setWhere `uniqueWithWhereMissing` skips, the set
-departing-rows-orphan guard, and the deleteMany symmetric-difference
-guards. Rule 2 is scoped to where-unique keys (always constraint-backed;
+Consequences: the retained `notExists` pins are the conditional-skip no-match
+guard, the set departing-rows-orphan guard, and the deleteMany
+symmetric-difference guards. Rule 3 is scoped to where-unique keys (always constraint-backed;
 where-unique inputs require non-null unique values, so partial-index NULL
 semantics cannot void the constraint).
 
@@ -1016,9 +1028,9 @@ Classification, precisely:
 - `isWriteRaceLoserError` accepts, in addition to today's set
   (`UniqueConstraintError` | DEADLOCK | SERIALIZATION_FAILURE), a
   `NestedWriteError` whose `raceable` flag is set — which the attribution
-  ladder sets only from a `GuardFailure{raceable:true}`, i.e. only the
-  filtered-M2M-deleteMany staleness pins. `NestedWriteAssertionError` (the
-  step-4 fallback) is **never** raceable.
+  ladder sets only from a `GuardFailure{raceable:true}`, including a
+  conditional-skip no-match change and filtered-M2M-deleteMany staleness.
+  `NestedWriteAssertionError` (the step-4 fallback) is **never** raceable.
 - Applicability: `hasRaceableCreateBranch` (upsert always; create/update iff
   the tree contains connectOrCreate/upsert) **or** the caught error itself
   carries `raceable` (self-authorizing: the flag was set by the interpreter,
@@ -1035,7 +1047,8 @@ map-tx-update invariant 10).
 ### 7.5 What is *not* an error
 
 targetWhere/setWhere no-match on upsert is a silent no-op returning the
-existing record (pinned by `uniqueWithWhereMissing` in planned mode) —
+captured existing record. Planned mode pins its identity and no-match premises
+separately; live mode holds the decision read under its transaction —
 map-oracle §C.3 semantics, unchanged.
 
 ---
@@ -1558,7 +1571,7 @@ that M0's calendar cost is open-ended by design — it is the price of making
 
 ---
 
-## 14. Definition of done
+## 14. Historical acceptance record
 
 - One interpreter owns every semantic decision — as of the 2026-07-07
   navigability split, across the `interpret-*.ts` family modules

@@ -19,8 +19,16 @@
     "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": true,
     "lib": ["es2022", "DOM", "esnext.disposable"],
-    "types": ["node", "bun", "vitest/globals"],
+    "types": [
+      "node",
+      "bun",
+      "vitest/globals",
+      "@cloudflare/vitest-pool-workers"
+    ],
     "paths": {
+      "@src/*": ["./src/*"],
+      "@tests/*": ["./tests/*"],
+      "@root/*": ["./*"],
       "@schema/*": ["./src/schema/*"],
       "@client/*": ["./src/client/*"],
       "@client": ["./src/client/index.ts"],
@@ -28,7 +36,6 @@
       "@validation/*": ["./src/validation/*"],
       "@validation": ["./src/validation/index.ts"],
       "@query-engine/*": ["./src/query-engine/*"],
-      "@query-engine": ["./src/query-engine/index.ts"],
       "@adapters/*": ["./src/adapters/*"],
       "@adapters": ["./src/adapters/index.ts"],
       "@drivers/*": ["./src/drivers/*"],

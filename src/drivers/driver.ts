@@ -2,7 +2,6 @@
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { ConnectionError, TransactionError, VibORMErrorCode } from "@errors";
-import { runWithTracer } from "@instrumentation/run-with-tracer";
 import { SPAN_CONNECT, SPAN_DISCONNECT } from "@instrumentation/spans";
 import type { Sql } from "@sql";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
@@ -51,8 +50,7 @@ export abstract class Driver<
     const tracer = this.getTracer(executionContext);
 
     const executeConnect = () =>
-      runWithTracer(
-        tracer,
+      tracer.startActiveSpan(
         {
           name: SPAN_CONNECT,
           attributes: this.getContextAttributes(executionContext),
@@ -116,8 +114,7 @@ export abstract class Driver<
       };
 
       const tracer = this.getTracer(executionContext);
-      const disconnectPromise = runWithTracer(
-        tracer,
+      const disconnectPromise = tracer.startActiveSpan(
         {
           name: SPAN_DISCONNECT,
           attributes: this.getContextAttributes(executionContext),

@@ -68,7 +68,14 @@ export interface VibSchema<TInput = unknown, TOutput = TInput>
   /**
    * Standard properties extended with JSON Schema converter.
    */
-  readonly "~standard": StandardSchemaV1<TInput, TOutput>["~standard"] & {
+  readonly "~standard": Omit<
+    StandardSchemaV1<TInput, TOutput>["~standard"],
+    "validate"
+  > & {
+    readonly validate: (
+      value: unknown,
+      options?: StandardSchemaV1.Options
+    ) => StandardSchemaV1.Result<TOutput>;
     readonly types?: StandardSchemaV1.Types<TInput, TOutput> | undefined;
     /**
      * JSON Schema converter methods.

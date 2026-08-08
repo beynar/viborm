@@ -8,6 +8,7 @@ import type {
   ValidationResult,
   VibSchema,
 } from "../types";
+import { isFunction } from "../value-guards";
 
 // =============================================================================
 // Core Validation Primitives
@@ -78,54 +79,36 @@ export function validateArray<T>(
 }
 
 // =============================================================================
-// 8 Pre-defined Validator Factories (Set Theory Approach)
+// 4 Pre-defined wrapper factories (Set Theory Approach)
 // =============================================================================
-// Using bit flags: nullable=4, optional=2, array=1
+// Using bit flags: nullable=2, optional=1. Array validation is composed first.
 // This eliminates runtime option checking during validation
 
 type ValidatorFn<T> = (value: unknown) => ValidationResult<T>;
 type ValidatorFactory = <T>(v: ValidatorFn<T>) => ValidatorFn<any>;
 
 const FACTORIES: ValidatorFactory[] = [
-  // 000: no options - pass through
+  // 00: no options - pass through
   (v) => v,
 
-  // 001: array only
-  (v) => (val) => validateArray(val, v),
-
-  // 010: optional only
+  // 01: optional only
   (v) => (val) => (val === undefined ? OK_UNDEFINED : v(val)),
 
-  // 011: optional + array
-  (v) => (val) => (val === undefined ? OK_UNDEFINED : validateArray(val, v)),
-
-  // 100: nullable only
+  // 10: nullable only
   (v) => (val) => (val === null ? OK_NULL : v(val)),
 
-  // 101: nullable + array
-  (v) => (val) => (val === null ? OK_NULL : validateArray(val, v)),
-
-  // 110: nullable + optional (use == null for both!)
+  // 11: nullable + optional (use == null for both!)
   (v) => (val) => (val == null ? ok(val) : v(val)),
-
-  // 111: nullable + optional + array
-  (v) => (val) => (val == null ? ok(val) : validateArray(val, v)),
 ];
 
 /**
  * Select factory index using bit flags (O(1) lookup).
  */
-function selectFactoryIndex(options?: {
+function selectFactoryIndex(options: {
   nullable?: boolean;
   optional?: boolean;
-  array?: boolean;
 }): number {
-  if (!options) return 0;
-  return (
-    (options.nullable ? 4 : 0) |
-    (options.optional ? 2 : 0) |
-    (options.array ? 1 : 0)
-  );
+  return (options.nullable ? 2 : 0) | (options.optional ? 1 : 0);
 }
 
 // =============================================================================
@@ -250,7 +233,13 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
     validate = (v) => {
       const r = prev(v);
       if (r.issues) return r;
-      return ok(fn((r as { value: any }).value));
+      try {
+        return ok(fn((r as { value: any }).value));
+      } catch (error) {
+        return fail(
+          `Transform failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     };
   }
 
@@ -259,10 +248,9 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 
   if (hasDefault) {
     // Compute default getter once
-    const getDefault =
-      typeof defaultVal === "function"
-        ? (defaultVal as () => any)
-        : () => defaultVal;
+    const getDefault = isFunction(defaultVal)
+      ? (defaultVal as () => any)
+      : () => defaultVal;
 
     // Apply the appropriate factory with default
     if (array) {
@@ -290,7 +278,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
   if (array) {
     const itemValidator = validate;
     validate = (val) => validateArray(val, itemValidator);
-    const wrapperIndex = (nullable ? 4 : 0) | (optional ? 2 : 0);
+    const wrapperIndex = selectFactoryIndex({ nullable, optional });
     if (wrapperIndex > 0) {
       validate = FACTORIES[wrapperIndex]!(validate);
     }
@@ -380,8 +368,7 @@ export function buildSchema<
  */
 export function validateArrayItems<T, TOut = T>(
   value: unknown,
-  validate: (item: unknown) => any,
-  transform?: (item: T) => TOut
+  validate: (item: unknown) => any
 ): ValidationResult<TOut[]> {
   if (!Array.isArray(value)) {
     return ARRAY_TYPE_ERROR as ValidationResult<TOut[]>;
@@ -393,8 +380,6 @@ export function validateArrayItems<T, TOut = T>(
   const results = new Array<TOut>(len);
   for (let i = 0; i < len; i++) {
     const itemResult = validate(value[i]);
-    if ("then" in itemResult)
-      return fail("Async schemas are not supported", [i]);
     if (itemResult.issues) {
       const issue = itemResult.issues[0]!;
       return fail(
@@ -404,23 +389,9 @@ export function validateArrayItems<T, TOut = T>(
           : [i]
       );
     }
-    results[i] = transform
-      ? transform(itemResult.value as T)
-      : (itemResult.value as TOut);
+    results[i] = itemResult.value as TOut;
   }
   return ok(results);
-}
-
-/**
- * Get default value from options.
- */
-export function getDefault<T>(
-  options: ScalarOptions<T, any> | undefined
-): T | undefined {
-  if (options?.default === undefined) return undefined;
-  return typeof options.default === "function"
-    ? (options.default as () => T)()
-    : options.default;
 }
 
 /**

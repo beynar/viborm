@@ -63,7 +63,13 @@ Degenerate sub-case: if `data` contains **only** relation keys, the user gets a 
 
 **Defect 3 — verified with a live probe `[V]`.**
 [RelationJunctionPart.ts:982](../../src/query-engine/write-engine/RelationJunctionPart.ts:982) requires the target PK as a compile-time literal in the create data. With V1 deleted there is no fallback, so an ordinary Prisma-shaped payload now throws.
-`PLAN.md:421` predicted exactly this and reasoned it away: *"No current test schema hits it (all M2M targets carry provided PKs), so the route inventory over the reachable corpus is exactly one."* Every M2M fixture in `tests/fixtures/many-to-many-schema.ts` uses `s.string().id()` with explicit values. **The gates measured corpus-reachability, not user-reachability.**
+The retired implementation ledger predicted exactly this and reasoned it away:
+*"No current test schema hits it (all M2M targets carry provided PKs), so the
+route inventory over the reachable corpus is exactly one."* Every M2M fixture
+in `tests/fixtures/many-to-many-schema.ts` uses `s.string().id()` with explicit
+values. **The gates measured corpus-reachability, not user-reachability.** The
+full ledger remains available at commit
+`db3317770ce7e589ba1da849570eda6925c4c478`.
 
 > **All three defects are fixed on `prisma-parity-v2`** — before the waves, not by them, which is why they have no row in the plan's delivery table. Defect 1: `bd091a0` binds `updateMany`'s `data` to `core.scalarUpdate` (`validation/model/args/mutation.ts:212`), so a relation key is refused at the parse boundary instead of discarded. Defect 2: `a9cf030` records the dry-run resolutions and replays them on the apply pass (`src/cli/resolve-recorder.ts`). Defect 3: `b1392ca` threads the junction target's DB-generated identity as a backward `Ref`, plus a generated-PK M2M fixture. The findings below are kept as written.
 
@@ -554,7 +560,7 @@ The repo is honest about this in its own docs (`tests/drivers/README.md:38`, `ne
    - **The driver could not connect at all.** `initClient` passed `options ?? {}`, and `new Database(path, {})` throws SQLITE_MISUSE — *"flags must include SQLITE_OPEN_READONLY or SQLITE_OPEN_READWRITE"*. The documented default (`createClient({ schema })`, no options) had **never** executed a query. Fixed in the same unit: an options bag with no keys is omitted so Bun applies its own default.
    - **"Silently" was wrong for `s.bigInt()` fields.** A rounded value past 2^53 is not a safe integer, so the shared result parser rejected it — `QueryEngineError V9001, "returned a malformed bigint scalar … not a canonical integer"`. Loud, not silent. Silent loss was confined to `int`-typed columns and raw reads.
    - **"With no test" is now false in the strongest sense available.** [tests/drivers/bun-sqlite-runtime.test.ts](../../tests/drivers/bun-sqlite-runtime.test.ts) spawns Bun on a probe that drives the real client — push, create, findUnique, include, both raw forms — against a real in-memory `bun:sqlite`, and skips cleanly when Bun is absent. [tests/drivers/sqlite-integer-safety.test.ts](../../tests/drivers/sqlite-integer-safety.test.ts) pins the same split at the unit level against a fake that rounds like the real provider, next to the `sqlite3` contract it matches. **`bun-sqlite` is therefore no longer one of the five drivers that have never executed a query** (§2.10) — it is the first of them to be moved out.
-7. **The MySQL/SQLite portability warnings are dead code.** `DB001` ("will use JSON") and `DB002` ("will use CHECK constraint") at [database.ts:32-89](../../src/schema/validation/rules/database.ts:32) are only reachable via `createDatabaseRules(db)`, which nothing calls; the default rule set contains only `enumValueValid`. Users are never told their arrays became JSON.
+7. **Resolved after this audit: the dead MySQL/SQLite portability warnings were deleted.** Dialect restrictions now remain with migration dialect validation, where the target database and its real behavior are known; definition-time validation no longer exposes rules that no production path executes.
 8. **ORM-level vector *writes* are untested on every dialect.** `buildScalarSqlValue` has no `vector` branch; the only vector suite seeds rows with raw `$3::vector` SQL.
 
 ## 2.10 Verdict
@@ -651,7 +657,7 @@ Census evolution: 36 → 49 → 51 → 59 → 62 → 65 → 73 → 74 → 75 →
 | **B2** | Compound keys at the wrong place in the tree | `CreateOperation.ts:1230`, `UpdateOperation.ts:1333,1129,2046`, `RelationUpsertPart.ts:653` |
 | **B3** | Nested writes that must locate their target by its primary key (a nested `update`/`upsert` carrying its own relation writes needs a construction-time literal FK) | `RelationWritePart.ts:596`, `RelationUpsertPart.ts:740`, `RelationJunctionPart.ts:1339` |
 | **B4** | Nested relation writes in arms that can't carry them (upsert create arm; `updateMany`/connectOrCreate-adopt data; parent-held to-one located data; before-root target create) | `RelationWritePart.ts:375,586,576`, `UpdateOperation.ts:2318,2506` |
-| **B5** | **PK transition + a non-cascading child-held edge** — *"routed for correctness, not inexpressibility"* (`PLAN.md:1314`). Witness test exists | `RelationWritePart.ts:637` |
+| **B5** | **PK transition + a non-cascading child-held edge** — *"routed for correctness, not inexpressibility"*. Witness test exists | `RelationWritePart.ts:637` |
 | **B6** | Nested `create` under a PK-transitioning parent (unpinned pre-transition value; non-literal arithmetic rewrite; reference neither pinned nor rewritten) | `UpdateOperation.ts:1352,1367,1379,1156` |
 | **B7** | Connect by a non-referenced unique in the wrong position | `UpdateOperation.ts:2993,2574`, `RelationUpsertPart.ts:940` |
 | **B8** | ~~The connectOrCreate / upsert create-arm depth guard (one level deeper)~~ **ABSORBED by N4-U2 (2026-07-30).** The arm's row is PRODUCED, and a produced row's relations are the create ROOT's surface, so the whole relation-carrying arm is a create SUBTREE (X1b's `nestedFresh` reuse through an injected builder). Five sites deleted, one converted to a structural invariant. What remains is named for the UPDATE arm, whose target is LOCATED: an m2m edge and a parent-held to-one one level deeper | `RelationUpsertPart.ts` (update-arm sites only) |
@@ -697,7 +703,7 @@ These are ordinary Prisma payloads:
 
 **C9. Genuinely unimplemented features with written specs.** Polymorphic relations (8 phases, "Large"); recursive queries (`WITH RECURSIVE`, "Medium"); Redis cache driver. *(Query-level `omit` was on this list; shipped in W5-U4.)*
 
-**C10. A registered schema-validation rule that is an empty stub.** `enumValueValid` (rule **V001**) — [database.ts:93-108](../../src/schema/validation/rules/database.ts:93). The loop body contains only a comment. Registered and **can never report anything**. *(This is why the DB001/DB002 portability warnings in §2.9-7 are unreachable: `enumValueValid` is the only rule in the default set.)*
+**C10. Resolved after this audit.** The empty `enumValueValid` rule and its unreachable database-rule subsystem were deleted instead of being covered by artificial tests.
 
 **C11. Type-safety and heuristic holes accepted by design.** `RelationState.getter` must stay `any` (circular model references); the `*Id`-suffix FK heuristic emits false-positive CM001 warnings; a "simplified" FK-direction check in `relation-data-builder.ts:314`.
 
@@ -720,7 +726,12 @@ Residual is V2's fixed per-call construction cost (fresh operation object + own-
 
 **D3. Read parse cost** — half the gap closed (Part A), half descoped (C3). End-to-end `findMany 1000` vs Drizzle is 0.86–0.95× and noise-limited.
 
-**D4. The volume prize was NOT achieved.** `WHY-V1-GREW.md:273` predicted 10.8k → ~3–4k lines. Measured: V2 is **13,984 raw / 10,623 code** — ≈1.3–1.6× V1's write root. What compressed is *structure* (2 runtimes → 1, five orthogonal axes back to data), not lines. Recorded as the right trade, not a win.
+**D4. The volume prize was NOT achieved in that phase.** The retired design
+predicted 10.8k → ~3–4k lines. Measured: V2 was **13,984 raw / 10,623 code** —
+≈1.3–1.6× V1's write root. What compressed was *structure* (2 runtimes → 1,
+five orthogonal axes back to data), not lines. Recorded as the right trade, not
+a win. The original ledger remains at
+`db3317770ce7e589ba1da849570eda6925c4c478`.
 
 **D5. Batch-only drivers keep the plan-then-execute path** — the single-statement RETURNING fast path is disabled there. Perf gap for D1 / Neon HTTP.
 

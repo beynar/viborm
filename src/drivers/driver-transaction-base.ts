@@ -1,7 +1,6 @@
 /** Transaction and atomic batch orchestration shared by all drivers. */
 
 import { TransactionError } from "@errors";
-import { runWithTracer } from "@instrumentation/run-with-tracer";
 import { SPAN_TRANSACTION } from "@instrumentation/spans";
 import type { Sql } from "@sql";
 import type { Driver } from "./driver";
@@ -350,8 +349,7 @@ export abstract class DriverTransactionBase<
     const tracer = this.getTracer(executionContext);
 
     const execute = () =>
-      runWithTracer(
-        tracer,
+      tracer.startActiveSpan(
         {
           name: SPAN_TRANSACTION,
           attributes: this.getContextAttributes(executionContext),

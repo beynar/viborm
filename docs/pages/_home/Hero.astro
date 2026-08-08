@@ -2,15 +2,27 @@
 import Icon from "blume/components/Icon.astro";
 
 const installCommand = "pnpm add viborm";
+const comparisons = [
+  "Prisma, but like Drizzle",
+  "Drizzle with Prisma syntax",
+  "Prisma that works on Cloudflare",
+  "Prisma ergonomics, zero codegen",
+  "Drizzle speed, Prisma joy",
+  "One schema, three databases",
+  "Typed relations, no stale client",
+];
 const copyScript = `(()=>{document.addEventListener("click",async(event)=>{const button=event.target.closest("[data-copy-install]");if(!button)return;await navigator.clipboard.writeText(button.dataset.copyInstall);const label=button.querySelector("[data-copy-label]");if(!label)return;const previous=label.textContent;label.textContent="Copied";setTimeout(()=>{label.textContent=previous;},1600);});})();`;
+const comparisonScript = `(()=>{const phrases=${JSON.stringify(comparisons)};const text=document.querySelector("[data-hero-comparison]");if(!text||text.dataset.rotating==="true"||window.matchMedia("(prefers-reduced-motion: reduce)").matches)return;text.dataset.rotating="true";let index=0;const interval=window.setInterval(()=>{if(!text.isConnected){window.clearInterval(interval);return;}text.classList.add("opacity-0");window.setTimeout(()=>{index=(index+1)%phrases.length;text.textContent=phrases[index];text.classList.remove("opacity-0");},180);},2800);})();`;
 ---
 
 <section class="text-center">
   <div
-    class="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-muted-foreground text-xs"
+    class="inline-flex min-w-[17rem] items-center justify-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-muted-foreground text-xs"
   >
     <span class="size-1.5 rounded-full bg-accent"></span>
-    Types update when your schema does
+    <span class="transition-opacity duration-150" data-hero-comparison>
+      {comparisons[0]}
+    </span>
   </div>
 
   <h1
@@ -61,3 +73,4 @@ const copyScript = `(()=>{document.addEventListener("click",async(event)=>{const
 </section>
 
 <script is:inline set:html={copyScript} />
+<script is:inline set:html={comparisonScript} />

@@ -55,14 +55,48 @@ One deliberate divergence, and it covers only the LINK selectors:
 
 ## Nested writes
 
-Nested writes are supported inside `create`, `update`, and both branches of `upsert`. What you can nest depends on the context — you can't update or delete a related record inside a `create`, because there's nothing to update yet.
+Nested writes are supported inside `create`, `update`, and both branches of
+`upsert`. Support also depends on where the relation is stored:
 
-| In a… | create | createMany | connect | connectOrCreate | disconnect | delete | set | update | updateMany | upsert | deleteMany |
-|-------|--------|-----------|---------|-----------------|-----------|--------|-----|--------|-----------|--------|-----------|
-| `create` (or `upsert` create branch) | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — | — | — |
-| `update` (or `upsert` update branch) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+- **Parent-held to-one:** the current record holds the foreign key.
+- **Child-held to-one:** the related record holds the foreign key and the edge
+  is singular.
+- **Child-held to-many:** the related records hold the foreign key.
+- **Junction:** a many-to-many join table holds membership.
 
-`createMany`, `updateMany`, and `deleteMany` apply to to-many relations only. For a to-one relation use `create`, `update`, and `delete: true`.
+### Inside `create`
+
+This matrix also applies to the create branch of a top-level `upsert`.
+
+| Nested operation | Parent-held to-one | Child-held to-one | Child-held to-many | Junction |
+| --- | --- | --- | --- | --- |
+| `create` | ✅ | ✅ | ✅ | ✅ |
+| `createMany` | — | — | ✅ | ✅ |
+| `connect` | ✅ | ✅ | ✅ | ✅ |
+| `connectOrCreate` | ✅ | ✅ | ✅ | ✅ |
+| `upsert` | — | — | ✅ Extension | ✅ Extension |
+
+Create-time nested `upsert` is a VibORM extension. It performs a global unique
+lookup. A found row is adopted into the new relation and updated; a missing row
+is created and related. Prisma has no nested `upsert` in a create input.
+
+### Inside `update`
+
+This matrix also applies to the update branch of a top-level `upsert`.
+
+| Nested operation | Parent-held to-one | Child-held to-one | Child-held to-many | Junction |
+| --- | --- | --- | --- | --- |
+| `create` | ✅ | ✅ | ✅ | ✅ |
+| `createMany` | — | — | ✅ | ✅ |
+| `connect` | ✅ | ✅ | ✅ | ✅ |
+| `connectOrCreate` | ✅ | ✅ | ✅ | ✅ |
+| `disconnect` | ✅ Optional relation | ✅ Optional relation | ✅ | ✅ |
+| `delete` | ✅ Optional relation | ✅ Optional relation | ✅ | ✅ |
+| `set` | — | — | ✅ | ✅ |
+| `update` | ✅ | ✅ | ✅ | ✅ |
+| `updateMany` | — | — | ✅ | ✅ |
+| `upsert` | ✅ | ✅ | ✅ | ✅ |
+| `deleteMany` | — | — | ✅ | ✅ |
 
 On a **many-to-many** relation, `createMany` inserts each row and links it to the parent. `skipDuplicates` there skips the child ROW's insert — the join row is a different row and is still written, so a skipped item leaves the existing target untouched and links it. It is refused (typed, before any write) when the target's primary key is database-generated: a skipped insert produces no identity for its join row. Supply the key, or drop `skipDuplicates`.
 
@@ -86,11 +120,27 @@ On a **many-to-many** relation, `createMany` inserts each row and links it to th
 - You can't `disconnect`, empty-`set`, or otherwise orphan records on a **required** relation.
 - `createMany` with `skipDuplicates` rejects a row containing only database-owned defaults before any parent or child write.
 
-**Planned superset — nested `upsert` under `create`:** Prisma has no `upsert` in a create input, and the current engine rejects it. VibORM's input surface accepts it as a deliberate superset with **global-lookup, adopt-and-update** semantics — the target is located by its own unique `where`, an existing row is adopted (reparented) and `update`d, and a missing row is created under the new parent. This completes the adopt family that `connect`/`connectOrCreate` already provide under `create`. It becomes executable only when the create tree routes to the query-engine-v2 path; until then it still rejects, so there is no mid-migration behavior change.
+### Structural restrictions
 
-**No engine depth limit — deep write subtrees at any depth (the depth lift, finished in X1b):** a nested `create` under a located target (inside an `update`, or inside an `upsert` update branch) is a create SUBTREE that folds recursively to any depth, and a relation-carrying fresh child now runs the *full* create-root machinery at every level — for example `post.update({ where, data: { author: { update: { posts: { create: { title, comments: { create: { body, … } } } } } } } })`. Every fresh row becomes the parent of its own nested writes, and **every mechanism the top-level `create` supports is available at any depth**: a database-generated or compound primary key on a fresh child (its produced id threads to its own grandchildren), a parent-held to-one written before its fresh holder, the fresh-parent adopt family (`connect` / `connectOrCreate` / `upsert`), a `createMany` with `skipDuplicates`, and many-to-many through the junction. These execute natively, byte-identically on transaction and batch substrates. Semantic rules are unchanged at every depth: a create-then-`connectOrCreate` on the same key still rejects with "Split these operations into separate queries", and validation still rejects unknown keys, wherever they appear in the tree.
+The matrices show operation support. These restrictions are independent:
 
-**The only depth ceiling is the TypeScript compiler's, not the engine's.** Inferring a deeply-nested *literal* payload is a type-instantiation cost: a rich per-level literal (a `children.create` plus a parent-held create plus an M2M create at each level) type-checks to ~31 levels and then raises TS2321 "Excessive stack depth comparing types". That is a DX limit on the client *input* inference, far past any hand-written payload; the runtime carries no depth counter and folds deeper. If you ever build a payload past that ceiling, construct it programmatically (a plain object, widened to the input type) so the compiler never infers the deep literal — the engine executes it unchanged (a 40-level chain is exercised in the test estate). One shape is still one level short at a *located* target and routes as a typed refusal (a distinct upcoming mechanism, the located-`update` projection of child-SET folding — not a depth limit): a deeper parent-held to-one, or a non-primary-key / compound reference, of an existing row being updated.
+- A required relation cannot be orphaned by `disconnect`, `set: []`, or another
+  membership change.
+- To-one `disconnect` and `delete` use their boolean form. Selector arrays and
+  `set` are to-many operations.
+- Nested `createMany`, `updateMany`, and `deleteMany` do not accept relation
+  writes in each row's `data`.
+- Relation-link selectors (`connect`, `disconnect`, `set`, and
+  `connectOrCreate.where`) require unique discriminators; they do not accept the
+  extra filters allowed by nested update and upsert targets.
+- Many-to-many relations with compound primary keys are not supported.
+- A create-then-`connectOrCreate` conflict on the same target in one payload is
+  rejected as an OwnWrite conflict instead of depending on sibling visibility.
+
+There is no runtime nested-write depth counter. Deep fresh and selected-record
+subtrees use the same record compilers at each level. TypeScript can still hit
+its own instantiation limit for an extremely deep literal; constructing and
+widening such a payload programmatically avoids that editor-only limit.
 
 ## Database differences
 

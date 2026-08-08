@@ -1,4 +1,5 @@
 import type { Sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { assertExactDecimalAggregate } from "../builders/decimal-portability";
 import { scalarValueLiteral } from "../builders/values-builder";
 import { buildWhere } from "../builders/where-builder";
@@ -182,8 +183,7 @@ function buildFieldKeyedHaving(
 
   // Detect whether this is an aggregate filter object (Prisma-style)
   const aggregateKeys = ["_count", "_avg", "_sum", "_min", "_max"] as const;
-  const isObject =
-    typeof value === "object" && value !== null && !Array.isArray(value);
+  const isObject = isRecord(value);
   const valueKeys = isObject
     ? Object.keys(value as Record<string, unknown>)
     : [];
@@ -263,10 +263,7 @@ function buildFieldKeyedHaving(
 
   // Direct field filters: { fieldName: { equals: "x" } } or { fieldName: "x" }
   // Reuse WHERE builder to support the full filter operator set (contains, startsWith, mode, etc.)
-  const normalizedFilter =
-    typeof value === "object" && value !== null && !Array.isArray(value)
-      ? value
-      : { equals: value };
+  const normalizedFilter = isRecord(value) ? value : { equals: value };
   return buildWhere(
     ctx,
     { [fieldName]: normalizedFilter } as Record<string, unknown>,

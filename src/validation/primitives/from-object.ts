@@ -1,3 +1,4 @@
+import { ValidationError } from "@errors";
 import type { Cast, ThunkCast, VibSchema } from "../types";
 import { type ObjectOptions, type ObjectSchema, object } from "./object";
 
@@ -106,8 +107,6 @@ type ComputeEntries<
 export type FromObjectSchema<
   TEntries,
   TOpts extends FromObjectOptions | undefined = undefined,
-  TInput = unknown,
-  TOutput = unknown,
 > = ObjectSchema<TEntries, TOpts>;
 
 // =============================================================================
@@ -194,8 +193,14 @@ export function fromObject<
     Object.keys(sourceObject).length > 0 &&
     Object.keys(entries).length === 0
   ) {
-    throw new Error(
-      `fromObject path "${path}" did not match any entries in the source object`
+    throw new ValidationError(
+      { kind: "schema-builder", builder: "fromObject", path },
+      [
+        {
+          path,
+          message: `fromObject path "${path}" did not match any entries in the source object`,
+        },
+      ]
     );
   }
 

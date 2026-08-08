@@ -22,21 +22,9 @@ import {
 import {
   createInstrumentationContext,
   type InstrumentationConfig,
-  type InstrumentationContext,
   type LoggingConfig,
   type TracingConfig,
 } from "@instrumentation";
-
-/**
- * Check if a value is an InstrumentationContext (already processed)
- * InstrumentationContext has 'config' and 'tracer' properties,
- * while InstrumentationConfig has no processed tracer instance
- */
-function isInstrumentationContext(
-  value: InstrumentationConfig | InstrumentationContext | undefined
-): value is InstrumentationContext {
-  return value !== undefined && "config" in value && "tracer" in value;
-}
 
 import { attributeOperationBatchError } from "@query-engine/batch-error-attribution";
 import {
@@ -170,8 +158,8 @@ export interface VibORMConfig<S extends Schema = Schema> {
   schema: S;
   driver: AnyDriver;
   cache?: CacheDriver;
-  /** Instrumentation config (for initial setup) or context (for internal reuse) */
-  instrumentation?: InstrumentationConfig | InstrumentationContext;
+  /** Optional tracing, logging, and diagnostic disclosure configuration. */
+  instrumentation?: InstrumentationConfig;
   waitUntil?: WaitUntilFn;
   /** Cache version for invalidating cache on schema changes */
   cacheVersion?: number | string;
@@ -291,9 +279,8 @@ export type NoExtraOmitKeys<Config, S extends Schema> = Config extends {
 /**
  * Per-key refusal for the `instrumentation` bag and each of its three sub-bags.
  *
- * The accepted top-level set is the union of `InstrumentationConfig`'s keys and
- * `InstrumentationContext`'s, because the property takes either: a config when
- * an app sets one up, a context when the client is rebuilt from a live one.
+ * The accepted top-level set is `InstrumentationConfig`'s keys. The resolved
+ * instrumentation context is internal and never re-enters this public boundary.
  */
 export type NoExtraInstrumentationKeys<Config> = Config extends {
   instrumentation: infer I;
@@ -301,7 +288,7 @@ export type NoExtraInstrumentationKeys<Config> = Config extends {
   ? {
       instrumentation: NoExtraNestedKeys<
         I,
-        InstrumentationConfig & InstrumentationContext
+        InstrumentationConfig
       > & {
         [K in keyof I]: K extends "tracing"
           ? NoExtraNestedKeys<I[K], TracingConfig>
@@ -456,12 +443,9 @@ export class VibORM<C extends VibORMConfig> {
   constructor(config: C) {
     this.schema = config.schema as C["schema"];
     this.cache = config.cache as C["cache"];
-    // Accept either InstrumentationConfig (initial setup) or InstrumentationContext (internal reuse)
-    const instrumentation = isInstrumentationContext(config.instrumentation)
-      ? config.instrumentation
-      : config.instrumentation
-        ? createInstrumentationContext(config.instrumentation)
-        : undefined;
+    const instrumentation = config.instrumentation
+      ? createInstrumentationContext(config.instrumentation)
+      : undefined;
     this.waitUntil = config.waitUntil;
     this.cacheVersion = config.cacheVersion;
     this.clientOmit = createClientOmitResolver(this.schema, config.omit);

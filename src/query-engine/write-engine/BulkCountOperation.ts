@@ -10,8 +10,9 @@ import type { Operation } from "../types";
 import { validate } from "../validator";
 import {
   type OperationFragment,
+  type PlanningFragment,
   ref,
-  type StatementStep,
+  type WriteStep,
 } from "./OperationFragment";
 import { isRecord, selectExecutionMode } from "./shared";
 
@@ -19,9 +20,9 @@ type ExecutionMode = "transaction" | "batch";
 type BulkCountKind = "updateMany" | "deleteMany";
 
 /**
- * Root `updateMany` / `deleteMany` (PLAN P4 item 2b). A bulk mutation whose
+ * Root `updateMany` / `deleteMany` with a `{ count }` result. A bulk mutation whose
  * public result is `{ count }` — one write step whose `rowCount` **source**
- * carries the count (ATOM §1). There is no planning read and no decision: the
+ * carries the count (ATOM “The execution vocabulary”). There is no planning read and no decision: the
  * `WHERE` filter is a scalar predicate, so the whole operation is one statement,
  * reusing V1's `buildUpdateMany` / `buildDeleteMany` verbatim. `updateMany`
  * `data` binds to the model's SCALAR-ONLY update schema
@@ -44,7 +45,7 @@ export class BulkCountOperation {
   private readonly kind: BulkCountKind;
   private readonly args: Record<string, unknown>;
   /** `undefined` only for `limit: 0` — the write that affects nothing. */
-  private readonly write: StatementStep | undefined;
+  private readonly write: WriteStep | undefined;
 
   constructor(
     engine: QueryEngine,
@@ -79,7 +80,7 @@ export class BulkCountOperation {
           };
   }
 
-  planning(): OperationFragment {
+  planning(): PlanningFragment {
     return { steps: [], outputs: {} };
   }
 

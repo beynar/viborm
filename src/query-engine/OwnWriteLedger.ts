@@ -1,11 +1,11 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner OwnWriteLedger.
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
-import { getFkDirection } from "./builders/relation-data-builder";
+import type { BoundRelation } from "./builders/relation-data-builder";
+import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import {
   type RelationMembershipScope,
   relationMembershipScopesEqual,
 } from "./RelationMembership";
-import type { RelationMutationStep } from "./RelationMutationPlan";
 import {
   classifyTargetConstraintOverlap,
   getTargetConstraintPredicateFields,
@@ -14,9 +14,9 @@ import {
   type TargetConstraint,
   type TargetConstraintOverlap,
 } from "./TargetConstraint";
-import { NestedWriteError, type QueryScope, type RelationInfo } from "./types";
+import { NestedWriteError, type QueryScope } from "./types";
 
-export type DependencyOperation = RelationMutationStep["kind"];
+export type DependencyOperation = RelationMutationEntry["kind"];
 export type TargetWriteDimension = "targetExistence" | "targetPredicate";
 export type MembershipReadOrientation = "direct" | "inverse" | "manyToMany";
 export type MembershipVisibility = "physical" | "inverseTarget";
@@ -29,18 +29,18 @@ export interface MembershipEndpoints {
 
 export function getRelationMembershipEndpoints(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relation: BoundRelation,
   scope: RelationMembershipScope,
   currentConstraint: TargetConstraint,
   targetConstraint: TargetConstraint
 ): MembershipEndpoints {
   if (scope.kind === "manyToMany") {
-    const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
+    const joinInfo = getManyToManyJoinInfo(ctx, relation.relationInfo);
     return joinInfo.sourceFieldName === scope.firstField
       ? { first: currentConstraint, second: targetConstraint }
       : { first: targetConstraint, second: currentConstraint };
   }
-  return getFkDirection(ctx, relationInfo).holdsFK
+  return relation.kind === "parentHeldToOne"
     ? { first: currentConstraint, second: targetConstraint }
     : { first: targetConstraint, second: currentConstraint };
 }
@@ -261,11 +261,10 @@ export class OwnWriteLedger {
 }
 
 export function getMembershipReadOrientation(
-  ctx: QueryScope,
-  relationInfo: RelationInfo
+  relation: BoundRelation
 ): MembershipReadOrientation {
-  if (relationInfo.type === "manyToMany") return "manyToMany";
-  return getFkDirection(ctx, relationInfo).holdsFK ? "direct" : "inverse";
+  if (relation.kind === "junction") return "manyToMany";
+  return relation.kind === "parentHeldToOne" ? "direct" : "inverse";
 }
 
 function writeCanAffectRead(

@@ -1,0 +1,241 @@
+- generic [active] [ref=f8e1]:
+  - link "Skip to content" [ref=f8e2] [cursor=pointer]:
+    - /url: "#blume-content"
+  - banner [ref=f8e3]:
+    - button "Toggle navigation" [ref=f8e4] [cursor=pointer]
+    - link "VibORM" [ref=f8e7] [cursor=pointer]:
+      - /url: /
+    - button "Search" [ref=f8e10] [cursor=pointer]
+    - generic [ref=f8e15]:
+      - link "GitHub repository" [ref=f8e16] [cursor=pointer]:
+        - /url: https://github.com/beynar/viborm
+      - button "Toggle color theme" [ref=f8e19] [cursor=pointer]
+  - main [ref=f8e25]:
+    - generic [ref=f8e26]:
+      - generic [ref=f8e27]:
+        - generic [ref=f8e28]: Types update when your schema does
+        - heading "The type-safe ORM without the generate step." [level=1] [ref=f8e30]:
+          - generic [ref=f8e31]: The type-safe ORM
+          - generic [ref=f8e32]: without the generate step.
+        - paragraph [ref=f8e33]: Define a schema in TypeScript and query PostgreSQL, MySQL, or SQLite with a fully inferred, Prisma-inspired client. No code generation. No stale types.
+        - generic [ref=f8e34]:
+          - generic [ref=f8e35]: $
+          - code [ref=f8e36]: pnpm add viborm
+          - button "Copy" [ref=f8e37] [cursor=pointer]
+        - generic [ref=f8e44]:
+          - link "Start building" [ref=f8e45] [cursor=pointer]:
+            - /url: /docs/getting-started/quick-start
+          - link "View on GitHub" [ref=f8e48] [cursor=pointer]:
+            - /url: https://github.com/beynar/viborm
+      - generic [ref=f8e55]:
+        - generic [ref=f8e56]: VibORM
+        - generic [ref=f8e68]:
+          - generic [ref=f8e69]: Quick Start
+          - heading "From schema to typed query in one file." [level=2] [ref=f8e72]
+          - paragraph [ref=f8e73]: Your schema is the type source. Every filter, relation, selection, and result is inferred directly from it.
+          - generic [ref=f8e74]:
+            - generic [ref=f8e76]:
+              - text: schema.ts
+              - code [ref=f8e79]:
+                - generic [ref=f8e80]: "import { s } from \"viborm\";"
+                - generic [ref=f8e81]: "export const user = s.model({"
+                - generic [ref=f8e82]: "id: s.string().id().ulid(),"
+                - generic [ref=f8e83]: "email: s.string().unique(),"
+                - generic [ref=f8e84]: "posts: s.oneToMany(() => post),"
+                - generic [ref=f8e85]: "});"
+                - generic [ref=f8e86]: "export const post = s.model({"
+                - generic [ref=f8e87]: "id: s.string().id().ulid(),"
+                - generic [ref=f8e88]: "title: s.string(),"
+                - generic [ref=f8e89]: "published: s.boolean().default(false),"
+                - generic [ref=f8e90]: "authorId: s.string(),"
+                - generic [ref=f8e91]: "author: s.manyToOne(() => user)"
+                - generic [ref=f8e92]: .fields("authorId")
+                - generic [ref=f8e93]: .references("id"),
+                - generic [ref=f8e94]: "});"
+            - generic [ref=f8e96]:
+              - text: query.ts
+              - code [ref=f8e99]:
+                - generic [ref=f8e100]: "const authors = await client.user.findMany({"
+                - generic [ref=f8e101]: "where: {"
+                - generic [ref=f8e102]: "email: { contains: \"@company.com\" },"
+                - generic [ref=f8e103]: "},"
+                - generic [ref=f8e104]: "include: {"
+                - generic [ref=f8e105]: "posts: {"
+                - generic [ref=f8e106]: "where: { published: true },"
+                - generic [ref=f8e107]: "orderBy: { title: \"asc\" },"
+                - generic [ref=f8e108]: "},"
+                - generic [ref=f8e109]: "},"
+                - generic [ref=f8e110]: "});"
+          - generic [ref=f8e111]:
+            - generic [ref=f8e112]: Typed filters
+            - generic [ref=f8e117]: Typed relations
+            - generic [ref=f8e122]: Typed results
+      - generic [ref=f8e127]:
+        - generic [ref=f8e128]:
+          - paragraph [ref=f8e129]: Everything stays connected
+          - heading "The schema is the single source of truth." [level=2] [ref=f8e130]
+          - paragraph [ref=f8e131]: Change a field and TypeScript follows the change into filters, writes, relations, selections, and returned records immediately.
+        - generic [ref=f8e132]:
+          - article [ref=f8e133]:
+            - heading "Inference, not generation" [level=3] [ref=f8e139]
+            - paragraph [ref=f8e140]: Types flow from immutable schema definitions into every client operation and result.
+          - article [ref=f8e141]:
+            - heading "Prisma-inspired client" [level=3] [ref=f8e145]
+            - paragraph [ref=f8e146]: Use familiar create, find, update, upsert, delete, aggregation, and transaction APIs.
+          - article [ref=f8e147]:
+            - heading "One ORM, three dialects" [level=3] [ref=f8e154]
+            - paragraph [ref=f8e155]: Keep one schema and one query surface across PostgreSQL, MySQL, and SQLite.
+          - article [ref=f8e156]:
+            - heading "Relations stay typed" [level=3] [ref=f8e163]
+            - paragraph [ref=f8e164]: Model one-to-one, one-to-many, and many-to-many relations with typed nested reads and writes.
+          - article [ref=f8e165]:
+            - heading "Standard Schema V1" [level=3] [ref=f8e171]
+            - paragraph [ref=f8e172]: Validate through the Standard Schema interface and interoperate with its growing ecosystem.
+          - article [ref=f8e173]:
+            - heading "Drivers for your runtime" [level=3] [ref=f8e177]
+            - paragraph [ref=f8e178]: Run on Node.js, Bun, serverless databases, and Cloudflare D1 through focused drivers.
+      - generic [ref=f8e179]:
+        - generic [ref=f8e180]:
+          - paragraph [ref=f8e181]: Adapter-owned SQL
+          - heading "Write the query once. Choose the database at the edge." [level=2] [ref=f8e182]
+          - paragraph [ref=f8e183]: VibORM keeps query intent separate from dialect syntax. You keep the same model and client API while the adapter handles the SQL each database needs.
+          - link "Explore every driver" [ref=f8e184] [cursor=pointer]:
+            - /url: /docs/drivers
+        - generic [ref=f8e187]:
+          - article [ref=f8e188]:
+            - generic [ref=f8e195]:
+              - heading "PostgreSQL" [level=3] [ref=f8e196]
+              - paragraph [ref=f8e197]: pg, postgres.js, Neon HTTP, PGlite, and Bun SQL
+          - article [ref=f8e202]:
+            - generic [ref=f8e209]:
+              - heading "MySQL" [level=3] [ref=f8e210]
+              - paragraph [ref=f8e211]: mysql2, PlanetScale, and Bun SQL
+          - article [ref=f8e216]:
+            - generic [ref=f8e220]:
+              - heading "SQLite" [level=3] [ref=f8e221]
+              - paragraph [ref=f8e222]: sqlite3, libSQL, Bun SQLite, and Cloudflare D1
+      - generic [ref=f8e227]:
+        - heading "Define your schema. Keep moving." [level=2] [ref=f8e231]
+        - paragraph [ref=f8e232]: Start with an in-process PostgreSQL database, then move to your production driver without changing the way you model or query data.
+        - generic [ref=f8e233]:
+          - link "Read the quick start" [ref=f8e234] [cursor=pointer]:
+            - /url: /docs/getting-started/quick-start
+          - link "Browse the client API" [ref=f8e237] [cursor=pointer]:
+            - /url: /docs/client
+      - generic [ref=f8e238]:
+        - generic [ref=f8e239]:
+          - generic [ref=f8e240]:
+            - paragraph [ref=f8e241]: Database isomorphisms
+            - heading "One concept, even when the database lacks the primitive." [level=2] [ref=f8e242]
+            - paragraph [ref=f8e243]: PostgreSQL, MySQL, and SQLite do not expose the same type system. VibORM maps one portable schema to different physical representations while preserving the behavior your application sees.
+          - generic [ref=f8e246]:
+            - text: schema.ts
+            - code [ref=f8e249]:
+              - generic [ref=f8e250]: "const article = s.model({"
+              - generic [ref=f8e251]: "tags: s.string().array(),"
+              - generic [ref=f8e252]: "status: s.enum([\"draft\", \"published\"]),"
+              - generic [ref=f8e253]: "featured: s.boolean().default(false),"
+              - generic [ref=f8e254]: "publishedAt: s.dateTime().nullable(),"
+              - generic [ref=f8e255]: "price: s.decimal(),"
+              - generic [ref=f8e256]: "});"
+        - generic [ref=f8e257]:
+          - article [ref=f8e258]:
+            - generic [ref=f8e259]:
+              - generic [ref=f8e264]:
+                - heading "Scalar lists" [level=3] [ref=f8e265]
+                - code [ref=f8e266]: s.string().array()
+              - paragraph [ref=f8e267]: One string[] API with has, hasSome, append, and prepend operations.
+            - generic [ref=f8e268]:
+              - generic [ref=f8e269]: PostgreSQL
+              - code [ref=f8e270]: text[]
+            - generic [ref=f8e271]:
+              - generic [ref=f8e272]: MySQL
+              - code [ref=f8e273]: JSON
+            - generic [ref=f8e274]:
+              - generic [ref=f8e275]: SQLite
+              - code [ref=f8e276]: JSON text
+          - article [ref=f8e277]:
+            - generic [ref=f8e278]:
+              - generic [ref=f8e283]:
+                - heading "Enums" [level=3] [ref=f8e284]
+                - code [ref=f8e285]: s.enum([…])
+              - paragraph [ref=f8e286]: The same literal union and database-enforced set of allowed values.
+            - generic [ref=f8e287]:
+              - generic [ref=f8e288]: PostgreSQL
+              - code [ref=f8e289]: Named ENUM type
+            - generic [ref=f8e290]:
+              - generic [ref=f8e291]: MySQL
+              - code [ref=f8e292]: ENUM(…)
+            - generic [ref=f8e293]:
+              - generic [ref=f8e294]: SQLite
+              - code [ref=f8e295]: TEXT + CHECK
+          - article [ref=f8e296]:
+            - generic [ref=f8e297]:
+              - generic [ref=f8e304]:
+                - heading "Booleans" [level=3] [ref=f8e305]
+                - code [ref=f8e306]: s.boolean()
+              - paragraph [ref=f8e307]: The client always writes and returns true or false.
+            - generic [ref=f8e308]:
+              - generic [ref=f8e309]: PostgreSQL
+              - code [ref=f8e310]: boolean
+            - generic [ref=f8e311]:
+              - generic [ref=f8e312]: MySQL
+              - code [ref=f8e313]: TINYINT(1)
+            - generic [ref=f8e314]:
+              - generic [ref=f8e315]: SQLite
+              - code [ref=f8e316]: INTEGER 0/1
+          - article [ref=f8e317]:
+            - generic [ref=f8e318]:
+              - generic [ref=f8e325]:
+                - heading "Date and time" [level=3] [ref=f8e326]
+                - code [ref=f8e327]: s.dateTime()
+              - paragraph [ref=f8e328]: One Date contract across native timestamps and serialized ISO values.
+            - generic [ref=f8e329]:
+              - generic [ref=f8e330]: PostgreSQL
+              - code [ref=f8e331]: timestamptz
+            - generic [ref=f8e332]:
+              - generic [ref=f8e333]: MySQL
+              - code [ref=f8e334]: DATETIME(3)
+            - generic [ref=f8e335]:
+              - generic [ref=f8e336]: SQLite
+              - code [ref=f8e337]: ISO TEXT
+          - article [ref=f8e338]:
+            - generic [ref=f8e339]:
+              - generic [ref=f8e347]:
+                - heading "Exact decimals" [level=3] [ref=f8e348]
+                - code [ref=f8e349]: s.decimal()
+              - paragraph [ref=f8e350]: Exact decimal strings survive every round trip; SQLite refuses inexact operations.
+            - generic [ref=f8e351]:
+              - generic [ref=f8e352]: PostgreSQL
+              - code [ref=f8e353]: numeric
+            - generic [ref=f8e354]:
+              - generic [ref=f8e355]: MySQL
+              - code [ref=f8e356]: DECIMAL(65,30)
+            - generic [ref=f8e357]:
+              - generic [ref=f8e358]: SQLite
+              - code [ref=f8e359]: TEXT
+        - paragraph [ref=f8e360]: VibORM does not fake parity. When a database cannot preserve an operation's semantics, the operation is rejected instead of returning an approximation.
+  - contentinfo [ref=f8e365]:
+    - generic [ref=f8e366]:
+      - generic [ref=f8e367]: VibORM
+      - navigation [ref=f8e371]:
+        - link "Documentation" [ref=f8e372] [cursor=pointer]:
+          - /url: /docs
+        - link "Client API" [ref=f8e373] [cursor=pointer]:
+          - /url: /docs/client
+        - link "Drivers" [ref=f8e374] [cursor=pointer]:
+          - /url: /docs/drivers
+        - link "GitHub" [ref=f8e375] [cursor=pointer]:
+          - /url: https://github.com/beynar/viborm
+      - paragraph [ref=f8e376]: Open source under the ISC license.
+  - complementary [ref=f8e377]:
+    - navigation [ref=f8e378]:
+      - list [ref=f8e379]:
+        - listitem [ref=f8e380]:
+          - link [ref=f8e381] [cursor=pointer]:
+            - /url: /docs
+            - text: Documentation
+        - listitem [ref=f8e382]:
+          - link [ref=f8e383] [cursor=pointer]:
+            - /url: /docs/internals
+            - text: Internal

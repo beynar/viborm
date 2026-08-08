@@ -84,6 +84,33 @@ VibORM uses these definitions to:
 - Enable nested queries (`where: { author: { name: "..." } }`)
 - Support nested writes (`create: { author: { connect: {...} } }`)
 
+## Schema Relation and Bound Relation
+
+L4 stores the durable schema declaration: relation type, target thunk, local
+fields, referenced fields, name, and referential actions. It does not decide how
+one nested mutation is executed.
+
+When L6 reaches its first topology decision, `bindRelation` interprets that
+declaration relative to the current model:
+
+| `BoundRelation.kind` | Meaning for the current record |
+| --- | --- |
+| `parentHeldToOne` | The current record stores the foreign key |
+| `childHeldToOne` | One target record stores the foreign key |
+| `childHeldToMany` | Many target records store the foreign key |
+| `junction` | Membership is stored in a junction table |
+
+The bound value carries only the source model, ordered foreign and referenced
+fields, and `onUpdate` action where an FK exists. It carries no query scope,
+record identity, SQL, branch, or execution policy. A fields-less `manyToOne`
+whose inverse stores the FK is therefore `childHeldToOne`, not a special fifth
+case.
+
+`BoundRelation` also stays separate from `RelationMutationProgram`: one says
+where an edge is stored, while the other says what the user requested. Relation
+Parts combine those facts only when they own a selection, membership, or branch
+decision.
+
 ## Many-to-Many Relations
 
 Many-to-many uses an implicit junction table:
@@ -139,5 +166,5 @@ posts: s.oneToMany(() => post)
 ## Connection to Other Layers
 
 - **L3 (Query Schemas)**: Relations generate nested schemas for include/select
-- **L6 (Query Engine)**: Relations determine JOIN generation
+- **L6 (Query Engine)**: Binds relation storage positions for joins and nested mutations
 - **L12 (Migrations)**: Relations inform foreign key constraints

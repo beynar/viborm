@@ -21,6 +21,19 @@ error behavior.
 L11 records what happened; it does not decide what query to run, alter cache
 policy, translate SQL, or recover from failures. SQL and parameter disclosure
 remain explicit configuration choices because they may expose sensitive data.
+Both `includeSql` and `includeParams` default to `false`.
+
+The public instrumentation configuration crosses its trust boundary once, when
+the client is created. VibORM copies and freezes disclosure flags, handlers,
+and cloned ignore patterns into one internal context. That context travels from
+the client through the query engine and the execution-context mapping to cache
+and driver work. Downstream code trusts it and does not repeat shape checks.
+
+User log callbacks, console methods, diagnostic values, and the optional
+OpenTelemetry API/provider remain untrusted. Their failures are isolated at the
+call boundary. The tracer wrapper owns exact-once callback execution and keeps
+the application result or error authoritative even when a provider span method
+fails.
 
 See [Instrumentation](/docs/instrumentation) for logging, tracing, and privacy
 configuration.
@@ -30,3 +43,10 @@ configuration.
 - **L9 (Client)**: Creates operation and transaction context
 - **L10 (Cache)**: Emits cache events and spans
 - **L6-L8 (Execution)**: Emits validation, build, execution, and driver spans
+
+## Verification
+
+`pnpm test:layer:instrumentation` runs the fast runtime and public type
+contracts. `pnpm test:coverage:instrumentation` runs one worker with a bounded
+heap and wall time, writes `coverage/instrumentation`, and enforces 100%
+statements, lines, functions, and branches for `src/instrumentation/**/*.ts`.

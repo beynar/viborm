@@ -5,6 +5,7 @@
  */
 
 import type { Sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { QueryEngineError, type QueryScope } from "../types";
 import { buildVectorDistanceExpression } from "./vector-distance-builder";
 
@@ -16,10 +17,6 @@ type SortableScalarState = {
 type SortOrderField = {
   name: string;
   scalarState: SortableScalarState | undefined;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
 function buildVectorDistanceOrder(

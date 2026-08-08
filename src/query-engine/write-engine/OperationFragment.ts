@@ -6,9 +6,9 @@ export const OPERATION_VALUE_REFERENCE = Symbol(
 );
 
 /**
- * A promised value: "whatever step X produced under name Y" (ATOM §1 `Ref`).
- * A plain marker that rides inside `Sql.values`; it cannot collide with user
- * data because its `kind` is a unique symbol.
+ * A promised value: "whatever step X produced under name Y" (ATOM's
+ * `The execution vocabulary`). A plain marker that rides inside `Sql.values`;
+ * it cannot collide with user data because its `kind` is a unique symbol.
  */
 export interface OperationValueReference {
   readonly kind: typeof OPERATION_VALUE_REFERENCE;
@@ -17,9 +17,10 @@ export interface OperationValueReference {
 }
 
 /**
- * Where a produced value comes from — capability knowledge (ATOM §1 `Source`).
- * Declaring the source gives every value a stable address consumers use
- * identically under `RETURNING` and `insertId` capabilities.
+ * Where a produced value comes from — capability knowledge (ATOM's
+ * `The execution vocabulary`). Declaring the source gives every value a stable
+ * address consumers use identically under `RETURNING` and `insertId`
+ * capabilities.
  */
 export type StatementOutputSource =
   | { readonly kind: "rows" }
@@ -30,17 +31,16 @@ export type StatementOutputSource =
       readonly field: string;
       /**
        * Tolerate an empty result (resolve to `undefined`) instead of throwing.
-       * Set ONLY on a locate whose missing row is a legitimate branch — an upsert
-       * update arm's superset locate (`locateNotFoundOptional`): when the create
-       * arm is taken the parent is absent, so this firstRowField has no compiled
-       * consumer and must not fail planning. A required locate never sets it.
+       * Set only when an empty probe selects another branch, leaving this output
+       * without a compiled consumer. A required read never sets it.
        */
       readonly optional?: boolean;
     };
 
 /**
- * A typed operation failure (ATOM §1 `Failure`). Carries the full V1 taxonomy
- * and the `raceable` bit whose values are fixed by the Pin Rule classes.
+ * A typed operation failure (ATOM's `The execution vocabulary`). Carries the
+ * full V1 taxonomy and the `raceable` bit whose values are fixed by the branch
+ * premise classes.
  */
 export interface Failure {
   readonly kind: "nestedWrite" | "notFound" | "query";
@@ -50,9 +50,9 @@ export interface Failure {
 }
 
 /**
- * A statement postcondition — what constitutes success (ATOM §1 / README §6).
- * Enforced where the substrate allows: transaction mode checks the provider
- * result before commit.
+ * A statement postcondition — what constitutes success (ATOM's `The execution
+ * vocabulary` and README's `Execution atom`). Enforced where the substrate
+ * allows: transaction mode checks the provider result before commit.
  */
 export type Postcondition =
   | { readonly kind: "exactlyOneRow"; readonly failure: Failure }
@@ -64,9 +64,9 @@ export type Postcondition =
 
 /**
  * A pinned unique-target annotation carried by a write whose unique-constraint
- * violation is the raceable signal (ATOM §1 `racePin`). Its shape is V1's
- * `UniqueConflictPin.target`; construct it by reusing the `TargetConstraint`
- * machinery (`uniqueConflictTarget`), never by reinventing target resolution.
+ * violation is the raceable signal (ATOM's `Branch premises and pins`).
+ * Construct it by reusing the `TargetConstraint` machinery
+ * (`uniqueConflictTarget`), never by reinventing target resolution.
  */
 export interface TargetConstraintPin {
   readonly fields: readonly string[];
@@ -75,18 +75,26 @@ export interface TargetConstraintPin {
   readonly constraints: readonly string[];
 }
 
-export interface StatementStep {
+export interface StatementStepBase {
   readonly id: string;
-  readonly kind: "read" | "write";
   readonly statement: Sql;
   readonly outputs: Readonly<Record<string, StatementOutputSource>>;
-  /** Statement postcondition — what constitutes success (README §6). */
+  /** Statement postcondition — see README's `Execution atom`. */
   readonly expects?: Postcondition;
+}
+
+export interface ReadStep extends StatementStepBase {
+  readonly kind: "read";
+}
+
+export interface WriteStep extends StatementStepBase {
+  readonly kind: "write";
   /** Present on writes whose unique-constraint violation is the raceable signal. */
   readonly racePin?: TargetConstraintPin;
   /**
-   * The census's `onUniqueConflict: "skip"` disposition (ATOM §8): a write whose
-   * unique-constraint violation is *absorbed* rather than propagated — the
+   * The `onUniqueConflict: "skip"` bulk disposition (ATOM's `Bulk
+   * specializations`): a write whose unique-constraint violation is *absorbed*
+   * rather than propagated — the
    * `createMany` skipDuplicates row on a dialect whose skip strategy is
    * `recoverableUniqueError` (no portable `ON CONFLICT DO NOTHING` that reports a
    * skipped-row count). It is an **executor effect**, not a plain SQL leaf: the
@@ -99,6 +107,8 @@ export interface StatementStep {
    */
   readonly onUniqueConflict?: "skip";
 }
+
+export type StatementStep = ReadStep | WriteStep;
 
 export interface GuardStep {
   readonly id: string;
@@ -113,32 +123,10 @@ export interface GuardStep {
 export type OperationStep = StatementStep | GuardStep;
 
 /**
- * A probe pairs a planning read with the premise its decision creates (ATOM §2).
- * The pairing is structural, not conventional: it is how the Pin Rule stays
- * machine-checkable when a branch decision moves into opaque compile-time JS.
- * `compile(known)` consumes the probe and emits the taken branch through it, so
- * the branch contributes the correct pin (or none) automatically.
- */
-export interface Probe {
-  /** The planning read (locked in transaction mode). */
-  readonly read: StatementStep;
-  readonly pin: {
-    /** Existing-row premise: pinned, `raceable: false`. */
-    readonly whenFound: GuardStep | "none";
-    /**
-     * `"constraint"`: the branch INSERTs into the same model under the unique
-     * key — the database constraint enforces the premise and its violation is
-     * the raceable signal (`racePin` on the write). Emitting a `notExists`
-     * guard here is the production-FATAL class; these are NEVER pinned.
-     */
-    readonly whenMissing: GuardStep | "constraint" | "none";
-  };
-}
-
-/**
  * A fragment output names either a single produced value or an ordered list of
- * them, whose rows concatenate and whose counts sum (ATOM §1) — e.g.
- * `createManyAndReturn` on non-returning drivers and SQLite `createMany`.
+ * them, whose rows concatenate and whose counts sum (ATOM's `The execution
+ * vocabulary`) — e.g. `createManyAndReturn` on non-returning drivers and SQLite
+ * `createMany`.
  */
 export type FragmentOutputSource =
   | OperationValueReference
@@ -147,6 +135,21 @@ export type FragmentOutputSource =
 export interface OperationFragment {
   readonly steps: readonly OperationStep[];
   readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
+}
+
+export interface PlanningFragment {
+  readonly steps: readonly StatementStep[];
+  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
+}
+
+export function bucketOperationSteps(
+  steps: readonly OperationStep[],
+  guards: OperationStep[],
+  statements: OperationStep[]
+): void {
+  for (const step of steps) {
+    (step.kind === "guard" ? guards : statements).push(step);
+  }
 }
 
 export function ref(step: string, output: string): OperationValueReference {

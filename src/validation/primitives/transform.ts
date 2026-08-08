@@ -56,7 +56,7 @@ export function coerce<S extends VibSchema<any, any>, TOut>(
     (value): ValidationResult<TOut> => {
       const result = validateSchema(schema, value);
       if (result.issues) {
-        return fail(result.issues[0]?.message ?? "Validation failed");
+        return fail(result.issues[0]!.message);
       }
       try {
         return ok(fn((result as { value: InferOutput<S> }).value));
@@ -71,7 +71,7 @@ export function coerce<S extends VibSchema<any, any>, TOut>(
   (transformSchema as any).wrapped = schema;
   // Inherit acceptsUndefined from wrapped schema
   (transformSchema as any).acceptsUndefined =
-    (schema as any).acceptsUndefined ?? false;
+    (schema as any).acceptsUndefined === true;
 
   return transformSchema;
 }

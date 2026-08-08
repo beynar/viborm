@@ -3,21 +3,38 @@ import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
-  getFkDirection,
-  type RelationMutation,
-  separateData,
+  bindRelation,
+  type ChildHeldToMany,
+  type ChildHeldToOne,
 } from "../builders/relation-data-builder";
-import { buildInsert } from "../builders/values-builder";
+import {
+  buildParsedRelationPrograms,
+  type ConnectOrCreateInput,
+  type NormalizedRelationUpsert,
+  type RelationMutationProgram,
+} from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
-import { createQueryScope, getTableName } from "../context/query-scope";
+import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique, buildUpdate } from "../operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
   getUpdatedPrimaryKeyValue,
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
-import type { QueryScope, RelationInfo } from "../types";
-import { validateProbe } from "./FragmentValidator";
+import {
+  assertPinnedTransitionIsCompilable,
+  assertRelationKeyUpdatesAreCompilable,
+  assertSelectedUpdateManyDataIsScalar,
+} from "../relation-key-legality";
+import type { QueryScope } from "../types";
+import {
+  type CorrelatedForeignKeyMember,
+  type FinalReferenceSource,
+  type ForeignKeyMember,
+  foreignKeyResolvedReadValue,
+  foreignKeyWriteValueWith,
+  literalReferenceValue,
+} from "./foreign-key-reference";
 import {
   affectedRows,
   childRacePin,
@@ -33,23 +50,24 @@ import {
   upsertTargetVanished,
 } from "./messages";
 import type {
-  FreshArmBuilder,
-  NestedChildBuilder,
-} from "./nested-target-parts";
-import type {
   GuardStep,
   OperationStep,
-  OperationValueReference,
-  Probe,
+  ReadStep,
+  StatementOutputSource,
   StatementStep,
+  WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
-import { planningKey } from "./Part";
-import { referencedFieldValue } from "./parent-reference";
+import { conditionalArmPlanning, planningKey } from "./Part";
+import type {
+  RecordCompilerSeam,
+  RecordUpdateCompiler,
+} from "./RecordUpdateCompiler";
 import type { StepScope } from "./StepScope";
 import {
   getStepModelName,
   isRecord,
+  pinnedTargetValues,
   sameScalarValue,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
@@ -57,12 +75,12 @@ import {
 
 /**
  * Where the parent id the child FK points at comes from — a first-class value,
- * never the parent object (WHY §4.2).
+ * never the parent object.
  * - `ref`: the parent write produces it in the same final fragment (create
  *   context); a Ref materialized later.
  * - `planned`: it was located by a planning read and is inlined as a literal at
  *   compile (update-by-unique context; a final-fragment step may not ref a
- *   planning step — ATOM §9 inv. 2).
+ *   planning step — ATOM “Proof obligations”).
  * - `literal`: it is a compile-time constant — the located-by-PK parent's own
  *   primary key. This is the base case of a first-class value, and it is what a
  *   depth-composed grandchild receives: its parent (a middle upsert located by
@@ -73,70 +91,18 @@ import {
  *   APPLIED — a derivation that cannot run before the locate has, and therefore runs at
  *   compile.
  *
- * `transitioned` is a member of its own rather than a flag on `planned`, and the reason
- * is the same one {@link PerFieldParentIdSource} was separated for. A `planned` source
- * is legal to lower into a SQL `Ref` at the referenced COLUMN — several consumers do
- * exactly that when `parentId.kind === "planned"` — and that column still holds the
- * PRE-transition value when the child's statement runs. Spelling the transition as a
- * flag would leave every one of those `=== "planned"` tests true and silently bind the
- * vacated key. As a distinct kind, each of them is simply false, and the value goes
- * through {@link referencedFieldValue}'s compile path, which is the only place the
- * derivation exists.
+ * Read and write sources are separate members of each foreign-key edge. A transition
+ * therefore reads the pre-transition field and writes the transformed value without a
+ * caller recovering either source by field name.
  */
-export type ParentIdSource =
-  | { readonly kind: "ref"; readonly ref: OperationValueReference }
-  | {
-      readonly kind: "planned";
-      readonly readStep: string;
-      readonly field: string;
-    }
-  | {
-      readonly kind: "transitioned";
-      readonly readStep: string;
-      readonly field: string;
-      /** Applied to the located value at COMPILE, per referenced column. */
-      readonly transition: (before: unknown, field: string) => unknown;
-    }
-  | { readonly kind: "literal"; readonly value: unknown };
-
 /**
- * E4-U2 — a parent source with ONE VALUE PER REFERENCED COLUMN, keyed by that column's
- * NAME.
- *
- * Every member of {@link ParentIdSource} carries a SINGLE value, and every consumer of
- * that union is written to spend that one value on whichever referenced column it is
- * asked about — correct for a single-column edge, and the cross-pair trap for a compound
- * one (field 0 written into every foreign-key column). A compound child edge under a
- * CREATE root has a whole tuple to give: the parent's own create data spells some
- * columns and its INSERT produces others, so each referenced column has its own
- * provenance. This shape carries them separately, and the lookup is by NAME, so an
- * index that drifts cannot silently pair the wrong two columns.
- *
- * It is deliberately NOT a member of {@link ParentIdSource}. That is the structural
- * proof the plan asked for: {@link referencedFieldValue} and
- * {@link referencedFieldCorrelation} — the readers a CORRELATED probe goes through —
- * take `ParentIdSource`, so this shape is not assignable to them and the collapse
- * "correlate a located row against field 0 of a tuple" cannot be written. The
- * correlation modes are separated once more, one level up, by
- * {@link UpsertParentBinding}.
- */
-export type PerFieldParentIdSource = {
-  readonly kind: "per-field";
-  readonly members: Readonly<Record<string, ParentIdSource>>;
-};
-
-/** What an adopt-family part may take as its parent source (ATOM §1's per-field
- *  produces, made first-class). */
-export type AdoptParentIdSource = ParentIdSource | PerFieldParentIdSource;
-
-/**
- * How the found branch reads the probe (ATOM §4):
+ * How the found branch reads the probe (ATOM “Relation-owner boundary”):
  * - `global-adopt`: nested upsert under `create` — the parent is fresh, no
  *   correlation is possible, so any globally-matched row is adopted and updated
- *   (the create-input superset, PLAN P−1.2).
+ *   (the create-input superset).
  * - `correlated`: nested upsert under `update` — a found row is legal only if
  *   it already belongs to this parent; a found-uncorrelated row is the typed
- *   V7001 error (V1's message verbatim). Never `ON CONFLICT` (ATOM §4).
+ *   V7001 error (V1's message verbatim). Never `ON CONFLICT` (ATOM “SQL ownership”).
  */
 export type UpsertCorrelation = "global-adopt" | "correlated";
 
@@ -154,50 +120,23 @@ export type UpsertCorrelation = "global-adopt" | "correlated";
  * } }` does not type-check, so no caller — present or future — can hand a tuple to a
  * correlated probe and have it silently correlate on one member.
  */
-export type UpsertParentBinding =
-  | { readonly correlation: "correlated"; readonly parentId: ParentIdSource }
-  | {
-      readonly correlation: "global-adopt";
-      readonly parentId: AdoptParentIdSource;
-    };
-
 /**
- * Which member of the adopt family this part expresses (ATOM §6 — connectOrCreate
+ * Which member of the adopt family this part expresses (ATOM “Branch premises and pins” — connectOrCreate
  * is the simplest member, upsert-under-create/update adds the update payload):
  * - `upsert`: found → reparent-and-update (or update, correlated); the found
  *   premise carries the V2 extension `Nested upsert premise changed` wording.
  * - `connectOrCreate`: found → pure connect (reparent, no update data); the found
  *   premise carries V1's verbatim `Record was replaced …` replacement wording.
  * Both share one probe, one create arm (constraint + `racePin`), one found guard
- * (`raceable: false`) — the leaf differs, never the vocabulary (WHY §4.1).
+ * (`raceable: false`) — the leaf differs, never the vocabulary.
  */
 export type UpsertFamily = "connectOrCreate" | "upsert";
 
-/**
- * The two builders an adopt part reaches through injection rather than through an
- * import — `nested-target-parts` imports THIS module, so a runtime import back would
- * be a cycle (the {@link NestedChildBuilder} convention: an erased type import, a
- * function value threaded from the caller).
- *
- * - {@link ArmSeam.freshArm} builds the absent → CREATE arm's whole create SUBTREE
- *   (N4-U2).
- * - {@link ArmSeam.nestedChild} builds the found → UPDATE arm's deeper Parts (E3):
- *   the arm's row is LOCATED, which is exactly what a nested `update` target is, so
- *   the arm reuses the located-target child-Part builder instead of a second dispatch
- *   of its own.
- *
- * One seam, not two parameters, because a caller that supplied one and forgot the
- * other would silently narrow what an arm can express.
- */
-export interface ArmSeam {
-  readonly freshArm: FreshArmBuilder;
-  readonly nestedChild: NestedChildBuilder;
-}
+type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
 
 /**
- * Everything the part needs EXCEPT its parent binding, which is a discriminated union
- * of its own ({@link UpsertParentBinding}) so the correlation mode and the source kinds
- * legal under it stay one decision.
+ * Everything the part needs. Correlated members add a planning source to the same
+ * foreign/referenced pair that owns the final write source.
  */
 interface RelationUpsertConfigCore {
   readonly engine: QueryEngine;
@@ -206,24 +145,23 @@ interface RelationUpsertConfigCore {
   /**
    * This part's own locate-probe step id, allocated by the builder BEFORE the arms
    * fold (N4-U1) — the update arm's grandchildren may address it as a `planned`
-   * parent source, and a `ParentIdSource` is a value, so the id has to exist first.
+   * parent source, and a final reference source is a value, so the id has to exist first.
    */
   readonly probeId: string;
   /** Whether the probe publishes its captured primary key as a `firstRowField`
    *  output (set exactly when the update arm's grandchildren `planned`-read it). */
   readonly publishesLocatedPk?: boolean;
-  readonly relationName: string;
+  readonly relation: ChildHeldRelation;
   readonly where: Record<string, unknown>;
-  readonly createData: Readonly<Record<string, unknown>>;
   readonly updateData: Readonly<Record<string, unknown>>;
+  readonly updateCompiler?: RecordUpdateCompiler;
+  readonly updateLegality?: () => void;
   /**
    * The child-held foreign-key columns and the parent columns they reference,
-   * index-aligned (compound keys are per-field, ATOM §1). A single-column edge is
+   * index-aligned (compound keys are per-field, ATOM “Field-bound foreign-key provenance”). A single-column edge is
    * the length-1 case — and the only one the `ref`/`literal` parent-id kinds
    * (create context / depth) support.
    */
-  readonly fkFields: readonly string[];
-  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   readonly txMode: boolean;
   /** Adopt-family member (default `upsert`); `connectOrCreate` omits update data. */
@@ -242,31 +180,38 @@ interface RelationUpsertConfigCore {
   /**
    * Depth: nested upsert parts contributed by this child's UPDATE payload. They
    * are emitted only on this part's found+correlated (update) arm — the same
-   * linear fragment, one level deeper (README §5, ATOM §6). This part holds its
-   * children (by FK direction), never its parent (WHY §4.2). Empty at depth 1.
+   * linear fragment, one level deeper (README “Three independent facts,” ATOM
+   * “Relation-owner boundary”). This part holds its
+   * children (by FK direction), never its parent. Empty at depth 1.
    */
-  readonly updateChildParts?: readonly Part[];
   /**
-   * N4-U2 — depth on the CREATE arm. The absent → CREATE arm inserts a FRESH row,
-   * which is exactly what a `create` root builds, so when the arm's payload carries
-   * relations the WHOLE arm is a create SUBTREE ({@link FreshArmBuilder}) rather than
-   * this part's own one-statement leaf plus a hand-rolled list of deeper writes. It
+   * N4-U2 — the absent → CREATE arm inserts a FRESH row, which is exactly what a
+   * `create` root builds. The whole arm is therefore a create subtree for scalar and
+   * relation-bearing payloads alike. It
    * owns the arm's INSERT (carrying this part's raceable missing-premise pin as its
    * root record's `racePin`), its own identity — a spelled primary key OR one the
    * database generates and its grandchildren `Ref` — and every relation below at any
-   * depth. Absent when the create payload is scalar-only; then {@link buildCreateArm}
-   * emits the single INSERT it always did, byte-identically.
+   * depth.
    */
-  readonly createSubtree?: Part;
+  readonly createSubtree: Part;
 }
 
 export type RelationUpsertConfig = RelationUpsertConfigCore &
-  UpsertParentBinding;
+  (
+    | {
+        readonly correlation: "global-adopt";
+        readonly members: readonly ForeignKeyMember[];
+      }
+    | {
+        readonly correlation: "correlated";
+        readonly members: readonly CorrelatedForeignKeyMember[];
+      }
+  );
 
 /**
- * The to-many nested-upsert child part (README §5's earned `RelationUpsert`
+ * The to-many nested-upsert child part (README “Three independent facts”)
  * module — two operations now compose it, recursively). It contributes one
- * widened probe at planning (ATOM §3 technique 2: one unconditional child read
+ * widened probe at planning (ATOM “Planning fragments”: one unconditional child read
  * including its FK) plus its update-arm children's probes, and, at compile,
  * constructs exactly one taken arm:
  *
@@ -278,35 +223,39 @@ export type RelationUpsertConfig = RelationUpsertConfigCore &
  *   its update-arm child parts compile one level deeper;
  * - found + uncorrelated (correlated mode only) → typed V7001 throw.
  *
- * It holds no parent — only a `ParentIdSource` value, its FK metadata, and its
+ * It holds no parent — only field-bound FK members and its
  * own children.
  */
 export class RelationUpsertPart implements Part {
-  readonly probe: Probe;
   private readonly config: RelationUpsertConfig;
   private readonly probeId: string;
-  private readonly createId: string;
   private readonly updateId: string;
   private readonly guardId: string;
-  private readonly find: StatementStep;
-  private readonly updateChildParts: readonly Part[];
-  private readonly createSubtree: Part | undefined;
+  private readonly find: ReadStep;
+  private readonly foundPin: GuardStep | undefined;
+  private readonly updateCompiler?: RecordUpdateCompiler;
+  private readonly createSubtree: Part;
   private readonly family: UpsertFamily;
   private readonly duplicateOfEarlier: boolean;
+
+  private get relationName(): string {
+    return this.config.relation.relationInfo.name;
+  }
 
   constructor(scope: StepScope, config: RelationUpsertConfig) {
     this.config = config;
     this.family = config.family ?? "upsert";
-    this.updateChildParts = config.updateChildParts ?? [];
+    this.updateCompiler = config.updateCompiler;
     this.createSubtree = config.createSubtree;
     this.duplicateOfEarlier = config.duplicateOfEarlier ?? false;
-    const { childScope, childName, where, txMode, relationName } = config;
+    const { childScope, childName, where, txMode } = config;
+    const relationName = config.relation.relationInfo.name;
     this.probeId = config.probeId;
-    this.createId = scope.allocate(`${childName}.create`);
-    this.updateId = scope.allocate(`${childName}.update`);
+    this.updateId =
+      this.updateCompiler?.writeId ?? scope.allocate(`${childName}.update`);
     this.guardId = scope.allocate(`${childName}.guard.exists`);
 
-    // Widened probe (ATOM §3 technique 2): read the child by its own unique key,
+    // Widened probe (ATOM “Planning fragments”): read the child by its own unique key,
     // including every FK column, so compile can decide the three-way. Locked in
     // tx mode.
     this.find = {
@@ -323,19 +272,31 @@ export class RelationUpsertPart implements Part {
       // part's legitimate CREATE decision — and on that decision no update-arm
       // grandchild ever compiles, so the value has no consumer (the same superset
       // tolerance an upsert root's locate already declares).
-      outputs: config.publishesLocatedPk
+      outputs: this.updateCompiler
         ? {
             rows: { kind: "rows" },
-            [config.childPrimaryKey]: {
-              kind: "firstRowField",
-              field: config.childPrimaryKey,
-              optional: true,
-            },
+            ...Object.fromEntries(
+              this.updateCompiler.requiredTargetFields.map(
+                (field): [string, StatementOutputSource] => [
+                  field,
+                  { kind: "firstRowField", field, optional: true },
+                ]
+              )
+            ),
           }
-        : { rows: { kind: "rows" } },
+        : config.publishesLocatedPk
+          ? {
+              rows: { kind: "rows" },
+              [config.childPrimaryKey]: {
+                kind: "firstRowField",
+                field: config.childPrimaryKey,
+                optional: true,
+              },
+            }
+          : { rows: { kind: "rows" } },
     };
 
-    // The probe pairs its read with the premise its decision creates (ATOM §2).
+    // The probe pairs its read with the premise its decision creates (ATOM “Branch premises and pins”).
     // Found premise: pinned by the exists guard in batch mode (raceable: false),
     // by the lock in tx mode. Missing premise: enforced by the child's unique
     // constraint (the racePin on the create write), never a notExists guard.
@@ -361,11 +322,7 @@ export class RelationUpsertPart implements Part {
             this.foundGuardStatement(undefined, undefined),
             relationName
           );
-    this.probe = {
-      read: this.find,
-      pin: { whenFound: foundPin, whenMissing: "constraint" },
-    };
-    validateProbe(this.probe);
+    this.foundPin = foundPin === "none" ? undefined : foundPin;
   }
 
   /** The probe's (and the found pin's, and the update arm's) projection: this child's
@@ -375,7 +332,12 @@ export class RelationUpsertPart implements Part {
     const select: Record<string, boolean> = {
       [this.config.childPrimaryKey]: true,
     };
-    for (const fkField of this.config.fkFields) select[fkField] = true;
+    for (const member of this.config.members) {
+      select[member.foreignField] = true;
+    }
+    for (const field of this.updateCompiler?.requiredTargetFields ?? []) {
+      select[field] = true;
+    }
     return select;
   }
 
@@ -384,19 +346,17 @@ export class RelationUpsertPart implements Part {
     return planningKey(this.probeId, "rows");
   }
 
-  planning(scope: StepScope): readonly OperationStep[] {
+  planning(scope: StepScope): readonly StatementStep[] {
     // Planning is unconditional: this part's probe plus every arm's child probes
     // run before any write, so `compile` has all three-way inputs in `known`
     // regardless of which arm each level later takes. Both the update-arm and
     // the create-arm children plan here (technique #2's widened superset); only
     // the taken arm's children later compile.
-    const steps: OperationStep[] = [this.find];
-    for (const child of this.updateChildParts) {
-      const childSteps = child.planning(scope);
-      assertArmPlanningAssertsNothing(childSteps, this.config.relationName);
-      steps.push(...childSteps);
+    const steps: StatementStep[] = [this.find];
+    if (this.updateCompiler) {
+      steps.push(...conditionalArmPlanning(this.updateCompiler.planning()));
     }
-    if (this.createSubtree) steps.push(...this.createSubtree.planning(scope));
+    steps.push(...this.createSubtree.planning(scope));
     return steps;
   }
 
@@ -404,8 +364,8 @@ export class RelationUpsertPart implements Part {
     const rows = known[this.probeRowsKey()];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 upsert probe for relation '${this.config.relationName}' did not expose rows.`,
-        this.config.relationName
+        `query-engine-v2 upsert probe for relation '${this.relationName}' did not expose rows.`,
+        this.relationName
       );
     }
     const arm = this.decide(rows, known);
@@ -432,10 +392,8 @@ export class RelationUpsertPart implements Part {
       // did not exist. A relation-carrying arm is the whole create SUBTREE (N4-U2):
       // the subtree owns the INSERT (with this part's racePin on its root record), its
       // own identity, and every relation below, under the fresh-parent elision
-      // (ATOM §4) that makes any correlation beneath it statically empty.
-      return this.createSubtree
-        ? this.createSubtree.compile(scope, known)
-        : [this.buildCreateArm(known)];
+      // (ATOM “Relation-owner boundary”) that makes any correlation beneath it statically empty.
+      return this.createSubtree.compile(scope, known);
     }
     // Found: adopt-and-update (global) or update the correlated child. In batch
     // mode the found premise is pinned first by the exists guard, narrowed to the
@@ -453,17 +411,17 @@ export class RelationUpsertPart implements Part {
     // two different rows.
     const capturedPk = this.capturedPk(rows);
     const steps: OperationStep[] = [];
-    if (this.probe.pin.whenFound !== "none") {
-      steps.push(
-        this.pinLocatedRow(this.probe.pin.whenFound, capturedPk, known)
-      );
+    if (this.foundPin) {
+      steps.push(this.pinLocatedRow(this.foundPin, capturedPk, known));
+    }
+    if (this.updateCompiler) {
+      this.config.updateLegality?.();
+      steps.push(...this.compileRecordUpdate(known));
+      return steps;
     }
     steps.push(
       this.buildUpdateArm(known, { [this.config.childPrimaryKey]: capturedPk })
     );
-    for (const child of this.updateChildParts) {
-      steps.push(...child.compile(scope, known));
-    }
     return steps;
   }
 
@@ -486,8 +444,7 @@ export class RelationUpsertPart implements Part {
   /**
    * The declared found pin, narrowed to the located row. Only the premise's STATEMENT
    * changes — the id, the premise class and the failure wording are the constructor's,
-   * which is what makes this the same pin the {@link Probe} declares rather than a
-   * second guard for the same premise.
+   * which keeps it the same declared pin rather than a second guard for the premise.
    */
   private pinLocatedRow(
     pin: GuardStep,
@@ -538,12 +495,7 @@ export class RelationUpsertPart implements Part {
     known: PlanningKnown | undefined
   ): Sql {
     const config = this.config;
-    const { childScope, where, childPrimaryKey, fkFields } = config;
-    // E4-U2 — the parent source, narrowed by the mode that is allowed to read it. In
-    // `correlated` mode the union hands back the whole-value kinds only, so the per-
-    // referenced-field source can never reach the comparison below.
-    const correlationParent =
-      config.correlation === "correlated" ? config.parentId : undefined;
+    const { childScope, where, childPrimaryKey } = config;
     return buildFind(
       childScope,
       {
@@ -553,13 +505,14 @@ export class RelationUpsertPart implements Part {
             ...(capturedPk === undefined
               ? []
               : [{ [childPrimaryKey]: { equals: capturedPk } }]),
-            ...(known && correlationParent
-              ? fkFields.map((fkField, index) => ({
-                  [fkField]: {
-                    equals: this.parentReferenced(
-                      correlationParent,
+            ...(known && config.correlation === "correlated"
+              ? config.members.map((member) => ({
+                  [member.foreignField]: {
+                    equals: foreignKeyResolvedReadValue(
+                      member,
                       known,
-                      index
+                      this.relationName,
+                      "upsert"
                     ),
                   },
                 }))
@@ -573,7 +526,7 @@ export class RelationUpsertPart implements Part {
   }
 
   /**
-   * The compile-time three-way (ATOM §3 technique 2). `global-adopt` collapses
+   * The compile-time three-way (ATOM “Planning fragments”). `global-adopt` collapses
    * to two arms (found → adopt); `correlated` throws V1's verbatim V7001 on a
    * found-uncorrelated row.
    */
@@ -588,31 +541,17 @@ export class RelationUpsertPart implements Part {
     // Correlated: found only if EVERY child FK column already equals its
     // referenced parent column (a compound edge correlates per-field). A partial
     // or foreign match is the found-uncorrelated V7001 (V1's verbatim message).
-    const parentId = config.parentId;
-    const correlated = config.fkFields.every((fkField, index) =>
-      fkEquals(record?.[fkField], this.parentReferenced(parentId, known, index))
+    const correlated = config.members.every((member) =>
+      fkEquals(
+        record?.[member.foreignField],
+        foreignKeyResolvedReadValue(member, known, this.relationName, "upsert")
+      )
     );
     if (correlated) return "found";
     throw new NestedWriteError(
-      upsertTargetNotFoundForParent(this.config.relationName),
-      this.config.relationName
+      upsertTargetNotFoundForParent(this.relationName),
+      this.relationName
     );
-  }
-
-  private buildCreateArm(known: PlanningKnown): StatementStep {
-    const { childScope, where } = this.config;
-    return {
-      id: this.createId,
-      kind: "write",
-      statement: buildInsert(childScope, getTableName(childScope.model), {
-        ...this.config.createData,
-        ...this.fkAssignData(known),
-      }),
-      outputs: {},
-      // The missing premise is enforced by the child's unique constraint; its
-      // violation is the raceable signal, matched against this pinned target.
-      racePin: childRacePin(childScope, where),
-    };
   }
 
   /** The found/adopt arm. `address` is the row it writes: the located row's captured
@@ -621,9 +560,10 @@ export class RelationUpsertPart implements Part {
   private buildUpdateArm(
     known: PlanningKnown,
     address: Record<string, unknown>
-  ): StatementStep {
-    const { childScope, txMode, relationName } = this.config;
-    const step: StatementStep = {
+  ): WriteStep {
+    const { childScope, txMode } = this.config;
+    const relationName = this.relationName;
+    const step: WriteStep = {
       id: this.updateId,
       kind: "write",
       statement: buildUpdate(childScope, {
@@ -656,35 +596,33 @@ export class RelationUpsertPart implements Part {
     };
   }
 
+  private compileRecordUpdate(known: PlanningKnown): readonly OperationStep[] {
+    const steps = this.updateCompiler?.compile(known) ?? [];
+    if (!this.config.txMode) return steps;
+    return steps.map((step) =>
+      step.kind === "write" && step.id === this.updateId
+        ? {
+            ...step,
+            expects: affectedRows(1, {
+              kind: "notFound",
+              message: upsertTargetVanished(this.relationName),
+              relation: this.relationName,
+              raceable: false,
+            }),
+          }
+        : step
+    );
+  }
+
   private fkAssignData(known: PlanningKnown): Record<string, unknown> {
     return fkAssignData(
       this.config.engine,
       this.config.childScope,
-      this.config.fkFields,
-      this.config.referencedFields,
+      this.config.members,
       {
-        parentId: this.config.parentId,
-        relationName: this.config.relationName,
+        relationName: this.relationName,
         known,
       }
-    );
-  }
-
-  /** The concrete value of the parent column the FK field `index` references
-   *  (literal/planned; never a `ref`). The source is passed in rather than read from
-   *  the config, because only the correlated half of {@link UpsertParentBinding} may
-   *  reach this and the narrowing lives at the two call sites. */
-  private parentReferenced(
-    source: ParentIdSource,
-    known: PlanningKnown,
-    index: number
-  ): unknown {
-    return referencedFieldValue(
-      source,
-      this.config.referencedFields[index]!,
-      known,
-      this.config.relationName,
-      "upsert"
     );
   }
 }
@@ -694,72 +632,39 @@ export class RelationUpsertPart implements Part {
  * parent create (create context, single-field), the located parent id inlined as a
  * literal (update-by-unique context), or a compile-time literal (depth-composed
  * grandchild). All ride in `Sql.values`, so the create INSERT and the update SET
- * consume them identically. One entry per compound-key field (ATOM §1).
+ * consume them identically. One entry per compound-key field (ATOM “Field-bound foreign-key provenance”).
  *
  * One home, two askers (N4-U2): the part's own arms, and — when the create arm is a
- * fresh SUBTREE — the `rootFkInject` that subtree's root INSERT folds. A second copy
+ * fresh SUBTREE — the incoming members that subtree's root INSERT folds. A second copy
  * is how a create arm and an update arm would come to disagree about which parent a
  * row belongs to.
  */
 function fkAssignData(
   engine: QueryEngine,
   childScope: QueryScope,
-  fkFields: readonly string[],
-  referencedFields: readonly string[],
+  members: readonly ForeignKeyMember[],
   context: {
-    readonly parentId: AdoptParentIdSource;
     readonly relationName: string;
     readonly known: PlanningKnown;
   }
 ): Record<string, unknown> {
-  const { parentId, relationName, known } = context;
+  const { relationName, known } = context;
   const data: Record<string, unknown> = {};
-  for (let index = 0; index < fkFields.length; index += 1) {
-    const fkField = fkFields[index]!;
-    const referenced = referencedFields[index]!;
-    const source = memberSource(parentId, referenced, relationName);
-    data[fkField] = referenceSql(
+  for (const member of members) {
+    data[member.foreignField] = referenceSql(
       engine,
       childScope.model,
-      fkField,
-      source.kind === "ref"
-        ? source.ref
-        : referencedFieldValue(
-            source,
-            referenced,
-            known,
-            relationName,
-            "upsert"
-          )
+      member.foreignField,
+      foreignKeyWriteValueWith(
+        member,
+        known,
+        relationName,
+        "upsert",
+        (reference) => reference
+      )
     );
   }
   return data;
-}
-
-/**
- * E4-U2 — the whole-value source ONE referenced column takes.
- *
- * A single-value source is that column's source, whichever column is asked for: the
- * edge has one, so there is nothing to pick. A per-field source is picked BY NAME, and
- * a name it does not carry is an engine invariant break, not a route: the source is
- * built from `getFkDirection(...).pkFields` at the caller (`CreateOperation`), and this
- * part re-derives `referencedFields` from the SAME call on the same relation — the two
- * lists are one list. The alternative to saying so is `members[referenced]!`, which
- * would write `undefined` into a foreign-key column and call it a value.
- */
-function memberSource(
-  parentId: AdoptParentIdSource,
-  referencedField: string,
-  relationName: string
-): ParentIdSource {
-  if (parentId.kind !== "per-field") return parentId;
-  const member = parentId.members[referencedField];
-  if (member === undefined) {
-    throw new QueryEngineError(
-      `query-engine-v2 internal: the per-field parent source for relation '${relationName}' carries no value for referenced column '${referencedField}'; it is built from the same foreign-key direction this part reads.`
-    );
-  }
-  return member;
 }
 
 /**
@@ -823,22 +728,26 @@ function locatedRow(
 function withoutAgreeingOwnedFk(
   payload: Record<string, unknown>,
   context: {
-    readonly fkFields: readonly string[];
-    readonly parentId: AdoptParentIdSource;
+    readonly members: readonly ForeignKeyMember[];
     readonly relationName: string;
   }
 ): Record<string, unknown> {
-  const { fkFields, parentId, relationName } = context;
+  const { members, relationName } = context;
+  const fkFields = members.map((member) => member.foreignField);
   const spelled = fkFields.filter((fkField) => Object.hasOwn(payload, fkField));
   if (spelled.length === 0) return payload;
   const refusal = new UnsupportedOperationError(
     relationOwnsForeignKey(relationName, fkFields)
   );
   const fkField = fkFields.length === 1 ? fkFields[0] : undefined;
-  if (fkField === undefined || parentId.kind !== "literal") throw refusal;
+  const parentId =
+    members.length === 1
+      ? literalReferenceValue(members[0]!.writeSource)
+      : undefined;
+  if (fkField === undefined || parentId === undefined) throw refusal;
   const value = unwrapSetOperand(payload[fkField]);
   if (value === null || value === undefined) throw refusal;
-  if (!fkEquals(value, parentId.value)) throw refusal;
+  if (!fkEquals(value, parentId)) throw refusal;
   const { [fkField]: _agreed, ...rest } = payload;
   return rest;
 }
@@ -867,20 +776,11 @@ export function fkEquals(childFk: unknown, parentId: unknown): boolean {
 /** The parent id a child edge takes from a value the enclosing fragment PRODUCES —
  *  the create context's backward `Ref` (N4-U4 widened its source from "this record's own
  *  generated key" to any produced referenced value, so the ref arrives already built). */
-export function refParentId(
-  reference: OperationValueReference
-): ParentIdSource {
-  return { kind: "ref", ref: reference };
+export function plannedParentId(readStep: string): FinalReferenceSource {
+  return { kind: "planningField", step: readStep };
 }
 
-export function plannedParentId(
-  readStep: string,
-  field: string
-): ParentIdSource {
-  return { kind: "planned", readStep, field };
-}
-
-export function literalParentId(value: unknown): ParentIdSource {
+export function literalParentId(value: unknown): FinalReferenceSource {
   return { kind: "literal", value };
 }
 
@@ -891,19 +791,16 @@ export function transitionedParentId(
   readStep: string,
   field: string,
   transition: (before: unknown, field: string) => unknown
-): ParentIdSource {
-  return { kind: "transitioned", readStep, field, transition };
-}
-
-/** E4-U2 — one whole-value source per referenced column, keyed by that column's name. */
-export function perFieldParentId(
-  members: Readonly<Record<string, ParentIdSource>>
-): PerFieldParentIdSource {
-  return { kind: "per-field", members };
+): FinalReferenceSource {
+  return {
+    kind: "transitionedPlanningField",
+    step: readStep,
+    apply: (before) => transition(before, field),
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Recursive to-many upsert composition (PLAN P1.3). One shared builder folds a
+// Recursive to-many upsert composition. One shared builder folds a
 // nested upsert relation into a `RelationUpsertPart`; when that child's UPDATE
 // payload carries its own upsert relations, the builder recurses, so depth adds
 // list entries and one parent-id value, never vocabulary or a Part method.
@@ -917,50 +814,26 @@ export function perFieldParentId(
  */
 export function buildToManyUpsertParts(
   scope: StepScope,
-  parentScope: QueryScope,
   engine: QueryEngine,
-  relationName: string,
-  relationInfo: RelationInfo,
-  items: readonly Record<string, unknown>[],
-  parent: UpsertParentBinding,
+  relation: ChildHeldRelation,
+  items: readonly NormalizedRelationUpsert[],
+  members: readonly ForeignKeyMember[],
+  correlationMembers: readonly CorrelatedForeignKeyMember[] | undefined,
   txMode: boolean,
-  seam: ArmSeam,
+  seam: RecordCompilerSeam,
   family: UpsertFamily = "upsert"
 ): RelationUpsertPart[] {
-  if (relationInfo.type !== "oneToMany") {
-    // The **inverse-side one-to-one** (child-held FK) is the arity-1 case of this
-    // child-held path (TO-ONE.md §7.0.1): `connectOrCreate` adopts it globally,
-    // exactly as the to-many arity does (found → reparent; absent → create with the
-    // parent FK injected, constraint + racePin). A many-to-many target is the
-    // junction's, and an FK-holder-side (parent-held) to-one is a same-row change,
-    // not this child-held Part.
-    const inverseToOne =
-      relationInfo.isToOne &&
-      !getFkDirection(parentScope, relationInfo).holdsFK;
-    if (!(inverseToOne && family === "connectOrCreate")) {
-      // E3-U4 — UNREACHABLE BY CONSTRUCTION since the arm dispatch was replaced.
-      //
-      // This was a REACHABLE typed refusal until E3: `buildArmChildParts` dispatched an
-      // upsert's UPDATE-arm grandchildren on the KIND alone and handed any
-      // `connectOrCreate`/`upsert` straight to this builder, direction unexamined — so a
-      // PARENT-HELD to-one or a many-to-many grandchild landed here with the wrong
-      // `relationInfo.type`. The arm now routes by DIRECTION first, through the same
-      // located-target seam every other located-target caller uses
-      // ({@link ArmSeam.nestedChild}), which sends many-to-many to the junction and stops
-      // the parent-held direction with its own wording
-      // ({@link assertArmEdgeIsChildHeld}) — so the wrong type no longer arrives.
-      //
-      // Every remaining caller had already dispatched the direction before entering:
-      // `UpdateOperation.interpretChildHeld` and `CreateOperation.interpretChildHeld`
-      // (both reached only for the child-held direction, the inverse-side to-one `upsert`
-      // pre-routed to `buildInverseToOneUpsertPart` and absent from `toOneCreateFactory`
-      // under create), and `nested-target-parts.foldOneChildHeldKind` (many-to-many
-      // dispatched above it, parent-held stopped above it, `isInverseToOne` split inside
-      // the `upsert` case). The X1c disposition applies: an engine invariant, not a route.
-      throw new QueryEngineError(
-        `query-engine-v2 internal: relation '${relationName}' reached the child-held adopt builder as '${relationInfo.type}' for a nested ${family}; every caller dispatches the relation direction before this builder.`
-      );
-    }
+  const { relationInfo } = relation;
+  const relationName = relationInfo.name;
+  if (
+    relation.kind !== "childHeldToMany" &&
+    !(relation.kind === "childHeldToOne" && family === "connectOrCreate")
+  ) {
+    // Callers bind and dispatch topology before this builder. Only a child-held to-many,
+    // or the child-held to-one `connectOrCreate` case, can reach this point.
+    throw new QueryEngineError(
+      `query-engine-v2 internal: relation '${relationName}' reached the child-held adopt builder as '${relationInfo.type}' for a nested ${family}; every caller dispatches the relation direction before this builder.`
+    );
   }
   // First-create-wins dedup is a connectOrCreate-only, fixed-order ledger over the
   // sibling items' target PKs (compile-time literals) — the child-held analogue of
@@ -972,7 +845,17 @@ export function buildToManyUpsertParts(
       : undefined;
   const childPk = child ? getPrimaryKeyFields(child.model)[0] : undefined;
   const seenTargets = child ? new Set<string>() : undefined;
-  return items.map((item) => {
+  return items.map((normalizedItem) => {
+    if (normalizedItem.target.kind !== "unique") {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: to-many upsert for relation '${relationName}' requires a unique target.`
+      );
+    }
+    const item: AdoptMutationItem = {
+      where: normalizedItem.target.where,
+      create: normalizedItem.create,
+      update: normalizedItem.update,
+    };
     let duplicateOfEarlier = false;
     if (seenTargets && childPk !== undefined) {
       const key = connectOrCreateTargetKey(item, childPk);
@@ -981,12 +864,11 @@ export function buildToManyUpsertParts(
     }
     return buildOneUpsertPart(
       scope,
-      parentScope,
       engine,
-      relationName,
-      relationInfo,
+      relation,
       item,
-      parent,
+      members,
+      correlationMembers,
       txMode,
       seam,
       family,
@@ -998,7 +880,7 @@ export function buildToManyUpsertParts(
 /** The stable target-PK key of a connectOrCreate item (its create data's child
  *  PK, falling back to the `where` unique) — the ledger key for first-create-wins. */
 function connectOrCreateTargetKey(
-  item: Record<string, unknown>,
+  item: AdoptMutationItem,
   childPk: string
 ): string {
   const create = isRecord(item.create) ? item.create : undefined;
@@ -1009,66 +891,88 @@ function connectOrCreateTargetKey(
 
 /**
  * Build one `RelationUpsertPart` per `connectOrCreate` item — the update-less
- * member of the adopt family (ATOM §6's worked trace). It is always global-adopt
+ * member of the adopt family (ATOM “Branch premises and pins”). It is always global-adopt
  * (`connect` performs a global lookup-and-adopt in both the create and update
- * contexts, PLAN P−1.2), so it takes no correlation: found → connect (reparent),
+ * contexts), so it takes no correlation: found → connect (reparent),
  * absent → create (constraint + `racePin`).
  */
 export function buildConnectOrCreateParts(
   scope: StepScope,
-  parentScope: QueryScope,
   engine: QueryEngine,
-  relationName: string,
-  relationInfo: RelationInfo,
-  items: readonly Record<string, unknown>[],
-  parentId: AdoptParentIdSource,
+  relation: ChildHeldRelation,
+  items: readonly ConnectOrCreateInput[],
+  members: readonly ForeignKeyMember[],
   txMode: boolean,
-  seam: ArmSeam
+  seam: RecordCompilerSeam
 ): RelationUpsertPart[] {
-  return buildToManyUpsertParts(
-    scope,
-    parentScope,
-    engine,
-    relationName,
-    relationInfo,
-    items,
-    { correlation: "global-adopt", parentId },
-    txMode,
-    seam,
-    "connectOrCreate"
-  );
+  return buildAdoptParts(scope, engine, relation, items, members, txMode, seam);
+}
+
+function buildAdoptParts(
+  scope: StepScope,
+  engine: QueryEngine,
+  relation: ChildHeldRelation,
+  items: readonly AdoptMutationItem[],
+  members: readonly ForeignKeyMember[],
+  txMode: boolean,
+  seam: RecordCompilerSeam
+): RelationUpsertPart[] {
+  const { relationInfo } = relation;
+  const child = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const childPk = getPrimaryKeyFields(child.model)[0];
+  const seenTargets = new Set<string>();
+  return items.map((item) => {
+    const key = childPk ? connectOrCreateTargetKey(item, childPk) : undefined;
+    const duplicateOfEarlier = key !== undefined && seenTargets.has(key);
+    if (key !== undefined) seenTargets.add(key);
+    return buildOneUpsertPart(
+      scope,
+      engine,
+      relation,
+      item,
+      members,
+      undefined,
+      txMode,
+      seam,
+      "connectOrCreate",
+      duplicateOfEarlier
+    );
+  });
+}
+
+interface AdoptMutationItem {
+  readonly where: Record<string, unknown>;
+  readonly create: Record<string, unknown>;
+  readonly update?: Record<string, unknown>;
 }
 
 function buildOneUpsertPart(
   scope: StepScope,
-  parentScope: QueryScope,
   engine: QueryEngine,
-  relationName: string,
-  relationInfo: RelationInfo,
-  item: Record<string, unknown>,
-  parent: UpsertParentBinding,
+  relation: ChildHeldRelation,
+  item: AdoptMutationItem,
+  members: readonly ForeignKeyMember[],
+  correlationMembers: readonly CorrelatedForeignKeyMember[] | undefined,
   txMode: boolean,
-  seam: ArmSeam,
+  seam: RecordCompilerSeam,
   family: UpsertFamily,
   duplicateOfEarlier = false
 ): RelationUpsertPart {
-  const fk = getFkDirection(parentScope, relationInfo);
-  if (fk.holdsFK || fk.fkFields.length !== fk.pkFields.length) {
+  const { relationInfo } = relation;
+  const relationName = relationInfo.name;
+  if (relation.foreignFields.length !== relation.referencedFields.length) {
     // The child must hold the foreign key referencing the parent (one column, or an
-    // index-aligned compound key — ATOM §1's per-field precedent).
+    // index-aligned compound key — ATOM “Field-bound foreign-key provenance”).
     //
-    // Unreachable by construction (N7-U-A, the X1c disposition), both halves measured.
-    // `holdsFK`: the parent-held direction is dispatched by every caller before this
-    // private builder is entered. Arity mismatch: a `.fields("a","b").references("c")`
-    // edge is rejected UPSTREAM by the relation-mutation legality walk
+    // Unreachable by construction (N7-U-A, the X1c disposition). A
+    // `.fields("a","b").references("c")` edge is rejected UPSTREAM by the
+    // relation-mutation legality walk
     // (`NestedWriteError: Relation '<name>' has mismatched foreign-key metadata.`), which
     // runs before any Part is built — so no payload arrives with a mismatched arity here.
     throw new QueryEngineError(
       `query-engine-v2 internal: relation '${relationName}' reached the upsert part without an index-aligned child-held foreign key referencing the parent.`
     );
   }
-  const fkFields = fk.fkFields;
-  const referencedFields = fk.pkFields;
   const child = createQueryScope(engine.adapter, relationInfo.targetModel);
   const where = requireRecord(item.where, `${relationName}.${family}.where`);
   // E5-U2 — the owned foreign key, spelled beside the relation that owns it, decided
@@ -1076,14 +980,13 @@ function buildOneUpsertPart(
   // here, so the engine's fold stays the single provenance everywhere downstream — the
   // create arm's scalar data, the update arm's SET, the primary-key stability check, and
   // the fresh create SUBTREE, which is handed this same `create` object and whose root
-  // INSERT folds the parent key through `rootFkInject`. A kept key would meet that fold
+  // INSERT folds the parent key through its incoming members. A kept key would meet that fold
   // there and write the column twice.
-  const ownedFk = { fkFields, parentId: parent.parentId, relationName };
+  const ownedFk = { members, relationName };
   const create = withoutAgreeingOwnedFk(
     requireRecord(item.create, `${relationName}.${family}.create`),
     ownedFk
   );
-  const childCreate = separateData(child, create);
   // connectOrCreate has no update payload; its found arm is a pure connect.
   const update =
     family === "connectOrCreate"
@@ -1095,15 +998,7 @@ function buildOneUpsertPart(
   const childUpdate =
     update === undefined
       ? { scalarData: {}, relations: {} }
-      : separateData(child, update);
-  if (update !== undefined) {
-    // V1's PK-arithmetic portability check on the nested upsert update arm
-    // (float/decimal non-portability, divide-by-zero, one-op) — a construction-
-    // time payload legality gate reusing V1's verbatim messages.
-    assertPortablePrimaryKeyUpdateInput(child.model, "update", {
-      data: update,
-    });
-  }
+      : buildParsedRelationPrograms(child, update);
   const childPrimaryKeys = getPrimaryKeyFields(child.model);
   if (childPrimaryKeys.length !== 1) {
     throw new UnsupportedOperationError(
@@ -1112,32 +1007,9 @@ function buildOneUpsertPart(
   }
   const childPrimaryKey = childPrimaryKeys[0]!;
   const childName = getStepModelName(relationInfo.targetModel, relationName);
-  // N4-U1 — the probe id is allocated HERE, before the arms fold, because the update
-  // arm's grandchildren may take this probe's captured primary key as their parent
-  // value. The constructor consumes it instead of allocating its own, so the id
-  // strings are unchanged for every shape that does not use the located key.
-  const probeId = scope.allocate(`${childName}.find`);
-
-  // Depth on the found+update arm (correlated grandchildren) and on the fresh create
-  // arm (the create SUBTREE, ATOM §4's elision). Both fold into the same linear
-  // fragment. What the two arms KNOW about this child differs, and that is the whole
-  // difference between them:
-  //
-  //  · the UPDATE arm acts on the row the probe FOUND, so — N4-U1 — the primary key
-  //    is either the `where`'s own literal or a `planned` read of that probe. A
-  //    non-primary-key unique (`where: { slug }`) no longer refuses: it locates.
-  //  · the CREATE arm PRODUCES its row, so — N4-U2 — it needs no parent-id source at
-  //    all: the fresh subtree owns its own identity, spelled in the create data or
-  //    generated by the INSERT and handed to its grandchildren as a backward `Ref`.
-  //    That is why the create arm's `where`-versus-create-data identity reconciliation
-  //    is gone: nothing below it correlates through the selector any more.
   const wherePk = getWhereUniqueEntries(child, where).find(
     (entry) => entry.fieldName === childPrimaryKey
   );
-  const updateArmParentId =
-    wherePk === undefined
-      ? plannedParentId(probeId, childPrimaryKey)
-      : literalParentId(wherePk.value);
   assertArmPkStable(
     child,
     childPrimaryKey,
@@ -1146,107 +1018,89 @@ function buildOneUpsertPart(
     childUpdate.scalarData,
     childUpdate.relations
   );
-  const updateChildParts = buildArmChildParts(
-    child,
-    childPrimaryKey,
-    updateArmParentId,
-    childUpdate.relations,
-    txMode,
-    seam
-  );
-  const createSubtree =
-    Object.keys(childCreate.relations).length > 0
-      ? seam.freshArm({
-          childScope: child,
-          data: create,
-          rootFkInject: (known) =>
-            fkAssignData(engine, child, fkFields, referencedFields, {
-              parentId: parent.parentId,
-              relationName,
-              known,
-            }),
-          racePin: childRacePin(child, where),
-        })
-      : undefined;
+  for (const [childRelationName, program] of Object.entries(
+    childUpdate.relations
+  )) {
+    assertArmEdgeIsChildHeld(child, childRelationName, program);
+    assertArmEdgeReferencesLocatedPk(
+      child,
+      childPrimaryKey,
+      childRelationName,
+      program
+    );
+  }
+  const parentId = members[0]?.writeSource;
+  if (!parentId) {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: relation '${relationName}' reached the upsert part with no foreign-key member.`
+    );
+  }
+  const pinnedTarget = pinnedTargetValues(child, where);
+  if (update) {
+    assertPinnedTransitionIsCompilable(
+      child,
+      childUpdate.scalarData,
+      childUpdate.relations,
+      relationName,
+      pinnedTarget
+    );
+  }
+  const updateCompiler = update
+    ? seam.updateSelected({
+        scope,
+        engine,
+        targetScope: child,
+        scalarData: childUpdate.scalarData,
+        relations: childUpdate.relations,
+        targetRead: { label: `${childName}.find` },
+        rootWrite: { label: `${childName}.update` },
+        incomingForeignKey: members,
+        relationName,
+        pinnedTarget,
+      })
+    : undefined;
+  const updateLegality = updateCompiler
+    ? () => {
+        assertPortablePrimaryKeyUpdateInput(child.model, "update", {
+          data: childUpdate.scalarData,
+        });
+        assertRelationKeyUpdatesAreCompilable(
+          child,
+          childUpdate.scalarData,
+          childUpdate.relations
+        );
+        assertSelectedUpdateManyDataIsScalar(child, childUpdate.relations);
+      }
+    : undefined;
+  const probeId =
+    updateCompiler?.targetReadId ?? scope.allocate(`${childName}.find`);
+  const createSubtree = seam.createFresh({
+    childScope: child,
+    data: create,
+    incomingForeignKey: members,
+    relationName,
+    racePin: childRacePin(child, where),
+  });
 
   return new RelationUpsertPart(scope, {
     engine,
     childScope: child,
     childName,
     probeId,
-    publishesLocatedPk:
-      updateArmParentId.kind === "planned" && updateChildParts.length > 0,
-    relationName,
+    relation,
     where,
-    createData: childCreate.scalarData,
     updateData: childUpdate.scalarData,
-    fkFields,
-    referencedFields,
     childPrimaryKey,
-    ...parent,
+    ...(correlationMembers
+      ? { correlation: "correlated" as const, members: correlationMembers }
+      : { correlation: "global-adopt" as const, members }),
     txMode,
     family,
     duplicateOfEarlier,
-    updateChildParts,
-    ...(createSubtree ? { createSubtree } : {}),
+    updateCompiler,
+    updateLegality,
+    createSubtree,
   });
-}
-
-/**
- * Fold the UPDATE arm's payload relation mutations into deeper parts, against the
- * parent-id value N4-U1 resolved for it: the `where`'s own primary-key literal, or a
- * `planned` read of this child's locate probe when some other unique named the row.
- *
- * The CREATE arm no longer comes here at all (N4-U2). Its row is PRODUCED, not located,
- * so its whole payload — scalars and relations together, at any depth — is a create
- * SUBTREE built through {@link FreshArmBuilder}; a fresh row's relations are the create
- * root's surface, and this builder only ever knew a slice of it.
- *
- * What is left here is the LOCATED-target surface — and E3's finding is that this arm
- * has no located-target surface of its own. A row located by its unique key, with its
- * primary key in hand as a `literal` or a `planned` read, is exactly what a nested
- * `update` target is, and that surface already has one home:
- * `buildNestedTargetChildParts`, reached through {@link ArmSeam.nestedChild} (an
- * injected seam, because `nested-target-parts` imports this module). So the arm no
- * longer dispatches kinds at all — it delegates the whole relation map, and the per-kind
- * loop that answers it is that builder's own `for (const kind of
- * getRelationMutationKinds(mutation))`. Depth below the arm is that builder's recursion,
- * not a second copy of it.
- *
- * Two properties of THIS arm are not properties of a nested `update` target, so they are
- * gated here, once per relation, before anything is built:
- *
- *  · the arm's parent value speaks for exactly ONE column, this child's primary key
- *    ({@link assertArmEdgeReferencesLocatedPk}, M11);
- *  · a deeper edge whose foreign key the arm's own row HOLDS is a change to that row's
- *    own SET, and this arm's SET is built by {@link RelationUpsertPart.buildUpdateArm}
- *    with the reparent already folded in ({@link assertArmEdgeIsChildHeld}).
- *
- * Both must run before the delegation, because the seam answers each of them with an
- * internal `QueryEngineError` invariant (`nested-target-parts.ts` — a parent-held edge
- * "must delegate to the update root"), and an internal error is not a boundary the
- * caller can read.
- */
-function buildArmChildParts(
-  child: QueryScope,
-  childPrimaryKey: string,
-  parentId: ParentIdSource,
-  relations: Record<string, RelationMutation>,
-  txMode: boolean,
-  seam: ArmSeam
-): readonly Part[] {
-  const entries = Object.entries(relations);
-  if (entries.length === 0) return [];
-  for (const [childRelationName, mutation] of entries) {
-    assertArmEdgeIsChildHeld(child, childRelationName, mutation);
-    assertArmEdgeReferencesLocatedPk(
-      child,
-      childPrimaryKey,
-      childRelationName,
-      mutation
-    );
-  }
-  return seam.nestedChild(child, parentId, relations, txMode);
 }
 
 /**
@@ -1259,79 +1113,24 @@ function buildArmChildParts(
  * a change to the arm's own UPDATE SET (child-SET folding), landing beside the reparent
  * {@link RelationUpsertPart.buildUpdateArm} already writes.
  *
- * The mechanism that folds a located row's SET is the update ROOT's before-target
- * machinery, reached by delegating the WHOLE located target to `UpdateOperation`
- * (X1c, `targetNeedsFullUpdate`). This arm cannot take that route as it stands: its
- * UPDATE is one statement carrying the reparent, the upsert-premise `expects` wording
- * and the found pin, and a delegated sub-op would emit a SECOND UPDATE of the same row —
- * forking the premise this part pins. Re-deriving the before-target primitives here
- * instead would fork them a different way (they are private to `UpdateOperation`, and
- * ATOM §4.1 exists to keep one linearization). Measured, named, and left refused rather
- * than smuggled in: the shape stays a typed boundary, not an internal invariant break.
+ * The selected-record compiler owns ordinary located-row SET folding. This adopt seam
+ * also folds the incoming reparent assignment and owns the found premise. A deeper
+ * parent-held edge would have to share that same UPDATE while preserving the arm's pin
+ * and legality timing; that unsupported shape is refused here.
  *
- * A many-to-many edge has no direction to ask for (`getFkDirection` would raise its own
- * internal invariant), and it needs no fold: its membership is a join row the junction
- * writes, correlated to this arm's parent value like any child-held edge.
+ * A many-to-many edge needs no fold: its membership is a join row the junction writes,
+ * correlated to this arm's parent value like any child-held edge.
  */
 function assertArmEdgeIsChildHeld(
   child: QueryScope,
   relationName: string,
-  mutation: RelationMutation
+  mutation: RelationMutationProgram
 ): void {
-  const { relationInfo } = mutation;
-  if (relationInfo.type === "manyToMany") return;
-  if (!getFkDirection(child, relationInfo).holdsFK) return;
+  const relation = bindRelation(child, mutation.relationInfo);
+  if (relation.kind !== "parentHeldToOne") return;
   throw new UnsupportedOperationError(
     `query-engine-v2 does not support a parent-held to-one write on relation '${relationName}' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent.`
   );
-}
-
-/**
- * E3 — the UPDATE arm's planning superset may ASSERT nothing.
- *
- * Every deeper Part plans unconditionally: its reads run before the arm decision, so that
- * `compile` has all inputs whichever arm each level takes (technique #2). Only the taken
- * arm's children then compile — which makes a compile-time not-found on a deeper Part
- * harmless, because compile never runs on the CREATE arm. A PLANNING-time postcondition
- * is not harmless: the executor enforces `expects` on the planning result itself
- * (`OperationExecutor.enforcePostcondition`), so a deeper read that asserts "exactly one
- * row" aborts the whole operation even when this part is legitimately about to INSERT a
- * fresh row that has no such deeper row yet. Measured live through the public client on
- * both substrates: an arm whose locator names no row, carrying a grandchild `update`
- * whose own data carries a relation, raised `Cannot update relation '…': target record
- * was not found for this parent.` instead of taking the create arm.
- *
- * Three deeper mechanisms declare such an assertion, all for the same reason — they
- * publish a located key EAGERLY as a `firstRowField`, and an eager extraction of an
- * absent output would otherwise abort with an internal wording:
- * `RelationWritePart.buildProbe` (a non-PK-located target carrying child Parts),
- * `RelationJunctionPart`'s `targetPublishesPk` probe, and the X1c whole-target delegation
- * (`buildNestedTargetUpdatePart` → the sub-op's `exactlyOneRow` locate).
- *
- * The answer each of them already has a name for is the OPTIONAL publication this part
- * makes for its own probe ({@link RelationUpsertConfig.publishesLocatedPk} — `optional:
- * true`, "an empty probe is this part's legitimate CREATE decision") and the update
- * root's `locateNotFoundOptional`. Wiring that through the seam means threading a
- * "conditional arm" flag into `RelationWritePart`, `RelationJunctionPart` and
- * `buildNestedTargetUpdatePart`, which is a change to those parts' pinned probe shapes;
- * it is named here as the mechanism and left to its own unit rather than smuggled in.
- *
- * Until then the composition fails closed, and it does so STRUCTURALLY — it asks the
- * built steps whether any of them asserts, not the payload whether it looks like one of
- * the three shapes. A payload question would have to re-derive the deeper dispatch this
- * arm just stopped doing, and would silently miss the next mechanism that adds an eager
- * publication. This one cannot: whatever declares a planning postcondition is caught.
- */
-function assertArmPlanningAssertsNothing(
-  steps: readonly OperationStep[],
-  relationName: string
-): void {
-  for (const step of steps) {
-    if (!("expects" in step && step.expects)) continue;
-    throw new UnsupportedOperationError(
-      `query-engine-v2 does not support a deeper write on the update arm of relation '${relationName}' whose planning read asserts that its own target exists; this arm may legitimately take its create branch, where no such row exists yet.`
-    );
-  }
 }
 
 /**
@@ -1367,7 +1166,7 @@ function assertArmPkStable(
   relationName: string,
   wherePk: { readonly value: unknown } | undefined,
   updateScalarData: Record<string, unknown>,
-  relations: Record<string, RelationMutation>
+  relations: Record<string, RelationMutationProgram>
 ): void {
   if (Object.keys(relations).length === 0) return;
   if (!Object.hasOwn(updateScalarData, childPrimaryKey)) return;
@@ -1399,50 +1198,36 @@ function assertArmPkStable(
  * `ForeignKeyError` when no row holds it. No wrong value is representable once this
  * refuses at construction, before a statement exists.
  *
- * What such an edge needs is a PER-FIELD parent source — one value per referenced column,
- * which is exactly what {@link referencedFieldValue} already gives the update ROOT, whose
- * locate read unions every referenced column into its own projection. Building that source
- * for this seam is E4's unit; until it exists this is a refusal, not a repair.
- *
- * Its unique coverage is the parent source {@link buildOneUpsertPart} MANUFACTURES for its
- * own update arm — no other caller reaches it, and none changes. Every other source handed
- * to that builder is already whole: the update root's locate-backed `planned` one resolves
- * each referenced column per-field, `CreateOperation.edgeParentId` refuses a compound edge
- * before building a source at all, the adopt classifier refuses past its single-PK surface,
- * and the nested-target builders pin the same condition twice
- * (`targetNeedsFullUpdate` / `referencesTargetPk`).
+ * Such an edge needs one located value per referenced field. This seam exposes only the
+ * located primary key, so it refuses compound and non-primary-key references before SQL
+ * is built.
  */
 function assertArmEdgeReferencesLocatedPk(
   child: QueryScope,
   childPrimaryKey: string,
   relationName: string,
-  mutation: RelationMutation
+  mutation: RelationMutationProgram
 ): void {
-  const { relationInfo } = mutation;
-  // Many-to-many has no FK direction to ask for (asking `getFkDirection` would raise its
-  // internal invariant), and its membership is a join row correlated to the arm's parent
-  // value as a whole — never a per-column FK write, so there is no cross-match to make.
-  // The parent-held direction's `pkFields` name the TARGET's columns rather than this
-  // child's, so it is not an edge fed from the arm's parent value either; it is stopped
-  // one line earlier, with its own wording, by {@link assertArmEdgeIsChildHeld}.
-  if (relationInfo.type === "manyToMany") return;
-  const fk = getFkDirection(child, relationInfo);
-  if (fk.holdsFK) return;
-  if (fk.pkFields.length === 1 && fk.pkFields[0] === childPrimaryKey) return;
+  const relation = bindRelation(child, mutation.relationInfo);
+  // A junction's membership is correlated to the arm's parent value as a whole — never
+  // a per-column FK write, so there is no cross-match to make. A parent-held relation's
+  // referenced fields belong to the TARGET rather than this child, so it is not fed from
+  // the arm's parent value either; {@link assertArmEdgeIsChildHeld} stops it first.
+  if (relation.kind === "junction" || relation.kind === "parentHeldToOne")
+    return;
+  if (
+    relation.referencedFields.length === 1 &&
+    relation.referencedFields[0] === childPrimaryKey
+  ) {
+    return;
+  }
   throw new UnsupportedOperationError(
     `query-engine-v2 does not support a compound or non-primary-key referenced edge one level deeper on the update arm of relation '${relationName}'; the arm's parent value is the located row's primary key '${childPrimaryKey}' alone, and each referenced column needs a per-field parent source.`
   );
 }
 
-/** An `unknown -> Record` narrowing, NOT a shape check (N7-U-A). An upsert /
- *  connectOrCreate item's `where` / `create` / `update` slots are validated by the
- *  enclosing whole-args parse (`ValidationError: Expected object`) before any Part is
- *  built; a non-record reaching it is an engine invariant break — the X1c disposition,
- *  not a route.
- *
- *  Its item-list sibling (`normalizeUpsertItems`) went with E3's arm dispatch: the arm no
- *  longer unwraps a deeper relation's item array itself, so the only remaining caller of
- *  that narrowing is `nested-target-parts.normalizeItems`, which already owns it. */
+/** Narrow a schema-validated arm object. A non-record here is an engine fault, not a
+ * second user-input validation boundary. */
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (isRecord(value)) return value;
   throw new QueryEngineError(

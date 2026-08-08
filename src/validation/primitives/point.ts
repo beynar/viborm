@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isNumber, isRecord } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -51,14 +52,12 @@ const INVALID_Y_ERROR = Object.freeze({
  * Validate that a value is a point with x and y coordinates.
  */
 export function validatePoint(value: unknown) {
-  if (typeof value !== "object" || value === null) return NOT_OBJECT_ERROR;
+  if (!isRecord(value)) return NOT_OBJECT_ERROR;
+  if (!("x" in value && "y" in value)) return MISSING_XY_ERROR;
+  if (!isNumber(value.x) || Number.isNaN(value.x)) return INVALID_X_ERROR;
+  if (!isNumber(value.y) || Number.isNaN(value.y)) return INVALID_Y_ERROR;
 
-  const obj = value as Record<string, unknown>;
-  if (!("x" in obj && "y" in obj)) return MISSING_XY_ERROR;
-  if (typeof obj.x !== "number" || Number.isNaN(obj.x)) return INVALID_X_ERROR;
-  if (typeof obj.y !== "number" || Number.isNaN(obj.y)) return INVALID_Y_ERROR;
-
-  return ok({ x: obj.x, y: obj.y } as Point);
+  return ok({ x: value.x, y: value.y });
 }
 
 /**

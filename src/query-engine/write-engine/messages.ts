@@ -1,18 +1,15 @@
-// The V2 message catalog (PLAN P2a instrument 2).
+// The write-engine message catalog.
 //
 // Every error V2 surfaces on a shape V1 also handles must carry V1's
 // *byte-identical* text — the behavior suites assert message equality, and the
-// dual-run oracle compares error messages across arms. The safest way to stay
-// byte-identical is not to re-type the strings here but to source them from the
-// exact V1 construction site, so a future V1 wording change moves both engines
-// together. Extension-only shapes (no V1 behavior to equal) keep their own
-// messages, catalogued in the second section and marked as such.
+// dual-run oracle compares error messages across arms. This file is now the one
+// owner of those retained strings. Extension-only shapes keep their own messages,
+// catalogued in the second section and marked as such.
 //
 // This module is data, not an operation: it constructs no `Step`, imports no
 // executor, and holds no dialect knowledge. It is imported by the concrete
 // operations and their Parts.
 
-import { relationTargetFailure } from "../RelationProgramValues";
 import type { RelationInfo } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -22,7 +19,7 @@ import type { RelationInfo } from "../types";
 /**
  * The "target record was not found" family V1 raises when a nested
  * connect/disconnect/delete/set/update cannot resolve its target (V1's
- * `relationTargetFailure`). The `for this parent` suffix is present for the
+ * target failure. The `for this parent` suffix is present for the
  * correlated operations (update/delete/disconnect) and absent for the global
  * ones (connect/set) — exactly as V1 computes it.
  */
@@ -30,15 +27,21 @@ export function relationTargetNotFound(
   relation: RelationInfo,
   operation: "connect" | "delete" | "disconnect" | "set" | "update"
 ): string {
-  return relationTargetFailure(relation, operation).message;
+  const parentSuffix =
+    operation === "update" ||
+    operation === "delete" ||
+    operation === "disconnect"
+      ? " for this parent"
+      : "";
+  return `Cannot ${operation} relation '${relation.name}': target record was not found${parentSuffix}.`;
 }
 
 /**
  * The `set` orphan-guard message V1 raises when a `set` would strand a child
  * whose foreign key is required (the rows departing the membership cannot be
  * nulled, so they must be deleted instead). V1 builds this string inline in
- * `RelationRemovals.set` (not through `relationTargetFailure`), so it is
- * reproduced verbatim here — the retained `notExists` orphan pin (ATOM §2)
+ * `RelationRemovals.set`, so it is
+ * reproduced verbatim here — the retained `notExists` orphan pin (ATOM “Branch premises and pins”)
  * carries it, and the parity oracle asserts it byte-for-byte.
  */
 export function setRequiredOrphan(
@@ -50,9 +53,8 @@ export function setRequiredOrphan(
 
 /**
  * The nested-upsert found-uncorrelated error (V7001). V1 builds this string
- * inline in `RelationBranches` (not through `relationTargetFailure`, which has
- * no `upsert` operation), so it is reproduced verbatim here and asserted equal
- * by the upsert parity oracle.
+ * inline in `RelationBranches`, so it is reproduced verbatim here and asserted
+ * equal by the upsert parity oracle.
  */
 export function upsertTargetNotFoundForParent(relationName: string): string {
   return `Cannot upsert relation '${relationName}': target record was not found for this parent.`;
@@ -72,7 +74,7 @@ export function m2mDisconnectRequiresSelector(relationName: string): string {
  * V1's raceable failure when the materialized membership set of a M2M
  * `delete`/`deleteMany` changed between the planning read and the atomic batch
  * (V1's `ManyToManyMutations.raceFailure`). Only the staleness path observes it;
- * `raceable: true` per the Pin Rule's materialized-set class (ATOM §2).
+ * `raceable: true` per the Pin Rule's materialized-set class (ATOM “Branch premises and pins”).
  */
 export function m2mMembershipRace(
   relationName: string,
@@ -126,7 +128,7 @@ export function relationOwnsForeignKey(
   return `Relation '${relationName}' owns '${fkFields.join(", ")}'; omit it from nested create and update data.`;
 }
 
-// Extension-only shapes — no V1 behavior to equal (catalogued, PLAN P−1.2).
+// Extension-only shapes — no V1 behavior to equal.
 // These describe shapes V2 supports beyond V1, or V2's own unsupported-shape
 // rejections. They carry a `query-engine-v2` prefix so they never masquerade
 // as a shared-shape message.
@@ -156,14 +158,9 @@ export function upsertTargetVanished(relationName: string): string {
   return `Nested upsert target for relation '${relationName}' vanished before its update.`;
 }
 
-/**
- * A top-level upsert's `targetWhere`/`setWhere` skip premise changed between the
- * unlocked planning read and the atomic batch: planning decided the existing row
- * did NOT match the conditional filter (so the update branch is skipped, a silent
- * no-op per V1's contract), but a concurrent write made it match. This is the
- * retained `notExists` pin (ATOM §2, `raceable: true`); only batch mode observes
- * it, and only under staleness — the class (`TransactionError`) is what aborts.
- */
+/** The top-level upsert's conditional skip premise became true after its
+ * unlocked planning read. Batch mode reports this absence-pin failure as
+ * raceable so routed execution can re-plan once. */
 export function upsertSkipPremiseChanged(
   field: "setWhere" | "targetWhere"
 ): string {

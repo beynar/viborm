@@ -146,17 +146,6 @@ export function buildRelationFilter(
   );
 }
 
-/** Add an ordinary filter to an already-built identity/correlation predicate. */
-export function buildWhereWith(
-  ctx: QueryScope,
-  base: Sql,
-  where: Record<string, unknown>,
-  alias: string
-): Sql {
-  const filter = buildWhere(ctx, where, alias);
-  return filter ? ctx.adapter.operators.and(base, filter) : base;
-}
-
 /**
  * Build AND logical operator
  */

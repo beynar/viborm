@@ -65,7 +65,6 @@ const ALL_KINDS: readonly JsonNullKind[] = ["DbNull", "JsonNull", "AnyNull"];
 
 /** `DbNull, JsonNull or AnyNull` — for the refusal messages. */
 function listKinds(kinds: readonly JsonNullKind[]): string {
-  if (kinds.length === 0) return "no JSON null sentinel";
   if (kinds.length === 1) return kinds[0] as string;
   return `${kinds.slice(0, -1).join(", ")} or ${kinds.at(-1)}`;
 }
@@ -106,7 +105,7 @@ function copyOptionality(
   (schema as { allowed: readonly JsonNullKind[] }).allowed = allowed;
   (schema as { wrapped: VibSchema<any, any> }).wrapped = wrapped;
   (schema as { acceptsUndefined: boolean }).acceptsUndefined =
-    (wrapped as { acceptsUndefined?: boolean }).acceptsUndefined ?? false;
+    (wrapped as { acceptsUndefined?: boolean }).acceptsUndefined === true;
 }
 
 /**

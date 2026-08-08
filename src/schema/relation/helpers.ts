@@ -53,14 +53,14 @@ export function findPairedManyToManyState(
   if (state.type !== "manyToMany" || !state.source) {
     return undefined;
   }
-  const targetModel = state.getter?.();
+  const targetModel = state.getter();
   if (!targetModel?.["~"]) {
     return undefined;
   }
 
   const candidates: ManyToManyRelationState[] = [];
   for (const rel of Object.values(
-    targetModel["~"].state.relations ?? {}
+    targetModel["~"].state.relations
   ) as RelationLike[]) {
     const relState = rel["~"].state;
     if (relState === state) {
@@ -69,7 +69,7 @@ export function findPairedManyToManyState(
     if (relState.type !== "manyToMany") {
       continue;
     }
-    if (relState.getter?.() !== state.source) {
+    if (relState.getter() !== state.source) {
       continue;
     }
     candidates.push(relState as ManyToManyRelationState);
@@ -95,8 +95,8 @@ export function findPairedManyToManyState(
   if (matched.length === 1) {
     return matched[0];
   }
-  const sourceName = state.source["~"]?.names.ts ?? "unknown";
-  const targetName = targetModel["~"].names.ts ?? "unknown";
+  const sourceName = state.source["~"].names.ts;
+  const targetName = targetModel["~"].names.ts;
   throw new Error(
     `Multiple many-to-many relation pairs between '${sourceName}' and '${targetName}' are ambiguous — give each pair a distinct .name() on both sides.`
   );

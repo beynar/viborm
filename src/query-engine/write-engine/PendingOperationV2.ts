@@ -7,12 +7,10 @@ import type { ExecutableOperation } from "./OperationExecutor";
 import { OperationExecutor } from "./OperationExecutor";
 
 /**
- * The V2 runtime contract (PLAN P1.5): the seams the client's
- * callback-transactions, caching flow, and `$transaction([...])` array batching
- * actually call, implemented over any {@link ExecutableOperation}. It mirrors
- * V1's `PendingOperation` for the client without competing with the internal
- * operation-to-executor interface. No client routing is wired yet — P2 does
- * that; here the contract is proven by test.
+ * A focused wrapper proving the callback-transaction, caching, and
+ * `$transaction([...])` batch seams over any {@link ExecutableOperation}. The
+ * public `PendingOperation` owns client routing and uses the same
+ * operation-to-executor contract; this class remains a contract-test fixture.
  */
 export class PendingOperationV2<T> {
   private readonly engine: QueryEngine;

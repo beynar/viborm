@@ -1,6 +1,11 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationLinkPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
+import type {
+  ChildHeldToMany,
+  ChildHeldToOne,
+} from "../builders/relation-data-builder";
+import type { RelationMutationEntry } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
   buildFind,
@@ -9,7 +14,13 @@ import {
   buildUpdateMany,
 } from "../operations";
 import type { QueryEngine } from "../query-engine";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope } from "../types";
+import {
+  type FinalReferenceSource,
+  foreignKeyCorrelationValue,
+  foreignKeyWriteValue,
+  planningSourceFromFinal,
+} from "./foreign-key-reference";
 import {
   nestedWriteFailure,
   presenceGuard,
@@ -21,21 +32,19 @@ import {
   linkGroupSelector,
 } from "./link-target-groups";
 import { relationTargetNotFound } from "./messages";
-import type { OperationStep, StatementStep } from "./OperationFragment";
+import type { OperationStep, ReadStep, WriteStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
-import { referencedFieldCorrelation } from "./parent-reference";
-import type { ParentIdSource } from "./RelationUpsertPart";
 import type { StepScope } from "./StepScope";
 
 export type LinkKind = "connect" | "disconnect";
+type LinkedRelation = ChildHeldToOne | ChildHeldToMany;
 
 export interface RelationLinkConfig {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
-  readonly relationName: string;
-  readonly relationInfo: RelationInfo;
+  readonly relation: LinkedRelation;
   readonly kind: LinkKind;
   /**
    * The child unique locators this Part links — one **key-shape group** (P4), in
@@ -47,28 +56,21 @@ export interface RelationLinkConfig {
   readonly wheres?: readonly Record<string, unknown>[];
   /** `disconnect: true` — null every child currently connected to the parent. */
   readonly disconnectAll?: boolean;
-  /**
-   * The child-held foreign-key columns and the parent columns they reference,
-   * index-aligned (compound keys are per-field, ATOM §1's multi-field produces).
-   * A single-column edge is the length-1 case; nothing else changes.
-   */
-  readonly fkFields: readonly string[];
-  readonly referencedFields: readonly string[];
   readonly childPrimaryKey: string;
   /**
    * Where the parent id the child FK points at comes from. In the update family
    * this is a **planned** value (the root locate read), inlined as a literal at
-   * compile (a final-fragment step may not ref a planning step, ATOM §9 inv. 2).
+   * compile (a final-fragment step may not ref a planning step, ATOM “Proof obligations”).
    * The disconnect probe, however, IS a planning step, so it correlates by a SQL
-   * `Ref` to that same locate read — technique #1's positive witness (ATOM §3).
+   * `Ref` to that same locate read — planning's correlated-reference technique.
    */
-  readonly parentId: ParentIdSource;
+  readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
 }
 
 /**
- * The to-many (child-held-FK) connect/disconnect Part (PLAN P2a). A nested link
- * mutation is a root write plus an FK edge (WHY §4.2): connect sets the child's
+ * The to-many (child-held-FK) connect/disconnect Part. A nested link mutation is
+ * a root write plus an FK edge: connect sets the child's
  * FK to the parent, disconnect nulls it. It composes exactly like the upsert
  * Part — planning probe + compile-the-taken-arm — and adds no vocabulary.
  *
@@ -86,7 +88,7 @@ export interface RelationLinkConfig {
  * assertions inside the atomic unit, and one guard per target is what says which
  * target went missing). See {@link groupLinkTargets} for what may share a group.
  * - **disconnect** plans a *correlated* existence probe — `WHERE unique AND
- *   fk = Ref(locate.id)` — the hard-correlation nested read ATOM §8.1 note (a)
+ *   fk = Ref(locate.id)` — the hard-correlation nested read in ATOM “Planning fragments”
  *   scheduled here: its probe SQL literally carries a `Ref` to the locate
  *   planning step, and it has no found-uncorrelated arm. Present → `UPDATE child
  *   SET fk = NULL WHERE unique`; absent → V1's verbatim `Cannot disconnect … for
@@ -111,7 +113,7 @@ export class RelationLinkPart implements Part {
    * distinct keys that exist. See {@link countDistinctTargets}.
    */
   private readonly distinctTargets: number;
-  private readonly probe?: StatementStep;
+  private readonly probe?: ReadStep;
 
   constructor(scope: StepScope, config: RelationLinkConfig) {
     this.config = config;
@@ -127,7 +129,7 @@ export class RelationLinkPart implements Part {
     this.probe = this.buildProbe();
   }
 
-  planning(): readonly OperationStep[] {
+  planning(): readonly ReadStep[] {
     return this.probe ? [this.probe] : [];
   }
 
@@ -137,7 +139,7 @@ export class RelationLinkPart implements Part {
   }
 
   /** The uncorrelated (connect) / correlated (disconnect) existence probe. */
-  private buildProbe(): StatementStep | undefined {
+  private buildProbe(): ReadStep | undefined {
     if (this.config.disconnectAll) return undefined;
     const { childScope, txMode, childPrimaryKey } = this.config;
     const wheres = this.requiredWheres();
@@ -289,7 +291,7 @@ export class RelationLinkPart implements Part {
     return [this.groupSelector()];
   }
 
-  private buildDisconnectAll(known: PlanningKnown): StatementStep {
+  private buildDisconnectAll(known: PlanningKnown): WriteStep {
     const { childScope } = this.config;
     return {
       id: this.writeId,
@@ -319,45 +321,53 @@ export class RelationLinkPart implements Part {
    * can compare exactly.
    */
   private requireProbeFoundAll(known: PlanningKnown, kind: LinkKind): void {
+    const { relationInfo } = this.config.relation;
+    const relationName = relationInfo.name;
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 ${kind} probe for relation '${this.config.relationName}' did not expose rows.`,
-        this.config.relationName
+        `query-engine-v2 ${kind} probe for relation '${relationName}' did not expose rows.`,
+        relationName
       );
     }
     if (rows.length < this.distinctTargets) {
       throw new NestedWriteError(
         kind === "connect"
-          ? relationTargetNotFound(this.config.relationInfo, "connect")
-          : relationTargetNotFound(this.config.relationInfo, "disconnect"),
-        this.config.relationName
+          ? relationTargetNotFound(relationInfo, "connect")
+          : relationTargetNotFound(relationInfo, "disconnect"),
+        relationName
       );
     }
   }
 
   private connectFailure() {
+    const { relationInfo } = this.config.relation;
     return nestedWriteFailure(
-      relationTargetNotFound(this.config.relationInfo, "connect"),
-      this.config.relationName,
+      relationTargetNotFound(relationInfo, "connect"),
+      relationInfo.name,
       false
     );
   }
 
   private disconnectFailure() {
+    const { relationInfo } = this.config.relation;
     return nestedWriteFailure(
-      relationTargetNotFound(this.config.relationInfo, "disconnect"),
-      this.config.relationName,
+      relationTargetNotFound(relationInfo, "disconnect"),
+      relationInfo.name,
       false
     );
   }
 
   /** The connect write's FK assignment: every FK column ← its referenced parent
-   *  column value (one entry per compound-key field, ATOM §1). */
+   *  column value (one entry per compound-key field, ATOM “Field-bound foreign-key provenance”). */
   private fkAssignData(known: PlanningKnown): Record<string, unknown> {
     const data: Record<string, unknown> = {};
-    for (let index = 0; index < this.config.fkFields.length; index += 1) {
-      const fkField = this.config.fkFields[index]!;
+    for (
+      let index = 0;
+      index < this.config.relation.foreignFields.length;
+      index += 1
+    ) {
+      const fkField = this.config.relation.foreignFields[index]!;
       data[fkField] = referenceSql(
         this.config.engine,
         this.config.childScope.model,
@@ -371,7 +381,9 @@ export class RelationLinkPart implements Part {
   /** The disconnect write's FK assignment: null every FK column. */
   private fkNullData(): Record<string, unknown> {
     const data: Record<string, unknown> = {};
-    for (const fkField of this.config.fkFields) data[fkField] = { set: null };
+    for (const foreignField of this.config.relation.foreignFields) {
+      data[foreignField] = { set: null };
+    }
     return data;
   }
 
@@ -379,50 +391,53 @@ export class RelationLinkPart implements Part {
    *  technique #1 markers, one per compound-key field — or, under a depth-composed
    *  LITERAL parent (a located-by-PK nested target, an upsert UPDATE arm named by its
    *  own primary key), that parent's compile-time constant inlined. One home for both
-   *  provenances: {@link referencedFieldCorrelation}. */
+   *  provenances through one field-bound member. */
   private correlationFilters(): Record<string, unknown>[] {
-    return this.config.fkFields.map((fkField, index) => ({
-      [fkField]: {
-        equals: referencedFieldCorrelation(
-          this.config.parentId,
-          this.config.referencedFields[index]!,
-          this.config.relationName,
-          "disconnect"
-        ),
-      },
-    }));
+    const { relationInfo, foreignFields, referencedFields } =
+      this.config.relation;
+    return foreignFields.map((foreignField, index) => {
+      const referencedField = referencedFields[index]!;
+      return {
+        [foreignField]: {
+          equals: foreignKeyCorrelationValue({
+            foreignField,
+            referencedField,
+            writeSource: this.config.parentId,
+            readSource: planningSourceFromFinal(
+              this.config.parentId,
+              relationInfo.name,
+              "disconnect"
+            ),
+          }),
+        },
+      };
+    });
   }
 
   /** The batch disconnect guard's `fk_i = <literal referenced_i>` clauses. */
   private guardCorrelationFilters(
     known: PlanningKnown
   ): Record<string, unknown>[] {
-    return this.config.fkFields.map((fkField, index) => ({
-      [fkField]: { equals: this.parentReferenced(known, index) },
+    return this.config.relation.foreignFields.map((foreignField, index) => ({
+      [foreignField]: { equals: this.parentReferenced(known, index) },
     }));
   }
 
   /** The concrete value of the parent column the FK field `index` references
    *  (never a Ref — inlined at compile). */
   private parentReferenced(known: PlanningKnown, index: number): unknown {
-    const source = this.config.parentId;
-    if (source.kind === "literal") return source.value;
-    if (source.kind !== "planned") {
-      throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' requires a planned parent id.`
-      );
-    }
-    const rows = known[planningKey(source.readStep, "rows")];
-    const row = Array.isArray(rows) ? rows[0] : undefined;
-    if (!(row && typeof row === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' could not resolve its parent id.`,
-        this.config.relationName
-      );
-    }
-    return (row as Record<string, unknown>)[
-      this.config.referencedFields[index]!
-    ];
+    const { relationInfo, foreignFields, referencedFields } =
+      this.config.relation;
+    return foreignKeyWriteValue(
+      {
+        foreignField: foreignFields[index]!,
+        referencedField: referencedFields[index]!,
+        writeSource: this.config.parentId,
+      },
+      known,
+      relationInfo.name,
+      this.config.kind
+    );
   }
 
   private uniqueEqualityFilters(
@@ -437,7 +452,7 @@ export class RelationLinkPart implements Part {
     const wheres = this.config.wheres;
     if (!wheres || wheres.length === 0) {
       throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.relationName}' requires a unique where.`
+        `query-engine-v2 ${this.config.kind} for relation '${this.config.relation.relationInfo.name}' requires a unique where.`
       );
     }
     return wheres;
@@ -453,52 +468,34 @@ export class RelationLinkPart implements Part {
 export function buildToManyLinkParts(
   scope: StepScope,
   engine: QueryEngine,
-  relationName: string,
-  relationInfo: RelationInfo,
+  relation: LinkedRelation,
   childName: string,
   childScope: QueryScope,
-  fkFields: readonly string[],
-  referencedFields: readonly string[],
   childPrimaryKey: string,
-  kind: LinkKind,
-  input: unknown,
-  parentId: ParentIdSource,
+  entry: Extract<RelationMutationEntry, { kind: "connect" | "disconnect" }>,
+  parentId: FinalReferenceSource,
   txMode: boolean
 ): RelationLinkPart[] {
   const base = {
     engine,
     childScope,
     childName,
-    relationName,
-    relationInfo,
-    kind,
-    fkFields,
-    referencedFields,
+    relation,
+    kind: entry.kind,
     childPrimaryKey,
     parentId,
     txMode,
   } as const;
-  if (kind === "disconnect" && input === true) {
+  if (entry.kind === "disconnect" && entry.target.kind === "current") {
     return [new RelationLinkPart(scope, { ...base, disconnectAll: true })];
   }
-  return groupLinkTargets(
-    childScope,
-    normalizeWhereItems(input, relationName, kind)
-  ).map((wheres) => new RelationLinkPart(scope, { ...base, wheres }));
-}
-
-function normalizeWhereItems(
-  value: unknown,
-  relation: string,
-  kind: LinkKind
-): Record<string, unknown>[] {
-  const items = Array.isArray(value) ? value : [value];
-  return items.map((item) => {
-    if (!(item && typeof item === "object")) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${kind} for relation '${relation}' requires a unique where object.`
-      );
-    }
-    return item as Record<string, unknown>;
-  });
+  const targets =
+    entry.kind === "connect"
+      ? entry.targets
+      : entry.target.kind === "selectors"
+        ? entry.target.targets
+        : [];
+  return groupLinkTargets(childScope, targets).map(
+    (wheres) => new RelationLinkPart(scope, { ...base, wheres })
+  );
 }

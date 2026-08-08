@@ -5,6 +5,7 @@
  */
 
 import { type Sql, sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { createChildScope, getTableName } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
@@ -13,10 +14,6 @@ import {
   getManyToManyJoinInfo,
 } from "./many-to-many-utils";
 import { buildWhere } from "./where-builder";
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-};
 
 const getWhereConfig = (
   config: unknown

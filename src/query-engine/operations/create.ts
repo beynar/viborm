@@ -6,6 +6,7 @@
  */
 
 import { type Sql, sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { buildSelect } from "../builders/select-builder";
 import {
   buildValueGroups,
@@ -112,28 +113,6 @@ function hasReturningClause(returning: Sql | undefined): returning is Sql {
  * @param skipDuplicates - Whether to skip duplicate key errors
  * @returns SQL statement
  */
-/**
- * Build SQL for the row-returning arm of `createMany` — internally named
- * `createManyAndReturn`; the client spells it `createMany` with a `select`.
- *
- * INSERT ... RETURNING on adapters that support it. On adapters without
- * RETURNING this returns the bare INSERT; the operation program refetches the
- * inserted rows inside the same atomic scope.
- */
-export function buildCreateManyAndReturn(
-  ctx: QueryScope,
-  args: {
-    data: Record<string, unknown>[];
-    skipDuplicates?: boolean;
-    select?: Record<string, unknown>;
-  }
-): Sql {
-  return requireSingleCreateManyStatement(
-    buildCreateManyPlan(ctx, args, true),
-    "createManyAndReturn"
-  );
-}
-
 export function buildCreateMany(
   ctx: QueryScope,
   data: Record<string, unknown>[],
@@ -220,10 +199,6 @@ function getCreateManyData(value: unknown): Record<string, unknown>[] {
     );
   }
   return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function splitGroupsIntoRows(groups: readonly ValuesGroup[]): ValuesGroup[] {

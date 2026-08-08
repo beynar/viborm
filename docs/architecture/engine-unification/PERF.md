@@ -167,7 +167,7 @@ The create family flip, measured the same way (`benchmarks/p5-flip-ab.bench.ts`,
 
 ## T1 — the parent-held to-one create A/B (in-memory SQLite)
 
-The T1 absorption (parent-held to-one `create` under create roots, TO-ONE.md)
+The T1 absorption (parent-held to-one `create` under create roots)
 measured the same way (`benchmarks/p5-flip-ab.bench.ts`, `queryEngine` escape
 hatch, two seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
 
@@ -190,7 +190,7 @@ hatch, two seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
 
 ## T2 — the parent-held to-one connectOrCreate under update A/B (in-memory SQLite)
 
-The T2 absorption (the to-one family under UPDATE roots, TO-ONE.md §7) measured
+The T2 absorption (the to-one family under UPDATE roots) measured
 the same way (`benchmarks/p5-flip-ab.bench.ts`, `queryEngine` escape hatch, two
 seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
 
@@ -219,7 +219,7 @@ seeded in-memory SQLite DBs, ratio = V2 hz / V1 hz):
 ## T3a — the parent-held to-one UPDATE under update A/B (in-memory SQLite)
 
 T3a absorbed 11 of family A's 13 (the FK-holder-side to-one `update`/`delete`/`upsert`
-under an update root, scalar target; TO-ONE.md §7.2). Measured the same way
+under an update root, scalar target). Measured the same way
 (`benchmarks/p5-flip-ab.bench.ts`, `queryEngine` escape hatch, two seeded in-memory
 SQLite DBs, ratio = V2 hz / V1 hz):
 
@@ -241,7 +241,7 @@ SQLite DBs, ratio = V2 hz / V1 hz):
 
 T3b-1 absorbed family B (8: a nested to-many `update` whose located target carries its
 own relation writes — mechanism 1, update-arm literal-parent recursion) and family
-A-remainder (2: the parent-held projection); census 31 → 21 (TO-ONE.md §7.7). The
+A-remainder (2: the parent-held projection); census 31 → 21. The
 deep-tree witness — a nested to-many `update` whose child builds its own self-m2m
 junction update one level deeper — measured the same way
 (`benchmarks/p5-flip-ab.bench.ts`, `queryEngine` escape hatch, two seeded in-memory
@@ -267,8 +267,8 @@ SQLite DBs, ratio = V2 hz / V1 hz):
 
 T3b-2 absorbed families C (10: a m2m junction `create`/`update`/`upsert`-arm target
 carrying its own relations), E (2: a nested `create` under the update root, incl. D4),
-and G (1: the connectOrCreate create-arm one-level-deeper create); census 21 → 8
-(TO-ONE.md §7.7.3). The family-C deep-junction witness — a m2m junction UPDATE target
+and G (1: the connectOrCreate create-arm one-level-deeper create); census 21 → 8.
+The family-C deep-junction witness — a m2m junction UPDATE target
 that folds a deeper m2m `connect` one level deeper — measured the same way
 (`benchmarks/t3b2-deep-junction-ab.bench.ts`, `queryEngine` escape hatch, two seeded
 in-memory SQLite DBs, ratio = V2 hz / V1 hz):
@@ -289,7 +289,7 @@ in-memory SQLite DBs, ratio = V2 hz / V1 hz):
 
 T3c lifted the top-level `upsert` scalar-arms-only guard (family D ×7) + relaxed the
 nested to-many upsert create-identity (family H ×1) + absorbed the two create-root
-parent-held-FK declines; census **8 → 0** (TO-ONE.md §7.8). The family-D witness — an
+parent-held-FK declines; census **8 → 0**. The family-D witness — an
 EXISTING-row upsert whose relation-bearing UPDATE arm delegates to an `UpdateOperation`
 sub-op and folds a nested to-many `update` — measured the same way
 (`benchmarks/t3c-upsert-nested-arm-ab.bench.ts`, `queryEngine` escape hatch, two seeded

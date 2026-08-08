@@ -1,6 +1,6 @@
 import type { AnyModel } from "@schema/model";
-import v, { type V } from "../../primitives/v";
 import type { ObjectSchema } from "@validation/primitives/object";
+import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];

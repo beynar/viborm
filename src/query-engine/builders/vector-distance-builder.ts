@@ -1,5 +1,6 @@
 import { FeatureNotSupportedError } from "@errors";
 import type { Sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { QueryEngineError, type QueryScope } from "../types";
 
 type VectorDistanceMetric = "l2" | "cosine";
@@ -14,10 +15,6 @@ type VectorDistanceField = {
         nullable?: boolean | undefined;
       }
     | undefined;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
 const isVectorDistanceMetric = (

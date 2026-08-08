@@ -1,9 +1,9 @@
 import { getPrimaryKeyFields } from "./builders/correlation-utils";
 import { partitionWhereUnique } from "./builders/where-unique-builder";
 import { getTableName } from "./context";
-import type { UniqueConflictPin } from "./operation-program";
 import type { QueryScope } from "./types";
 import { QueryEngineError } from "./types";
+import type { TargetConstraintPin } from "./write-engine/OperationFragment";
 
 /**
  * The unique-conflict target descriptor (P6 pure-leaf extraction, consumed by V2):
@@ -14,7 +14,7 @@ import { QueryEngineError } from "./types";
 export function uniqueConflictTarget(
   ctx: QueryScope,
   where: Record<string, unknown>
-): UniqueConflictPin["target"] {
+): TargetConstraintPin {
   // DISCRIMINATOR ONLY. An extended `where`'s extra filters narrow which row the
   // statement touches; they name no constraint, so they must not enter the
   // conflict target a `racePin` is attributed against (a violation matched to a

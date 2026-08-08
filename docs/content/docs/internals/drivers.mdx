@@ -83,7 +83,7 @@ const driver = new PostgresDriver({
 Drivers ensure queries use parameterized values:
 
 ```typescript
-// SQL fragment from query engine
+// Adapter-built SQL fragment composed by the query engine
 sql`SELECT * FROM users WHERE id = ${userId}`
 
 // Driver separates template and values
@@ -112,8 +112,26 @@ Database-specific errors are normalized into typed VibORM errors (see `src/drive
 // Driver: throws UniqueConstraintError
 ```
 
+Provider recognition stops at this boundary. The driver maps provider codes,
+constraint names, and assertion markers. The query engine can then combine a
+typed unique failure with the structural `racePin` on a write; it does not parse
+provider SQL or error text itself.
+
+### Fragment Execution
+
+Drivers do not interpret `PlanningFragment`, `OperationFragment`, relation
+programs, or guards. `OperationExecutor` lowers those concepts into the surface
+the driver owns:
+
+- one statement for a structural direct candidate;
+- ordered statements inside a transaction;
+- one atomic `BatchQuery[]` envelope for a batch-capable driver.
+
+Adapter `batchRefs` lower produced-value references for atomic batches. Drivers
+execute the resulting batch and return normalized results in the same order.
+
 ## Connection to Other Layers
 
-- **L6 (Query Engine)**: Query engine produces SQL, driver executes it
+- **L6 (Query Engine)**: Query engine lowers portable fragments to driver statements or batches
 - **L7 (Adapters)**: Adapters determine SQL dialect, drivers execute it
 - **L9 (Client)**: Client uses driver through query engine

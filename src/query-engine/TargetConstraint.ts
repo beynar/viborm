@@ -2,7 +2,7 @@
 import type { Model } from "@schema/model";
 import type { ScalarType } from "@schema/scalars/common";
 import { isSql } from "@sql";
-import { isBatchValueRef } from "./builders/values-builder";
+import { isRecord } from "@validation/value-guards";
 import { getWhereUniqueEntries } from "./builders/where-unique-builder";
 
 type ExactTargetValue =
@@ -439,7 +439,7 @@ export function classifyRelationKeyScalarUpdate(
   value: unknown
 ): { resolved: true; value: unknown } | { resolved: false } {
   if (value === null) return { resolved: true, value: null };
-  if (isSql(value) || Array.isArray(value) || isBatchValueRef(value)) {
+  if (isSql(value) || Array.isArray(value)) {
     return { resolved: false };
   }
   if (!isPlainRecord(value)) return { resolved: true, value };
@@ -514,10 +514,6 @@ function getExactFilterValue(
   return keys.length === 1 && keys[0] === "equals"
     ? { known: true, value: value.equals }
     : { known: false };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

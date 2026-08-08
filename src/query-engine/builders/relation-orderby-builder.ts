@@ -5,6 +5,7 @@
  */
 
 import type { Sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import {
   createChildScope,
   getColumnName,
@@ -23,10 +24,6 @@ export interface RelationOrderAlias {
   alias: string;
   join: Sql;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-};
 
 /**
  * Maximum number of to-one relation hops an `orderBy` chain may cross.

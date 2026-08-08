@@ -1,11 +1,12 @@
 // Schema Validator
 
 import type { Model } from "../model";
+import { SchemaValidationError } from "./error";
 import { allRules } from "./rules";
 import type {
   Schema,
+  SchemaValidationIssue,
   ValidationContext,
-  ValidationError,
   ValidationResult,
   ValidationRule,
 } from "./types";
@@ -24,7 +25,7 @@ function buildContext(schema: Schema): ValidationContext {
     tableToModels.get(tableName)!.push(name);
   }
 
-  return { schema, modelToName, tableToModels };
+  return { modelToName, tableToModels };
 }
 
 export class SchemaValidator {
@@ -32,6 +33,16 @@ export class SchemaValidator {
 
   /** Register a model with a name */
   register(name: string, model: Model<any>): this {
+    if (this.schema.has(name)) {
+      throw new SchemaValidationError([
+        {
+          code: "M003",
+          message: `Model name '${name}' is duplicated`,
+          severity: "error",
+          model: name,
+        },
+      ]);
+    }
     this.schema.set(name, model);
     return this;
   }
@@ -39,15 +50,15 @@ export class SchemaValidator {
   /** Register multiple models */
   registerAll(models: Record<string, Model<any>>): this {
     for (const [name, model] of Object.entries(models)) {
-      this.schema.set(name, model);
+      this.register(name, model);
     }
     return this;
   }
 
   /** Validate all registered models */
   validate(rules: ValidationRule[] = allRules): ValidationResult {
-    const errors: ValidationError[] = [];
-    const warnings: ValidationError[] = [];
+    const errors: SchemaValidationIssue[] = [];
+    const warnings: SchemaValidationIssue[] = [];
 
     // Build context once (O(n) models)
     const ctx = buildContext(this.schema);
@@ -66,7 +77,24 @@ export class SchemaValidator {
     // Run all rules on each model
     for (const [modelName, model] of this.schema) {
       for (const rule of rules) {
-        const results = rule(this.schema, modelName, model, ctx);
+        let results: SchemaValidationIssue[];
+        try {
+          results = rule(this.schema, modelName, model, ctx);
+        } catch (cause) {
+          const message =
+            cause instanceof Error ? cause.message : String(cause);
+          throw new SchemaValidationError(
+            [
+              {
+                code: "S001",
+                message: `Schema rule '${rule.name || "anonymous"}' failed for '${modelName}': ${message}`,
+                severity: "error",
+                model: modelName,
+              },
+            ],
+            cause instanceof Error ? { cause } : undefined
+          );
+        }
         for (const result of results) {
           if (result.severity === "error") {
             errors.push(result);
@@ -88,8 +116,7 @@ export class SchemaValidator {
   validateOrThrow(rules?: ValidationRule[]): void {
     const result = this.validate(rules);
     if (!result.valid) {
-      const messages = result.errors.map((e) => `[${e.code}] ${e.message}`);
-      throw new Error(`Schema validation failed:\n${messages.join("\n")}`);
+      throw new SchemaValidationError(result.errors);
     }
   }
 }

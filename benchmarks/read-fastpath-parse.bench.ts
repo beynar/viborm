@@ -8,7 +8,7 @@
  * Run: pnpm vitest bench benchmarks/read-fastpath-parse.bench.ts --run
  */
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { ResultParser } from "@query-engine";
+import { ResultParser } from "@query-engine/result/ResultParser";
 import { s } from "@schema";
 import { bench, describe } from "vitest";
 

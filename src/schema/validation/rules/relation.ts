@@ -1,16 +1,24 @@
 // Relation Validation Rules
 
+import { isValidSchemaIdentifier } from "../../identifier";
 import type { Model } from "../../model";
-import type { AnyRelation, RelationType } from "../../relation";
+import type { RelationType } from "../../relation";
 import {
-  getJunctionFieldNames,
-  getJunctionTableName,
+  generateJunctionFieldName,
+  generateJunctionTableName,
 } from "../../relation/helpers";
-import type { Scalar } from "../../scalars/base";
-import type { Schema, ValidationContext, ValidationError } from "../types";
+import type {
+  Schema,
+  SchemaValidationIssue,
+  ValidationContext,
+} from "../types";
 import { getCompoundIdFields, getCompoundUniques } from "./model";
-
-// ValidationContext is used for O(1) model lookups
+import {
+  findModelName,
+  getRelations,
+  getRelationValues,
+  getScalars,
+} from "./model-members";
 
 const INVERSE: Record<RelationType, RelationType> = {
   oneToOne: "oneToOne",
@@ -19,22 +27,12 @@ const INVERSE: Record<RelationType, RelationType> = {
   manyToMany: "manyToMany",
 };
 
-const VALID_ID = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-/** Helper to get typed relation entries */
-function getRelations(model: Model<any>): [string, AnyRelation][] {
-  return Object.entries(model["~"].state.relations) as [string, AnyRelation][];
-}
-
-/** Helper to get typed relation values */
-function getRelationValues(model: Model<any>): AnyRelation[] {
-  return Object.values(model["~"].state.relations) as AnyRelation[];
-}
-
-/** Helper to get typed scalar field entries */
-function getScalars(model: Model<any>): [string, Scalar][] {
-  return Object.entries(model["~"].state.scalars) as [string, Scalar][];
-}
+const MISSING_INVERSE_CODE: Readonly<Record<RelationType, string>> = {
+  oneToOne: "R002",
+  oneToMany: "R003",
+  manyToOne: "R004",
+  manyToMany: "R005",
+};
 
 /**
  * Schema-level rules iterate the whole schema themselves; the validator calls
@@ -46,20 +44,20 @@ function isFirstModel(schema: Schema, name: string): boolean {
 }
 
 // =============================================================================
-// RELATION RULES (R001-R007)
+// RELATION RULES (R002-R007)
 // =============================================================================
 
 /** R006: Relation target must exist in schema */
 export function relationTargetExists(
-  schema: Schema,
+  _schema: Schema,
   name: string,
   model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
+  ctx: ValidationContext
+): SchemaValidationIssue[] {
+  const errors: SchemaValidationIssue[] = [];
   for (const [rname, rel] of getRelations(model)) {
     const target = rel["~"].state.getter();
-    if (!findModel(schema, target, ctx)) {
+    if (!findModelName(ctx, target)) {
       errors.push({
         code: "R006",
         message: `'${rname}' in '${name}' targets unregistered model`,
@@ -74,41 +72,22 @@ export function relationTargetExists(
 
 /** R001-R005: Relation must have matching inverse */
 export function relationHasInverse(
-  schema: Schema,
+  _schema: Schema,
   name: string,
   model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
+  ctx: ValidationContext
+): SchemaValidationIssue[] {
+  const errors: SchemaValidationIssue[] = [];
   for (const [rname, rel] of getRelations(model)) {
     const type = rel["~"].state.type;
     const target = rel["~"].state.getter();
-    const targetName = findModel(schema, target, ctx);
+    const targetName = findModelName(ctx, target);
     if (!targetName) continue;
 
     const expected = INVERSE[type];
-    if (!hasInverse(target, name, schema, expected, ctx)) {
-      let code: string;
-      switch (type) {
-        case "oneToOne":
-          code = "R002";
-          break;
-        case "oneToMany":
-          code = "R003";
-          break;
-        case "manyToOne":
-          code = "R004";
-          break;
-        case "manyToMany":
-          code = "R005";
-          break;
-        default:
-          code = "R002";
-          break;
-      }
-
+    if (!hasInverse(target, name, expected, ctx)) {
       errors.push({
-        code,
+        code: MISSING_INVERSE_CODE[type],
         message: `'${rname}' (${type}) in '${name}' missing inverse ${expected} in '${targetName}'`,
         severity: "error",
         model: name,
@@ -121,21 +100,21 @@ export function relationHasInverse(
 
 /** R007: Multiple relations between same models must be disambiguated with .name() */
 export function relationNameUnique(
-  schema: Schema,
+  _schema: Schema,
   name: string,
   model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
+  ctx: ValidationContext
+): SchemaValidationIssue[] {
   // Group by target + relation name: distinct .name()s are already disambiguated
   const pairs = new Map<string, string[]>();
   for (const [rname, rel] of getRelations(model)) {
-    const target = findModel(schema, rel["~"].state.getter(), ctx);
+    const target = findModelName(ctx, rel["~"].state.getter());
     if (!target) continue;
     const key = `${target}::${rel["~"].state.name ?? ""}`;
     if (!pairs.has(key)) pairs.set(key, []);
     pairs.get(key)!.push(rname);
   }
-  const errors: ValidationError[] = [];
+  const errors: SchemaValidationIssue[] = [];
   for (const [key, rels] of pairs) {
     const target = key.slice(0, key.indexOf("::"));
     // A self-ref relationship keeps forward AND inverse on this model, so two
@@ -156,7 +135,7 @@ export function relationNameUnique(
 }
 
 // =============================================================================
-// JUNCTION TABLE RULES (JT001-JT005)
+// JUNCTION TABLE RULES (JT001-JT004)
 // =============================================================================
 
 /** JT001: Junction table names must be unique */
@@ -164,7 +143,7 @@ export function junctionTableUnique(
   schema: Schema,
   _name: string,
   _model: Model<any>
-): ValidationError[] {
+): SchemaValidationIssue[] {
   if (!isFirstModel(schema, _name)) return [];
   const tables = new Map<string, string[]>();
   for (const [mname, m] of schema) {
@@ -177,7 +156,7 @@ export function junctionTableUnique(
       }
     }
   }
-  const errors: ValidationError[] = [];
+  const errors: SchemaValidationIssue[] = [];
   for (const [table, sources] of tables) {
     if (sources.length > 2) {
       errors.push({
@@ -195,12 +174,12 @@ export function junctionFieldsValid(
   _s: Schema,
   name: string,
   model: Model<any>
-): ValidationError[] {
-  const errors: ValidationError[] = [];
+): SchemaValidationIssue[] {
+  const errors: SchemaValidationIssue[] = [];
   for (const [rname, rel] of getRelations(model)) {
     const a = rel["~"].state.A;
     const b = rel["~"].state.B;
-    if (a && !VALID_ID.test(a)) {
+    if (a && !isValidSchemaIdentifier(a)) {
       errors.push({
         code: "JT002",
         message: `Junction field A '${a}' in '${rname}' invalid`,
@@ -209,7 +188,7 @@ export function junctionFieldsValid(
         relation: rname,
       });
     }
-    if (b && !VALID_ID.test(b)) {
+    if (b && !isValidSchemaIdentifier(b)) {
       errors.push({
         code: "JT002",
         message: `Junction field B '${b}' in '${rname}' invalid`,
@@ -227,8 +206,8 @@ export function junctionFieldsDistinct(
   _s: Schema,
   name: string,
   model: Model<any>
-): ValidationError[] {
-  const errors: ValidationError[] = [];
+): SchemaValidationIssue[] {
+  const errors: SchemaValidationIssue[] = [];
   for (const [rname, rel] of getRelations(model)) {
     const a = rel["~"].state.A;
     const b = rel["~"].state.B;
@@ -259,144 +238,73 @@ export function junctionConfigConsistent(
   schema: Schema,
   name: string,
   _model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
+  ctx: ValidationContext
+): SchemaValidationIssue[] {
   if (!isFirstModel(schema, name)) return [];
 
   type Side = {
     model: string;
     rname: string;
-    a: string;
-    b: string;
-    explicit: boolean;
+    target: string;
+    through: string | undefined;
+    a: string | undefined;
+    b: string | undefined;
   };
-  const junctions = new Map<string, Side[]>();
-  const errors: ValidationError[] = [];
+  const pairs = new Map<string, Side[]>();
+  const errors: SchemaValidationIssue[] = [];
   for (const [mname, m] of schema) {
     for (const [rname, rel] of getRelations(m)) {
       const st = rel["~"].state;
       if (st.type !== "manyToMany") continue;
-      const target = findModel(schema, st.getter(), ctx);
+      const target = findModelName(ctx, st.getter());
       if (!target) continue;
-      // Junction resolution consults both sides of a hydrated pair and throws
-      // on genuinely conflicting config (disagreeing .through()/.A()/.B(),
-      // self-ref pair without explicit columns) — report, don't crash.
-      let table: string;
-      let a: string;
-      let b: string;
-      try {
-        table = getJunctionTableName(rel, mname, target);
-        [a, b] = getJunctionFieldNames(rel, mname, target);
-      } catch (error) {
-        errors.push({
-          code: "JT004",
-          message: error instanceof Error ? error.message : String(error),
-          severity: "error",
-          model: mname,
-          relation: rname,
-        });
-        continue;
-      }
-      if (!junctions.has(table)) junctions.set(table, []);
-      junctions
-        .get(table)!
-        .push({ model: mname, rname, a, b, explicit: !!(st.A && st.B) });
+      const models = [mname, target].sort().join("::");
+      const key = `${models}::${st.name ?? ""}`;
+      if (!pairs.has(key)) pairs.set(key, []);
+      pairs.get(key)!.push({
+        model: mname,
+        rname,
+        target,
+        through: st.through,
+        a: st.A,
+        b: st.B,
+      });
     }
   }
 
-  for (const [table, sides] of junctions) {
-    let collided = false;
-    for (const side of sides) {
-      if (side.a !== side.b) continue;
-      collided = true;
-      // Explicit A === B is already reported by JT003
-      if (!side.explicit) {
-        errors.push({
-          code: "JT004",
-          message: `Junction '${table}': both columns resolve to '${side.a}' for '${side.rname}' in '${side.model}' - set .A()/.B() explicitly`,
-          severity: "error",
-          model: side.model,
-          relation: side.rname,
-        });
-      }
-    }
-    // >2 sides is JT001's finding; 1 side has nothing to compare
-    if (collided || sides.length !== 2) continue;
-    const [s1, s2] = sides as [Side, Side];
-    if (s1.a !== s2.b || s1.b !== s2.a) {
+  for (const sides of pairs.values()) {
+    if (sides.length !== 2) continue;
+    const s1 = sides[0]!;
+    const s2 = sides[1]!;
+    const table =
+      s1.through ??
+      s2.through ??
+      generateJunctionTableName(s1.model, s1.target);
+    const sourceColumn = s1.a ?? s2.b ?? generateJunctionFieldName(s1.model);
+    const targetColumn = s1.b ?? s2.a ?? generateJunctionFieldName(s1.target);
+    const tablesConflict =
+      s1.through !== undefined &&
+      s2.through !== undefined &&
+      s1.through !== s2.through;
+    const columnsConflict =
+      (s1.a !== undefined && s2.b !== undefined && s1.a !== s2.b) ||
+      (s1.b !== undefined && s2.a !== undefined && s1.b !== s2.a);
+    const selfColumnsMissing =
+      s1.model === s1.target && (!(s1.a ?? s2.b) || !(s1.b ?? s2.a));
+    const columnsCollide = sourceColumn === targetColumn;
+
+    if (
+      tablesConflict ||
+      columnsConflict ||
+      selfColumnsMissing ||
+      columnsCollide
+    ) {
       errors.push({
         code: "JT004",
-        message: `Junction '${table}': '${s1.rname}' in '${s1.model}' uses columns (${s1.a}, ${s1.b}) but '${s2.rname}' in '${s2.model}' uses (${s2.a}, ${s2.b}) - sides must mirror each other`,
+        message: `Junction '${table}' has inconsistent configuration between '${s1.model}.${s1.rname}' and '${s2.model}.${s2.rname}'`,
         severity: "error",
         model: s1.model,
         relation: s1.rname,
-      });
-    }
-  }
-  return errors;
-}
-
-/** JT005: .through() only valid on manyToMany */
-export function throughOnlyManyToMany(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    if (rel["~"].state.through && rel["~"].state.type !== "manyToMany") {
-      errors.push({
-        code: "JT005",
-        message: `.through() on '${rname}' requires manyToMany`,
-        severity: "error",
-        model: name,
-        relation: rname,
-      });
-    }
-  }
-  return errors;
-}
-
-// =============================================================================
-// SELF-REFERENTIAL RULES (SR001-SR003)
-// =============================================================================
-
-/** SR001: Self-ref relations must have inverse */
-export function selfRefValidInverse(
-  schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    const target = rel["~"].state.getter();
-    const targetName = findModel(schema, target, ctx);
-    if (targetName !== name) continue; // not self-ref
-
-    const type = rel["~"].state.type;
-    const expected = INVERSE[type];
-    let found = false;
-    for (const [otherName, otherRel] of getRelations(model)) {
-      if (otherName !== rname && otherRel["~"].state.type === expected) {
-        const otherTarget = findModel(
-          schema,
-          otherRel["~"].state.getter(),
-          ctx
-        );
-        if (otherTarget === name) {
-          found = true;
-          break;
-        }
-      }
-    }
-    if (!found && type !== "manyToMany") {
-      errors.push({
-        code: "SR001",
-        message: `Self-ref '${rname}' needs inverse ${expected} in same model`,
-        severity: "error",
-        model: name,
-        relation: rname,
       });
     }
   }
@@ -412,8 +320,8 @@ export function noOrphanFkFields(
   _s: Schema,
   name: string,
   model: Model<any>
-): ValidationError[] {
-  const errors: ValidationError[] = [];
+): SchemaValidationIssue[] {
+  const errors: SchemaValidationIssue[] = [];
   const fkFields = new Set<string>();
   for (const rel of getRelationValues(model)) {
     const fields = rel["~"].state.fields;
@@ -449,28 +357,25 @@ export function noOrphanFkFields(
 
 /** CM003: In 1:1, FK should be on one side only */
 export function relationPairFkSingleSide(
-  schema: Schema,
+  _schema: Schema,
   name: string,
   model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
+  ctx: ValidationContext
+): SchemaValidationIssue[] {
+  const errors: SchemaValidationIssue[] = [];
   for (const [rname, rel] of getRelations(model)) {
     if (rel["~"].state.type !== "oneToOne") continue;
     if (!rel["~"].state.fields) continue;
 
     const target = rel["~"].state.getter();
-    const targetName = findModel(schema, target, ctx);
+    const targetName = findModelName(ctx, target);
     if (!targetName) continue;
+    if (name > targetName) continue;
 
     // Check if target also has FK to us
     for (const targetRel of getRelationValues(target)) {
       if (targetRel["~"].state.type !== "oneToOne") continue;
-      const targetTarget = findModel(
-        schema,
-        targetRel["~"].state.getter(),
-        ctx
-      );
+      const targetTarget = findModelName(ctx, targetRel["~"].state.getter());
       if (targetTarget === name && targetRel["~"].state.fields) {
         errors.push({
           code: "CM003",
@@ -510,8 +415,8 @@ export function polymorphicRelationWarning(
   _s: Schema,
   name: string,
   model: Model<any>
-): ValidationError[] {
-  const errors: ValidationError[] = [];
+): SchemaValidationIssue[] {
+  const errors: SchemaValidationIssue[] = [];
   const fieldNames = Object.keys(model["~"].state.scalars);
 
   // Find *_type fields and check for matching *_id
@@ -524,27 +429,18 @@ export function polymorphicRelationWarning(
       (f) => f === `${base}_id` || f === `${base}Id`
     );
 
-    if (idField) {
-      // Check if there's a relation using this field
-      let hasRelation = false;
-      for (const rel of getRelationValues(model)) {
-        const fks = rel["~"].state.fields;
-        if (fks?.includes(idField)) {
-          hasRelation = true;
-          break;
-        }
-      }
-
-      if (!hasRelation) {
-        errors.push({
-          code: "CM004",
-          message: `'${fname}' + '${idField}' in '${name}' looks like polymorphic pattern (not type-safe)`,
-          severity: "warning",
-          model: name,
-          field: fname,
-        });
-      }
-    }
+    if (!idField) continue;
+    const hasRelation = getRelationValues(model).some((relation) =>
+      relation["~"].state.fields?.includes(idField)
+    );
+    if (hasRelation) continue;
+    errors.push({
+      code: "CM004",
+      message: `'${fname}' + '${idField}' in '${name}' looks like polymorphic pattern (not type-safe)`,
+      severity: "warning",
+      model: name,
+      field: fname,
+    });
   }
   return errors;
 }
@@ -554,8 +450,8 @@ export function noCircularRequiredChain(
   schema: Schema,
   _name: string,
   _model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
+  ctx: ValidationContext
+): SchemaValidationIssue[] {
   if (!isFirstModel(schema, _name)) return [];
   // Build adjacency list of required relations
   const graph = new Map<string, string[]>();
@@ -568,7 +464,7 @@ export function noCircularRequiredChain(
       const ownsFk =
         st.type === "manyToOne" || (st.type === "oneToOne" && st.fields);
       if (ownsFk && !st.optional) {
-        const target = findModel(schema, st.getter(), ctx);
+        const target = findModelName(ctx, st.getter());
         if (target) edges.push(target);
       }
     }
@@ -580,25 +476,24 @@ export function noCircularRequiredChain(
   const stack = new Set<string>();
   const cycles: string[][] = [];
 
-  function dfs(node: string, path: string[]): boolean {
+  function dfs(node: string, path: string[]): void {
     if (stack.has(node)) {
       const cycleStart = path.indexOf(node);
       cycles.push([...path.slice(cycleStart), node]);
-      return true;
+      return;
     }
-    if (visited.has(node)) return false;
+    if (visited.has(node)) return;
 
     visited.add(node);
     stack.add(node);
     path.push(node);
 
-    for (const neighbor of graph.get(node) ?? []) {
+    for (const neighbor of graph.get(node)!) {
       dfs(neighbor, path);
     }
 
     stack.delete(node);
     path.pop();
-    return false;
   }
 
   for (const node of graph.keys()) {
@@ -609,7 +504,7 @@ export function noCircularRequiredChain(
 
   // Report unique cycles
   const seen = new Set<string>();
-  const errors: ValidationError[] = [];
+  const errors: SchemaValidationIssue[] = [];
   for (const cycle of cycles) {
     const key = [...cycle].sort().join("->");
     if (!seen.has(key)) {
@@ -624,32 +519,14 @@ export function noCircularRequiredChain(
   return errors;
 }
 
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-/** O(1) lookup when ctx provided, O(n) fallback otherwise */
-function findModel(
-  schema: Schema,
-  model: Model<any>,
-  ctx?: ValidationContext
-): string | undefined {
-  if (ctx) return ctx.modelToName.get(model);
-  for (const [n, m] of schema) {
-    if (m === model) return n;
-  }
-  return undefined;
-}
-
 function hasInverse(
   target: Model<any>,
   sourceName: string,
-  schema: Schema,
   expectedType: RelationType,
-  ctx?: ValidationContext
+  ctx: ValidationContext
 ): boolean {
   for (const rel of getRelationValues(target)) {
-    const t = findModel(schema, rel["~"].state.getter(), ctx);
+    const t = findModelName(ctx, rel["~"].state.getter());
     if (t === sourceName && rel["~"].state.type === expectedType) return true;
   }
   return false;
@@ -663,8 +540,6 @@ export const relationRules = [
   junctionFieldsValid,
   junctionFieldsDistinct,
   junctionConfigConsistent,
-  throughOnlyManyToMany,
-  selfRefValidInverse,
   noOrphanFkFields,
   relationPairFkSingleSide,
   polymorphicRelationWarning,

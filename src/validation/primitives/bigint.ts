@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isBigInt } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -28,7 +29,7 @@ const BIGINT_ERROR = Object.freeze({
  * Validate that a value is a bigint.
  */
 function validateBigInt(value: unknown) {
-  return typeof value === "bigint" ? ok(value) : BIGINT_ERROR;
+  return isBigInt(value) ? ok(value) : BIGINT_ERROR;
 }
 
 /**

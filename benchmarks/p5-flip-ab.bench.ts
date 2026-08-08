@@ -145,7 +145,7 @@ describe("flip: parent-held to-one create (post + before-parent author)", () => 
   });
 });
 
-// T2 (TO-ONE.md §7): parent-held to-one connectOrCreate under UPDATE — the gated
+// T2: parent-held to-one connectOrCreate under UPDATE — the gated
 // residual entry. The probe finds the existing target (FOUND arm), and the root
 // parent UPDATE folds authorId = the found user's id (one decision read plus
 // updateParentForeignKey).
@@ -167,7 +167,7 @@ describe("flip: parent-held connectOrCreate under update (FOUND, T2)", () => {
   });
 });
 
-// T3b-1 family B (TO-ONE.md §7.7, mechanism 1) — the deep tree. A nested to-many
+// T3b-1 family B, mechanism 1 — the deep tree. A nested to-many
 // `update` whose located target carries its own relation write: the child builds
 // its own child Parts (a self-m2m junction update), correlated to its literal PK.
 // Idempotent (the friend's label is re-set), so it runs against a fixed seed.

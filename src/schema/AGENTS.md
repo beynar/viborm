@@ -121,6 +121,34 @@ model["~"].state          // Model structure and metadata
 ### Rule 5: Schema/Validation Boundary
 Schema owns structure and base scalar schemas. The validation registry owns operation schemas (`where`, `create`, `update`, args, relation inputs), and the client/query-engine use that registry for operation validation.
 
+### Rule 6: Definition Validation Has One Graph Context
+`SchemaValidator` builds model and table lookups once and passes a required
+`ValidationContext` to every rule. Rules trust that context; they do not scan
+the schema again as a fallback. A caller-supplied rule is an external boundary,
+so a thrown value becomes a typed `SchemaValidationError` with code `V4002`.
+
+Duplicate names are rejected by `SchemaValidator.register`, before `Map`
+replacement can erase the duplicate. Rules report structured
+`SchemaValidationIssue` values. Database portability belongs to migration
+dialect validation, not to disconnected schema rules.
+
+Use `pnpm test:coverage:schema-validation` for the memory-capped L5 report. It
+gates statements, branches, functions, and lines at 100% and writes
+`coverage/schema-validation/index.html`.
+
+### Runtime schema metadata
+
+`field-ref.ts` projects a model's scalar keys into a lazy, immutable reference
+table. Its JavaScript reflection surface is exact: enumeration, `in`, and own
+property descriptors expose scalar keys only. `hydration.ts` binds model-local
+TypeScript and SQL names and relation sources once before downstream layers use
+the schema. These two root-schema modules are owned by the L2 core; relation
+semantics remain in L4.
+
+Use `pnpm test:coverage:schema` for their one-worker, memory-capped report. It
+gates statements, branches, functions, and lines at 100% and writes
+`coverage/schema/index.html`.
+
 ---
 
 ## Anti-Patterns

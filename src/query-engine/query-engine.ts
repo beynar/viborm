@@ -151,16 +151,3 @@ export function createModelRegistry(
     schemas: schemaRegistry,
   };
 }
-
-/**
- * Factory function to create a query engine.
- */
-export function createQueryEngine(
-  driver: AnyDriver,
-  models: Record<string, Model<any>>,
-  schemaRegistry: SchemaRegistryLookup,
-  instrumentation?: InstrumentationContext
-): QueryEngine {
-  const registry = createModelRegistry(models, schemaRegistry);
-  return new QueryEngine(driver, registry, instrumentation);
-}

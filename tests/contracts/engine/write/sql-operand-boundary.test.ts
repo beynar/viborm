@@ -1,0 +1,35 @@
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createClient } from "@client/client";
+import type { BatchQuery, QueryResult } from "@drivers";
+import { PGliteDriver } from "@drivers/pglite";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { push } from "@migrations";
+import {
+  registerSqlOperandWallBehavior,
+  sqlOperandWallSchema,
+} from "@tests/contracts/engine/write/sql-operand-boundary-behavior";
+
+const substrates = [
+  {
+    name: "transaction",
+    make: (db: PGlite) => new PGliteDriver({ client: db }),
+  },
+  {
+    name: "atomic batch",
+    make: (db: PGlite) => new BatchOnlyPGliteDriver({ client: db }),
+  },
+] as const;
+
+for (const substrate of substrates) {
+  let shared: any;
+  registerSqlOperandWallBehavior(substrate.name, async () => {
+    if (!shared) {
+      shared = createClient({
+        schema: sqlOperandWallSchema,
+        driver: substrate.make(new PGlite()),
+      }) as any;
+      await push(shared, { force: true });
+    }
+    return shared;
+  });
+}

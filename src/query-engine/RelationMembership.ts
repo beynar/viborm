@@ -2,15 +2,16 @@
 import type { Model } from "@schema/model";
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
 import {
-  getFkDirection,
-  type RelationMutation,
+  type BoundRelation,
+  bindRelation,
 } from "./builders/relation-data-builder";
+import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
 import { getRelationInfo, getRelationNames } from "./context";
 import {
   buildScalarUpdatePredicateFootprints,
   type TargetConstraint,
 } from "./TargetConstraint";
-import { NestedWriteError, type QueryScope, type RelationInfo } from "./types";
+import { NestedWriteError, type QueryScope } from "./types";
 
 export type RelationMembershipScope =
   | {
@@ -31,9 +32,10 @@ export type RelationMembershipScope =
 
 export function getRelationMembershipScope(
   ctx: QueryScope,
-  relationInfo: RelationInfo
+  relation: BoundRelation
 ): RelationMembershipScope {
-  if (relationInfo.type === "manyToMany") {
+  const { relationInfo } = relation;
+  if (relation.kind === "junction") {
     const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
     const orderedFields: [string, string] =
       joinInfo.sourceFieldName.localeCompare(joinInfo.targetFieldName) <= 0
@@ -47,10 +49,9 @@ export function getRelationMembershipScope(
     };
   }
 
-  const direction = getFkDirection(ctx, relationInfo);
   const fields: Array<{ foreignKey: string; referencedKey: string }> = [];
-  for (const [index, foreignKey] of direction.fkFields.entries()) {
-    const referencedKey = direction.pkFields[index];
+  for (const [index, foreignKey] of relation.foreignFields.entries()) {
+    const referencedKey = relation.referencedFields[index];
     if (referencedKey === undefined) {
       throw new NestedWriteError(
         `Relation '${relationInfo.name}' has mismatched foreign-key metadata.`,
@@ -66,8 +67,14 @@ export function getRelationMembershipScope(
   );
   return {
     kind: "foreignKey",
-    holder: direction.fkHolder,
-    referenced: direction.referenced,
+    holder:
+      relation.kind === "parentHeldToOne"
+        ? relation.sourceModel
+        : relation.relationInfo.targetModel,
+    referenced:
+      relation.kind === "parentHeldToOne"
+        ? relation.relationInfo.targetModel
+        : relation.sourceModel,
     fields,
   };
 }
@@ -98,13 +105,13 @@ export function relationMembershipScopesEqual(
 }
 
 export interface RootMembershipFootprint {
-  readonly relationInfo: RelationInfo;
+  readonly relation: BoundRelation;
   readonly constraint: TargetConstraint;
 }
 
 export function buildRootUpdateMembershipFootprints(
   ctx: QueryScope,
-  relations: Readonly<Record<string, RelationMutation>>,
+  relations: Readonly<Record<string, RelationMutationProgram>>,
   scalarData: Readonly<Record<string, unknown>>,
   selector: Readonly<Record<string, unknown>> | undefined
 ): RootMembershipFootprint[] {
@@ -112,18 +119,17 @@ export function buildRootUpdateMembershipFootprints(
   const footprints: RootMembershipFootprint[] = [];
   for (const mutation of Object.values(relations)) {
     const relationInfo = mutation.relationInfo;
-    if (relationInfo.type === "manyToMany") continue;
-    const direction = getFkDirection(ctx, relationInfo);
+    const relation = bindRelation(ctx, relationInfo);
+    if (relation.kind === "junction") continue;
     if (
-      direction.holdsFK ||
-      direction.fkHolder !== ctx.model ||
-      direction.referenced !== ctx.model ||
-      !hasChangedForeignKey(direction.fkFields, scalarData)
+      relation.kind === "parentHeldToOne" ||
+      relation.relationInfo.targetModel !== ctx.model ||
+      !hasChangedForeignKey(relation.foreignFields, scalarData)
     ) {
       continue;
     }
     for (const constraint of constraints) {
-      footprints.push({ relationInfo, constraint });
+      footprints.push({ relation, constraint });
     }
   }
   return footprints;
@@ -134,19 +140,21 @@ export function buildTransitiveUpdateMembershipFootprints(
   scalarData: Readonly<Record<string, unknown>>,
   selector: Readonly<Record<string, unknown>> | undefined
 ): RootMembershipFootprint[] {
-  const relationInfos: RelationInfo[] = [];
+  const relations: BoundRelation[] = [];
   const membershipScopes: RelationMembershipScope[] = [];
   for (const relationName of getRelationNames(ctx.model)) {
     const relationInfo = getRelationInfo(ctx, relationName);
-    if (!relationInfo || relationInfo.type === "manyToMany") continue;
-    const direction = getFkDirection(ctx, relationInfo);
+    if (!relationInfo) continue;
+    const relation = bindRelation(ctx, relationInfo);
+    if (relation.kind === "junction") continue;
     if (
-      direction.fkHolder !== ctx.model ||
-      !hasChangedForeignKey(direction.fkFields, scalarData)
+      (relation.kind !== "parentHeldToOne" &&
+        relation.relationInfo.targetModel !== ctx.model) ||
+      !hasChangedForeignKey(relation.foreignFields, scalarData)
     ) {
       continue;
     }
-    const membershipScope = getRelationMembershipScope(ctx, relationInfo);
+    const membershipScope = getRelationMembershipScope(ctx, relation);
     if (
       membershipScopes.some((existingScope) =>
         relationMembershipScopesEqual(existingScope, membershipScope)
@@ -154,12 +162,12 @@ export function buildTransitiveUpdateMembershipFootprints(
     ) {
       continue;
     }
-    relationInfos.push(relationInfo);
+    relations.push(relation);
     membershipScopes.push(membershipScope);
   }
   const constraints = getUpdateConstraints(ctx, scalarData, selector);
-  return relationInfos.flatMap((relationInfo) =>
-    constraints.map((constraint) => ({ relationInfo, constraint }))
+  return relations.flatMap((relation) =>
+    constraints.map((constraint) => ({ relation, constraint }))
   );
 }
 

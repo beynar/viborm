@@ -20,6 +20,7 @@ import {
   type DriverErrorContext,
   type DriverErrorShape,
 } from "./driver-error-context";
+import type { Dialect } from "./types";
 
 const POSTGRES_UNIQUE = "23505";
 const POSTGRES_FOREIGN_KEY = "23503";
@@ -52,6 +53,32 @@ const MYSQL_ERRNO_IN_MESSAGE_PATTERN = /\(errno (\d+)\)/;
 export const ASSERTION_MARKER = "__viborm_assert__";
 const POSTGRES_DIVISION_BY_ZERO = "22012";
 const MYSQL_INVALID_JSON_TEXT = 3141;
+
+const JSON_ACCESS_SIGNATURE = /json|->/i;
+
+const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
+  postgresql: /[/%]/,
+  mysql: JSON_ACCESS_SIGNATURE,
+  sqlite: JSON_ACCESS_SIGNATURE,
+};
+
+/**
+ * Report whether an ordinary statement can raise the same provider error as a
+ * batch assertion. Assertion statements carry {@link ASSERTION_MARKER}; all
+ * other statements are checked against the executing dialect's failure
+ * signature. A conservative match leaves the raw provider error unattributed.
+ */
+export function batchMayContainAssertionCollision(
+  statements: readonly { readonly sql: string }[],
+  dialect: Dialect
+): boolean {
+  const signature = FOREIGN_ASSERTION_SIGNATURE[dialect];
+  for (const statement of statements) {
+    if (statement.sql.includes(ASSERTION_MARKER)) continue;
+    if (signature.test(statement.sql)) return true;
+  }
+  return false;
+}
 
 function isAssertionFailure(
   code: string | number | undefined,

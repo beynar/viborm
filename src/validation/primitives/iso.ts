@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isDate, isString } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -63,12 +64,12 @@ const INVALID_TIMESTAMP_DATE = Object.freeze({
  */
 function validateIsoTimestamp(value: unknown) {
   // Handle Date objects - convert to ISO string
-  if (value instanceof Date) {
+  if (isDate(value)) {
     if (Number.isNaN(value.getTime())) return INVALID_TIMESTAMP_DATE;
     return ok(value.toISOString());
   }
 
-  if (typeof value !== "string") return NOT_STRING_OR_DATE_ERROR;
+  if (!isString(value)) return NOT_STRING_OR_DATE_ERROR;
   if (!ISO_TIMESTAMP_REGEX.test(value)) return INVALID_TIMESTAMP_FORMAT;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return INVALID_TIMESTAMP_DATE;
@@ -136,12 +137,12 @@ const INVALID_DATE = Object.freeze({
  */
 function validateIsoDate(value: unknown) {
   // Handle Date objects - convert to ISO date string
-  if (value instanceof Date) {
+  if (isDate(value)) {
     if (Number.isNaN(value.getTime())) return INVALID_DATE;
     return ok(value.toISOString().split("T")[0]!);
   }
 
-  if (typeof value !== "string") return NOT_STRING_OR_DATE_ERROR;
+  if (!isString(value)) return NOT_STRING_OR_DATE_ERROR;
   if (!ISO_DATE_REGEX.test(value)) return INVALID_DATE_FORMAT;
   const date = new Date(value + "T00:00:00Z");
   if (Number.isNaN(date.getTime())) return INVALID_DATE;
@@ -205,7 +206,7 @@ const INVALID_TIME = Object.freeze({
  */
 function validateIsoTime(value: unknown) {
   // Handle Date objects - extract time portion
-  if (value instanceof Date) {
+  if (isDate(value)) {
     if (Number.isNaN(value.getTime())) return INVALID_TIME;
     // Extract HH:mm:ss.sss from ISO string
     const isoString = value.toISOString();
@@ -213,13 +214,13 @@ function validateIsoTime(value: unknown) {
     return ok(timePart);
   }
 
-  if (typeof value !== "string") return NOT_STRING_OR_DATE_ERROR;
+  if (!isString(value)) return NOT_STRING_OR_DATE_ERROR;
   if (!ISO_TIME_REGEX.test(value)) return INVALID_TIME_FORMAT;
 
-  const parts = value.split(":").map(Number);
-  const hours = parts[0] ?? 0;
-  const minutes = parts[1] ?? 0;
-  const seconds = parts[2] ?? 0;
+  const parts = value.split(":");
+  const hours = Number(parts[0]);
+  const minutes = Number(parts[1]);
+  const seconds = Number(parts[2]);
 
   if (
     hours < 0 ||

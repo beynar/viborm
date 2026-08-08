@@ -1,6 +1,5 @@
 import type { AnyDriver } from "@drivers";
-import { ASSERTION_MARKER } from "@drivers/error-mapping";
-import type { Dialect } from "@drivers/types";
+import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   isVibORMError,
   NestedWriteAssertionError,
@@ -9,8 +8,8 @@ import {
   TransactionError,
   VibORMErrorCode,
 } from "@errors";
-import type { ProgramFailure } from "./operation-program";
 import type { PreparedBatchGuard } from "./types";
+import type { Failure } from "./write-engine/OperationFragment";
 
 /**
  * Attribute a native-batch assertion failure to the guard that raised it (P6
@@ -56,11 +55,7 @@ export async function attributeOperationBatchError(
       (candidate) => candidate.queryIndex === statementIndex
     );
     if (guard) {
-      return createProgramFailureError(
-        guard.failure,
-        guard.model,
-        guard.operation
-      );
+      return createFailureError(guard.failure, guard.model, guard.operation);
     }
     return error;
   }
@@ -70,20 +65,16 @@ export async function attributeOperationBatchError(
     });
     const exists = result.rows.length > 0;
     if (guard.premise === "exists" ? !exists : exists) {
-      return createProgramFailureError(
-        guard.failure,
-        guard.model,
-        guard.operation
-      );
+      return createFailureError(guard.failure, guard.model, guard.operation);
     }
   }
   const [candidate] = guards;
   if (candidate) {
     const attributable =
       guards.every((guard) => sameAttribution(guard, candidate)) &&
-      !carriesForeignAssertionSignature(statements, driver.dialect);
+      !batchMayContainAssertionCollision(statements, driver.dialect);
     return attributable
-      ? createProgramFailureError(
+      ? createFailureError(
           candidate.failure,
           candidate.model,
           candidate.operation
@@ -98,57 +89,6 @@ export async function attributeOperationBatchError(
       cause: error,
     }
   );
-}
-
-/**
- * Every JSON access, in the spellings the adapters actually emit. The MySQL
- * adapter always writes `JSON_EXTRACT(...)`, but the SQLite adapter reaches a
- * path through the `->` / `->>` OPERATORS (`sqlite-adapter.ts`'s `jsonExtract`
- * chains one bound leg per segment) and keeps `json_extract` only for array
- * indices — so a pattern that knew just the function name would read an
- * ordinary `payload -> '$' -> ?` filter as harmless and fabricate a
- * `NotFoundError` for a row that is present. The pattern owes its coverage to
- * the emitted SQL, not to the canonical spelling: `batch-attribution-
- * hazard-signature.test.ts` builds each dialect's own JSON and arithmetic SQL
- * through the engine and measures this table against it.
- */
-const JSON_ACCESS_SIGNATURE = /json|->/i;
-
-/**
- * Each dialect's assertion trick, and therefore the shape an ORDINARY statement
- * must have to counterfeit it. Postgres asserts with `1 / 0`, so anything that
- * can divide or take a remainder can raise the same SQLSTATE 22012; MySQL and
- * SQLite assert with `JSON_EXTRACT` / `json_extract` on invalid JSON, so any
- * JSON access — function call or path operator — can raise the same errno 3141
- * / "malformed JSON". Each dialect is blind to the other's trick — MySQL's
- * `x / 0` yields NULL or errno 1365, and Postgres reports bad JSON as 22P02 —
- * so only the executing dialect's pattern is consulted.
- */
-const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
-  postgresql: /[/%]/,
-  mysql: JSON_ACCESS_SIGNATURE,
-  sqlite: JSON_ACCESS_SIGNATURE,
-};
-
-/**
- * Could a statement OTHER than the batch's own assertions have raised the
- * provider error that the joined-SQL normalization read as an assertion? The
- * assertion statements are the ones carrying the marker alias; every other
- * statement is ordinary, and one that matches its dialect's signature makes the
- * failure un-attributable. Over-reporting only costs attribution (the raw error
- * stands, as it did before guard reconstruction existed); under-reporting would
- * cost a fabricated `NotFoundError`.
- */
-function carriesForeignAssertionSignature(
-  statements: readonly { readonly sql: string }[],
-  dialect: Dialect
-): boolean {
-  const signature = FOREIGN_ASSERTION_SIGNATURE[dialect];
-  for (const statement of statements) {
-    if (statement.sql.includes(ASSERTION_MARKER)) continue;
-    if (signature.test(statement.sql)) return true;
-  }
-  return false;
 }
 
 /**
@@ -169,9 +109,9 @@ function sameAttribution(
   );
 }
 
-/** Reconstruct a program guard's declared failure as its typed error. */
-export function createProgramFailureError(
-  failure: ProgramFailure,
+/** Reconstruct a guard's declared failure as its typed error. */
+export function createFailureError(
+  failure: Failure,
   model: string,
   operation: PreparedBatchGuard["operation"]
 ): Error {

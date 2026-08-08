@@ -1,4 +1,5 @@
 import type { VibSchema } from "../types";
+import { isFunction } from "../value-guards";
 
 /**
  * Creates a lazy schema that defers evaluation until first access.
@@ -25,7 +26,7 @@ export function lazy<T extends VibSchema>(factory: () => T): T {
       const resolved = resolve();
       const value = Reflect.get(resolved, prop, receiver);
       // Bind methods to the resolved schema to preserve `this` context
-      return typeof value === "function" ? value.bind(resolved) : value;
+      return isFunction(value) ? value.bind(resolved) : value;
     },
 
     has(_target, prop) {
@@ -83,9 +84,6 @@ export function lazyRef<T extends VibSchema>(factory: () => T): T {
     // rebuild the wrapped schema eagerly, defeating the laziness.
     get entries() {
       return (resolve() as { entries?: unknown }).entries;
-    },
-    get parse() {
-      return (resolve() as { parse?: unknown }).parse;
     },
     "~standard": {
       version: 1,

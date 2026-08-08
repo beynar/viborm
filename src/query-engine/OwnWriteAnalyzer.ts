@@ -1,9 +1,9 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
+import { bindRelation } from "./builders/relation-data-builder";
 import {
-  getFkDirection,
-  type RelationMutation,
-  separateData,
-} from "./builders/relation-data-builder";
+  buildParsedRelationPrograms,
+  type RelationMutationProgram,
+} from "./builders/relation-mutation-parser";
 import {
   type DependencyOperation,
   type OwnWriteDependencyFamily,
@@ -19,7 +19,6 @@ import {
   getRelationMembershipScope,
   type RootMembershipFootprint,
 } from "./RelationMembership";
-import { splitRelationMutationsByFk } from "./RelationMutationPlan";
 import type { TargetConstraint } from "./TargetConstraint";
 import {
   buildScalarUpdatePredicateFootprints,
@@ -32,15 +31,10 @@ import type { QueryScope } from "./types";
 
 export class OwnWriteAnalyzer {
   readonly ledger = new OwnWriteLedger();
-  readonly recurseDeterministic: boolean;
-
-  constructor(recurseDeterministic = true) {
-    this.recurseDeterministic = recurseDeterministic;
-  }
 
   analyze(
     ctx: QueryScope,
-    relations: Record<string, RelationMutation>,
+    relations: Record<string, RelationMutationProgram>,
     family: OwnWriteDependencyFamily
   ): void {
     new OwnWriteNode(this, ctx, family, this.ledger).analyze(relations);
@@ -53,7 +47,10 @@ export class OwnWriteAnalyzer {
     insertSummary?: OwnWriteCreateSummary
   ): void {
     const childCtx = relation.createChildScope();
-    const { scalarData, relations } = separateData(childCtx, data);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childCtx,
+      data
+    );
     const insertBarrier = insertSummary
       ? new OwnWriteInsertBarrier(relation, insertSummary)
       : undefined;
@@ -75,7 +72,10 @@ export class OwnWriteAnalyzer {
     rootOperation: "update" | "upsert" = "update"
   ): void {
     const childCtx = relation.createChildScope();
-    const { scalarData, relations } = separateData(childCtx, data);
+    const { scalarData, relations } = buildParsedRelationPrograms(
+      childCtx,
+      data
+    );
 
     relation.ledger.withNestedScope(() => {
       new OwnWriteNode(
@@ -118,7 +118,7 @@ export class OwnWriteNode {
   }
 
   analyze(
-    relations: Record<string, RelationMutation>,
+    relations: Record<string, RelationMutationProgram>,
     insertBarrier?: OwnWriteInsertBarrier
   ): void {
     this.seedRootTargetWrites();
@@ -141,9 +141,11 @@ export class OwnWriteNode {
 
     for (const [groupIndex, relationEntries] of relationGroups.entries()) {
       for (const [, mutation] of relationEntries) {
+        const boundRelation = bindRelation(this.ctx, mutation.relationInfo);
         OwnWriteRelation.create(
           this,
           mutation,
+          boundRelation,
           rootMembershipFootprints,
           this.family.kind === "create" && groupIndex === 0
             ? beforeParentMembershipLedger
@@ -173,16 +175,17 @@ export class OwnWriteNode {
 
   appendTransitiveMembershipWrites(ledger: OwnWriteLedger): void {
     for (const footprint of this.transitiveMembershipFootprints) {
-      const direction = getFkDirection(this.ctx, footprint.relationInfo);
-      const membershipScope = getRelationMembershipScope(
-        this.ctx,
-        footprint.relationInfo
-      );
+      const relation = footprint.relation;
+      const membershipScope = getRelationMembershipScope(this.ctx, relation);
       ledger.appendMembership(
         this.rootOperation,
         {
           first: footprint.constraint,
-          second: unknownConstraint(direction.referenced),
+          second: unknownConstraint(
+            relation.kind === "parentHeldToOne"
+              ? relation.relationInfo.targetModel
+              : relation.sourceModel
+          ),
         },
         membershipScope,
         "inverseTarget",
@@ -211,7 +214,7 @@ export class OwnWriteNode {
 
 export function analyzeOwnWriteTree(
   ctx: QueryScope,
-  relations: Record<string, RelationMutation>,
+  relations: Record<string, RelationMutationProgram>,
   family: OwnWriteDependencyFamily
 ): OwnWriteLedger {
   const analyzer = new OwnWriteAnalyzer();
@@ -219,37 +222,19 @@ export function analyzeOwnWriteTree(
   return analyzer.ledger;
 }
 
-export function analyzeDirectOwnWrites(
-  ctx: QueryScope,
-  relations: Record<string, RelationMutation>,
-  family: OwnWriteDependencyFamily
-): OwnWriteLedger {
-  const analyzer = new OwnWriteAnalyzer(false);
-  analyzer.analyze(ctx, relations, family);
-  return analyzer.ledger;
-}
-
 export function assertNoRelationsOwnWriteDependencies(
   ctx: QueryScope,
-  relations: Record<string, RelationMutation>,
+  relations: Record<string, RelationMutationProgram>,
   family: OwnWriteDependencyFamily
 ): void {
   analyzeOwnWriteTree(ctx, relations, family);
 }
 
-export function assertNoDirectRelationsOwnWriteDependencies(
-  ctx: QueryScope,
-  relations: Record<string, RelationMutation>,
-  family: OwnWriteDependencyFamily
-): void {
-  analyzeDirectOwnWrites(ctx, relations, family);
-}
-
 export function assertCreateOwnWriteSafety(
   ctx: QueryScope,
-  data: Record<string, unknown>
+  scalarData: Record<string, unknown>,
+  relations: Record<string, RelationMutationProgram>
 ): void {
-  const { scalarData, relations } = separateData(ctx, data);
   assertNoRelationsOwnWriteDependencies(ctx, relations, {
     kind: "create",
     scalarData,
@@ -258,10 +243,10 @@ export function assertCreateOwnWriteSafety(
 
 export function assertUpdateOwnWriteSafety(
   ctx: QueryScope,
-  data: Record<string, unknown>,
+  scalarData: Record<string, unknown>,
+  relations: Record<string, RelationMutationProgram>,
   selector: Record<string, unknown> | undefined
 ): void {
-  const { scalarData, relations } = separateData(ctx, data);
   assertNoRelationsOwnWriteDependencies(ctx, relations, {
     kind: "update",
     scalarData,
@@ -307,13 +292,19 @@ function getCurrentConstraint(
 
 function getRelationEntryGroups(
   ctx: QueryScope,
-  relations: Record<string, RelationMutation>,
+  relations: Record<string, RelationMutationProgram>,
   family: OwnWriteDependencyFamily["kind"]
-): [string, RelationMutation][][] {
+): [string, RelationMutationProgram][][] {
   if (family === "update") return [Object.entries(relations)];
-  const { currentHoldsFk, relatedHoldsFk } = splitRelationMutationsByFk(
-    ctx,
-    relations
-  );
+  const currentHoldsFk: [string, RelationMutationProgram][] = [];
+  const relatedHoldsFk: [string, RelationMutationProgram][] = [];
+  for (const entry of Object.entries(relations)) {
+    const relationInfo = entry[1].relationInfo;
+    if (bindRelation(ctx, relationInfo).kind === "parentHeldToOne") {
+      currentHoldsFk.push(entry);
+    } else {
+      relatedHoldsFk.push(entry);
+    }
+  }
   return [currentHoldsFk, relatedHoldsFk];
 }

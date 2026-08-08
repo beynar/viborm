@@ -6,6 +6,7 @@
  */
 
 import { type Sql, sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import {
   createChildScope,
   getColumnName,
@@ -86,10 +87,6 @@ const buildLateralSelection: BuildNestedSelection = (ctx, select, include) => {
     sql: buildSelectionSql(ctx, pairs, true),
     lateralJoins,
   };
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
 const isVectorDistanceSelect = (
@@ -437,18 +434,6 @@ export function buildSelectWithAliases(
     aliases,
     lateralJoins,
   };
-}
-
-/**
- * Get all scalar field columns for a simple select all
- */
-export function buildSelectAll(ctx: QueryScope, alias: string): Sql {
-  const scalarFields = getScalarFieldNames(ctx.model);
-  const columns = scalarFields.map((fieldName) => {
-    const columnName = getColumnName(ctx.model, fieldName);
-    return ctx.adapter.identifiers.column(alias, columnName);
-  });
-  return sql.join(columns, ", ");
 }
 
 /**

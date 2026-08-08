@@ -1,5 +1,5 @@
 /**
- * T3b-2 item 5 — the deep-junction A/B benchmark (families C, TO-ONE.md §7.7.3).
+ * T3b-2 item 5 — the deep-junction A/B benchmark (family C).
  *
  * A m2m junction UPDATE target whose data carries its OWN m2m relation write, folded
  * one level deeper (`workspace.update({ projects: { update: { data: { tags: { connect }

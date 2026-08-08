@@ -69,7 +69,7 @@ export interface TracingConfig extends DiagnosticDisclosure {
    * Span names to ignore (string or regex patterns)
    * Similar to Prisma's ignoreSpanTypes
    */
-  ignoreSpanTypes?: Array<string | RegExp> | undefined;
+  ignoreSpanTypes?: ReadonlyArray<string | RegExp> | undefined;
 }
 
 /**

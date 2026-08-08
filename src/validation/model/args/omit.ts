@@ -31,6 +31,7 @@ import type {
   ObjectOptions,
   ObjectSchema,
 } from "@validation/primitives/object";
+import { isRecord } from "@validation/value-guards";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import {
@@ -65,9 +66,6 @@ export const getOmitSchema = <M extends AnyModel>(model: M): OmitSchema<M> =>
 // ---------------------------------------------------------------------------
 // Desugaring wrapper
 // ---------------------------------------------------------------------------
-
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 const issue = (message: string) => ({ issues: [{ message }] });
 
@@ -116,18 +114,19 @@ export const withOmitProjection = <
   const standard = schema["~standard"];
 
   const validate: typeof standard.validate = (value) => {
-    const hasOmit = isPlainRecord(value) && value.omit !== undefined;
-    if (hasOmit && isPlainRecord(value) && value.select !== undefined) {
+    const hasOmit = isRecord(value) && value.omit !== undefined;
+    if (hasOmit && value.select !== undefined) {
       return issue(SELECT_OMIT_EXCLUSIVITY_MESSAGE);
     }
 
-    const result = standard.validate(value);
-    if (!hasOmit || result instanceof Promise || result.issues) return result;
+    const result = standard.validate(value) as Exclude<
+      ReturnType<typeof standard.validate>,
+      PromiseLike<unknown>
+    >;
+    if (!hasOmit || result.issues) return result;
 
     const validated = result.value as Record<string, unknown>;
-    const omitValue = validated.omit;
-    // `omit` survived validation, so it is an object of known scalar keys.
-    if (!isPlainRecord(omitValue)) return result;
+    const omitValue = validated.omit as Record<string, unknown>;
 
     const selection = buildOmitSelection(model, omitValue);
     if (!selection) return issue(emptyOmitProjectionMessage(model, operation));

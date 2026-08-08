@@ -1,2716 +1,1339 @@
 # Polymorphic Relations in VibORM
 
-## Overview
-
-> **Revision 2 (2026-08-03)** — post adversarial review. Changes: write path
-> redesigned as parse-time lowering onto the V2 fragment engine (Phase 4);
-> grouped-queries residue removed (Phase 6); file inventory corrected against
-> the real tree (migrations, adapters, cache, relation layer); SQLite + libsql
-> made first-class; typing strategy constrained to `getter: any` + phantom
-> param (see callout before Type Definitions); filter type correlated;
-> `connect` shape changed to `{ type, where }`; referential actions deferred
-> out of v1; rules P008–P010 added, P002/P005 fixed; migration cost claims
-> corrected per engine; success criteria extended with gates/probe/docker
-> requirements.
+> **Revision 3 — 2026-08-07**
 >
-> **Implementation plan:** [`polymorphic-relations-implementation-plan.md`](./polymorphic-relations-implementation-plan.md) — build order (Y0–Y9), units of work, and per-phase surgical validation.
+> This revision replaces the 2026-08-03 design where it described the deleted
+> `query-engine-v2` layout. It is aligned with the current query engine:
+> `RelationMutationProgram`, `BoundRelation`, `CreateOperation`,
+> `RecordUpdateCompiler`, field-bound foreign-key references, strict result
+> shapes, and the current contract-test estate.
+>
+> **Status:** runtime/query-engine design feasible, public type carrier not yet
+> proven, feature not implemented. Three product decisions and the recursive
+> type spike in [§12](#12-decisions-required-before-implementation) are hard
+> gates.
+>
+> **Implementation plan:**
+> [`polymorphic-relations-implementation-plan.md`](./polymorphic-relations-implementation-plan.md)
 
-This document explores the design and implementation of polymorphic relations in VibORM, inspired by Active Record's approach but adapted for TypeScript's type system.
+## 1. Verdict
 
----
+Polymorphic relations remain feasible at the runtime, SQL, and query-engine
+levels after the compression. The exact recursive public TypeScript surface is
+still a measured feasibility gate, not an assumption. The new architecture
+makes the write side **easier overall**:
 
-## 1. Proposed API Design
+- one schema-transformed mutation representation;
+- one topology binder;
+- one fresh-record compiler;
+- one selected-record update compiler;
+- one field-bound provenance model for values that cross statement boundaries.
 
-### Polymorphic "Belongs To" Side
+The feature is not trivial, however. The previous plan hid five real boundaries:
 
-```typescript
+1. `{relation}_type` and `{relation}_id` are physical columns without public
+   model scalars. Current INSERT and UPDATE builders deliberately ignore unknown
+   scalar keys. A fabricated `RelationInfo` plus an extra object property cannot
+   write either column.
+2. A polymorphic include cannot use the ordinary relation result parser. The
+   parser must choose a target schema from the returned discriminator and then
+   validate that target's exact nested result shape.
+3. Exact `values` typing and exhaustive per-target nested results can force a
+   recursive getter too early. This must be falsified with the actual proposed
+   call shape before any production relation class is added.
+4. Scalar-only `createMany` cannot construct a required private relation. V1
+   must refuse bulk creation of such a model before planning instead of leaking
+   a database `NOT NULL` failure.
+5. A stable stored discriminator can still be retargeted to another table or
+   referenced field. Snapshot history must treat that as destructive even
+   though the text value did not change.
+
+This revision also closes three implementation traps: polymorphic inverse
+resolution is separate from the ordinary FK-tuple helper, disconnect-only
+updates count as root work, and discriminator width/generated-name limits are
+fixed before DDL generation rather than left to an adapter or database error.
+
+The right model has five distinct facts:
+
+1. **`PolymorphicRelation`** describes the public multi-target schema relation.
+2. **`ResolvedPolymorphicMutation`** is the exact direct intent: targeted
+   connect/create or targetless disconnect.
+3. **`ResolvedPolymorphicEdge`** describes one direct target selected by a
+   validated discriminator for one compilation.
+4. **`ResolvedPolymorphicInverse`** describes one ordinary inverse relation and
+   its fixed child-storage member without lying about cardinality.
+5. **`PolymorphicStorage`** describes the private `(type, id)` columns owned by
+   the relation.
+
+Connect/create become single-target after discriminator resolution; disconnect
+is storage-only. Reads remain genuinely polymorphic because the discriminator
+is known only from each row.
+
+### Relative difficulty after the engine changes
+
+| Concern | Effect of the current architecture |
+|---|---|
+| Direct writes | Easier: lower once, then reuse the record compilers and existing branch/guard machinery |
+| Inverse nested create | Easier: fixed discriminator plus existing field-bound parent identity |
+| Direct include/filter | Similar inherent complexity: one target branch per configured variant |
+| Strict hydration | More explicit than the old plan, but safer; target-specific shapes cannot be skipped |
+| Recursive public typing | Hardest remaining risk: exact values plus exhaustive selective unions must pass Y0 before production work |
+| Private storage/migrations | Slightly harder than the old plan admitted: hidden columns, stable member history, and retarget detection need explicit owners |
+| Broad inverse writes | Still hard: every membership probe and write needs both the id correlation and discriminator predicate |
+| Navigation | Fewer owners, but the remaining compiler files are denser |
+
+No new runtime step kind, adapter execution protocol, database round trip, or
+generic mutation framework is needed. Production implementation must still
+stop before Y1 if the exact `values` argument or selective recursive result
+mapper collapses to `any`, triggers TS2589, or materially regresses type-check
+time.
+
+## 2. Scope
+
+### V1 feature surface
+
+V1 supports:
+
+- a direct optional or required polymorphic to-one relation;
+- inverse `oneToMany` reads;
+- direct include/select;
+- direct type-correlated filters;
+- inverse include, relation filters, and relation count;
+- direct `connect`, `create`, and `disconnect`;
+- inverse nested `create`;
+- one SQL statement for a read with a polymorphic include;
+- application-level integrity with generated private columns and an index.
+
+### Explicitly outside V1
+
+- compound target primary keys;
+- target primary keys with a database-native type override;
+- direct update-through, `set`, `upsert`, and `connectOrCreate`;
+- relation payloads inside `createMany`; a model with a required direct
+  polymorphic relation has no valid scalar-only `createMany` row in V1;
+- inverse connect/disconnect/delete/set/update/upsert;
+- polymorphic many-to-many storage;
+- database foreign-key constraints across target tables;
+- ORM-emulated referential actions;
+- untyped `is` filters that search every target;
+- order-by through a direct polymorphic target;
+- inverse `oneToOne` (portable mixed-cardinality uniqueness needs a separate
+  design);
+- a semantic `adapter.polymorphic` namespace;
+- a new query-engine runtime step or strategy framework.
+
+Unsupported mutation verbs are absent from the validation schema. The query
+engine must not duplicate those refusals with a second guard.
+
+## 3. Public schema model
+
+### Direct side
+
+```ts
 const comment = s.model({
   id: s.string().id().ulid(),
   body: s.string(),
-  
-  // Polymorphic relation definition
   commentable: s.polymorphic(() => ({
-    post: post,
-    video: video,
-    photo: photo,
-  })),
+    post,
+    video,
+    photo,
+  })).name("commentableTarget"),
 });
 ```
 
-**Why this shape?**
+This short form is available only if Y0 chooses public map keys as stored
+values. Under the recommended stable-value contract, use the explicit form
+below.
 
-| Aspect | Rationale |
-|--------|-----------|
-| **Arrow function wrapper** | Prevents circular dependency issues (lazy evaluation) |
-| **Object with named keys** | Keys become the discriminator values (`commentable_type: "post" \| "video" \| "photo"`) |
-| **Type inference** | TypeScript can infer the union type from the object keys and model types |
+The map key is the public discriminator used by query inputs and result
+narrowing. The stored value is governed by the discriminator-durability decision
+in §12.
 
-**What gets generated in the database:**
+The recommended durable-value surface is:
 
-```sql
--- Two columns are auto-generated:
-commentable_type VARCHAR(255) NOT NULL, -- "post" | "video" | "photo"
-commentable_id   VARCHAR(26) NOT NULL,  -- ULID or whatever the target's PK type is
-
--- Composite index for efficient lookups
-INDEX idx_commentable (commentable_type, commentable_id)
+```ts
+commentable: s.polymorphic(
+  () => ({ post, video, photo }),
+  {
+    values: {
+      post: "content.post.v1",
+      video: "content.video.v1",
+      photo: "content.photo.v1",
+    },
+  }
+).name("commentableTarget")
 ```
 
-### Inverse Side ("Has Many" through polymorphic)
+The object keys remain the public discriminator. `values` contains the immutable
+database spelling. Y0 must prove that contextual typing this second argument does
+not force recursive model getters to resolve early. If it does, the feature stops
+for a public-API redesign; the implementation must not weaken the target map to a
+string index signature.
 
-```typescript
+An optional relation uses the normal chainable form:
+
+```ts
+commentable: s
+  .polymorphic(() => ({ post, video, photo }), {
+    values: {
+      post: "content.post.v1",
+      video: "content.video.v1",
+      photo: "content.photo.v1",
+    },
+  })
+  .name("commentableTarget")
+  .optional()
+```
+
+### Inverse side
+
+The V1 inverse remains an ordinary `oneToMany` relation whose `.name()`
+identifies the owning polymorphic relation:
+
+```ts
 const post = s.model({
   id: s.string().id().ulid(),
-  title: s.string(),
-  
-  // No explicit name needed - VibORM infers from polymorphic key
-  comments: s.oneToMany(() => comment),
+  comments: s.oneToMany(() => comment).name("commentableTarget"),
 });
 ```
 
-**Inference Logic:**
+`.name()` keeps its existing meaning: it is a relation-pairing label, not the
+model field key. The direct polymorphic relation and inverse ordinary relation
+must carry the same label when disambiguation is needed. When exactly one
+polymorphic relation on the target contains the source model, the pairing may be
+inferred regardless of the label. When zero or more than one candidate exists,
+schema validation requires one matching explicit label. Code must not silently
+treat `.name("commentable")` as a lookup of the field named `commentable`.
 
-When defining `s.oneToMany(() => comment)` on `post`, VibORM:
+Inference compares registered model identity and configured target entries. It
+must not lowercase model names or discriminator keys.
 
-1. Inspects the `comment` model
-2. Finds polymorphic relations
-3. Looks for a key matching `"post"` (the current model's name)
-4. If found → automatically links to that polymorphic relation
+Two public discriminator keys may target the same model for a direct-only
+relation. They are distinct public/storage members. Such a relation cannot have
+an inverse in V1: `.name()` identifies the owning relation, not one member inside
+it, so the source model would not determine which discriminator to correlate.
+Schema validation rejects inverse binding when the source model occurs more than
+once in the chosen target map.
 
-```typescript
-// This just works - "post" key exists in commentable's polymorphic definition
-comments: s.oneToMany(() => comment),
+### Self-reference
+
+Self-polymorphism is not rejected by design. A relation such as a threaded
+comment target is legal unless the Y0 recursive-carrier spike proves a concrete
+TypeScript recursion failure. A speculative `P006` ban must not ship.
+
+### Schema-type separation
+
+`"polymorphic"` does not join the current ordinary `RelationType` union, and
+`PolymorphicRelation` is not added to `AnyRelation`. Those types promise one
+target getter and are consumed by exhaustive ordinary-relation switches. The
+model therefore gains a third field category explicitly:
+
+```ts
+type AnyModelField = Scalar | AnyRelation | AnyPolymorphicRelation;
+type ModelShape = Record<string, AnyModelField>;
 ```
 
-**When is `name` required?**
+Add a separate `PolymorphicRelationState`/`AnyPolymorphicRelation` and store
+instances in `ModelState.polymorphicRelations`. `ScalarKeys` and ordinary
+`RelationKeys` keep their current meanings. Add `PolymorphicRelationKeys` and
+compose a broader projectable-relation key set only at public select/include,
+filter, operation-schema, and result-type boundaries. No scalar extractor may
+classify an unknown non-ordinary field as a scalar merely because it is not an
+`AnyRelation`.
 
-Only when there's **ambiguity** - i.e., multiple polymorphic relations on the same model that reference the current model:
+Every consumer of `ModelShape` must be censused before this union changes. The
+critical consumers are model extraction/hydration, create/update/where/select
+schema construction, client result inference, query scope, and scalar/relation
+runtime predicates. Ordinary topology, builders, and result parsing remain
+honestly typed to `AnyRelation`.
 
-```typescript
-const comment = s.model({
-  // Two polymorphic relations, BOTH include post
-  subject: s.polymorphic(() => ({
-    post: post,
-    video: video,
-  })),
-  mentionedIn: s.polymorphic(() => ({
-    post: post,      // Also references post!
-    article: article,
-  })),
-});
+### Separate inverse binding
 
-const post = s.model({
-  // ❌ Ambiguous: which polymorphic? Error without name
-  // comments: s.oneToMany(() => comment),
-  
-  // ✅ Explicit: specify which polymorphic relation
-  subjectComments: s.oneToMany(() => comment, { name: "subject" }),
-  mentionedComments: s.oneToMany(() => comment, { name: "mentionedIn" }),
-});
+Do not extend `GetInverseRelationMap` or `getInverseRelationMap`. Their contract
+is an ordinary relation's public FK-field tuple. A polymorphic inverse has no
+public FK tuple; it needs the selected owner field and member:
+
+```ts
+interface PolymorphicInverseBinding<
+  TRelationKey extends string = string,
+  TPublicType extends string = string,
+  TStoredType extends string = string,
+> {
+  readonly relationKey: TRelationKey;
+  readonly publicType: TPublicType;
+  readonly storedType: TStoredType;
+}
 ```
 
-**Error handling:**
+Add a type-level `GetPolymorphicInverseBinding` and a runtime
+`getPolymorphicInverseBinding` sibling. Both scan the target model's separate
+`polymorphicRelations` map, apply the same sole-candidate/pairing-label/member
+rules, and return the same relation key and member. The type-level result drives
+inverse nested-create omission; the runtime result resolves the private storage
+descriptor and inverse query/write edge. It must never return generated column
+names or masquerade as the ordinary FK-field tuple.
 
-| Scenario | Behavior |
-|----------|----------|
-| One polymorphic with matching key | ✅ Auto-infer |
-| Multiple polymorphic with matching key | ❌ Error: "Ambiguous relation, specify `name`" |
-| No polymorphic with matching key | ❌ Error: "No polymorphic relation found for 'post'" |
+## 4. Public query and mutation shapes
 
-This matches how Prisma handles regular relations - explicit naming only when ambiguous.
+### Result
 
----
-
-## 2. Return Type Shape
-
-### The Discriminated Union Pattern
-
-When including a polymorphic relation, the return type should be a **discriminated union**:
-
-```typescript
-type CommentableResult = 
+```ts
+type Commentable =
   | { type: "post"; data: Post }
   | { type: "video"; data: Video }
   | { type: "photo"; data: Photo };
 ```
 
-**Why this shape?**
+An optional relation returns `Commentable | null`. A required relation remains
+non-null in the public type; a missing required target is a runtime integrity
+error, not an undocumented `null`.
 
-1. **Type narrowing**: TypeScript can narrow the type based on `type` field
-2. **Explicit discrimination**: Clear which variant you're dealing with
-3. **Consistent with JSON APIs**: Common pattern in REST/GraphQL responses
-4. **Runtime type information**: The `type` field is useful for rendering logic
+### Include
 
-```typescript
-const comments = await orm.comment.findMany({
-  include: { commentable: true }
+```ts
+await orm.comment.findMany({
+  include: {
+    commentable: true,
+  },
 });
-
-for (const comment of comments) {
-  switch (comment.commentable.type) {
-    case "post":
-      console.log(comment.commentable.data.title); // TypeScript knows this is Post
-      break;
-    case "photo":
-      console.log(comment.commentable.data.url); // TypeScript knows this is Photo
-      break;
-    case "video":
-      console.log(comment.commentable.data.duration); // TypeScript knows this is Video
-      break;
-  }
-}
 ```
 
-### Type Inference Flow
+`false` omits the relation, as it does for an ordinary include/select.
 
-```typescript
-// From the polymorphic definition:
-s.polymorphic(() => ({
-  post: post,    // key: "post", model: post
-  video: video,  // key: "video", model: video
-  photo: photo,  // key: "photo", model: photo
-}))
+Per-target selection is also supported:
 
-// Infer:
-type PolymorphicKeys = "post" | "video" | "photo";
-type PolymorphicResult<K extends PolymorphicKeys> = 
-  K extends "post" ? { type: "post"; data: InferModelOutput<typeof Post> } :
-  K extends "video" ? { type: "video"; data: InferModelOutput<typeof Video> } :
-  K extends "photo" ? { type: "photo"; data: InferModelOutput<typeof Photo> } :
-  never;
-
-// Final result type:
-type CommentWithCommentable = {
-  id: string;
-  body: string;
-  commentable: PolymorphicResult<PolymorphicKeys>;
-};
-```
-
----
-
-## 3. How Active Record Handles the Cons
-
-### Con: No Database-Level Foreign Key Constraints
-
-**Active Record's approach:** They don't solve this at the database level. Instead:
-
-1. **Application-level validation**: `validates :commentable, presence: true`
-2. **Dependent destruction**: `has_many :comments, as: :commentable, dependent: :destroy`
-3. **Orphan cleanup**: Background jobs or callbacks to handle orphaned polymorphic records
-
-**For VibORM:**
-- We should provide validation at the schema level
-- Consider a `cleanup` utility for orphaned records
-- Document that referential integrity is application-enforced
-
-### Con: Type Column Storage Overhead
-
-**Active Record's approach:** 
-- Uses `VARCHAR` by default (inefficient)
-- Some gems offer `ENUM` or `TINYINT` mapping for production
-
-**For VibORM:**
-- Default to `VARCHAR` for simplicity
-- Offer an option for `ENUM` type in PostgreSQL: `s.polymorphic(..., { typeStorage: "enum" })`
-- Consider integer mapping for high-volume tables
-
-### Con: Complex Queries
-
-**Active Record's approach:**
-- Multiple queries by default (N+1 safe with `includes`)
-- `eager_load` forces LEFT JOINs when needed
-- Some use `UNION ALL` for complex polymorphic queries
-
-**For VibORM:**
-- Default to multi-query approach (simpler, works across databases)
-- Optimize with batched queries per type
-- Consider `UNION ALL` for advanced use cases
-
-### Con: Indexing Challenges
-
-**Active Record's approach:**
-- Composite index on `(type, id)` is standard
-- Some add partial indexes per type for high-traffic queries
-
-**For VibORM:**
-- Auto-generate composite index by default
-- Document partial index patterns for optimization
-
----
-
-## 4. Alternative Patterns: STI vs CTI
-
-### Single Table Inheritance (STI)
-
-**Concept:** All variants share ONE table with a `type` discriminator column.
-
-```sql
--- One table for all "content" types
-CREATE TABLE contents (
-  id BIGINT PRIMARY KEY,
-  type VARCHAR(255) NOT NULL,  -- "Post", "Photo", "Video"
-  
-  -- Shared fields
-  title VARCHAR(255),
-  created_at TIMESTAMP,
-  
-  -- Post-specific
-  body TEXT,
-  
-  -- Photo-specific  
-  url VARCHAR(500),
-  width INT,
-  height INT,
-  
-  -- Video-specific
-  duration INT,
-  thumbnail_url VARCHAR(500)
-);
-```
-
-**In VibORM (hypothetical API):**
-
-```typescript
-const content = s.model({
-  id: s.string().id().ulid(),
-  title: s.string(),
-  createdAt: s.datetime().default("now"),
-}).sti({
-  discriminator: "type",
-  variants: {
-    post: {
-      body: s.string(),
-    },
-    photo: {
-      url: s.string(),
-      width: s.number().optional(),
-      height: s.number().optional(),
-    },
-    video: {
-      duration: s.number(),
-      thumbnailUrl: s.string().optional(),
+```ts
+await orm.comment.findMany({
+  include: {
+    commentable: {
+      post: { select: { id: true, title: true } },
+      video: { include: { channel: true } },
+      photo: { omit: { metadata: true } },
     },
   },
 });
 ```
 
-**Pros of STI:**
-- ✅ Simple queries (one table)
-- ✅ Easy to query across all variants
-- ✅ No JOINs needed
-- ✅ Works well when variants share most fields
+The object is a projection override, not a target filter. Each target node uses
+the existing mutually exclusive target projection forms (`select`, `include`,
+or `omit`) and their normal nested arguments. A configured variant omitted from
+the object uses that target's default scalar projection, so the result remains
+an exhaustive union. Use `where.commentable.type` to restrict which target type
+matches.
 
-**Cons of STI:**
-- ❌ Many nullable columns (sparse data)
-- ❌ Wasted space for variant-specific fields
-- ❌ Adding fields to one variant affects all
-- ❌ Validation becomes complex (conditional required fields)
-- ❌ Doesn't scale well with many variants or many variant-specific fields
+The result union narrows each `data` member to that variant's requested shape.
+Unknown target keys are rejected through the public client/driver call surface.
 
-**When to use STI:**
-- Variants share 70%+ of fields
-- Few variants (2-5)
-- Variant-specific fields are small/few
-- Frequent cross-variant queries
+### Direct filter
 
----
+V1 uses correlated filters. `is` and `isNot` require a discriminator:
 
-### Class Table Inheritance (CTI)
+```ts
+where: {
+  commentable: {
+    type: "post",
+    is: { title: { contains: "TypeScript" } },
+  },
+}
+```
 
-**Concept:** Shared base table + separate table per variant.
+Supported direct forms are:
+
+```ts
+commentable: null
+commentable: { type: "post" }
+commentable: { type: "post", is: { ...postWhere } }
+commentable: { type: "post", isNot: { ...postWhere } }
+```
+
+The bare `null` form exists only for an optional polymorphic relation.
+
+The target schema is selected by `type` before the nested filter is parsed.
+`is` and `isNot` are mutually exclusive; `{ type, is, isNot }` is rejected at
+the schema boundary. There is no untyped OR-across-targets filter in V1.
+
+### Direct create input
+
+The relation payload is an **exact one-intent union**:
+
+```ts
+type PolymorphicCreateInput =
+  | { connect: { type: "post"; where: PostWhereUnique } }
+  | { create: { type: "post"; data: PostCreateInput } }
+  | { connect: { type: "video"; where: VideoWhereUnique } }
+  | { create: { type: "video"; data: VideoCreateInput } };
+```
+
+Examples:
+
+```ts
+data: {
+  body: "Useful",
+  commentable: {
+    connect: { type: "post", where: { id: "post_123" } },
+  },
+}
+```
+
+```ts
+data: {
+  body: "Useful",
+  commentable: {
+    create: {
+      type: "post",
+      data: { title: "New post" },
+    },
+  },
+}
+```
+
+`connect` and `create` cannot be present together. This prevents one payload
+from selecting two targets or two discriminator values. The nested selector is
+under `where`; flat-merging it beside `type` would collide with a target field
+named `type` and would break compound unique selector objects.
+
+A required direct polymorphic relation must be present on direct record create.
+An optional one may be omitted; omission writes both private columns as null.
+The only required-field omission is the inverse nested-create path below, where
+the parent owns and injects the edge.
+
+### Direct update input
+
+```ts
+type PolymorphicUpdateInput =
+  | { connect: { type: "post"; where: PostWhereUnique } }
+  | { connect: { type: "video"; where: VideoWhereUnique } }
+  | { disconnect: true };
+```
+
+Disconnect is exposed only for an optional relation.
+
+### Inverse write input
+
+V1 supports nested create:
+
+```ts
+await orm.post.update({
+  where: { id: "post_123" },
+  data: {
+    comments: {
+      create: [{ body: "New comment" }],
+    },
+  },
+});
+```
+
+The source fixes the target variant. The compiler writes the parent's id and
+the stored discriminator as one relation-owned storage assignment.
+
+The inverse binding is resolved while operation schemas are built by
+`GetPolymorphicInverseBinding`, not by the ordinary FK-tuple helper. Its nested
+create schema omits the returned child `relationKey` because the parent injects
+that edge. The runtime sibling returns the same `publicType`/`storedType` member
+and private storage descriptor. The same binding restricts the inverse mutation
+object to `create`; it must not inherit ordinary to-many
+connect/createMany/update/delete/set/upsert keys merely because its public
+relation class is `oneToMany`.
+
+Required direct create uses the existing `requiresOneOfKeySets` mechanism with
+one allowed set: the polymorphic relation key itself. There is no public scalar
+FK alternative. Inverse nested create omits that relation key from the child's
+full create schema; it does not omit or invent hidden scalar names.
+
+Top-level and nested `createMany` remain scalar-only. If their target model has
+any required direct polymorphic relation, their args schema has no valid input
+and rejects before query planning with:
+
+```text
+createMany is not available for model '<model>' because required polymorphic relation '<relation>' cannot be supplied by a scalar-only bulk row. Use create instead.
+```
+
+When several required polymorphic fields exist, `<relation>` is the first one
+in model declaration order. Optional polymorphic fields do not block
+`createMany`; omitting their nullable private columns stores null. V1 does not
+silently defer a required-column failure to the database and does not invent a
+bulk relation envelope.
+
+## 5. Private storage contract
+
+### Generated columns
+
+For a required relation, the logical storage is:
 
 ```sql
--- Base table with shared fields
-CREATE TABLE contents (
-  id BIGINT PRIMARY KEY,
-  type VARCHAR(255) NOT NULL,
-  title VARCHAR(255),
-  created_at TIMESTAMP
-);
-
--- Variant-specific tables (FK to base)
-CREATE TABLE posts (
-  id BIGINT PRIMARY KEY REFERENCES contents(id),
-  body TEXT
-);
-
-CREATE TABLE photos (
-  id BIGINT PRIMARY KEY REFERENCES contents(id),
-  url VARCHAR(500),
-  width INT,
-  height INT
-);
-
-CREATE TABLE videos (
-  id BIGINT PRIMARY KEY REFERENCES contents(id),
-  duration INT,
-  thumbnail_url VARCHAR(500)
-);
+commentable_type <portable text> NOT NULL
+commentable_id   <compatible target-pk type> NOT NULL
 ```
 
-**In VibORM (hypothetical API):**
+The type column uses one internal `StringScalar` with no native override,
+default, or auto-generation. Existing migration mapping produces `TEXT` on
+PostgreSQL, SQLite, and libSQL, and the existing keyed-text finalizer produces
+`VARCHAR(191)` on MySQL. Stored discriminator values must match
+`^[A-Za-z0-9][A-Za-z0-9._:-]{0,190}$`; this is the portable indexed limit and
+is validated at schema definition. V1 exposes no enum or integer discriminator
+mode.
 
-```typescript
-const content = s.model({
-  id: s.string().id().ulid(),
-  title: s.string(),
-  createdAt: s.datetime().default("now"),
-}).cti({
-  discriminator: "type",
-});
+For an optional relation both are nullable. VibORM writes or clears them
+atomically. V1 does not add a database CHECK: the current migration snapshot and
+diff IR have no check-constraint primitive, and adding that cross-dialect
+facility only for this relation would enlarge the feature substantially.
+Externally introduced half-null storage is detected as an integrity error by the
+strict result parser.
 
-const post = content.extend({
-  body: s.string(),
-});
+Generated physical names are fixed:
 
-const photo = content.extend({
-  url: s.string(),
-  width: s.number().optional(),
-  height: s.number().optional(),
-});
-
-const video = content.extend({
-  duration: s.number(),
-  thumbnailUrl: s.string().optional(),
-});
+```text
+type column: <relationField>_type
+id column:   <relationField>_id
+index:       <mappedOwnerTable>_<relationField>_poly_idx
 ```
 
-**Pros of CTI:**
-- ✅ No nullable columns for variant fields
-- ✅ Proper normalization
-- ✅ Can add variant fields independently
-- ✅ Database constraints work properly
-- ✅ Scales well with many variants
+All three names must pass the existing ASCII/63-byte
+`isValidSchemaIdentifier` rule and must not collide with public columns,
+constraints, indexes, or another generated storage object. V1 does not
+silently truncate or hash names; P008 asks the user to shorten the mapped table
+name or relation field.
 
-**Cons of CTI:**
-- ❌ Requires JOINs for full record
-- ❌ More complex queries
-- ❌ Insert/update touches multiple tables
-- ❌ Cross-variant queries need UNION
+Every relation receives the composite index:
 
-**When to use CTI:**
-- Variants have many distinct fields
-- Many variants expected
-- Need strict data integrity
-- Variant-specific fields are large/many
+```sql
+CREATE INDEX ... ON comments (commentable_type, commentable_id);
+```
 
----
+There is no cross-table foreign-key constraint.
 
-### Comparison Table
+### Why the columns cannot be public scalars
 
-| Aspect | Polymorphic | STI | CTI |
-|--------|-------------|-----|-----|
-| **Use case** | Model belongs to many types | Variants of one concept | Variants of one concept |
-| **Tables** | One per model | One for all | Base + one per variant |
-| **FK constraints** | ❌ No | ✅ Yes | ✅ Yes |
-| **Nullable columns** | Minimal | Many | None |
-| **Query complexity** | Medium | Low | High |
-| **Extensibility** | High | Medium | High |
-| **Type safety** | Discriminated union | Discriminated union | Separate types |
+The generated columns must not enter `model["~"].state.scalars`. Doing so would
+leak them into:
 
----
+- create and update validation;
+- default select and result types;
+- scalar filters and ordering;
+- public model field inference;
+- ordinary migration field iteration.
 
-## 5. Implementation Roadmap
+They are relation-owned physical storage.
 
-### Layer Impact Analysis
+### Required internal descriptor
 
-Before diving into phases, here's how polymorphic relations affect each of VibORM's 12 layers:
+The schema layer exposes one cached `PolymorphicStorage` descriptor per
+polymorphic field:
 
-| Layer | Location | Affected? | Impact |
-|-------|----------|-----------|--------|
-| **L1: Validation** | `src/validation/` | ✅ Yes | Add `v.discriminatedUnion()` helper |
-| **L2: Scalars** | `src/schema/scalars/` | ❌ No | Polymorphic is a relation type, not a scalar type |
-| **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | ✅ Yes | Add polymorphic to where, create, update, select schemas |
-| **L4: Relations** | `src/schema/relation/` | ✅ Yes | New `PolymorphicRelation` class |
-| **L5: Schema Validation** | `src/schema/validation/` | ✅ Yes | Add P001-P007 validation rules |
-| **L6: Query Engine** | `src/query-engine/` | ✅ Yes | Handle polymorphic in all builders |
-| **L7: Adapters** | `src/adapters/` | ✅ Yes | Add `polymorphic.buildTypeCase()` methods |
-| **L8: Drivers** | `src/drivers/` | ❌ No | No changes - drivers handle raw SQL execution |
-| **L9: Client** | `src/client/` | ✅ Yes | Add `InferPolymorphicResult` type helpers |
-| **L10: Cache** | `src/cache/` | ✅ Yes | Handle cache invalidation for polymorphic targets |
-| **L11: Instrumentation** | `src/instrumentation/` | ✅ Yes | Add span attributes for polymorphic operations |
-| **L12: Migrations** | `src/migrations/` | ✅ Yes | Generate DDL for `_type` and `_id` columns |
-
-**Layers NOT affected:**
-- **L2: Scalars** - Polymorphic is a relation concept, not a scalar type. No changes needed.
-- **L8: Drivers** - Drivers execute raw SQL. The query engine and adapters handle the polymorphic SQL generation.
-
----
-
-### Phase 1: Schema Definition
-
-**Goal:** Enable defining polymorphic relations in the schema.
-
-#### Current Architecture Overview
-
-The operation schema system has two layers:
-
-1. **Model Operation Schemas** (`src/validation/model/`)
-   - `core/`: Building blocks (filter, create, update, select, where, orderby)
-   - `args/`: Operation argument schemas (findMany, create, update, etc.)
-   - Uses `forEachScalarField()` and `forEachRelation()` to iterate fields
-   - Composes relation schemas through `SchemaRegistry`
-
-2. **Relation Operation Schemas** (`src/validation/relations/`)
-   - `filter.ts`: `toOneFilterFactory`, `toManyFilterFactory` → `{ is, isNot }` / `{ some, every, none }`
-   - `create.ts`: `toOneCreateFactory`, `toManyCreateFactory` → `{ create, connect, connectOrCreate }`
-   - `update.ts`: `toOneUpdateFactory`, `toManyUpdateFactory` → `{ create, connect, disconnect, ... }`
-   - `select-include.ts`: `toOneSelectFactory`, `toManySelectFactory`, `toOneIncludeFactory`, `toManyIncludeFactory`
-   - `helpers.ts`: `getTargetWhereSchema`, `getTargetCreateSchema`, etc. (lazy getters)
-
-**Key insight:** The `RelationState` interface drives everything:
-
-```typescript
-interface RelationState {
-  type: "oneToOne" | "oneToMany" | "manyToOne" | "manyToMany";
-  fields?: string[];
-  references?: string[];
-  // Referential actions deliberately absent in v1: no FK constraint can exist,
-  // so onDelete/onUpdate would require ORM-emulated cascades — a separate,
-  // fully-specced feature (see §8). Shipping the knobs unimplemented is worse
-  // than not having them.
-  optional?: boolean;
-  through?: string;
-  getter: () => Model;  // Single target model
+```ts
+interface PolymorphicStorage {
+  readonly relationName: string;
+  readonly ownerModel: Model<any>;
+  readonly indexName: string;
+  readonly typeColumn: {
+    readonly name: string;
+    readonly scalar: Scalar;
+    readonly nullable: boolean;
+  };
+  readonly idColumn: {
+    readonly name: string;
+    readonly scalar: Scalar;
+    readonly nullable: boolean;
+  };
+  readonly members: ReadonlyMap<
+    string,
+    {
+      readonly storedType: string;
+      readonly targetModel: Model<any>;
+      readonly referencedField: string;
+    }
+  >;
 }
 ```
 
-For polymorphic, we need a **new relation type** with **multiple target models**.
+`typeColumn.scalar` owns discriminator storage/canonicalization.
+`idColumn.scalar` is the canonical id storage/cast owner shared by every
+target. V1 requires one compatible single-column target primary key per member.
+`relationName` is the hydrated model field key used by query-engine messages;
+it is not the optional `.name()` pairing label. Generated physical names also
+derive from the field key, never from that label.
 
----
+The descriptor is not a query scope, branch strategy, parent identity,
+`BoundRelation`, or SQL fragment.
 
-#### New Files to Create
+### Atomic storage write
 
-**1. `src/schema/relation/polymorphic-relation.ts`**
+Record compilers need an explicit internal channel that writes the two physical
+columns together:
 
-```typescript
-// New relation class for polymorphic "belongs to"
-
-// The getter returns an object mapping keys to models (not getters)
-// This matches the API: s.polymorphic(() => ({ post: post, video: video }))
-export type PolymorphicModelsGetter<T extends Record<string, AnyModel>> = () => T;
-
-export interface PolymorphicRelationState<
-  T extends Record<string, AnyModel> = Record<string, AnyModel>
-> {
-  type: "polymorphic";
-  getter: PolymorphicModelsGetter<T>;  // Lazy getter for circular dep handling
-  optional?: boolean;
-  // Referential actions deliberately absent in v1: no FK constraint can exist,
-  // so onDelete/onUpdate would require ORM-emulated cascades — a separate,
-  // fully-specced feature (see §8). Shipping the knobs unimplemented is worse
-  // than not having them.
-}
-
-export class PolymorphicRelation<
-  T extends Record<string, AnyModel>
-> {
-  private _names: SchemaNames = {};
-  
-  constructor(private state: PolymorphicRelationState<T>) {}
-
-  get "~"() {
-    return {
-      state: this.state,
-      names: this._names,
-      schemas: getPolymorphicRelationSchemas(this.state),
+```ts
+type PolymorphicStorageValue<TId> =
+  | {
+      readonly kind: "linked";
+      readonly storage: PolymorphicStorage;
+      readonly storedType: string;
+      readonly referencedField: string;
+      readonly id: TId;
+    }
+  | {
+      readonly kind: "empty";
+      readonly storage: PolymorphicStorage;
     };
-  }
-
-  // Helper methods - resolve the getter when needed
-  getModels(): T { 
-    return this.state.getter(); 
-  }
-  
-  getKeys(): (keyof T & string)[] { 
-    return Object.keys(this.getModels()) as (keyof T & string)[]; 
-  }
-  
-  hasKey(key: string): key is keyof T & string { 
-    return key in this.getModels(); 
-  }
-  
-  getModel<K extends keyof T>(key: K): T[K] {
-    return this.getModels()[key];
-  }
-}
-
-// Factory function - matches the proposed API
-export const polymorphic = <T extends Record<string, AnyModel>>(
-  getter: () => T
-) => {
-  return new PolymorphicRelation<T>({ type: "polymorphic", getter });
-};
 ```
 
-**Usage matches the proposed API:**
+The compiler holds
+`PolymorphicStorageValue<FinalReferenceSource>` and resolves the id before the
+SQL builder receives `PolymorphicStorageValue<unknown>`. This keeps the neutral
+builders from importing the write engine and creating a runtime cycle.
 
-```typescript
-// The outer () => is for lazy evaluation
-// Inside, models are direct references (not getters)
-commentable: s.polymorphic(() => ({
-  post: post,      // Direct model, not () => post
-  video: video,
-  photo: photo,
-}))
-```
+Private columns cannot use a model-field lookup. Extend the existing
+destination-scalar lowering owner with a scalar-object entry point (for example
+`referenceSqlForScalar(engine, scalar, label, value)`), and make the ordinary
+model/field entry point delegate to the same implementation. The polymorphic
+path passes `typeColumn.scalar` or `idColumn.scalar` directly. Do not duplicate
+literal/cast logic or insert hidden fields into `model.state.scalars`.
 
-**2. `src/validation/relations/polymorphic/` (new directory)**
+The channel must:
 
-Following the existing pattern for relation schemas (`toOne*` / `toMany*`), create polymorphic equivalents:
+- append private storage after user scalar assignments and all existing ordinary
+  derived FK assignments;
+- order multiple polymorphic fields by their owner-model declaration order,
+  always type then id;
+- preserve a fixed column and parameter order;
+- canonicalize/cast both values through their descriptor scalars;
+- support literals, planning fields, final refs, transitions, and lookups where
+  the current record compilers already support them;
+- set both values on connect/create;
+- set both values to null on disconnect;
+- never expose a half-write API.
 
-```
-polymorphic/
-├── index.ts          # Main export: getPolymorphicRelationSchemas(), PolymorphicSchemas<S>
-├── types.ts          # Type helpers for polymorphic schemas
-├── filter.ts         # polymorphicFilterFactory - { type?, is?, isNot? }
-├── create.ts         # polymorphicCreateFactory - { connect, create }
-├── update.ts         # polymorphicUpdateFactory - { connect, disconnect? }
-├── select-include.ts # polymorphicSelectFactory, polymorphicIncludeFactory
-└── helpers.ts        # getModelSchema() - get schema from resolved model
-```
+Extending `buildValues` or `buildSet` with arbitrary unknown keys is forbidden.
+The channel is relation-specific physical storage, not a generic escape hatch.
 
-**Why no `order-by.ts` or `count-filter.ts`?**
+`referencedField` is required provenance. Planning-field and transitioned
+sources cannot be resolved correctly from an unlabelled value: they must read
+the selected target field while the destination cast is owned independently by
+`storage.idColumn.scalar`. The polymorphic lowerer constructs a temporary
+`ForeignKeyMember` from `storage.idColumn.name`, the storage value's own
+`referencedField`, and its id source, then calls the unchanged
+`foreignKeyWriteValue`/`foreignKeyWriteValueWith`. Callers pass the storage value
+only; they cannot supply a second, contradictory field name.
 
-- **Order by**: For regular `toOne` relations, you can order by nested fields (e.g., `orderBy: { author: { name: 'asc' } }`). For polymorphic, the target could be `post`, `video`, or `photo` - they have different fields, so nested ordering doesn't make sense. Ordering by `_type` column could be done directly in the where clause.
+## 6. Resolved edge and current write architecture
 
-- **Count filter**: The `countFilterFactory` is used for `_count: { select: { posts: true } }` on **to-many** relations. Polymorphic is a **to-one** relationship (a comment has ONE commentable), so count-filter doesn't apply. The _inverse_ relation (`post.comments`) uses the regular `toManyCountFilter`.
+### The resolved compiler fact
 
-**Schema Factory Summary:**
+After the relation schema has validated and transformed an input, direct
+connect/create select exactly one member:
 
-| Factory | Input Shape | Description |
-|---------|-------------|-------------|
-| `polymorphicFilterFactory` | `{ type?, is?, isNot? }` | Filter by type and/or target model conditions |
-| `polymorphicCreateFactory` | `{ connect?, create? }` | Connect to existing or create new target |
-| `polymorphicUpdateFactory` | `{ connect?, disconnect? }` | Change or remove polymorphic reference |
-| `polymorphicSelectFactory` | `true \| { [type]: boolean }` | Select polymorphic field |
-| `polymorphicIncludeFactory` | `true \| { [type]: { select?, include? } }` | Include with per-type nested options |
-
-**Bundle in `index.ts`:**
-
-```typescript
-// src/validation/relations/polymorphic/index.ts
-
-import type { PolymorphicRelationState } from "../../polymorphic-relation";
-import { polymorphicFilterFactory } from "./filter";
-import { polymorphicCreateFactory } from "./create";
-import { polymorphicUpdateFactory } from "./update";
-import { polymorphicSelectFactory, polymorphicIncludeFactory } from "./select-include";
-
-// =============================================================================
-// SCHEMA BUNDLE
-// =============================================================================
-
-export const getPolymorphicRelationSchemas = <S extends PolymorphicRelationState>(
-  state: S
-): PolymorphicSchemas<S> => {
-  return {
-    filter: polymorphicFilterFactory(state),
-    create: polymorphicCreateFactory(state),
-    update: polymorphicUpdateFactory(state),
-    select: polymorphicSelectFactory(state),
-    include: polymorphicIncludeFactory(state),
-  };
-};
-
-// =============================================================================
-// TYPE INFERENCE
-// =============================================================================
-
-export type PolymorphicSchemas<S extends PolymorphicRelationState> = {
-  filter: ReturnType<typeof polymorphicFilterFactory<S>>;
-  create: ReturnType<typeof polymorphicCreateFactory<S>>;
-  update: ReturnType<typeof polymorphicUpdateFactory<S>>;
-  select: ReturnType<typeof polymorphicSelectFactory<S>>;
-  include: ReturnType<typeof polymorphicIncludeFactory<S>>;
-};
-
-// Re-export all factories
-export {
-  polymorphicFilterFactory,
-  polymorphicCreateFactory,
-  polymorphicUpdateFactory,
-  polymorphicSelectFactory,
-  polymorphicIncludeFactory,
-};
-```
-
----
-
-#### Files to Modify
-
-**1. `src/schema/relation/relation.ts`**
-
-ToMany relations already expose a chainable `.name()` (`src/schema/index.ts:33`) — wire it as the polymorphic back-reference disambiguator; no new option is added:
-
-```typescript
-// Current:
-export const oneToMany = <G extends Getter>(
-  getter: G,
-  state?: Omit<RelationState, "type" | "through" | "A" | "B" | "getter">
-) => { ... };
-
-// Modified:
-export interface RelationOptions {
-  fields?: string[];
-  references?: string[];
-  // Referential actions deliberately absent in v1: no FK constraint can exist,
-  // so onDelete/onUpdate would require ORM-emulated cascades — a separate,
-  // fully-specced feature (see §8). Shipping the knobs unimplemented is worse
-  // than not having them.
-  optional?: boolean;
-  name?: string;  // NEW: For polymorphic back-reference disambiguation
-}
-
-export const oneToMany = <G extends Getter>(
-  getter: G,
-  state?: RelationOptions
-) => { ... };
-```
-
-**2. `src/schema/model/model.ts`**
-
-Update `ModelState` to include polymorphic relations:
-
-```typescript
-export interface ModelState {
-  fields: ModelShape;
-  // ... existing fields ...
-  scalars: Record<string, Scalar>;
-  relations: Record<string, AnyRelation>;
-  polymorphicRelations: Record<string, PolymorphicRelation<any>>;  // NEW
-  uniques: Record<string, Scalar>;
+```ts
+interface ResolvedPolymorphicEdge {
+  readonly publicType: string;
+  readonly storedType: string;
+  readonly targetModel: Model<any>;
+  readonly referencedField: string;
+  readonly storage: PolymorphicStorage;
+  readonly relationInfo: RelationInfo;
 }
 ```
 
-Update `extractRelationMap()` helper to separate polymorphic from regular relations.
+For this direct fact, `relationInfo` is an internally coherent ordinary
+parent-held to-one view: its `type`, target model, and underlying relation state
+agree. It is not a `RelationInfo` whose outer tag says `manyToOne` while its
+relation state remains `polymorphic`.
 
-**3. `src/validation/model/core/utils.ts`**
+That view exists only for target-scoped program meaning, lookup/create reuse,
+messages, and OwnWrite. It is **not** the storage topology. When the companion
+map identifies a polymorphic program, the record compiler must not pass this
+view to `bindRelation`, `foreignKeyAssignments`, `getColumnName`, or ordinary FK
+nullability. It compiles the target branch and emits the explicit private
+storage assignment instead.
 
-Add iterator for polymorphic relations:
+An inverse relation cannot reuse the direct fact:
+the inverse's public topology is an ordinary child-held to-many relation into
+the storage-owning child, not a parent-held to-one view of the selected target.
+Use a separate resolved binding:
 
-```typescript
-// NEW
-export const forEachPolymorphicRelation = (
-  state: ModelState,
-  fn: (name: string, relation: PolymorphicRelation<any>) => void
-): void => {
-  for (const [name, relation] of Object.entries(state.polymorphicRelations)) {
-    fn(name, relation);
-  }
-};
+```ts
+interface ResolvedPolymorphicInverse {
+  readonly relationInfo: RelationInfo;
+  readonly childRelationKey: string;
+  readonly publicType: string;
+  readonly storedType: string;
+  readonly sourceReferencedField: string;
+  readonly storage: PolymorphicStorage;
+}
 ```
 
-**4. `src/validation/model/core/filter.ts`**
+Here `relationInfo` is the real ordinary inverse `oneToMany`,
+`storage.ownerModel` is its child model, and `sourceReferencedField` is the
+source-model field copied into the child's private id column. This fact contains
+no scope, alias, parent identity, SQL, or execution policy.
 
-Add polymorphic filter schema:
+`BoundRelation` remains topology-only. The discriminator literal does not belong
+inside it.
 
-```typescript
-// NEW: Build filter schema for polymorphic relations
-export const getPolymorphicFilter = <T extends ModelState>(state: T) => {
-  return getPolymorphicRelationSchemas(state.polymorphicRelations, "filter");
-};
-```
+Disconnect is targetless and must not fabricate a target:
 
-**5. `src/validation/model/core/select.ts`**
-
-Update `getSelectSchema` and `getIncludeSchema` to include polymorphic:
-
-```typescript
-export const getSelectSchema = <T extends ModelState>(state: T) => {
-  const scalarEntries = v.fromKeys(...);
-  const relationEntries = getRelationSchemas(state.relations, "select");
-  
-  // NEW: Polymorphic entries
-  const polymorphicEntries = v.fromObject(
-    state.polymorphicRelations, 
-    "select",
-    { optional: true }
-  );
-
-  return v.object({
-    ...scalarEntries.entries,
-    ...relationEntries.entries,
-    ...polymorphicEntries.entries,  // NEW
-    _count: countSchema,
-  });
-};
-```
-
-**6. `src/validation/model/core/create.ts`**
-
-Add polymorphic create entries:
-
-```typescript
-export const getPolymorphicCreate = <T extends ModelState>(state: T) => {
-  return getPolymorphicRelationSchemas(state.polymorphicRelations, "create");
-};
-
-export const getCreateSchema = <T extends ModelState>(state: T) => {
-  const scalarCreate = getScalarCreate(state);
-  const relationCreate = getRelationCreate(state);
-  const polymorphicCreate = getPolymorphicCreate(state);  // NEW
-  
-  return v.object({
-    ...scalarCreate.entries,
-    ...relationCreate.entries,
-    ...polymorphicCreate.entries,  // NEW
-  });
-};
-```
-
-**7. `src/validation/model/core/where.ts`**
-
-Add polymorphic where entries:
-
-```typescript
-export const getWhereSchema = <T extends ModelState>(state: T) => {
-  // ... existing scalar and relation filter entries ...
-  
-  // NEW: Polymorphic filter entries
-  const polymorphicEntries = v.fromObject(
-    state.polymorphicRelations,
-    "filter",
-    { optional: true }
-  );
-  
-  return v.object({
-    ...scalarFilterEntries.entries,
-    ...relationFilterEntries.entries,
-    ...polymorphicEntries.entries,  // NEW
-    AND: andOrNotSchema,
-    OR: andOrNotSchema,
-    NOT: andOrNotSchema,
-  });
-};
-```
-
----
-
-#### New Schema Types for Polymorphic (Properly Typed)
-
-The polymorphic schema factories need rigorous generic typing to ensure type inference flows correctly. Key challenges:
-
-1. **Mapped types over model keys** - Need to preserve literal types for discriminator
-2. **Union of target schemas** - Each branch must be typed independently
-3. **`v.fromObject()` generics** - Must specify `<ObjectType, SchemaPath, Options>` for inference
-
-**`src/validation/relations/polymorphic/types.ts`**
-
-```typescript
-import type { AnyModel } from "@schema/model";
-import type { InferInput, InferOutput, ModelCoreSchemas, VibSchema } from "@validation";
-
-// Models map is direct models, not getters
-// Matches: () => ({ post: Post, video: Video })
-export type PolymorphicModelsMap = Record<string, AnyModel>;
-
-// Extract keys as literal union
-export type PolymorphicKeys<T extends PolymorphicModelsMap> = keyof T & string;
-
-// Get schema type for a specific key and schema path
-type SchemaPath = "where" | "whereUnique" | "create" | "update" | "select" | "include" | "orderBy";
-
-export type SchemaForKey<
-  T extends PolymorphicModelsMap,
-  K extends keyof T,
-  P extends SchemaPath
-> = ModelCoreSchemas<T[K]>[P];
-
-// Infer where schema for a specific key
-export type PolymorphicWhereForKey<
-  T extends PolymorphicModelsMap,
-  K extends keyof T
-> = SchemaForKey<T, K, "where">;
-
-// Union of all where schemas (input types)
-export type PolymorphicWhereUnion<T extends PolymorphicModelsMap> = {
-  [K in keyof T]: InferInput<PolymorphicWhereForKey<T, K>>;
-}[keyof T];
-
-// Discriminated connect input per key: { type: K, ...whereUnique }
-export type PolymorphicConnectForKey<
-  T extends PolymorphicModelsMap,
-  K extends keyof T
-> = {
-  type: K;
-} & InferInput<SchemaForKey<T, K, "whereUnique">>;
-
-// Union of all connect options
-export type PolymorphicConnectUnion<T extends PolymorphicModelsMap> = {
-  [K in keyof T]: PolymorphicConnectForKey<T, K>;
-}[keyof T];
-
-// Discriminated create input per key: { type: K, data: CreateInput }
-export type PolymorphicCreateForKey<
-  T extends PolymorphicModelsMap,
-  K extends keyof T
-> = {
-  type: K;
-  data: InferInput<SchemaForKey<T, K, "create">>;
-};
-
-// Union of all create options
-export type PolymorphicCreateUnion<T extends PolymorphicModelsMap> = {
-  [K in keyof T]: PolymorphicCreateForKey<T, K>;
-}[keyof T];
-```
-
-**`src/validation/relations/polymorphic/filter.ts`**
-
-```typescript
-import type { PolymorphicRelationState } from "../../polymorphic-relation";
-import type { PolymorphicKeys, PolymorphicWhereForKey, PolymorphicModelsMap } from "./types";
-import v, { VibSchema, UnionSchema, ObjectSchema, EnumSchema } from "@validation";
-
-/**
- * Polymorphic filter with full type inference
- * 
- * Input type — a CORRELATED discriminated union. `is`/`isNot` are only legal
- * alongside `type`, so `{ type: "post", is: <video where> }` cannot typecheck,
- * and the runtime always knows which where-schema validates `is`:
- *
- *   | null                                                  // optional: not connected
- *   | { type: "post" | "video" | "photo" }                  // type-only filter
- *   | { type: "post"; is?: PostWhere; isNot?: PostWhere }
- *   | { type: "video"; is?: VideoWhere; isNot?: VideoWhere }
- *   | { type: "photo"; is?: PhotoWhere; isNot?: PhotoWhere }
- *
- * Untyped `is` (OR of per-type EXISTS) is deliberately NOT in v1 — it is both
- * a validation ambiguity (which schema parses the payload?) and a query the
- * composite index cannot serve. Lift it later if demanded.
- */
-export const polymorphicFilterFactory = <
-  T extends PolymorphicModelsMap,
-  S extends PolymorphicRelationState<T>
->(state: S) => {
-  type Keys = PolymorphicKeys<T>;
-  
-  // Resolve the getter to get actual models
-  const getModels = () => state.getter() as T;
-  
-  // Build type enum schema with literal keys preserved
-  const typeKeys = () => Object.keys(getModels()) as Keys[];
-  const typeSchema = v.enum<Keys, Keys[]>(typeKeys());
-  
-  // Build union of where schemas with proper typing
-  // Each model has its own where schema in SchemaRegistry
-  type WhereSchemas = { [K in Keys]: PolymorphicWhereForKey<T, K> };
-  
-  const buildWhereUnion = (): UnionSchema<WhereSchemas[Keys][]> => {
-    const models = getModels();
-    const schemas = Object.values(models).map((model) => {
-      // Get the where schema from the registry
-      return schemaRegistry.getModelSchemas(model).core.where;
-    }) as WhereSchemas[Keys][];
-    
-    return v.union(schemas);
-  };
-  
-  // Return fully typed object schema
-  return v.object({
-    type: typeSchema,
-    is: buildWhereUnion,  // Thunk for lazy evaluation
-    isNot: buildWhereUnion,
-  } as const);
-};
-
-// Infer the filter schema type
-export type PolymorphicFilterSchema<S extends PolymorphicRelationState> = 
-  ReturnType<typeof polymorphicFilterFactory<any, S>>;
-```
-
-**Decision (rev 2) — `connect` takes `{ type, where }`, not a flat merge.**
-Flat-merging whereUnique entries into the variant (`{ type: "post", id }`)
-collides with any target field literally named `type` and breaks composite
-unique selectors (`id_slug: {...}`). The v1 shape is:
-
-```typescript
-connect: { type: "post", where: { id: "post_123" } }
-```
-
-No collision, composite uniques survive, and P009 stays a storage-only
-concern. Examples elsewhere in this doc using the flat shape predate this
-decision. (`wrapInData` for `create` already made the equivalent call.)
-
-**`src/validation/relations/polymorphic/create.ts`**
-
-```typescript
-import type { PolymorphicRelationState } from "../../polymorphic-relation";
-import type { PolymorphicKeys, PolymorphicConnectForKey, ModelFromGetter } from "./types";
-import v, { VibSchema, ObjectSchema, LiteralSchema } from "@validation";
-import { getTargetWhereUniqueSchema, getTargetCreateSchema } from "../helpers";
-
-/**
- * Polymorphic create with discriminated union types
- * 
- * Input type: {
- *   connect?: { type: "post", id: string } | { type: "video", id: string };
- *   create?: { type: "post", data: PostCreate } | { type: "video", data: VideoCreate };
- * }
- */
-export const polymorphicCreateFactory = <
-  S extends PolymorphicRelationState<infer T>
->(state: S) => {
-  type T = ReturnType<S["getter"]>;  // illustrative — see Typing Constraint callout
-  type Keys = PolymorphicKeys<T>;
-  
-  // Build connect union: each variant is { type: K, ...whereUnique }
-  type ConnectVariant<K extends Keys> = ObjectSchema<{
-    type: LiteralSchema<K>;
-  }> & ReturnType<typeof getTargetWhereUniqueSchema>;
-  
-  const connectSchemas = (Object.entries(state.getter()) as [Keys, T[Keys]][]).map(
-    ([key, getter]) => {
-      const whereUnique = getTargetWhereUniqueSchema({ getter: getter as () => any })();
-      // Merge type literal with whereUnique entries
-      return v.object({
-        type: v.literal(key),
-        ...whereUnique.entries,
-      }) as ConnectVariant<typeof key>;
+```ts
+type ResolvedPolymorphicMutation =
+  | {
+      readonly kind: "targeted";
+      readonly edge: ResolvedPolymorphicEdge;
+      readonly program: RelationMutationProgram;
     }
-  );
-  
-  // Build create union: each variant is { type: K, data: CreateSchema }
-  type CreateVariant<K extends Keys> = ObjectSchema<{
-    type: LiteralSchema<K>;
-    data: ModelCoreSchemas<ModelFromGetter<T[K]>>["create"];
-  }>;
-  
-  const createSchemas = (Object.entries(state.getter()) as [Keys, T[Keys]][]).map(
-    ([key, getter]) => {
-      return v.object({
-        type: v.literal(key),
-        data: getTargetCreateSchema({ getter: getter as () => any }),
-      }) as CreateVariant<typeof key>;
-    }
-  );
-  
-  return v.object({
-    connect: v.union(connectSchemas),
-    create: v.union(createSchemas),
-  }, { optional: true });
-};
-
-export type PolymorphicCreateSchema<S extends PolymorphicRelationState> = 
-  ReturnType<typeof polymorphicCreateFactory<S>>;
+  | {
+      readonly kind: "disconnect";
+      readonly storage: PolymorphicStorage;
+    };
 ```
 
-**`src/validation/relations/polymorphic/select-include.ts`**
+The targeted branch reuses the ordinary lossless mutation program. Disconnect
+contributes only an `empty` storage value to the owner record: it needs no
+target lookup, Part, guard, or `RelationInfo`. Root private assignments are
+collected independently from target steps and ordered by the owner model's
+polymorphic field declaration, so this targetless entry cannot disturb step IDs.
 
-```typescript
-import type { PolymorphicRelationState } from "../../polymorphic-relation";
-import type { PolymorphicKeys, ModelFromGetter } from "./types";
-import v, { VibSchema, ObjectSchema } from "@validation";
-import { getTargetSelectSchema, getTargetIncludeSchema } from "../helpers";
+`RecordUpdateCompiler` must count a non-empty polymorphic companion map as root
+work. Its true no-op predicate becomes: no scalar assignments, no ordinary or
+targeted relation programs, and no polymorphic storage assignments. This check
+still happens before allocating step IDs. Otherwise a disconnect-only update,
+including the taken update arm of a root upsert, would be incorrectly dropped.
 
-/**
- * Polymorphic include with per-type selection
- * 
- * Input type: 
- *   | true 
- *   | { post?: true | { select?, include? }; video?: ...; photo?: ... }
- */
-export const polymorphicIncludeFactory = <
-  S extends PolymorphicRelationState<infer T>
->(state: S) => {
-  type T = ReturnType<S["getter"]>;  // illustrative — see Typing Constraint callout
-  type Keys = PolymorphicKeys<T>;
-  
-  // Per-type include entry: true | { select, include }
-  type IncludeEntryForKey<K extends Keys> = 
-    | true
-    | {
-        select?: ModelCoreSchemas<ModelFromGetter<T[K]>>["select"];
-        include?: ModelCoreSchemas<ModelFromGetter<T[K]>>["include"];
-      };
-  
-  // Build typed entries object
-  type TypeSpecificEntries = {
-    [K in Keys]?: IncludeEntryForKey<K>;
-  };
-  
-  const entries = {} as Record<Keys, VibSchema>;
-  
-  for (const [key, getter] of Object.entries(state.getter()) as [Keys, T[Keys]][]) {
-    entries[key] = v.union([
-      v.literal(true),
-      v.object({
-        select: getTargetSelectSchema({ getter: getter as () => any }),
-        include: getTargetIncludeSchema({ getter: getter as () => any }),
-      }),
-    ]);
-  }
-  
-  // Union of: true | { [K in Keys]?: ... }
-  return v.union([
-    v.literal(true),
-    v.object(entries, { optional: true }),
-  ]) as VibSchema<true | TypeSpecificEntries, /* output type */>;
-};
+### Lowering boundary
 
-export type PolymorphicIncludeSchema<S extends PolymorphicRelationState> = 
-  ReturnType<typeof polymorphicIncludeFactory<S>>;
+Lowering happens after the relation input schema has transformed the payload
+exactly once:
+
+```mermaid
+flowchart LR
+  A["Public mutation input"] --> B["Relation schema validation"]
+  B --> C["Interpret exact direct intent"]
+  C --> D["ResolvedPolymorphicMutation"]
+  D --> E["Targeted: RelationMutationProgram + resolved edge"]
+  D --> H["Disconnect: empty storage value"]
+  E --> F["CreateOperation or RecordUpdateCompiler"]
+  H --> F
+  F --> G["Existing Parts, guards, pins, and steps"]
+  F --> I["Atomic private (type, id) assignment"]
 ```
 
----
+The owners are:
+
+- `builders/relation-mutation-parser.ts` recognizes polymorphic relation keys
+  and constructs the targeted program or targetless disconnect after schema
+  transformation.
+- `CreateOperation` compiles one fresh record.
+- `RecordUpdateCompiler` compiles one already-selected record.
+- relation Parts retain target lookup, found/missing decisions, guards, race
+  pins, and child effects.
+- `foreign-key-reference.ts` retains id provenance across planning and final
+  compilation.
 
-**Update `v.fromObject()` to support polymorphic:**
+The following are deliberately **not** lowering owners:
+
+- `write-engine/routing.ts`, which routes operation families and root shells;
+- `write-engine/parse-boundary.ts`, which is model-blind;
+- adapters or drivers.
 
-The existing `v.fromObject()` needs explicit generics for proper inference:
+The generic parse-boundary gate must not be widened for a relation-specific
+payload that the operation schema already validates.
 
-```typescript
-// In src/validation/model/core/select.ts
+### Direct write behavior
 
-export const getSelectSchema = <T extends ModelState>(state: T) => {
-  // ... existing scalar and relation entries ...
-  
-  // NEW: Polymorphic entries with explicit generics
-  const polymorphicEntries = v.fromObject<
-    T["polymorphicRelations"],        // Object type
-    "select",                         // Registry schema key
-    { optional: true }                // Options
-  >(state.polymorphicRelations, "select", {
-    optional: true,
-  });
+For direct `connect`:
 
-  return v.object({
-    ...scalarEntries.entries,
-    ...relationEntries.entries,
-    ...polymorphicEntries.entries,
-    _count: countSchema,
-  });
-};
-```
+1. resolve `type`;
+2. reuse the current concrete-target lookup and existence/race semantics;
+3. assign the located referenced id and stored type in the root INSERT/UPDATE.
 
-**Type flow visualization:**
+For direct `create`:
 
-```
-PolymorphicRelation<{ post: Post, video: Video }>
-    │
-    ├─► state.getter = () => ({ post: Post, video: Video })
-    │
-    ├─► state.getter() = { post: Post, video: Video }  // Direct models, NOT getters
-    │
-    ├─► polymorphicFilterFactory(state)
-    │       │
-    │       ├─► type T = ReturnType<S["getter"]>  // { post: Post, video: Video }
-    │       │
-    │       ├─► type Keys = "post" | "video"
-    │       │
-    │       ├─► typeSchema = EnumSchema<"post" | "video">
-    │       │
-    │       └─► whereUnion = UnionSchema<[PostWhere, VideoWhere]>
-    │
-    └─► Result: ObjectSchema<{
-            type?: "post" | "video";
-            is?: PostWhere | VideoWhere;
-            isNot?: PostWhere | VideoWhere;
-        }>
-```
+1. resolve `type`;
+2. compile the target through `CreateOperation`;
+3. use its produced referenced value through the existing foreign-key source;
+4. assign that id and stored type in the owner record.
 
-**Key typing patterns:**
+For `disconnect`, both physical columns become null in the same root UPDATE.
+No current discriminator is read and no arbitrary target model is selected.
 
-1. **Preserve literal types** - Use `as const` and `[K in Keys]` mapped types
-2. **Conditional schema per key** - `{ [K in Keys]: SchemaForModel<T[K]> }[Keys]`
-3. **Lazy evaluation** - Return thunks `() => Schema` to avoid circular deps
-4. **Generic constraints** - `<S extends PolymorphicRelationState<infer T>>` to extract T
+Root `upsert` is not a new polymorphic mutation verb. Its existing `create` and
+`update` arms reuse the model create/update schemas, so the supported direct
+connect/create/disconnect inputs are supported inside the corresponding arm.
+`UpsertOperation` must pass the taken arm through the same parsed-program and
+record-compiler path. Whole-argument validation keeps its current timing, but an
+untaken arm performs no topology binding, OwnWrite analysis, SQL compilation,
+or side effect.
 
----
+The ordinary mutation program continues to preserve kind and source-array order.
+No polymorphic mutation step or executor branch is added.
 
-#### New Validation Helper: `v.discriminatedUnion()`
+### OwnWrite
 
-To simplify polymorphic schema factories, we should add a new validation schema helper that automatically builds discriminated unions from an object of models.
+OwnWrite consumes the concrete targeted program and topology after resolution.
+Targetless disconnect has no nested subtree and cannot conflict with a public
+scalar, so it contributes only to the record's root physical assignment. Its
+membership identity must include the discriminator when two polymorphic members
+could otherwise share the same holder, target model, and id shape.
 
-**Proposed API:**
+Narrow V1 requires no broad edge-predicate protocol because the only inverse
+write is create. If broader inverse writes are later added, the OwnWrite
+footprint and every relation Part must consume the same `(type, id)` membership
+scope.
 
-```typescript
-// Build a discriminated union where each variant has { type: K, ...schemaFromPath }
-const connectSchema = v.discriminatedUnion(
-  state.getter,                    // () => ({ post: Post, video: Video })
-  "whereUnique",                   // Core schema key on each registry model schema
-  { discriminator: "type" }        // Field name for discriminator (default: "type")
-);
+## 7. Read compilation
 
-// Result type:
-// | { type: "post"; id: string; }
-// | { type: "video"; id: string; }
-```
+Reads are the genuinely polymorphic side.
 
-**Implementation: `src/validation/primitives/discriminated-union.ts`**
+### Dispatch
 
-```typescript
-import type { VibSchema, InferInput, InferOutput, ModelCoreSchemas, ObjectSchema, LiteralSchema } from "../types";
-import type { AnyModel } from "@schema/model";
+The current query engine discovers selected and filtered fields in:
 
-type SchemaPathKey = "where" | "whereUnique" | "create" | "update" | "select" | "include" | "orderBy";
+- `src/query-engine/builders/select-builder.ts`;
+- `src/query-engine/builders/where-builder.ts`.
 
-// Models are direct references, not getters
-// Matches: () => ({ post: Post, video: Video })
-type ModelsMap = Record<string, AnyModel>;
+Those two dispatch points must recognize polymorphic fields. A dedicated
+polymorphic include/filter builder may own the branch SQL, but modifying only
+`relation-filter-builder.ts` would leave the fields undiscoverable.
 
-/**
- * Options for discriminated union
- */
-interface DiscriminatedUnionOptions {
-  /** Field name for the discriminator. Default: "type" */
-  discriminator?: string;
-  /** Whether the union is optional */
-  optional?: boolean;
-  /** Wrap each variant's schema in a "data" field instead of merging */
-  wrapInData?: boolean;
-}
+### Mutation-result folds
 
-/**
- * Infer the discriminated union input type
- * 
- * For wrapInData: false (default):
- *   { type: "post", id: string, slug?: string } | { type: "video", id: string }
- * 
- * For wrapInData: true:
- *   { type: "post", data: PostCreate } | { type: "video", data: VideoCreate }
- */
-type InferDiscriminatedUnionInput<
-  T extends ModelsMap,
-  Path extends SchemaPathKey,
-  Disc extends string = "type",
-  Wrap extends boolean = false
-> = {
-  [K in keyof T]: Wrap extends true
-    ? { [D in Disc]: K } & { data: InferInput<ModelCoreSchemas<T[K]>[Path]> }
-    : { [D in Disc]: K } & InferInput<ModelCoreSchemas<T[K]>[Path]>;
-}[keyof T];
+Polymorphic projections also enter the mutation fast paths; treating them only
+as `find*` reads would silently miscompile create/update/delete/upsert results.
 
-/**
- * Infer the discriminated union output type
- */
-type InferDiscriminatedUnionOutput<
-  T extends ModelsMap,
-  Path extends SchemaPathKey,
-  Disc extends string = "type",
-  Wrap extends boolean = false
-> = {
-  [K in keyof T]: Wrap extends true
-    ? { [D in Disc]: K } & { data: InferOutput<ModelCoreSchemas<T[K]>[Path]> }
-    : { [D in Disc]: K } & InferOutput<ModelCoreSchemas<T[K]>[Path]>;
-}[keyof T];
+- `write-engine/shared.ts::selectProjectsRelation` must classify a selected
+  polymorphic field as a relation projection. It therefore cannot enter the
+  scalar-only direct `RETURNING` path.
+- `operations/mutation-projection-fold.ts::returningEveryColumn` must add the
+  selected relation's private type/id columns to the mutation CTE plumbing,
+  after public scalar columns and in relation declaration order. They remain
+  absent from the public result.
+- `write-engine/shared.ts::payloadReachesTable` must traverse every configured
+  variant read by a polymorphic projection. An omitted per-target override still
+  reads that variant with its default projection. A type-correlated filter walks
+  only its selected variant.
+- If any reachable variant is the mutated model, the existing PostgreSQL
+  same-snapshot rule declines the CTE fold. The unfolded terminal read remains
+  the correctness fallback.
 
-/**
- * Discriminated union schema class
- */
-export class DiscriminatedUnionSchema<
-  T extends ModelsMap,
-  Path extends SchemaPath,
-  Disc extends string = "type",
-  Wrap extends boolean = false
-> implements VibSchema<
-  InferDiscriminatedUnionInput<T, Path, Disc, Wrap>,
-  InferDiscriminatedUnionOutput<T, Path, Disc, Wrap>
-> {
-  readonly " vibInferred": [
-    InferDiscriminatedUnionInput<T, Path, Disc, Wrap>,
-    InferDiscriminatedUnionOutput<T, Path, Disc, Wrap>
-  ] = undefined as any;
-  
-  constructor(
-    private modelsGetter: () => T,  // Lazy getter for circular deps
-    private path: Path,
-    private options: DiscriminatedUnionOptions = {}
-  ) {}
-  
-  get discriminator(): Disc {
-    return (this.options.discriminator ?? "type") as Disc;
-  }
-  
-  private get models(): T {
-    return this.modelsGetter();
-  }
-  
-  /**
-   * Get all variant schemas
-   */
-  getVariants(): Array<{ key: keyof T & string; schema: VibSchema }> {
-    const pathKey = this.path as SchemaPathKey;
-    
-    return Object.entries(this.models).map(([key, model]) => {
-      const targetSchema = getSchemaRegistry().getModelSchemas(model).core[pathKey];
-      return { key, schema: targetSchema };
-    });
-  }
-  
-  /**
-   * Build the runtime union schema
-   */
-  build(): UnionSchema<VibSchema[]> {
-    const disc = this.discriminator;
-    const wrapInData = this.options.wrapInData ?? false;
-    
-    const variants = this.getVariants().map(({ key, schema }) => {
-      if (wrapInData) {
-        // { type: "post", data: { ...createSchema } }
-        return v.object({
-          [disc]: v.literal(key),
-          data: schema,
-        });
-      } else {
-        // { type: "post", ...whereUniqueSchema }
-        return v.object({
-          [disc]: v.literal(key),
-          ...(schema as ObjectSchema<any>).entries,
-        });
-      }
-    });
-    
-    return v.union(variants);
-  }
-  
-  // Standard VibSchema methods delegate to built union
-  parse(input: unknown) {
-    return this.build().parse(input);
-  }
-  
-  safeParse(input: unknown) {
-    return this.build().safeParse(input);
-  }
-}
+Required parity witnesses are a scalar mutation with polymorphic `include`, the
+same with polymorphic `select`, a self-polymorphic projection, and ordinary
+relation controls. The feature may add private columns to the CTE `RETURNING`
+list only when that polymorphic projection needs them; it must not broaden every
+mutation result.
 
-/**
- * Factory function for discriminated unions
- * 
- * @param modelsGetter - Lazy getter returning models map: () => ({ post: Post, video: Video })
- * @param path - Core schema key to extract from each registry model schema: "whereUnique"
- * @param options - Configuration options
- */
-export function discriminatedUnion<
-  T extends ModelsMap,
-  Path extends SchemaPath,
-  Disc extends string = "type",
-  Wrap extends boolean = false
->(
-  modelsGetter: () => T,
-  path: Path,
-  options?: DiscriminatedUnionOptions & { discriminator?: Disc; wrapInData?: Wrap }
-): DiscriminatedUnionSchema<T, Path, Disc, Wrap> {
-  return new DiscriminatedUnionSchema(modelsGetter, path, options);
-}
-```
+### Include strategy
 
-**Usage in polymorphic schemas (simplified):**
+V1 uses a CASE expression with one correlated target subquery per configured
+member. It remains one database statement and performs no per-row client query.
 
-```typescript
-// BEFORE (verbose manual union building)
-export const polymorphicCreateFactory = <S extends PolymorphicRelationState>(state: S) => {
-  const models = state.getter();  // Resolve the lazy getter
-  
-  const connectSchemas = Object.entries(models).map(([key, model]) => {
-    const whereUnique = schemaRegistry.getModelSchemas(model).core.whereUnique;
-    return v.object({
-      type: v.literal(key),
-      ...whereUnique.entries,
-    });
-  });
-  
-  return v.object({
-    connect: v.union(connectSchemas),
-    // ... more manual union building
-  });
-};
+The existing ordinary include builder supports correlated and LATERAL paths.
+Polymorphic V1 explicitly uses the portable correlated form inside CASE. Normal
+relations keep their current capability-selected LATERAL fast path unchanged.
+A polymorphic LATERAL optimization is future work and requires measurement.
 
-// AFTER (clean with discriminatedUnion helper)
-export const polymorphicCreateFactory = <S extends PolymorphicRelationState>(state: S) => {
-  return v.object({
-    // Connect: { type: "post", id: "..." } | { type: "video", id: "..." }
-    connect: v.discriminatedUnion(
-      state.getter,                    // Lazy getter: () => ({ post: Post, video: Video })
-      "whereUnique"                    // Merge whereUnique into each variant
-    ),
-    
-    // Create: { type: "post", data: { title: "..." } } | { type: "video", data: { ... } }
-    create: v.discriminatedUnion(
-      state.getter,
-      "create",
-      { wrapInData: true }             // Wrap in "data" field instead of merging
-    ),
-  }, { optional: true });
-};
-```
-
-**Type inference example:**
-
-```typescript
-// Schema definition
-const commentable = s.polymorphic(() => ({
-  post: post,
-  video: video,
-  photo: photo,
-}));
-
-// Using discriminatedUnion in the schema factory
-const connectSchema = v.discriminatedUnion(
-  commentable["~"].state.getter,  // () => ({ post: post, video: video, photo: photo })
-  "whereUnique"
-);
-
-// Inferred input type (merged):
-type ConnectInput = 
-  | { type: "post"; id: string; slug?: string }    // Post's whereUnique fields merged
-  | { type: "video"; id: string }                   // Video's whereUnique fields merged
-  | { type: "photo"; id: string; albumId: string }  // Photo's whereUnique fields merged
-
-// With wrapInData: true
-const createSchema = v.discriminatedUnion(
-  commentable["~"].state.getter,
-  "create",
-  { wrapInData: true }
-);
-
-// Inferred input type (wrapped):
-type CreateInput = 
-  | { type: "post"; data: { title: string; body: string } }
-  | { type: "video"; data: { url: string; duration: number } }
-  | { type: "photo"; data: { url: string; albumId: string } }
-```
-
-**Variant: `v.discriminatedUnionFromSchemas()` for pre-built schemas:**
-
-```typescript
-// For cases where you have pre-built schemas directly (not from models)
-const filterSchema = v.discriminatedUnionFromSchemas({
-  post: postWhereSchema,
-  video: videoWhereSchema,
-  photo: photoWhereSchema,
-}, { discriminator: "type" });
-
-// This is a simpler variant that doesn't need path resolution
-```
-
-**Add to validation exports:**
-
-```typescript
-// src/validation/index.ts
-export { discriminatedUnion, DiscriminatedUnionSchema } from "./schemas/discriminated-union";
-```
-
-**Files to create/modify:**
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/validation/schemas/discriminated-union.ts` | **CREATE** | New `DiscriminatedUnionSchema` class and factory |
-| `src/validation/index.ts` | **MODIFY** | Export `v.discriminatedUnion()` |
-| `src/validation/types.ts` | **MODIFY** | Add discriminated union types if needed |
-
----
-
-#### Typing Constraint — the getter stays `any` (read this first)
-
-> **⚠** `src/schema/relation/types.ts:32-39` documents why relation getters
-> are typed `any`: function-typed member comparison collapses
-> mutually-recursive model consts to `any`, and a polymorphic map
-> (`comment` ↔ `post`) is the maximally recursive case. The pattern is the one
-> existing relations already use: `state.getter: any` at runtime-state level,
-> with the models map carried by a **phantom type parameter** on the class
-> (`PolymorphicRelation<T extends PolymorphicModelsMap>`) — never re-derived
-> via `ReturnType<S["getter"]>`.
->
-> Consequently the factory snippets above are illustrative, not literal:
-> `<S extends PolymorphicRelationState<infer T>>` is not valid TypeScript
-> (`infer` cannot appear in a constraint position) — write
-> `<T extends PolymorphicModelsMap, S extends PolymorphicRelationState<T>>`.
-> The only runtime accessor is `state.getter()`.
->
-> **Phase 0 of implementation is a typing spike** proving the discriminated
-> unions (`PolymorphicResult`, connect/create variants, selective-include
-> narrowing) survive `getter: any` + phantom `T`, verified with
-> `@ts-expect-error` typo probes through the public driver path — before any
-> other phase starts.
-
-#### Type Definitions
-
-**`src/schema/relation/polymorphic-types.ts`**
-
-```typescript
-import type { AnyModel } from "../model";
-import type { InferModelOutput, InferIncludeResult } from "../../client/result-types";
-
-// Map of type keys to DIRECT models (not getters)
-// Matches: () => ({ post: Post, video: Video }) after resolution
-export type PolymorphicModelsMap = Record<string, AnyModel>;
-
-// Discriminated union result type
-export type PolymorphicResult<T extends PolymorphicModelsMap> = {
-  [K in keyof T]: {
-    type: K;
-    data: InferModelOutput<T[K]>;  // Direct model, not ReturnType
-  };
-}[keyof T];
-
-// Type column values
-export type PolymorphicTypeColumn<T extends PolymorphicModelsMap> = keyof T & string;
-
-// For selective includes - result varies by type
-export type PolymorphicSelectiveResult<
-  T extends PolymorphicModelsMap,
-  I extends Partial<Record<keyof T, any>>
-> = {
-  [K in keyof T]: K extends keyof I
-    ? { type: K; data: InferIncludeResult<T[K], I[K]> }
-    : { type: K; data: InferModelOutput<T[K]> };
-}[keyof T];
-
-// For optional polymorphic - result can be null
-export type PolymorphicResultOptional<T extends PolymorphicModelsMap> = 
-  PolymorphicResult<T> | null;
-```
-
----
-
-#### Summary: Schema Changes at a Glance
-
-| File | Action | Description |
-|------|--------|-------------|
-| **Relation Layer** | | |
-| `src/schema/relation/polymorphic-relation.ts` | **CREATE** | New `PolymorphicRelation` class and `polymorphic()` factory |
-| `src/schema/relation/polymorphic-types.ts` | **CREATE** | Type definitions for polymorphic results |
-| `src/validation/relations/polymorphic/` | **CREATE** | New directory with filter, create, update, select-include schemas |
-| `src/schema/relation/to-many.ts` / `to-one.ts` | **MODIFY** | Wire the existing `.name()` chainable as the polymorphic back-reference (`relation.ts` does not exist) |
-| `src/validation/relations/index.ts` | **MODIFY** | Export polymorphic schema factories |
-| **Model Layer** | | |
-| `src/schema/model/model.ts` | **MODIFY** | Add `polymorphicRelations` to `ModelState` |
-| `src/schema/model/helper.ts` | **MODIFY** | Add `extractPolymorphicFields()` helper |
-| `src/validation/model/core/index.ts` | **MODIFY** | Add `forEachPolymorphicRelation()` iterator (no `utils.ts` exists in core) |
-| `src/validation/model/core/filter.ts` | **MODIFY** | Add `getPolymorphicFilter()` |
-| `src/validation/model/core/create.ts` | **MODIFY** | Add `getPolymorphicCreate()` |
-| `src/validation/model/core/update.ts` | **MODIFY** | Add `getPolymorphicUpdate()` |
-| `src/validation/model/core/select.ts` | **MODIFY** | Include polymorphic in select/include schemas |
-| `src/validation/model/core/where.ts` | **MODIFY** | Include polymorphic in where schema |
-| **Validation Layer** | | |
-| `src/schema/validation/rules/relation.ts` | **MODIFY** | Add P001-P007 polymorphic rules, update CM004 |
-| `src/schema/validation/rules/index.ts` | **MODIFY** | Export `polymorphicRules` |
-| `src/schema/validation/index.ts` | **MODIFY** | Re-export polymorphic rules |
-| `src/schema/validation/types.ts` | **MODIFY** | Add `polymorphicTargets` to `ValidationContext` |
-| **VibSchema Layer** | | |
-| `src/validation/schemas/discriminated-union.ts` | **CREATE** | New `v.discriminatedUnion()` helper for polymorphic |
-| `src/validation/index.ts` | **MODIFY** | Export `discriminatedUnion` |
-| **Query Engine Layer** | | |
-| `src/query-engine/builders/polymorphic-include-builder.ts` | **CREATE** | Build CASE expressions for polymorphic includes |
-| `src/query-engine/types.ts` | **MODIFY** | Add `PolymorphicRelationInfo` interface |
-| `src/query-engine/context/index.ts` | **MODIFY** | Add polymorphic to `QueryContext` |
-| `src/query-engine-v2/routing.ts` | **MODIFY** | Route polymorphic write keys to the parse-time lowering step (Phase 4) |
-| `src/query-engine-v2/parse-boundary.ts` | **MODIFY** | Accept the discriminated write shapes — widen the gate consciously |
-| **Client Layer** | | |
-| `src/client/result-types.ts` | **MODIFY** | Add `InferPolymorphicResult<T>` type |
-| `src/client/types.ts` | **MODIFY** | Add polymorphic to operation arg types |
-| **Database Adapter Layer** | | |
-| `src/adapters/types.ts` | **MODIFY** | Add polymorphic JSON helpers to adapter interface |
-| `src/adapters/databases/postgres/postgres-adapter.ts` | **MODIFY** | Implement `polymorphic.buildTypeCase()` |
-| `src/adapters/databases/mysql/` | **MODIFY** | Implement `polymorphic.buildTypeCase()` |
-| `src/adapters/databases/sqlite/` | **MODIFY** | Implement `polymorphic.buildTypeCase()` — SQLite (`json_object`) is a first-class engine, not an afterthought |
-| **Errors** | | |
-| `src/query-engine/errors.ts` | **MODIFY** | Add `PolymorphicTypeError`, `PolymorphicOrphanError` |
-
----
-
-#### Schema Validation Rules
-
-The existing validation system (`src/schema/validation/`) needs new rules for polymorphic relations. Currently, there's a `polymorphicRelationWarning` (CM004) that warns about manual `*_type + *_id` patterns - this should be updated to recognize valid `s.polymorphic()` usage.
-
-**File to modify: `src/schema/validation/rules/relation.ts`**
-
-**New rules to add:**
-
-```typescript
-// =============================================================================
-// POLYMORPHIC RELATION RULES (P001-P007)
-// =============================================================================
-
-/**
- * P001: All polymorphic target models must exist in schema
- */
-export function polymorphicTargetsExist(
-  schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  for (const [pname, polyRel] of model["~"].polymorphicRelations) {
-    const models = polyRel["~"].state.getter();
-    for (const [key, getter] of Object.entries(models)) {
-      const target = getter();
-      if (!findModel(schema, target, ctx)) {
-        errors.push({
-          code: "P001",
-          message: `Polymorphic '${pname}' in '${name}' has unregistered target '${key}'`,
-          severity: "error",
-          model: name,
-          relation: pname,
-        });
-      }
-    }
-  }
-  return errors;
-}
-
-/**
- * P002: All polymorphic targets must have compatible primary key types
- *
- * Compatibility is at DDL granularity — the serialized column type produced by
- * MigrationDriver.mapScalarType — NOT the TS-level "string"/"number". ULID
- * (VARCHAR 26) and UUID (36) are both "string" and must still fail: the shared
- * id column can only have one concrete type, and picking the narrower one
- * truncates.
- */
-export function polymorphicPkTypesMatch(
-  schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  for (const [pname, polyRel] of model["~"].polymorphicRelations) {
-    const models = polyRel["~"].state.getter();
-    const pkTypes: Map<string, string> = new Map();
-    
-    for (const [key, getter] of Object.entries(models)) {
-      const target = getter();
-      const pkField = findPrimaryKeyField(target);
-      if (pkField) {
-        const pkType = pkField["~"].state.type; // e.g., "string", "number"
-        pkTypes.set(key, pkType);
-      }
-    }
-    
-    const uniqueTypes = new Set(pkTypes.values());
-    if (uniqueTypes.size > 1) {
-      const typeList = Array.from(pkTypes.entries())
-        .map(([k, t]) => `${k}:${t}`)
-        .join(", ");
-      errors.push({
-        code: "P002",
-        message: `Polymorphic '${pname}' has mismatched PK types: ${typeList}`,
-        severity: "error",
-        model: name,
-        relation: pname,
-      });
-    }
-  }
-  return errors;
-}
-
-/**
- * P003: Polymorphic keys must be valid identifiers
- */
-export function polymorphicKeysValid(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): ValidationError[] {
-  const VALID_ID = /^[a-z][a-zA-Z0-9]*$/; // lowercase start, camelCase
-  const errors: ValidationError[] = [];
-  
-  for (const [pname, polyRel] of model["~"].polymorphicRelations) {
-    const models = polyRel["~"].state.getter();
-    for (const key of Object.keys(models)) {
-      if (!VALID_ID.test(key)) {
-        errors.push({
-          code: "P003",
-          message: `Polymorphic key '${key}' in '${pname}' must be lowercase camelCase`,
-          severity: "error",
-          model: name,
-          relation: pname,
-        });
-      }
-    }
-  }
-  return errors;
-}
-
-/**
- * P004: Polymorphic inverse relations must reference valid polymorphic
- */
-export function polymorphicInverseValid(
-  schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  
-  for (const [rname, rel] of model["~"].relations) {
-    const polyName = rel["~"].state.name; // Explicit polymorphic back-reference
-    if (!polyName) continue; // No explicit name, will use inference
-    
-    const target = rel["~"].getter();
-    const polyRelations = target["~"].polymorphicRelations;
-    
-    if (!polyRelations.has(polyName)) {
-      errors.push({
-        code: "P004",
-        message: `Relation '${rname}' references polymorphic '${polyName}' that doesn't exist on target`,
-        severity: "error",
-        model: name,
-        relation: rname,
-      });
-    }
-  }
-  return errors;
-}
-
-/**
- * P005: Polymorphic inverse must be unambiguous or explicit
- */
-export function polymorphicInverseUnambiguous(
-  schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  
-  for (const [rname, rel] of model["~"].relations) {
-    if (rel["~"].state.name) continue; // Explicit name provided
-    
-    const target = rel["~"].getter();
-    const polyRelations = target["~"].polymorphicRelations;
-    
-    // Find polymorphic relations that include this model's name as a key
-    const matches: string[] = [];
-    for (const [polyName, polyRel] of polyRelations) {
-      // Exact match on the registered model name — NO case folding. P003
-      // mandates camelCase keys, so "BlogPost".toLowerCase() ("blogpost")
-      // could never match a "blogPost" key; folding breaks every multi-word
-      // model. The registered name and the map key must match verbatim.
-      if (polyRel.hasKey(name)) {
-        matches.push(polyName);
-      }
-    }
-    
-    if (matches.length > 1) {
-      errors.push({
-        code: "P005",
-        message: `Relation '${rname}' has ambiguous polymorphic inverse: ${matches.join(", ")}. Use { name: "..." } to disambiguate`,
-        severity: "error",
-        model: name,
-        relation: rname,
-      });
-    }
-  }
-  return errors;
-}
-
-/**
- * P006: No self-referential polymorphic relations
- */
-export function polymorphicNoSelfRef(
-  schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx?: ValidationContext
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  
-  for (const [pname, polyRel] of model["~"].polymorphicRelations) {
-    const models = polyRel["~"].state.getter();
-    for (const [key, getter] of Object.entries(models)) {
-      const target = getter();
-      const targetName = findModel(schema, target, ctx);
-      if (targetName === name) {
-        errors.push({
-          code: "P006",
-          message: `Polymorphic '${pname}' cannot reference itself (key: '${key}')`,
-          severity: "error",
-          model: name,
-          relation: pname,
-        });
-      }
-    }
-  }
-  return errors;
-}
-
-/**
- * P007: Polymorphic relation should have at least 2 targets
- */
-export function polymorphicMinTargets(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  
-  for (const [pname, polyRel] of model["~"].polymorphicRelations) {
-    const targetCount = Object.keys(polyRel["~"].state.getter()).length;
-    if (targetCount < 2) {
-      errors.push({
-        code: "P007",
-        message: `Polymorphic '${pname}' has only ${targetCount} target(s) - use regular relation instead`,
-        severity: "warning",
-        model: name,
-        relation: pname,
-      });
-    }
-  }
-  return errors;
-}
-
-/**
- * P008: Generated shadow columns must not collide with declared fields
- *
- * A user-declared field named `{poly}_type` / `{poly}Type` / `{poly}_id` /
- * `{poly}Id` collides with the generated columns. Severity: error — the
- * updated CM004 whitelists these names, so without P008 the collision is
- * silent.
- */
-
-/**
- * P009: Every polymorphic target must have a single-column primary key
- *
- * The shared id column stores one value; composite-PK targets cannot be
- * referenced. (Locating via a composite UNIQUE in `connect.where` is fine —
- * what is stored is always the single-column PK.)
- */
-
-/**
- * P010: At most one inverse relation may resolve to a given polymorphic
- * relation per owner model
- *
- * Two relations on the same model both targeting the same child and resolving
- * to the same polymorphic relation is an error. P005 only catches ambiguity in
- * the other direction (one relation, many polymorphic candidates).
- */
-
-// Export all polymorphic rules
-export const polymorphicRules = [
-  polymorphicTargetsExist,
-  polymorphicPkTypesMatch,
-  polymorphicKeysValid,
-  polymorphicInverseValid,
-  polymorphicInverseUnambiguous,
-  polymorphicNoSelfRef, // see §8 — the self-reference ban may be lifted (threaded comments)
-  polymorphicMinTargets,
-  polymorphicNoShadowFieldCollision,  // P008
-  polymorphicSingleColumnPk,          // P009
-  polymorphicSingleInverse,           // P010
-];
-```
-
-**Update existing `polymorphicRelationWarning` (CM004):**
-
-```typescript
-/**
- * CM004: Polymorphic relation pattern warning
- * 
- * UPDATED: Now recognizes valid polymorphic relations from s.polymorphic()
- * Only warns about MANUAL *_type + *_id patterns without proper polymorphic definition
- */
-export function polymorphicRelationWarning(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  const fieldNames = Array.from(model["~"].fieldMap.keys());
-  
-  // Get field names used by proper polymorphic relations
-  const validPolyFields = new Set<string>();
-  for (const [pname, _] of model["~"].polymorphicRelations) {
-    validPolyFields.add(`${pname}_type`);
-    validPolyFields.add(`${pname}Type`);
-    validPolyFields.add(`${pname}_id`);
-    validPolyFields.add(`${pname}Id`);
-  }
-
-  // Find manual *_type fields not covered by proper polymorphic
-  for (const fname of fieldNames) {
-    if (!fname.endsWith("_type") && !fname.endsWith("Type")) continue;
-    if (validPolyFields.has(fname)) continue; // Generated shadow column, skip
-    // NOTE: this skip is exactly why P008 must ERROR on user-DECLARED fields
-    // carrying these names — CM004 skipping them would otherwise hide a silent
-    // collision with the generated columns.
-    
-    const base = fname.replace(/_type$|Type$/, "");
-    const idField = fieldNames.find(
-      (f) => f === `${base}_id` || f === `${base}Id`
-    );
-
-    if (idField && !validPolyFields.has(idField)) {
-      errors.push({
-        code: "CM004",
-        message: `'${fname}' + '${idField}' looks like manual polymorphic pattern. Use s.polymorphic() instead`,
-        severity: "warning",
-        model: name,
-        field: fname,
-      });
-    }
-  }
-  return errors;
-}
-```
-
-**Files to modify:**
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/schema/validation/rules/relation.ts` | **MODIFY** | Add P001-P007 polymorphic rules, update CM004 |
-| `src/schema/validation/rules/index.ts` | **MODIFY** | Export `polymorphicRules` |
-| `src/schema/validation/index.ts` | **MODIFY** | Re-export polymorphic rules |
-| `src/schema/validation/types.ts` | **MODIFY** | Update `ValidationContext` to include polymorphic lookup |
-
-**Update `ValidationContext`:**
-
-```typescript
-export interface ValidationContext {
-  schema: Schema;
-  modelToName: Map<Model<any>, string>;
-  tableToModels: Map<string, string[]>;
-  // NEW: Track polymorphic relations for cross-model validation
-  polymorphicTargets: Map<Model<any>, Set<string>>; // model → which polymorphic keys reference it
-}
-```
-
----
-
-### Phase 2: Migration Layer Impact
-
-**Goal:** Generate correct DDL for polymorphic columns and handle schema changes.
-
-#### 2.1 Schema Introspection Changes
-
-**File:** `src/migrations/serializer.ts` (MODIFY — there is no `introspection.ts`; the serializer owns model→SchemaSnapshot)
-
-The migration introspector needs to detect polymorphic relations and generate virtual columns:
-
-```typescript
-// When introspecting a model with polymorphic relations
-function introspectPolymorphicRelation(
-  model: Model<any>,
-  fieldName: string,
-  polyRelation: PolymorphicRelation<any>
-): ColumnDefinition[] {
-  const targetModels = polyRelation.getModels();
-  const targetKeys = polyRelation.getKeys();
-  
-  // Validate all targets have compatible PK types
-  const pkType = getConsistentPrimaryKeyType(targetModels);
-  
-  return [
-    {
-      name: `${fieldName}_type`,
-      type: "VARCHAR(255)",  // or ENUM for PostgreSQL with typeStorage: "enum"
-      nullable: polyRelation["~"].state.optional ?? false,
-    },
-    {
-      name: `${fieldName}_id`,
-      type: pkType,  // e.g., "VARCHAR(26)" for ULID, "BIGINT" for auto-increment
-      nullable: polyRelation["~"].state.optional ?? false,
-    },
-  ];
-}
-```
-
-#### 2.2 DDL Generation
-
-**Files:** `src/migrations/drivers/{postgres,mysql,sqlite,libsql}/` (MODIFY — DDL is driver-owned; there is no `ddl.ts`)
-
-Generate CREATE TABLE statements with polymorphic columns:
+Conceptual SQL:
 
 ```sql
--- Example: comment model with polymorphic commentable
-CREATE TABLE "comment" (
-  "id" VARCHAR(26) PRIMARY KEY,
-  "body" TEXT NOT NULL,
-  "commentable_type" VARCHAR(255) NOT NULL,
-  "commentable_id" VARCHAR(26) NOT NULL,
-  "created_at" TIMESTAMP DEFAULT NOW()
-);
-
--- Auto-generated composite index for efficient lookups
-CREATE INDEX "idx_comment_commentable" 
-ON "comment" ("commentable_type", "commentable_id");
-```
-
-#### 2.3 Migration Diff Detection
-
-**File:** `src/migrations/differ.ts` (MODIFY)
-
-The diff engine needs to detect polymorphic relation changes:
-
-| Change Type | Migration Action |
-|-------------|------------------|
-| Add polymorphic relation | `ADD COLUMN {name}_type`, `ADD COLUMN {name}_id`, `CREATE INDEX` |
-| Remove polymorphic relation | `DROP INDEX`, `DROP COLUMN {name}_type`, `DROP COLUMN {name}_id` |
-| Add target to polymorphic | VARCHAR mode: no schema change. PG enum: `ALTER TYPE … ADD VALUE`. MySQL enum: `ALTER TABLE … MODIFY`. SQLite (CHECK is mandatory): **full table rebuild** |
-| Remove target from polymorphic | VARCHAR: data cleanup only. PG enum: value removal is impossible via `ALTER TYPE` — goes through `push/enum-removals.ts` (type rebuild). SQLite: table rebuild |
-| Rename polymorphic field | Rename both columns and index |
-| Change optional → required | `ALTER COLUMN SET NOT NULL` (both columns) |
-| Change required → optional | `ALTER COLUMN DROP NOT NULL` (both columns) |
-
-```typescript
-// Detecting polymorphic changes in diff
-function diffPolymorphicRelations(
-  oldModel: IntrospectedModel | null,
-  newModel: Model<any>
-): MigrationOperation[] {
-  const operations: MigrationOperation[] = [];
-  
-  for (const [fieldName, polyRel] of newModel["~"].polymorphicRelations) {
-    const oldTypeCol = oldModel?.columns.get(`${fieldName}_type`);
-    const oldIdCol = oldModel?.columns.get(`${fieldName}_id`);
-    
-    if (!oldTypeCol && !oldIdCol) {
-      // New polymorphic relation - add both columns
-      operations.push({
-        type: "addColumn",
-        table: getTableName(newModel),
-        column: { name: `${fieldName}_type`, type: "VARCHAR(255)", ... },
-      });
-      operations.push({
-        type: "addColumn", 
-        table: getTableName(newModel),
-        column: { name: `${fieldName}_id`, type: getPkType(polyRel), ... },
-      });
-      operations.push({
-        type: "createIndex",
-        table: getTableName(newModel),
-        columns: [`${fieldName}_type`, `${fieldName}_id`],
-        name: `idx_${getTableName(newModel)}_${fieldName}`,
-      });
-    }
-    // ... handle other change types
-  }
-  
-  return operations;
-}
-```
-
-#### 2.4 Database-Specific Considerations
-
-**PostgreSQL with ENUM type storage:**
-
-When using `{ typeStorage: "enum" }` option:
-
-```sql
--- Initial migration creates the ENUM type
-CREATE TYPE "commentable_type_enum" AS ENUM ('post', 'video', 'photo');
-
-CREATE TABLE "comment" (
-  ...
-  "commentable_type" "commentable_type_enum" NOT NULL,
-  ...
-);
-
--- Adding a new target type requires ALTER TYPE
-ALTER TYPE "commentable_type_enum" ADD VALUE 'article';
-```
-
-**MySQL:**
-
-```sql
--- MySQL uses ENUM directly in column definition
-CREATE TABLE `comment` (
-  ...
-  `commentable_type` ENUM('post', 'video', 'photo') NOT NULL,
-  ...
-);
-
--- Adding a new type requires ALTER TABLE
-ALTER TABLE `comment` 
-MODIFY `commentable_type` ENUM('post', 'video', 'photo', 'article') NOT NULL;
-```
-
-**SQLite:**
-
-SQLite doesn't support ENUM, so always uses VARCHAR with CHECK constraint:
-
-```sql
-CREATE TABLE "comment" (
-  ...
-  "commentable_type" TEXT NOT NULL CHECK("commentable_type" IN ('post', 'video', 'photo')),
-  ...
-);
-```
-
-**Half-null integrity (optional polymorphic):** both columns must be null together —
-
-```sql
-CHECK (("commentable_type" IS NULL) = ("commentable_id" IS NULL))
-```
-
-#### 2.5 Migration Files to Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/migrations/serializer.ts` | MODIFY | Inject synthetic `{name}_type` / `{name}_id` columns + composite index into the SchemaSnapshot — models have no backing fields for them, so every snapshot consumer sees them only through the serializer |
-| `src/migrations/differ.ts` | MODIFY | Snapshot-level diff picks the columns up once the serializer emits them; add enum/CHECK-membership diffing for the type column |
-| `src/migrations/drivers/postgres/` | MODIFY | ENUM mode via existing `supportsNativeEnums` / `getEnumColumnType`; removals via `push/enum-removals.ts` |
-| `src/migrations/drivers/mysql/` | MODIFY | Inline ENUM column mode |
-| `src/migrations/drivers/sqlite/` | MODIFY | CHECK constraint mode — any membership change is a table rebuild |
-| `src/migrations/drivers/libsql/` | MODIFY | Same as sqlite (the fourth driver — do not forget it) |
-
-#### 2.6 Migration Edge Cases
-
-**1. Changing PK type of a target model:**
-
-If `post` changes from `ULID` to `UUID`, all polymorphic relations pointing to it need migration:
-
-```sql
--- This is a breaking change - requires careful handling
-ALTER TABLE "comment" 
-ALTER COLUMN "commentable_id" TYPE UUID USING "commentable_id"::UUID;
-```
-
-**Recommendation:** Validate PK type consistency at schema validation time (rule P002) to prevent this.
-
-**2. Orphaned records after target model deletion:**
-
-When removing a model from the schema that's referenced by polymorphic relations:
-
-```sql
--- Clean up orphaned records before removing target
-DELETE FROM "comment" WHERE "commentable_type" = 'deleted_model';
-```
-
-**3. Renaming a polymorphic key:**
-
-If changing `post` to `blogPost` in the polymorphic definition:
-
-```sql
--- Data migration required
-UPDATE "comment" 
-SET "commentable_type" = 'blogPost' 
-WHERE "commentable_type" = 'post';
-```
-
----
-
-### Phase 3: Query Builder Types
-
-**Goal:** Type-safe query input types for polymorphic relations.
-
-**Tasks:**
-
-1. **Where clause types**
-   ```typescript
-   where: {
-     commentable: {
-       type: "post",  // Narrows the filter
-       is: { title: { contains: "TypeScript" } }
-     }
-   }
-   ```
-
-2. **Connect/Create types**
-   ```typescript
-   data: {
-     commentable: {
-       connect: { type: "post", id: "post_123" }
-       // OR
-       create: { type: "post", data: { title: "New Post" } }
-     }
-   }
-   ```
-
-3. **Include types**
-   ```typescript
-   include: {
-     // Simple: just include polymorphic data
-     commentable: true,
-     
-     // Selective: type-specific nested includes
-     commentable: {
-       post: { include: { author: true } },
-       video: { include: { channel: true, thumbnails: true } },
-       photo: true,  // No nested includes for photo
-     }
-   }
-   ```
-   
-   **Type definition:**
-   ```typescript
-   type PolymorphicInclude<T extends PolymorphicModels> = 
-     | true  // Include all types with base fields only
-     | {
-         [K in keyof T]?: boolean | {
-           include?: IncludeArgs<T[K]>;
-           select?: SelectArgs<T[K]>;
-         }
-       };
-   ```
-
-4. **Select types**
-   - Polymorphic fields in select should return the full discriminated union
-   - Selective selection per type also supported:
-   ```typescript
-   select: {
-     id: true,
-     commentable: {
-       post: { select: { title: true } },
-       video: { select: { duration: true } },
-     }
-   }
-   ```
-
----
-
-### Phase 4: Write Path — Parse-Time Lowering onto the V2 Engine
-
-**Goal:** Route polymorphic writes through the existing `query-engine-v2` fragment machinery without widening its vocabulary.
-
-**The key property: writes are never actually polymorphic.** Every write input carries the discriminator (`connect: { type: "post", where: {...} }`, `create: { type: "post", data }`), and inverse-side writes (`post.update({ data: { comments: { create } } })`) pin the type by construction — the parent model *is* the type. So at parse time, before any Part is planned, a polymorphic edge **lowers** to a concrete single-target edge:
-
-1. Resolve `type` → target model (e.g. `post`).
-2. Emit a normal `RelationInfo`-shaped edge: `fields: ["commentable_id"]`, `references: ["<post pk>"]`, `targetModel: post`.
-3. Add one extra scalar assignment on the child row: `commentable_type = 'post'` — a compile-time **literal**, not a `Ref`.
-
-Downstream, `RelationWritePart` / `RelationLinkPart` and the shared parent-reference resolver (`query-engine-v2/parent-reference.ts`) handle the id leg exactly as any FK edge — the parent's referenced value flows through a `Ref` across the statement boundary (ATOM's third escape). The type column needs no machinery at all: it is known before planning starts.
-
-**What must change, concretely:**
-
-| Concern | Where | Change |
-|---|---|---|
-| Payload routing | `query-engine-v2/routing.ts` | Recognize polymorphic relation keys in `data`, dispatch to the lowering step |
-| Parse boundary | `query-engine-v2/parse-boundary.ts` + gate | New accepted input shapes (discriminated variants) — the parse-boundary ratchet is widened consciously, in the gate |
-| Relation metadata | `RelationInfo` (`query-engine/types.ts`) | A lowering seam that produces a synthetic single-target `RelationInfo` plus a literal-column rider — preferred over a `polymorphic` variant, because every Part stays untouched |
-| Decline surface | decline-surface gate | Unsupported verbs (`update`-through, `set`, `upsert`, `connectOrCreate` in v1) decline loudly, enumerated in the gate |
-| Gates | `pnpm test:gates` | All five gates green; any token/vocabulary change is a conscious gate edit |
-
-**What this buys:** under the pre-fold engine this feature would have needed the closure/context plumbing (`Captures`/`ProgramValues`) to flow the parent id in batch mode — the exact machinery `WHY-V1-GREW.md` documents as the failure mode. Under the atom it is one lowering function plus one literal column.
-
-**Reads are the only genuinely polymorphic path** (the type is unknown until the row is scanned) — they are Phase 5's CASE expression in the read builders (`src/query-engine/builders/`) and never touch the fragment vocabulary.
-
----
-
-### Phase 5: SQL Generation
-
-**Goal:** Generate efficient SQL for polymorphic operations using VibORM's subquery + JSON aggregation pattern.
-
-**Tasks:**
-
-1. **Insert/Update**
-   ```sql
-   INSERT INTO comments (id, body, commentable_type, commentable_id)
-   VALUES ('cmt_1', 'Great!', 'post', 'post_123');
-   ```
-
-2. **Select with polymorphic include (single query with CASE)**
-   
-   Following VibORM's pattern of correlated subqueries with JSON:
-   
-   ```sql
-   SELECT
-     c.id,
-     c.body,
-     CASE c.commentable_type
-       WHEN 'post' THEN json_build_object(
-         'type', 'post',
-         'data', (
-           SELECT json_build_object('id', p.id, 'title', p.title)
-           FROM posts p WHERE p.id = c.commentable_id
-         )
-       )
-       WHEN 'video' THEN json_build_object(
-         'type', 'video',
-         'data', (
-           SELECT json_build_object('id', v.id, 'duration', v.duration)
-           FROM videos v WHERE v.id = c.commentable_id
-         )
-       )
-       WHEN 'photo' THEN json_build_object(
-         'type', 'photo',
-         'data', (
-           SELECT json_build_object('id', ph.id, 'url', ph.url)
-           FROM photos ph WHERE ph.id = c.commentable_id
-         )
-       )
-     END AS commentable
-   FROM comments c
-   WHERE ...
-   ```
-   
-   **With nested includes per type:**
-   Each branch's subquery can itself contain nested subqueries for deeper relations.
-
-3. **Filter by polymorphic relation**
-   ```sql
-   SELECT c.* FROM comments c
-   WHERE c.commentable_type = 'post'
-   AND c.commentable_id IN (
-     SELECT id FROM posts WHERE title LIKE '%TypeScript%'
-   );
-   ```
-   
-4. **Build polymorphic include function**
-   
-   New builder: `buildPolymorphicInclude(ctx, polymorphicInfo, includeValue, parentAlias)`
-   - Generates CASE expression over type column
-   - Each WHEN branch builds a correlated subquery for that type
-   - Supports selective includes: different nested includes per type
-   - Returns `json_build_object('type', typeKey, 'data', subquery)`
-
----
-
-### Phase 6: Result Hydration
-
-**Goal:** Transform raw SQL results into discriminated union objects.
-
-**Tasks:**
-
-1. **Parse polymorphic JSON**
-   - Phase 5 produces the discriminated `{ type, data }` object inside the row (single query: CASE + correlated subqueries)
-   - Hydration parses the JSON column exactly like every existing include — there is no cross-query matching step
-
-2. **Handle null/missing**
-   - If polymorphic target doesn't exist (orphaned), return `null` or error
-   - Configurable behavior: `nullOnMissing` vs `errorOnMissing`
-
-3. **Nested polymorphic includes**
-   - Recursively handle polymorphic relations within included models
-
----
-
-### Phase 7: Inverse Relations
-
-**Goal:** Query from the "has many" side through polymorphic.
-
-**Tasks:**
-
-1. **Query generation**
-   ```typescript
-   // Get all comments for this post
-   await orm.post.findUnique({
-     where: { id: "post_123" },
-     include: { comments: true }
-   });
-   ```
-   
-   ```sql
-   SELECT * FROM comments
-   WHERE commentable_type = 'post' AND commentable_id = 'post_123';
-   ```
-
-2. **Create through inverse**
-   ```typescript
-   await orm.post.update({
-     where: { id: "post_123" },
-     data: {
-       comments: {
-         create: [{ body: "New comment!" }]
-       }
-     }
-   });
-   ```
-   
-   Automatically sets `commentable_type = 'post'` and `commentable_id = 'post_123'`.
-
----
-
-### Phase 8: Validation & Edge Cases
-
-**Goal:** Ensure data integrity and handle edge cases.
-
-**Tasks:**
-
-1. **Schema validation**
-   - All polymorphic targets must exist
-   - Primary key types must be compatible
-   - No self-referential polymorphic relations
-
-2. **Runtime validation**
-   - Validate `type` is one of the allowed values
-   - Validate `id` exists in the target table (optional, configurable)
-
-3. **Orphan handling**
-   - Detect orphaned polymorphic records
-   - Provide cleanup utilities
-   - Cascade options are **out of v1** (see §8 item 4) — orphan handling is read-side (`nullOnMissing`/`errorOnMissing`) plus cleanup utilities
-
-4. **Migration considerations**
-   - Adding a new type to polymorphic: no migration needed
-   - Removing a type: migration to clean orphans
-   - Renaming a type: data migration required
-
----
-
-### Phase 9: Cache Layer (L10)
-
-**Goal:** Handle cache invalidation for polymorphic relations.
-
-**File:** `src/cache/` (MODIFY)
-
-#### 9.1 Cache Key Generation
-
-Polymorphic includes need unique cache keys that account for the discriminated union structure:
-
-```typescript
-// Cache key must include:
-// 1. The polymorphic field name
-// 2. Which types are being included (if selective)
-// 3. Nested include options per type
-
-// Example cache key components for:
-// include: { commentable: { post: { include: { author: true } } } }
-{
-  model: "comment",
-  operation: "findMany",
-  include: {
-    commentable: {
-      _polymorphic: true,
-      post: { include: { author: true } },
-      video: true,
-      photo: true,
-    }
-  }
-}
-```
-
-#### 9.2 Cache Invalidation
-
-Polymorphic relations require special invalidation logic because a change to ANY target model should invalidate queries that include the polymorphic relation:
-
-```typescript
-// When a Post is updated:
-// 1. Invalidate all Post queries (standard)
-// 2. Invalidate all Comment queries that include commentable (polymorphic includes Post)
-
-function getPolymorphicInvalidationTargets(
-  schema: Schema,
-  updatedModel: string
-): string[] {
-  const targets: string[] = [updatedModel];
-  
-  // Find all models with polymorphic relations that include updatedModel
-  for (const [modelName, model] of schema.models) {
-    for (const [fieldName, polyRel] of model["~"].polymorphicRelations) {
-      if (polyRel.hasKey(updatedModel)) { // exact registered name — same rule as P005
-        targets.push(modelName);
-      }
-    }
-  }
-  
-  return targets;
-}
-```
-
-#### 9.3 Files to Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/cache/key.ts` | MODIFY | Handle polymorphic in cache key generation |
-| `src/cache/schema.ts` | MODIFY | Add polymorphic invalidation options |
-| `src/cache/cache-contract.ts` | MODIFY | Track polymorphic dependencies for invalidation (no `client.ts` exists — verify the exact seam at implementation) |
-
----
-
-### Phase 10: Instrumentation Layer (L11)
-
-**Goal:** Add observability for polymorphic operations.
-
-**File:** `src/instrumentation/` (MODIFY)
-
-#### 10.1 Span Attributes
-
-Following the existing VibORM instrumentation patterns (`SPAN_*` for span names, `ATTR_*` for attributes), add polymorphic-specific attributes:
-
-```typescript
-// In src/instrumentation/spans.ts
-
-// =============================================================================
-// Polymorphic Attributes
-// =============================================================================
-
-/** Polymorphic field name being queried (e.g., "commentable") */
-export const ATTR_POLYMORPHIC_FIELD = "viborm.polymorphic.field";
-
-/** Target types included in the query (e.g., ["post", "video", "photo"]) */
-export const ATTR_POLYMORPHIC_TYPES = "viborm.polymorphic.types";
-
-/** Whether selective per-type includes are used */
-export const ATTR_POLYMORPHIC_SELECTIVE = "viborm.polymorphic.selective";
-```
-
-These attributes would be recorded on existing spans like `SPAN_BUILD` and `SPAN_PARSE`:
-
-```typescript
-// During query building (SPAN_BUILD)
-span.setAttributes({
-  [ATTR_POLYMORPHIC_FIELD]: "commentable",
-  [ATTR_POLYMORPHIC_TYPES]: ["post", "video", "photo"],
-  [ATTR_POLYMORPHIC_SELECTIVE]: true,
-});
-
-// During result parsing (SPAN_PARSE)
-span.setAttributes({
-  [ATTR_DB_ROWS_RETURNED]: 100,
-  // Type distribution could be logged rather than traced (high cardinality)
-});
-```
-
-#### 10.2 Logging
-
-Add structured log events for polymorphic operations:
-
-```typescript
-// Log when resolving polymorphic includes
-logger.debug("Resolving polymorphic include", {
-  field: "commentable",
-  types: ["post", "video", "photo"],
-  selective: true,
-  perTypeIncludes: { post: { author: true }, video: { channel: true } },
-});
-
-// Log polymorphic type distribution in results (not traced - high cardinality)
-logger.debug("Polymorphic results resolved", {
-  field: "commentable",
-  distribution: { post: 45, video: 30, photo: 25 },
-  totalRecords: 100,
-});
-```
-
-#### 10.3 Files to Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/instrumentation/spans.ts` | MODIFY | Add `ATTR_POLYMORPHIC_*` constants |
-| `src/instrumentation/tracer.ts` | MODIFY | Record polymorphic attributes on `SPAN_BUILD` and `SPAN_PARSE` |
-
----
-
-## 6. Design Decisions
-
-### ✅ Polymorphic "Has One" - Supported
-
-Polymorphic relations support both `many` and `one` cardinality:
-
-```typescript
-// Example: A model can have one featured image from different sources
-const product = s.model({
-  featuredImage: s.polymorphic(() => ({
-    photo: photo,
-    generatedImage: generatedImage,
-    stockImage: stockImage,
-  })),
-});
-
-// Inverse side
-const photo = s.model({
-  featuredOn: s.oneToOne(() => product),  // Has one, not many
-});
-```
-
-**Database constraint:** For "has one" polymorphic inverses, add a unique constraint on `(type, id)`:
-
-```sql
--- Ensures each photo can only be featured on ONE product
-ALTER TABLE products 
-ADD CONSTRAINT unique_featured_image 
-UNIQUE (featured_image_type, featured_image_id);
-```
-
-### ✅ Selective Includes Per Type - Supported
-
-Deep selection with type-specific includes is a core feature:
-
-```typescript
-const comments = await orm.comment.findMany({
-  include: {
-    commentable: {
-      post: { include: { author: true } },
-      video: { include: { channel: true, thumbnails: true } },
-      photo: { include: { album: true } },
-    }
-  }
-});
-```
-
-**Return type with selective includes:**
-
-```typescript
-type CommentWithCommentable = {
-  id: string;
-  body: string;
-  commentable: 
-    | { type: "post"; data: Post & { author: User } }
-    | { type: "video"; data: Video & { channel: Channel; thumbnails: Thumbnail[] } }
-    | { type: "photo"; data: Photo & { album: Album } };
-};
-```
-
-**Also supports simple boolean include:**
-
-```typescript
-// Just include the base polymorphic data, no nested relations
-include: { commentable: true }
-```
-
-**Query generation for selective includes:**
-
-VibORM uses correlated subqueries with JSON aggregation (no JOINs):
-
-```sql
-SELECT
-  c.id,
-  c.body,
-  -- Polymorphic include as discriminated union JSON
-  CASE c.commentable_type
-    WHEN 'post' THEN json_build_object(
+CASE
+  WHEN c.commentable_type IS NULL AND c.commentable_id IS NULL THEN NULL
+  WHEN c.commentable_type IS NULL OR c.commentable_id IS NULL THEN
+    <invalid-storage envelope>
+  WHEN <exact type = stored post value> THEN
+    JSON_OBJECT(
+      '__viborm_state', 'linked',
       'type', 'post',
       'data', (
-        SELECT json_build_object(
-          'id', p.id,
-          'title', p.title,
-          'author', (
-            SELECT json_build_object('id', u.id, 'name', u.name)
-            FROM users u WHERE u.id = p.author_id
-          )
-        )
-        FROM posts p WHERE p.id = c.commentable_id
+        SELECT <post JSON>
+        FROM posts p
+        WHERE p.id = c.commentable_id
       )
     )
-    WHEN 'video' THEN json_build_object(
+  WHEN <exact type = stored video value> THEN
+    JSON_OBJECT(
+      '__viborm_state', 'linked',
       'type', 'video',
       'data', (
-        SELECT json_build_object(
-          'id', v.id,
-          'duration', v.duration,
-          'channel', (
-            SELECT json_build_object('id', ch.id, 'name', ch.name)
-            FROM channels ch WHERE ch.id = v.channel_id
-          ),
-          'thumbnails', (
-            SELECT COALESCE(json_agg(t0), '[]')
-            FROM (SELECT json_build_object('id', t.id, 'url', t.url) FROM thumbnails t WHERE t.video_id = v.id) t0
-          )
-        )
-        FROM videos v WHERE v.id = c.commentable_id
+        SELECT <video JSON>
+        FROM videos v
+        WHERE v.id = c.commentable_id
       )
     )
-    WHEN 'photo' THEN json_build_object(
-      'type', 'photo',
-      'data', (
-        SELECT json_build_object('id', ph.id, 'url', ph.url)
-        FROM photos ph WHERE ph.id = c.commentable_id
-      )
-    )
-  END AS commentable
-FROM comments c
-WHERE ...
+  ELSE <invalid-storage envelope>
+END
 ```
 
-This follows VibORM's existing pattern of scalar subqueries with `json_build_object` / `json_agg` for nested relations.
+The concrete builder uses adapter JSON primitives. The SQL above is explanatory,
+not dialect-specific query-engine code. `__viborm_state` is a reserved
+result-layer constant, not a public result key. The parser consumes it.
 
----
+Each branch reuses the existing nested selection builder, so target-specific
+select/include recursion remains normal query-engine work.
 
-## 7. Implementation Notes
+### Adapter boundary
 
-Key considerations for implementers:
+Reuse:
 
-### 7.1 Optional Polymorphic Handling
+- `adapter.json.object`;
+- `adapter.json.objectFromColumns`;
+- existing JSON aggregation;
+- `adapter.operators.exactTextEq` for discriminator comparisons.
 
-When `optional: true` is set:
+MySQL's default collation can be case-insensitive, so plain text equality is not
+an acceptable discriminator contract.
 
-1. **Return type includes null:** `PolymorphicResult<T> | null`
-2. **Database columns are nullable:** `commentable_type VARCHAR(255) NULL`
-3. **Query supports null check:** `where: { commentable: null }`
+Add only a generic CASE-expression adapter primitive if the installed adapter
+surface cannot express the required portable CASE. Do not add
+`adapter.polymorphic.*`; adapters own SQL syntax, not relation semantics.
 
-### 7.2 Excluded from OrderBy and _count
+### Direct filters
 
-Polymorphic relations are **excluded** from:
+The compiler emits:
 
-- **OrderBy**: Cannot order by nested fields since targets have different schemas. Use `ORDER BY commentable_type` directly in raw queries if needed.
-- **_count**: Polymorphic is a to-one relation (0 or 1), so counting doesn't make sense. The inverse relation (`post.comments`) uses regular `toManyCountFilter`.
+- `type` only: exact discriminator equality;
+- `type + is`: exact discriminator equality AND target `EXISTS`;
+- `type + isNot`: exact discriminator equality AND target `NOT EXISTS`;
+- `null`: both physical columns are null.
 
-### 7.3 Iteration Pattern
+The nested target filter is compiled under a child `QueryScope` for the resolved
+target model.
 
-When iterating over `polymorphicRelations` in validation rules:
+## 8. Inverse relations
 
-```typescript
-// polymorphicRelations is a Record, not a Map
-for (const [name, polyRel] of Object.entries(model["~"].polymorphicRelations)) {
-  // Use getter to resolve lazy models
-  const models = polyRel.getModels();  // NOT polyRel["~"].state.getter()
-  // ...
+An inverse relation is a normal source-side relation with a two-part membership
+predicate:
+
+```text
+child.<poly_id> = parent.<referenced_pk>
+AND child.<poly_type> = <fixed stored discriminator>
+```
+
+The discriminator conjunct is mandatory in:
+
+- inverse include;
+- `some`, `every`, and `none`;
+- relation count;
+- any future probe, guard, attach, detach, update, or delete.
+
+Centralize this in `builders/correlation-utils.ts` as a composition of the
+ordinary field correlation plus an exact literal predicate. Include/filter/count
+must not each reimplement the rule.
+
+Schema/query context resolves and caches a `ResolvedPolymorphicInverse` from the
+schema-level binding and the real public inverse `RelationInfo`. The storage
+descriptor's `ownerModel` identifies the child table, while `relationInfo`
+retains its honest to-many cardinality. It must not fabricate or reuse the
+direct parent-held `ResolvedPolymorphicEdge`.
+
+V1 inverse writes stop at nested create. Existing child-held create compilation
+injects:
+
+- the parent id through field-bound provenance;
+- the fixed discriminator as a literal private storage value.
+
+Broad inverse write parity is intentionally deferred. Without a shared
+membership predicate threaded through relation Parts, an id collision across
+two target types could update or disconnect the wrong row.
+
+## 9. Strict result shape and orphan semantics
+
+### Why ordinary hydration is insufficient
+
+`ExpectedResultShape` currently records one nested shape per ordinary relation,
+and `relation-result-parser.ts` resolves one target model from one relation
+thunk. A polymorphic result needs a discriminator-indexed set of target shapes.
+
+Add an explicit expected shape owned by the result layer:
+
+```ts
+interface ExpectedPolymorphicResultShape {
+  readonly optional: boolean;
+  readonly variants: ReadonlyMap<
+    string,
+    {
+      readonly model: Model<any>;
+      readonly shape: ExpectedResultShape;
+    }
+  >;
 }
 ```
 
-### 7.4 Cannot Update Target Through Polymorphic
+`ExpectedResultShape` keeps ordinary relations and adds a separate map for
+polymorphic projections. This avoids pretending that a multi-target relation is
+an `AnyRelation`.
 
-The polymorphic update schema only supports `connect` and `disconnect`. You cannot update the related record's fields through polymorphic:
+The map contains **every configured variant**, not merely keys written in a
+selective include object. Each entry receives either its explicit projection
+override or the target's default scalar projection. This matches the exhaustive
+public union in §4.
 
-```typescript
-// ✅ Allowed - change which record is referenced
-update: { commentable: { connect: { type: "video", id: "..." } } }
+The SQL carrier has exactly three internal states:
 
-// ❌ Not allowed - update the referenced record's fields
-update: { commentable: { update: { title: "New title" } } }  // Which table?
+```ts
+type PolymorphicResultCarrier =
+  | null
+  | {
+      readonly __viborm_state: "linked";
+      readonly type: string;
+      readonly data: unknown;
+    }
+  | {
+      readonly __viborm_state: "invalid";
+      readonly storedType: unknown;
+      readonly hasId: boolean;
+    };
 ```
 
-To update the target, query it directly: `orm.post.update({ where: { id }, data: {...} })`
+Both columns null produce `null`. A recognized discriminator produces
+`linked`, including `data: null` when its target row is absent. Unknown or
+half-null storage produces `invalid`. The key spelling is owned by the result
+alias/constants module and cannot collide with a public target field because it
+is outside `data`.
 
----
+The parser:
 
-## 8. Remaining Open Questions
+1. sends the raw nested value through the existing adapter/driver relation JSON
+   decoding middleware with relation-result kind `"polymorphic"`;
+2. validates the internal carrier and outer `{ type, data }` envelope;
+3. rejects an unknown discriminator;
+4. selects the expected target model and nested shape;
+5. rejects `data: null` when the chosen target is required by the integrity
+   contract;
+6. parses all target scalars and nested relations with the existing row parser;
+7. never returns unvalidated JSON.
 
-1. **Cross-database type consistency**
-   - What if Post has ULID and Video has UUID?
-   - Enforce consistent ID types? Or store as VARCHAR always?
-   - **Recommendation:** Require consistent PK types across polymorphic targets, or cast to VARCHAR
+This reuses `ResultParser`, `AdapterResultParser.parseRelation`, and the driver
+`parseRelation` hook so MySQL/SQLite JSON text is decoded before strict envelope
+validation. It extends the hook's kind union; it adds no adapter method,
+polymorphic SQL namespace, or execution protocol.
 
-2. **Enum type storage for PostgreSQL**
-   - Auto-create ENUM type: `CREATE TYPE commentable_type AS ENUM ('post', 'photo', 'video')`
-   - Requires migration when adding new types
-   - Worth the storage savings?
-   - **Recommendation:** Default to VARCHAR, optional `{ typeStorage: "enum" }` for advanced users
+Inside the result layer, `RowValueParsers` gains a separate
+`parsePolymorphic` callback. The ordinary `parseRelation` callback remains
+typed to `AnyRelation`; a multi-target relation is never cast into that type.
 
-3. **Performance optimizations**
-   - Materialized polymorphic views?
-   - Denormalized type caches?
-   - **Recommendation:** Defer to future optimization phase
+### Recommended V1 orphan contract
 
----
+This is a Y0 approval gate, not an already-existing public option:
 
-4. **Referential actions (deferred out of v1)**
-   - No FK constraint can exist, so `onDelete`/`onUpdate` mean ORM-emulated cascades: deleting a `post` must sweep every model owning a polymorphic key `post`, inside the transaction, through the V2 write machinery
-   - v1 ships without the options entirely (removed from the state); orphans are handled by Phase 6's `nullOnMissing`/`errorOnMissing` read behavior and cleanup utilities
+| Storage state | Optional relation | Required relation |
+|---|---|---|
+| both columns null | `null` | integrity error |
+| known type and existing target | `{ type, data }` | `{ type, data }` |
+| known type and missing target | `null` | internal `QueryEngineError` |
+| unknown stored type | integrity error | integrity error |
+| half-null pair | integrity error | integrity error |
 
-5. **Discriminator value durability**
-   - Stored type values are schema-local map keys; renaming a key orphans every row while the differ sees "no schema change"
-   - Options: a `values` alias map (`s.polymorphic(() => ({...}), { values: { post: "app.post" } })` — same decoupling as `.map()` for tables), or differ-level rename detection emitting an `UPDATE` data migration
-   - **Recommendation:** the alias map — Rails' class-name storage is the cautionary tale this doc already cites
+Recommended V1 has no `nullOnMissing`/`errorOnMissing` option. Adding a
+configurable option without a defined schema/client surface would invent an API.
+If the maintainer chooses different semantics in Y0, the public result type and
+parser contract must be revised together.
 
-6. **Self-referential polymorphic (P006)**
-   - The ban is currently unjustified — nothing in the design requires it, and it forbids threaded comments (`comment` in its own `commentable` map), which Rails supports
-   - **Recommendation:** lift P006 unless the typing spike (Phase 0) surfaces a concrete recursion blocker
+V1 adds no public error class or code. A required missing target throws the
+existing internal `QueryEngineError` with the exact message
+`Polymorphic relation '<relation>' references a missing '<type>' record.` and
+metadata `{ model, relation, type }`. Unknown discriminators, malformed carriers,
+and half-null storage use the existing malformed-provider-result path, retaining
+driver and operation metadata.
 
-## 9. Success Criteria
+## 10. Schema validation and migration contract
 
-- [ ] Can define polymorphic relation with `s.polymorphic()`
-- [ ] Polymorphic "has one" inverse supported
-- [ ] Polymorphic "has many" inverse supported
-- [ ] Type inference works for discriminated unions (`{ type: T, data: TData }`)
-- [ ] Automatic inference of inverse relations (no explicit `name` when unambiguous)
-- [ ] Explicit `name` required only for ambiguous cases
-- [ ] Can create records with polymorphic `connect`
-- [ ] Can include polymorphic relations with `include: { commentable: true }`
-- [ ] Can use selective includes per type: `{ commentable: { post: { include: { author: true } } } }`
-- [ ] Can filter by polymorphic type and related data
-- [ ] Inverse relations work (`post.comments`)
-- [ ] SQL generation is correct for MySQL and PostgreSQL
-- [ ] Full test coverage for polymorphic operations
-- [ ] Documentation with examples
-- [ ] `pnpm test:gates` green — parse-boundary and decline-surface widened consciously; no other gate touched
-- [ ] Decline surface enumerates every unsupported polymorphic verb (`update`-through, `set`, `upsert`, `connectOrCreate`)
-- [ ] SQLite + libsql covered (adapter CASE/`json_object`, CHECK-rebuild migration path) — three engines, not two
-- [ ] Contextual-typing probes through the public driver path (`@ts-expect-error` typo probes on `include.commentable` keys, `connect.type`, per-type nested includes) — not core-only
-- [ ] Docker legs: pg (5434, serial) and mysql (3307) suites exercise polymorphic create/connect/include/filter/inverse
-- [ ] Inverse-side scope decided and tested: relation filters (`comments: { some }`), `_count`, orderBy-by-count — each implemented or explicitly declined
+### Validation rules
 
----
+| Code | Rule |
+|---|---|
+| P001 | Every target resolves to a model registered in the schema |
+| P002 | Target primary keys have one compatible, portable, indexable physical storage representation |
+| P003 | Public discriminator keys and stored values satisfy the exact key/value contracts and are unique |
+| P004 | When multiple polymorphic candidates contain the source model, the inverse pairing label selects exactly one |
+| P005 | Without disambiguation there is exactly one candidate; a sole candidate is accepted regardless of decorative label mismatch |
+| P007 | An empty target map is an error |
+| P008 | Generated column/index names pass the existing identifier rule and do not collide |
+| P009 | Every target has a single-column primary key in V1 |
+| P010 | An inverse source model occurs exactly once in the chosen target map |
+| P011 | A one-target map warns to use an ordinary relation |
 
-## 10. References
+P006 is reserved and not emitted unless Y0 proves self-reference impossible.
+CM004 continues to warn about manual `*_type` + `*_id` scalar patterns while
+recognizing valid generated storage.
 
-- [Rails Polymorphic Associations Guide](https://guides.rubyonrails.org/association_basics.html#polymorphic-associations)
-- [Prisma Feature Request: Polymorphic Relations](https://github.com/prisma/prisma/issues/1644)
-- [TypeORM Polymorphic Relations Discussion](https://github.com/typeorm/typeorm/issues/729)
+P002 is dialect-neutral and executable at schema validation time:
+
+- the only V1 target-id scalar families are `string`, `int`, and `bigint`;
+- the target id must not be an array;
+- every target has the same scalar `state.type`;
+- target ids with a native-type override are outside V1; every target must have
+  `scalar["~"].nativeType === undefined`;
+- the first target in declaration order supplies the immutable scalar instance
+  held by `storage.idColumn.scalar`; it owns migration type mapping, destination
+  casting, and canonicalization;
+- id/default/unique/optional/column-name flags are not part of the storage
+  signature because the hidden destination has its own name, nullability, index,
+  and no default or auto-generation.
+
+This rule deliberately refuses cross-family coercion (`int` to `bigint`) and
+native storage overrides. A normal `s.string().id().uuid()` remains valid
+because UUID auto-generation is scalar behavior, not a native-type override.
+Supporting native UUID, CITEXT, or differing VARCHAR widths needs a separate,
+dialect-aware indexability design.
+
+P003 is also exact:
+
+- `targets` and `values` must be plain own-property records with
+  `Object.prototype` or null prototypes;
+- each public discriminator key must pass `isValidSchemaIdentifier` (ASCII,
+  at most 63 bytes, and no `Object.prototype` collision);
+- every target key occurs exactly once in `values`, with no extra key;
+- every stored value matches `^[A-Za-z0-9][A-Za-z0-9._:-]{0,190}$`;
+- stored values are unique.
+
+P008 derives `<relationField>_type`, `<relationField>_id`, and
+`<mappedOwnerTable>_<relationField>_poly_idx`, validates each without
+shortening, and checks all three against the hydrated name registry and other
+generated polymorphic storage.
+
+The existing ordinary inverse validators must recognize the V1 bridge. In
+particular, `R003` and `SR001` must not report a missing ordinary `manyToOne`
+when an ordinary inverse `oneToMany` is validly bound to a polymorphic owner.
+Runtime inverse-create omission and its type-level twin must resolve the same
+polymorphic member; schema validation, runtime schema construction, and public
+types may not use three different candidate rules.
+
+### Migration serialization
+
+Migration snapshots learn about generated storage from polymorphic relation
+metadata, not from public scalar iteration. The serializer emits:
+
+- type column;
+- id column;
+- nullability;
+- composite `(type, id)` index;
+- stored public/member metadata for rename/removal diagnostics.
+
+`SchemaSnapshot` gains optional, non-SQL polymorphic metadata keyed by owner
+table and relation storage columns. It records each public key, immutable stored
+value, target table, and referenced column. Generated-file migration history is
+the only place that can compare this metadata over time.
+
+Adding a target needs no DDL because the discriminator column is text, but it is
+not a no-op for migration state. `generate()` must persist the new
+`meta/_snapshot.json` even when `DiffOperation[]` is empty. In that case it
+writes no migration or journal entry, returns `entry: null`, and reports a
+metadata-only snapshot update. A dry run reports the change without writing it.
+
+Public-key rename with the same stored value, target table, and referenced field
+is safe and metadata-only. Three changes are potentially destructive: stored
+value change, member removal, and reusing an unchanged stored value for a
+different target table or referenced column. `generate()` must surface a
+specific `PolymorphicMemberHistoryChange` through
+`GenerateOptions.polymorphicMemberResolver` and refuse to advance the snapshot
+by default. Its only positive action is `acknowledgeMigrated()`. Calling it
+explicitly attests that separate DML has rewritten or removed every affected
+row; VibORM V1 does not synthesize that DML. The snapshot advances only after
+that acknowledgement.
+
+```ts
+interface PolymorphicSnapshotMember {
+  readonly publicType: string;
+  readonly storedType: string;
+  readonly targetTable: string;
+  readonly referencedColumn: string;
+}
+
+interface PolymorphicMemberHistoryChange {
+  readonly kind:
+    | "storedValueChanged"
+    | "memberRemoved"
+    | "memberRetargeted";
+  readonly ownerTable: string;
+  readonly relation: string;
+  readonly typeColumn: string;
+  readonly from: PolymorphicSnapshotMember;
+  readonly to: PolymorphicSnapshotMember | undefined;
+  acknowledgeMigrated(): "acknowledged";
+  reject(): "reject";
+}
+```
+
+`targetTable` and `referencedColumn` are physical SQL identifiers in the
+resolved snapshot, not model keys. Before this history comparison, accepted
+table and column rename operations rewrite the previous snapshot member to the
+desired physical names. A model-field rename that preserves the resolved SQL
+column therefore remains safe; changing the physical target after rename
+normalization is a `memberRetargeted` change.
+
+The sole metadata comparator lives in
+`src/migrations/generate/polymorphic-history.ts`; `differ.ts` remains structural
+and never emits a `DiffOperation` for this history. The comparator runs after
+ambiguous structural changes are resolved and normalizes old owner/target table
+and column names through accepted `renameTable`/`renameColumn` operations. A
+resolved physical rename is therefore safe; reusing the member for a genuinely
+different table or column is not. Only storage present in both snapshots after
+normalization enters member comparison; adding or dropping the whole storage is
+already owned by the structural diff. Matching then uses stable stored value,
+then public discriminator. Unmatched old members are removals; unmatched desired
+members are safe additions.
+
+`push()` compares desired structure with live database introspection. A text
+column cannot reveal historical public/stored mappings, so push can create the
+columns and index but **cannot detect a stored-value rename, removal, or
+retarget**. Push users must treat stored member mappings as immutable and
+execute a data migration before changing them. Documentation must state this
+limitation; the implementation must not pretend live introspection can
+reconstruct member history.
+
+PostgreSQL, MySQL, SQLite, and libSQL must round-trip the snapshot. Engine-specific
+DDL remains in migration drivers.
+
+## 11. Performance contract
+
+The feature must preserve the existing normal-relation fast paths documented in
+[`query-performance-plan.md`](../docs/architecture/query-performance-plan.md).
+
+Required properties:
+
+- one SQL statement for a polymorphic include;
+- no client-side per-row or per-type query;
+- SQL size is O(number of configured variants), never O(number of returned rows);
+- no additional statement on direct writes;
+- normal direct/RETURNING/ON CONFLICT/CTE/planning-batch/atomic-batch paths remain
+  unchanged for non-polymorphic relations;
+- polymorphic mutation results enter the CTE fold only when its private carrier
+  columns and same-snapshot reachability rules are satisfied;
+- resolved polymorphic metadata is cached per schema/relation, not rediscovered
+  for every row;
+- inverse lookups have a composite `(type, id)` index;
+- discriminator comparisons use exact text semantics;
+- an EXPLAIN contract proves the inverse lookup can use the composite index.
+
+The write-only estimate for the narrow V1 is approximately 300–540 production
+lines across 8–12 files. The complete V1—including schema/type inference,
+validation, migrations, read SQL, strict hydration, provider decode, the third
+model-field category, and inverse reads—is more realistically **1,800–2,800
+production lines across roughly 30–45 files**, plus tests and documentation.
+These are planning ranges,
+not LOC targets. Broad inverse write parity would add substantial predicate
+threading and is not part of V1.
+
+## 12. Decisions required before implementation
+
+These are hard Y0 gates.
+
+### 12.1 Stored discriminator durability
+
+Map keys are excellent public discriminators but are unsafe durable identifiers
+if a rename silently orphans stored rows.
+
+Choose one:
+
+1. add the explicit `values` mapping shown in §3, with public keys remaining the
+   query/result discriminator; or
+2. declare map keys to be stored schema values and require an explicit data
+   migration for every rename.
+
+Recommendation: approve option 1, require a complete exact-key `values` map,
+and make each stored value immutable after it enters a generated snapshot. Do
+not silently default missing entries to public keys: that turns an accidental
+omission into a durable storage decision. The differ compares stored values,
+not only target model identity.
+
+### 12.2 Orphan behavior
+
+Approve or replace the table in §9. The implementation cannot proceed to result
+typing/parsing while required-relation nullability and missing-target behavior
+remain ambiguous.
+
+### 12.3 Inverse write surface
+
+Recommendation: direct connect/create/disconnect plus inverse create only.
+Choosing broader inverse parity expands the architecture: a discriminator-aware
+membership scope must flow through relation Parts, guards, race pins, and
+OwnWrite footprints.
+
+### 12.4 Public type-carrier feasibility
+
+Before adding a production relation class, a test-local spike must prove the
+actual two-argument `s.polymorphic(targets, { values })` shape together with the
+hardest result mapper. It must cover exact missing/extra `values` keys,
+non-fresh objects, self and mutual recursion, explicit per-target projection,
+default projection for an omitted configured target, nested recursive
+projection, and `select`/`include`/`omit` exclusivity. The inferred result and
+ordinary relation neighbors must not widen to `any`.
+
+The relevant hazard is specific: deriving the second argument from
+`keyof ReturnType<G>` can force the recursive getter before the current
+`getter: any` comparison seam short-circuits. If the spike produces TS2589,
+early getter resolution, `any`, or a warm type-check median regression above
+10%, stop and redesign the public signature. Do not replace exact maps with a
+string index signature and call the feature feasible.
+
+## 13. Current ownership map
+
+| Concern | Current owner to extend |
+|---|---|
+| Relation class/state/export | `src/schema/relation/polymorphic.ts`, `types.ts`, `index.ts`, and `src/schema/index.ts` |
+| Model extraction/state | `src/schema/model/helper.ts` and `model.ts` |
+| Name/source hydration | `src/schema/hydration.ts` and the relation's `setSource` seam |
+| Relation schema bundles | `src/validation/relations/index.ts` and `src/validation/relations/polymorphic/` |
+| Whole-model operation schemas | `src/validation/model/core/create.ts`, `update.ts`, `where.ts`, and `select.ts` |
+| Inverse create omission | `src/schema/relation/types.ts` and `src/validation/relations/create.ts` |
+| Schema/inverse rules | `src/schema/validation/rules/relation.ts` and `src/schema/validation/index.ts` |
+| Client operation/result types | `src/client/types.ts` and `src/client/result-types.ts` |
+| Query scope and polymorphic lookup | `src/query-engine/context/query-scope.ts`, `context/index.ts`, and `types.ts` |
+| Direct select dispatch | `src/query-engine/builders/select-builder.ts` |
+| Direct where dispatch | `src/query-engine/builders/where-builder.ts` |
+| Include SQL | `src/query-engine/builders/include-builder.ts`, `include-query.ts`, and new `polymorphic-read-builder.ts` |
+| Correlation | `src/query-engine/builders/correlation-utils.ts` |
+| Mutation meaning | `src/query-engine/builders/relation-mutation-parser.ts` |
+| Fresh record | `src/query-engine/write-engine/CreateOperation.ts` |
+| Selected update | `src/query-engine/write-engine/RecordUpdateCompiler.ts` |
+| Root update/upsert shells | `src/query-engine/write-engine/UpdateOperation.ts` and `UpsertOperation.ts` |
+| Value provenance | `src/query-engine/write-engine/foreign-key-reference.ts` |
+| Mutation projection legality | `src/query-engine/write-engine/shared.ts` |
+| Mutation projection CTE | `src/query-engine/operations/mutation-projection-fold.ts` |
+| Expected result | `src/query-engine/result/result-shape.ts` |
+| Provider JSON decode | `src/query-engine/result/ResultParser.ts`, `src/adapters/adapter-result-parser.ts`, and driver result parsers |
+| Strict hydration | `src/query-engine/result/relation-result-parser.ts`, `result-row-parser.ts`, and a polymorphic sibling |
+| SQL dialect primitives | `src/adapters/database-adapter.ts` and `src/adapters/databases/{postgres,mysql,sqlite}/` |
+| Snapshot/history | `src/migrations/types.ts`, `serializer.ts`, `generate/index.ts`, and sole comparator `generate/polymorphic-history.ts` |
+| Structural diff/push | `src/migrations/differ.ts` and `src/migrations/push/planner.ts` |
+| Generated DDL | `src/migrations/drivers/{postgres,mysql,sqlite,libsql}/index.ts` |
+| Contracts | `tests/contracts/engine/query`, `tests/contracts/engine/write`, layer/unit/type suites |
+
+`ManyToManyStatements` is not involved. Polymorphic storage is an owner-held
+two-column reference, not a junction relation.
+
+## 14. Success criteria
+
+- [ ] The three Y0 decisions are recorded and reflected in public types.
+- [ ] Mutually recursive public schemas retain literal discriminator inference.
+- [ ] Typo probes pass through a real public driver/package call and place the
+      typo beside a valid key.
+- [ ] Hidden storage never appears as public model scalars.
+- [ ] Each payload validates as exactly one intent and one target.
+- [ ] `{ type, is, isNot }` is rejected; omitted include variants keep default projections.
+- [ ] Direct connect/create/disconnect use existing record compilers and no new
+      runtime step.
+- [ ] Root upsert create/update arms reuse the same lowering and untaken arms remain inert.
+- [ ] Disconnect-only updates count as root work; genuinely empty updates remain zero-step.
+- [ ] Inverse create writes both type and id atomically.
+- [ ] Required-polymorphic models reject scalar-only root/nested `createMany`
+      before planning; optional-polymorphic models retain bulk inserts.
+- [ ] Unsupported verbs are structurally absent from operation schemas.
+- [ ] Include/select/filter work for all configured targets and nested shapes.
+- [ ] Result parsing is discriminator-aware and strict.
+- [ ] Every inverse correlation includes the exact discriminator conjunct.
+- [ ] Normal relation SQL plans and performance paths are unchanged.
+- [ ] Mutation direct/CTE folds classify polymorphic projections, carry private
+      columns only as plumbing, and decline stale self-polymorphic folds.
+- [ ] Polymorphic include uses one statement and no N+1 execution.
+- [ ] The composite index is serialized and usable on supported engines.
+- [ ] Metadata-only generated snapshots persist target additions; push documents
+      that live introspection cannot detect stored-member history or retargets.
+- [ ] Optional half-null corruption is rejected by strict hydration.
+- [ ] PostgreSQL, MySQL, SQLite, and libSQL behavior agrees.
+- [ ] No public API unrelated to polymorphic relations changes.
+- [ ] No adapter execution, driver, batch-ref, or runtime-step protocol changes.
+
+## 15. References
+
+- [Query-engine performance plan](../docs/architecture/query-performance-plan.md)
+- [Query-engine internals](../docs/content/docs/internals/query-engine.mdx)
+- [Rails polymorphic associations](https://guides.rubyonrails.org/association_basics.html#polymorphic-associations)
+- [Prisma polymorphic-relations request](https://github.com/prisma/prisma/issues/1644)
 - [Martin Fowler: Single Table Inheritance](https://martinfowler.com/eaaCatalog/singleTableInheritance.html)
 - [Martin Fowler: Class Table Inheritance](https://martinfowler.com/eaaCatalog/classTableInheritance.html)

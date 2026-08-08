@@ -33,6 +33,8 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type PlanningFragment,
+  type ReadStep,
   type StatementOutputSource,
   type StatementStep,
 } from "./OperationFragment";
@@ -49,7 +51,7 @@ type RuntimeValues = Map<string, Map<string, unknown>>;
  */
 export interface ExecutableOperation {
   readonly mode: "transaction" | "batch";
-  planning(): OperationFragment;
+  planning(): PlanningFragment;
   compile(known: Readonly<Record<string, unknown>>): OperationFragment;
   parse<T>(outputs: Readonly<Record<string, unknown>>): T;
   /**
@@ -96,10 +98,44 @@ interface AtomicPlan {
   readonly values: RuntimeValues;
 }
 
-/** A single-statement operation's compiled plan (PLAN P5 item 2b seam). */
-export interface SingleStatementPlan {
+/** One validated statement candidate before a caller-specific policy is applied. */
+export interface SingleStatementCandidate {
   readonly fragment: OperationFragment;
   readonly step: StatementStep;
+}
+
+function compileSingleStatementCandidate(
+  operation: ExecutableOperation
+): SingleStatementCandidate | undefined {
+  if (operation.planning().steps.length > 0) return undefined;
+  const fragment = operation.compile({});
+  if (fragment.steps.length !== 1) return undefined;
+  const [step] = fragment.steps;
+  if (!step || step.kind === "guard") return undefined;
+  if (!isSql(step.statement)) return undefined;
+  validateFragment(fragment);
+  return { fragment, step };
+}
+
+function canExecuteDirectly(candidate: SingleStatementCandidate): boolean {
+  const { step } = candidate;
+  return (
+    !(step.kind === "write" && step.onUniqueConflict) &&
+    !step.statement.values.some(isOperationValueReference) &&
+    !stepUsesInsertIdScratch(step)
+  );
+}
+
+function canPrepareSingle(candidate: SingleStatementCandidate): boolean {
+  return canExecuteDirectly(candidate) && candidate.step.expects === undefined;
+}
+
+function canBuildStatement(candidate: SingleStatementCandidate): boolean {
+  const { step } = candidate;
+  return (
+    !(step.kind === "write" && step.onUniqueConflict) &&
+    !step.statement.values.some(isOperationValueReference)
+  );
 }
 
 export class OperationExecutor {
@@ -136,9 +172,14 @@ export class OperationExecutor {
     // never the payload's kind. The plan is computed once here and executed
     // directly (no re-plan/compile/validate/materialize round), so the fast path
     // adds no per-call overhead beyond the single statement it runs.
-    const atomicPlan = this.statementAtomicPlan(operation);
-    if (atomicPlan) {
-      return this.runStatementAtomic<T>(atomicPlan, operation, driver, context);
+    const directCandidate = compileSingleStatementCandidate(operation);
+    if (directCandidate && canExecuteDirectly(directCandidate)) {
+      return this.runStatementAtomic<T>(
+        directCandidate,
+        operation,
+        driver,
+        context
+      );
     }
     // A driver with neither an atomic transaction nor an atomic batch cannot run
     // a MULTI-statement operation — fail closed with V1's byte-identical error.
@@ -206,7 +247,7 @@ export class OperationExecutor {
   }
 
   /**
-   * The `prepareBatch` seam of the PendingOperation contract (PLAN P1.5): run
+   * The `prepareBatch` seam of the PendingOperation contract: run
    * planning, compile the taken fragment, and RETURN the atomic-batch entries
    * plus a `parseResult` closure — consumable by the client's shared batch
    * protocol (the `$transaction([...])` array path), which merges entries from
@@ -230,7 +271,7 @@ export class OperationExecutor {
   }
 
   /**
-   * The `$transaction([...])` array seam (PLAN P5 item 2c): lower this operation
+   * The `$transaction([...])` array seam: lower this operation
    * into a {@link PreparedBatchOperation} the client's **shared batch protocol**
    * merges with other pending operations into ONE driver batch. It exposes the
    * body queries, the guard index map (re-attributed by the client at the merge
@@ -281,43 +322,14 @@ export class OperationExecutor {
   }
 
   /**
-   * A statement-atomic operation runs directly on the base driver with no atomic
-   * envelope (V1's `atomicity: "statement"`). It is one plain read/write step:
-   * empty planning, exactly one non-guard step whose SQL carries no unresolved
-   * reference, insert-id scratch, or savepoint skip effect. Unlike
-   * {@link singleStatementPlan} it PERMITS a postcondition — enforced in JS by
-   * `enforcePostcondition` after the single round-trip, with no partial state to
-   * roll back (a `… RETURNING` mutation either affected its one row or none). The
-   * skip effect is excluded because it needs a savepoint scope the bare path has
-   * no envelope for. Returns the compiled plan (already validated) so the caller
-   * runs it without a second plan/compile/validate pass — `undefined` means the
-   * operation is multi-statement and takes the atomic-envelope path.
-   */
-  private statementAtomicPlan(
-    operation: ExecutableOperation
-  ): SingleStatementPlan | undefined {
-    if (operation.planning().steps.length > 0) return undefined;
-    const fragment = operation.compile({});
-    if (fragment.steps.length !== 1) return undefined;
-    const [step] = fragment.steps;
-    if (!step || step.kind === "guard") return undefined;
-    if (step.onUniqueConflict) return undefined;
-    if (!isSql(step.statement)) return undefined;
-    if (step.statement.values.some(isOperationValueReference)) return undefined;
-    if (stepUsesInsertIdScratch(step)) return undefined;
-    validateFragment(fragment);
-    return { fragment, step };
-  }
-
-  /**
    * Execute one already-compiled statement-atomic plan directly: a single
    * round-trip on the base driver, its JS postcondition enforced after (no
    * partial state to roll back), the fragment's outputs assembled and parsed. The
    * statement carries no unresolved reference (checked in {@link
-   * statementAtomicPlan}), so it runs as-is with no materialization pass.
+   * canExecuteDirectly}), so it runs as-is with no materialization pass.
    */
   private async runStatementAtomic<T>(
-    plan: SingleStatementPlan,
+    plan: SingleStatementCandidate,
     operation: ExecutableOperation,
     driver: AnyDriver,
     context: QueryExecutionContext
@@ -341,7 +353,7 @@ export class OperationExecutor {
   }
 
   /**
-   * The single-statement seam (PLAN P5 item 2b): if this operation is one plain
+   * The single-statement seam: if this operation is one plain
    * statement — empty planning, exactly one read/write step with no guard,
    * postcondition, skip effect, unresolved reference, or insert-id scratch — return
    * its compiled plan so the caller can expose it through `prepare()` (the cache
@@ -350,23 +362,21 @@ export class OperationExecutor {
    */
   singleStatementPlan(
     operation: ExecutableOperation
-  ): SingleStatementPlan | undefined {
-    if (operation.planning().steps.length > 0) return undefined;
-    const fragment = operation.compile({});
-    if (fragment.steps.length !== 1) return undefined;
-    const [step] = fragment.steps;
-    if (!step || step.kind === "guard") return undefined;
-    if (step.expects || step.onUniqueConflict) return undefined;
-    if (!isSql(step.statement)) return undefined;
-    if (step.statement.values.some(isOperationValueReference)) return undefined;
-    if (stepUsesInsertIdScratch(step)) return undefined;
-    validateFragment(fragment);
-    return { fragment, step };
+  ): SingleStatementCandidate | undefined {
+    const candidate = compileSingleStatementCandidate(operation);
+    return candidate && canPrepareSingle(candidate) ? candidate : undefined;
+  }
+
+  buildStatement(operation: ExecutableOperation): Sql | undefined {
+    const candidate = compileSingleStatementCandidate(operation);
+    return candidate && canBuildStatement(candidate)
+      ? candidate.step.statement
+      : undefined;
   }
 
   /** Prepare the single statement's driver query with the operation's context. */
   prepareSingleStatement(
-    plan: SingleStatementPlan,
+    plan: SingleStatementCandidate,
     driver: AnyDriver,
     context: QueryExecutionContext
   ): PreparedQuery {
@@ -376,7 +386,7 @@ export class OperationExecutor {
   /** Parse one statement's raw result into the operation's public shape. */
   parseSingleStatement<T>(
     operation: ExecutableOperation,
-    plan: SingleStatementPlan,
+    plan: SingleStatementCandidate,
     raw: { rows: unknown[]; rowCount: number }
   ): T {
     const result: QueryResult<unknown> = {
@@ -407,8 +417,8 @@ export class OperationExecutor {
   }
 
   /**
-   * PLAN Phase 6.1 — the planning half of "reduce the round trips on batch-only
-   * drivers". The compiled writes already ride ONE atomic batch; the planning
+   * Planning reads are grouped by dependency level on batch-only drivers. The
+   * compiled writes already ride ONE atomic batch; the planning
    * reads used to ride one `_execute` each, so a tree's planning cost grew with
    * its fan-out — six round trips for four sibling targets.
    *
@@ -432,11 +442,11 @@ export class OperationExecutor {
    * atomic batch see ONE snapshot where several `_execute` calls saw several.
    */
   private async executePlanningLevels(
-    fragment: OperationFragment,
+    fragment: PlanningFragment,
     driver: AnyDriver,
     context: QueryExecutionContext
   ): Promise<Readonly<Record<string, unknown>>> {
-    const reads: StatementStep[] = [];
+    const reads: ReadStep[] = [];
     for (const step of fragment.steps) {
       // Grouping is for planning READS. Anything else hands the WHOLE fragment
       // back to the linear executor rather than teaching this pass a second
@@ -468,7 +478,7 @@ export class OperationExecutor {
    * has nothing to undo.
    */
   private async runPlanningLevel(
-    level: readonly StatementStep[],
+    level: readonly ReadStep[],
     driver: AnyDriver,
     values: RuntimeValues,
     context: QueryExecutionContext
@@ -514,7 +524,7 @@ export class OperationExecutor {
       );
     }
     const statement = materializeLinearSql(step.statement, values);
-    // A write carrying the census `onUniqueConflict: "skip"` effect (ATOM §8)
+    // A write carrying the `onUniqueConflict: "skip"` effect (ATOM “Bulk specializations”)
     // runs behind a savepoint: a unique violation is absorbed as a zero-row
     // result rather than aborting the surrounding atomic scope (V1's
     // `executeSkippableWrite`). This is a generic executor effect — no
@@ -535,8 +545,8 @@ export class OperationExecutor {
 
   /**
    * Execute one materialized statement, classifying a race against the step's
-   * `racePin` (ATOM §1) so the retry layer **above** the executor (the routed
-   * `PendingOperation` lifecycle, PLAN P5 item 2f) can retry a matched
+   * `racePin` (ATOM “The execution vocabulary”) so the retry layer **above** the
+   * executor (the routed `PendingOperation` lifecycle) can retry a matched
    * insert-branch loser. The marking is invisible — the surfaced error is the
    * same typed `UniqueConstraintError` a non-retrying caller would see.
    */
@@ -580,14 +590,14 @@ export class OperationExecutor {
 
       if (step.expects) {
         // Batch lowering of postconditions is later-phase work. A step carrying
-        // one must fail closed here — never a silent skip (ATOM §1).
+        // one must fail closed here — never a silent skip (ATOM “The execution vocabulary”).
         throw new QueryEngineError(
           `Step '${step.id}' carries a postcondition that is not yet enforced in batch mode.`
         );
       }
 
-      if (step.onUniqueConflict === "skip") {
-        // The savepoint-wrapped skip effect (ATOM §8) has no lowering to a plain
+      if (step.kind === "write" && step.onUniqueConflict === "skip") {
+        // The savepoint-wrapped skip effect (ATOM “Bulk specializations”) has no lowering to a plain
         // atomic batch — a batch is one indivisible unit, so a per-row rollback
         // is not expressible. Fail closed rather than silently propagate the
         // violation and abort the whole batch (the recorded batch disposition).
@@ -653,12 +663,13 @@ export class OperationExecutor {
       );
       // An insert-branch loser inside the atomic unit surfaces its pinned unique
       // violation; classify it against any racePin so the retry layer above the
-      // executor converges (V1 parity, PLAN P5 item 2f). The batch is one unit,
+      // executor converges. The batch is one unit,
       // so the failing entry is not individually reported — match the error
       // against every racePin the plan carries (there is one per insert branch).
       if (error instanceof UniqueConstraintError) {
         for (const entry of entries) {
-          const pin = entry.step?.racePin;
+          const pin =
+            entry.step?.kind === "write" ? entry.step.racePin : undefined;
           if (pin && racePinMatches(error, pin)) {
             markRaceable(error);
             break;
@@ -707,10 +718,10 @@ function assembleOutputs(
  * producer at level N-1, so bucket N-1 exists before bucket N is created.
  */
 function planningLevels(
-  reads: readonly StatementStep[]
-): readonly (readonly StatementStep[])[] {
+  reads: readonly ReadStep[]
+): readonly (readonly ReadStep[])[] {
   const levelOf = new Map<string, number>();
-  const levels: StatementStep[][] = [];
+  const levels: ReadStep[][] = [];
   for (const step of reads) {
     const level = planningLevel(step, levelOf, levels.length);
     const bucket = levels[level];
@@ -722,7 +733,7 @@ function planningLevels(
 }
 
 function planningLevel(
-  step: StatementStep,
+  step: ReadStep,
   levelOf: ReadonlyMap<string, number>,
   unorderableLevel: number
 ): number {
@@ -798,7 +809,7 @@ function failureError(failure: Failure, context: QueryExecutionContext): Error {
     },
   });
   // A `query` guard abort can be raceable too — the sole producer is the
-  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM §2). The
+  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM “Branch premises and pins”). The
   // mark is what lets the routed retry re-plan and converge; dropping it here
   // strands the flag the fragment validator required.
   if (failure.raceable) error.meta.raceable = true;
@@ -822,7 +833,7 @@ function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {
       // before reaching a bind. Its absence has a meaning, and the meaning is SQL
       // NULL: "no row, so this correlated read must match nothing" (`= NULL` is
       // never true). Saying so here is what makes the untaken arm of a two-arm
-      // write's superset planning (ATOM §3 technique 2) behave identically on
+      // write's superset planning (ATOM “Planning fragments”) behave identically on
       // every driver — eight of nine binders coerce `undefined` to NULL, mysql2
       // rejects it outright — so the semantics live in the engine, not in one
       // driver.
@@ -847,7 +858,7 @@ function extractOutputs(
   result: QueryResult<unknown>
 ): Map<string, unknown> {
   const outputs = new Map<string, unknown>();
-  // A write whose skip effect (ATOM §8) ABSORBED a unique violation made no row, so it
+  // A write whose skip effect (ATOM “Bulk specializations”) ABSORBED a unique violation made no row, so it
   // produced no insert id: `executeSkippableWrite` yields the zero-row result and the
   // driver reports nothing to read. That absence is the skip itself, not a driver failure,
   // so the declared output resolves to `undefined` and the consumer decides from the row
@@ -953,7 +964,7 @@ function resolveSingleOutput(
 
 /**
  * An ordered list of refs resolves by concatenating rows or summing counts
- * (ATOM §1). The list is homogeneous: mixing row and count sources is a typed
+ * (ATOM “The execution vocabulary”). The list is homogeneous: mixing row and count sources is a typed
  * error, never a silent coercion.
  */
 function resolveOutputList(

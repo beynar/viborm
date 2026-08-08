@@ -4,7 +4,8 @@ import {
   SQLite3Driver,
 } from "@drivers/sqlite3";
 import { push } from "@migrations";
-import { sqliteUserPostSchema } from "../user-post-schema";
+import { sqliteUserPostSchema } from "@tests/fixtures/user-post-schema";
+import type { ProviderFixture } from "@tests/contracts/contract";
 
 export function createInMemorySQLite3Driver(): SQLite3Driver {
   return new SQLite3Driver({
@@ -29,3 +30,13 @@ export async function setupSQLite3UserPostDatabase(driver: SQLite3Driver) {
   await driver._executeRaw(`DELETE FROM "posts"`);
   await driver._executeRaw(`DELETE FROM "users"`);
 }
+
+export const sqlite3ProviderFixture: ProviderFixture<SQLite3Driver> = {
+  id: "sqlite3",
+  dialect: "sqlite",
+  runtime: "node",
+  capabilities: new Set(["sql-execution", "transactions", "returning", "ddl"]),
+  availability: () => ({ available: true }),
+  createDriver: createInMemorySQLite3Driver,
+  dispose: (driver) => driver.disconnect(),
+};

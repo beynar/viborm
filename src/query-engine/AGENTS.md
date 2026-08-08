@@ -1,257 +1,196 @@
-# Query Engine - Database-Agnostic Query Building
+# Query Engine — Database-Agnostic Query Planning
 
 **Location:** `src/query-engine/`  
-**Layer:** L6 - Query Logic (see [root AGENTS.md](../../AGENTS.md))
+**Layer:** L6 — query structure and semantics
 
 ## Purpose
 
-Transforms validated query objects into SQL via adapter delegation. Handles query structure (WHAT to query) without touching database syntax (HOW to express it).
+The query engine validates operation inputs, decides query structure, compiles
+ordered SQL fragments, and parses results. It never owns database syntax.
+Adapters express SQL. Drivers execute it.
 
-## Why This Layer Exists
+## Golden rule
 
-Early VibORM had SQL generation scattered throughout. Adding MySQL required changing 50+ files, hunting for PostgreSQL-specific syntax. The query-engine/adapter split fixed this:
+Every dialect-dependent SQL choice goes through the adapter. Provider error
+recognition belongs to driver error mapping. Do not inspect SQL text in the
+query engine to infer a dialect semantic that the compiler already knows.
 
-- **Query engine** owns structure: which tables to join, what conditions to apply, how to nest includes
-- **Adapters** own syntax: how to quote identifiers, which JSON functions to use, dialect quirks
+## Write architecture
 
-This separation means adding a new database = implementing one adapter interface, not auditing the entire codebase.
-
----
-
-## Entry Points
-
-| File | Purpose | Lines |
-|------|---------|-------|
-| `query-engine.ts` | Public `QueryEngine` orchestration shell (build/prepare/execute) | ~170 |
-| `executor.ts` | Validates + builds SQL for an operation | ~600 |
-| `result-flow.ts` | Result parsing/hydration flow | ~340 |
-| `transaction-flow.ts` | `$transaction` + the nested-write entry (`executeWithNestedWrites` → race retry → `selectMode` → interpreter) | ~200 |
-| `operations/nested-writes/` | The one nested-write interpreter + its two execution modes | See below |
-| `cache-flow.ts` | Cache read/write orchestration around operations | ~130 |
-| `types.ts` | QueryContext, ModelRegistry, Operation | ~390 |
-| `validator.ts` | Input validation through `SchemaRegistry` | ~110 |
-| `builders/` | SQL fragment builders | See [builders/AGENTS.md](builders/AGENTS.md) |
-
----
-
-## The Golden Rule ⭐
-
-**Query engine code MUST be database-agnostic. Every SQL operation MUST delegate to `ctx.adapter.*`**
-
-```typescript
-// ❌ NEVER: Hardcoded PostgreSQL syntax
-sql`"${alias}"."${field}" LIKE ${pattern}`
-sql`COALESCE(json_agg(${expr}), '[]'::json)`
-
-// ✅ ALWAYS: Delegate to adapter
-const column = ctx.adapter.identifiers.column(alias, field);
-ctx.adapter.operators.like(column, pattern);
-ctx.adapter.json.agg(expr);
-```
-
-**Why this is non-negotiable:** The moment you hardcode syntax, you break another database. PostgreSQL uses `"quotes"`, MySQL uses `` `backticks` ``. PostgreSQL has `json_agg()`, MySQL has `JSON_ARRAYAGG()`, SQLite has `json_group_array()`. There are dozens of these differences.
-
----
-
-## Core Concepts
-
-### QueryContext
-
-Every builder receives context as first parameter. Context provides:
-
-```typescript
-interface QueryContext {
-  adapter: DatabaseAdapter;  // SQL generation (CRITICAL!)
-  model: Model;              // Current model metadata
-  registry: ModelRegistry;   // Access to related models
-  schemaRegistry: SchemaRegistryLookup; // Operation validation schemas
-  nextAlias(): string;       // Generate t0, t1, t2...
-}
-```
-
-**Why context threading matters:** Child builders (for nested includes, subqueries) need adapter access too. Without context, they can't generate correct SQL.
-
-### Sql Fragments
-
-Builders return `Sql` fragments, not strings. Fragments carry template + values separately:
-
-```typescript
-// Fragment preserves parameterization
-sql`WHERE ${column} = ${value}`
-// → { text: "WHERE $1 = $2", values: [column, value] }
-```
-
-**Why not strings:** String concatenation invites SQL injection. Fragments ensure proper parameterization at every level of composition.
-
----
-
-## Nested-Write Interpreter (`operations/nested-writes/`)
-
-A nested write (`create`/`update`/`upsert` carrying relation mutations) is an
-ordered plan over uncertain state — DB-assigned ids a later statement needs,
-reads that decide branches (upsert exists?, connectOrCreate found?), and
-invariants that must hold at commit — committing atomically on one connection.
-
-There is **one interpreter** that owns every semantic decision, parameterized by
-a two-implementation `Mode` capability object. It is split across the
-`interpret-*.ts` family modules purely for navigability (§11 M10 gate 4
-follow-up) — the file boundaries carry no semantic meaning; the families recurse
-into each other and none of them consults a mode implementation. This is the
-whole architecture:
-
-- **`interpreter.ts`** (entry) — dispatch, the per-operation `Interp` bundle
-  (mode + effect sink + symbol minter), and the `selectMode` re-export. The only
-  family-layer file that may touch a concrete mode (`bindContext`).
-- **`interpret-create-family.ts`** — create / createMany / connect /
-  connectOrCreate, both FK directions. These bodies are also the create branches
-  that update/upsert/m2m trees recurse into.
-- **`interpret-update-family.ts`** — update / updateMany / disconnect / delete /
-  deleteMany / set, the parent-holds-FK update-tree bodies, the shared
-  `interpretConnectedChildUpdate` (reused by m2m), and the PK-change / D4 overlay
-  plumbing.
-- **`interpret-upsert-family.ts`** — top-level and nested (to-one / to-many)
-  upsert, targetWhere / setWhere.
-- **`interpret-m2m.ts`** — every many-to-many kind, including the
-  filtered-deleteMany symmetric-difference staleness guards.
-- **`interpret-shared.ts`** — the cross-family leaves: guard constructors /
-  emitters, `childCtx`, the FK-expr helpers, and the `Expr` ↔ raw-carrier
-  plumbing (Axis A). No semantic decision lives here.
-- **`mode.ts`** — the `Mode` interface plus **`selectMode`**, the single
-  capability fork. `selectMode` is the **only** place a driver's
-  `supportsTransactions`/`supportsBatch` are read (a transaction driver →
-  `LiveMode`; a batch-only driver → `PlannedMode`; neither → a typed rejection).
-- **`live-mode.ts` / `planned-mode.ts`** — the two substrates. `LiveMode`
-  executes each effect immediately inside one `withTransaction` and reads live
-  (sees its own writes). `PlannedMode` lowers each effect into one ordered
-  statement list, defers produced values through a scratch table
-  (`batchRefs.store`/`read`), and pins plan-time branch decisions with SQL
-  assertions. The store lives entirely inside `planned-mode.ts`.
-
-The single axis of variation is one capability bit — **`canObserveOwnWrites`**:
-can a read issued mid-operation see this operation's own uncommitted writes?
-Everything else the two modes differ on is a consequence of that bit.
-
-**Load-bearing invariants (grep-gated by
-`tests/query-engine/nested-write-architecture-gates.test.ts`):**
-
-1. `supportsTransactions`/`supportsBatch` are read only in the mode files (the
-   `selectMode` fork). No capability branch anywhere else in `nested-writes/`.
-2. The mode files (`mode.ts`, `live-mode.ts`, `planned-mode.ts`) import **no**
-   semantic layer — not `semantic-plan.ts`, `fk.ts`, or `relation-data-builder`.
-   A mode may only hold substrate mechanics; any relation/step/branch rule
-   belongs in the interpreter.
-3. No mutation kind has a second implementation — the old dual engines were
-   deleted, and nothing re-imports a deleted engine/scaffolding module.
-4. The directory roster is exactly the interpreter entry + the `interpret-*.ts`
-   family modules + the two modes + the kept shared builders (a new file is a
-   deliberate, reviewed addition).
-5. No `interpret-*.ts` family module imports a mode implementation
-   (`live-mode.ts` / `planned-mode.ts`) — the split is navigability only, so a
-   family module that reaches a concrete mode is a per-mode branch smuggled into
-   the semantics. Only the `interpreter.ts` entry (for `bindContext`) and
-   `mode.ts` (for `selectMode`) may.
-
-**The test of the whole design:** a feature request touching nested-write
-semantics is implementable without editing either mode file. If a change edits
-both mode files *and* encodes a rule about relations, the design is violated.
-
-The shared, substrate-agnostic pieces the interpreter reuses stay beside it:
-`semantic-plan.ts` (step/guard planning), `fk.ts` (FK condition builders),
-`record-access.ts` (select-one / not-found error), `assertions.ts`,
-`effect-lowering.ts`, and the value carrier `BatchValueRef` (defined in
-`builders/values-builder.ts`, lowered at `buildScalarSqlValue`).
-
-Full design: `docs/architecture/engine-unification/DESIGN.md`.
-
-## Core Rules
-
-### Rule 1: Context Threading
-Every builder receives QueryContext as first parameter. Pass it through to all nested calls.
-
-### Rule 2: Adapter Delegation
-For ANY operation that might differ between databases, call `ctx.adapter.*`. When in doubt, delegate.
-
-### Rule 3: No Dialect Conditionals
-Never write `if (adapter.type === 'postgres')`. If you need database-specific behavior, add an adapter method.
-
-### Rule 4: Pure Builders
-Builders are pure functions: same inputs → same output. No side effects, no state mutation.
-
----
-
-## Anti-Patterns
-
-### Hardcoded Identifier Quotes
-Using `"column"` directly. PostgreSQL/SQLite use double quotes, MySQL uses backticks. Always use `ctx.adapter.identifiers.column()`.
-
-### Hardcoded JSON Functions
-Writing `json_agg()` directly. Each database has completely different JSON aggregation syntax. This is the #1 source of multi-database bugs.
-
-### Hardcoded Operators
-Writing `LIKE` or `ILIKE` directly. PostgreSQL has ILIKE, others need COLLATE workarounds. Use `ctx.adapter.operators.*`.
-
-### Dialect Branching
-Writing `if (adapter.type === 'postgres')`. This logic belongs in adapter methods, not query engine.
-
-### String Concatenation for SQL
-Building SQL with template strings instead of Sql fragments. Breaks parameterization and composition.
-
----
-
-## Common Tasks
-
-### Adding New Query Operator
-
-1. **Add to validation schema** (`src/validation/model/core/filter.ts`)
-2. **Add adapter interface method** (`src/adapters/database-adapter.ts`)
-3. **Implement in ALL adapters** (postgres, mysql, sqlite)
-4. **Handle in where-builder** (`builders/where-builder.ts`)
-5. **Test with all 3 databases**
-
-### Debugging SQL Output
-
-```typescript
-const result = buildWhere(ctx, whereInput, "t0");
-console.log("SQL:", result.text);
-console.log("Values:", result.values);
-```
-
-Compare output across adapters to verify database-agnostic behavior.
-
----
-
-## Data Flow
-
-```
-Client calls orm.user.findMany(args)
+```text
+validated input
         ↓
-Query engine validates args through SchemaRegistry
+RelationMutationProgram map
         ↓
-Builders construct SQL fragments via ctx.adapter.* methods
+root operation + relation Parts
         ↓
-Fragments composed into final query
+guard-free PlanningFragment
         ↓
-Driver executes query, returns raw results
+selected OperationFragment
         ↓
-Result parser transforms to typed objects
+OperationExecutor
 ```
 
----
+See [write-engine/ATOM.md](write-engine/ATOM.md) for the normative doctrine and
+[write-engine/README.md](write-engine/README.md) for the short guide.
 
-## Subdirectories
+### Execution atom
 
-- `builders/` - SQL fragment builders (see [builders/AGENTS.md](builders/AGENTS.md))
-- `operations/` - High-level operation implementations (findMany, create, etc.)
-- `context/` - QueryContext factory and alias generation
-- `result/` - Result parsing and hydration
+`OperationFragment.ts` defines three runtime step kinds:
 
----
+- `ReadStep`;
+- `WriteStep`, the only kind that can carry `racePin` or
+  `onUniqueConflict`;
+- `GuardStep`.
 
-## Related Layers
+`PlanningFragment` contains statement steps and outputs, never guards. Planning
+is not read-only: skip-duplicate capture performs preparation writes.
+Nested `Part.planning()` currently contributes reads. Keep the executor's
+non-read planning fallback.
 
-| Layer | Relationship |
-|-------|--------------|
-| **Adapters** ([adapters/AGENTS.md](../adapters/AGENTS.md)) | Query engine calls adapter methods. **CRITICAL BOUNDARY!** |
-| **Validation** ([validation/AGENTS.md](../validation/AGENTS.md)) | Provides `SchemaRegistry` operation schemas |
-| **Drivers** | Executes final SQL, returns raw results |
-| **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Calls query engine, receives typed results |
+### Local terminology
+
+An **operation shell** is the concrete public-operation-family owner that
+exposes `mode`, `planning`, `compile`, and `parse`. `write-engine/routing.ts`
+owns route-wide gates and shared-envelope parsing. The routed root shell owns
+the remaining family- and arm-specific parsing, target, result, and direct
+folds. `CreateOperation` can also be reused as a delegated fresh-record compiler
+inside another shell. Files in `write-engine/*Operation.ts` contain these
+owners. Files in `operations/*.ts` contain operation-specific SQL, plan,
+identity, and ordering helpers; their historical directory name does not make
+them operation shells.
+
+Within relation compilation, **parent** means the current source record at that
+edge and **child** means its relation target. `parentHeldToOne` says that the
+source record stores the FK. It does not claim a global model hierarchy.
+
+### Payload meaning
+
+`builders/relation-mutation-parser.ts` constructs one lossless
+`RelationMutationProgram` for each schema-transformed relation payload. Entries
+preserve mutation order, array order, duplicates, `set: []`, and normalized
+targets. Emitters consume `program.entries`; they do not reparse or recreate an
+optional per-kind bag.
+
+Validation transforms are not assumed to be idempotent. Parse untrusted input
+once at its trust boundary and pass transformed meaning downstream.
+
+### Relation topology
+
+`bindRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
+`childHeldToMany`, or `junction`. `BoundRelation` carries ordered topology only.
+It does not carry scopes, identities, value sources, transition state, SQL, or
+branch policy. Bind at the first topology decision so error order and untaken
+arm behavior do not move.
+
+### Record compilers
+
+`CreateOperation` compiles each non-bulk fresh record subtree except the explicit
+inline junction-target insert. `RecordUpdateCompiler` compiles each
+already-selected non-bulk record update except the top-level scalar upsert fold,
+which stays in its shell to preserve the one-statement path.
+
+The update compiler owns scalar SET data, incoming FK assignments, nested
+relations, required target fields, primary-key transitions, the root UPDATE,
+and descendant ordering. For a `parentHeldToOne` edge, the record compiler also
+owns the inline FK fold and the branch needed to construct its root statement.
+For child-held and junction edges, relation owners keep the target read,
+correlation, membership, found/missing decision, guards, race pins, not-found
+failure, and standalone edge effects. A true no-op allocates no step ID.
+
+Fresh and selected compilers recurse through a type-only `RecordCompilerSeam`
+with two functions: `createFresh` and `updateSelected`. It is a dependency
+boundary, not a strategy framework. Runtime imports inside `write-engine` must
+remain acyclic.
+
+Direct top-level scalar folds and bulk operations remain specialized.
+
+### Foreign-key provenance
+
+`write-engine/foreign-key-reference.ts` binds each value source to one
+foreign/referenced field pair. Transitioned keys use distinct old-read and
+new-write sources. Final operation references cannot enter planning SQL, and
+lookup SQL cannot decide a branch.
+
+### Branch pins
+
+- Captured-target batch found arm: guard the captured row, `raceable: false`.
+- Scalar probe-first upsert batch found arm: reassert the original unique and
+  conditional selector together with the captured primary key.
+- Scalar conditional-skip batch arm: first reassert selector plus captured key
+  with a non-raceable presence guard; then assert that the same row still does
+  not match the conditional with a raceable absence guard. Keep that order.
+- Transaction found arm: use the locked read; do not duplicate the guard.
+- Missing same-target insert arm: use the constraint and root-write `racePin`.
+- Same-operation duplicate: add neither guard nor race pin.
+- Keep explicit absence guards only when no same-target constraint enforces the
+  premise.
+
+`RecordUpdateCompiler` and relation owners that pass it a selected target write
+by the captured primary key. A scalar probe-first upsert does the same in batch
+mode after guarding that the complete selector still names that captured row.
+Transaction mode keeps the original selector because its locate locks the row.
+The eligible `ON CONFLICT` fold has no planning read, while a relation-bearing
+found arm uses `RecordUpdateCompiler` and its captured identity.
+
+## Main owners
+
+| Owner | Responsibility |
+| --- | --- |
+| `query-engine.ts` | client-scoped driver, registry, and engine composition |
+| `pending-operation.ts` | lazy public operation lifecycle and routing entry |
+| `write-engine/routing.ts` | route-wide operation gates, shared-envelope parsing, and shell construction |
+| `operations/*.ts` | operation-specific SQL, plan, identity, and ordering helpers; not shells |
+| `write-engine/CreateOperation.ts` | fresh record compilation and create result |
+| `write-engine/UpdateOperation.ts` | public update shell and direct folds |
+| `write-engine/RecordUpdateCompiler.ts` | one selected record mutation |
+| `write-engine/UpsertOperation.ts` | top-level arm selection and terminal result |
+| relation Parts | child-held/junction selection, membership, guards, pins, and edge effects |
+| `write-engine/OperationExecutor.ts` | generic fragment execution |
+| `write-engine/OperationFragment.ts` | step and fragment vocabulary |
+| `builders/relation-mutation-parser.ts` | parsed mutation programs |
+| `builders/relation-data-builder.ts` | bound relation topology |
+| `write-engine/foreign-key-reference.ts` | field-bound FK provenance |
+| `ManyToManyStatements.ts` | junction SQL materialization |
+
+Keep the type-only `QueryMetadata` compatibility export, adapter `batchRefs`,
+and `ManyToManyStatements`. `QueryMetadata` is not a runtime boundary. Do not
+add a generic mutation DSL, payload walker, branch-step IR, locator, strategy,
+lifecycle hook, or shared utility landfill.
+
+## Core rules
+
+1. Adapter owns dialect SQL; driver mapping owns provider error recognition.
+2. Parse once at each trust boundary.
+3. Preserve SQL, parameter order, step IDs, guards, race pins, and exact errors.
+4. Planning contains no guards, but can contain skip-duplicate preparation writes.
+5. Atomic-batch guards precede writes with stable order inside both groups.
+6. Old-read and new-write key-transition values stay distinct.
+7. First-create-wins remains local to connect-or-create.
+8. One invariant has one guard.
+9. Use direct owner imports; do not recreate a query-engine barrel.
+
+## Validation
+
+Run focused behavior tests for the changed operation, then:
+
+```bash
+pnpm test:types
+pnpm test:layer:query-engine
+pnpm package:build
+pnpm test
+```
+
+Use PGlite transaction and forced atomic-batch witnesses for changed nested
+writes. Run PostgreSQL and MySQL parity suites when Docker is available.
+
+Ordinary PGlite behavior uses `usePGliteSchemaFamily`: one database and one
+schema push per compatible schema and substrate, with table truncation between
+tests. Reset explicitly between parity arms in one test. The fixture owns the
+disconnect. Keep a fresh database only for DDL, lifecycle, destructive-schema,
+independently committed concurrency, staleness/race, or rollback-isolation
+contracts. Structural fragment proofs do not boot PGlite.
+
+`pnpm test:coverage:write-engine` is the authoritative credential-free write
+estate. It includes core query/architecture sentinels and every local write
+behavior; `pnpm test:layer:query-engine` remains the representative fast gate.

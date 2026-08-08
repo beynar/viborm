@@ -1,10 +1,10 @@
 import type {
   ComputeInput,
   ComputeOutput,
-  InferInput,
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isString } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -61,7 +61,7 @@ export function enum_<
 
   // Create base validator
   const baseValidate = (value: unknown) => {
-    if (typeof value === "string" && valueSet.has(value)) {
+    if (isString(value) && valueSet.has(value)) {
       return ok(value as TValues[number]);
     }
     return {
@@ -83,6 +83,3 @@ export function enum_<
 
   return schema;
 }
-
-const test = enum_(["a", "b", "c"]);
-type In = InferInput<typeof test>;

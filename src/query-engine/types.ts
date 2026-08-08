@@ -72,14 +72,7 @@ export interface PreparedBatchOperation<T = unknown> {
   setupQueries?: PreparedQuery[];
   cleanupQueries?: PreparedQuery[];
   guards?: PreparedBatchGuard[];
-  /** Exact selected create steps that may lose their probed unique race. */
-  racePins?: PreparedBatchRacePin[];
   parseResult: (results: QueryResult<unknown>[]) => T;
-}
-
-export interface PreparedBatchRacePin {
-  readonly queryIndex: number;
-  readonly pin: import("./operation-program").UniqueConflictPin;
 }
 
 /** Declarative ownership for one assertion query in a prepared operation. */
@@ -87,7 +80,7 @@ export interface PreparedBatchGuard {
   readonly queryIndex: number;
   readonly premise: "exists" | "notExists";
   readonly probe: import("@sql").Sql;
-  readonly failure: import("./operation-program").ProgramFailure;
+  readonly failure: import("./write-engine/OperationFragment").Failure;
   readonly model: string;
   readonly operation: Operation;
 }
@@ -145,23 +138,6 @@ export type BatchOperation = (typeof BATCH_OPERATIONS)[number];
 /** Check if operation is a batch operation */
 export function isBatchOperation(op: Operation): op is BatchOperation {
   return (BATCH_OPERATIONS as readonly string[]).includes(op);
-}
-
-/** Batch mutations that return the affected rows instead of a count */
-export type ManyAndReturnOperation =
-  | "createManyAndReturn"
-  | "updateManyAndReturn"
-  | "deleteManyAndReturn";
-
-/** Check if operation is a batch mutation returning rows */
-export function isManyAndReturnOperation(
-  op: Operation
-): op is ManyAndReturnOperation {
-  return (
-    op === "createManyAndReturn" ||
-    op === "updateManyAndReturn" ||
-    op === "deleteManyAndReturn"
-  );
 }
 
 /**

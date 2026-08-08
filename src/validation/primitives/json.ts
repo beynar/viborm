@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isBoolean, isNumber, isRecord, isString } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -59,15 +60,9 @@ const NOT_JSON_ERROR = Object.freeze({
 function isJsonValue(value: unknown, seen = new WeakSet<object>()): boolean {
   // Primitives
   if (value === null) return true;
-  if (typeof value === "string") return true;
-  if (typeof value === "number") return Number.isFinite(value); // Reject NaN, Infinity
-  if (typeof value === "boolean") return true;
-
-  // Reject non-JSON types
-  if (typeof value === "undefined") return false;
-  if (typeof value === "function") return false;
-  if (typeof value === "symbol") return false;
-  if (typeof value === "bigint") return false;
+  if (isString(value)) return true;
+  if (isNumber(value)) return Number.isFinite(value); // Reject NaN, Infinity
+  if (isBoolean(value)) return true;
 
   // Arrays
   if (Array.isArray(value)) {
@@ -81,7 +76,7 @@ function isJsonValue(value: unknown, seen = new WeakSet<object>()): boolean {
   }
 
   // Objects
-  if (typeof value === "object") {
+  if (isRecord(value)) {
     // Check for circular reference
     if (seen.has(value)) return false;
     seen.add(value);
@@ -90,13 +85,8 @@ function isJsonValue(value: unknown, seen = new WeakSet<object>()): boolean {
     const proto = Object.getPrototypeOf(value);
     if (proto !== null && proto !== Object.prototype) return false;
 
-    for (const key in value) {
-      if (
-        Object.hasOwn(value, key) &&
-        !isJsonValue((value as Record<string, unknown>)[key], seen)
-      ) {
-        return false;
-      }
+    for (const key of Object.keys(value)) {
+      if (!isJsonValue(value[key], seen)) return false;
     }
     return true;
   }

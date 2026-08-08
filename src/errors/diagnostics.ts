@@ -6,6 +6,7 @@ import {
   filterSafeErrorProperty,
   freezeDiagnosticValue,
   getNestedCause,
+  isArrayValue,
   isError,
   isRecord,
   MAX_DIAGNOSTIC_ARRAY_LENGTH,
@@ -193,10 +194,10 @@ export function sanitizeLogMetadata(
 }
 
 export function sanitizeDiagnosticParameters(
-  value: unknown,
+  value: readonly unknown[],
   disclosure?: DiagnosticDisclosure
-): unknown {
-  return sanitizeUnknown(value, createState(disclosure), 0, false, true);
+): unknown[] {
+  return sanitizeArray(value, createState(disclosure), 0, false, true);
 }
 
 export function sanitizeErrorForLogging(
@@ -595,14 +596,6 @@ function sanitizeStringArray(value: unknown): string[] | undefined {
     strings.push(descriptor.value);
   }
   return strings;
-}
-
-function isArrayValue(value: unknown): value is unknown[] {
-  try {
-    return Array.isArray(value);
-  } catch {
-    return false;
-  }
 }
 
 function getTrustedErrorSnapshot(

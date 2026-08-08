@@ -12,7 +12,7 @@
  * wait for those, await them.
  */
 
-import type { Clock, ClockTimer } from "../../src/clock";
+import type { Clock, ClockTimer } from "@src/clock";
 
 interface ScheduledTimer {
   readonly dueAt: number;

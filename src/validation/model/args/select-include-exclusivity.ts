@@ -2,6 +2,7 @@ import type {
   ObjectOptions,
   ObjectSchema,
 } from "@validation/primitives/object";
+import { isRecord } from "@validation/value-guards";
 
 const SELECT_INCLUDE_EXCLUSIVITY_ERROR = {
   issues: [
@@ -26,12 +27,9 @@ const SELECT_INCLUDE_EXCLUSIVITY_ERROR = {
  * projection and must be accepted.
  */
 const hasSelectAndInclude = (value: unknown): boolean => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return record.select !== undefined && record.include !== undefined;
+  return (
+    isRecord(value) && value.select !== undefined && value.include !== undefined
+  );
 };
 
 export const rejectSelectInclude = <

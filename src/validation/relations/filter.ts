@@ -4,6 +4,7 @@ import type { RelationState } from "@schema/relation/types";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import { type V, v } from "../primitives/v";
 import type { VibSchema } from "../types";
+import { isRecord } from "../value-guards";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 
 /**
@@ -36,8 +37,8 @@ import type { GetTargetSchemas, SchemaGetter } from "./helpers";
  */
 
 type NullToIsNull = V.Schema<null, { is: null }>;
-const nullToIsNull: NullToIsNull = createSchema("object", (value) =>
-  value === null ? ok({ is: null }) : fail("Expected object")
+const nullToIsNull: NullToIsNull = createSchema("object", () =>
+  ok({ is: null })
 );
 
 type ToOneFilterObjectSchema<S extends RelationState> = V.Object<{
@@ -133,7 +134,7 @@ export const toOneFilterFactory = <
         ? validateSchema(nullToIsNull, value)
         : fail("Expected object");
     }
-    if (typeof value !== "object" || Array.isArray(value)) {
+    if (!isRecord(value)) {
       return fail("Expected object");
     }
     return isExplicitToOneFilter(value)

@@ -1,0 +1,225 @@
+- main [ref=e2]:
+  - generic "Main" [ref=e3]:
+    - navigation [ref=e6]:
+      - link "VibORM" [ref=e7] [cursor=pointer]:
+        - /url: /
+      - list
+      - generic [ref=e8]:
+        - button "Search ⌘ K" [ref=e9]:
+          - text: Search
+          - generic [ref=e13]:
+            - generic [ref=e14]: ⌘
+            - generic [ref=e15]: K
+        - button "Toggle Theme" [ref=e16]
+  - main [ref=e25]:
+    - generic [ref=e30]:
+      - heading "VibORM" [level=1] [ref=e31]
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - generic [ref=e35]: viborm.ts
+          - generic [ref=e36]: VibORM
+        - generic [ref=e37]: typescript
+      - generic [ref=e38]:
+        - link "Get Started" [ref=e39] [cursor=pointer]:
+          - /url: /docs/getting-started/quick-start
+        - link "Read the Docs" [ref=e42] [cursor=pointer]:
+          - /url: /docs
+    - generic [ref=e45]:
+      - generic [ref=e46]:
+        - heading "Schema Definition" [level=2] [ref=e47]
+        - paragraph [ref=e48]: Relations are defined inline with the model.
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - generic [ref=e51]:
+            - generic [ref=e52]: drizzle-schema.ts
+            - generic [ref=e53]: Drizzle
+          - generic [ref=e54]: typescript
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]: viborm-schema.ts
+            - generic [ref=e58]: VibORM
+          - generic [ref=e59]: typescript
+    - generic [ref=e62]:
+      - generic [ref=e63]:
+        - heading "Standard Schema Support" [level=2] [ref=e64]
+        - paragraph [ref=e65]: Use Zod, Valibot, or ArkType to narrow field validation and define typed JSON columns.
+      - generic [ref=e66]:
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - generic [ref=e69]: typed-json.ts
+            - generic [ref=e70]: Typed JSON
+          - generic [ref=e71]: typescript
+        - generic [ref=e72]:
+          - generic [ref=e73]:
+            - generic [ref=e74]: narrowed-validation.ts
+            - generic [ref=e75]: Standard Schema
+          - generic [ref=e76]: typescript
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - generic [ref=e79]: Zod
+          - paragraph [ref=e80]: Most popular schema library
+        - generic [ref=e81]:
+          - generic [ref=e82]: Valibot
+          - paragraph [ref=e83]: Lightweight alternative
+        - generic [ref=e84]:
+          - generic [ref=e85]: ArkType
+          - paragraph [ref=e86]: Fastest runtime validation
+    - generic [ref=e89]:
+      - generic [ref=e90]:
+        - heading "Query API" [level=2] [ref=e91]
+        - paragraph [ref=e92]: Object-based queries with full type inference.
+      - generic [ref=e94]:
+        - generic [ref=e95]:
+          - generic [ref=e96]: queries.ts
+          - generic [ref=e97]: Prisma-like API
+        - generic [ref=e98]: typescript
+    - generic [ref=e100]:
+      - heading "Feature Comparison" [level=2] [ref=e102]
+      - table [ref=e104]:
+        - rowgroup [ref=e105]:
+          - row [ref=e106]:
+            - columnheader "Feature" [ref=e107]
+            - columnheader "Prisma" [ref=e108]
+            - columnheader "Drizzle v1" [ref=e109]
+            - columnheader "Drizzle v2" [ref=e110]
+            - columnheader "VibORM" [ref=e111]
+        - rowgroup [ref=e112]:
+          - row [ref=e113]:
+            - cell "Object-based queries" [ref=e114]
+            - cell "✓" [ref=e115]
+            - cell "✗" [ref=e116]
+            - cell "Partial" [ref=e117]
+            - cell "Complete" [ref=e118]
+          - row [ref=e119]:
+            - cell "Zero code generation" [ref=e120]
+            - cell "✗" [ref=e121]
+            - cell "✓" [ref=e122]
+            - cell "✓" [ref=e123]
+            - cell "✓" [ref=e124]
+          - row [ref=e125]:
+            - cell "Pure TypeScript (no WASM)" [ref=e126]
+            - cell "✗" [ref=e127]
+            - cell "✓" [ref=e128]
+            - cell "✓" [ref=e129]
+            - cell "✓" [ref=e130]
+          - row [ref=e131]:
+            - cell "Full type inference" [ref=e132]
+            - cell "Generated" [ref=e133]
+            - cell "Partial" [ref=e134]
+            - cell "Partial" [ref=e135]
+            - cell "Full" [ref=e136]
+          - row [ref=e137]:
+            - cell "Relational queries" [ref=e138]
+            - cell "✓" [ref=e139]
+            - cell "Limited" [ref=e140]
+            - cell "✓" [ref=e141]
+            - cell "✓" [ref=e142]
+          - row [ref=e143]:
+            - cell "Typed JSON columns" [ref=e144]
+            - cell "✗" [ref=e145]
+            - cell "✗" [ref=e146]
+            - cell "✗" [ref=e147]
+            - cell "✓" [ref=e148]
+          - row [ref=e149]:
+            - cell "Standard Schema integration" [ref=e150]
+            - cell "✗" [ref=e151]
+            - cell "✗" [ref=e152]
+            - cell "✗" [ref=e153]
+            - cell "Zod/Valibot/ArkType" [ref=e154]
+          - row [ref=e155]:
+            - cell "Exported model schemas" [ref=e156]
+            - cell "✗" [ref=e157]
+            - cell "✗" [ref=e158]
+            - cell "✗" [ref=e159]
+            - cell "✓" [ref=e160]
+          - row [ref=e161]:
+            - cell "TypeScript schema" [ref=e162]
+            - cell "PSL file" [ref=e163]
+            - cell "✓" [ref=e164]
+            - cell "✓" [ref=e165]
+            - cell "✓" [ref=e166]
+          - row [ref=e167]:
+            - cell "Relations inline" [ref=e168]
+            - cell "✓" [ref=e169]
+            - cell "✗" [ref=e170]
+            - cell "✗" [ref=e171]
+            - cell "✓" [ref=e172]
+          - row [ref=e173]:
+            - cell "Filtering by relations" [ref=e174]
+            - cell "✓" [ref=e175]
+            - cell "✗" [ref=e176]
+            - cell "✓" [ref=e177]
+            - cell "✓" [ref=e178]
+          - row [ref=e179]:
+            - cell "Nested select on relations" [ref=e180]
+            - cell "✓" [ref=e181]
+            - cell "✗" [ref=e182]
+            - cell "Partial" [ref=e183]
+            - cell "✓" [ref=e184]
+          - row [ref=e185]:
+            - cell "Scalar arrays on MySQL" [ref=e186]
+            - cell "✗" [ref=e187]
+            - cell "✗" [ref=e188]
+            - cell "✗" [ref=e189]
+            - cell "✓" [ref=e190]
+          - row [ref=e191]:
+            - cell "DISTINCT on all databases" [ref=e192]
+            - cell "Partial" [ref=e193]
+            - cell "DB-dependent" [ref=e194]
+            - cell "DB-dependent" [ref=e195]
+            - cell "✓" [ref=e196]
+          - row [ref=e197]:
+            - cell "Consistent feature set" [ref=e198]
+            - cell "DB-dependent" [ref=e199]
+            - cell "DB-dependent" [ref=e200]
+            - cell "DB-dependent" [ref=e201]
+            - cell "Always" [ref=e202]
+    - generic [ref=e205]:
+      - generic [ref=e206]:
+        - heading "Database Abstraction" [level=2] [ref=e207]
+        - paragraph [ref=e208]: Same API across PostgreSQL, MySQL, and SQLite.
+      - generic [ref=e209]:
+        - generic [ref=e210]:
+          - heading "Scalar Arrays" [level=3] [ref=e214]
+          - paragraph [ref=e215]: MySQL doesn't support array columns natively. VibORM emulates them with JSON — same API, same types, any database.
+        - generic [ref=e216]:
+          - heading "DISTINCT Queries" [level=3] [ref=e220]
+          - paragraph [ref=e221]: DISTINCT ON isn't available everywhere. VibORM provides consistent distinct behavior across all supported databases.
+        - generic [ref=e222]:
+          - heading "Switch Anytime" [level=3] [ref=e226]
+          - paragraph [ref=e227]: Start with SQLite for development, deploy to PostgreSQL. Your queries don't change — the ORM handles the translation.
+    - generic [ref=e229]:
+      - heading "Features" [level=2] [ref=e231]
+      - generic [ref=e232]:
+        - generic [ref=e233]:
+          - heading "Chainable API" [level=3] [ref=e237]
+          - paragraph [ref=e238]: Chainable schemas with relations defined inline.
+        - generic [ref=e239]:
+          - heading "Inline Relations" [level=3] [ref=e243]
+          - paragraph [ref=e244]: Relations defined inline with include, nested select, and relation filters.
+        - generic [ref=e245]:
+          - heading "Full Type Safety" [level=3] [ref=e249]
+          - paragraph [ref=e250]: Every query, filter, and result is typed.
+        - generic [ref=e251]:
+          - heading "Pure TypeScript" [level=3] [ref=e255]
+          - paragraph [ref=e256]: No code generation, no WASM engine, no binary downloads.
+        - generic [ref=e257]:
+          - heading "Exported Model Schemas" [level=3] [ref=e261]
+          - paragraph [ref=e262]: Validation schemas auto-generated from your models using our internal validation library.
+        - generic [ref=e263]:
+          - heading "Standard Schema Integration" [level=3] [ref=e267]
+          - paragraph [ref=e268]: Use Zod, Valibot, or ArkType to narrow field validation and type JSON columns.
+        - generic [ref=e269]:
+          - heading "Database Abstraction" [level=3] [ref=e273]
+          - paragraph [ref=e274]: Scalar arrays on MySQL, DISTINCT on SQLite. Database limitations are abstracted away.
+    - generic [ref=e277]:
+      - heading "Installation" [level=2] [ref=e278]
+      - generic [ref=e280]:
+        - generic [ref=e281]: $
+        - generic [ref=e282]: npm install viborm
+      - generic [ref=e283]:
+        - link "Get Started" [ref=e284] [cursor=pointer]:
+          - /url: /docs/getting-started/quick-start
+        - link "GitHub" [ref=e287] [cursor=pointer]:
+          - /url: https://github.com/your-org/viborm
+    - paragraph [ref=e292]: VibORM
