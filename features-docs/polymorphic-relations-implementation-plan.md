@@ -449,14 +449,17 @@ feat: expand polymorphic inverse writes
 
 The following work is explicitly separate from this implementation:
 
-- direct update-through;
-- direct `connectOrCreate` and direct `upsert`;
+- direct `connectOrCreate` during owner create;
+- direct create-, update-, delete-, connectOrCreate-, and upsert-through during
+  selected-owner update;
 - polymorphic many-to-many;
 - inverse one-to-one;
-- compound polymorphic identities;
+- inverse binding when one target map names the same model more than once;
+- compound, mixed-kind, array, or native-override polymorphic identities;
 - relation-bearing root createMany;
 - portable database constraints across target tables;
-- optional ORM-emulated referential actions.
+- optional ORM-emulated referential actions;
+- untyped cross-target filters and direct polymorphic order-by.
 
 These features may reuse exact `(type, identity)` membership, but they require
 their own product semantics and acceptance gates. They must not be smuggled into

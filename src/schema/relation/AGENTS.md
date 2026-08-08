@@ -306,11 +306,13 @@ write family: create/createMany/connect/connectOrCreate/upsert on create, plus
 update/updateMany/delete/deleteMany on update. Optional storage also exposes
 disconnect and set.
 
-Direct update-through, `set`, `upsert`, and `connectOrCreate` remain refused.
-Root createMany stays scalar-only and is unavailable when its target has a
-required polymorphic field. Inverse nested createMany may satisfy its one owning
-required polymorphic relation, but remains unavailable when another required
-polymorphic relation would be unsatisfied.
+Direct create has no `connectOrCreate`. A selected-owner direct update supports
+connect and optional disconnect, but not create-, update-, delete-,
+connectOrCreate-, or upsert-through. The direct edge is to-one, so collection
+set does not apply. Root createMany stays scalar-only and is unavailable when
+its target has a required polymorphic field. Inverse nested createMany may
+satisfy its one owning required polymorphic relation, but remains unavailable
+when another required polymorphic relation would be unsatisfied.
 
 ---
 

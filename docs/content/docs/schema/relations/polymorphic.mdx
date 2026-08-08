@@ -483,26 +483,52 @@ database cannot enforce a cross-table foreign key, delete target records with
 care and keep related cleanup in the same application transaction when
 possible.
 
-## Current limits
+## Limits removed by inverse membership
+
+The inverse side is no longer create-only. It now uses the ordinary child-held
+relation machinery:
+
+- parent create supports `create`, scalar-only `createMany`, `connect`,
+  `connectOrCreate`, and `upsert`;
+- parent update adds `update`, `updateMany`, `delete`, and `deleteMany`;
+- optional storage adds `disconnect` and `set`, including `set: []`;
+- every operation matches and writes the complete `(type, id)` membership, so a
+  same-ID row from another variant is not a member.
+
+These operations add no query or round trip beyond the corresponding ordinary
+child-held relation operation.
+
+## Remaining limitations
 
 The current release keeps these boundaries:
 
-- Every target needs one portable, single-column primary key. Compound target
-  IDs and database-native primary-key overrides are not supported.
-- Direct writes support `connect`, `create`, and optional `disconnect`. They do
-  not support update-through, `set`, `upsert`, or `connectOrCreate`.
-- Inverse one-to-many writes have ordinary child-held mutation parity, subject
-  to the direct relation's optionality for `disconnect` and `set`.
-- Polymorphic many-to-many and inverse one-to-one relations are not supported.
-- `orderBy` cannot traverse a direct polymorphic relation.
-- Root `createMany` rows remain scalar-only and cannot contain relation
-  payloads. A model with a required polymorphic relation therefore cannot use
-  root `createMany`; use `create`. Inverse nested `createMany` is the exception
-  described above because its enclosing relation supplies the one storage pair.
-- Cross-table foreign keys and automatic referential actions are not available.
+- **Target identity:** every target needs exactly one scalar primary key. All
+  targets in the relation must use the same portable `string`, `int`, or
+  `bigint` representation. Compound IDs, array IDs, mixed scalar kinds, and
+  database-native type overrides are not supported.
+- **Direct create:** an owner create supports `connect` or nested `create`, but
+  not direct `connectOrCreate`.
+- **Direct update:** a selected owner supports `connect` and, for optional
+  storage, `disconnect`. It cannot create, update, delete, `connectOrCreate`, or
+  `upsert` the target through the direct relation. The direct relation is
+  to-one, so it has no collection-style `set` operation.
+- **Topology:** polymorphic many-to-many and inverse one-to-one relations are
+  not supported. An inverse is also ambiguous when the same model appears more
+  than once in one target map.
+- **Cross-target queries:** `orderBy` cannot traverse a direct polymorphic
+  relation, and filters must select one `type`; there is no untyped filter that
+  searches all target schemas.
+- **Root bulk create:** root `createMany` rows remain scalar-only and cannot
+  contain relation payloads. A model with a required polymorphic relation cannot
+  use root `createMany`; use `create`. Inverse nested `createMany` is the
+  exception because its enclosing relation supplies one complete storage pair.
+- **Database integrity:** one SQL foreign key cannot target several tables, so
+  the database does not enforce the association. VibORM does not yet emulate
+  referential actions such as cascade or set-null when a target changes or is
+  deleted.
 
-These constraints are expressed in schema and operation validation. Unsupported
-operations are rejected before SQL execution.
+Operation schemas reject unsupported mutation shapes before SQL execution.
+Schema validation rejects unsupported topology and identity declarations.
 
 ## Schema evolution
 
