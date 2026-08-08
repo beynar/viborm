@@ -3,15 +3,14 @@ import type {
   PolymorphicStorageColumn,
 } from "@schema/relation";
 import { isRecord } from "@validation/value-guards";
-import type { ParentHeldToOne } from "./relation-data-builder";
-import { QueryEngineError } from "../types";
 import type {
   PolymorphicRelationInfo,
   QueryScope,
   ResolvedPolymorphicEdge,
 } from "../types";
-import type { RelationMutationProgram } from "./relation-mutation-parser";
+import { QueryEngineError } from "../types";
 import { resolvePolymorphicEdge } from "./polymorphic-relation";
+import type { RelationMutationProgram } from "./relation-mutation-parser";
 
 /** One atomic private `(type, id)` assignment. A one-column state is unspellable. */
 export type PolymorphicStorageValue<Id> =
@@ -78,26 +77,18 @@ export type ResolvedPolymorphicMutation =
       readonly storage: PolymorphicStorage;
     };
 
-/** Bind a concrete target view without routing private columns through bindRelation. */
-export function bindResolvedPolymorphicEdge(
-  edge: ResolvedPolymorphicEdge
-): ParentHeldToOne {
-  return {
-    kind: "parentHeldToOne",
-    relationInfo: edge.relationInfo,
-    sourceModel: edge.storage.ownerModel,
-    foreignFields: [edge.storage.idColumn.name],
-    referencedFields: [edge.referencedField],
-    onUpdate: undefined,
-  };
-}
-
 type ResolvedPolymorphicMutationIntent =
   | {
       readonly kind: "targeted";
       readonly edge: ResolvedPolymorphicEdge;
-      readonly operation: "connect" | "create";
-      readonly payload: Record<string, unknown>;
+      readonly operation:
+        | "connect"
+        | "create"
+        | "connectOrCreate"
+        | "update"
+        | "upsert"
+        | "delete";
+      readonly payload: unknown;
     }
   | Extract<ResolvedPolymorphicMutation, { kind: "disconnect" }>;
 
@@ -119,17 +110,56 @@ export function resolvePolymorphicMutationIntent(
   if (parsedPayload.disconnect === true) {
     return { kind: "disconnect", storage: relation.storage };
   }
-  const operation = Object.hasOwn(parsedPayload, "connect")
-    ? "connect"
-    : "create";
+  const operation = (
+    [
+      "connect",
+      "create",
+      "connectOrCreate",
+      "update",
+      "upsert",
+      "delete",
+    ] as const
+  ).find((kind) => Object.hasOwn(parsedPayload, kind));
+  if (!operation) {
+    throw new QueryEngineError(
+      `Polymorphic relation '${relation.name}' produced an invalid mutation payload.`
+    );
+  }
   const envelope = parsedPayload[operation];
   if (!(isRecord(envelope) && typeof envelope.type === "string")) {
     throw new QueryEngineError(
       `Polymorphic relation '${relation.name}' produced an invalid ${operation} mutation.`
     );
   }
-  const payload = operation === "connect" ? envelope.where : envelope.data;
-  if (!isRecord(payload)) {
+  let payload: unknown;
+  switch (operation) {
+    case "connect":
+      payload = envelope.where;
+      break;
+    case "create":
+      payload = envelope.data;
+      break;
+    case "connectOrCreate":
+      payload = { where: envelope.where, create: envelope.create };
+      break;
+    case "update":
+      payload = {
+        data: envelope.data,
+        ...(envelope.where === undefined ? {} : { where: envelope.where }),
+      };
+      break;
+    case "upsert":
+      payload = { create: envelope.create, update: envelope.update };
+      break;
+    case "delete":
+      payload = true;
+      break;
+    default: {
+      const exhaustive: never = operation;
+      throw new TypeError(`Unknown polymorphic mutation: ${exhaustive}`);
+    }
+  }
+  if (operation !== "delete" && !isRecord(payload)) {
     throw new QueryEngineError(
       `Polymorphic relation '${relation.name}' produced an invalid ${operation} target.`
     );

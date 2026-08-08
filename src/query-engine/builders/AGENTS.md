@@ -142,6 +142,13 @@ membership predicate is two-part: private id correlation followed by exact
 stored-discriminator equality. `correlation-utils.ts` owns this conjunction for
 include, filters, and count. Never rebuild it at individual call sites.
 
+`polymorphic-mutation.ts` parses one direct verb into a concrete target edge and
+an ordinary mutation program. Record compilers own single-record lowering.
+Root createMany is different only because its connect selectors must be grouped
+before the bulk INSERT: `write-engine/bulk-polymorphic-connect.ts` owns that
+shared count/returning preparation. Never add per-row target queries or expose
+private storage columns through public row data.
+
 ## Anti-patterns
 
 - stateful builder objects;

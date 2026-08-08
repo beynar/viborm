@@ -405,8 +405,8 @@ export class RelationWritePart implements Part {
       outputs: {
         rows: { kind: "rows" },
         ...(this.updateCompiler
-          ? Object.fromEntries(
-              selectedFields.map((field) => [
+          ? Object.fromEntries([
+              ...selectedFields.map((field) => [
                 field,
                 {
                   kind: "firstRowField" as const,
@@ -415,8 +415,18 @@ export class RelationWritePart implements Part {
                     ? { optional: true }
                     : {}),
                 },
-              ])
-            )
+              ]),
+              ...this.updateCompiler.requiredTargetColumns.map((column) => [
+                column.name,
+                {
+                  kind: "firstRowField" as const,
+                  field: column.name,
+                  ...(this.config.kind === "inverseUpsert"
+                    ? { optional: true }
+                    : {}),
+                },
+              ]),
+            ])
           : {}),
       },
     };
@@ -478,6 +488,13 @@ export class RelationWritePart implements Part {
       {
         limit: 1,
         ...(membership.predicate ? { predicate: membership.predicate } : {}),
+        ...(this.updateCompiler?.requiredTargetColumns.length
+          ? {
+              additionalColumns: this.updateCompiler.requiredTargetColumns.map(
+                (column) => column.sql
+              ),
+            }
+          : {}),
       }
     );
   }

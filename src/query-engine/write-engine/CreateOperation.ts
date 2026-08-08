@@ -7,10 +7,7 @@ import {
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
 import { isMissingGeneratedIncrement } from "../builders/generated-scalar";
-import {
-  bindResolvedPolymorphicEdge,
-  type PolymorphicStorageValue,
-} from "../builders/polymorphic-mutation";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   type BoundRelation,
   bindRelation,
@@ -47,7 +44,11 @@ import { assertPortableCreateManySkip } from "../operations/create-many-portabil
 import { planNestedCreateIdentity } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import { ResultParser } from "../result/ResultParser";
-import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
+import type {
+  QueryScope,
+  RelationInfo,
+  ResolvedPolymorphicEdge,
+} from "../types";
 import {
   childRacePin,
   exactlyOneRow,
@@ -187,7 +188,7 @@ type ParentHeldArm =
     }
   | {
       readonly kind: "connect-probe";
-      readonly relation: ParentHeldToOne;
+      readonly relationInfo: RelationInfo;
       readonly guardId: string;
       readonly probeId: string;
       readonly guardProbe: Sql;
@@ -201,7 +202,7 @@ type ParentHeldArm =
     }
   | {
       readonly kind: "connectOrCreate";
-      readonly relation: ParentHeldToOne;
+      readonly relationInfo: RelationInfo;
       readonly probeId: string;
       readonly guardId: string;
       readonly guardProbe: Sql;
@@ -222,7 +223,7 @@ type ParentHeldArm =
     }
   | {
       readonly kind: "polymorphic-connect-probe";
-      readonly relation: ParentHeldToOne;
+      readonly relationInfo: RelationInfo;
       readonly guardId: string;
       readonly probeId: string;
       readonly guardField: string;
@@ -233,6 +234,19 @@ type ParentHeldArm =
       readonly kind: "polymorphic-create";
       readonly before: RecordPlan;
       readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
+    }
+  | {
+      readonly kind: "polymorphic-connectOrCreate";
+      readonly relationInfo: RelationInfo;
+      readonly probeId: string;
+      readonly guardId: string;
+      readonly guardProbe: Sql;
+      readonly guardField: string;
+      readonly where: Record<string, unknown>;
+      readonly before: RecordPlan;
+      readonly foundAssignment: PolymorphicStorageValue<FinalReferenceSource>;
+      readonly missingAssignment: PolymorphicStorageValue<FinalReferenceSource>;
+      readonly racePin: TargetConstraintPin | undefined;
     };
 
 /** A before-parent target key that lets a sibling `connect` adopt it without a probe. */
@@ -840,7 +854,6 @@ export class CreateOperation {
     readonly coverage: readonly CreatedTarget[];
     readonly parentHeldArms: ParentHeldArm[];
   }): void {
-    const relation = bindResolvedPolymorphicEdge(input.edge);
     const relationName = input.edge.relationInfo.name;
     const entry = input.program.entries[0];
     if (!(entry && input.program.entries.length === 1)) {
@@ -870,6 +883,58 @@ export class CreateOperation {
         kind: "polymorphic-create",
         before,
         assignment: this.polymorphicLinked(input.edge, source),
+      });
+      return;
+    }
+    if (entry.kind === "connectOrCreate") {
+      const spec = entry.items[0];
+      if (!spec) {
+        throw new QueryEngineError(
+          `query-engine internal: polymorphic connectOrCreate on relation '${relationName}' has no item.`
+        );
+      }
+      const before = this.buildRecord(childScope, spec.create, input.txMode);
+      const missingSource = this.recordReferenced(
+        before,
+        input.edge.referencedField
+      );
+      if (!missingSource) {
+        throw new QueryEngineError(
+          `query-engine create cannot resolve referenced field '${input.edge.referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
+        );
+      }
+      const childName = getStepModelName(input.edge.targetModel, relationName);
+      const probeId = this.scope.allocate(`${childName}.find`);
+      const guardId = this.scope.allocate(`${childName}.guard.exists`);
+      const select = { [input.edge.referencedField]: true };
+      input.parentHeldArms.push({
+        kind: "polymorphic-connectOrCreate",
+        relationInfo: input.edge.relationInfo,
+        probeId,
+        guardId,
+        guardProbe: buildFindUnique(childScope, {
+          where: spec.where,
+          select,
+        }),
+        guardField: input.edge.referencedField,
+        where: spec.where,
+        before,
+        foundAssignment: this.polymorphicLinked(input.edge, {
+          kind: "planningField",
+          step: probeId,
+        }),
+        missingAssignment: this.polymorphicLinked(input.edge, missingSource),
+        racePin: childRacePin(childScope, spec.where),
+      });
+      this.planningSteps.push({
+        id: probeId,
+        kind: "read",
+        statement: buildFindUnique(childScope, {
+          where: spec.where,
+          select,
+          forUpdate: input.txMode,
+        }),
+        outputs: { rows: { kind: "rows" } },
       });
       return;
     }
@@ -905,7 +970,7 @@ export class CreateOperation {
     const select = { [input.edge.referencedField]: true };
     input.parentHeldArms.push({
       kind: "polymorphic-connect-probe",
-      relation,
+      relationInfo: input.edge.relationInfo,
       probeId,
       guardId,
       guardField: input.edge.referencedField,
@@ -1411,7 +1476,7 @@ export class CreateOperation {
     };
     input.parentHeldArms.push({
       kind: "connect-probe",
-      relation,
+      relationInfo: relation.relationInfo,
       guardId,
       probeId,
       guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
@@ -1479,7 +1544,7 @@ export class CreateOperation {
     );
     input.parentHeldArms.push({
       kind: "connectOrCreate",
-      relation,
+      relationInfo,
       probeId,
       guardId,
       guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
@@ -2075,11 +2140,11 @@ export class CreateOperation {
         Object.assign(insertData, arm.fkAssign);
         return;
       case "connect-probe":
-        this.requireConnectFound(arm.probeId, arm.relation, known);
+        this.requireConnectFound(arm.probeId, arm.relationInfo, known);
         Object.assign(insertData, arm.fkAssign);
         if (this.mode === "batch") {
           guards.push(
-            this.connectGuard(arm.guardId, arm.guardProbe, arm.relation)
+            this.connectGuard(arm.guardId, arm.guardProbe, arm.relationInfo)
           );
         }
         return;
@@ -2088,7 +2153,7 @@ export class CreateOperation {
         Object.assign(insertData, arm.fkAssign);
         return;
       case "connectOrCreate": {
-        const relationName = arm.relation.relationInfo.name;
+        const relationName = arm.relationInfo.name;
         const rows = known[planningKey(arm.probeId, "rows")];
         const found = Array.isArray(rows) && rows.length > 0;
         if (found) {
@@ -2123,7 +2188,7 @@ export class CreateOperation {
         );
         return;
       case "polymorphic-connect-probe":
-        this.requireConnectFound(arm.probeId, arm.relation, known);
+        this.requireConnectFound(arm.probeId, arm.relationInfo, known);
         polymorphicStorage.push(
           resolvePolymorphicStorageValue(
             this.engine,
@@ -2136,12 +2201,12 @@ export class CreateOperation {
           const target = this.capturedConnectValue(
             arm.probeId,
             arm.guardField,
-            arm.relation,
+            arm.relationInfo,
             known
           );
           const childScope = createQueryScope(
             this.engine.adapter,
-            arm.relation.relationInfo.targetModel
+            arm.relationInfo.targetModel
           );
           guards.push(
             this.connectGuard(
@@ -2151,7 +2216,7 @@ export class CreateOperation {
                 select: { [arm.guardField]: true },
                 forUpdate: true,
               }),
-              arm.relation
+              arm.relationInfo
             )
           );
         }
@@ -2167,6 +2232,45 @@ export class CreateOperation {
           )
         );
         return;
+      case "polymorphic-connectOrCreate": {
+        const relationName = arm.relationInfo.name;
+        const rows = known[planningKey(arm.probeId, "rows")];
+        const found = Array.isArray(rows) && rows.length > 0;
+        if (found) {
+          polymorphicStorage.push(
+            resolvePolymorphicStorageValue(
+              this.engine,
+              arm.foundAssignment,
+              known,
+              "connectOrCreate"
+            )
+          );
+          if (this.mode === "batch") {
+            guards.push(
+              presenceGuard(
+                arm.guardId,
+                arm.guardProbe,
+                nestedWriteFailure(
+                  nestedReplacement("connectOrCreate"),
+                  relationName,
+                  false
+                )
+              )
+            );
+          }
+        } else {
+          this.emitBeforeParent(arm.before, arm.racePin, known, guards, writes);
+          polymorphicStorage.push(
+            resolvePolymorphicStorageValue(
+              this.engine,
+              arm.missingAssignment,
+              known,
+              "connectOrCreate"
+            )
+          );
+        }
+        return;
+      }
       default: {
         const _exhaustive: never = arm;
         throw new QueryEngineError(
@@ -2202,14 +2306,14 @@ export class CreateOperation {
   private connectGuard(
     guardId: string,
     guardProbe: Sql,
-    relation: ParentHeldToOne
+    relationInfo: RelationInfo
   ): OperationStep {
-    const relationName = relation.relationInfo.name;
+    const relationName = relationInfo.name;
     return presenceGuard(
       guardId,
       guardProbe,
       nestedWriteFailure(
-        relationTargetNotFound(relation.relationInfo, "connect"),
+        relationTargetNotFound(relationInfo, "connect"),
         relationName,
         false
       )
@@ -2218,10 +2322,10 @@ export class CreateOperation {
 
   private requireConnectFound(
     probeId: string,
-    relation: ParentHeldToOne,
+    relationInfo: RelationInfo,
     known: Readonly<Record<string, unknown>>
   ): void {
-    const relationName = relation.relationInfo.name;
+    const relationName = relationInfo.name;
     const rows = known[planningKey(probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -2231,7 +2335,7 @@ export class CreateOperation {
     }
     if (rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(relation.relationInfo, "connect"),
+        relationTargetNotFound(relationInfo, "connect"),
         relationName
       );
     }
@@ -2240,16 +2344,16 @@ export class CreateOperation {
   private capturedConnectValue(
     probeId: string,
     field: string,
-    relation: ParentHeldToOne,
+    relationInfo: RelationInfo,
     known: Readonly<Record<string, unknown>>
   ): unknown {
-    this.requireConnectFound(probeId, relation, known);
+    this.requireConnectFound(probeId, relationInfo, known);
     const rows = known[planningKey(probeId, "rows")];
     const row = Array.isArray(rows) ? rows[0] : undefined;
     if (!isRecord(row) || row[field] === undefined || row[field] === null) {
       throw new NestedWriteError(
-        `query-engine create connect probe for relation '${relation.relationInfo.name}' did not expose '${field}'.`,
-        relation.relationInfo.name
+        `query-engine create connect probe for relation '${relationInfo.name}' did not expose '${field}'.`,
+        relationInfo.name
       );
     }
     return row[field];

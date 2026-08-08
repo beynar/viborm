@@ -13,6 +13,10 @@ export {
   polymorphicCreateFactory,
 } from "./create";
 export {
+  type PolymorphicCreateManySchema,
+  polymorphicCreateManyFactory,
+} from "./create-many";
+export {
   type PolymorphicFilterSchema,
   polymorphicFilterFactory,
 } from "./filter";
@@ -37,6 +41,10 @@ import {
   type PolymorphicCreateSchema,
   polymorphicCreateFactory,
 } from "./create";
+import {
+  type PolymorphicCreateManySchema,
+  polymorphicCreateManyFactory,
+} from "./create-many";
 import {
   type PolymorphicFilterSchema,
   polymorphicFilterFactory,
@@ -76,13 +84,15 @@ export interface PolymorphicRelationSchemas<
 > {
   readonly filter: PolymorphicFilterSchema<State, Getters>;
   readonly create: PolymorphicCreateSchema<Getters>;
+  readonly createMany: PolymorphicCreateManySchema<Getters>;
   readonly update: PolymorphicUpdateSchema<State, Getters>;
   readonly select: PolymorphicSelectSchema<Getters>;
   readonly include: PolymorphicIncludeSchema<Getters>;
 }
 
 export type GetPolymorphicRelationsSchemas<Source extends AnyModel> = {
-  readonly [RelationKey in keyof Source["~"]["state"]["polymorphicRelations"]]: Source["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"] extends infer State extends PolymorphicRelationState
+  readonly [RelationKey in keyof Source["~"]["state"]["polymorphicRelations"]]: Source["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"] extends infer State extends
+    PolymorphicRelationState
     ? PolymorphicRelationSchemas<
         State,
         RegisteredPolymorphicTargetSchemas<State>
@@ -90,9 +100,7 @@ export type GetPolymorphicRelationsSchemas<Source extends AnyModel> = {
     : never;
 };
 
-function getTargetSchemas<
-  State extends PolymorphicRelationState,
->(
+function getTargetSchemas<State extends PolymorphicRelationState>(
   relation: AnyPolymorphicRelation,
   resolve: (model: AnyModel) => ModelSchemas<AnyModel>
 ): RegisteredPolymorphicTargetSchemas<State> {
@@ -118,6 +126,7 @@ export function getPolymorphicRelationsSchemas<Source extends AnyModel>(
       return lazyRecord({
         filter: () => polymorphicFilterFactory(state, targets),
         create: () => polymorphicCreateFactory(state, targets),
+        createMany: () => polymorphicCreateManyFactory(state, targets),
         update: () => polymorphicUpdateFactory(state, targets),
         select: () => polymorphicSelectFactory(relation, targets),
         include: () => polymorphicIncludeFactory(relation, targets),

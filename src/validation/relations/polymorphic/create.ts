@@ -19,12 +19,23 @@ type CreateInputFor<
         readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
       };
       readonly create?: never;
+      readonly connectOrCreate?: never;
     }
   | {
       readonly connect?: never;
       readonly create: {
         readonly type: PublicType;
         readonly data: CoreInputAt<Getters, PublicType, "create">;
+      };
+      readonly connectOrCreate?: never;
+    }
+  | {
+      readonly connect?: never;
+      readonly create?: never;
+      readonly connectOrCreate: {
+        readonly type: PublicType;
+        readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
+        readonly create: CoreInputAt<Getters, PublicType, "create">;
       };
     };
 
@@ -38,12 +49,23 @@ type CreateOutputFor<
         readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
       };
       readonly create?: never;
+      readonly connectOrCreate?: never;
     }
   | {
       readonly connect?: never;
       readonly create: {
         readonly type: PublicType;
         readonly data: CoreOutputAt<Getters, PublicType, "create">;
+      };
+      readonly connectOrCreate?: never;
+    }
+  | {
+      readonly connect?: never;
+      readonly create?: never;
+      readonly connectOrCreate: {
+        readonly type: PublicType;
+        readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
+        readonly create: CoreOutputAt<Getters, PublicType, "create">;
       };
     };
 
@@ -95,6 +117,19 @@ export function polymorphicCreateFactory<
             {
               type: v.literal(publicType),
               data: () => schemas().core.create,
+            },
+            { partial: false }
+          ),
+        },
+        { partial: false }
+      ),
+      v.object(
+        {
+          connectOrCreate: v.object(
+            {
+              type: v.literal(publicType),
+              where: () => schemas().core.whereUnique,
+              create: () => schemas().core.create,
             },
             { partial: false }
           ),

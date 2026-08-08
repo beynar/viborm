@@ -4,18 +4,18 @@ import { QueryEngineError } from "@errors";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
-import { createSchemaRegistry } from "@validation";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
+import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
-import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import {
   BatchOnlyPGliteDriver,
-  usePGliteSchemaFamily,
   type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
 const polymorphicWriteSchema = (() => {
@@ -100,9 +100,7 @@ const polymorphicWriteSchema = (() => {
   return { board, post, video, comment, requiredComment };
 })();
 
-type PolymorphicWriteFamily = PGliteSchemaFamily<
-  typeof polymorphicWriteSchema
->;
+type PolymorphicWriteFamily = PGliteSchemaFamily<typeof polymorphicWriteSchema>;
 
 interface StoredComment {
   readonly id: number;
@@ -200,11 +198,7 @@ function executeCommentCreateAfterPlanning(
   );
   return new OperationExecutor(engine).execute(
     new CreateOperation(engine, polymorphicWriteSchema.comment, args),
-    createOperationExecutionContext(
-      "comment",
-      "create",
-      engine.instrumentation
-    )
+    createOperationExecutionContext("comment", "create", engine.instrumentation)
   );
 }
 
@@ -220,11 +214,7 @@ function executeCommentUpdateAfterPlanning(
   );
   return new OperationExecutor(engine).execute(
     new UpdateOperation(engine, polymorphicWriteSchema.comment, args),
-    createOperationExecutionContext(
-      "comment",
-      "update",
-      engine.instrumentation
-    )
+    createOperationExecutionContext("comment", "update", engine.instrumentation)
   );
 }
 
@@ -316,6 +306,184 @@ function registerPolymorphicWriteBehavior(
       ]);
     });
 
+    test("direct create and update share connect-or-create and fresh-target compilation", async () => {
+      const { client } = getFamily();
+      const existing = await client.post.create({
+        data: { slug: "direct-coc", title: "Existing" },
+      });
+
+      const found = await client.comment.create({
+        data: {
+          body: "found",
+          commentable: {
+            connectOrCreate: {
+              type: "post",
+              where: { slug: "direct-coc" },
+              create: { slug: "unused", title: "Unused" },
+            },
+          },
+        },
+        include: { commentable: true },
+      });
+      const missing = await client.comment.create({
+        data: {
+          body: "missing",
+          commentable: {
+            connectOrCreate: {
+              type: "video",
+              where: { slug: "direct-coc-video" },
+              create: { slug: "direct-coc-video", title: "Created" },
+            },
+          },
+        },
+        include: { commentable: true },
+      });
+      const replaced = await client.comment.update({
+        where: { id: found.id },
+        data: {
+          commentable: {
+            create: {
+              type: "video",
+              data: { slug: "direct-created-update", title: "Created update" },
+            },
+          },
+        },
+        include: { commentable: true },
+      });
+
+      expect(found.commentable).toMatchObject({
+        type: "post",
+        data: { id: existing.id },
+      });
+      expect(missing.commentable).toMatchObject({
+        type: "video",
+        data: { slug: "direct-coc-video" },
+      });
+      expect(replaced.commentable).toMatchObject({
+        type: "video",
+        data: { slug: "direct-created-update" },
+      });
+    });
+
+    test("direct selected update, delete, and replacing upsert use the current membership", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { slug: "direct-target", title: "Before" },
+      });
+      const comment = await client.comment.create({
+        data: {
+          body: "owner",
+          commentable: {
+            connect: { type: "post", where: { id: post.id } },
+          },
+        },
+      });
+
+      await client.comment.update({
+        where: { id: comment.id },
+        data: {
+          commentable: {
+            update: {
+              type: "post",
+              where: { title: "Before" },
+              data: { title: "After" },
+            },
+          },
+        },
+      });
+      await expect(
+        client.post.findUniqueOrThrow({ where: { id: post.id } })
+      ).resolves.toMatchObject({ title: "After" });
+
+      await client.comment.update({
+        where: { id: comment.id },
+        data: {
+          commentable: {
+            upsert: {
+              type: "post",
+              create: { slug: "unused-same-type", title: "Unused" },
+              update: { title: "Updated by upsert" },
+            },
+          },
+        },
+      });
+      await expect(
+        client.post.findUniqueOrThrow({ where: { id: post.id } })
+      ).resolves.toMatchObject({ title: "Updated by upsert" });
+
+      const replaced = await client.comment.update({
+        where: { id: comment.id },
+        data: {
+          commentable: {
+            upsert: {
+              type: "video",
+              create: { slug: "replacement-video", title: "Replacement" },
+              update: { title: "Unused" },
+            },
+          },
+        },
+        include: { commentable: true },
+      });
+      expect(replaced.commentable).toMatchObject({
+        type: "video",
+        data: { slug: "replacement-video" },
+      });
+
+      const deleted = await client.comment.update({
+        where: { id: comment.id },
+        data: { commentable: { delete: { type: "video" } } },
+        include: { commentable: true },
+      });
+      expect(deleted.commentable).toBeNull();
+      await expect(
+        client.video.findUnique({ where: { slug: "replacement-video" } })
+      ).resolves.toBeNull();
+    });
+
+    test("selected connect-or-create adopts found targets and creates missing targets", async () => {
+      const { client } = getFamily();
+      const foundTarget = await client.video.create({
+        data: { slug: "update-coc-found", title: "Found" },
+      });
+      const owner = await client.comment.create({ data: { body: "owner" } });
+
+      const found = await client.comment.update({
+        where: { id: owner.id },
+        data: {
+          commentable: {
+            connectOrCreate: {
+              type: "video",
+              where: { slug: "update-coc-found" },
+              create: { slug: "unused-update-coc", title: "Unused" },
+            },
+          },
+        },
+        include: { commentable: true },
+      });
+      expect(found.commentable).toMatchObject({
+        type: "video",
+        data: { id: foundTarget.id },
+      });
+
+      const missing = await client.comment.update({
+        where: { id: owner.id },
+        data: {
+          commentable: {
+            connectOrCreate: {
+              type: "post",
+              where: { slug: "update-coc-missing" },
+              create: { slug: "update-coc-missing", title: "Created" },
+            },
+          },
+        },
+        include: { commentable: true },
+      });
+      expect(missing.commentable).toMatchObject({
+        type: "post",
+        data: { slug: "update-coc-missing" },
+      });
+    });
+
     test("an ordinary nested owner can connect its polymorphic relation", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
@@ -350,6 +518,46 @@ function registerPolymorphicWriteBehavior(
           commentable: { type: "post", data: { id: post.id } },
         },
       ]);
+    });
+
+    test("an ordinary nested selected update keeps polymorphic membership projection", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { slug: "nested-update-target", title: "Before nested update" },
+      });
+      const board = await client.board.create({
+        data: { name: "nested update" },
+      });
+      const comment = await client.comment.create({
+        data: {
+          body: "nested owner",
+          board: { connect: { id: board.id } },
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+
+      await client.board.update({
+        where: { id: board.id },
+        data: {
+          entries: {
+            update: {
+              where: { id: comment.id },
+              data: {
+                commentable: {
+                  update: {
+                    type: "post",
+                    data: { title: "After nested update" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      await expect(
+        client.post.findUniqueOrThrow({ where: { id: post.id } })
+      ).resolves.toMatchObject({ title: "After nested update" });
     });
 
     test("direct connect resolves a compound unique selector to the target id", async () => {
@@ -465,6 +673,105 @@ function registerPolymorphicWriteBehavior(
           commentable_id: null,
         },
       ]);
+    });
+
+    test("root createMany resolves connect-only memberships in grouped variant probes", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: { slug: "bulk-post", title: "Bulk post" },
+      });
+      const video = await client.video.create({
+        data: { slug: "bulk-video", title: "Bulk video" },
+      });
+
+      await expect(
+        client.requiredComment.createMany({
+          data: [
+            {
+              id: 801,
+              body: "post one",
+              subject: { connect: { type: "post", where: { id: post.id } } },
+            },
+            {
+              id: 802,
+              body: "post two",
+              subject: {
+                connect: { type: "post", where: { slug: "bulk-post" } },
+              },
+            },
+            {
+              id: 803,
+              body: "video",
+              subject: {
+                connect: { type: "video", where: { slug: "bulk-video" } },
+              },
+            },
+          ],
+        })
+      ).resolves.toEqual({ count: 3 });
+      expect(await storedRequiredComments(family)).toEqual([
+        { id: 801, subject_type: "required.post.v1", subject_id: post.id },
+        { id: 802, subject_type: "required.post.v1", subject_id: post.id },
+        { id: 803, subject_type: "required.video.v1", subject_id: video.id },
+      ]);
+    });
+
+    test("root createMany keeps optional omissions and scalar returning", async () => {
+      const family = getFamily();
+      const { client } = family;
+      const post = await client.post.create({
+        data: { slug: "bulk-return-post", title: "Bulk return post" },
+      });
+
+      await expect(
+        client.comment.createMany({
+          data: [
+            {
+              id: 811,
+              body: "linked return",
+              commentable: {
+                connect: { type: "post", where: { id: post.id } },
+              },
+            },
+            { id: 812, body: "unlinked return" },
+          ],
+          select: { id: true, body: true },
+        })
+      ).resolves.toEqual([
+        { id: 811, body: "linked return" },
+        { id: 812, body: "unlinked return" },
+      ]);
+      expect(await storedComments(family)).toEqual([
+        {
+          id: 811,
+          commentable_type: "content.post.v1",
+          commentable_id: post.id,
+        },
+        { id: 812, commentable_type: null, commentable_id: null },
+      ]);
+    });
+
+    test("root createMany fails before inserts when a connected target is missing", async () => {
+      const { client } = getFamily();
+
+      await expect(
+        client.requiredComment.createMany({
+          data: [
+            {
+              id: 821,
+              body: "must not survive",
+              subject: {
+                connect: { type: "post", where: { slug: "bulk-missing" } },
+              },
+            },
+          ],
+          skipDuplicates: true,
+        })
+      ).rejects.toThrow(
+        "Cannot connect relation 'subject': target record was not found."
+      );
+      await expect(client.requiredComment.findMany()).resolves.toEqual([]);
     });
 
     test("top-level upsert compiles polymorphic create and update arms", async () => {

@@ -29,6 +29,7 @@ const relation = s
 const postSchemas = {
   core: {
     create: v.object({ id: v.string(), title: v.string() }),
+    update: v.object({ title: v.string({ optional: true }) }),
     where: v.object({ title: v.string() }),
     whereUnique: v.object({ id: v.string() }),
     select: v.object({ id: v.boolean(), title: v.boolean() }),
@@ -39,6 +40,7 @@ const postSchemas = {
 const videoSchemas = {
   core: {
     create: v.object({ id: v.string(), duration: v.number() }),
+    update: v.object({ duration: v.number({ optional: true }) }),
     where: v.object({ duration: v.number() }),
     whereUnique: v.object({ id: v.string() }),
     select: v.object({ id: v.boolean(), duration: v.boolean() }),
@@ -164,7 +166,7 @@ const invalidInverseCreate: FolderCreate = {
   },
 };
 
-void [validInverseCreate, invalidInverseCreate];
+const _inverseCreateProbes = [validInverseCreate, invalidInverseCreate];
 
 const inverseClient = createClient({
   schema: {
@@ -290,6 +292,63 @@ const inverseUpdateCanCreateMany = () =>
     },
   });
 
+const directCreateAndUpdateSurface = () => {
+  inverseClient.optionalRemark.create({
+    data: {
+      id: "comment-1",
+      body: "first",
+      commentable: {
+        connectOrCreate: {
+          type: "article",
+          where: { id: "article-1" },
+          create: { id: "article-1" },
+        },
+      },
+    },
+  });
+  inverseClient.optionalRemark.update({
+    where: { id: "comment-1" },
+    data: {
+      commentable: {
+        update: { type: "article", data: { id: "article-2" } },
+      },
+    },
+  });
+  inverseClient.optionalRemark.update({
+    where: { id: "comment-1" },
+    data: {
+      commentable: {
+        upsert: {
+          type: "article",
+          create: { id: "article-2" },
+          update: { id: "article-3" },
+        },
+      },
+    },
+  });
+  inverseClient.optionalRemark.update({
+    where: { id: "comment-1" },
+    data: { commentable: { delete: { type: "article" } } },
+  });
+};
+
+const requiredDirectRemovalIsRejected = () => {
+  inverseClient.remark.update({
+    where: { id: "comment-1" },
+    data: {
+      // @ts-expect-error - required direct membership cannot disconnect
+      commentable: { disconnect: true },
+    },
+  });
+  inverseClient.remark.update({
+    where: { id: "comment-1" },
+    data: {
+      // @ts-expect-error - required direct membership cannot delete its target
+      commentable: { delete: { type: "article" } },
+    },
+  });
+};
+
 const inverseCreateManyStillRefusesAnotherRequiredOwner = () =>
   inverseClient.folder.create({
     data: {
@@ -299,10 +358,17 @@ const inverseCreateManyStillRefusesAnotherRequiredOwner = () =>
     },
   });
 
-const rootCreateManyRemainsScalarOnly = () =>
-  // @ts-expect-error - a root bulk row cannot supply required commentable
+const rootCreateManyAcceptsConnectOnlyMembership = () =>
   inverseClient.remark.createMany({
-    data: [{ id: "comment-1", body: "first" }],
+    data: [
+      {
+        id: "comment-1",
+        body: "first",
+        commentable: {
+          connect: { type: "article", where: { id: "article-1" } },
+        },
+      },
+    ],
   });
 
 const requiredDisconnectIsRejected = () =>
@@ -392,14 +458,16 @@ const typoProbes = () => {
   } satisfies OperationPayload<"create", typeof optionalArticle>);
 };
 
-void [
+const _publicSurfaceProbes = [
   inverseCreateSurface,
   inverseUpdateSurface,
   optionalDisconnectAndSet,
   inverseCreateManySatisfiesItsRequiredOwner,
   inverseUpdateCanCreateMany,
   inverseCreateManyStillRefusesAnotherRequiredOwner,
-  rootCreateManyRemainsScalarOnly,
+  directCreateAndUpdateSurface,
+  requiredDirectRemovalIsRejected,
+  rootCreateManyAcceptsConnectOnlyMembership,
   requiredDisconnectIsRejected,
   requiredSetIsRejected,
   updateOwnerCannotBeRestated,

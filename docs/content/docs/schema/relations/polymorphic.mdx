@@ -364,7 +364,24 @@ await client.comment.create({
 });
 ```
 
-### Replace or disconnect the target
+### Connect or create a target
+
+```ts
+await client.comment.create({
+  data: {
+    body: "First!",
+    commentable: {
+      connectOrCreate: {
+        type: "post",
+        where: { slug: "launch" },
+        create: { slug: "launch", title: "Launch" },
+      },
+    },
+  },
+});
+```
+
+### Replace, mutate, or disconnect the target
 
 An update can connect another target:
 
@@ -393,8 +410,15 @@ await client.comment.update({
 });
 ```
 
-`connect` and `create` are exact one-intent inputs. They cannot be combined in
-one payload.
+A selected owner can also use typed `create`, `connectOrCreate`, correlated
+`update`, and `upsert`. Optional relations support typed target `delete`. Each
+payload is an exact one-intent input: verbs cannot be combined. An `update` or
+`delete` must name the type currently stored by the owner. A cross-type `upsert`
+creates and binds the requested variant without deleting the old target row.
+
+Root `createMany` accepts the same `connect` envelope per row. It does not
+accept nested create or update verbs; target selectors are grouped by relation
+and type before the bulk INSERT runs.
 
 ## Write from the inverse side
 
@@ -506,22 +530,27 @@ The current release keeps these boundaries:
   targets in the relation must use the same portable `string`, `int`, or
   `bigint` representation. Compound IDs, array IDs, mixed scalar kinds, and
   database-native type overrides are not supported.
-- **Direct create:** an owner create supports `connect` or nested `create`, but
-  not direct `connectOrCreate`.
-- **Direct update:** a selected owner supports `connect` and, for optional
-  storage, `disconnect`. It cannot create, update, delete, `connectOrCreate`, or
-  `upsert` the target through the direct relation. The direct relation is
-  to-one, so it has no collection-style `set` operation.
+- **Direct writes:** owner create supports `connect`, nested `create`, and
+  `connectOrCreate`. Selected-owner update also supports correlated `update`
+  and `upsert`; optional storage supports `disconnect` and typed target
+  `delete`. The direct field stores one membership, so it has no
+  collection-style `set` operation.
 - **Topology:** polymorphic many-to-many and inverse one-to-one relations are
   not supported. An inverse is also ambiguous when the same model appears more
-  than once in one target map.
+  than once in one target map. A polymorphic one-to-one is conceptually possible:
+  the owner still stores one `(type, identity)` pair, while a uniqueness rule on
+  that pair prevents two owners from selecting the same target. VibORM does not
+  yet model or enforce that inverse cardinality.
 - **Cross-target queries:** `orderBy` cannot traverse a direct polymorphic
   relation, and filters must select one `type`; there is no untyped filter that
   searches all target schemas.
-- **Root bulk create:** root `createMany` rows remain scalar-only and cannot
-  contain relation payloads. A model with a required polymorphic relation cannot
-  use root `createMany`; use `create`. Inverse nested `createMany` is the
-  exception because its enclosing relation supplies one complete storage pair.
+- **Root bulk create:** root `createMany` rows accept scalar fields and
+  connect-only polymorphic memberships. VibORM groups target probes by relation
+  and discriminator, then preserves the ordinary grouped INSERT plan. Nested
+  creates and other relation verbs remain unavailable in root bulk rows. On a
+  driver without `RETURNING`, the combination of `select`, `skipDuplicates`,
+  and a polymorphic membership is refused: after resolving the target, that
+  driver cannot identify which attempted rows the database skipped.
 - **Database integrity:** one SQL foreign key cannot target several tables, so
   the database does not enforce the association. VibORM does not yet emulate
   referential actions such as cascade or set-null when a target changes or is

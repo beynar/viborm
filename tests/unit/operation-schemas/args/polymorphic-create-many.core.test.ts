@@ -8,12 +8,8 @@ const video = s.model({ id: s.string().id() });
 
 const parent = s.model({
   id: s.string().id(),
-  requiredChildren: s
-    .oneToMany(() => requiredChild)
-    .name("requiredChildren"),
-  optionalChildren: s
-    .oneToMany(() => optionalChild)
-    .name("optionalChildren"),
+  requiredChildren: s.oneToMany(() => requiredChild).name("requiredChildren"),
+  optionalChildren: s.oneToMany(() => optionalChild).name("optionalChildren"),
 });
 
 const requiredChild = s.model({
@@ -65,10 +61,25 @@ const refusal =
   "createMany is not available for model 'requiredChild' because required polymorphic relation 'subject' cannot be supplied by a scalar-only bulk row. Use create instead.";
 
 describe("required polymorphic createMany availability", () => {
-  test("root createMany refuses the first required polymorphic field", () => {
-    const result = parse(schemas.requiredChild.args.createMany, { data: [] });
+  test("root createMany accepts connect-only polymorphic memberships per row", () => {
+    const accepted = parse(schemas.requiredChild.args.createMany, {
+      data: [
+        {
+          id: "child-1",
+          parentId: "parent-1",
+          subject: { connect: { type: "post", where: { id: "post-1" } } },
+          secondary: {
+            connect: { type: "video", where: { id: "video-1" } },
+          },
+        },
+      ],
+    });
+    const missing = parse(schemas.requiredChild.args.createMany, {
+      data: [{ id: "child-2", parentId: "parent-1" }],
+    });
 
-    expect(result.issues?.[0]?.message).toBe(refusal);
+    expect(accepted.issues).toBeUndefined();
+    expect(missing.issues?.[0]?.message).toContain("subject");
   });
 
   test("nested create-family createMany uses the same refusal", () => {

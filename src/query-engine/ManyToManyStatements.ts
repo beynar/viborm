@@ -1,5 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler child ManyToManyStatements.
-import { type Sql, sql } from "@sql";
+import { isSql, type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import {
   buildJunctionDeleteCondition,
@@ -157,13 +157,27 @@ export class ManyToManyStatements {
       );
       if (filter) predicates.push(filter);
     }
+    const selected = buildSelect(
+      child,
+      isRecord(args.select) ? args.select : undefined,
+      undefined,
+      table
+    );
+    const additionalColumns = Array.isArray(args.additionalColumns)
+      ? args.additionalColumns.filter(isSql)
+      : [];
+    if (
+      Array.isArray(args.additionalColumns) &&
+      additionalColumns.length !== args.additionalColumns.length
+    ) {
+      throw new QueryEngineError(
+        "Many-to-many membership read received an invalid additional column."
+      );
+    }
     return this.ctx.adapter.assemble.select({
-      columns: buildSelect(
-        child,
-        isRecord(args.select) ? args.select : undefined,
-        undefined,
-        table
-      ),
+      columns: additionalColumns.length
+        ? sql.join([selected, ...additionalColumns], ", ")
+        : selected,
       from: this.ctx.adapter.identifiers.escape(table),
       where: this.ctx.adapter.operators.and(...predicates),
       ...(typeof args.take === "number"

@@ -200,8 +200,10 @@ target schema.
 
 ## 4. Direct writes
 
-The direct relation remains a to-one relation. Its approved mutation surface is
-intentionally narrow.
+The direct relation stores one membership on its owner. With an inverse
+`oneToMany`, it is the polymorphic equivalent of an ordinary parent-held
+`manyToOne`: many owners may select the same target, while each owner stores at
+most one `(type, identity)` pair.
 
 ### Create
 
@@ -216,6 +218,18 @@ or:
 ```ts
 commentable: {
   create: { type: "post", data: { title: "New post" } },
+}
+```
+
+Create also supports `connectOrCreate`:
+
+```ts
+commentable: {
+  connectOrCreate: {
+    type: "post",
+    where: { slug: "hello" },
+    create: { slug: "hello", title: "Hello" },
+  },
 }
 ```
 
@@ -236,10 +250,13 @@ Optional storage also supports:
 commentable: { disconnect: true }
 ```
 
-A selected-owner update cannot create, update, delete, `connectOrCreate`, or
-`upsert` the target through this field. The direct edge is to-one, so it has no
-collection-style `set`. The direct API has not widened as part of inverse write
-parity.
+A selected-owner update supports `connect`, `create`, `connectOrCreate`,
+correlated `update`, and `upsert`. Optional storage also supports `disconnect`
+and typed target `delete`. `update` and `delete` require the owner's current
+stored discriminator to match the requested type. `upsert` updates an existing
+same-type target; an empty, missing, or different-type membership creates and
+binds the requested target. The direct edge is to-one, so collection-style
+`set` does not apply.
 
 ## 5. Inverse write surface
 
@@ -315,9 +332,14 @@ polymorphic relation. VibORM rejects that shape at the operation-schema
 boundary instead of deferring a private-column `NOT NULL` error to the
 database.
 
-Root `createMany` stays scalar-only. A model with any required direct
-polymorphic relation therefore cannot use root `createMany`; use `create` or an
-eligible inverse nested `createMany`.
+Root `createMany` accepts scalar row data plus connect-only direct polymorphic
+memberships. Each row supplies a complete target selector. VibORM groups target
+lookups by relation and discriminator, then keeps the existing grouped bulk
+INSERT plan. It does not run one target query per row. Nested create and the
+other mutation verbs remain unavailable in root bulk rows. A driver without
+`RETURNING` refuses the combination of `select`, `skipDuplicates`, and a
+polymorphic membership because it cannot observe which attempted rows were
+inserted after the target-resolution reads.
 
 ## 6. Bound inverse topology
 
@@ -548,13 +570,10 @@ The following remain outside the implemented surface:
 
 - target identities must be one scalar field, share one portable `string`,
   `int`, or `bigint` representation, and use no native type override;
-- direct create has no `connectOrCreate`;
-- direct selected-owner updates cannot create, update, delete,
-  `connectOrCreate`, or `upsert` the target; optional disconnect remains
-  supported, and collection-style set does not apply to this to-one relation;
 - polymorphic many-to-many and inverse one-to-one;
 - inverse binding when one target map names the same model more than once;
-- relation-bearing root `createMany`;
+- root `createMany` supports connect-only memberships, not nested creates or
+  other relation verbs;
 - database FK constraints across target tables and ORM-emulated referential
   actions;
 - untyped filters across all targets and order-by through a direct polymorphic
@@ -562,6 +581,12 @@ The following remain outside the implemented surface:
 
 These are separate product or storage decisions, not gaps in inverse
 `oneToMany` membership modeling.
+
+A polymorphic one-to-one is physically possible: the owner keeps the same
+single `(type, identity)` pair, and a uniqueness rule on that pair prevents a
+second owner from selecting the target. The remaining work is schema syntax,
+inverse cardinality, validation, and portable uniqueness behavior; the current
+runtime intentionally exposes only the one-to-many inverse.
 
 ## 16. Ownership map
 

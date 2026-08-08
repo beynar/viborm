@@ -27,6 +27,10 @@ import { ResultParser } from "../result/ResultParser";
 import type { Operation, QueryScope } from "../types";
 import { validate } from "../validator";
 import {
+  type PreparedBulkPolymorphicConnects,
+  prepareBulkPolymorphicConnects,
+} from "./bulk-polymorphic-connect";
+import {
   type FragmentOutputSource,
   type OperationFragment,
   type OperationStep,
@@ -121,6 +125,8 @@ export class ManyAndReturnOperation {
    *  `lastInsertId()` sentinel included — `compile` replaces it with the captured id). */
   private readonly skipWheres?: readonly Record<string, unknown>[];
   private readonly scope: StepScope;
+  private readonly bulkPolymorphic?: PreparedBulkPolymorphicConnects;
+  private readonly createManySupportsReturning?: boolean;
 
   constructor(
     engine: QueryEngine,
@@ -159,6 +165,38 @@ export class ManyAndReturnOperation {
     }
 
     if (kind === "createManyAndReturn") {
+      const data = this.args.data;
+      if (!Array.isArray(data)) {
+        throw new QueryEngineError(
+          "query-engine-v2 createMany with 'select' requires a data array."
+        );
+      }
+      this.bulkPolymorphic = prepareBulkPolymorphicConnects(
+        engine,
+        createQueryScope(engine.adapter, model),
+        data,
+        this.scope,
+        this.mode === "transaction"
+      );
+      this.createManySupportsReturning = supportsReturning;
+      if (this.bulkPolymorphic.probes.length > 0) {
+        if (!supportsReturning && this.args.skipDuplicates === true) {
+          throw new TransactionError(
+            `Driver '${engine.driver.driverName}' cannot execute 'createMany' with 'select', 'skipDuplicates', and polymorphic connects because skipped insert identities cannot be observed.`,
+            {
+              meta: {
+                driver: engine.driver.driverName,
+                operation: "createMany",
+              },
+            }
+          );
+        }
+        this.staticSteps = undefined;
+        this.staticOutput = undefined;
+        this.captureRead = undefined;
+        this.updateData = undefined;
+        return;
+      }
       const skipCapture = this.buildCreateManySkipCapture(supportsReturning);
       if (skipCapture) {
         this.skipInserts = skipCapture.inserts;
@@ -285,6 +323,10 @@ export class ManyAndReturnOperation {
   }
 
   planning(): PlanningFragment {
+    if (this.bulkPolymorphic?.probes.length) {
+      const steps = this.bulkPolymorphic.probes;
+      return { steps, outputs: planningOutputs(steps) };
+    }
     if (this.skipInserts) {
       // E6.9: the capture is the WRITES, and what crosses into `compile` is each one's own
       // outcome — see {@link buildCreateManySkipCapture} for why that is this phase.
@@ -299,6 +341,15 @@ export class ManyAndReturnOperation {
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
+    if (this.bulkPolymorphic?.probes.length) {
+      const built = this.buildCreateManyReturn(
+        this.createManySupportsReturning === true,
+        known
+      );
+      return built.output
+        ? { steps: [...built.steps], outputs: { result: built.output } }
+        : { steps: [...built.steps], outputs: {} };
+    }
     if (this.skipInserts) return this.compileCapturedSkip(known);
     if (this.staticSteps) {
       if (this.staticSteps.length === 0 || this.staticOutput === undefined) {
@@ -611,11 +662,14 @@ export class ManyAndReturnOperation {
     return { steps, outputs: { result: output } };
   }
 
-  private buildCreateManyReturn(supportsReturning: boolean): {
+  private buildCreateManyReturn(
+    supportsReturning: boolean,
+    known?: Readonly<Record<string, unknown>>
+  ): {
     steps: readonly OperationStep[];
     output: FragmentOutputSource | undefined;
   } {
-    const data = this.args.data;
+    const data = this.bulkPolymorphic?.scalarRows ?? this.args.data;
     if (!Array.isArray(data)) {
       throw new QueryEngineError(
         "query-engine-v2 createMany with 'select' requires a data array."
@@ -625,6 +679,10 @@ export class ManyAndReturnOperation {
 
     const skipDuplicates = this.args.skipDuplicates === true;
     const ctx = this.ctx();
+    const resolved =
+      this.bulkPolymorphic && known
+        ? this.bulkPolymorphic.resolve(known)
+        : undefined;
     const plan = buildCreateManyPlan(
       ctx,
       {
@@ -632,9 +690,10 @@ export class ManyAndReturnOperation {
         skipDuplicates,
         ...(this.select ? { select: this.select } : {}),
       },
-      true
+      true,
+      resolved?.storageByRow
     );
-    const steps: OperationStep[] = [];
+    const steps: OperationStep[] = [...(resolved?.guards ?? [])];
     const output: OperationValueReference[] = [];
     const covered: number[] = [];
     const name = this.modelName();

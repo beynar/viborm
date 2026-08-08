@@ -6,10 +6,9 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import {
-  bindResolvedPolymorphicEdge,
-  type PolymorphicStorageValue,
-  type ResolvedPolymorphicMutation,
+import type {
+  PolymorphicStorageValue,
+  ResolvedPolymorphicMutation,
 } from "../builders/polymorphic-mutation";
 import {
   bindRelation,
@@ -44,7 +43,11 @@ import {
   assertSelectedUpdateManyDataIsScalar,
 } from "../relation-key-legality";
 import { classifyRelationKeyScalarUpdate } from "../TargetConstraint";
-import type { QueryScope, RelationInfo } from "../types";
+import type {
+  QueryScope,
+  RelationInfo,
+  ResolvedPolymorphicEdge,
+} from "../types";
 import type { FreshRecordBuilder, FreshRecordPart } from "./CreateOperation";
 import {
   absenceGuard,
@@ -54,6 +57,7 @@ import {
   nestedWriteFailure,
   notFoundFailure,
   presenceGuard,
+  referenceScalarSql,
   referenceSql,
 } from "./fragment-builders";
 import {
@@ -74,6 +78,7 @@ import {
   type Failure,
   type OperationStep,
   type ReadStep,
+  ref,
   type StatementStep,
   type TargetConstraintPin,
   type WriteStep,
@@ -132,6 +137,10 @@ export interface RecordUpdateCompiler {
   readonly targetReadId: string;
   readonly writeId: string;
   readonly requiredTargetFields: readonly string[];
+  readonly requiredTargetColumns: readonly {
+    readonly name: string;
+    readonly sql: Sql;
+  }[];
   planning(): readonly StatementStep[];
   compile(known: PlanningKnown): readonly OperationStep[];
   updatedPrimaryKeyWhere(
@@ -185,7 +194,8 @@ function resolveStepAddress(scope: StepScope, address: StepAddress): string {
 }
 
 interface ToOneLink {
-  readonly relation: ParentHeldToOne;
+  readonly relationInfo: RelationInfo;
+  readonly referencedFields: readonly string[];
   /** FK assignment merged into the parent SET clause. */
   readonly assignment: Record<string, unknown>;
   /** Present for `connect`: an existence probe + its batch guard id. `fk`/`where`
@@ -304,6 +314,51 @@ type ParentHeldTarget =
       readonly updateLegality?: () => void;
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
+    }
+  | {
+      readonly kind: "polymorphicCreate";
+      readonly before: BeforeTarget;
+      readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
+    }
+  | {
+      readonly kind: "polymorphicConnectOrCreate";
+      readonly relationInfo: RelationInfo;
+      readonly probeId: string;
+      readonly guardId: string;
+      readonly guardProbe: Sql;
+      readonly probe: ReadStep;
+      readonly before: BeforeTarget;
+      readonly foundAssignment: PolymorphicStorageValue<FinalReferenceSource>;
+      readonly missingAssignment: PolymorphicStorageValue<FinalReferenceSource>;
+    }
+  | {
+      readonly kind: "polymorphicUpdate";
+      readonly edge: ResolvedPolymorphicEdge;
+      readonly childScope: QueryScope;
+      readonly childPrimaryKey: string;
+      readonly probeId: string;
+      readonly guardId: string;
+      readonly probe: ReadStep;
+      readonly filter?: Record<string, unknown>;
+      readonly compiler: RecordUpdateCompiler;
+    }
+  | {
+      readonly kind: "polymorphicDelete";
+      readonly edge: ResolvedPolymorphicEdge;
+      readonly childScope: QueryScope;
+      readonly deleteWriteId: string;
+    }
+  | {
+      readonly kind: "polymorphicUpsert";
+      readonly edge: ResolvedPolymorphicEdge;
+      readonly childScope: QueryScope;
+      readonly childPrimaryKey: string;
+      readonly probeId: string;
+      readonly guardId: string;
+      readonly probe: ReadStep;
+      readonly compiler?: RecordUpdateCompiler;
+      readonly before: BeforeTarget;
+      readonly missingAssignment: PolymorphicStorageValue<FinalReferenceSource>;
     };
 
 /**
@@ -368,6 +423,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   readonly mode: ExecutionMode;
   readonly targetReadId: string;
   readonly writeId: string;
+  readonly requiredTargetColumns: readonly {
+    readonly name: string;
+    readonly sql: Sql;
+  }[];
   readonly requiredTargetFields: readonly string[];
 
   private readonly engine: QueryEngine;
@@ -387,7 +446,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private readonly relationKeyGuards: readonly RelationKeyGuard[];
   private readonly parentUpdateData: Record<string, unknown>;
   private readonly polymorphicStorage: readonly PolymorphicStorageValue<FinalReferenceSource>[];
-  private readonly needsRootUpdate: boolean;
   private readonly reorderRootUpdateAfterChildren: boolean;
   private readonly createFresh: FreshRecordBuilder;
   private readonly recordCompilers: RecordCompilerSeam;
@@ -433,15 +491,39 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const relationKeyGuards: RelationKeyGuard[] = [];
     const locateFields = new Set<string>(parentPrimaryKeys);
     const parentFkLocateFields = new Set<string>();
+    const requiredTargetColumns = new Map<string, Sql>();
     const txMode = this.mode === "transaction";
     for (const program of Object.values(input.relations)) {
       const polymorphic = input.polymorphic?.[program.relationInfo.name];
       if (polymorphic?.kind === "targeted") {
+        const entry = polymorphic.program.entries[0];
+        if (
+          entry?.kind === "update" ||
+          entry?.kind === "delete" ||
+          entry?.kind === "upsert"
+        ) {
+          for (const column of [
+            polymorphic.edge.storage.typeColumn,
+            polymorphic.edge.storage.idColumn,
+          ]) {
+            requiredTargetColumns.set(
+              column.name,
+              input.targetScope.adapter.identifiers.aliased(
+                input.targetScope.adapter.identifiers.column(
+                  input.targetScope.rootAlias,
+                  column.name
+                ),
+                column.name
+              )
+            );
+          }
+        }
         this.interpretPolymorphicRelation({
           scope: input.scope,
           mutation: polymorphic,
           txMode,
           toOneLinks,
+          parentHeldTargets,
           polymorphicStorage,
         });
         continue;
@@ -482,17 +564,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     this.reorderRootUpdateAfterChildren =
       childParts.length > 0 &&
       [...locateFields].some((field) => Object.hasOwn(parentSet, field));
-    this.needsRootUpdate =
-      Object.keys(parentSet).length > 0 ||
-      this.incomingMembership !== undefined ||
-      polymorphicStorage.length > 0 ||
-      parentHeldTargets.some(
-        (target) =>
-          target.kind === "create" || target.kind === "connectOrCreate"
-      );
     this.requiredTargetFields = [
       ...new Set([...locateFields, ...parentFkLocateFields]),
     ];
+    this.requiredTargetColumns = [...requiredTargetColumns].map(
+      ([name, sql]) => ({ name, sql })
+    );
   }
 
   planning(): readonly StatementStep[] {
@@ -505,21 +582,33 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       if (
         target.kind === "connectOrCreate" ||
         target.kind === "update" ||
-        target.kind === "upsert"
+        target.kind === "upsert" ||
+        target.kind === "polymorphicConnectOrCreate" ||
+        target.kind === "polymorphicUpdate" ||
+        target.kind === "polymorphicUpsert"
       ) {
         steps.push(target.probe);
       }
       if (
         target.kind === "create" ||
         target.kind === "connectOrCreate" ||
-        target.kind === "upsert"
+        target.kind === "upsert" ||
+        target.kind === "polymorphicCreate" ||
+        target.kind === "polymorphicConnectOrCreate" ||
+        target.kind === "polymorphicUpsert"
       ) {
         steps.push(...target.before.subtree.planning(this.scope));
       }
       if (target.kind === "update") {
         steps.push(...target.compiler.planning());
       }
+      if (target.kind === "polymorphicUpdate") {
+        steps.push(...target.compiler.planning());
+      }
       if (target.kind === "upsert" && target.compiler) {
+        steps.push(...conditionalArmPlanning(target.compiler.planning()));
+      }
+      if (target.kind === "polymorphicUpsert" && target.compiler) {
         steps.push(...conditionalArmPlanning(target.compiler.planning()));
       }
     }
@@ -582,6 +671,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       beforeRootWrites,
       writes
     );
+    const dynamicPolymorphicStorage = rootExtraSet.polymorphicStorage;
     const incoming = this.incomingMembership
       ? lowerMembershipWrite(
           this.engine,
@@ -591,7 +681,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           "update"
         )
       : { data: {}, polymorphicStorage: [] };
-    Object.assign(rootExtraSet, incoming.data);
+    Object.assign(rootExtraSet.data, incoming.data);
     for (const part of this.childParts) {
       bucketOperationSteps(part.compile(this.scope, known), guards, writes);
     }
@@ -614,10 +704,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       ...this.polymorphicStorage.map((value) =>
         resolvePolymorphicStorageValue(this.engine, value, known, "update")
       ),
+      ...dynamicPolymorphicStorage,
       ...incoming.polymorphicStorage,
     ];
-    const rootUpdate = this.needsRootUpdate
-      ? this.buildRootUpdate(locatedRow, rootExtraSet, polymorphicStorage)
+    const hasRootUpdate =
+      Object.keys(this.parentUpdateData).length > 0 ||
+      Object.keys(rootExtraSet.data).length > 0 ||
+      polymorphicStorage.length > 0;
+    const rootUpdate = hasRootUpdate
+      ? this.buildRootUpdate(locatedRow, rootExtraSet.data, polymorphicStorage)
       : undefined;
     // A root SET that rewrites a child-referenced column (a PK transition
     // `id: 2`, or a literal on a non-PK referenced unique) must land AFTER the
@@ -695,15 +790,141 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     >;
     readonly txMode: boolean;
     readonly toOneLinks: ToOneLink[];
+    readonly parentHeldTargets: ParentHeldTarget[];
     readonly polymorphicStorage: PolymorphicStorageValue<FinalReferenceSource>[];
   }): void {
     const { edge, program } = input.mutation;
-    const relation = bindResolvedPolymorphicEdge(edge);
     const relationName = edge.relationInfo.name;
+    const childScope = createQueryScope(this.engine.adapter, edge.targetModel);
     const entry = program.entries[0];
-    if (!(entry && program.entries.length === 1 && entry.kind === "connect")) {
+    if (!(entry && program.entries.length === 1)) {
       throw new QueryEngineError(
-        `query-engine internal: direct polymorphic update relation '${relationName}' requires one connect operation.`
+        `query-engine internal: direct polymorphic update relation '${relationName}' requires one operation.`
+      );
+    }
+    if (entry.kind === "create") {
+      const data = entry.items[0];
+      if (!data) {
+        throw new QueryEngineError(
+          `query-engine internal: polymorphic create on relation '${relationName}' has no item.`
+        );
+      }
+      const before = this.buildBeforeTarget(childScope, data);
+      const source = before.subtree.rootReferenced(edge.referencedField);
+      if (!source) {
+        throw new QueryEngineError(
+          `query-engine update cannot resolve referenced field '${edge.referencedField}' for relation '${relationName}'.`
+        );
+      }
+      input.parentHeldTargets.push({
+        kind: "polymorphicCreate",
+        before,
+        assignment: this.polymorphicLinked(edge, source),
+      });
+      return;
+    }
+    if (entry.kind === "connectOrCreate") {
+      const spec = entry.items[0];
+      if (!spec) {
+        throw new QueryEngineError(
+          `query-engine internal: polymorphic connectOrCreate on relation '${relationName}' has no item.`
+        );
+      }
+      const before = this.buildBeforeTarget(
+        childScope,
+        spec.create,
+        childRacePin(childScope, spec.where)
+      );
+      const source = before.subtree.rootReferenced(edge.referencedField);
+      if (!source) {
+        throw new QueryEngineError(
+          `query-engine update cannot resolve referenced field '${edge.referencedField}' for relation '${relationName}'.`
+        );
+      }
+      const childName = getStepModelName(edge.targetModel, relationName);
+      const probeId = input.scope.allocate(`${childName}.find`);
+      const guardId = input.scope.allocate(`${childName}.guard.exists`);
+      const select = { [edge.referencedField]: true };
+      const probe: ReadStep = {
+        id: probeId,
+        kind: "read",
+        statement: buildFindUnique(childScope, {
+          where: spec.where,
+          select,
+          forUpdate: input.txMode,
+        }),
+        outputs: { rows: { kind: "rows" } },
+      };
+      input.parentHeldTargets.push({
+        kind: "polymorphicConnectOrCreate",
+        relationInfo: edge.relationInfo,
+        probeId,
+        guardId,
+        guardProbe: buildFindUnique(childScope, {
+          where: spec.where,
+          select,
+        }),
+        probe,
+        before,
+        foundAssignment: this.polymorphicLinked(edge, {
+          kind: "planningField",
+          step: probeId,
+        }),
+        missingAssignment: this.polymorphicLinked(edge, source),
+      });
+      return;
+    }
+    if (entry.kind === "update") {
+      const item = entry.items[0];
+      if (!(item && item.target.kind === "correlated")) {
+        throw new QueryEngineError(
+          `query-engine internal: polymorphic update on relation '${relationName}' requires one correlated target.`
+        );
+      }
+      const target = this.buildPolymorphicSelectedTarget(
+        input.scope,
+        edge,
+        childScope,
+        item.data,
+        item.target.filter,
+        input.txMode
+      );
+      if (target) input.parentHeldTargets.push(target);
+      return;
+    }
+    if (entry.kind === "delete") {
+      input.parentHeldTargets.push({
+        kind: "polymorphicDelete",
+        edge,
+        childScope,
+        deleteWriteId: input.scope.allocate(
+          `${getStepModelName(edge.targetModel, relationName)}.delete`
+        ),
+      });
+      return;
+    }
+    if (entry.kind === "upsert") {
+      const spec = entry.items[0];
+      if (!(spec && spec.target.kind === "correlated")) {
+        throw new QueryEngineError(
+          `query-engine internal: polymorphic upsert on relation '${relationName}' requires one correlated target.`
+        );
+      }
+      input.parentHeldTargets.push(
+        this.buildPolymorphicUpsert(
+          input.scope,
+          edge,
+          childScope,
+          spec.create,
+          spec.update,
+          input.txMode
+        )
+      );
+      return;
+    }
+    if (entry.kind !== "connect") {
+      throw new QueryEngineError(
+        `query-engine internal: unsupported direct polymorphic mutation '${entry.kind}' on relation '${relationName}'.`
       );
     }
     const where = entry.targets[0];
@@ -712,7 +933,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         `query-engine internal: polymorphic connect on relation '${relationName}' has no target.`
       );
     }
-    const childScope = createQueryScope(this.engine.adapter, edge.targetModel);
     const childName = getStepModelName(edge.targetModel, relationName);
     const probeId = input.scope.allocate(`${childName}.find`);
     const guardId = input.scope.allocate(`${childName}.guard.exists`);
@@ -730,7 +950,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
     const select = { [edge.referencedField]: true };
     input.toOneLinks.push({
-      relation,
+      relationInfo: edge.relationInfo,
+      referencedFields: [edge.referencedField],
       assignment: {},
       connect: {
         probeId,
@@ -749,6 +970,209 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         },
       },
     });
+  }
+
+  private polymorphicLinked(
+    edge: ResolvedPolymorphicEdge,
+    id: FinalReferenceSource
+  ): PolymorphicStorageValue<FinalReferenceSource> {
+    return {
+      kind: "linked",
+      storage: edge.storage,
+      storedType: edge.storedType,
+      referencedField: edge.referencedField,
+      id,
+    };
+  }
+
+  private buildPolymorphicSelectedTarget(
+    scope: StepScope,
+    edge: ResolvedPolymorphicEdge,
+    childScope: QueryScope,
+    data: Record<string, unknown>,
+    filter: Record<string, unknown> | undefined,
+    txMode: boolean
+  ): Extract<ParentHeldTarget, { kind: "polymorphicUpdate" }> | undefined {
+    const relationName = edge.relationInfo.name;
+    const parsed = buildParsedRelationPrograms(childScope, data);
+    assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
+      data: parsed.scalarData,
+    });
+    assertRelationKeyUpdatesAreCompilable(
+      childScope,
+      parsed.scalarData,
+      parsed.relations
+    );
+    assertSelectedUpdateManyDataIsScalar(childScope, parsed.relations);
+    const childName = getStepModelName(edge.targetModel, relationName);
+    const compiler = this.recordCompilers.updateSelected({
+      scope,
+      engine: this.engine,
+      targetScope: childScope,
+      scalarData: parsed.scalarData,
+      relations: parsed.relations,
+      polymorphic: parsed.polymorphic,
+      targetRead: { label: `${childName}.find` },
+      rootWrite: { label: `${childName}.update` },
+      relationName,
+    });
+    if (!compiler) return undefined;
+    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
+    if (childPrimaryKeys.length !== 1) {
+      throw new QueryEngineError(
+        `query-engine update requires a target with one primary key for polymorphic relation '${relationName}'.`
+      );
+    }
+    const childPrimaryKey = childPrimaryKeys[0]!;
+    const probe = this.buildPolymorphicTargetProbe(
+      compiler.targetReadId,
+      edge,
+      childScope,
+      compiler.requiredTargetFields,
+      compiler.requiredTargetColumns,
+      filter,
+      txMode,
+      false
+    );
+    return {
+      kind: "polymorphicUpdate",
+      edge,
+      childScope,
+      childPrimaryKey,
+      probeId: compiler.targetReadId,
+      guardId: scope.allocate(`${childName}.guard.exists`),
+      probe,
+      ...(filter ? { filter } : {}),
+      compiler,
+    };
+  }
+
+  private buildPolymorphicUpsert(
+    scope: StepScope,
+    edge: ResolvedPolymorphicEdge,
+    childScope: QueryScope,
+    create: Record<string, unknown>,
+    update: Record<string, unknown>,
+    txMode: boolean
+  ): Extract<ParentHeldTarget, { kind: "polymorphicUpsert" }> {
+    const relationName = edge.relationInfo.name;
+    const before = this.buildBeforeTarget(childScope, create);
+    const source = before.subtree.rootReferenced(edge.referencedField);
+    if (!source) {
+      throw new QueryEngineError(
+        `query-engine update cannot resolve referenced field '${edge.referencedField}' for relation '${relationName}'.`
+      );
+    }
+    const parsed = buildParsedRelationPrograms(childScope, update);
+    const hasUpdate =
+      Object.keys(parsed.scalarData).length > 0 ||
+      Object.keys(parsed.relations).length > 0 ||
+      Object.keys(parsed.polymorphic).length > 0;
+    const childName = getStepModelName(edge.targetModel, relationName);
+    const compiler = hasUpdate
+      ? this.recordCompilers.updateSelected({
+          scope,
+          engine: this.engine,
+          targetScope: childScope,
+          scalarData: parsed.scalarData,
+          relations: parsed.relations,
+          polymorphic: parsed.polymorphic,
+          targetRead: { label: `${childName}.find` },
+          rootWrite: { label: `${childName}.update` },
+          relationName,
+        })
+      : undefined;
+    const probeId =
+      compiler?.targetReadId ?? scope.allocate(`${childName}.find`);
+    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
+    if (childPrimaryKeys.length !== 1) {
+      throw new QueryEngineError(
+        `query-engine update requires a target with one primary key for polymorphic relation '${relationName}'.`
+      );
+    }
+    return {
+      kind: "polymorphicUpsert",
+      edge,
+      childScope,
+      childPrimaryKey: childPrimaryKeys[0]!,
+      probeId,
+      guardId: scope.allocate(`${childName}.guard.exists`),
+      probe: this.buildPolymorphicTargetProbe(
+        probeId,
+        edge,
+        childScope,
+        compiler?.requiredTargetFields ?? [childPrimaryKeys[0]!],
+        compiler?.requiredTargetColumns ?? [],
+        undefined,
+        txMode,
+        true
+      ),
+      compiler,
+      before,
+      missingAssignment: this.polymorphicLinked(edge, source),
+    };
+  }
+
+  private buildPolymorphicTargetProbe(
+    id: string,
+    edge: ResolvedPolymorphicEdge,
+    childScope: QueryScope,
+    fields: readonly string[],
+    columns: readonly { readonly name: string; readonly sql: Sql }[],
+    filter: Record<string, unknown> | undefined,
+    txMode: boolean,
+    optional: boolean
+  ): ReadStep {
+    const identity = referenceScalarSql(
+      this.engine,
+      edge.storage.idColumn.scalar,
+      edge.storage.idColumn.name,
+      ref(this.targetReadId, edge.storage.idColumn.name)
+    );
+    return {
+      id,
+      kind: "read",
+      statement: buildFind(
+        childScope,
+        {
+          where: {
+            AND: [
+              { [edge.referencedField]: { equals: identity } },
+              ...(filter ? [filter] : []),
+            ],
+          },
+          select: Object.fromEntries(fields.map((field) => [field, true])),
+          forUpdate: txMode,
+        },
+        {
+          limit: 1,
+          ...(columns.length
+            ? { additionalColumns: columns.map((column) => column.sql) }
+            : {}),
+        }
+      ),
+      outputs: {
+        rows: { kind: "rows" },
+        ...Object.fromEntries([
+          ...fields.map((field) => [
+            field,
+            {
+              kind: "firstRowField",
+              field,
+              ...(optional ? { optional: true } : {}),
+            },
+          ]),
+          ...columns.map((column) => [
+            column.name,
+            {
+              kind: "firstRowField",
+              field: column.name,
+              ...(optional ? { optional: true } : {}),
+            },
+          ]),
+        ]),
+      },
+    };
   }
 
   private interpretRelation(input: {
@@ -2293,16 +2717,21 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         true,
         undefined,
         target.filter,
-        compiler.requiredTargetFields
+        compiler.requiredTargetFields,
+        compiler.requiredTargetColumns
       ),
       outputs: hasDescendantPlanning
         ? {
             rows: { kind: "rows" },
             ...Object.fromEntries(
-              compiler.requiredTargetFields.map((field) => [
-                field,
-                { kind: "firstRowField", field },
-              ])
+              compiler.requiredTargetFields
+                .map((field) => [field, { kind: "firstRowField", field }])
+                .concat(
+                  compiler.requiredTargetColumns.map((column) => [
+                    column.name,
+                    { kind: "firstRowField", field: column.name },
+                  ])
+                )
             ),
           }
         : { rows: { kind: "rows" } },
@@ -2458,16 +2887,28 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           true,
           undefined,
           undefined,
-          compiler?.requiredTargetFields
+          compiler?.requiredTargetFields,
+          compiler?.requiredTargetColumns
         ),
         outputs: compiler
           ? {
               rows: { kind: "rows" },
               ...Object.fromEntries(
-                compiler.requiredTargetFields.map((field) => [
-                  field,
-                  { kind: "firstRowField", field, optional: true },
-                ])
+                compiler.requiredTargetFields
+                  .map((field) => [
+                    field,
+                    { kind: "firstRowField", field, optional: true },
+                  ])
+                  .concat(
+                    compiler.requiredTargetColumns.map((column) => [
+                      column.name,
+                      {
+                        kind: "firstRowField",
+                        field: column.name,
+                        optional: true,
+                      },
+                    ])
+                  )
               ),
             }
           : { rows: { kind: "rows" } },
@@ -2528,7 +2969,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     useRef: boolean,
     known?: Readonly<Record<string, unknown>>,
     filter?: Record<string, unknown>,
-    selectedFields: readonly string[] = [childPrimaryKey]
+    selectedFields: readonly string[] = [childPrimaryKey],
+    selectedColumns: readonly {
+      readonly name: string;
+      readonly sql: Sql;
+    }[] = []
   ): Sql {
     return buildFind(
       childScope,
@@ -2553,7 +2998,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         ),
         forUpdate: this.mode === "transaction",
       },
-      { limit: 1 }
+      {
+        limit: 1,
+        ...(selectedColumns.length
+          ? { additionalColumns: selectedColumns.map((column) => column.sql) }
+          : {}),
+      }
     );
   }
 
@@ -2829,10 +3279,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private assertLookupKeyPresent(
     rows: readonly unknown[],
-    relation: ParentHeldToOne,
+    relationInfo: RelationInfo,
+    referencedFields: readonly string[],
     where: Record<string, unknown>
   ): void {
-    const { relationInfo, referencedFields } = relation;
     const found = rows[0];
     if (!isRecord(found)) return;
     for (const referenced of referencedFields) {
@@ -2877,8 +3327,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     guards: OperationStep[],
     beforeRootWrites: OperationStep[],
     writes: OperationStep[]
-  ): Record<string, unknown> {
+  ): {
+    readonly data: Record<string, unknown>;
+    readonly polymorphicStorage: PolymorphicStorageValue<unknown>[];
+  } {
     const extraSet: Record<string, unknown> = {};
+    const polymorphicStorage: PolymorphicStorageValue<unknown>[] = [];
     for (const target of this.parentHeldTargets) {
       switch (target.kind) {
         case "create":
@@ -2900,6 +3354,170 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         case "delete":
           this.compileParentHeldDelete(target, known, locatedRow, writes);
           break;
+        case "polymorphicCreate":
+          this.emitBeforeTarget(target.before, known, guards, beforeRootWrites);
+          polymorphicStorage.push(
+            resolvePolymorphicStorageValue(
+              this.engine,
+              target.assignment,
+              known,
+              "create"
+            )
+          );
+          break;
+        case "polymorphicConnectOrCreate": {
+          const rows = known[planningKey(target.probeId, "rows")];
+          const found = Array.isArray(rows) && rows.length > 0;
+          if (found) {
+            polymorphicStorage.push(
+              resolvePolymorphicStorageValue(
+                this.engine,
+                target.foundAssignment,
+                known,
+                "connectOrCreate"
+              )
+            );
+            if (this.mode === "batch") {
+              guards.push(
+                presenceGuard(
+                  target.guardId,
+                  target.guardProbe,
+                  nestedWriteFailure(
+                    nestedReplacement("connectOrCreate"),
+                    target.relationInfo.name,
+                    false
+                  )
+                )
+              );
+            }
+          } else {
+            this.emitBeforeTarget(
+              target.before,
+              known,
+              guards,
+              beforeRootWrites
+            );
+            polymorphicStorage.push(
+              resolvePolymorphicStorageValue(
+                this.engine,
+                target.missingAssignment,
+                known,
+                "connectOrCreate"
+              )
+            );
+          }
+          break;
+        }
+        case "polymorphicUpdate": {
+          this.assertPolymorphicCurrentTarget(
+            locatedRow,
+            target.edge,
+            "update"
+          );
+          const rows = known[planningKey(target.probeId, "rows")];
+          const found = Array.isArray(rows) && isRecord(rows[0]);
+          if (!found) {
+            throw new NestedWriteError(
+              relationTargetNotFound(target.edge.relationInfo, "update"),
+              target.edge.relationInfo.name
+            );
+          }
+          if (this.mode === "batch") {
+            guards.push(
+              presenceGuard(
+                target.guardId,
+                buildFindUnique(target.childScope, {
+                  where: {
+                    [target.childPrimaryKey]: rows[0]![target.childPrimaryKey],
+                  },
+                  select: { [target.childPrimaryKey]: true },
+                }),
+                nestedWriteFailure(
+                  relationTargetNotFound(target.edge.relationInfo, "update"),
+                  target.edge.relationInfo.name,
+                  false
+                )
+              )
+            );
+          }
+          bucketOperationSteps(target.compiler.compile(known), guards, writes);
+          break;
+        }
+        case "polymorphicDelete": {
+          const identity = this.assertPolymorphicCurrentTarget(
+            locatedRow,
+            target.edge,
+            "delete"
+          );
+          polymorphicStorage.push({
+            kind: "empty",
+            storage: target.edge.storage,
+          });
+          writes.push({
+            id: target.deleteWriteId,
+            kind: "write",
+            statement: buildDeleteMany(target.childScope, {
+              where: {
+                [target.edge.referencedField]: { equals: identity },
+              },
+            }),
+            outputs: {},
+          });
+          break;
+        }
+        case "polymorphicUpsert": {
+          const current = this.readPolymorphicCurrentTarget(
+            locatedRow,
+            target.edge
+          );
+          const rows = known[planningKey(target.probeId, "rows")];
+          const found =
+            current.kind === "same" && Array.isArray(rows) && isRecord(rows[0]);
+          if (found) {
+            if (target.compiler) {
+              if (this.mode === "batch") {
+                guards.push(
+                  presenceGuard(
+                    target.guardId,
+                    buildFindUnique(target.childScope, {
+                      where: {
+                        [target.childPrimaryKey]:
+                          rows[0]![target.childPrimaryKey],
+                      },
+                      select: { [target.childPrimaryKey]: true },
+                    }),
+                    nestedWriteFailure(
+                      nestedReplacement("upsert"),
+                      target.edge.relationInfo.name,
+                      false
+                    )
+                  )
+                );
+              }
+              bucketOperationSteps(
+                target.compiler.compile(known),
+                guards,
+                writes
+              );
+            }
+          } else {
+            this.emitBeforeTarget(
+              target.before,
+              known,
+              guards,
+              beforeRootWrites
+            );
+            polymorphicStorage.push(
+              resolvePolymorphicStorageValue(
+                this.engine,
+                target.missingAssignment,
+                known,
+                "upsert"
+              )
+            );
+          }
+          break;
+        }
         default:
           this.compileParentHeldUpsert(
             target,
@@ -2912,7 +3530,54 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           break;
       }
     }
-    return extraSet;
+    return { data: extraSet, polymorphicStorage };
+  }
+
+  private readPolymorphicCurrentTarget(
+    locatedRow: Readonly<Record<string, unknown>>,
+    edge: ResolvedPolymorphicEdge
+  ):
+    | { readonly kind: "empty" }
+    | { readonly kind: "same"; readonly identity: unknown }
+    | { readonly kind: "different"; readonly identity: unknown } {
+    const storedType = locatedRow[edge.storage.typeColumn.name];
+    const identity = locatedRow[edge.storage.idColumn.name];
+    if (storedType === null && identity === null) return { kind: "empty" };
+    if (
+      typeof storedType !== "string" ||
+      identity === null ||
+      identity === undefined
+    ) {
+      throw new QueryEngineError(
+        `Polymorphic relation '${edge.relationInfo.name}' contains malformed storage.`
+      );
+    }
+    const knownType = [...edge.storage.members.values()].some(
+      (member) => member.storedType === storedType
+    );
+    if (!knownType) {
+      throw new QueryEngineError(
+        `Polymorphic relation '${edge.relationInfo.name}' contains unknown discriminator '${storedType}'.`
+      );
+    }
+    return storedType === edge.storedType
+      ? { kind: "same", identity }
+      : { kind: "different", identity };
+  }
+
+  private assertPolymorphicCurrentTarget(
+    locatedRow: Readonly<Record<string, unknown>>,
+    edge: ResolvedPolymorphicEdge,
+    operation: "update" | "delete"
+  ): unknown {
+    const current = this.readPolymorphicCurrentTarget(locatedRow, edge);
+    if (current.kind !== "same") {
+      throw new NestedWriteError(
+        relationTargetNotFound(edge.relationInfo, operation),
+        edge.relationInfo.name
+      );
+    }
+    return current.identity;
   }
 
   private compileParentHeldConnectOrCreate(
@@ -2929,7 +3594,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // exactly what makes this a create.
     const found = Array.isArray(rows) && rows.length > 0;
     if (found) {
-      this.assertLookupKeyPresent(rows, target.relation, target.where);
+      this.assertLookupKeyPresent(
+        rows,
+        relationInfo,
+        target.relation.referencedFields,
+        target.where
+      );
       Object.assign(extraSet, target.foundFkAssign);
       if (this.mode === "batch") {
         guards.push(
@@ -3187,7 +3857,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // V1-verbatim rejection when a required FK cannot be nulled.
       assertRelationCanDisconnect(relation);
       return {
-        relation,
+        relationInfo,
+        referencedFields,
         assignment: Object.fromEntries(
           foreignFields.map((field) => [field, { set: null }])
         ),
@@ -3222,7 +3893,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       outputs: { rows: { kind: "rows" } },
     };
     return {
-      relation,
+      relationInfo,
+      referencedFields,
       assignment,
       connect: { probeId, guardId, probe, where: connect },
     };
@@ -3233,7 +3905,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     known: Readonly<Record<string, unknown>>
   ): OperationStep[] {
     if (!link.connect) return [];
-    const { relationInfo } = link.relation;
+    const { relationInfo } = link;
     const relationName = relationInfo.name;
     const rows = known[planningKey(link.connect.probeId, "rows")];
     // Zero rows is the arm's own not-found premise, unchanged by the lookup fold:
@@ -3245,7 +3917,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         relationName
       );
     }
-    this.assertLookupKeyPresent(rows, link.relation, link.connect.where);
+    this.assertLookupKeyPresent(
+      rows,
+      link.relationInfo,
+      link.referencedFields,
+      link.connect.where
+    );
     if (this.mode === "transaction") return [];
     const guardStatement = link.connect.capturedGuardField
       ? buildFindUnique(

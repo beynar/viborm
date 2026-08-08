@@ -42,3 +42,7 @@
   a read statement makes the final write invalid. Pass the physical or aliased
   qualifier at the statement boundary, and verify the same mutation on both
   transaction and atomic-batch substrates.
+- When a repository counts capability refusals, reserve its unsupported-error
+  type for real public capability boundaries. Impossible compiler states use
+  the internal error model; otherwise a semantic inventory reports invented
+  product limitations.

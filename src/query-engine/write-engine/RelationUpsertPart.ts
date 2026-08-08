@@ -267,8 +267,8 @@ export class RelationUpsertPart implements Part {
           forUpdate: txMode,
         },
         {
-          ...(this.boundProjection().additionalColumns.length > 0
-            ? { additionalColumns: this.boundProjection().additionalColumns }
+          ...(this.probeAdditionalColumns().length > 0
+            ? { additionalColumns: this.probeAdditionalColumns() }
             : {}),
         }
       ),
@@ -282,12 +282,23 @@ export class RelationUpsertPart implements Part {
         ? {
             rows: { kind: "rows" },
             ...Object.fromEntries(
-              this.updateCompiler.requiredTargetFields.map(
-                (field): [string, StatementOutputSource] => [
+              this.updateCompiler.requiredTargetFields
+                .map((field): [string, StatementOutputSource] => [
                   field,
                   { kind: "firstRowField", field, optional: true },
-                ]
-              )
+                ])
+                .concat(
+                  this.updateCompiler.requiredTargetColumns.map(
+                    (column): [string, StatementOutputSource] => [
+                      column.name,
+                      {
+                        kind: "firstRowField",
+                        field: column.name,
+                        optional: true,
+                      },
+                    ]
+                  )
+                )
             ),
           }
         : config.publishesLocatedPk
@@ -347,6 +358,15 @@ export class RelationUpsertPart implements Part {
 
   private boundProjection() {
     return membershipProjection(this.config.childScope, this.config.membership);
+  }
+
+  private probeAdditionalColumns(): readonly Sql[] {
+    return [
+      ...this.boundProjection().additionalColumns,
+      ...(this.updateCompiler?.requiredTargetColumns.map(
+        (column) => column.sql
+      ) ?? []),
+    ];
   }
 
   /** The address consumers read this part's probe rows from in `known`. */

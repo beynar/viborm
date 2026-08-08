@@ -16,8 +16,8 @@ import { QueryEngineError, type QueryScope } from "../types";
 import { shouldOmitInsertValue } from "./generated-scalar";
 import { planInsertRowShapes } from "./insert-row-shapes";
 import {
-  polymorphicStorageMembers,
   type PolymorphicStorageValue,
+  polymorphicStorageMembers,
 } from "./polymorphic-mutation";
 
 export interface ValuesResult {
@@ -72,12 +72,7 @@ function lowerPolymorphicStorage(
   return {
     columns: members.map(({ column }) => column.name),
     values: members.map(({ column, value }) =>
-      buildScalarSqlValueForScalar(
-        ctx,
-        column.scalar,
-        column.name,
-        value
-      )
+      buildScalarSqlValueForScalar(ctx, column.scalar, column.name, value)
     ),
   };
 }
@@ -108,15 +103,42 @@ export function buildValueGroups(
       ...(privateValues?.columns ?? []),
     ],
     inputIndexes: [...shape.inputIndexes],
-    values: shape.rows.map((record) =>
-      [
-        ...shape.fields.map((field) =>
-          buildScalarSqlValue(ctx, ctx.model, field, record[field])
-        ),
-        ...(privateValues?.values ?? []),
-      ]
-    ),
+    values: shape.rows.map((record) => [
+      ...shape.fields.map((field) =>
+        buildScalarSqlValue(ctx, ctx.model, field, record[field])
+      ),
+      ...(privateValues?.values ?? []),
+    ]),
   }));
+}
+
+/** Group bulk rows whose private polymorphic assignments can differ per row. */
+export function buildValueGroupsWithRowStorage(
+  ctx: QueryScope,
+  records: readonly Record<string, unknown>[],
+  storageByRow: readonly (readonly PolymorphicStorageValue<unknown>[])[]
+): ValuesGroup[] {
+  const groups: ValuesGroup[] = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const row = buildValueGroups(
+      ctx,
+      [records[index]!],
+      storageByRow[index]
+    )[0];
+    if (!row) continue;
+    const previous = groups.at(-1);
+    if (
+      previous &&
+      previous.columns.length === row.columns.length &&
+      previous.columns.every((column, offset) => column === row.columns[offset])
+    ) {
+      previous.values.push(...row.values);
+      previous.inputIndexes.push(index);
+    } else {
+      groups.push({ ...row, inputIndexes: [index] });
+    }
+  }
+  return groups;
 }
 
 function assertApplicationGeneratedValues(

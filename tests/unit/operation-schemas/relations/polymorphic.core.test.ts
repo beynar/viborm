@@ -462,7 +462,7 @@ describe("polymorphic operation schema factories", () => {
     expect(accepts(schema, { type: "post", id: "p1" })).toBe(false);
   });
 
-  test("update exposes connect and optional-only disconnect", () => {
+  test("update exposes the parent-held to-one mutation family", () => {
     const required = polymorphicUpdateFactory(requiredState, targetSchemas);
     const optional = polymorphicUpdateFactory(optionalState, targetSchemas);
 
@@ -474,11 +474,27 @@ describe("polymorphic operation schema factories", () => {
     expect(accepts(required, { disconnect: true })).toBe(false);
     expect(accepts(optional, { disconnect: true })).toBe(true);
     expect(accepts(optional, { disconnect: false })).toBe(false);
-    expect(
-      accepts(optional, {
-        update: { type: "post", data: { title: "changed" } },
-      })
-    ).toBe(false);
+    for (const mutation of [
+      { create: { type: "post", data: { id: "p2", title: "new" } } },
+      {
+        connectOrCreate: {
+          type: "post",
+          where: { id: "p1" },
+          create: { id: "p2", title: "new" },
+        },
+      },
+      { update: { type: "post", data: { title: "changed" } } },
+      {
+        upsert: {
+          type: "post",
+          create: { id: "p2", title: "new" },
+          update: { title: "changed" },
+        },
+      },
+      { delete: { type: "post" } },
+    ]) {
+      expect(accepts(optional, mutation)).toBe(true);
+    }
   });
 
   test("filter selects one target before parsing its predicate", () => {

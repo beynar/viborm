@@ -5,18 +5,19 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
+import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import {
-  buildRelationMutationProgram,
   buildPolymorphicMutationProgram,
+  buildRelationMutationProgram,
   partitionModelData,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
   createQueryScope,
   getDefaultScalarFieldNames,
 } from "../context/query-scope";
+import { assertUpdateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import {
   buildFind,
   buildFindUnique,
@@ -25,7 +26,6 @@ import {
   buildUpdateStatement,
 } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
-import { assertUpdateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import type { QueryEngine } from "../query-engine";
 import {
   assertRelationKeyUpdatesAreCompilable,
@@ -199,12 +199,7 @@ export class UpdateOperation {
 
     const parsedData = requireRecord(validatedArgs.data, "update.data");
     const parsedScalarData = partitionModelData(parent, parsedData).scalarData;
-    assertUpdateOwnWriteSafety(
-      parent,
-      parsedScalarData,
-      relations,
-      where
-    );
+    assertUpdateOwnWriteSafety(parent, parsedScalarData, relations, where);
 
     const scalarData =
       Object.keys(partitioned.scalarData).length === 0
@@ -313,15 +308,33 @@ export class UpdateOperation {
     this.locate = {
       id: locateId,
       kind: "read",
-      statement: buildFindUnique(parent, {
-        where: this.parentWhere,
-        select: Object.fromEntries(locateFields.map((field) => [field, true])),
-        forUpdate: txMode,
-      }),
+      statement: buildFindUnique(
+        parent,
+        {
+          where: this.parentWhere,
+          select: Object.fromEntries(
+            locateFields.map((field) => [field, true])
+          ),
+          forUpdate: txMode,
+        },
+        this.compiler?.requiredTargetColumns.length
+          ? {
+              additionalColumns: this.compiler.requiredTargetColumns.map(
+                (column) => column.sql
+              ),
+            }
+          : {}
+      ),
       outputs: {
         rows: { kind: "rows" },
         ...Object.fromEntries(
           locateFields.map((field) => [field, { kind: "firstRowField", field }])
+        ),
+        ...Object.fromEntries(
+          (this.compiler?.requiredTargetColumns ?? []).map((column) => [
+            column.name,
+            { kind: "firstRowField", field: column.name },
+          ])
         ),
       },
       expects: exactlyOneRow(notFound),

@@ -6,11 +6,12 @@
  */
 
 import { type Sql, sql } from "@sql";
-import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import { isRecord } from "@validation/value-guards";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import { buildSelect } from "../builders/select-builder";
 import {
   buildValueGroups,
+  buildValueGroupsWithRowStorage,
   buildValues,
   type ValuesGroup,
 } from "../builders/values-builder";
@@ -155,7 +156,9 @@ export function buildCreateManyPlan(
   ctx: QueryScope,
   args: Record<string, unknown>,
   returnRows: boolean,
-  sharedPolymorphicStorage?: PolymorphicStorageValue<unknown>
+  polymorphicStorage?:
+    | PolymorphicStorageValue<unknown>
+    | readonly (readonly PolymorphicStorageValue<unknown>[])[]
 ): CreateManyPlan {
   const data = getCreateManyData(args.data);
   if (data.length === 0) {
@@ -163,11 +166,13 @@ export function buildCreateManyPlan(
   }
   const skipDuplicates = args.skipDuplicates === true;
   const valueGroups = splitDefaultGroupsIntoRows(
-    buildValueGroups(
-      ctx,
-      data,
-      sharedPolymorphicStorage ? [sharedPolymorphicStorage] : []
-    )
+    isRowPolymorphicStorage(polymorphicStorage)
+      ? buildValueGroupsWithRowStorage(ctx, data, polymorphicStorage)
+      : buildValueGroups(
+          ctx,
+          data,
+          polymorphicStorage ? [polymorphicStorage] : []
+        )
   );
   assertPortableCreateManySkip(
     skipDuplicates,
@@ -204,6 +209,15 @@ export function buildCreateManyPlan(
       ),
     })),
   };
+}
+
+function isRowPolymorphicStorage(
+  value:
+    | PolymorphicStorageValue<unknown>
+    | readonly (readonly PolymorphicStorageValue<unknown>[])[]
+    | undefined
+): value is readonly (readonly PolymorphicStorageValue<unknown>[])[] {
+  return Array.isArray(value);
 }
 
 function getCreateManyData(value: unknown): Record<string, unknown>[] {

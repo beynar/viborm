@@ -115,6 +115,56 @@ export const getScalarCreate = <M extends AnyModel, F extends ScalarSchemas<M>>(
   });
 };
 
+type RequiredPolymorphicKeys<M extends AnyModel> = {
+  [K in keyof ModelStateOf<M>["polymorphicRelations"]]: ModelStateOf<M>["polymorphicRelations"][K]["~"]["state"] extends {
+    optional: true;
+  }
+    ? never
+    : Extract<K, string>;
+}[keyof ModelStateOf<M>["polymorphicRelations"]];
+
+/** Root createMany rows: scalar data plus connect-only polymorphic memberships. */
+export type BulkCreateSchema<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = V.Object<
+  V.FromObject<F["scalars"], "create">["entries"] &
+    V.FromObject<F["polymorphic"], "createMany">["entries"],
+  {
+    atLeast: (
+      | ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>
+      | RequiredPolymorphicKeys<M>
+    )[];
+  }
+>;
+
+export function getBulkCreate<M extends AnyModel, F extends ScalarSchemas<M>>(
+  model: M,
+  fieldSchemas: F
+): BulkCreateSchema<M, F> {
+  const requiredScalars = Object.keys(model["~"].state.scalars).filter(
+    (key) => !model["~"].state.scalars[key]!["~"].state.optional
+  );
+  const requiredPolymorphic = Object.keys(
+    model["~"].state.polymorphicRelations
+  ).filter(
+    (key) =>
+      model["~"].state.polymorphicRelations[key]!["~"].state.optional !== true
+  );
+  const scalarCreate = v.fromObject<F["scalars"], "create">(
+    fieldSchemas.scalars,
+    "create"
+  );
+  const polymorphicCreateMany = v.fromObject<F["polymorphic"], "createMany">(
+    fieldSchemas.polymorphic,
+    "createMany"
+  );
+  return v.object(
+    { ...scalarCreate.entries, ...polymorphicCreateMany.entries },
+    { atLeast: [...requiredScalars, ...requiredPolymorphic] }
+  ) as unknown as BulkCreateSchema<M, F>;
+}
+
 /**
  * Build relation create schema - combines all relation create inputs
  */

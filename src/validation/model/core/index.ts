@@ -2,7 +2,9 @@
 
 // Create exports
 export {
+  type BulkCreateSchema,
   type CreateSchema,
+  getBulkCreate,
   getCreateSchema,
   getNestedScalarCreateWithOmittedRequiredKeys,
   getRelationCreate,
@@ -72,7 +74,9 @@ import {
 } from "../args/omit";
 import type { ScalarSchemas } from "../index";
 import {
+  type BulkCreateSchema,
   type CreateSchema,
+  getBulkCreate,
   getCreateSchema,
   getRelationCreate,
   getScalarCreate,
@@ -128,6 +132,7 @@ export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   compoundIdFilter: CompoundIdFilterSchema<M>;
   compoundConstraintFilter: CompoundConstraintFilterSchema<M>;
   scalarCreate: ScalarCreateSchema<M, F>;
+  bulkCreate: BulkCreateSchema<M, F>;
   relationCreate: RelationCreateSchema<M, F>;
   scalarUpdate: ScalarUpdateSchema<M, F>;
   relationUpdate: RelationUpdateSchema<M, F>;
@@ -179,6 +184,7 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     compoundIdFilter: () => getCompoundIdFilter(model),
     compoundConstraintFilter: () => getCompoundConstraintFilter(model),
     scalarCreate: () => getScalarCreate(model, fieldSchemas),
+    bulkCreate: () => getBulkCreate(model, fieldSchemas),
     relationCreate: () => getRelationCreate<M, F>(fieldSchemas),
     scalarUpdate: () => getScalarUpdate<M, F>(fieldSchemas),
     relationUpdate: () => getRelationUpdate<M, F>(fieldSchemas),

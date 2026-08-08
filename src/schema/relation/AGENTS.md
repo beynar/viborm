@@ -292,27 +292,29 @@ update: {
 
 ### Polymorphic V1 Inputs
 
-Direct create accepts exactly one of:
+Direct create accepts exactly one of `connect`, `create`, or
+`connectOrCreate`:
 
 ```typescript
 { connect: { type: "post", where: { id: "post_1" } } }
 { create: { type: "video", data: { title: "New video" } } }
+{ connectOrCreate: { type: "post", where: { id: "post_1" }, create: { id: "post_1", title: "New" } } }
 ```
 
-Direct update accepts `connect`, plus `{ disconnect: true }` only when the
-relation is optional. A bound inverse `oneToMany` keeps its ordinary read,
+Direct selected update accepts `connect`, `create`, `connectOrCreate`,
+correlated `update`, and `upsert`. Optional storage also accepts `disconnect`
+and typed target `delete`. A bound inverse `oneToMany` keeps its ordinary read,
 filter, count, order, and pagination surface and exposes the safe child-held
 write family: create/createMany/connect/connectOrCreate/upsert on create, plus
 update/updateMany/delete/deleteMany on update. Optional storage also exposes
 disconnect and set.
 
-Direct create has no `connectOrCreate`. A selected-owner direct update supports
-connect and optional disconnect, but not create-, update-, delete-,
-connectOrCreate-, or upsert-through. The direct edge is to-one, so collection
-set does not apply. Root createMany stays scalar-only and is unavailable when
-its target has a required polymorphic field. Inverse nested createMany may
-satisfy its one owning required polymorphic relation, but remains unavailable
-when another required polymorphic relation would be unsatisfied.
+The direct edge stores one membership, so collection `set` does not apply. Root
+`createMany` accepts scalar row fields plus connect-only polymorphic
+memberships. Target probes are grouped by relation and discriminator before the
+existing grouped INSERT plan. Inverse nested createMany may satisfy its one
+owning required polymorphic relation, but remains unavailable when another
+required polymorphic relation would be unsatisfied.
 
 ---
 

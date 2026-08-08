@@ -101,6 +101,19 @@ rejects a foreign same-id row. Optional disconnect and set clear both private
 columns atomically. Nested createMany applies one shared pair to every grouped
 row.
 
+Direct polymorphic fields stay with the record compilers because their private
+pair is part of the owner record's INSERT or UPDATE. Fresh owners support
+connect, create, and connect-or-create. Selected owners also support correlated
+update and upsert; optional storage supports disconnect and typed target delete.
+When a selected verb depends on current membership, the locate projects the
+private pair as internal columns and the compiler addresses the captured target.
+
+Root createMany is the one bulk specialization. Each row may carry connect-only
+polymorphic memberships. `bulk-polymorphic-connect.ts` groups target probes by
+relation and discriminator, resolves one private pair per row, and hands the
+rows back to the existing grouped INSERT planner. Count and returning shells
+consume the same preparation; neither performs one lookup per input row.
+
 ## Source-bound relation membership
 
 `relation-membership.ts` owns the two physical child-held representations.

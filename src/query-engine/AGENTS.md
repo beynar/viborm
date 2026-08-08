@@ -134,13 +134,21 @@ correlation owner to add both `child.<private id> = parent.<referenced field>`
 and `child.<private type> = <fixed stored discriminator>` to include,
 `some`/`every`/`none`, and count SQL.
 
-`CreateOperation` owns direct create/connect storage on a fresh owner and fresh
-inverse targets. `RecordUpdateCompiler` owns direct connect/disconnect storage
-on a selected owner and selected inverse-target updates. Existing child-held
+`CreateOperation` owns direct connect/create/connect-or-create storage on a
+fresh owner and fresh inverse targets. `RecordUpdateCompiler` owns direct
+connect/create/connect-or-create/update/upsert storage on a selected owner;
+optional storage also permits disconnect and typed target delete. It projects
+the private pair only when current membership affects the selected mutation.
+Existing child-held
 relation Parts own inverse probes, exact membership, found/missing branches,
 guards, pins, link/set/delete effects, and bulk statements. Nested inverse
-`createMany` remains grouped. The implementation adds no runtime step kind,
-database round trip, or generic polymorphic strategy.
+`createMany` remains grouped. Root `createMany` accepts per-row connect-only
+memberships: one shared bulk owner groups target probes by relation and variant,
+then feeds private row values to the normal grouped INSERT plan. The
+implementation adds no runtime step kind, adapter method, per-row target query,
+or generic polymorphic strategy. On a non-returning driver, `select` plus
+`skipDuplicates` is refused when those memberships are present because target
+resolution and skip-capture cannot both own the same preparation phase.
 
 For inverse writes, connect and connect-or-create adopt globally. A fresh-parent
 upsert also adopts globally. A selected-parent upsert requires the found row to

@@ -4,6 +4,7 @@ import type { InferInput, InferOutput, VibSchema } from "@validation/types";
 interface PolymorphicTargetSchemas {
   readonly core: {
     readonly create: VibSchema;
+    readonly update: VibSchema;
     readonly where: VibSchema;
     readonly whereUnique: VibSchema;
     readonly select: VibSchema;

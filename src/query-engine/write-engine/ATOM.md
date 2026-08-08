@@ -269,7 +269,16 @@ arm.
 
 Direct polymorphic mutation intent is not a bound inverse. It chooses a target
 variant per payload and lowers to `ResolvedPolymorphicMutation` plus one atomic
-private storage assignment.
+private storage assignment. Fresh record compilation accepts connect, create,
+and connect-or-create. Selected record compilation also accepts correlated
+update and upsert; optional storage accepts disconnect and typed target delete.
+The locate exposes private storage columns only for verbs whose branch depends
+on current membership.
+
+Root createMany accepts connect-only polymorphic memberships per row. Its bulk
+preparation groups selectors by relation and stored discriminator, resolves the
+private pair once per row, and preserves the existing contiguous row-shape
+grouping. Count and returning operations use this same owner.
 
 ## 8. Source-bound relation membership
 

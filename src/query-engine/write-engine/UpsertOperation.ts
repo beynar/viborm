@@ -5,13 +5,13 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
+import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import {
-  buildRelationMutationProgram,
   buildPolymorphicMutationProgram,
+  buildRelationMutationProgram,
   partitionModelData,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import { buildInsert } from "../builders/values-builder";
 import {
   getWhereUniqueEntries,
@@ -232,8 +232,8 @@ export class UpsertOperation {
     // owner and transform each relation payload once.
     const createPartition = partitionModelData(parent, create);
     const updatePartition = partitionModelData(parent, update);
-    const createRequiresPolymorphicRelation = [...
-      parent.polymorphicRelations.values(),
+    const createRequiresPolymorphicRelation = [
+      ...parent.polymorphicRelations.values(),
     ].some(({ relation }) => relation["~"].state.optional !== true);
     const createHasRelations =
       Object.keys(createPartition.relationPayloads).length > 0 ||
@@ -459,20 +459,45 @@ export class UpsertOperation {
     this.locate = {
       id: locateId,
       kind: "read",
-      statement: buildFindUnique(parent, {
-        where: this.parentWhere,
-        select: Object.fromEntries(locateFields.map((field) => [field, true])),
-        forUpdate: txMode,
-      }),
+      statement: buildFindUnique(
+        parent,
+        {
+          where: this.parentWhere,
+          select: Object.fromEntries(
+            locateFields.map((field) => [field, true])
+          ),
+          forUpdate: txMode,
+        },
+        {
+          ...(this.updateCompiler?.requiredTargetColumns.length
+            ? {
+                additionalColumns:
+                  this.updateCompiler.requiredTargetColumns.map(
+                    (column) => column.sql
+                  ),
+              }
+            : {}),
+        }
+      ),
       outputs: updateHasRelations
         ? {
             rows: { kind: "rows" },
-            ...Object.fromEntries(
-              locateFields.map((field) => [
+            ...Object.fromEntries([
+              ...locateFields.map((field) => [
                 field,
                 { kind: "firstRowField", field, optional: true },
-              ])
-            ),
+              ]),
+              ...(this.updateCompiler?.requiredTargetColumns ?? []).map(
+                (column) => [
+                  column.name,
+                  {
+                    kind: "firstRowField",
+                    field: column.name,
+                    optional: true,
+                  },
+                ]
+              ),
+            ]),
           }
         : { rows: { kind: "rows" } },
     };

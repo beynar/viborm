@@ -6,10 +6,6 @@ import {
 } from "@cache/schema";
 import type { AnyModel } from "@schema/model";
 import v, { type V } from "../../primitives/v";
-import {
-  applyCreateManyAvailability,
-  type CreateManyAvailability,
-} from "../../relations/create-many-availability";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
 import { restrictToScalarProjection } from "./bulk-write-projection";
@@ -79,7 +75,7 @@ type AvailableCreateManyArgs<
   F extends ScalarSchemas<M>,
 > = V.Object<
   {
-    data: V.Array<CoreSchemas<M, F>["scalarCreate"]>;
+    data: V.Array<CoreSchemas<M, F>["bulkCreate"]>;
     skipDuplicates: V.Boolean<{ optional: true }>;
     select: CoreSchemas<M, F>["scalarSelect"];
     omit: OmitSchema<M>;
@@ -90,7 +86,7 @@ type AvailableCreateManyArgs<
 export type CreateManyArgs<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
-> = CreateManyAvailability<M, AvailableCreateManyArgs<M, F>>;
+> = AvailableCreateManyArgs<M, F>;
 export const getCreateManyArgs = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
@@ -102,7 +98,7 @@ export const getCreateManyArgs = <
     restrictToScalarProjection(
       v.object(
         {
-          data: v.lazyRef(() => v.array(core.scalarCreate)),
+          data: v.lazyRef(() => v.array(core.bulkCreate)),
           skipDuplicates: v.boolean({ optional: true }),
           select: v.lazyRef(() => core.scalarSelect),
           omit: v.lazyRef(() => core.omit),
@@ -116,7 +112,7 @@ export const getCreateManyArgs = <
     model,
     "createMany"
   );
-  return applyCreateManyAvailability(model, availableSchema);
+  return availableSchema as CreateManyArgs<M, F>;
 };
 
 // =============================================================================

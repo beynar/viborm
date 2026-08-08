@@ -8,12 +8,8 @@ const video = s.model({ id: s.string().id() });
 
 const parent = s.model({
   id: s.string().id(),
-  requiredChildren: s
-    .oneToMany(() => requiredChild)
-    .name("requiredChildren"),
-  optionalChildren: s
-    .oneToMany(() => optionalChild)
-    .name("optionalChildren"),
+  requiredChildren: s.oneToMany(() => requiredChild).name("requiredChildren"),
+  optionalChildren: s.oneToMany(() => optionalChild).name("optionalChildren"),
 });
 
 const requiredChild = s.model({
@@ -58,12 +54,21 @@ const client = createClient({
   driver: new PGliteDriver(),
 });
 
-const requiredArgs = { data: [] };
 const requiredNestedCreateMany = { createMany: { data: [] } };
 
-const rootRequiredRefusal = () =>
-  // @ts-expect-error - required polymorphic storage has no scalar-only bulk row
-  client.requiredChild.createMany(requiredArgs);
+const rootRequiredConnect = () =>
+  client.requiredChild.createMany({
+    data: [
+      {
+        id: "child-1",
+        parentId: "parent-1",
+        subject: { connect: { type: "post", where: { id: "post-1" } } },
+        secondary: {
+          connect: { type: "video", where: { id: "video-1" } },
+        },
+      },
+    ],
+  });
 
 const nestedCreateRefusal = () =>
   client.parent.create({
@@ -103,7 +108,7 @@ const optionalNestedUpdate = () =>
   });
 
 test("public createMany availability follows polymorphic nullability", () => {
-  expectTypeOf(rootRequiredRefusal).toBeFunction();
+  expectTypeOf(rootRequiredConnect).toBeFunction();
   expectTypeOf(nestedCreateRefusal).toBeFunction();
   expectTypeOf(nestedUpdateRefusal).toBeFunction();
   expectTypeOf(optionalRoot).toBeFunction();

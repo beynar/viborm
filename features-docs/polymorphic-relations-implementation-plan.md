@@ -29,11 +29,14 @@ This implementation also removes the former inverse-create fragmentation from
 read correlation, OwnWrite analysis, fresh-record compilation, and selected
 record compilation.
 
-Fixed compatibility boundaries:
+Fixed compatibility boundaries for the inverse-parity phase:
 
-- Direct polymorphic write APIs do not change.
+- Direct polymorphic write APIs did not change in that phase. The subsequent
+  direct-parity phase added create `connectOrCreate`, selected-owner target
+  mutation, and root bulk connect.
 - Polymorphic many-to-many and inverse one-to-one remain out of scope.
-- Root `createMany` remains scalar-only.
+- Root `createMany` now accepts connect-only polymorphic memberships beside
+  scalar row data.
 - No referential-action emulation is added.
 - No adapter change or runtime step kind is added.
 - No operation-specific polymorphic Part or strategy framework is added.
@@ -445,18 +448,31 @@ Final task-level commit:
 feat: expand polymorphic inverse writes
 ```
 
-## 9. Remaining product roadmap
+## 9. Direct and bulk parity completion
+
+The follow-up phase reused the same private storage value and record compilers:
+
+- direct create gained `connectOrCreate`;
+- selected-owner update gained `create`, `connectOrCreate`, correlated
+  `update`, typed `delete`, and `upsert`;
+- root `createMany` gained per-row connect-only memberships, with one grouped
+  planning probe per relation/variant and the existing grouped INSERT plan;
+- selected record probes publish the two private storage columns only when a
+  direct mutation needs to inspect current membership;
+- count and returning bulk operations share one bulk polymorphic connect owner.
+
+No adapter method, runtime step, operation-specific polymorphic Part, or
+per-row target query was added.
+
+## 10. Remaining product roadmap
 
 The following work is explicitly separate from this implementation:
 
-- direct `connectOrCreate` during owner create;
-- direct create-, update-, delete-, connectOrCreate-, and upsert-through during
-  selected-owner update;
 - polymorphic many-to-many;
 - inverse one-to-one;
 - inverse binding when one target map names the same model more than once;
 - compound, mixed-kind, array, or native-override polymorphic identities;
-- relation-bearing root createMany;
+- root createMany verbs beyond connect;
 - portable database constraints across target tables;
 - optional ORM-emulated referential actions;
 - untyped cross-target filters and direct polymorphic order-by.

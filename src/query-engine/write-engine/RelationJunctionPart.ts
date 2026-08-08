@@ -892,6 +892,13 @@ export class RelationJunctionPart implements Part {
           select: Object.fromEntries(
             selectedFields.map((field) => [field, true])
           ),
+          ...(compiler?.requiredTargetColumns.length
+            ? {
+                additionalColumns: compiler.requiredTargetColumns.map(
+                  (column) => column.sql
+                ),
+              }
+            : {}),
         })
       : buildFindUnique(this.childScope, {
           where,
@@ -1039,11 +1046,19 @@ export class RelationJunctionPart implements Part {
       globalProbe: {
         id: item.probes.global,
         kind: "read",
-        statement: buildFindUnique(this.childScope, {
-          where: item.where,
-          select: projection.select,
-          forUpdate: this.context.txMode,
-        }),
+        statement: buildFindUnique(
+          this.childScope,
+          {
+            where: item.where,
+            select: projection.select,
+            forUpdate: this.context.txMode,
+          },
+          {
+            ...(projection.additionalColumns.length
+              ? { additionalColumns: projection.additionalColumns }
+              : {}),
+          }
+        ),
         outputs: projection.outputs,
       },
     };
@@ -1070,6 +1085,7 @@ export class RelationJunctionPart implements Part {
           whereUnique: item.where,
           take: 1,
           select: projection.select,
+          additionalColumns: projection.additionalColumns,
         }),
         outputs: projection.outputs,
       },
@@ -1090,17 +1106,22 @@ export class RelationJunctionPart implements Part {
     probeId: string
   ): {
     readonly select: Record<string, boolean>;
+    readonly additionalColumns: readonly Sql[];
     readonly outputs: ReadStep["outputs"];
   } {
     if (update.kind === "none" || update.compiler.targetReadId !== probeId) {
       return {
         select: { [this.targetPkField]: true },
+        additionalColumns: [],
         outputs: { rows: { kind: "rows" } },
       };
     }
     const fields = update.compiler.requiredTargetFields;
     return {
       select: Object.fromEntries(fields.map((field) => [field, true])),
+      additionalColumns: update.compiler.requiredTargetColumns.map(
+        (column) => column.sql
+      ),
       outputs: {
         rows: { kind: "rows" },
         ...Object.fromEntries(
@@ -1181,6 +1202,7 @@ export class RelationJunctionPart implements Part {
     whereUnique?: Record<string, unknown>;
     take?: number;
     select?: Record<string, boolean>;
+    additionalColumns?: readonly Sql[];
   }) {
     return this.statements.materialize(this.relationInfo, "membershipRead", {
       parentValue: args.parentValue,
@@ -1189,6 +1211,9 @@ export class RelationJunctionPart implements Part {
         ? { where: args.where }
         : {}),
       select: args.select ?? { [this.targetPkField]: true },
+      ...(args.additionalColumns?.length
+        ? { additionalColumns: args.additionalColumns }
+        : {}),
       ...(args.take !== undefined ? { take: args.take } : {}),
       lock: "transaction",
     });
