@@ -10,6 +10,7 @@
  */
 
 import { sanitizeDiagnosticParameters } from "@errors";
+import { isString } from "@validation/value-guards";
 import { VIBORM_VERSION } from "../version";
 import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
@@ -56,7 +57,7 @@ export interface TracerWrapperConfig {
   /** Include query parameters in span attributes (default: false) */
   includeParams?: boolean | undefined;
   /** Span names to ignore */
-  ignoreSpanTypes?: Array<string | RegExp> | undefined;
+  ignoreSpanTypes?: ReadonlyArray<string | RegExp> | undefined;
 }
 
 /**
@@ -87,50 +88,11 @@ export interface TracerWrapper {
   isEnabled(): boolean;
 }
 
-class TrustedTracerWrapper implements TracerWrapper {
-  readonly #delegate: TracerWrapper;
-
-  constructor(delegate: TracerWrapper) {
-    this.#delegate = delegate;
-    Object.freeze(this);
-  }
-
-  static hasBrand(value: TracerWrapper): boolean {
-    return #delegate in value;
-  }
-
-  startActiveSpan<T>(
-    options: VibORMSpanOptions,
-    fn: (span?: Span) => T | Promise<T>
-  ): Promise<T> {
-    return this.#delegate.startActiveSpan(options, fn);
-  }
-
-  startActiveSpanSync<T>(
-    options: VibORMSpanOptions,
-    fn: (span?: Span) => T
-  ): T {
-    return this.#delegate.startActiveSpanSync(options, fn);
-  }
-
-  isEnabled(): boolean {
-    return this.#delegate.isEnabled();
-  }
-}
-Object.defineProperty(TrustedTracerWrapper.prototype, "constructor", {
-  configurable: false,
-  enumerable: false,
-  value: undefined,
-  writable: false,
-});
-Object.freeze(TrustedTracerWrapper.prototype);
-Object.freeze(TrustedTracerWrapper);
-
 /**
  * No-op tracer that passes through callbacks without creating spans.
  * Used when OpenTelemetry is not available.
  */
-const noopTracer: TracerWrapper = new TrustedTracerWrapper({
+const noopTracer: TracerWrapper = Object.freeze({
   async startActiveSpan<T>(
     _options: VibORMSpanOptions,
     fn: (span?: Span) => T | Promise<T>
@@ -159,19 +121,19 @@ const noopTracer: TracerWrapper = new TrustedTracerWrapper({
 export function createTracerWrapper(
   config?: TracerWrapperConfig
 ): TracerWrapper {
-  const ignorePatterns = snapshotIgnorePatterns(config);
-  const includeSql = readTracerFlag(config, "includeSql");
-  const includeParams = readTracerFlag(config, "includeParams");
+  const ignorePatterns = Object.freeze(
+    (config?.ignoreSpanTypes ?? []).map((pattern) =>
+      isString(pattern) ? pattern : new RegExp(pattern.source, pattern.flags)
+    )
+  );
+  const includeSql = config?.includeSql === true;
+  const includeParams = config?.includeParams === true;
 
   // Instance-scoped state (not module-level) for serverless compatibility
   let otel: OTelAPI | null = null;
-  let otelLoadAttempted = false;
   let tracer: Tracer | null = null;
 
   async function tryLoadOtel(): Promise<OTelAPI | null> {
-    if (otelLoadAttempted) return otel;
-    otelLoadAttempted = true;
-
     try {
       otel = await import("@opentelemetry/api");
       return otel;
@@ -181,14 +143,10 @@ export function createTracerWrapper(
   }
 
   function shouldIgnoreSpan(name: string): boolean {
-    try {
-      return ignorePatterns.some((pattern) => {
-        if (typeof pattern === "string") return pattern === name;
-        return new RegExp(pattern.source, pattern.flags).test(name);
-      });
-    } catch {
-      return false;
-    }
+    return ignorePatterns.some((pattern) => {
+      if (isString(pattern)) return pattern === name;
+      return new RegExp(pattern.source, pattern.flags).test(name);
+    });
   }
 
   function buildAttributes(options: VibORMSpanOptions): Attributes {
@@ -206,7 +164,6 @@ export function createTracerWrapper(
             includeSql,
           }
         );
-        if (!Array.isArray(sanitizedParams)) return attrs;
         // Use individual parameter attributes per OTel spec
         // db.query.parameter.0, db.query.parameter.1, etc.
         for (let i = 0; i < sanitizedParams.length; i++) {
@@ -236,11 +193,7 @@ export function createTracerWrapper(
       fn: (span?: Span) => T | Promise<T>
     ): Promise<T> {
       // Wait for initial load only on first call, then otel is cached
-      try {
-        if (!otel) await otelReady;
-      } catch {
-        return fn();
-      }
+      if (!otel) await otelReady;
       if (!otel || shouldIgnoreSpan(options.name)) {
         return fn();
       }
@@ -264,22 +217,35 @@ export function createTracerWrapper(
       }
 
       let execution: Promise<T> | undefined;
+      let executing = false;
       const executeOnce = (): Promise<T> => {
         if (execution) return execution;
-        let resolveExecution: ((value: T | PromiseLike<T>) => void) | undefined;
-        let rejectExecution: ((reason?: unknown) => void) | undefined;
-        execution = new Promise<T>((resolve, reject) => {
-          resolveExecution = resolve;
-          rejectExecution = reject;
-        });
+        if (executing) return Promise.reject(createTraceError());
+        executing = true;
         try {
-          Promise.resolve(fn(span)).then(
-            (result) => {
-              safely(() => span.setStatus({ code: otel!.SpanStatusCode.OK }));
-              safely(() => span.end());
-              resolveExecution?.(result);
-            },
-            (error) => {
+          execution = new Promise<T>((resolve, reject) => {
+            try {
+              Promise.resolve(fn(span)).then(
+                (result) => {
+                  safely(() =>
+                    span.setStatus({ code: otel!.SpanStatusCode.OK })
+                  );
+                  safely(() => span.end());
+                  resolve(result);
+                },
+                (error) => {
+                  safely(() =>
+                    span.setStatus({
+                      code: otel!.SpanStatusCode.ERROR,
+                      message: "Operation failed",
+                    })
+                  );
+                  safely(() => span.recordException(createTraceError()));
+                  safely(() => span.end());
+                  reject(error);
+                }
+              );
+            } catch (error) {
               safely(() =>
                 span.setStatus({
                   code: otel!.SpanStatusCode.ERROR,
@@ -288,21 +254,13 @@ export function createTracerWrapper(
               );
               safely(() => span.recordException(createTraceError()));
               safely(() => span.end());
-              rejectExecution?.(error);
+              reject(error);
             }
-          );
-        } catch (error) {
-          safely(() =>
-            span.setStatus({
-              code: otel!.SpanStatusCode.ERROR,
-              message: "Operation failed",
-            })
-          );
-          safely(() => span.recordException(createTraceError()));
-          safely(() => span.end());
-          rejectExecution?.(error);
+          });
+          return execution;
+        } finally {
+          executing = false;
         }
-        return execution;
       };
 
       try {
@@ -354,6 +312,7 @@ export function createTracerWrapper(
           const value = fn(span);
           outcome = { kind: "success", value };
           safely(() => span.setStatus({ code: otel!.SpanStatusCode.OK }));
+          safely(() => span.end());
           return value;
         } catch (error) {
           outcome = { kind: "failure", error };
@@ -364,9 +323,8 @@ export function createTracerWrapper(
             })
           );
           safely(() => span.recordException(createTraceError()));
-          throw error;
-        } finally {
           safely(() => span.end());
+          throw error;
         }
       };
 
@@ -382,86 +340,7 @@ export function createTracerWrapper(
       return otel !== null;
     },
   };
-  return new TrustedTracerWrapper(wrapper);
-}
-
-function snapshotIgnorePatterns(
-  config: TracerWrapperConfig | undefined
-): ReadonlyArray<string | RegExp> {
-  let source: unknown;
-  try {
-    source = config?.ignoreSpanTypes;
-  } catch {
-    return Object.freeze([]);
-  }
-  if (!isArrayValue(source)) return Object.freeze([]);
-
-  const patterns: Array<string | RegExp> = [];
-  const lengthDescriptor = safeOwnDescriptor(source, "length");
-  const sourceLength =
-    lengthDescriptor &&
-    "value" in lengthDescriptor &&
-    typeof lengthDescriptor.value === "number" &&
-    Number.isSafeInteger(lengthDescriptor.value) &&
-    lengthDescriptor.value >= 0
-      ? lengthDescriptor.value
-      : 0;
-  const length = Math.min(sourceLength, 128);
-  for (let index = 0; index < length; index += 1) {
-    const descriptor = safeOwnDescriptor(source, String(index));
-    if (!(descriptor && "value" in descriptor)) continue;
-    const pattern = descriptor.value;
-    if (typeof pattern === "string") {
-      patterns.push(pattern);
-      continue;
-    }
-    try {
-      if (pattern instanceof RegExp) {
-        patterns.push(new RegExp(pattern.source, pattern.flags));
-      }
-    } catch {
-      // Invalid caller-owned patterns are ignored at the config boundary.
-    }
-  }
-  return Object.freeze(patterns);
-}
-
-function safeOwnDescriptor(
-  value: object,
-  key: PropertyKey
-): PropertyDescriptor | undefined {
-  try {
-    return Reflect.getOwnPropertyDescriptor(value, key);
-  } catch {
-    return undefined;
-  }
-}
-
-function isArrayValue(value: unknown): value is unknown[] {
-  try {
-    return Array.isArray(value);
-  } catch {
-    return false;
-  }
-}
-
-function readTracerFlag(
-  config: TracerWrapperConfig | undefined,
-  key: "includeParams" | "includeSql"
-): boolean {
-  try {
-    return config?.[key] === true;
-  } catch {
-    return false;
-  }
-}
-
-export function isTrustedTracerWrapper(tracer: TracerWrapper): boolean {
-  try {
-    return TrustedTracerWrapper.hasBrand(tracer);
-  } catch {
-    return false;
-  }
+  return Object.freeze(wrapper);
 }
 
 function safely(action: () => void): void {
@@ -479,12 +358,8 @@ function createTraceError(): Error {
 }
 
 function formatSanitizedSpanParameter(value: unknown): string {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value) ?? "[Undefined]";
-  } catch {
-    return "[Unserializable]";
-  }
+  if (isString(value)) return value;
+  return String(JSON.stringify(value));
 }
 
 /**

@@ -6,7 +6,8 @@ import type {
   ValidationResult,
   VibSchema,
 } from "../types";
-import { OK_NULL, OK_UNDEFINED, ok, validateArray } from "./helpers";
+import { isFunction, isRecord } from "../value-guards";
+import { fail, OK_NULL, OK_UNDEFINED, ok, validateArray } from "./helpers";
 
 // =============================================================================
 // Object Schema Types
@@ -340,45 +341,15 @@ function createObjectValidator(
     for (let i = 0; i < keyCount; i++) {
       const key = keys[i]!;
       const entry = entries[key]!;
-      const schema =
-        typeof entry === "function"
-          ? (entry as () => VibSchema<any, any> | undefined)()
-          : entry;
-
-      // Defensive null check: if schema is undefined or invalid, create a failing validator
-      if (!schema?.["~standard"]) {
-        console.warn(
-          `[VibORM] Schema for key "${key}" is undefined or invalid`
-        );
-        validates[i] = () => ({
-          issues: [{ message: `Schema error: "${key}" schema is undefined` }],
-        });
-        acceptsUndefined[i] = true;
-        continue;
-      }
+      const schema = isFunction(entry)
+        ? (entry as () => VibSchema<any, any>)()
+        : entry;
 
       const validate = schema["~standard"].validate;
       validates[i] = validate;
 
-      // Use the pre-computed acceptsUndefined property if available
-      // Falls back to checking type/options for backwards compatibility
-      const schemaAny = schema as {
-        acceptsUndefined?: boolean;
-        type?: string;
-        options?: { optional?: boolean; default?: unknown };
-        default?: unknown;
-      };
-
-      // Prefer explicit property, fall back to duck-typing for older schemas
-      if (schemaAny.acceptsUndefined !== undefined) {
-        acceptsUndefined[i] = schemaAny.acceptsUndefined;
-      } else {
-        acceptsUndefined[i] =
-          schemaAny.type === "optional" ||
-          schemaAny.options?.optional === true ||
-          schemaAny.options?.default !== undefined ||
-          schemaAny.default !== undefined;
-      }
+      acceptsUndefined[i] =
+        (schema as { acceptsUndefined?: boolean }).acceptsUndefined === true;
     }
     for (let i = 0; i < keyCount; i++) {
       if (acceptsUndefined[i]) {
@@ -389,7 +360,7 @@ function createObjectValidator(
 
   return (value: unknown): ValidationResult<Record<string, unknown>> => {
     // Type check
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (!isRecord(value)) {
       return OBJECT_TYPE_ERROR as ValidationResult<Record<string, unknown>>;
     }
 
@@ -490,11 +461,6 @@ function createObjectValidator(
             ],
           };
         }
-        if ("then" in result) {
-          return {
-            issues: [{ message: "Async not supported", path: getKeyPath(i) }],
-          };
-        }
         if (result.value !== undefined) {
           output[key] = result.value;
         }
@@ -508,14 +474,6 @@ function createObjectValidator(
           continue;
         }
         const result = validates[i]!(undefined);
-        if (result.issues) {
-          return missingError(i);
-        }
-        if ("then" in result) {
-          return {
-            issues: [{ message: "Async not supported", path: getKeyPath(i) }],
-          };
-        }
         if (result.value !== undefined) {
           output[key] = result.value;
         }
@@ -553,15 +511,6 @@ function createObjectValidator(
         // If schema accepts undefined, run validator to apply defaults
         if (acceptsUndefined[i]) {
           const result = validates[i]!(undefined);
-          if (result.issues) {
-            // Should not happen if acceptsUndefined is correct, but handle it
-            return missingError(i);
-          }
-          if ("then" in result) {
-            return {
-              issues: [{ message: "Async not supported", path: getKeyPath(i) }],
-            };
-          }
           output[key] = result.value;
         } else {
           // Scalar is optional (partial: true, not in atLeast) but schema doesn't have defaults
@@ -586,13 +535,6 @@ function createObjectValidator(
                 : getKeyPath(i),
             },
           ],
-        };
-      }
-
-      // Handle async (rare)
-      if ("then" in result) {
-        return {
-          issues: [{ message: "Async not supported", path: getKeyPath(i) }],
         };
       }
 
@@ -665,7 +607,7 @@ export function object<
   if (needsWrapper) {
     // Pre-compute default getter once (avoid repeated typeof checks)
     const getDefault = hasDefault
-      ? typeof options!.default === "function"
+      ? isFunction(options!.default)
         ? (options!.default as () => BaseOutput)
         : () => options!.default as BaseOutput
       : null;
@@ -675,7 +617,13 @@ export function object<
       ? (value: unknown): ValidationResult<any> => {
           const result = validateObj(value);
           if (result.issues) return result;
-          return ok(options!.transform!((result as { value: any }).value));
+          try {
+            return ok(options!.transform!((result as { value: any }).value));
+          } catch (error) {
+            return fail(
+              `Transform failed: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
         }
       : validateObj;
 
@@ -740,6 +688,7 @@ export function object<
     type: "object" as const,
     entries,
     options,
+    acceptsUndefined: hasOptional || hasDefault,
     "~standard": {
       version: 1 as const,
       vendor: "viborm" as const,

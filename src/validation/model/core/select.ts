@@ -95,7 +95,7 @@ const toManyRelationNames = (model: AnyModel): string[] => {
   const relations: Record<string, AnyRelation> = model["~"].state.relations;
   const names: string[] = [];
   for (const name of Object.keys(relations)) {
-    const type = relations[name]?.["~"].state.type;
+    const type = relations[name]!["~"].state.type;
     if (type === "oneToMany" || type === "manyToMany") {
       names.push(name);
     }

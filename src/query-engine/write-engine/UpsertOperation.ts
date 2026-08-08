@@ -136,8 +136,8 @@ interface Conditional {
  * locates the row by any unique `where`; absent → the create arm (constraint +
  * `racePin`, never a guard); present → the update arm, unless a `targetWhere` /
  * `setWhere` conditional does not match, in which case the silent no-op skip
- * fires — pinned by the **retained `notExists`** guard (ATOM “Branch premises
- * and pins,” `raceable: true`).
+ * fires. Batch mode first pins the captured row's identity, then pins the
+ * conditional no-match; transaction mode gets both facts from the locked read.
  *
  * Scalar arms stay inline. A relation-bearing create arm uses
  * {@link CreateOperation}; a relation-bearing found arm uses the selected-record
@@ -178,20 +178,18 @@ export class UpsertOperation {
   private readonly foundGuardId: string;
   private readonly parsedSelect: Record<string, unknown>;
   private readonly parsedInclude: Record<string, unknown> | undefined;
-  // The update-arm RETURNING fold (finding 4 / PERF.md P5): on a RETURNING driver
-  // with a scalar-only projection the scalar update arm folds its terminal refetch
-  // into the mutation. `false` for a non-returning driver, a relation projection,
-  // or a relation-bearing update arm (which uses the selected-record compiler).
+  // On a RETURNING driver with a scalar-only projection, the scalar update arm
+  // folds its terminal refetch into the mutation. Relation-bearing updates use
+  // the selected-record compiler instead.
   private readonly canFoldUpdateArm: boolean;
   // A relation-bearing create arm uses CreateOperation; scalar create stays inline.
   private readonly createArmOp?: CreateOperation;
   // A relation-bearing found arm reuses this operation's decision read.
   private readonly updateCompiler?: RecordUpdateCompiler;
   private readonly updateLegality?: () => void;
-  // PHASE 7 / Decision 7.1 — the ON CONFLICT door. When the whole upsert reduces
-  // to ONE `INSERT … ON CONFLICT (target) DO UPDATE … RETURNING`, this holds that
-  // statement and the operation has EMPTY planning: no locate, no arms, no
-  // terminal read. `undefined` keeps the probe-first sequence byte-identical.
+  // When the whole upsert reduces to one targeted `INSERT … ON CONFLICT …
+  // RETURNING`, this holds that statement and planning is empty. `undefined`
+  // keeps the probe-first sequence.
   // See {@link UpsertOperation.buildOnConflictFold} for every conjunct.
   private readonly onConflictFold: WriteStep | undefined;
   constructor(
@@ -216,10 +214,8 @@ export class UpsertOperation {
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
-      // Unreachable by construction (N7-U-A, the X1c disposition): `requireRecord` above
-      // hands `args.where` to the where-unique parse, and a PK-less model's whereUnique
-      // has no discriminator — so `ValidationError: Missing required field: one of …`
-      // answers first, measured. §3.A A16 states every model must have a PK.
+      // The where-unique parse rejects a PK-less model first. Reaching this point
+      // means an internal construction path bypassed that boundary.
       throw new QueryEngineError(
         "query-engine-v2 internal: upsert reached a model with no primary key; the where-unique parse admits none."
       );
@@ -510,70 +506,19 @@ export class UpsertOperation {
   // -------------------------------------------------------------------------
 
   /**
-   * PHASE 7 / Decision 7.1 — the ON CONFLICT door, taken.
+   * Fold a top-level scalar upsert only when one targeted conflict statement has
+   * the same meaning as the probe-first path. The adapter must support a named
+   * conflict target and RETURNING; projection and both arms must be scalar; no
+   * conditional or extended-selector filter may need a separate decision; the
+   * selector must name one constraint whose values are present in `create`; and
+   * the update must be set-only.
    *
-   * `INSERT … ON CONFLICT (target) DO UPDATE SET … RETURNING <select>` is ONE
-   * statement that means exactly what a top-level scalar upsert means: "write
-   * this row; if the constraint the caller named already holds it, update it
-   * instead." ATOM “SQL ownership” permits it for precisely this shape and no other, and calls
-   * it a NARROW DOOR drawn by semantics rather than syntax. Every conjunct below
-   * is the door's frame; a shape that misses any of them keeps the probe-first
-   * sequence byte-identically.
-   *
-   * The conjuncts, each with the coverage no other one has:
-   *
-   * 1. **{@link UpsertOperation.canFoldUpdateArm}** — already the update arm's own
-   *    fold gate, and it carries three of this fold's preconditions with it: a
-   *    RETURNING driver (the one statement has to hand the row back, since there
-   *    is no terminal read left to run), a SCALAR update arm, and a scalar-only
-   *    projection with no `include` (a relation projection needs lateral joins an
-   *    `INSERT … RETURNING` cannot carry, and `_count` read off a RETURNING
-   *    subquery binds by name — the P3 `_count` defect). Reusing it is deliberate:
-   *    it keeps `supportsReturning` read in ONE place in this class.
-   * 2. **{@link DatabaseAdapterCapabilities.supportsTargetedUpsert}** — MySQL's
-   *    `ON DUPLICATE KEY UPDATE` fires on ANY unique collision, so an unrelated
-   *    collision would silently adopt a row the caller never named. Measured, and
-   *    falsified by a witness that swaps in that emitter.
-   * 3. **no `targetWhere` / `setWhere` conditional** — their contract is V1's
-   *    SILENT NO-OP: no write, and the terminal read still answers with the
-   *    unchanged row. `DO UPDATE … WHERE <no match>` returns ZERO rows (measured
-   *    on PG 17), so the folded statement would answer nothing where the contract
-   *    says it answers the row.
-   * 4. **a plain unique `where`** — an extended selector's FILTER half decides
-   *    WHICH row the operation means, and `ON CONFLICT` has nowhere to put it: the
-   *    conflict would arbitrate on the unique half alone and adopt the very row
-   *    the filter EXCLUDED. This is the same rule {@link childRacePin} already
-   *    applies when it withholds the create arm's race pin for an extended
-   *    selector — an excluded row's violation is a genuine conflict, not a race.
-   * 5. **the `where` names exactly ONE constraint** — see
-   *    {@link UpsertOperation.whereNamesOneConstraint}. `ON CONFLICT` takes ONE
-   *    arbiter index, and the target is spelled from every column the
-   *    discriminator constrains. Two INDEPENDENT single-field uniques in one
-   *    selector (`{ id, email }`) are both DISCRIMINATORS, so conjunct 4 sees no
-   *    filter half and conjunct 6 is satisfied the moment the create data spells
-   *    both — the natural spelling. The emitted `ON CONFLICT ("id", "email")` is
-   *    a column pair with no unique index behind it: PostgreSQL `42P10`,
-   *    measured, on BOTH arms, for a selector `findUnique` and `update` answer.
-   * 6. **the create data spells the conflict target, with the `where`'s values** —
-   *    see {@link UpsertOperation.createDataSpellsConflictTarget}. Prisma does not
-   *    require `create` to satisfy `where`, and `ON CONFLICT` arbitrates on the
-   *    VALUES row, not on the caller's `where` (measured). Without this the fold
-   *    would ask a different question from the one the caller asked.
-   * 7. **a `set`-only update payload** — see {@link isPlainSetUpdate}. Atomic
-   *    arithmetic and `push`/`unshift` reference the column on BOTH sides of the
-   *    assignment, and inside `DO UPDATE SET` PostgreSQL rejects every spelling
-   *    `buildSet` can produce: bare on both sides is `42702` "column reference is
-   *    ambiguous", and qualifying the target is `42703`. Only "bare target,
-   *    qualified source" parses, and no existing emitter spells that.
-   *
-   * **The divergence this fold ACCEPTS**, stated against the oracle and pinned by
-   * tests rather than by this comment: on the UPDATE path the statement still
-   * evaluates the INSERT's column defaults before it detects the conflict, so a
-   * database-generated identity the create data omits BURNS one sequence value
-   * that probe-first never consumed (measured: PostgreSQL `last_value` 100 → 101,
-   * SQLite `sqlite_sequence` 2 → 3). Sequence values are explicitly not
-   * gap-free on either dialect, and ATOM “SQL ownership” names this burn as the divergence a
-   * written disposition covers. See the plan doc's Decision 7.1 record.
+   * MySQL's any-unique conflict behavior cannot satisfy the target rule. A
+   * conditional no-match needs to return the unchanged row, which `DO UPDATE …
+   * WHERE` cannot do. Atomic update operators need source-column SQL that the
+   * current conflict emitter cannot express portably. The accepted sequence
+   * value burn on a conflict is harmless because database sequences are not
+   * gap-free.
    */
   private buildOnConflictFold(parent: QueryScope): WriteStep | undefined {
     const permitted =
@@ -634,10 +579,8 @@ export class UpsertOperation {
     if (entries.length === 0) return false;
     return entries.every(({ fieldName, value }) => {
       const created = this.createData[fieldName];
-      // Checking `value` alone suffices: when it is a foldable primitive and
-      // `Object.is(created, value)` holds, `created` IS that primitive — a
-      // second `isFoldableKeyValue(created)` can never be the deciding conjunct
-      // (P7 review: removing it changes no test; the one-guard ban applies).
+      // Equality to a foldable primitive also proves that `created` has the same
+      // foldable value; a second type check would enforce no additional case.
       return isFoldableKeyValue(value) && Object.is(created, value);
     });
   }
@@ -647,12 +590,8 @@ export class UpsertOperation {
     known: Readonly<Record<string, unknown>>
   ): ArmResult {
     if (this.createArmOp) {
-      // T3c: a relation-bearing create arm. V1 runs the create-branch own-write
-      // barrier INSIDE the whenFalse branch only (the create-then-connect insert
-      // barrier, D4/D5) — a barrier violation must reject only when the create arm
-      // is taken. Run it here, per-arm; a `NestedWriteError` is V1's byte-identical
-      // reject — a real parity failure that propagates, distinct from V2's typed
-      // UnsupportedOperationError decline (both propagate post-P6; neither has a fallback).
+      // A relation-bearing create arm runs its legality check only after arm
+      // selection. The untaken create subtree must remain inert.
       this.createArmOp.assertArmLegality();
       const fragment = this.createArmOp.compile(known);
       // The create root's INSERT carries no racePin; the upsert's missing premise
@@ -689,7 +628,7 @@ export class UpsertOperation {
   }
 
   /** Add the raceable missing-premise `racePin` to the create compiler's root
-   *  INSERT step (T3c) — the scalar arm's `childRacePin`, so a concurrent create
+   *  INSERT step, matching the scalar arm, so a concurrent create
    *  loser's unique violation retries into the update arm. */
   private annotateCreateRacePin(
     steps: readonly OperationStep[]
@@ -723,12 +662,9 @@ export class UpsertOperation {
     known: Readonly<Record<string, unknown>>,
     locatedRow: Record<string, unknown>
   ): ArmResult {
-    // V1 runs the update-arm barrier + payload-legality analyses for the WHOLE found
-    // branch (its whenTrue), before the conditional skip/update decision — an invalid
-    // UNTAKEN update branch (the create arm is taken) never reaches here. A
-    // relation-bearing update arm therefore rejects a barrier / legality violation
-    // whether it later updates or skips (the D6 own-write witness; the relation-key /
-    // PK-portability legality the branch-local closure deferred at construction).
+    // Found-arm legality runs after create/update selection but before conditional
+    // skip/update selection. Thus an untaken create arm remains inert, while an
+    // invalid found subtree rejects whether the conditional later skips or writes.
     this.updateLegality?.();
     const unmatched = this.conditionals.find(
       (conditional) => !this.conditionalMatched(conditional, known)
@@ -738,10 +674,12 @@ export class UpsertOperation {
   }
 
   /**
-   * A conditional did not match → silent no-op (V1's contract): no write, just
-   * the terminal read of the unchanged row. Batch mode pins the skip premise with
-   * the retained `notExists` guard (the row still does NOT match the conditional,
-   * `raceable: true`); transaction mode's locked probe pins it, needing no guard.
+   * A conditional did not match → silent no-op: no write, just
+   * the terminal read of the unchanged row. Batch mode pins both facts decided by
+   * planning: the selector still names the captured row, then that same row still
+   * does not match the conditional. Identity drift is non-raceable; a condition
+   * that became true is raceable so the routed executor can re-plan once.
+   * Transaction mode's locked probe pins both facts without guards.
    */
   private compileSkipArm(
     unmatched: Conditional,
@@ -754,11 +692,17 @@ export class UpsertOperation {
         resultId: this.terminalId,
       };
     }
+    const parent = createQueryScope(this.engine.adapter, this.model);
     return {
       steps: [
+        presenceGuard(
+          this.foundGuardId,
+          this.foundPremiseStatement(parent, locatedRow),
+          notFoundFailure(this.locateMissMessage())
+        ),
         absenceGuard(
           unmatched.guardId,
-          unmatched.probe.statement,
+          this.foundPremiseStatement(parent, locatedRow, unmatched),
           raceableQueryFailure(upsertSkipPremiseChanged(unmatched.field))
         ),
         this.buildTerminal(terminalWhere),
@@ -849,7 +793,7 @@ export class UpsertOperation {
       outputs: {},
       // Exact-affected is a returning-driver check only (see UpdateOperation): on
       // a non-returning driver the locked locate already proved the row exists, so
-      // a no-op UPDATE (0 rows changed) is V1's accepted contract, not a NotFound.
+      // a no-op UPDATE reporting zero changed rows is not a not-found result.
       ...affected,
     };
     // The update arm may rewrite the very field the `where` located the row by
@@ -980,9 +924,9 @@ export class UpsertOperation {
   /**
    * The terminal where addressing the located row by its POST-update primary
    * key: the update arm may rewrite a PK field (literal or portable arithmetic),
-   * moving the identity the located pre-update row no longer answers to. Reuses
-   * V1's `getUpdatedPrimaryKeyWhere` (unchanged located PK when the update leaves
-   * it alone; the same typed refusal of an ambiguous PK operation).
+   * moving the identity the located pre-update row no longer answers to.
+   * `getUpdatedPrimaryKeyWhere` retains an unchanged key and refuses an ambiguous
+   * key operation.
    */
   private updatedTerminalWhere(
     locatedRow: Record<string, unknown>
@@ -1192,11 +1136,7 @@ export class UpsertOperation {
     // so an extended `where`'s filter half rides along with the discriminator
     // equalities. (It is a PREDICATE here, which is exactly what a probe wants;
     // it still contributes no pin, because it never reaches `racePin`.)
-    const uniqueFilters: Record<string, unknown>[] = getWhereUniqueEntries(
-      parent,
-      this.parentWhere
-    ).map(({ fieldName, value }) => ({ [fieldName]: { equals: value } }));
-    if (this.whereFilters) uniqueFilters.push(this.whereFilters);
+    const uniqueFilters = uniqueSelectorConjuncts(parent, this.parentWhere);
     const conditionals: Conditional[] = [];
     for (const field of ["targetWhere", "setWhere"] as const) {
       const raw = inputs[field];
@@ -1306,7 +1246,7 @@ function resultStepId(fragment: OperationFragment, arm: string): string {
 }
 
 function defaultSelect(model: Model<any>): Record<string, unknown> {
-  // V1's default projection is every scalar EXCEPT `.omit()`-ed fields (a model
+  // The default projection is every scalar except model-omitted fields (a model
   // with an omitted generated PK returns without it). Using the raw scalar names
   // would leak the omitted column — e.g. the captured generated PK on a
   // non-returning upsert create branch, which is internal, not public.
@@ -1315,19 +1255,8 @@ function defaultSelect(model: Model<any>): Record<string, unknown> {
   );
 }
 
-/**
- * E5-U3 — what is left of the three `requireRecord` gates after the envelope moved to
- * the parse boundary: a NARROWING, and the invariant behind it is the boundary's.
- *
- * `upsertEnvelopeSchema` proves the three arms are records before this operation is
- * built (`routing.ts`, the one construction path a client payload takes), but the
- * constructor's parameter is still an untyped bag, so TypeScript needs the narrowing
- * spelled. Its failure is therefore an ENGINE fault — a caller that skipped the
- * boundary — not a user one, and it says so: a `QueryEngineError`, and its wording sits
- * deliberately OUTSIDE the shape-check phrase family the parse-boundary gate ratchets
- * on, because this is no longer one of those checks. The gate's ceiling drops by one in
- * the same commit.
- */
+/** Narrow the record shape already guaranteed by the upsert envelope schema.
+ * Failure means an internal construction path bypassed that parse boundary. */
 function envelopeRecord(
   value: unknown,
   key: "create" | "update" | "where"

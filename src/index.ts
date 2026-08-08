@@ -103,6 +103,7 @@ export {
   UniqueConstraintError,
   UnsupportedOperationError,
   ValidationError,
+  type ValidationErrorSource,
   ValueTooLongError,
   // Base error
   VibORMError,
@@ -128,13 +129,16 @@ export type {
 export { getSchemas } from "./schema/schemas.js";
 
 export type {
+  SchemaValidationIssue,
   Severity,
-  ValidationError as SchemaValidationError,
   ValidationResult,
   ValidationRule,
 } from "./schema/validation/index.js";
 // Schema validation
 export {
+  isSchemaValidationError,
+  SchemaValidationError,
+  SchemaValidator,
   validateSchema,
   validateSchemaOrThrow,
 } from "./schema/validation/index.js";

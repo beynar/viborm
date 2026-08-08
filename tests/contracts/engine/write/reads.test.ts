@@ -1,0 +1,24 @@
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { PGliteDriver } from "@drivers/pglite";
+import type { BatchQuery, QueryResult } from "@drivers/types";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
+
+// The read family on PGlite, in transaction and forced atomic-batch modes.
+runReadBehavior({
+  name: "PGlite transaction",
+  createDriver: () => new PGliteDriver(),
+});
+
+// The batch arm binds both drivers to one PGlite instance so both clients read
+// the same seeded database.
+let sharedBatchDb: PGlite | undefined;
+runReadBehavior({
+  name: "PGlite atomic batch",
+  createDriver: () => {
+    sharedBatchDb = new PGlite();
+    return new PGliteDriver({ client: sharedBatchDb });
+  },
+  createObservedDriver: () =>
+    new BatchOnlyPGliteDriver({ client: sharedBatchDb as PGlite }),
+});

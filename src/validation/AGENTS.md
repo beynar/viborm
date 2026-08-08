@@ -43,6 +43,7 @@ The `v.*` primitives solve interop, inference, and runtime validation. `SchemaRe
 | `model/core/` | where/create/update/select/include/orderBy schemas | Changing model-level query inputs |
 | `model/args/` | Complete operation arg schemas | Adding/changing ORM operations |
 | `builder.ts` | `SchemaRegistry` cache and schema graph builder | Registry contract or lifecycle changes |
+| `value-guards.ts` | Shared representation guards for unknown boundary values | Reusing an identical cross-layer narrowing rule |
 | `index.ts` | Public validation exports | Export surface changes |
 
 ---
@@ -109,7 +110,14 @@ const userCreate = registry.getModelSchemas(user).args.create;
 Use `" vibInferred"` (with space), NOT `Symbol()`. Symbols break cross-module inference.
 
 ### Rule 2: Synchronous Validation Only
-Standard Schema V1 is synchronous. Never use async/await in validate functions.
+Standard Schema V1 permits synchronous or asynchronous validators. VibORM
+schemas deliberately implement only the synchronous form. Never use
+async/await in their validate functions.
+
+External Standard Schema implementations are untrusted at the registry or
+composition boundary. Convert their thrown failures and promises there. A
+validated VibORM schema is trusted downstream; do not add a second shape or
+async check inside object, relation, or operation-schema consumers.
 
 ### Rule 3: Generic Primitives Only
 No domain-specific logic here. `v.email()` or `v.url()` belong in the scalar layer, not validation.
@@ -120,6 +128,22 @@ Schemas are immutable after creation. No methods that modify the schema in place
 ### Rule 5: Operation Schemas Need Registry Context
 Do not rebuild operation schemas inside scalar definitions, relation definitions, or models. Use `SchemaRegistry` so relation thunks and inverse FK omission are resolved from the full schema graph.
 
+### Rule 6: One Owner for Shared Representation Guards
+`value-guards.ts` owns shared identity predicates: `isRecord`, `isString`,
+`isFunction`, `isNumber`, `isBoolean`, `isBigInt`, and `isDate`. Import them
+instead of defining the same representation check in another module. Do not use
+them when the boundary needs stronger semantics such as a plain prototype,
+finite/integer values, promise-like behavior, safe reads from hostile values,
+or recursive JSON validation. Native array identity remains `Array.isArray`.
+
+### Rule 7: One Typed Validation Error Surface
+`ValidationError.source` identifies the boundary that refused the value:
+`operation`, `registry`, `schema-builder`, or `json-schema`. Operation failures
+use V4001 and Prisma P2009. All other runtime-validation sources use V4002 and
+have no Prisma equivalent. Primitive schemas return issues. Registry and public
+conversion boundaries translate unexpected throws; no raw `Error` leaves this
+directory.
+
 ---
 
 ## Anti-Patterns
@@ -128,13 +152,16 @@ Do not rebuild operation schemas inside scalar definitions, relation definitions
 Using `Symbol("vibInferred")` instead of string literal. Breaks type inference across module boundaries.
 
 ### Async Validation
-Adding `async` to validate functions. Standard Schema V1 requires synchronous validation only.
+Adding `async` to VibORM validate functions. It violates the internal
+synchronous contract and would force every trusted consumer to branch again.
 
 ### Domain-Specific Primitives
 Creating `v.email()` in validation layer. Scalar-specific logic belongs in `src/schema/scalars/`.
 
 ### Throwing Exceptions
 Throwing errors instead of returning `{issues: [...]}`. Standard Schema uses result objects.
+
+Boundary APIs that must throw use `ValidationError`, never a generic `Error`.
 
 ### Mutable Schema State
 Modifying schema after creation. Schemas should be immutable once constructed.
@@ -154,6 +181,15 @@ Putting `filter`, `create`, `update`, or model args schemas on scalar/relation/m
 | Location | `src/validation/` | `src/schema/validation/` |
 | When | Query execution | Schema definition |
 | Example | "foo" is a valid string | Relation references valid model |
+
+## Coverage Gate
+
+`pnpm test:coverage:validation` runs the validation, scalar,
+operation-schema, and relation core projects in one worker with a 768 MB heap,
+one coverage-processing worker, and a 60-second process limit. It writes
+`coverage/validation/index.html` and requires 100% statements, lines,
+functions, and branches for `src/validation/**/*.ts`. This gate does not include
+definition-time `src/schema/validation`.
 
 ---
 

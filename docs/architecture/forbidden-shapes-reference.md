@@ -221,7 +221,7 @@ client.post.update({
 });
 ```
 
-A set-based `UPDATE … WHERE id IN (…)` learns no per-row identity, and E6.9's per-row capture is INSERT-side (`insertId` per row) — the step vocabulary has no UPDATE-side per-row output to hand a deeper edge. Prisma refuses this at the type level; the engine's reason is its own.
+A set-based `UPDATE … WHERE id IN (…)` learns no per-row identity, and the existing per-row capture is INSERT-side (`insertId` per row) — the step vocabulary has no UPDATE-side per-row output to hand a deeper edge. Prisma refuses this at the type level; the engine's reason is its own.
 
 ---
 

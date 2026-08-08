@@ -1,0 +1,220 @@
+- generic [active] [ref=f14e1]:
+  - link "Skip to content" [ref=f14e2] [cursor=pointer]:
+    - /url: "#blume-content"
+  - banner [ref=f14e3]:
+    - button "Toggle navigation" [ref=f14e4] [cursor=pointer]
+    - link "VibORM" [ref=f14e7] [cursor=pointer]:
+      - /url: /
+    - button "Search" [ref=f14e10] [cursor=pointer]
+    - generic [ref=f14e15]:
+      - link "GitHub repository" [ref=f14e16] [cursor=pointer]:
+        - /url: https://github.com/beynar/viborm
+      - button "Toggle color theme" [ref=f14e19] [cursor=pointer]
+  - main [ref=f14e25]:
+    - generic [ref=f14e26]:
+      - generic [ref=f14e27]:
+        - generic [ref=f14e28]: Types update when your schema does
+        - heading "The type-safe ORM without the generate step." [level=1] [ref=f14e30]:
+          - generic [ref=f14e31]: The type-safe ORM
+          - generic [ref=f14e32]: without the generate step.
+        - paragraph [ref=f14e33]: Define a schema in TypeScript and query PostgreSQL, MySQL, or SQLite with a fully inferred, Prisma-inspired client. No code generation. No stale types.
+        - generic [ref=f14e34]:
+          - generic [ref=f14e35]: $
+          - code [ref=f14e36]: pnpm add viborm
+          - button "Copy" [ref=f14e37] [cursor=pointer]
+        - generic [ref=f14e44]:
+          - link "Start building" [ref=f14e45] [cursor=pointer]:
+            - /url: /docs/getting-started/quick-start
+          - link "View on GitHub" [ref=f14e48] [cursor=pointer]:
+            - /url: https://github.com/beynar/viborm
+      - generic [ref=f14e55]:
+        - generic [ref=f14e56]: VibORM
+        - generic [ref=f14e68]:
+          - generic [ref=f14e69]: Quick Start
+          - heading "From schema to typed query in one file." [level=2] [ref=f14e72]
+          - paragraph [ref=f14e73]: Your schema is the type source. Every filter, relation, selection, and result is inferred directly from it.
+          - generic [ref=f14e74]:
+            - generic [ref=f14e76]:
+              - text: schema.ts
+              - code [ref=f14e79]:
+                - generic [ref=f14e80]: "import { s } from \"viborm\";"
+                - generic [ref=f14e81]: "export const user = s.model({"
+                - generic [ref=f14e82]: "id: s.string().id().ulid(),"
+                - generic [ref=f14e83]: "email: s.string().unique(),"
+                - generic [ref=f14e84]: "posts: s.oneToMany(() => post),"
+                - generic [ref=f14e85]: "});"
+                - generic [ref=f14e86]: "export const post = s.model({"
+                - generic [ref=f14e87]: "id: s.string().id().ulid(),"
+                - generic [ref=f14e88]: "title: s.string(),"
+                - generic [ref=f14e89]: "published: s.boolean().default(false),"
+                - generic [ref=f14e90]: "authorId: s.string(),"
+                - generic [ref=f14e91]: "author: s.manyToOne(() => user)"
+                - generic [ref=f14e92]: .fields("authorId")
+                - generic [ref=f14e93]: .references("id"),
+                - generic [ref=f14e94]: "});"
+            - generic [ref=f14e96]:
+              - text: query.ts
+              - code [ref=f14e99]:
+                - generic [ref=f14e100]: "const authors = await client.user.findMany({"
+                - generic [ref=f14e101]: "where: {"
+                - generic [ref=f14e102]: "email: { contains: \"@company.com\" },"
+                - generic [ref=f14e103]: "},"
+                - generic [ref=f14e104]: "include: {"
+                - generic [ref=f14e105]: "posts: {"
+                - generic [ref=f14e106]: "where: { published: true },"
+                - generic [ref=f14e107]: "orderBy: { title: \"asc\" },"
+                - generic [ref=f14e108]: "},"
+                - generic [ref=f14e109]: "},"
+                - generic [ref=f14e110]: "});"
+          - generic [ref=f14e111]:
+            - generic [ref=f14e112]: Typed filters
+            - generic [ref=f14e117]: Typed relations
+            - generic [ref=f14e122]: Typed results
+      - generic [ref=f14e127]:
+        - generic [ref=f14e128]:
+          - paragraph [ref=f14e129]: Everything stays connected
+          - heading "The schema is the single source of truth." [level=2] [ref=f14e130]
+          - paragraph [ref=f14e131]: Change a field and TypeScript follows the change into filters, writes, relations, selections, and returned records immediately.
+        - generic [ref=f14e132]:
+          - article [ref=f14e133]:
+            - heading "Inference, not generation" [level=3] [ref=f14e139]
+            - paragraph [ref=f14e140]: Types flow from immutable schema definitions into every client operation and result.
+          - article [ref=f14e141]:
+            - heading "Prisma-inspired client" [level=3] [ref=f14e145]
+            - paragraph [ref=f14e146]: Use familiar create, find, update, upsert, delete, aggregation, and transaction APIs.
+          - article [ref=f14e147]:
+            - heading "One ORM, three dialects" [level=3] [ref=f14e154]
+            - paragraph [ref=f14e155]: Keep one schema and one query surface across PostgreSQL, MySQL, and SQLite.
+          - article [ref=f14e156]:
+            - heading "Relations stay typed" [level=3] [ref=f14e163]
+            - paragraph [ref=f14e164]: Model one-to-one, one-to-many, and many-to-many relations with typed nested reads and writes.
+          - article [ref=f14e165]:
+            - heading "Standard Schema V1" [level=3] [ref=f14e171]
+            - paragraph [ref=f14e172]: Validate through the Standard Schema interface and interoperate with its growing ecosystem.
+          - article [ref=f14e173]:
+            - heading "Drivers for your runtime" [level=3] [ref=f14e177]
+            - paragraph [ref=f14e178]: Run on Node.js, Bun, serverless databases, and Cloudflare D1 through focused drivers.
+      - generic [ref=f14e179]:
+        - generic [ref=f14e180]:
+          - paragraph [ref=f14e181]: Adapter-owned SQL
+          - heading "Write the query once. Choose the database at the edge." [level=2] [ref=f14e182]
+          - paragraph [ref=f14e183]: VibORM keeps query intent separate from dialect syntax. You keep the same model and client API while the adapter handles the SQL each database needs.
+          - link "Explore every driver" [ref=f14e184] [cursor=pointer]:
+            - /url: /docs/drivers
+        - generic [ref=f14e187]:
+          - article [ref=f14e188]:
+            - generic [ref=f14e195]:
+              - heading "PostgreSQL" [level=3] [ref=f14e196]
+              - paragraph [ref=f14e197]: pg, postgres.js, Neon HTTP, PGlite, and Bun SQL
+          - article [ref=f14e202]:
+            - generic [ref=f14e209]:
+              - heading "MySQL" [level=3] [ref=f14e210]
+              - paragraph [ref=f14e211]: mysql2, PlanetScale, and Bun SQL
+          - article [ref=f14e216]:
+            - generic [ref=f14e220]:
+              - heading "SQLite" [level=3] [ref=f14e221]
+              - paragraph [ref=f14e222]: sqlite3, libSQL, Bun SQLite, and Cloudflare D1
+      - generic [ref=f14e227]:
+        - generic [ref=f14e228]:
+          - paragraph [ref=f14e229]: Database isomorphisms
+          - heading "Same feature set. Change the database, not the application." [level=2] [ref=f14e230]
+          - paragraph [ref=f14e231]: VibORM gives PostgreSQL, MySQL, and SQLite one portable schema and client API, so switching drivers does not require rewriting application code.
+        - generic [ref=f14e232]:
+          - article [ref=f14e233]:
+            - generic [ref=f14e239]:
+              - heading "Scalar lists" [level=3] [ref=f14e240]
+              - code [ref=f14e241]: s.string().array()
+            - generic [ref=f14e242]:
+              - generic [ref=f14e243]: PG
+              - code [ref=f14e244]: text[]
+            - generic [ref=f14e245]:
+              - generic [ref=f14e246]: MySQL
+              - code [ref=f14e247]: JSON
+            - generic [ref=f14e248]:
+              - generic [ref=f14e249]: SQLite
+              - code [ref=f14e250]: JSON text
+          - article [ref=f14e251]:
+            - generic [ref=f14e257]:
+              - heading "Enums" [level=3] [ref=f14e258]
+              - code [ref=f14e259]: s.enum([…])
+            - generic [ref=f14e260]:
+              - generic [ref=f14e261]: PG
+              - code [ref=f14e262]: Named ENUM type
+            - generic [ref=f14e263]:
+              - generic [ref=f14e264]: MySQL
+              - code [ref=f14e265]: ENUM(…)
+            - generic [ref=f14e266]:
+              - generic [ref=f14e267]: SQLite
+              - code [ref=f14e268]: TEXT + CHECK
+          - article [ref=f14e269]:
+            - generic [ref=f14e277]:
+              - heading "Booleans" [level=3] [ref=f14e278]
+              - code [ref=f14e279]: s.boolean()
+            - generic [ref=f14e280]:
+              - generic [ref=f14e281]: PG
+              - code [ref=f14e282]: boolean
+            - generic [ref=f14e283]:
+              - generic [ref=f14e284]: MySQL
+              - code [ref=f14e285]: TINYINT(1)
+            - generic [ref=f14e286]:
+              - generic [ref=f14e287]: SQLite
+              - code [ref=f14e288]: INTEGER 0/1
+          - article [ref=f14e289]:
+            - generic [ref=f14e297]:
+              - heading "Date and time" [level=3] [ref=f14e298]
+              - code [ref=f14e299]: s.dateTime()
+            - generic [ref=f14e300]:
+              - generic [ref=f14e301]: PG
+              - code [ref=f14e302]: timestamptz
+            - generic [ref=f14e303]:
+              - generic [ref=f14e304]: MySQL
+              - code [ref=f14e305]: DATETIME(3)
+            - generic [ref=f14e306]:
+              - generic [ref=f14e307]: SQLite
+              - code [ref=f14e308]: ISO TEXT
+          - article [ref=f14e309]:
+            - generic [ref=f14e318]:
+              - heading "Exact decimals" [level=3] [ref=f14e319]
+              - code [ref=f14e320]: s.decimal()
+            - generic [ref=f14e321]:
+              - generic [ref=f14e322]: PG
+              - code [ref=f14e323]: numeric
+            - generic [ref=f14e324]:
+              - generic [ref=f14e325]: MySQL
+              - code [ref=f14e326]: DECIMAL(65,30)
+            - generic [ref=f14e327]:
+              - generic [ref=f14e328]: SQLite
+              - code [ref=f14e329]: TEXT
+        - paragraph [ref=f14e330]: One schema. One query API. Three database engines.
+      - generic [ref=f14e335]:
+        - heading "Define your schema. Keep moving." [level=2] [ref=f14e339]
+        - paragraph [ref=f14e340]: Start with an in-process PostgreSQL database, then move to your production driver without changing the way you model or query data.
+        - generic [ref=f14e341]:
+          - link "Read the quick start" [ref=f14e342] [cursor=pointer]:
+            - /url: /docs/getting-started/quick-start
+          - link "Browse the client API" [ref=f14e345] [cursor=pointer]:
+            - /url: /docs/client
+  - contentinfo [ref=f14e346]:
+    - generic [ref=f14e347]:
+      - generic [ref=f14e348]: VibORM
+      - navigation [ref=f14e352]:
+        - link "Documentation" [ref=f14e353] [cursor=pointer]:
+          - /url: /docs
+        - link "Client API" [ref=f14e354] [cursor=pointer]:
+          - /url: /docs/client
+        - link "Drivers" [ref=f14e355] [cursor=pointer]:
+          - /url: /docs/drivers
+        - link "GitHub" [ref=f14e356] [cursor=pointer]:
+          - /url: https://github.com/beynar/viborm
+      - paragraph [ref=f14e357]: Open source under the ISC license.
+  - complementary [ref=f14e358]:
+    - navigation [ref=f14e359]:
+      - list [ref=f14e360]:
+        - listitem [ref=f14e361]:
+          - link [ref=f14e362] [cursor=pointer]:
+            - /url: /docs
+            - text: Documentation
+        - listitem [ref=f14e363]:
+          - link [ref=f14e364] [cursor=pointer]:
+            - /url: /docs/internals
+            - text: Internal

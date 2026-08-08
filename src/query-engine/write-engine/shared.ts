@@ -1,6 +1,10 @@
 import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import { isSql } from "@sql";
+import { isRecord as isRecordValue } from "@validation/value-guards";
+
+export { isRecord } from "@validation/value-guards";
+
 import {
   getWhereUniqueEntries,
   partitionWhereUnique,
@@ -57,10 +61,6 @@ export interface SubOperationOptions {
      */
     readonly rootRacePin?: TargetConstraintPin;
   };
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function pinnedTargetValues(
@@ -228,7 +228,7 @@ function payloadReachesTable(
   if (Array.isArray(value)) {
     return value.some((entry) => payloadReachesTable(scope, entry, table));
   }
-  if (!isRecord(value)) return false;
+  if (!isRecordValue(value)) return false;
   for (const [key, entry] of Object.entries(value)) {
     // A key that projects nothing and filters nothing reads nothing. `null` is
     // NOT in this set: `where: { manager: null }` is a to-one absence filter,

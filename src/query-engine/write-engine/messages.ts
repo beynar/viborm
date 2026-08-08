@@ -158,14 +158,9 @@ export function upsertTargetVanished(relationName: string): string {
   return `Nested upsert target for relation '${relationName}' vanished before its update.`;
 }
 
-/**
- * A top-level upsert's `targetWhere`/`setWhere` skip premise changed between the
- * unlocked planning read and the atomic batch: planning decided the existing row
- * did NOT match the conditional filter (so the update branch is skipped, a silent
- * no-op per V1's contract), but a concurrent write made it match. This is the
- * retained `notExists` pin (ATOM “Branch premises and pins,” `raceable: true`); only batch mode observes
- * it, and only under staleness — the class (`TransactionError`) is what aborts.
- */
+/** The top-level upsert's conditional skip premise became true after its
+ * unlocked planning read. Batch mode reports this absence-pin failure as
+ * raceable so routed execution can re-plan once. */
 export function upsertSkipPremiseChanged(
   field: "setWhere" | "targetWhere"
 ): string {

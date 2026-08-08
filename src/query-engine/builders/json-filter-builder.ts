@@ -1,6 +1,7 @@
 import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { ScalarState } from "@schema/scalars";
 import type { Sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { QueryEngineError, type QueryScope } from "../types";
 import { assertSupportedScalarFilterOperator } from "./scalar-filter-operators";
 
@@ -394,20 +395,9 @@ function buildJsonFilterOperation(
           true
         );
       }
-      if (
-        typeof value === "object" &&
-        value !== null &&
-        !Array.isArray(value)
-      ) {
+      if (isRecord(value)) {
         return adapter.operators.not(
-          buildJsonFilter(
-            ctx,
-            fieldName,
-            scalarState,
-            column,
-            value as Record<string, unknown>,
-            scope
-          )
+          buildJsonFilter(ctx, fieldName, scalarState, column, value, scope)
         );
       }
       if (value === null && path.length === 0) {

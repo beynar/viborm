@@ -6,6 +6,7 @@ import type {
   ValidationResult,
   VibSchema,
 } from "../types";
+import { isFunction } from "../value-guards";
 import { createSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -76,31 +77,21 @@ export function optional<
   defaultValue?: TDefault
 ): OptionalSchema<TWrapped, TDefault> {
   // Check if wrapped is a thunk (function) or direct schema
-  const isThunk = typeof wrapped === "function" && !("~standard" in wrapped);
+  const isThunk = isFunction(wrapped) && !("~standard" in wrapped);
 
   // Lazy resolution for thunks
-  let resolvedSchema: VibSchema<any, any> | null = null;
-  let cachedValidate: ((value: unknown) => any) | null = null;
+  let cachedValidate: ((value: unknown) => any) | null = isThunk
+    ? null
+    : (wrapped as VibSchema<any, any>)["~standard"].validate;
 
   const getValidate = () => {
     if (cachedValidate) return cachedValidate;
 
-    if (isThunk) {
-      // Resolve thunk lazily
-      resolvedSchema = (wrapped as () => VibSchema<any, any>)();
-      cachedValidate = resolvedSchema["~standard"].validate;
-    } else {
-      // Direct schema - cache immediately
-      cachedValidate = (wrapped as VibSchema<any, any>)["~standard"].validate;
-    }
+    const resolvedSchema = (wrapped as () => VibSchema<any, any>)();
+    cachedValidate = resolvedSchema["~standard"].validate;
 
     return cachedValidate;
   };
-
-  // If not a thunk, cache validate immediately for performance
-  if (!isThunk) {
-    cachedValidate = (wrapped as VibSchema<any, any>)["~standard"].validate;
-  }
 
   const schema = createSchema(
     "optional",
@@ -108,10 +99,9 @@ export function optional<
       // Handle undefined - fast path
       if (value === undefined) {
         if (defaultValue !== undefined) {
-          const resolved =
-            typeof defaultValue === "function"
-              ? (defaultValue as () => InferOutput<UnwrapSchema<TWrapped>>)()
-              : defaultValue;
+          const resolved = isFunction(defaultValue)
+            ? (defaultValue as () => InferOutput<UnwrapSchema<TWrapped>>)()
+            : defaultValue;
           return ok(resolved) as ValidationResult<
             OptionalOutput<TWrapped, TDefault>
           >;

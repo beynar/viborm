@@ -46,17 +46,6 @@ type ModelScalarOrderByEntries<M extends AnyModel> = V.FromKeys<
 
 type RuntimeRelationMap = Record<string, { "~": { state: RelationState } }>;
 
-export type TargetScalarOrderBySchema<S extends RelationState> =
-  V.Object<ModelScalarOrderByEntries<TargetModel<S>>>;
-
-export const getTargetScalarOrderBySchema = <S extends RelationState>(
-  state: S
-): TargetScalarOrderBySchema<S> => {
-  return v.object(
-    getModelScalarOrderByEntries(state.getter() as TargetModel<S>)
-  );
-};
-
 /**
  * Maximum number of to-one relation hops an `orderBy` chain may cross, e.g.
  * `orderBy: { a: { b: { c: { name: 'asc' } } } }` is 3 hops.
@@ -175,10 +164,10 @@ const getModelScalarOrderByEntries = <M extends AnyModel>(
     nonVectorScalarKeys,
     sortOrderSchema
   );
-  const vectorEntries = v.fromKeys<
-    VectorScalarKey<M>[],
-    VectorSortOrderSchema
-  >(vectorScalarKeys, vectorSortOrderSchema);
+  const vectorEntries = v.fromKeys<VectorScalarKey<M>[], VectorSortOrderSchema>(
+    vectorScalarKeys,
+    vectorSortOrderSchema
+  );
 
   return {
     ...scalarEntries.entries,

@@ -8,13 +8,11 @@
  *
  * ## Why a module-scoped WeakSet, and not the instrumentation context
  *
- * The two layers do NOT share an `InstrumentationContext` instance. Every
- * execution context carries its own frozen *copy*, minted per call by
- * `snapshotExecutionContext` (`src/drivers/execution-context.ts`) — two
- * snapshots of the same client instrumentation are different objects. A set
- * owned by that context would therefore be empty on the reading side and every
- * failure would be logged twice. Only the `logger` itself is passed by
- * reference; the context around it is not.
+ * Execution snapshots reference the same `InstrumentationContext` through the
+ * weak mapping in `src/drivers/execution-context.ts`. The de-duplication marker
+ * still does not belong in that context: it describes one thrown error, not the
+ * client-wide observer configuration, and the same context serves concurrent
+ * operations.
  *
  * ## Why not a property on the error
  *
@@ -25,7 +23,7 @@
  *
  * ## Serverless note
  *
- * `src/instrumentation/AGENTS.md` Rule 2 keeps mutable state out of module
+ * `src/instrumentation/AGENTS.md` Rule 3 keeps mutable state out of module
  * scope so nothing survives a request in a reused isolate. A `WeakSet` holds
  * no strong reference: an entry disappears with the error that keyed it, and
  * an error object never outlives the request that threw it. There is nothing

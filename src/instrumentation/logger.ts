@@ -5,14 +5,13 @@
  */
 
 import {
-  resolveDiagnosticDisclosure,
   sanitizeDiagnosticParameters,
   sanitizeErrorForLogging,
   sanitizeLogMetadata,
   type VibORMError,
 } from "@errors";
+import { isString } from "@validation/value-guards";
 import type { Operation } from "../query-engine/types";
-import { ignoreObserverFailure } from "./ignore-observer-failure";
 import type {
   LogEvent,
   LoggingConfig,
@@ -75,6 +74,7 @@ function prettyLog(event: LogEvent): void {
   const time = `${colors.dim}${event.timestamp.toISOString()}${colors.reset}`;
   const duration = formatDuration(event.duration);
 
+  // biome-ignore lint/style/useDefaultSwitchClause: LogLevel makes this switch exhaustive.
   switch (event.level) {
     case "query": {
       const target = event.model
@@ -95,10 +95,12 @@ function prettyLog(event: LogEvent): void {
     }
     case "cache": {
       const prefix = `${backgrounds.bgGreen(`${colors.green}[CACHE]${colors.reset}`)}`;
-      const cacheEvent =
-        typeof event.meta?.event === "string" ? event.meta.event : "unknown";
-      const status =
-        typeof event.meta?.status === "string" ? `(${event.meta.status})` : "";
+      const cacheEvent = isString(event.meta?.event)
+        ? event.meta.event
+        : "unknown";
+      const status = isString(event.meta?.status)
+        ? `(${event.meta.status})`
+        : "";
       console.log(
         prefix,
         time,
@@ -129,19 +131,11 @@ function prettyLog(event: LogEvent): void {
       }
       break;
     }
-    default: {
-      //
-    }
   }
 }
 
 function formatDiagnostic(value: unknown): string {
-  if (value === undefined) return "";
-  try {
-    return JSON.stringify(value) ?? "";
-  } catch {
-    return "[Unserializable]";
-  }
+  return value === undefined ? "" : String(JSON.stringify(value));
 }
 
 /**
@@ -152,30 +146,19 @@ function getHandler(
   config: LoggingConfig,
   level: LogLevel
 ): LogLevelHandler | undefined {
-  const specific = readLoggingHandler(config, level);
+  const specific = config[level];
   if (specific !== undefined) return specific;
-  return readLoggingHandler(config, "all");
-}
-
-function readLoggingHandler(
-  config: LoggingConfig,
-  key: LogLevel | "all"
-): LogLevelHandler | undefined {
-  try {
-    const handler = config[key];
-    return handler === true || typeof handler === "function"
-      ? handler
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  return config.all;
 }
 
 /**
  * Create a logger instance from config
  */
 export function createLogger(config: LoggingConfig): Logger {
-  const disclosure = resolveDiagnosticDisclosure(config);
+  const disclosure = Object.freeze({
+    includeParams: config.includeParams === true,
+    includeSql: config.includeSql === true,
+  });
   const handlers: Readonly<Record<LogLevel, LogLevelHandler | undefined>> =
     Object.freeze({
       cache: getHandler(config, "cache"),
@@ -188,21 +171,19 @@ export function createLogger(config: LoggingConfig): Logger {
     event: LogEvent | Omit<LogEvent, "level">,
     level: LogLevel
   ): LogEvent {
-    const sanitizedParams = disclosure.includeParams
-      ? sanitizeDiagnosticParameters(event.params, disclosure)
-      : undefined;
+    const sanitizedParams =
+      disclosure.includeParams && event.params
+        ? sanitizeDiagnosticParameters(event.params, disclosure)
+        : undefined;
     return {
       level,
-      timestamp: sanitizeTimestamp(event.timestamp),
-      duration:
-        typeof event.duration === "number" && Number.isFinite(event.duration)
-          ? event.duration
-          : undefined,
+      timestamp: event.timestamp,
+      duration: event.duration,
       model: event.model,
       operation: event.operation,
       correlationId: event.correlationId,
       sql: disclosure.includeSql ? event.sql : undefined,
-      params: Array.isArray(sanitizedParams) ? sanitizedParams : undefined,
+      params: sanitizedParams,
       error: event.error
         ? sanitizeErrorForLogging(event.error, disclosure)
         : undefined,
@@ -214,11 +195,9 @@ export function createLogger(config: LoggingConfig): Logger {
 
   function emit(
     event: LogEvent | Omit<LogEvent, "level">,
-    forcedLevel?: LogLevel
+    level: LogLevel
   ): void {
     try {
-      const level = forcedLevel ?? ("level" in event ? event.level : undefined);
-      if (!level) return;
       const handler = handlers[level];
       if (!handler) return;
       const sanitized = sanitizeEvent(event, level);
@@ -232,7 +211,7 @@ export function createLogger(config: LoggingConfig): Logger {
       if (handler === true) {
         defaultLog();
       } else {
-        ignoreObserverFailure(handler(sanitized, defaultLog));
+        Promise.resolve(handler(sanitized, defaultLog)).catch(() => undefined);
       }
     } catch {
       // Logging is observational and cannot alter application behavior.
@@ -241,7 +220,7 @@ export function createLogger(config: LoggingConfig): Logger {
 
   return Object.freeze({
     log(event: LogEvent): void {
-      emit(event);
+      emit(event, event.level);
     },
 
     query(event: Omit<LogEvent, "level">): void {
@@ -264,15 +243,6 @@ export function createLogger(config: LoggingConfig): Logger {
       return handlers[level] !== undefined;
     },
   });
-}
-
-function sanitizeTimestamp(timestamp: Date): Date {
-  try {
-    const milliseconds = Date.prototype.getTime.call(timestamp);
-    return Number.isFinite(milliseconds) ? new Date(milliseconds) : new Date(0);
-  } catch {
-    return new Date(0);
-  }
 }
 
 /**

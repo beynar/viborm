@@ -309,9 +309,9 @@ export class Model<State extends ModelState> {
           fieldName in this.state.scalars
             ? this.state.scalars[fieldName]
             : undefined;
-        if (scalar) {
-          acc[fieldName] = scalar["~"].state.base;
-        }
+        acc[fieldName] =
+          scalar?.["~"].state.base ??
+          v.refused(`Compound ID field '${fieldName}' does not exist`);
         return acc;
       },
       {} as Record<string, VibSchema>
@@ -349,9 +349,9 @@ export class Model<State extends ModelState> {
           fieldName in this.state.scalars
             ? this.state.scalars[fieldName]
             : undefined;
-        if (scalar) {
-          acc[fieldName] = scalar["~"].state.base;
-        }
+        acc[fieldName] =
+          scalar?.["~"].state.base ??
+          v.refused(`Compound unique field '${fieldName}' does not exist`);
         return acc;
       },
       {} as Record<string, VibSchema>

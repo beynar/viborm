@@ -9,7 +9,6 @@
 import type { QueryExecutionContext } from "@drivers";
 import { getExecutionInstrumentation } from "@drivers/execution-context";
 import type { InstrumentationContext } from "@instrumentation/context";
-import { runWithTracer } from "@instrumentation/run-with-tracer";
 import {
   ATTR_CACHE_DRIVER,
   ATTR_CACHE_RESULT,
@@ -192,11 +191,10 @@ export abstract class CacheDriver {
       return result;
     };
 
-    return runWithTracer(
-      getCacheTracer(
-        getExecutionInstrumentation(options.executionContext) ??
-          this.instrumentation
-      ),
+    return getCacheTracer(
+      getExecutionInstrumentation(options.executionContext) ??
+        this.instrumentation
+    ).startActiveSpan(
       {
         name: SPAN_OPERATION,
         attributes: getCacheOperationAttributes(
@@ -295,11 +293,10 @@ export abstract class CacheDriver {
 
     // Wrap with operation span if tracer available
     // Use root: true to create a new trace (not child of current context)
-    const revalidationPromise = runWithTracer(
-      getCacheTracer(
-        getExecutionInstrumentation(options.executionContext) ??
-          this.instrumentation
-      ),
+    const revalidationPromise = getCacheTracer(
+      getExecutionInstrumentation(options.executionContext) ??
+        this.instrumentation
+    ).startActiveSpan(
       {
         name: SPAN_OPERATION,
         attributes: getCacheOperationAttributes(
@@ -360,10 +357,9 @@ export abstract class CacheDriver {
     extraAttributes?: Record<string, string>,
     context?: QueryExecutionContext
   ): Promise<T> {
-    return runWithTracer(
-      getCacheTracer(
-        getExecutionInstrumentation(context) ?? this.instrumentation
-      ),
+    return getCacheTracer(
+      getExecutionInstrumentation(context) ?? this.instrumentation
+    ).startActiveSpan(
       {
         name: spanName,
         attributes: {

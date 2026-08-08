@@ -12,12 +12,10 @@ import {
 import type { NativeType } from "../native-types";
 
 const defaultNow = () => {
-  const now = new Date();
-  return now.toISOString().split("T")[1]?.split(".")[0] ?? ""; // "HH:MM:SS"
+  return new Date().toISOString().slice(11, 19);
 };
 const defaultUpdatedAt = () => {
-  const now = new Date();
-  return now.toISOString().split("T")[1]?.split(".")[0] ?? ""; // "HH:MM:SS"
+  return new Date().toISOString().slice(11, 19);
 };
 const timeBase = v.isoTime();
 

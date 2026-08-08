@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "viborm-d1-tests",
+  "main": "tests/providers/workers/worker.ts",
+  // Maximum date supported by the Node 18-compatible Workers pool pinned here.
+  "compatibility_date": "2025-10-11",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "viborm-test",
+      "database_id": "00000000-0000-0000-0000-000000000001"
+    }
+  ]
+}

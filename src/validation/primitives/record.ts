@@ -5,6 +5,7 @@ import type {
   ThunkCast,
   VibSchema,
 } from "../types";
+import { isRecord } from "../value-guards";
 import { createSchema, fail, ok, validateSchema } from "./helpers";
 import { type ObjectOptions, type ObjectSchema, object } from "./object";
 
@@ -38,7 +39,7 @@ export function record<
     Record<InferInput<TKey>, InferInput<TValue>>,
     Record<InferOutput<TKey>, InferOutput<TValue>>
   >("record", (input) => {
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
+    if (!isRecord(input)) {
       return fail(
         `Expected object, received ${
           Array.isArray(input) ? "array" : typeof input
@@ -48,7 +49,7 @@ export function record<
 
     const output: Record<string, unknown> = {};
 
-    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(input)) {
       const keyResult = validateSchema(key, k);
       if (keyResult.issues) {
         return fail(`Invalid key "${k}": ${keyResult.issues[0]!.message}`, [k]);

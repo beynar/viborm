@@ -30,9 +30,21 @@ does not interpret relations or mutation kinds.
 - `PlanningFragment` contains statements and outputs, never guards.
 - `OperationFragment` contains final statements, guards, and outputs.
 
-Planning is not read-only. E6.9 skip-duplicate capture performs preparation
+Planning is not read-only. Skip-duplicate capture performs preparation
 writes and publishes their outputs. Nested Parts currently contribute reads.
 Keep the executor's non-read planning fallback.
+
+An operation shell is the concrete owner of one public operation family. It
+exposes `mode`, planning, compilation, and result parsing. A routed root shell
+owns public target and result behavior and selects direct folds.
+`CreateOperation` can also serve as a delegated fresh-record compiler inside an
+outer shell. `write-engine/*Operation.ts` contains these owners;
+`../operations/*.ts` contains operation-specific SQL, plan, identity, and
+ordering helpers.
+
+In relation code, parent means the current source record and child means its
+target at that edge. `parentHeldToOne` means the source stores the FK; it is not
+a global model hierarchy.
 
 ## Three independent facts
 
@@ -64,8 +76,11 @@ order. A true no-op returns no compiler before allocating an ID.
 For `parentHeldToOne`, the record compiler owns the inline FK fold and the branch
 needed to construct its own INSERT or UPDATE. Child-held and junction relation
 owners keep target selection, correlation, membership, found/missing decisions,
-guards, race pins, not-found messages, standalone edge effects, and terminal
-results. They pass captured targets to the selected-record compiler.
+guards, race pins, not-found messages, and standalone edge effects. The routed
+shell normally owns the public terminal result. A relation-bearing upsert create
+arm delegates its result-producing fragment to `CreateOperation`, then the outer
+`UpsertOperation` re-exposes and parses it. Direct folds need no terminal read.
+Relation owners pass captured targets to the selected-record compiler.
 
 The two record compilers recurse through the type-only `RecordCompilerSeam`
 (`createFresh`, `updateSelected`). No runtime import cycle or strategy object is
@@ -92,6 +107,10 @@ identity.
   `raceable: false`.
 - Scalar probe-first upsert batch found arm: reassert the original unique and
   conditional selector together with the captured primary key.
+- Scalar conditional-skip batch arm: a non-raceable presence guard first proves
+  that the selector still names the captured row; a raceable absence guard then
+  proves that this row still does not match the conditional. The terminal read
+  uses the captured primary key.
 - Transaction found arm: locked decision read, no duplicate guard.
 - Missing arm that inserts the same unique target: constraint plus root-write
   `racePin`.
@@ -115,7 +134,13 @@ First-create-wins is local to connect-or-create. Do not generalize it to upsert.
 
 `createMany`, `updateMany`, `deleteMany`, relation `set`, skip-duplicate capture,
 and many-and-return folds remain specialized. `ManyToManyStatements` remains
-the junction SQL owner. Keep `QueryMetadata` and adapter `batchRefs`.
+the junction SQL owner. Keep adapter `batchRefs` and the type-only
+`QueryMetadata` compatibility export; the latter is not a runtime boundary.
+
+Nested `createMany` stays with the owner of its set-shaped placement: a fresh
+parent records post-insert groups in `CreateOperation`; a selected parent uses
+the specialized builders in `nested-target-parts.ts`; a junction keeps target
+rows and join effects in `RelationJunctionPart`.
 
 Do not add a generic mutation DSL, payload walker, locator, strategy framework,
 branch-step IR, lifecycle hook, or shared utility landfill.
@@ -126,7 +151,7 @@ Run the focused nested-write and race tests for the changed path, then:
 
 ```bash
 pnpm test:types
-pnpm test:gates
+pnpm test:layer:query-engine
 pnpm package:build
 pnpm test
 ```

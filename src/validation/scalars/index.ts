@@ -141,8 +141,6 @@ export const getScalarSchemas = <F extends ScalarState>(
       return buildTimeSchema(
         scalar as ScalarState<"time">
       ) as GetScalarSchemas<F>;
-    default:
-      throw new Error(`Unknown scalar type: ${scalar.type}`);
   }
 };
 

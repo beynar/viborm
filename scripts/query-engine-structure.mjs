@@ -60,6 +60,34 @@ function hasRuntimeImport(importClause) {
   );
 }
 
+function countTokenLines(sourceFile) {
+  const tokenLineNumbers = new Set();
+
+  // Walk parser-owned tokens: a standalone scanner cannot rescan template tails
+  // correctly and can misclassify later comments that contain backticks.
+  function visit(node) {
+    if (ts.isJSDoc(node)) return;
+    const children = node.getChildren(sourceFile);
+    if (children.length > 0) {
+      for (const child of children) visit(child);
+      return;
+    }
+    if (
+      node.kind < ts.SyntaxKind.FirstToken ||
+      node.kind > ts.SyntaxKind.LastToken ||
+      node.kind === ts.SyntaxKind.EndOfFileToken
+    ) {
+      return;
+    }
+    tokenLineNumbers.add(
+      sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line
+    );
+  }
+
+  visit(sourceFile);
+  return tokenLineNumbers.size;
+}
+
 function getRuntimeModule(node) {
   if (ts.isImportDeclaration(node)) {
     if (!hasRuntimeImport(node.importClause)) return undefined;
@@ -182,29 +210,7 @@ function measure(directory) {
       ts.ScriptTarget.Latest,
       true
     );
-    const tokenLineNumbers = new Set();
-    const scanner = ts.createScanner(
-      ts.ScriptTarget.Latest,
-      false,
-      ts.LanguageVariant.Standard,
-      source
-    );
-    for (
-      let token = scanner.scan();
-      token !== ts.SyntaxKind.EndOfFileToken;
-      token = scanner.scan()
-    ) {
-      if (
-        token >= ts.SyntaxKind.FirstTriviaToken &&
-        token <= ts.SyntaxKind.LastTriviaToken
-      ) {
-        continue;
-      }
-      tokenLineNumbers.add(
-        sourceFile.getLineAndCharacterOfPosition(scanner.getTokenPos()).line
-      );
-    }
-    tokenLines += tokenLineNumbers.size;
+    tokenLines += countTokenLines(sourceFile);
     const dependencies = graph.get(file);
 
     function visit(node) {
@@ -263,7 +269,7 @@ const report = {
       "Strongly connected components of runtime imports internal to the measured directory; type-only imports are excluded.",
     lines: "Physical newline count, equivalent to wc -l for these files.",
     tokenLines:
-      "Physical lines containing at least one non-trivia TypeScript token; comments and blank lines are excluded.",
+      "Physical lines on which at least one parser-owned TypeScript token starts; comments and blank lines are excluded.",
   },
   queryEngine: measure(QUERY_ENGINE),
   writeEngine: measure(WRITE_ENGINE),

@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "viborm-docs-v2",
+  "main": "dist/server/entry.mjs",
+  "compatibility_date": "2026-04-15",
+  "account_id": "6886250e2aff0047919a1ed731a55c64",
+  "no_bundle": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": ["**/*.js", "**/*.mjs"]
+    }
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "viborm.dev",
+      "custom_domain": true
+    }
+  ]
+}

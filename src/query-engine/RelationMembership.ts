@@ -11,7 +11,7 @@ import {
   buildScalarUpdatePredicateFootprints,
   type TargetConstraint,
 } from "./TargetConstraint";
-import { NestedWriteError, type QueryScope, type RelationInfo } from "./types";
+import { NestedWriteError, type QueryScope } from "./types";
 
 export type RelationMembershipScope =
   | {
@@ -105,7 +105,7 @@ export function relationMembershipScopesEqual(
 }
 
 export interface RootMembershipFootprint {
-  readonly relationInfo: RelationInfo;
+  readonly relation: BoundRelation;
   readonly constraint: TargetConstraint;
 }
 
@@ -129,7 +129,7 @@ export function buildRootUpdateMembershipFootprints(
       continue;
     }
     for (const constraint of constraints) {
-      footprints.push({ relationInfo, constraint });
+      footprints.push({ relation, constraint });
     }
   }
   return footprints;
@@ -140,7 +140,7 @@ export function buildTransitiveUpdateMembershipFootprints(
   scalarData: Readonly<Record<string, unknown>>,
   selector: Readonly<Record<string, unknown>> | undefined
 ): RootMembershipFootprint[] {
-  const relationInfos: RelationInfo[] = [];
+  const relations: BoundRelation[] = [];
   const membershipScopes: RelationMembershipScope[] = [];
   for (const relationName of getRelationNames(ctx.model)) {
     const relationInfo = getRelationInfo(ctx, relationName);
@@ -162,12 +162,12 @@ export function buildTransitiveUpdateMembershipFootprints(
     ) {
       continue;
     }
-    relationInfos.push(relationInfo);
+    relations.push(relation);
     membershipScopes.push(membershipScope);
   }
   const constraints = getUpdateConstraints(ctx, scalarData, selector);
-  return relationInfos.flatMap((relationInfo) =>
-    constraints.map((constraint) => ({ relationInfo, constraint }))
+  return relations.flatMap((relation) =>
+    constraints.map((constraint) => ({ relation, constraint }))
   );
 }
 

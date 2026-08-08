@@ -44,9 +44,25 @@ See [write-engine/ATOM.md](write-engine/ATOM.md) for the normative doctrine and
 - `GuardStep`.
 
 `PlanningFragment` contains statement steps and outputs, never guards. Planning
-is not read-only: E6.9 skip-duplicate capture performs preparation writes.
+is not read-only: skip-duplicate capture performs preparation writes.
 Nested `Part.planning()` currently contributes reads. Keep the executor's
 non-read planning fallback.
+
+### Local terminology
+
+An **operation shell** is the concrete public-operation-family owner that
+exposes `mode`, `planning`, `compile`, and `parse`. `write-engine/routing.ts`
+owns route-wide gates and shared-envelope parsing. The routed root shell owns
+the remaining family- and arm-specific parsing, target, result, and direct
+folds. `CreateOperation` can also be reused as a delegated fresh-record compiler
+inside another shell. Files in `write-engine/*Operation.ts` contain these
+owners. Files in `operations/*.ts` contain operation-specific SQL, plan,
+identity, and ordering helpers; their historical directory name does not make
+them operation shells.
+
+Within relation compilation, **parent** means the current source record at that
+edge and **child** means its relation target. `parentHeldToOne` says that the
+source record stores the FK. It does not claim a global model hierarchy.
 
 ### Payload meaning
 
@@ -101,6 +117,9 @@ lookup SQL cannot decide a branch.
 - Captured-target batch found arm: guard the captured row, `raceable: false`.
 - Scalar probe-first upsert batch found arm: reassert the original unique and
   conditional selector together with the captured primary key.
+- Scalar conditional-skip batch arm: first reassert selector plus captured key
+  with a non-raceable presence guard; then assert that the same row still does
+  not match the conditional with a raceable absence guard. Keep that order.
 - Transaction found arm: use the locked read; do not duplicate the guard.
 - Missing same-target insert arm: use the constraint and root-write `racePin`.
 - Same-operation duplicate: add neither guard nor race pin.
@@ -118,7 +137,10 @@ found arm uses `RecordUpdateCompiler` and its captured identity.
 
 | Owner | Responsibility |
 | --- | --- |
-| `query-engine.ts` | public orchestration shell |
+| `query-engine.ts` | client-scoped driver, registry, and engine composition |
+| `pending-operation.ts` | lazy public operation lifecycle and routing entry |
+| `write-engine/routing.ts` | route-wide operation gates, shared-envelope parsing, and shell construction |
+| `operations/*.ts` | operation-specific SQL, plan, identity, and ordering helpers; not shells |
 | `write-engine/CreateOperation.ts` | fresh record compilation and create result |
 | `write-engine/UpdateOperation.ts` | public update shell and direct folds |
 | `write-engine/RecordUpdateCompiler.ts` | one selected record mutation |
@@ -131,8 +153,9 @@ found arm uses `RecordUpdateCompiler` and its captured identity.
 | `write-engine/foreign-key-reference.ts` | field-bound FK provenance |
 | `ManyToManyStatements.ts` | junction SQL materialization |
 
-Keep `QueryMetadata`, adapter `batchRefs`, and `ManyToManyStatements`. Do not add
-a generic mutation DSL, payload walker, branch-step IR, locator, strategy,
+Keep the type-only `QueryMetadata` compatibility export, adapter `batchRefs`,
+and `ManyToManyStatements`. `QueryMetadata` is not a runtime boundary. Do not
+add a generic mutation DSL, payload walker, branch-step IR, locator, strategy,
 lifecycle hook, or shared utility landfill.
 
 ## Core rules
@@ -140,7 +163,7 @@ lifecycle hook, or shared utility landfill.
 1. Adapter owns dialect SQL; driver mapping owns provider error recognition.
 2. Parse once at each trust boundary.
 3. Preserve SQL, parameter order, step IDs, guards, race pins, and exact errors.
-4. Planning contains no guards, but can contain E6.9 preparation writes.
+4. Planning contains no guards, but can contain skip-duplicate preparation writes.
 5. Atomic-batch guards precede writes with stable order inside both groups.
 6. Old-read and new-write key-transition values stay distinct.
 7. First-create-wins remains local to connect-or-create.
@@ -153,9 +176,21 @@ Run focused behavior tests for the changed operation, then:
 
 ```bash
 pnpm test:types
-pnpm test:gates
+pnpm test:layer:query-engine
 pnpm package:build
+pnpm test
 ```
 
 Use PGlite transaction and forced atomic-batch witnesses for changed nested
 writes. Run PostgreSQL and MySQL parity suites when Docker is available.
+
+Ordinary PGlite behavior uses `usePGliteSchemaFamily`: one database and one
+schema push per compatible schema and substrate, with table truncation between
+tests. Reset explicitly between parity arms in one test. The fixture owns the
+disconnect. Keep a fresh database only for DDL, lifecycle, destructive-schema,
+independently committed concurrency, staleness/race, or rollback-isolation
+contracts. Structural fragment proofs do not boot PGlite.
+
+`pnpm test:coverage:write-engine` is the authoritative credential-free write
+estate. It includes core query/architecture sentinels and every local write
+behavior; `pnpm test:layer:query-engine` remains the representative fast gate.

@@ -1,6 +1,6 @@
 # Query Engine
 
-The query engine turns a validated client operation into database-agnostic SQL
+The query engine turns a client operation into database-agnostic SQL
 fragments, executes them atomically through a driver, and parses the declared
 result. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite share operation semantics;
 dialect syntax remains adapter-owned.
@@ -19,12 +19,22 @@ QueryEngine
 | --- | --- |
 | `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
 | `PendingOperation` | Lazy and Promise-like public operation lifecycle |
-| operation shells | Validation, public target behavior, compilation, and result declaration |
+| `write-engine/routing.ts` | Route-wide operation gates, shared-envelope parsing, and shell construction |
+| `write-engine/*Operation.ts` | Public-operation-family owners and their executable fragments |
+| `operations/*.ts` | Operation-specific SQL, plan, identity, and ordering helpers |
 | relation Parts | Selection, membership, branches, guards, race pins, and edge effects |
 | `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
 | `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
-| `builders/` | Adapter-backed SQL construction by semantic concern |
+| `builders/` | Shared SQL and semantic builders, including payload and topology parsing |
 | `result/` | Strict row, relation, aggregate, count, scalar, and shape parsing |
+
+An operation shell is the concrete owner of one public operation family. It
+exposes `mode`, `planning()`, `compile(known)`, and `parse(outputs)`. Routing
+applies route-wide gates and parses shared envelopes before constructing it.
+The routed root shell owns the remaining family- and arm-specific parsing,
+public target, result, and direct folds while delegating SQL leaves,
+selected-record mutation, and relation-edge policy. `CreateOperation` is also
+reused as a delegated fresh-record compiler inside an outer shell.
 
 `QueryEngine` is not a forwarding shell. A transaction-bound engine preserves
 the originating client identity, receives a new scope identity, and owns the
@@ -36,7 +46,7 @@ driver used to construct and execute operations.
 client call
   → QueryEngine.prepare(...)
   → PendingOperation (lazy)
-  → validation and operation construction
+  → route-wide gates, shell construction, and family/arm parsing
   → PlanningFragment
   → selected OperationFragment
   → OperationExecutor
@@ -65,7 +75,7 @@ not a second SQL AST and contains no relation strategy, payload walker, driver,
 or arbitrary context bag.
 
 Planning has its own guard-free `PlanningFragment`. Planning is not necessarily
-read-only: E6.9 skip-duplicate capture performs preparation writes and publishes
+read-only: skip-duplicate capture performs preparation writes and publishes
 their outputs. Final compilation emits only the selected effects.
 
 ## Relation writes
@@ -85,6 +95,10 @@ deduplication stays with the consumer that owns it.
 child-held to-many, or junction. It carries ordered topology only, not scopes,
 identities, value sources, transition state, SQL, or branch policy.
 
+Parent and child are edge-relative roles. Parent is the enclosing source record
+whose relation field is being compiled; child is its target. A
+`parentHeldToOne` edge means that source record stores the FK.
+
 `CreateOperation` compiles non-bulk fresh record subtrees.
 `RecordUpdateCompiler` compiles non-bulk updates for an already-selected record.
 The record compiler owns scalar assignments, incoming FK values, nested record
@@ -92,7 +106,7 @@ effects, required target fields, primary-key transitions, and root-write order.
 
 Relation Parts still own target reads, parent correlation, membership,
 found/missing decisions, not-found failures, guards, race pins, junction
-effects, and terminal relation behavior. A write addresses the captured primary
+effects, and standalone edge effects. A write addresses the captured primary
 key, not a selector that can match another row after planning.
 
 Validation transforms are not assumed to be idempotent. Parse untrusted input
@@ -108,7 +122,10 @@ doctrine.
 
 ## SQL construction
 
-SQL builders remain in `builders/`, grouped by semantic concern:
+Shared SQL and semantic sub-concerns remain in `builders/`. Operation-specific
+SQL, plan, identity, and ordering helpers such as `buildUpdate`, `buildUpsert`,
+and `buildCreateManyPlan` remain in `operations/`; they are not executable
+operation shells.
 
 | Concern | Primary module |
 | --- | --- |
@@ -134,9 +151,9 @@ sql`COALESCE(json_agg(...), '[]'::json)`;
 scope.adapter.json.agg(expression);
 ```
 
-Builders return parameterized `Sql` fragments. Query-engine code does not match
-provider-specific SQL tokens to recover semantic facts. Provider error-message
-and assertion-marker recognition belongs to driver error mapping.
+SQL-emitting builders return parameterized `Sql` fragments. Query-engine code
+does not match provider-specific SQL tokens to recover semantic facts. Provider
+error-message and assertion-marker recognition belongs to driver error mapping.
 
 ## Results
 
@@ -176,10 +193,18 @@ result contracts, and provider-neutral behavior. Run:
 
 ```bash
 pnpm test:types
-pnpm test:gates
+pnpm test:layer:query-engine
 pnpm package:build
 pnpm test
 ```
 
 Shared driver suites prove portable behavior on PostgreSQL, MySQL, SQLite,
 LibSQL, and PGlite.
+
+The local PGlite estate reuses one provisioned database per compatible schema
+family. Ordinary cases truncate tables and restart identities; race,
+staleness, lifecycle, DDL, destructive-schema, and independently committed
+concurrency witnesses retain fresh databases. The family fixture owns
+disconnect. The full credential-free write report is
+`pnpm test:coverage:write-engine`; the representative sub-30-second gate is
+`pnpm test:layer:query-engine`.

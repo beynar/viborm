@@ -4,16 +4,13 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   ConnectionError,
   type DiagnosticDisclosure,
-  resolveDiagnosticDisclosure,
   sanitizeDiagnosticParameters,
   sanitizeErrorForLogging,
   TransactionError,
   VibORMErrorCode,
 } from "@errors";
 import type { InstrumentationContext } from "@instrumentation/context";
-import { ignoreObserverFailure } from "@instrumentation/ignore-observer-failure";
 import { markErrorLogged } from "@instrumentation/logged-errors";
-import { runWithTracer } from "@instrumentation/run-with-tracer";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_DRIVER,
@@ -51,6 +48,11 @@ import type {
   QueryExecutionContext,
   QueryResult,
 } from "./types";
+
+const EMPTY_DISCLOSURE: DiagnosticDisclosure = Object.freeze({
+  includeParams: false,
+  includeSql: false,
+});
 
 // ============================================================
 // DRIVER INTERFACE
@@ -321,24 +323,16 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     const sanitizedParams = disclosure.includeParams
       ? sanitizeDiagnosticParameters(params, disclosure)
       : undefined;
-    try {
-      ignoreObserverFailure(
-        logger[error ? "error" : "query"]({
-          timestamp: new Date(),
-          duration,
-          model: context.model,
-          operation: context.operation,
-          correlationId: context.correlationId,
-          sql: disclosure.includeSql ? sql : undefined,
-          params: Array.isArray(sanitizedParams) ? sanitizedParams : undefined,
-          error: isError
-            ? sanitizeErrorForLogging(error, disclosure)
-            : undefined,
-        })
-      );
-    } catch {
-      // Instrumentation is observational and cannot alter query behavior.
-    }
+    logger[error ? "error" : "query"]({
+      timestamp: new Date(),
+      duration,
+      model: context.model,
+      operation: context.operation,
+      correlationId: context.correlationId,
+      sql: disclosure.includeSql ? sql : undefined,
+      params: sanitizedParams,
+      error: isError ? sanitizeErrorForLogging(error, disclosure) : undefined,
+    });
   }
 
   /**
@@ -478,14 +472,11 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       tracingDisclosure.includeSql || tracingDisclosure.includeParams
         ? {
             ...(tracingDisclosure.includeSql ? { query: sql } : {}),
-            ...(Array.isArray(sanitizedSpanParams)
-              ? { params: sanitizedSpanParams }
-              : {}),
+            ...(sanitizedSpanParams ? { params: sanitizedSpanParams } : {}),
           }
         : undefined;
 
-    return runWithTracer(
-      tracer,
+    return tracer.startActiveSpan(
       {
         name: SPAN_EXECUTE,
         attributes: this.getContextAttributes(context),
@@ -516,58 +507,35 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   protected getErrorDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
-    try {
-      return resolveDiagnosticDisclosure(
-        this.getInstrumentation(context)?.config.diagnostics
-      );
-    } catch {
-      return resolveDiagnosticDisclosure();
-    }
+    return (
+      this.getInstrumentation(context)?.config.diagnostics ??
+      EMPTY_DISCLOSURE
+    );
   }
 
   protected getLoggingDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
-    try {
-      const logging = this.getInstrumentation(context)?.config.logging;
-      return resolveDiagnosticDisclosure(
-        logging && logging !== true ? logging : undefined
-      );
-    } catch {
-      return resolveDiagnosticDisclosure();
-    }
+    const logging = this.getInstrumentation(context)?.config.logging;
+    return logging && logging !== true ? logging : EMPTY_DISCLOSURE;
   }
 
   protected getTracingDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
-    try {
-      const tracing = this.getInstrumentation(context)?.config.tracing;
-      return resolveDiagnosticDisclosure(
-        tracing && tracing !== true ? tracing : undefined
-      );
-    } catch {
-      return resolveDiagnosticDisclosure();
-    }
+    const tracing = this.getInstrumentation(context)?.config.tracing;
+    return tracing && tracing !== true ? tracing : EMPTY_DISCLOSURE;
   }
 
   protected getLogger(
     context?: QueryExecutionContext
   ): InstrumentationContext["logger"] {
-    try {
-      return this.getInstrumentation(context)?.logger;
-    } catch {
-      return undefined;
-    }
+    return this.getInstrumentation(context)?.logger;
   }
 
   protected getTracer(
     context?: QueryExecutionContext
   ): InstrumentationContext["tracer"] {
-    try {
-      return this.getInstrumentation(context)?.tracer ?? getNoopTracer();
-    } catch {
-      return getNoopTracer();
-    }
+    return this.getInstrumentation(context)?.tracer ?? getNoopTracer();
   }
 }

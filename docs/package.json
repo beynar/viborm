@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "blume dev --port 3001",
     "build": "blume build",
+    "deploy:cloudflare": "pnpm build && node scripts/prepare-cloudflare-deploy.mjs && wrangler deploy --config wrangler.deploy.jsonc && wrangler triggers deploy --config wrangler.deploy.jsonc",
     "preview": "blume preview",
     "check": "blume check",
     "validate": "blume validate",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@astrojs/cloudflare": "^14.1.7",
-    "astro": "^7.1.6"
+    "astro": "^7.1.6",
+    "wrangler": "^4.119.0"
   }
 }

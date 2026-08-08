@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler child ManyToManyStatements.
 import { type Sql, sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import {
   buildJunctionDeleteCondition,
   buildJunctionInsert,
@@ -310,7 +311,6 @@ export class ManyToManyStatements {
       this.ctx.adapter.literals.value(0)
     );
   }
-
 }
 
 function requireArray(value: unknown, field: string): unknown[] {
@@ -321,8 +321,4 @@ function requireArray(value: unknown, field: string): unknown[] {
 function requireRecord(value: unknown, field: string): Record<string, unknown> {
   if (isRecord(value)) return value;
   throw new QueryEngineError(`Relation statement is missing '${field}'.`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

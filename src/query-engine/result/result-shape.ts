@@ -1,5 +1,6 @@
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import type { Model } from "@schema/model";
+import { isRecord } from "@validation/value-guards";
 import { getDefaultScalarFieldNames } from "../context";
 import { getGroupByFields } from "../operations/groupby-fields";
 import {
@@ -36,10 +37,6 @@ const AGGREGATE_NAMES: readonly AggregateResultName[] = [
   "_min",
   "_max",
 ];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function getOwnValue<T>(
   record: Readonly<Record<string, T>> | undefined,

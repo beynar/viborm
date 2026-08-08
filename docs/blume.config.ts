@@ -34,10 +34,10 @@ export default defineConfig({
     // } 
   ],
   deployment: {
-  output: "server",
-  adapter: "cloudflare", // or "vercel" | "netlify" | "cloudflare"
-  site: "https://viborm.com",
-},
+    output: "server",
+    adapter: "cloudflare",
+    site: "https://viborm.dev",
+  },
   ai:{
     llmsTxt:true,
     webmcp:true,

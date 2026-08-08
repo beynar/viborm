@@ -27,6 +27,7 @@ import type { AnyModel } from "@schema/model";
 import type { ScalarType } from "@schema/scalars/common";
 import { isSql, type Sql, sql } from "@sql";
 import type { InferInput, InferOutput, VibSchema } from "../types";
+import { isFunction, isRecord } from "../value-guards";
 import { createSchema, fail, ok, validateSchema } from "./helpers";
 
 // =============================================================================
@@ -217,7 +218,7 @@ function resolveCallback(
   if (isSql(returned)) {
     return ok(returned);
   }
-  if (typeof (returned as { then?: unknown })?.then === "function") {
+  if (isRecord(returned) && isFunction(returned.then)) {
     return fail(
       `${RETURN_REFUSAL}; it returned a promise. Validation is synchronous, so a filter callback cannot be async.`
     );
@@ -250,7 +251,7 @@ export function comparisonOperand<
     | ((ctx: TCtx) => FieldRef<string, TType> | Sql),
     InferOutput<TSchema> | FieldRef<string, TType> | Sql
   >("comparison_operand", (value) => {
-    if (typeof value === "function") {
+    if (isFunction(value)) {
       return resolveCallback(
         value as (ctx: AnyOperandCtx) => unknown,
         fieldType
@@ -271,7 +272,7 @@ export function comparisonOperand<
   // optionality is entirely the wrapped schema's business, so mirror it for the
   // object validator's fast path.
   (schema as { acceptsUndefined: boolean }).acceptsUndefined =
-    (wrapped as { acceptsUndefined?: boolean }).acceptsUndefined ?? false;
+    (wrapped as { acceptsUndefined?: boolean }).acceptsUndefined === true;
 
   return schema;
 }
@@ -324,7 +325,7 @@ export function fieldRefOr<
   // A reference is never a default; optionality is entirely the wrapped
   // schema's business, so mirror it for the object validator's fast path.
   (schema as { acceptsUndefined: boolean }).acceptsUndefined =
-    (wrapped as { acceptsUndefined?: boolean }).acceptsUndefined ?? false;
+    (wrapped as { acceptsUndefined?: boolean }).acceptsUndefined === true;
 
   return schema;
 }

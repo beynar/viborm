@@ -58,9 +58,3 @@ export const projectableScalarNames = (model: AnyModel): string[] => {
     (name) => !Object.hasOwn(omitted, name) || omitted[name] !== true
   );
 };
-
-/** True when the model's `.omit()` hides this scalar for good. */
-export const isModelOmitted = (model: AnyModel, field: string): boolean => {
-  const omitted = model["~"].state.omit;
-  return Boolean(omitted && Object.hasOwn(omitted, field) && omitted[field]);
-};

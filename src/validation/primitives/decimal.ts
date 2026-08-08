@@ -5,6 +5,7 @@ import type {
   ValidationResult,
   VibSchema,
 } from "../types";
+import { isBigInt, isNumber, isString } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -38,12 +39,6 @@ export interface DecimalSchema<TInput = DecimalInput, TOutput = DecimalOutput>
  */
 const DECIMAL_LITERAL_REGEX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 
-/** Splits an already-validated literal into sign / integer / fraction. */
-const DECIMAL_PARTS_REGEX = /^([+-]?)(\d*)(?:\.(\d*))?$/;
-
-/** A `String(number)` result in exponent form: mantissa + exponent. */
-const EXPONENT_FORM_REGEX = /^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/;
-
 const DECIMAL_ERROR = Object.freeze({
   issues: Object.freeze([
     Object.freeze({
@@ -55,6 +50,7 @@ const DECIMAL_ERROR = Object.freeze({
 
 const LEADING_ZEROS_REGEX = /^0+/;
 const TRAILING_ZEROS_REGEX = /0+$/;
+const LEADING_SIGN_REGEX = /^[+-]/;
 
 /**
  * Reduce a valid decimal literal to its ONE canonical spelling: no leading `+`,
@@ -66,11 +62,11 @@ const TRAILING_ZEROS_REGEX = /0+$/;
  * It also makes `"1.10"` and `"1.1"` the same value on every dialect.
  */
 function canonicalizeLiteral(literal: string): string {
-  const parts = DECIMAL_PARTS_REGEX.exec(literal);
-  if (!parts) return literal;
-  const negative = parts[1] === "-";
-  const integer = (parts[2] ?? "").replace(LEADING_ZEROS_REGEX, "");
-  const fraction = (parts[3] ?? "").replace(TRAILING_ZEROS_REGEX, "");
+  const negative = literal.startsWith("-");
+  const unsigned = literal.replace(LEADING_SIGN_REGEX, "");
+  const [rawInteger = "", rawFraction = ""] = unsigned.split(".");
+  const integer = rawInteger.replace(LEADING_ZEROS_REGEX, "");
+  const fraction = rawFraction.replace(TRAILING_ZEROS_REGEX, "");
   const whole = integer === "" ? "0" : integer;
   // Zero has no sign: '-0.000' and '0' are the same number, so they get the
   // same spelling — otherwise SQLite's text equality would split them apart.
@@ -83,23 +79,21 @@ function canonicalizeLiteral(literal: string): string {
  * Expand `String(number)`'s exponent form (`1e+21`, `1e-7`) into plain decimal
  * digits. The mantissa digits are preserved exactly — this only moves the dot.
  */
-function expandExponentForm(text: string): string | undefined {
-  const match = EXPONENT_FORM_REGEX.exec(text);
-  if (!match) return undefined;
-  const sign = match[1] === "-" ? "-" : "";
-  const intDigits = match[2] ?? "";
-  const fracDigits = match[3] ?? "";
-  const exponent = Number(match[4]);
+function expandExponentForm(text: string): string {
+  const [mantissa = "", exponentText = ""] = text.toLowerCase().split("e");
+  const sign = mantissa.startsWith("-") ? "-" : "";
+  const unsigned = mantissa.replace(LEADING_SIGN_REGEX, "");
+  const [intDigits = "", fracDigits = ""] = unsigned.split(".");
+  const exponent = Number(exponentText);
   const digits = intDigits + fracDigits;
   // Where the dot sits after shifting: digits before it, counted from the left.
   const pointIndex = intDigits.length + exponent;
   if (pointIndex <= 0) {
     return `${sign}0.${"0".repeat(-pointIndex)}${digits}`;
   }
-  if (pointIndex >= digits.length) {
-    return `${sign}${digits}${"0".repeat(pointIndex - digits.length)}`;
-  }
-  return `${sign}${digits.slice(0, pointIndex)}.${digits.slice(pointIndex)}`;
+  // `String(number)` uses exponent notation only when the shifted point is
+  // outside the mantissa digits. Values in the middle range use plain notation.
+  return `${sign}${digits}${"0".repeat(pointIndex - digits.length)}`;
 }
 
 /**
@@ -113,24 +107,21 @@ function expandExponentForm(text: string): string | undefined {
  * does not launder float error the caller already committed.
  */
 export function canonicalizeDecimal(value: unknown): string | undefined {
-  if (typeof value === "string") {
+  if (isString(value)) {
     return DECIMAL_LITERAL_REGEX.test(value)
       ? canonicalizeLiteral(value)
       : undefined;
   }
-  if (typeof value === "number") {
+  if (isNumber(value)) {
     if (!Number.isFinite(value)) return undefined;
     const text = String(value);
     const expanded =
       text.includes("e") || text.includes("E")
         ? expandExponentForm(text)
         : text;
-    if (expanded === undefined) return undefined;
-    return DECIMAL_LITERAL_REGEX.test(expanded)
-      ? canonicalizeLiteral(expanded)
-      : undefined;
+    return canonicalizeLiteral(expanded);
   }
-  if (typeof value === "bigint") {
+  if (isBigInt(value)) {
     return canonicalizeLiteral(String(value));
   }
   return undefined;

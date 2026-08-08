@@ -3,13 +3,16 @@
  * Handles conversion of VibORM schemas to JSON Schema format.
  */
 
+import { ValidationError } from "@errors";
 import type { VibSchema } from "../types";
+import { isFunction, isString } from "../value-guards";
 import type {
   ConversionContext,
   ConversionFrame,
   JsonSchema,
   JsonSchemaTarget,
 } from "./types";
+import { createContext, SUPPORTED_TARGETS } from "./types";
 
 // =============================================================================
 // Helper Functions
@@ -31,16 +34,6 @@ function getInnerSchema(schema: any): any {
     current = current.item ?? current.wrapped;
   }
   return current;
-}
-
-/**
- * Get the name of a schema by traversing wrappers to find an inner named object.
- * Returns null if no name is found - in that case, the schema should be inlined.
- */
-function getSchemaName(schema: any): string | null {
-  const inner = getInnerSchema(schema);
-  const name = inner?.options?.name;
-  return name && typeof name === "string" ? name : null;
 }
 
 /**
@@ -68,9 +61,9 @@ function framePointer(
     return frame.pointer;
   }
 
-  const declared = (frame.schema as any)?.options?.name;
-  let name: string | undefined =
-    typeof declared === "string" && declared.length > 0 ? declared : undefined;
+  const declared = (frame.schema as { options?: { name?: string } }).options
+    ?.name;
+  let name = declared === "" ? undefined : declared;
 
   while (name === undefined || name in context.definitions) {
     context.refCount += 1;
@@ -274,7 +267,7 @@ function convertSchemaBody(
 
       for (const key in entries) {
         const entry = entries[key];
-        const isThunk = typeof entry === "function";
+        const isThunk = isFunction(entry);
 
         // Resolve thunks to get the actual schema
         const entrySchema = isThunk
@@ -285,7 +278,7 @@ function convertSchemaBody(
         const innerSchema = getInnerSchema(entrySchema);
         const schemaName = innerSchema?.options?.name;
 
-        if (schemaName && typeof schemaName === "string") {
+        if (schemaName && isString(schemaName)) {
           // Pre-register the inner named object (not the wrapper)
           if (!context.referenceMap.has(innerSchema)) {
             context.referenceMap.set(innerSchema, schemaName);
@@ -455,16 +448,16 @@ function convertSchemaBody(
     case "pipe": {
       // Pipe contains a base schema and actions - use the base schema
       const baseSchema = (schema as any).schema as VibSchema<unknown, unknown>;
-      if (baseSchema) {
-        return convertSchema(baseSchema as any, context);
-      }
-      break;
+      return convertSchema(baseSchema as any, context);
     }
 
     default:
-      throw new Error(
-        `Cannot convert "${schemaType}" schema to JSON Schema: unsupported type`
-      );
+      throw new ValidationError({ kind: "json-schema", schemaType }, [
+        {
+          path: "type",
+          message: `Cannot convert "${schemaType}" schema to JSON Schema: unsupported type`,
+        },
+      ]);
   }
 
   return jsonSchema;
@@ -485,14 +478,16 @@ export function toJsonSchema(
   schema: VibSchema<unknown, unknown>,
   target: JsonSchemaTarget = "draft-07"
 ): JsonSchema {
-  const context: ConversionContext = {
-    definitions: {},
-    referenceMap: new Map(),
-    activeFrames: new Map(),
-    rootSchema: schema,
-    refCount: 0,
-    target,
-  };
+  if (!SUPPORTED_TARGETS.includes(target)) {
+    throw new ValidationError({ kind: "json-schema", target }, [
+      {
+        path: "target",
+        message: `Unsupported JSON Schema target: ${target}`,
+      },
+    ]);
+  }
+
+  const context = createContext(target, schema);
 
   const jsonSchema = convertSchema(schema as any, context);
 

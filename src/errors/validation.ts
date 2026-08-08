@@ -10,6 +10,35 @@ export interface ValidationIssue {
   message: string;
 }
 
+/** The boundary that rejected a value. */
+export type ValidationErrorSource =
+  | {
+      readonly kind: "operation";
+      readonly operation: Operation;
+      readonly model?: string | undefined;
+    }
+  | {
+      readonly kind: "registry";
+      readonly model?: string | undefined;
+      readonly property?: string | undefined;
+    }
+  | {
+      readonly kind: "schema-builder";
+      readonly builder: string;
+      readonly path: string;
+    }
+  | {
+      readonly kind: "json-schema";
+      readonly target?: string | undefined;
+      readonly schemaType?: string | undefined;
+    };
+
+export interface ValidationErrorOptions {
+  cause?: Error | undefined;
+  diagnostics?: DiagnosticDisclosure | undefined;
+  meta?: VibORMErrorMeta | undefined;
+}
+
 /**
  * The INTERNAL operation names that have no client spelling, mapped to the name
  * a caller can actually type.
@@ -43,42 +72,86 @@ export function publicOperationName(operation: Operation): Operation {
 export class ValidationError extends VibORMError {
   static override readonly diagnosticName = "ValidationError";
 
-  /** Literal discriminant: this class always carries `VALIDATION_FAILED`. */
-  declare readonly code: typeof VibORMErrorCode.VALIDATION_FAILED;
+  /** Operation failures use V4001; other validation boundaries use V4002. */
+  declare readonly code:
+    | typeof VibORMErrorCode.VALIDATION_FAILED
+    | typeof VibORMErrorCode.INVALID_INPUT;
 
   /** Validation issues */
   readonly issues: ValidationIssue[];
+  /** Boundary that rejected the value. */
+  readonly source: ValidationErrorSource;
   /**
    * Operation that failed validation, in its CLIENT spelling — a bulk write
    * validated through its internal row-returning arm still reports the family
    * name the caller used (see {@link publicOperationName}).
    */
-  readonly operation: Operation;
+  readonly operation?: Operation | undefined;
 
   constructor(
-    operation: Operation,
+    sourceOrOperation: Operation | ValidationErrorSource,
     issues: ValidationIssue[],
-    options?: {
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta;
-    }
+    options?: ValidationErrorOptions
   ) {
     const issuesSummary =
       issues.length === 1
         ? issues[0]!.message
         : `${issues.length} validation errors`;
-    const reported = publicOperationName(operation);
+    const source = normalizeSource(sourceOrOperation, options?.meta);
+    const operation =
+      source.kind === "operation" ? source.operation : undefined;
+    const subject = validationSubject(source);
     super(
-      `Validation failed for ${reported}: ${issuesSummary}`,
-      VibORMErrorCode.VALIDATION_FAILED,
+      `Validation failed for ${subject}: ${issuesSummary}`,
+      operation
+        ? VibORMErrorCode.VALIDATION_FAILED
+        : VibORMErrorCode.INVALID_INPUT,
       {
+        cause: options?.cause,
         diagnostics: options?.diagnostics,
-        meta: { ...options?.meta, operation: reported },
+        meta: operation
+          ? { ...options?.meta, operation }
+          : { ...options?.meta },
       }
     );
     this.issues = issues;
-    this.operation = reported;
+    this.source = source;
+    this.operation = operation;
   }
+
+  override toJSON(): Record<string, unknown> {
+    return { ...super.toJSON(), source: this.source };
+  }
+}
+
+function normalizeSource(
+  sourceOrOperation: Operation | ValidationErrorSource,
+  meta: VibORMErrorMeta | undefined
+): ValidationErrorSource {
+  if (typeof sourceOrOperation === "string") {
+    const model = typeof meta?.model === "string" ? meta.model : undefined;
+    return Object.freeze({
+      kind: "operation",
+      operation: publicOperationName(sourceOrOperation),
+      ...(model ? { model } : {}),
+    });
+  }
+
+  if (sourceOrOperation.kind === "operation") {
+    return Object.freeze({
+      ...sourceOrOperation,
+      operation: publicOperationName(sourceOrOperation.operation),
+    });
+  }
+
+  return Object.freeze({ ...sourceOrOperation });
+}
+
+function validationSubject(source: ValidationErrorSource): string {
+  if (source.kind === "operation") return source.operation;
+  if (source.kind === "registry") return "schema registry";
+  if (source.kind === "schema-builder") return source.builder;
+  return "JSON Schema";
 }
 
 /**

@@ -53,6 +53,18 @@ Parsing establishes payload meaning. Planning obtains values needed to choose
 or materialize the final fragment. Compilation emits only the selected final
 effects. Execution does not learn relation semantics.
 
+An **operation shell** is the concrete owner of one public operation family. It
+exposes `mode`, planning, compilation, and result parsing. A routed root shell
+owns public target and result behavior and selects direct folds.
+`CreateOperation` can also serve as a delegated fresh-record compiler inside an
+outer shell. `*Operation.ts` files contain these owners;
+`../operations/*.ts` files contain operation-specific SQL, plan, identity, and
+ordering helpers.
+
+At one relation edge, **parent** is the current source record and **child** is
+its target. `parentHeldToOne` means that source record stores the FK; neither
+word establishes a global model hierarchy.
+
 ## 2. The execution vocabulary
 
 `OperationFragment.ts` owns the runtime vocabulary.
@@ -109,7 +121,7 @@ interface PlanningFragment {
 Planning contains no guards. A guard protects a premise of the selected final
 fragment, and no final branch has been selected while planning runs.
 
-Planning is not read-only. E6.9 skip-duplicate capture performs preparation
+Planning is not read-only. Skip-duplicate capture performs preparation
 writes during root planning. Those writes publish the values required to build
 the final fragment. The executor must retain its non-read planning fallback.
 
@@ -309,7 +321,10 @@ when a descendant, an incoming edge consumer, a junction, or a terminal result
 needs it. An unused generated identity does not force a different insert shape.
 
 `createMany` remains specialized because row grouping, skip semantics, and
-multi-row output folding are not one-record compilation.
+multi-row output folding are not one-record compilation. A fresh parent stores
+post-insert groups in `CreateOperation`; a selected parent delegates to
+`nested-target-parts.ts`; a junction retains target-row and join ordering in
+`RelationJunctionPart`.
 
 ## 10. Selected-record compiler
 
@@ -381,7 +396,7 @@ It owns:
 - missing-arm race pins;
 - junction attachment;
 - first-create-wins behavior;
-- terminal relation effects.
+- standalone edge effects.
 
 It calls the record compiler only after it has the selected target identity and
 only when that arm must run.
@@ -490,7 +505,7 @@ target:
 1. captures the target primary key in its owner read;
 2. carries that captured value through planning outputs;
 3. writes by the captured primary key;
-4. uses the same captured identity for descendants and terminal correlation.
+4. gives descendants and any outer post-write read that same identity.
 
 The wrong-row decoy tests are not optional detail. They prove that replacement
 or selector drift cannot redirect an update.
@@ -506,10 +521,21 @@ For the third path, transaction mode pins the decision with the locked locate
 and can keep the original selector on its write. Batch mode reasserts the
 complete selector and each matched conditional together with the captured key,
 then writes by that key. The guard fixes the decision at the atomic unit's
-entrance; the write keeps row identity afterward. The conditional-skip arm
-retains its absence guard, while its terminal read addresses the captured
-located primary key. After an update, the terminal read addresses the
-reconstructed post-update primary key.
+entrance; the write keeps row identity afterward.
+
+A conditional-skip batch arm pins two facts, in this order:
+
+1. a non-raceable presence guard proves that the complete selector still names
+   the captured primary key;
+2. a raceable absence guard proves that this same row still does not satisfy
+   the conditional.
+
+The second guard is an absence query, not SQL `NOT (condition)`, so SQL UNKNOWN
+remains a no-match. The terminal read addresses the captured primary key. After
+an update, the terminal read addresses the reconstructed post-update primary
+key. Both guards remain inside the same atomic driver batch, so the extra
+statement adds no network round trip. Transaction mode needs neither guard
+because its decision read is locked.
 
 ## 16. Junction relations
 
@@ -552,7 +578,7 @@ Bulk semantics include row grouping, optional zero matches, membership sets,
 and output concatenation. A generic record compiler would hide those facts
 rather than compress them.
 
-E6.9 preparation writes remain in planning. Adapter `batchRefs` and executor
+Skip-duplicate preparation writes remain in planning. Adapter `batchRefs` and executor
 `insertId` handling remain because they express real substrate capabilities.
 
 ## 18. SQL ownership
@@ -660,7 +686,7 @@ Run focused tests first, then:
 
 ```bash
 pnpm test:types
-pnpm test:gates
+pnpm test:layer:query-engine
 pnpm package:build
 pnpm test
 ```
@@ -668,8 +694,9 @@ pnpm test
 Run PostgreSQL and MySQL parity suites when Docker is available. If they are not
 run, report that fact; do not treat a skipped suite as passing.
 
-The retained boundaries are `QueryMetadata`, adapter `batchRefs`,
-`ManyToManyStatements`, fragment types, mutation programs, bound
-relations, field-bound FK sources, the two record compilers, specialized bulk
-Parts, and explicit branch pins. Everything else can be simplified when
-evidence shows a smaller truthful owner.
+The retained runtime boundaries are adapter `batchRefs`,
+`ManyToManyStatements`, fragment types, mutation programs, bound relations,
+field-bound FK sources, the two record compilers, specialized bulk Parts, and
+explicit branch pins. `QueryMetadata` remains only as a deprecated type-only
+compatibility alias. Everything else can be simplified when evidence shows a
+smaller truthful owner.

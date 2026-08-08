@@ -132,6 +132,6 @@ dialects. Then run:
 
 ```bash
 pnpm test:types
-pnpm test:gates
+pnpm test:layer:query-engine
 pnpm package:build
 ```

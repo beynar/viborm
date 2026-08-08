@@ -1,6 +1,6 @@
 # Query-Engine Compression Audit
 
-**Current as of:** 2026-08-06
+**Current as of:** 2026-08-07
 
 **Historical boundary:** `db3317770ce7e589ba1da849570eda6925c4c478`
 
@@ -38,7 +38,7 @@ symbols:
 
 | Group | Durable concept |
 | --- | --- |
-| public orchestration | operation shell and `QueryMetadata` |
+| public orchestration | `QueryEngine`, `PendingOperation`, and executable operation shells |
 | execution | statement/guard atom |
 | phase boundary | planning fragment |
 | final program | operation fragment |
@@ -64,34 +64,53 @@ compatibility carriers that exposed that mode.
 
 Documentation and comment deletion are not executable compression. The
 structural census therefore records both physical lines and non-trivia
-TypeScript-token lines. Against the historical boundary above, the query engine
-now measures:
+TypeScript token-start lines. The token census now walks parser-owned tokens. Its
+previous standalone scanner lost lexical state after template expressions and
+could count backticks in later comments as code. The corrected figures below
+supersede the older token-line claims.
+
+Against the historical boundary above, the current working tree measures:
 
 | Measure | Historical | Current | Net |
 | --- | ---: | ---: | ---: |
 | production TypeScript files | 110 | 109 | **−1** |
-| physical production lines | 35,992 | 34,576 | **−1,416** |
-| non-trivia token lines | 16,396 | 15,979 | **−417** |
-| measured functions | 1,406 | 1,376 | **−30** |
-| branch nodes | 3,110 | 3,084 | **−26** |
+| physical production lines | 35,992 | 34,435 | **−1,557** |
+| non-trivia token-start lines | 25,515 | 25,640 | **+125** |
+| measured functions | 1,406 | 1,379 | **−27** |
+| branch nodes | 3,110 | 3,082 | **−28** |
 
 The final refinement started at `4f696b46ddee4f44c954e3370d98cc371f73a5ee`:
 
 | Measure | Before | After | Net |
 | --- | ---: | ---: | ---: |
-| physical production lines | 35,207 | 34,576 | **−631** |
-| non-trivia token lines | 16,225 | 15,979 | **−246** |
-| comment/blank physical remainder | 18,982 | 18,597 | **−385** |
-| measured functions | 1,399 | 1,376 | **−23** |
-| branch nodes | 3,084 | 3,084 | **0** |
+| physical production lines | 35,207 | 34,435 | **−772** |
+| non-trivia token-start lines | 25,595 | 25,640 | **+45** |
+| comment/blank physical remainder | 9,612 | 8,795 | **−817** |
+| measured functions | 1,399 | 1,379 | **−20** |
+| branch nodes | 3,084 | 3,082 | **−2** |
 | write-engine runtime cycles | 1 | 0 | **−1** |
 | `RelationJunctionPart.ts` | 2,565 | 2,242 | **−323** |
 
-Owned architecture Markdown changed by **+69 physical lines** because the live ownership doctrine replaced older claims; it is not counted as production compression.
+The current closure pass changed six executable-owner production files:
 
-The token measure excludes comments and whitespace. The comment/blank remainder
-is reported separately so historical narrative removal cannot masquerade as
-executable compression.
+| Measure | Before | After | Net |
+| --- | ---: | ---: | ---: |
+| physical production lines | 5,745 | 5,574 | **−171** |
+| non-trivia token-start lines | 4,592 | 4,583 | **−9** |
+| measured functions | 256 | 253 | **−3** |
+| branch nodes | 399 | 395 | **−4** |
+
+Comment-only corrections in two supporting production files remove another 15
+physical lines without changing token-start lines. The task-owned total is
+therefore **−186 physical lines** and **−9 token-start lines**. Concurrent
+work in `execution-context.ts` accounts for another 16 physical and 14
+token-start lines in the working-tree total and is not attributed to this
+pass. Architecture Markdown is also excluded from production compression.
+
+The corrected token measure changes the conclusion: the long compression series
+removed physical size, functions, branches, cycles, false concepts, and ownership
+surfaces, but it did not reduce token-start production lines against the
+historical boundary. The current closure pass itself removes 9 such lines.
 
 The durable concept count remains approximately 17. Exact junction state and
 the type-only compiler seam are representations of existing responsibilities,
@@ -103,10 +122,19 @@ carriers: `OwnWritePreflight`, `canonicalRecordUpdateData`,
 configuration channels, the inverse-upsert local selected-update builder, and
 `updateArmUsesCompiler`.
 
+The closure pass adds no durable concept. It removes the `RelationWriteKind`
+carrier and the false optional inverse-upsert subtree state, reuses the bound
+relation already present in an OwnWrite footprint, and removes the junction
+disconnect slot's dummy update payload. The resulting exact slot aliases are
+representations of existing operation kinds, not new owners.
+
 Three false ownership surfaces disappeared: OwnWrite's pass-through preflight,
 the duplicate nested fresh-record compiler surface, and the inverse to-one
 upsert's private selected-update path. The junction's optional aligned arrays
 also became one exact input variant and one exact allocated plan.
+
+`QueryMetadata` remains only as a deprecated compatibility alias. It is not a
+runtime concept and does not increase this count.
 
 ## Final ownership model
 
@@ -123,12 +151,19 @@ child-held to-many, or junction. It carries ordered topology only. It does not
 contain scopes, identities, value sources, transition values, SQL, or branch
 policy.
 
+Parent and child are recursive, edge-relative roles: parent is the enclosing
+source record whose relation field is being compiled, and child is its target.
+`parentHeldToOne` means that source record stores the FK.
+
 ### CreateOperation: one fresh record
 
 The create compiler receives parsed data and field-bound incoming FK members.
 It owns the root insert, generated identity demand, nested record effects, and
 fresh subtree order. The explicit inline junction-target insert and
-`createMany` remain specialized.
+`createMany` remain specialized. A fresh parent stores its post-insert
+create-many groups in `CreateOperation`; a selected parent uses
+`nested-target-parts.ts`; junction create-many remains in
+`RelationJunctionPart`. The top-level form stays in `CreateManyOperation`.
 
 ### RecordUpdateCompiler: one selected record
 
@@ -144,9 +179,9 @@ path.
 
 ### Relation Parts: why this child-held or junction record
 
-Child-held and junction owners keep selector and parent correlation, membership, found/missing
-decisions, not-found behavior, guards, race pins, junction effects, and terminal
-relation effects. They pass the captured target to the record compiler.
+Child-held and junction owners keep selector and parent correlation, membership,
+found/missing decisions, not-found behavior, guards, race pins, junction writes,
+and standalone edge effects. They pass the captured target to the record compiler.
 
 ## Why the remaining branches are real
 
@@ -157,6 +192,12 @@ The batch path guards the captured row. A missing arm that inserts the same
 unique target uses the database constraint and a root-write race pin. A
 same-operation duplicate needs neither. These are different premises, not
 syntax variants.
+
+A conditional-skip batch arm has two premises. A non-raceable presence guard
+first proves that the selector still names the captured row. A raceable absence
+guard then proves that this same row still does not match the conditional. The
+second check uses an absence query, so SQL UNKNOWN remains a no-match. Keeping
+the failures separate preserves both wrong-row refusal and false-to-true retry.
 
 ### Captured-primary-key targeting
 
@@ -196,7 +237,7 @@ state as exact discriminated variants instead of parallel optional arrays.
 
 - `createMany`, `updateMany`, and `deleteMany`;
 - relation `set`;
-- skip-duplicate grouping and E6.9 planning writes;
+- skip-duplicate grouping and preparation writes;
 - direct top-level scalar folds;
 - many-and-return folds;
 - junction SQL in `ManyToManyStatements`;

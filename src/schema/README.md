@@ -548,31 +548,36 @@ The validation system checks schema correctness before runtime.
 | **I0xx** | Index | Index definitions |
 | **R0xx** | Relation | Relation configuration |
 | **JT0xx** | Junction | Many-to-many junction tables |
-| **SR0xx** | Self-ref | Self-referential relations |
 | **CM0xx** | Cross-model | Cross-model dependencies |
 | **FK0xx** | Foreign Key | FK scalar field-key validation |
 | **RA0xx** | Referential Action | onDelete/onUpdate rules |
-| **DB0xx** | Database | Database-specific constraints |
 
 ### Key Validation Rules
 
 ```
-M001  Model must have at least one scalar field
-M002  Model names must be unique
-M003  Model name cannot be empty or reserved
+M001  Model must have an ID field or compound ID
+M002  Model must have at least one scalar field
+M003  Duplicate registration is rejected before Map replacement
+M005  Model name must be a valid identifier
+M006  Model name cannot be reserved
+M007  Mapped table name must be a valid identifier
 
-F001  No duplicate field names
-F002  Model must have exactly one ID (scalar field or compound ID)
-F003  Default value must match scalar type
-F004  Only certain types support arrays (DB-specific)
+F001  Field names must be valid identifiers
+F002  ID definitions cannot conflict
+F003  Two scalars cannot map to the same column
+F004  A direct default must satisfy its scalar schema
+F006  An ID cannot be nullable
+F007  An ID cannot be an array
+F008  Automatic generation without an ID produces a warning
+F009  Mapped column names must be valid identifiers
 
 I001  Index fields must exist in model
 I002  Index names must be unique per model
 I003  Compound ID/unique fields must exist
 
-R001  Relation target model must exist
-R002  Bidirectional relations should have inverse
-R003  Relation names must be unique per model
+R002-R005  Each relation cardinality must have its inverse
+R006       Relation target model must be registered
+R007       Multiple relation pairs require names
 
 FK001 FK scalar field-key must exist in model
 FK002 Referenced scalar field-key must exist in target
@@ -585,7 +590,7 @@ FK003 FK scalar and referenced scalar types must match
 import { validateSchema, validateSchemaOrThrow, SchemaValidator } from "viborm";
 
 // Get all errors
-const result = validateSchema([user, post, profile]);
+const result = validateSchema({ user, post, profile });
 if (!result.valid) {
   for (const error of result.errors) {
     console.log(`[${error.code}] ${error.model}: ${error.message}`);
@@ -593,15 +598,20 @@ if (!result.valid) {
 }
 
 // Throw on first error
-validateSchemaOrThrow([user, post, profile]);
+validateSchemaOrThrow({ user, post, profile });
 
 // Custom validation
-const validator = new SchemaValidator([user, post], {
-  rules: ['modelHasFields', 'modelHasId', 'relationTargetExists'],
-  database: 'postgres'
-});
-const result = validator.validate();
+const validator = new SchemaValidator()
+  .register("user", user)
+  .register("post", post);
+const customResult = validator.validate();
 ```
+
+`validateSchemaOrThrow` throws `SchemaValidationError`. The error keeps an
+immutable `issues` snapshot, uses `V4002`, and does not claim a Prisma code.
+Database-specific schema restrictions are validated by the migration dialect
+that owns them; the schema validator does not emit disconnected portability
+warnings.
 
 ---
 

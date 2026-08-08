@@ -1,0 +1,244 @@
+- generic [active] [ref=f1e1]:
+  - link "Skip to content" [ref=f1e2] [cursor=pointer]:
+    - /url: "#blume-content"
+  - banner [ref=f1e3]:
+    - link "VibORM" [ref=f1e4] [cursor=pointer]:
+      - /url: /
+    - navigation "Sections" [ref=f1e6]:
+      - link "Documentation" [ref=f1e7] [cursor=pointer]:
+        - /url: /docs
+      - link "Internal" [ref=f1e8] [cursor=pointer]:
+        - /url: /docs/internals
+    - button "Search" [ref=f1e10] [cursor=pointer]:
+      - generic [ref=f1e16]: ⌘K
+    - generic [ref=f1e17]:
+      - link "GitHub repository" [ref=f1e18] [cursor=pointer]:
+        - /url: https://github.com/beynar/viborm
+      - button "Toggle color theme" [ref=f1e21] [cursor=pointer]
+  - generic [ref=f1e27]:
+    - complementary "Primary" [ref=f1e28]:
+      - navigation [ref=f1e29]:
+        - list [ref=f1e30]:
+          - listitem [ref=f1e31]:
+            - link "Introduction" [ref=f1e32] [cursor=pointer]:
+              - /url: /docs
+          - listitem [ref=f1e35]:
+            - link "Why We Built This" [ref=f1e36] [cursor=pointer]:
+              - /url: /docs/why
+          - listitem [ref=f1e39]:
+            - group [ref=f1e40]:
+              - generic "Getting Started" [ref=f1e41] [cursor=pointer]
+              - list [ref=f1e52]:
+                - listitem [ref=f1e53]:
+                  - link "Installation" [ref=f1e54] [cursor=pointer]:
+                    - /url: /docs/getting-started
+                - listitem [ref=f1e57]:
+                  - link "Quick Start" [ref=f1e58] [cursor=pointer]:
+                    - /url: /docs/getting-started/quick-start
+                - listitem [ref=f1e61]:
+                  - link "Configuration" [ref=f1e62] [cursor=pointer]:
+                    - /url: /docs/getting-started/configuration
+          - listitem [ref=f1e65]:
+            - group [ref=f1e66]:
+              - generic "Schema" [ref=f1e67] [cursor=pointer]
+          - listitem [ref=f1e74]:
+            - group [ref=f1e75]:
+              - generic "Client" [ref=f1e76] [cursor=pointer]
+          - listitem [ref=f1e83]:
+            - group [ref=f1e84]:
+              - generic "Drivers" [ref=f1e85] [cursor=pointer]
+          - listitem [ref=f1e95]:
+            - group [ref=f1e96]:
+              - generic "Cache" [ref=f1e97] [cursor=pointer]
+          - listitem [ref=f1e106]:
+            - group [ref=f1e107]:
+              - generic "Migrations" [ref=f1e108] [cursor=pointer]
+          - listitem [ref=f1e118]:
+            - group [ref=f1e119]:
+              - generic "Instrumentation" [ref=f1e120] [cursor=pointer]
+    - main [ref=f1e127]:
+      - navigation "Breadcrumb" [ref=f1e128]: Getting Started
+      - group [ref=f1e129]:
+        - generic "On this page" [ref=f1e130] [cursor=pointer]
+      - article [ref=f1e134]:
+        - heading "Quick Start" [level=1] [ref=f1e135]
+        - paragraph [ref=f1e136]: Build your first VibORM schema in 5 minutes with a simple blog example featuring users and posts
+        - heading [level=2] [ref=f1e137]:
+          - link "1. Define Your Schema#" [ref=f1e138] [cursor=pointer]:
+            - /url: "#1-define-your-schema"
+        - paragraph [ref=f1e139]:
+          - text: Create a
+          - code [ref=f1e140]: schema.ts
+          - text: "file with your model definitions:"
+        - generic [ref=f1e141]:
+          - text: src/db/schema.ts
+          - code [ref=f1e144]:
+            - generic [ref=f1e145]: "import { s } from \"viborm\";"
+            - generic [ref=f1e146]: // User model
+            - generic [ref=f1e147]: "export const user = s.model({"
+            - generic [ref=f1e148]: "id: s.string().id().ulid(),"
+            - generic [ref=f1e149]: "email: s.string().unique(),"
+            - generic [ref=f1e150]: "name: s.string(),"
+            - generic [ref=f1e151]: "createdAt: s.dateTime().default(() => new Date()),"
+            - generic [ref=f1e152]: "posts: s.oneToMany(() => post),"
+            - generic [ref=f1e153]: "});"
+            - generic [ref=f1e154]: // Post model
+            - generic [ref=f1e155]: "export const post = s.model({"
+            - generic [ref=f1e156]: "id: s.string().id().ulid(),"
+            - generic [ref=f1e157]: "title: s.string(),"
+            - generic [ref=f1e158]: "content: s.string().nullable(),"
+            - generic [ref=f1e159]: "published: s.boolean().default(false),"
+            - generic [ref=f1e160]: "authorId: s.string(),"
+            - generic [ref=f1e161]: "author: s.manyToOne(() => user)"
+            - generic [ref=f1e162]: .fields("authorId")
+            - generic [ref=f1e163]: .references("id"),
+            - generic [ref=f1e164]: "createdAt: s.dateTime().default(() => new Date()),"
+            - generic [ref=f1e165]: "});"
+          - button "Copy code" [ref=f1e166] [cursor=pointer]
+        - heading [level=2] [ref=f1e167]:
+          - link "2. Create the Client#" [ref=f1e168] [cursor=pointer]:
+            - /url: "#2-create-the-client"
+        - paragraph [ref=f1e169]: "Initialize your database client with your preferred database:"
+        - generic [ref=f1e170]:
+          - tablist [ref=f1e172]:
+            - tab "postgres.js" [selected] [ref=f1e173] [cursor=pointer]
+            - tab "node-postgres" [ref=f1e175] [cursor=pointer]
+            - tab "SQLite" [ref=f1e177] [cursor=pointer]
+            - tab "PGlite" [ref=f1e179] [cursor=pointer]
+          - tabpanel "postgres.js" [ref=f1e182]:
+            - generic [ref=f1e183]:
+              - code [ref=f1e184]:
+                - generic [ref=f1e185]: "import { createClient } from \"viborm/postgres\";"
+                - generic [ref=f1e186]: import * as schema from "./schema";
+                - generic [ref=f1e187]: "export const client = createClient({"
+                - generic [ref=f1e188]: schema,
+                - generic [ref=f1e189]: "databaseUrl: process.env.DATABASE_URL,"
+                - generic [ref=f1e190]: "});"
+              - button "Copy code" [ref=f1e191] [cursor=pointer]
+        - heading [level=2] [ref=f1e192]:
+          - link "3. Create the Database Tables#" [ref=f1e193] [cursor=pointer]:
+            - /url: "#3-create-the-database-tables"
+        - paragraph [ref=f1e194]:
+          - text: Your database is still empty. Create a
+          - code [ref=f1e195]: viborm.config.ts
+          - text: "in your project root and push the schema:"
+        - generic [ref=f1e196]:
+          - text: viborm.config.ts
+          - code [ref=f1e199]:
+            - generic [ref=f1e200]: "import { defineConfig } from \"viborm/config\";"
+            - generic [ref=f1e201]: "import { client } from \"./src/db/client\";"
+            - generic [ref=f1e202]: "export default defineConfig({ client });"
+          - button "Copy code" [ref=f1e203] [cursor=pointer]
+        - generic [ref=f1e204]:
+          - text: Bash
+          - code [ref=f1e207]:
+            - generic [ref=f1e208]: bun viborm push
+          - button "Copy code" [ref=f1e209] [cursor=pointer]
+        - paragraph [ref=f1e210]:
+          - code [ref=f1e211]: push
+          - text: syncs your models straight to the database without migration files — see
+          - link "Push" [ref=f1e212] [cursor=pointer]:
+            - /url: /docs/migration/push
+          - text: for details and
+          - link "Configuration" [ref=f1e213] [cursor=pointer]:
+            - /url: /docs/getting-started/configuration
+          - text: for config options.
+        - heading [level=2] [ref=f1e214]:
+          - link "4. Query Your Data#" [ref=f1e215] [cursor=pointer]:
+            - /url: "#4-query-your-data"
+        - paragraph [ref=f1e216]: "Now you can use the fully typed client:"
+        - generic [ref=f1e217]:
+          - text: src/index.ts
+          - code [ref=f1e220]:
+            - generic [ref=f1e221]: "import { client } from \"./db/client\";"
+            - generic [ref=f1e222]: // Create a user
+            - generic [ref=f1e223]: "const newUser = await client.user.create({"
+            - generic [ref=f1e224]: "data: {"
+            - generic [ref=f1e225]: "email: \"alice@example.com\","
+            - generic [ref=f1e226]: "name: \"Alice\","
+            - generic [ref=f1e227]: "},"
+            - generic [ref=f1e228]: "});"
+            - generic [ref=f1e229]: // Create a post for the user
+            - generic [ref=f1e230]: "const newPost = await client.post.create({"
+            - generic [ref=f1e231]: "data: {"
+            - generic [ref=f1e232]: "title: \"My First Post\","
+            - generic [ref=f1e233]: "content: \"Hello, VibORM!\","
+            - generic [ref=f1e234]: "authorId: newUser.id,"
+            - generic [ref=f1e235]: "},"
+            - generic [ref=f1e236]: "});"
+            - generic [ref=f1e237]: // Find users with their posts
+            - generic [ref=f1e238]: "const users = await client.user.findMany({"
+            - generic [ref=f1e239]: "where: {"
+            - generic [ref=f1e240]: "email: { contains: \"@example.com\" },"
+            - generic [ref=f1e241]: "},"
+            - generic [ref=f1e242]: "include: {"
+            - generic [ref=f1e243]: "posts: {"
+            - generic [ref=f1e244]: "where: { published: true },"
+            - generic [ref=f1e245]: "orderBy: { createdAt: \"desc\" },"
+            - generic [ref=f1e246]: "},"
+            - generic [ref=f1e247]: "},"
+            - generic [ref=f1e248]: "});"
+            - generic [ref=f1e249]: // Update a post
+            - generic [ref=f1e250]: "await client.post.update({"
+            - generic [ref=f1e251]: "where: { id: newPost.id },"
+            - generic [ref=f1e252]: "data: { published: true },"
+            - generic [ref=f1e253]: "});"
+            - generic [ref=f1e254]: // Delete unpublished posts
+            - generic [ref=f1e255]: "await client.post.deleteMany({"
+            - generic [ref=f1e256]: "where: { published: false },"
+            - generic [ref=f1e257]: "});"
+          - button "Copy code" [ref=f1e258] [cursor=pointer]
+        - heading [level=2] [ref=f1e259]:
+          - link "5. Type Safety in Action#" [ref=f1e260] [cursor=pointer]:
+            - /url: "#5-type-safety-in-action"
+        - paragraph [ref=f1e261]: "VibORM provides full type inference:"
+        - generic [ref=f1e262]:
+          - text: TypeScript
+          - code [ref=f1e265]:
+            - generic [ref=f1e266]: // ✅ TypeScript knows the exact shape
+            - generic [ref=f1e267]: "const user = await client.user.findUnique({"
+            - generic [ref=f1e268]: "where: { email: \"alice@example.com\" },"
+            - generic [ref=f1e269]: "select: { id: true, name: true },"
+            - generic [ref=f1e270]: "});"
+            - generic [ref=f1e271]: "// Type: { id: string; name: string } | null"
+            - generic [ref=f1e272]: // ❌ TypeScript catches errors at compile time
+            - generic [ref=f1e273]: "await client.user.create({"
+            - generic [ref=f1e274]: "data: {"
+            - generic [ref=f1e275]: "email: \"bob@example.com\","
+            - generic [ref=f1e276]: "// Error: 'name' is required"
+            - generic [ref=f1e277]: "},"
+            - generic [ref=f1e278]: "});"
+            - generic [ref=f1e279]: // ❌ Invalid field names are rejected
+            - generic [ref=f1e280]: "await client.user.findMany({"
+            - generic [ref=f1e281]: "where: { invalidField: \"value\" }, // Error: 'invalidField' does not exist"
+            - generic [ref=f1e282]: "});"
+          - button "Copy code" [ref=f1e283] [cursor=pointer]
+        - heading [level=2] [ref=f1e284]:
+          - link "Next Steps#" [ref=f1e285] [cursor=pointer]:
+            - /url: "#next-steps"
+        - generic [ref=f1e286]:
+          - link [ref=f1e287] [cursor=pointer]:
+            - /url: /docs/schema
+            - paragraph [ref=f1e289]: Schema Definition
+          - link [ref=f1e290] [cursor=pointer]:
+            - /url: /docs/client
+            - paragraph [ref=f1e292]: Client API
+          - link [ref=f1e293] [cursor=pointer]:
+            - /url: /docs/client/filtering
+            - paragraph [ref=f1e295]: Filtering
+      - region "Was this page helpful?" [ref=f1e296]:
+        - paragraph [ref=f1e297]: Was this page helpful?
+        - generic [ref=f1e298]:
+          - button "Yes" [ref=f1e299] [cursor=pointer]
+          - button "No" [ref=f1e302] [cursor=pointer]
+      - navigation "Pagination" [ref=f1e305]:
+        - link "Previous Installation" [ref=f1e306] [cursor=pointer]:
+          - /url: /docs/getting-started
+          - generic [ref=f1e309]:
+            - generic [ref=f1e310]: Previous
+            - generic [ref=f1e311]: Installation
+        - link "Next Configuration" [ref=f1e312] [cursor=pointer]:
+          - /url: /docs/getting-started/configuration
+          - generic [ref=f1e313]:
+            - generic [ref=f1e314]: Next
+            - generic [ref=f1e315]: Configuration

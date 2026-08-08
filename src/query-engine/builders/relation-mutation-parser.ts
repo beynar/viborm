@@ -1,4 +1,8 @@
-import { splitToOneUpdateTarget } from "@validation/relations/to-one-update-form";
+import {
+  splitToOneUpdateTarget,
+  type ToOneUpdateEnvelope,
+} from "@validation/relations/to-one-update-form";
+import { isRecord } from "@validation/value-guards";
 import { getRelationInfo, isRelation } from "../context";
 import { NestedWriteError, type QueryScope, type RelationInfo } from "../types";
 
@@ -326,7 +330,9 @@ function parseNormalizedUpdates(
   value: unknown
 ): NormalizedRelationUpdate[] {
   if (relationInfo.isToOne) {
-    const target = splitToOneUpdateTarget(value);
+    // `parsedPayload` is deliberately an unknown carrier, but the to-one update
+    // schema has already normalized this branch to its canonical envelope.
+    const target = splitToOneUpdateTarget(value as ToOneUpdateEnvelope);
     return [
       {
         target: {
@@ -468,8 +474,4 @@ function rejectToOneOperation(
     relationInfo.name,
     { meta: { operation } }
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

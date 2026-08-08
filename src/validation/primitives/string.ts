@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isString } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -27,7 +28,7 @@ const STRING_ERROR = Object.freeze({
  * Validate that a value is a string.
  */
 function validateString(value: unknown) {
-  return typeof value === "string" ? ok(value) : STRING_ERROR;
+  return isString(value) ? ok(value) : STRING_ERROR;
 }
 
 /**

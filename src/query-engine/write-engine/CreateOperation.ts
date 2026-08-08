@@ -289,10 +289,10 @@ interface SharedPkIdentity {
 }
 
 /**
- * The compiler for one fresh record subtree. It owns the record INSERT, generated
- * identity capture, nested record compilation, and the terminal read. Relation
- * parts retain membership decisions, probes, guards, race pins, and junction
- * effects.
+ * The fresh-record compiler owns the INSERT, generated identity capture, and nested
+ * record compilation. A result-producing use also owns its terminal read; nested
+ * FreshRecordPart use omits it. Relation parts retain membership decisions, probes,
+ * guards, race pins, and junction effects.
  *
  * A fresh parent has no committed membership, so child-held creates are direct
  * INSERTs and adopt operations use global lookup. Parent-held targets are emitted

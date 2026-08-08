@@ -85,7 +85,7 @@ export class OwnWriteRelation {
     const ledger = node.ledger.fork();
     const membershipScope = getRelationMembershipScope(node.ctx, boundRelation);
     for (const footprint of rootMembershipFootprints) {
-      if (footprint.relationInfo !== program.relationInfo) continue;
+      if (footprint.relation.relationInfo !== program.relationInfo) continue;
       ledger.appendMembership(
         node.rootOperation,
         getRelationMembershipEndpoints(

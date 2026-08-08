@@ -6,6 +6,7 @@
  */
 
 import { type Sql, sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { assertExactDecimalOperation } from "../builders/decimal-portability";
 import type { WhereUniqueEntry } from "../builders/where-unique-builder";
 import {
@@ -36,10 +37,6 @@ export interface NormalizedCursorOrder {
 type ParsedOrder = {
   direction: CursorOrderDirection;
   nulls: CursorNullPlacement;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
 export function normalizeCursorOrder(

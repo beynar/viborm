@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isDate } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -31,7 +32,7 @@ const INVALID_DATE_ERROR = Object.freeze({
  * Validate that a value is a JavaScript Date object.
  */
 function validateDate(value: unknown) {
-  if (!(value instanceof Date)) return NOT_DATE_ERROR;
+  if (!isDate(value)) return NOT_DATE_ERROR;
   if (Number.isNaN(value.getTime())) return INVALID_DATE_ERROR;
   return ok(value);
 }

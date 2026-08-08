@@ -6,6 +6,7 @@
  */
 
 import { type Sql, sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { buildSelect } from "../builders/select-builder";
 import {
   buildValueGroups,
@@ -198,10 +199,6 @@ function getCreateManyData(value: unknown): Record<string, unknown>[] {
     );
   }
   return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function splitGroupsIntoRows(groups: readonly ValuesGroup[]): ValuesGroup[] {

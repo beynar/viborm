@@ -1,5 +1,6 @@
-import type { AnyModel } from "@schema/model";
+import type { AnyModel, ModelState } from "@schema/model";
 import type { RequiredScalarKeys as ModelRequiredScalarKeys } from "@schema/model/helper";
+import type { RelationState } from "@schema/relation/types";
 import type { Scalar } from "@schema/scalars";
 import type { ObjectSchema } from "../../primitives/object";
 import v, { type V } from "../../primitives/v";
@@ -127,20 +128,16 @@ export const getRelationCreate = <
  * Identify FK fields from relations.
  * FK fields are scalar fields that are referenced by manyToOne or oneToOne relations.
  */
-function getFkFields(state: ModelStateOf<AnyModel>): Set<string> {
+function getFkFields(state: ModelState): Set<string> {
   const fkFields = new Set<string>();
   for (const relation of Object.values(state.relations)) {
-    const relState = (relation as any)["~"]?.state;
-    if (!relState) continue;
+    const relState = relation["~"].state as RelationState;
     // manyToOne and oneToOne relations have 'fields' pointing to FK columns
     if (
       (relState.type === "manyToOne" || relState.type === "oneToOne") &&
       relState.fields
     ) {
-      const fields = Array.isArray(relState.fields)
-        ? relState.fields
-        : [relState.fields];
-      for (const fk of fields) {
+      for (const fk of relState.fields) {
         fkFields.add(fk);
       }
     }
@@ -148,12 +145,11 @@ function getFkFields(state: ModelStateOf<AnyModel>): Set<string> {
   return fkFields;
 }
 
-function getFkRequirementKeySets(state: ModelStateOf<AnyModel>): string[][][] {
+function getFkRequirementKeySets(state: ModelState): string[][][] {
   const groups: string[][][] = [];
 
   for (const [relationName, relation] of Object.entries(state.relations)) {
-    const relState = (relation as any)["~"]?.state;
-    if (!relState) continue;
+    const relState = relation["~"].state as RelationState;
 
     // Prisma parity: optional relations require nothing on create
     if (
@@ -161,32 +157,12 @@ function getFkRequirementKeySets(state: ModelStateOf<AnyModel>): string[][][] {
       relState.fields &&
       !relState.optional
     ) {
-      const fields = Array.isArray(relState.fields)
-        ? relState.fields
-        : [relState.fields];
-      groups.push([fields, [relationName]]);
+      groups.push([relState.fields, [relationName]]);
     }
   }
 
   return groups;
 }
-
-/**
- * Build nested scalar create schema - for createMany inside nested relations
- *
- * FK fields are optional because they will be derived from the parent record.
- * This is used when createMany is called inside a parent's create operation.
- */
-export type NestedScalarCreateSchema<
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
-> = ObjectSchema<
-  ScalarCreateEntries<F>,
-  {
-    atLeast: NestedRequiredScalarKeys<M, F>[];
-  },
-  NestedScalarCreateInput<M, F, ForeignKeyScalarKeys<M>>
->;
 
 export type NestedScalarCreateWithOmittedRequiredKeys<
   M extends AnyModel,
@@ -204,22 +180,6 @@ export type NestedScalarCreateWithOmittedRequiredKeys<
   NestedScalarCreateInput<M, F, OmittedRequiredKeyUnion<OmittedRequiredKeys>>
 >;
 
-export const getNestedScalarCreate = <
-  M extends AnyModel,
-  F extends ScalarSchemas<M>,
->(
-  model: M,
-  fieldSchemas: F
-): NestedScalarCreateSchema<M, F> => {
-  const state = model["~"].state;
-  const fkFields = [...getFkFields(state)] as ForeignKeyScalarKeys<M>[];
-  return getNestedScalarCreateWithOmittedRequiredKeys(
-    model,
-    fieldSchemas,
-    fkFields
-  );
-};
-
 export const getNestedScalarCreateWithOmittedRequiredKeys = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
@@ -236,8 +196,7 @@ export const getNestedScalarCreateWithOmittedRequiredKeys = <
   const requiredScalars = Object.keys(state.scalars).filter((key) => {
     if (omittedRequiredKeySet.has(key)) return false;
     // Check if scalar has default or is optional
-    const scalar = state.scalars[key] as any;
-    const scalarState = scalar?.["~"]?.state;
+    const scalarState = state.scalars[key]!["~"].state;
     return !(scalarState.hasDefault || scalarState.optional);
   }) as RequiredScalarCreateKeys<
     M,
@@ -295,8 +254,7 @@ export const getCreateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     // FK fields are optional (can use connect instead)
     if (fkFields.has(key)) return false;
     // Check if scalar has default or is optional
-    const scalar = state.scalars[key] as any;
-    const scalarState = scalar?.["~"]?.state;
+    const scalarState = state.scalars[key]!["~"].state;
     return !(scalarState.hasDefault || scalarState.optional);
   }) as ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
 

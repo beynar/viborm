@@ -284,6 +284,30 @@ Many-to-many requires a join table. `.through("postTags")` names this table. Vib
 
 ---
 
+## Junction Ownership and Coverage
+
+Junction identity is resolved symmetrically. Configuration may live on either
+side of a paired many-to-many relation; the paired side's `.A()` and `.B()` are
+read in reverse order. Multiple pairs between the same models use `.name()` as
+their identity. A paired self-relation must provide both junction columns
+explicitly because no stable default can decide its direction.
+
+Relation instances and hydrated model state are trusted. Junction helpers do
+not revalidate required getters or the model's relation map. They still fail
+loudly when two public relation declarations disagree on a table or column.
+
+Use `pnpm test:coverage:relations` for the one-worker, memory-capped L4 report.
+It gates `src/schema/relation/**/*.ts` at 100% statements, branches, functions,
+and lines and writes `coverage/relations/index.html`. The suite is pure and must
+not boot a database or require a provider.
+
+L4 tests only relation definitions, immutable builder state, source binding,
+inverse metadata, and junction resolution. Relation create, update, filter,
+ordering, and projection schemas are L3 operation schemas and live under
+`tests/unit/operation-schemas/relations`.
+
+---
+
 ## Related Layers
 
 | Layer | Relationship |

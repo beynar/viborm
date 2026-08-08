@@ -34,6 +34,7 @@
 import { VibORMError, VibORMErrorCode } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { projectableScalarNames } from "@validation/model/core/projection";
+import { isRecord as isPlainRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
 
 /** Fields a client hides by default, per model key of the schema. */
@@ -88,9 +89,6 @@ export type ClientModelOmit<M extends AnyModel> = Partial<
 export type ClientOmitResolver = (
   model: AnyModel
 ) => Record<string, boolean> | undefined;
-
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 const hasEntries = (value: Record<string, boolean>): boolean =>
   Object.keys(value).length > 0;

@@ -6,6 +6,7 @@
  */
 
 import type { Sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import {
   getWhereUniqueEntries,
   type WhereUniqueEntry,
@@ -30,10 +31,6 @@ export interface FindPaginationPlan {
   normalizedOrder: NormalizedCursorOrder[] | undefined;
   cursorCondition: Sql | undefined;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-};
 
 export function buildFindPagination(
   ctx: QueryScope,

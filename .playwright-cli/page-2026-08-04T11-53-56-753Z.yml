@@ -1,0 +1,215 @@
+- generic [active] [ref=f4e1]:
+  - link "Skip to content" [ref=f4e2] [cursor=pointer]:
+    - /url: "#blume-content"
+  - banner [ref=f4e3]:
+    - link "VibORM" [ref=f4e4] [cursor=pointer]:
+      - /url: /
+    - navigation "Sections" [ref=f4e6]:
+      - link "Documentation" [ref=f4e7] [cursor=pointer]:
+        - /url: /docs
+      - link "Internal" [ref=f4e8] [cursor=pointer]:
+        - /url: /docs/internals
+    - button "Search" [ref=f4e10] [cursor=pointer]:
+      - generic [ref=f4e16]: ⌘K
+    - generic [ref=f4e17]:
+      - link "GitHub repository" [ref=f4e18] [cursor=pointer]:
+        - /url: https://github.com/beynar/viborm
+      - button "Toggle color theme" [ref=f4e21] [cursor=pointer]
+  - main [ref=f4e27]:
+    - generic [ref=f4e28]:
+      - generic [ref=f4e29]:
+        - generic [ref=f4e30]: Types update when your schema does
+        - heading "The type-safe ORM without the generate step." [level=1] [ref=f4e32]:
+          - generic [ref=f4e33]: The type-safe ORM
+          - generic [ref=f4e34]: without the generate step.
+        - paragraph [ref=f4e35]: Define a schema in TypeScript and query PostgreSQL, MySQL, or SQLite with a fully inferred, Prisma-inspired client. No code generation. No stale types.
+        - generic [ref=f4e36]:
+          - generic [ref=f4e37]: $
+          - code [ref=f4e38]: pnpm add viborm
+          - button "Copy" [ref=f4e39] [cursor=pointer]
+        - generic [ref=f4e46]:
+          - link "Start building" [ref=f4e47] [cursor=pointer]:
+            - /url: /docs/getting-started/quick-start
+          - link "View on GitHub" [ref=f4e50] [cursor=pointer]:
+            - /url: https://github.com/beynar/viborm
+      - generic [ref=f4e57]:
+        - generic [ref=f4e58]:
+          - generic [ref=f4e59]: VibORM
+          - generic [ref=f4e64]:
+            - text: Search documentation
+            - generic [ref=f4e69]: ⌘K
+        - generic [ref=f4e75]:
+          - complementary [ref=f4e76]:
+            - paragraph [ref=f4e77]: Documentation
+            - navigation [ref=f4e78]:
+              - generic [ref=f4e79]: Quick Start
+              - generic [ref=f4e82]: Schema
+              - generic [ref=f4e87]: Client API
+              - generic [ref=f4e93]: Relations
+              - generic [ref=f4e99]: Migrations
+          - generic [ref=f4e102]:
+            - generic [ref=f4e103]: Quick Start
+            - heading "From schema to typed query in one file." [level=2] [ref=f4e106]
+            - paragraph [ref=f4e107]: Your schema is the type source. Every filter, relation, selection, and result is inferred directly from it.
+            - generic [ref=f4e108]:
+              - generic [ref=f4e110]:
+                - text: schema.ts
+                - code [ref=f4e113]:
+                  - generic [ref=f4e114]: "import { s } from \"viborm\";"
+                  - generic [ref=f4e115]: "export const user = s.model({"
+                  - generic [ref=f4e116]: "id: s.string().id().ulid(),"
+                  - generic [ref=f4e117]: "email: s.string().unique(),"
+                  - generic [ref=f4e118]: "posts: s.oneToMany(() => post),"
+                  - generic [ref=f4e119]: "});"
+                  - generic [ref=f4e120]: "export const post = s.model({"
+                  - generic [ref=f4e121]: "id: s.string().id().ulid(),"
+                  - generic [ref=f4e122]: "title: s.string(),"
+                  - generic [ref=f4e123]: "published: s.boolean().default(false),"
+                  - generic [ref=f4e124]: "authorId: s.string(),"
+                  - generic [ref=f4e125]: "author: s.manyToOne(() => user)"
+                  - generic [ref=f4e126]: .fields("authorId")
+                  - generic [ref=f4e127]: .references("id"),
+                  - generic [ref=f4e128]: "});"
+              - generic [ref=f4e130]:
+                - text: query.ts
+                - code [ref=f4e133]:
+                  - generic [ref=f4e134]: "const authors = await client.user.findMany({"
+                  - generic [ref=f4e135]: "where: {"
+                  - generic [ref=f4e136]: "email: { contains: \"@company.com\" },"
+                  - generic [ref=f4e137]: "},"
+                  - generic [ref=f4e138]: "include: {"
+                  - generic [ref=f4e139]: "posts: {"
+                  - generic [ref=f4e140]: "where: { published: true },"
+                  - generic [ref=f4e141]: "orderBy: { title: \"asc\" },"
+                  - generic [ref=f4e142]: "},"
+                  - generic [ref=f4e143]: "},"
+                  - generic [ref=f4e144]: "});"
+            - generic [ref=f4e145]:
+              - generic [ref=f4e146]: Typed filters
+              - generic [ref=f4e151]: Typed relations
+              - generic [ref=f4e156]: Typed results
+      - generic [ref=f4e161]:
+        - generic [ref=f4e162]:
+          - paragraph [ref=f4e163]: Schema ↔ query ↔ result
+          - heading "One definition. The same shape everywhere." [level=2] [ref=f4e164]
+          - paragraph [ref=f4e165]: VibORM preserves the meaning of each scalar across storage, validation, query operators, and TypeScript output. There is no second model to keep synchronized.
+        - generic [ref=f4e166]:
+          - generic [ref=f4e167]:
+            - generic [ref=f4e168]: Field
+            - generic [ref=f4e169]: Schema definition
+            - generic [ref=f4e170]: Typed operators
+            - generic [ref=f4e171]: Result type
+          - generic [ref=f4e172]:
+            - generic [ref=f4e173]: id
+            - code [ref=f4e178]: s.string().id().ulid()
+            - generic [ref=f4e179]: equals · in · not
+            - code [ref=f4e181]: string
+          - generic [ref=f4e182]:
+            - generic [ref=f4e183]: tags
+            - code [ref=f4e188]: s.string().array()
+            - generic [ref=f4e189]: has · hasSome · hasEvery
+            - code [ref=f4e191]: string[]
+          - generic [ref=f4e192]:
+            - generic [ref=f4e193]: published
+            - code [ref=f4e198]: s.boolean().default(false)
+            - generic [ref=f4e199]: equals · not
+            - code [ref=f4e201]: boolean
+          - generic [ref=f4e202]:
+            - generic [ref=f4e203]: score
+            - code [ref=f4e208]: s.int().nullable()
+            - generic [ref=f4e209]: gt · gte · lt · lte
+            - code [ref=f4e211]: number | null
+        - generic [ref=f4e212]:
+          - generic [ref=f4e214]:
+            - text: query.ts
+            - code [ref=f4e217]:
+              - generic [ref=f4e218]: "const articles = await client.article.findMany({"
+              - generic [ref=f4e219]: "where: {"
+              - generic [ref=f4e220]: "published: true,"
+              - generic [ref=f4e221]: "tags: { hasSome: [\"orm\", \"typescript\"] },"
+              - generic [ref=f4e222]: "score: { gte: 80 },"
+              - generic [ref=f4e223]: "},"
+              - generic [ref=f4e224]: "distinct: [\"published\", \"score\"],"
+              - generic [ref=f4e225]: "select: {"
+              - generic [ref=f4e226]: "id: true,"
+              - generic [ref=f4e227]: "tags: true,"
+              - generic [ref=f4e228]: "published: true,"
+              - generic [ref=f4e229]: "score: true,"
+              - generic [ref=f4e230]: "},"
+              - generic [ref=f4e231]: "});"
+          - generic [ref=f4e233]:
+            - text: inferred-type.ts
+            - code [ref=f4e236]:
+              - generic [ref=f4e237]: // inferred — no generated type file
+              - generic [ref=f4e238]: type Article = (typeof articles)[number];
+              - generic [ref=f4e239]: "// {"
+              - generic [ref=f4e240]: "// id: string;"
+              - generic [ref=f4e241]: "// tags: string[];"
+              - generic [ref=f4e242]: "// published: boolean;"
+              - generic [ref=f4e243]: "// score: number | null;"
+              - generic [ref=f4e244]: "// }"
+      - generic [ref=f4e245]:
+        - generic [ref=f4e246]:
+          - paragraph [ref=f4e247]: Everything stays connected
+          - heading "The schema is the single source of truth." [level=2] [ref=f4e248]
+          - paragraph [ref=f4e249]: Change a field and TypeScript follows the change into filters, writes, relations, selections, and returned records immediately.
+        - generic [ref=f4e250]:
+          - article [ref=f4e251]:
+            - heading "Inference, not generation" [level=3] [ref=f4e257]
+            - paragraph [ref=f4e258]: Types flow from immutable schema definitions into every client operation and result.
+          - article [ref=f4e259]:
+            - heading "Prisma-inspired client" [level=3] [ref=f4e263]
+            - paragraph [ref=f4e264]: Use familiar create, find, update, upsert, delete, aggregation, and transaction APIs.
+          - article [ref=f4e265]:
+            - heading "One ORM, three dialects" [level=3] [ref=f4e272]
+            - paragraph [ref=f4e273]: Keep one schema and one query surface across PostgreSQL, MySQL, and SQLite.
+          - article [ref=f4e274]:
+            - heading "Relations stay typed" [level=3] [ref=f4e281]
+            - paragraph [ref=f4e282]: Model one-to-one, one-to-many, and many-to-many relations with typed nested reads and writes.
+          - article [ref=f4e283]:
+            - heading "Standard Schema V1" [level=3] [ref=f4e289]
+            - paragraph [ref=f4e290]: Validate through the Standard Schema interface and interoperate with its growing ecosystem.
+          - article [ref=f4e291]:
+            - heading "Drivers for your runtime" [level=3] [ref=f4e295]
+            - paragraph [ref=f4e296]: Run on Node.js, Bun, serverless databases, and Cloudflare D1 through focused drivers.
+      - generic [ref=f4e297]:
+        - generic [ref=f4e298]:
+          - paragraph [ref=f4e299]: Adapter-owned SQL
+          - heading "Write the query once. Choose the database at the edge." [level=2] [ref=f4e300]
+          - paragraph [ref=f4e301]: VibORM keeps query intent separate from dialect syntax. You keep the same model and client API while the adapter handles the SQL each database needs.
+          - link "Explore every driver" [ref=f4e302] [cursor=pointer]:
+            - /url: /docs/drivers
+        - generic [ref=f4e305]:
+          - article [ref=f4e306]:
+            - generic [ref=f4e313]:
+              - heading "PostgreSQL" [level=3] [ref=f4e314]
+              - paragraph [ref=f4e315]: pg, postgres.js, Neon HTTP, PGlite, and Bun SQL
+          - article [ref=f4e320]:
+            - generic [ref=f4e327]:
+              - heading "MySQL" [level=3] [ref=f4e328]
+              - paragraph [ref=f4e329]: mysql2, PlanetScale, and Bun SQL
+          - article [ref=f4e334]:
+            - generic [ref=f4e338]:
+              - heading "SQLite" [level=3] [ref=f4e339]
+              - paragraph [ref=f4e340]: sqlite3, libSQL, Bun SQLite, and Cloudflare D1
+      - generic [ref=f4e345]:
+        - heading "Define your schema. Keep moving." [level=2] [ref=f4e349]
+        - paragraph [ref=f4e350]: Start with an in-process PostgreSQL database, then move to your production driver without changing the way you model or query data.
+        - generic [ref=f4e351]:
+          - link "Read the quick start" [ref=f4e352] [cursor=pointer]:
+            - /url: /docs/getting-started/quick-start
+          - link "Browse the client API" [ref=f4e355] [cursor=pointer]:
+            - /url: /docs/client
+  - contentinfo [ref=f4e356]:
+    - generic [ref=f4e357]:
+      - generic [ref=f4e358]: VibORM
+      - navigation [ref=f4e362]:
+        - link "Documentation" [ref=f4e363] [cursor=pointer]:
+          - /url: /docs
+        - link "Client API" [ref=f4e364] [cursor=pointer]:
+          - /url: /docs/client
+        - link "Drivers" [ref=f4e365] [cursor=pointer]:
+          - /url: /docs/drivers
+        - link "GitHub" [ref=f4e366] [cursor=pointer]:
+          - /url: https://github.com/beynar/viborm
+      - paragraph [ref=f4e367]: Open source under the ISC license.

@@ -3,6 +3,7 @@ import {
   sanitizeDiagnosticParameters,
   VibORMError,
 } from "@errors";
+import { isRecord } from "@validation/value-guards";
 import type { ErrorLogDetails } from "./driver-instrumentation";
 import { snapshotExecutionContext } from "./execution-context";
 import type { QueryExecutionContext } from "./types";
@@ -12,11 +13,10 @@ export const BATCH_DIAGNOSTIC_PARAMS = Symbol("viborm.batchDiagnosticParams");
 export function snapshotDiagnosticParameters(
   params: readonly unknown[]
 ): unknown[] {
-  const snapshot = sanitizeDiagnosticParameters([...params], {
+  return sanitizeDiagnosticParameters([...params], {
     includeParams: true,
     includeSql: true,
   });
-  return Array.isArray(snapshot) ? snapshot : [];
 }
 
 export function findUniqueExecutionContextIndex(
@@ -67,17 +67,11 @@ export function readTrustedErrorExecutionContext(
 ): QueryExecutionContext | undefined {
   const snapshot = VibORMError.prototype.toJSON.call(error);
   const meta = snapshot.meta;
-  if (!isDiagnosticRecord(meta)) return undefined;
+  if (!isRecord(meta)) return undefined;
   const model = typeof meta.model === "string" ? meta.model : undefined;
   const operation =
     typeof meta.operation === "string" ? meta.operation : undefined;
   const correlationId =
     typeof meta.correlationId === "string" ? meta.correlationId : undefined;
   return { model, operation, correlationId };
-}
-
-export function isDiagnosticRecord(
-  value: unknown
-): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -234,12 +234,13 @@ interface BulkSlot {
   readonly read: ReadStep;
 }
 
-/** A probe-less slot (disconnect/updateMany) — a single write id per item. */
+/** A probe-less write slot — one allocated write id per item. */
 interface BareSlot {
   readonly where: Record<string, unknown>;
   readonly writeId: string;
-  readonly data: Record<string, unknown>;
 }
+
+type UpdateManySlot = BareSlot & { readonly data: Record<string, unknown> };
 
 /** A fresh target plus the already allocated target and join writes. */
 interface CreateSlot {
@@ -297,7 +298,7 @@ type JunctionPlan =
   | { readonly kind: "delete"; readonly slots: readonly TargetSlot[] }
   | { readonly kind: "deleteMany"; readonly slots: readonly BulkSlot[] }
   | { readonly kind: "update"; readonly slots: readonly UpdateSlot[] }
-  | { readonly kind: "updateMany"; readonly slots: readonly BareSlot[] }
+  | { readonly kind: "updateMany"; readonly slots: readonly UpdateManySlot[] }
   | { readonly kind: "create"; readonly slots: readonly CreateSlot[] }
   | { readonly kind: "createMany"; readonly slots: readonly CreateSlot[] }
   | { readonly kind: "connectOrCreate"; readonly slots: readonly AdoptSlot[] }
@@ -609,7 +610,7 @@ export class RelationJunctionPart implements Part {
   // updateMany — UPDATE every connected∧filter child in one correlated write.
   private compileUpdateMany(
     parent: unknown,
-    slots: readonly BareSlot[]
+    slots: readonly UpdateManySlot[]
   ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
     for (const slot of slots) {
@@ -808,7 +809,6 @@ export class RelationJunctionPart implements Part {
           slots: input.targets.map((where) => ({
             where,
             writeId: scope.allocate(`${this.childName}.disconnect`),
-            data: {},
           })),
         };
       case "deleteMany":

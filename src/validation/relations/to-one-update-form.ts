@@ -1,6 +1,6 @@
 // The two spellings of a to-one nested `update` payload (Prisma 5) — W4-U3.
 
-import { QueryEngineError } from "@errors";
+import { isRecord } from "../value-guards";
 
 /**
  * Prisma 5 accepts TWO spellings for a nested `update` on a **to-one** relation:
@@ -103,7 +103,7 @@ export function readToOneUpdateForm(
  */
 export interface ToOneUpdateEnvelope {
   readonly data: Record<string, unknown>;
-  readonly where?: unknown;
+  readonly where?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -146,14 +146,11 @@ export interface ToOneUpdateTarget {
  * output without parsing it again), so a non-envelope here is a broken invariant
  * rather than a user error — it fails closed.
  */
-export function splitToOneUpdateTarget(parsed: unknown): ToOneUpdateTarget {
-  if (!hasEnvelopeShape(parsed)) {
-    throw new QueryEngineError(
-      "query-engine-v2 expected a canonical to-one update envelope ({ data, where? }) from the relation update schema."
-    );
-  }
+export function splitToOneUpdateTarget(
+  parsed: ToOneUpdateEnvelope
+): ToOneUpdateTarget {
   const where = parsed.where;
-  if (!(isPlainObject(where) && Object.keys(where).length > 0)) {
+  if (!where || Object.keys(where).length === 0) {
     return { data: parsed.data };
   }
   return { data: parsed.data, filter: where };
@@ -178,7 +175,7 @@ function hasEnvelopeShape(value: unknown): value is {
  *  `JsonNull` sentinel written against a `data`-named field is a VALUE, and reading
  *  it as an envelope would hand the target's update schema an object with no keys. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return false;
   }
   const prototype = Object.getPrototypeOf(value);

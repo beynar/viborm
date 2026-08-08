@@ -183,10 +183,13 @@ export function createModelFieldRefs<
     has: (_target, key) =>
       typeof key === "string" && Object.hasOwn(scalars, key),
     ownKeys: () => Object.keys(scalars),
-    getOwnPropertyDescriptor: () => ({
-      enumerable: true,
-      configurable: true,
-    }),
+    getOwnPropertyDescriptor: (_target, key) =>
+      typeof key === "string" && Object.hasOwn(scalars, key)
+        ? {
+            enumerable: true,
+            configurable: true,
+          }
+        : undefined,
   });
   // The one projection this file owes its callers: the proxy answers exactly
   // the model's scalar keys (`has`/`ownKeys` above enforce it, and any other key

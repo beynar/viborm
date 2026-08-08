@@ -1,5 +1,6 @@
 import { ValidationError } from "@errors";
 import type { Operation as ValidationOperation } from "@query-engine/types";
+import { isRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
 
 const UNIQUE_SELECTOR_OPERATIONS: Set<Operations> = new Set([
@@ -30,10 +31,6 @@ export function assertNonEmptyUniqueWhere(
       message: "whereUnique requires at least one unique discriminator.",
     },
   ]);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function toUniqueValidationOperation(

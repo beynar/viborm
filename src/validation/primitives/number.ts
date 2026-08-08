@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isNumber } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -28,9 +29,7 @@ const NUMBER_ERROR = Object.freeze({
  * Validate that a value is a finite number (rejects NaN and Infinity).
  */
 function validateNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? ok(value)
-    : NUMBER_ERROR;
+  return isNumber(value) && Number.isFinite(value) ? ok(value) : NUMBER_ERROR;
 }
 
 /**
@@ -78,9 +77,7 @@ const INTEGER_ERROR = Object.freeze({
  * Validate that a value is an integer.
  */
 function validateInteger(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value)
-    ? ok(value)
-    : INTEGER_ERROR;
+  return isNumber(value) && Number.isInteger(value) ? ok(value) : INTEGER_ERROR;
 }
 
 /**

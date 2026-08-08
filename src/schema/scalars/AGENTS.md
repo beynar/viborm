@@ -101,6 +101,17 @@ function buildStringSchema(state: ScalarState<"string">) {
 
 **Why:** Ensures consistency while keeping operation schemas out of the schema layer.
 
+### Rule 5: Shared Contracts, Concrete Implementations
+Modifier behavior is tested through parameterized contracts, but each concrete
+scalar continues to rebuild the validation primitive that owns its value type.
+`updateState` owns the shared immutable merge. Do not introduce a generic
+scalar base class that hides the state type or moves base-schema ownership out
+of the concrete scalar.
+
+Use `pnpm test:coverage:scalars` for the memory-capped L2 report. It gates
+statements, branches, functions, and lines at 100% and writes
+`coverage/scalars/index.html`.
+
 ---
 
 ## Anti-Patterns

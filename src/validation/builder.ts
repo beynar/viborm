@@ -15,6 +15,7 @@ import { getRelationsSchemas } from "./relations";
 import type { GetTargetSchemas } from "./relations/helpers";
 import { getScalarsSchemas } from "./scalars";
 import type { SchemaRegistryLookup, SchemaRegistryOperation } from "./types";
+import { isString } from "./value-guards";
 
 // =============================================================================
 // SCHEMA REGISTRY
@@ -36,8 +37,11 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
       {},
       {
         get: (_target, prop) => {
-          if (typeof prop !== "string" || !(prop in schema) || !schema[prop]) {
-            throw new Error(`${String(prop)} does not exist`);
+          if (!(isString(prop) && prop in schema && schema[prop])) {
+            const property = String(prop);
+            throw new ValidationError({ kind: "registry", property }, [
+              { path: property, message: `${property} does not exist` },
+            ]);
           }
           return this.getModelSchemas(schema[prop]);
         },
@@ -47,7 +51,9 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
     };
   }
 
-  private createSchemasGetter = <S extends RelationState>(state: S) => {
+  private readonly createSchemasGetter = <S extends RelationState>(
+    state: S
+  ) => {
     return () => {
       const targetModel = state.getter() as AnyModel;
       return this.getModelSchemas(
@@ -56,7 +62,9 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
     };
   };
 
-  private buildModelSchemas = (model: AnyModel): ModelSchemas<AnyModel> => {
+  private readonly buildModelSchemas = (
+    model: AnyModel
+  ): ModelSchemas<AnyModel> => {
     const scalars = getScalarsSchemas(model);
     const relations = getRelationsSchemas(model, this.createSchemasGetter);
     const { args, core } = getModelSchemas(model, { scalars, relations });
@@ -84,25 +92,41 @@ export class SchemaRegistry<S extends Record<string, AnyModel>>
   ) => {
     const model = this.schema[modelName];
     if (!model) {
-      throw new Error(`${modelName} does not exist`);
+      throw new ValidationError(
+        { kind: "operation", operation, model: modelName },
+        [{ path: modelName, message: `${modelName} does not exist` }],
+        { meta: { model: modelName } }
+      );
     }
     const schemas = this.getModelSchemas(model);
-    const result = schemas.args[operation]["~standard"].validate(payload);
-    if (result instanceof Promise) {
-      throw new ValidationError(operation, [], {
-        meta: { model: modelName, hint: "Async validation is not supported" },
-      });
+    try {
+      const result = schemas.args[operation]["~standard"].validate(payload);
+      if (result.issues) {
+        const issues = result.issues.map((issue) => ({
+          path: issue.path?.map((part) => part).join(".") ?? "",
+          message: issue.message,
+        }));
+        throw new ValidationError(operation, issues, {
+          meta: { model: modelName },
+        });
+      }
+      return result.value;
+    } catch (cause) {
+      if (cause instanceof ValidationError) throw cause;
+      throw new ValidationError(
+        { kind: "operation", operation, model: modelName },
+        [
+          {
+            path: "",
+            message: "The external schema validator threw unexpectedly",
+          },
+        ],
+        {
+          ...(cause instanceof Error ? { cause } : {}),
+          meta: { model: modelName },
+        }
+      );
     }
-    if (result.issues) {
-      const issues = result.issues.map((issue) => ({
-        path: issue.path?.map((p) => p).join(".") ?? "",
-        message: issue.message,
-      }));
-      throw new ValidationError(operation, issues, {
-        meta: { model: modelName },
-      });
-    }
-    return result.value;
   };
 }
 

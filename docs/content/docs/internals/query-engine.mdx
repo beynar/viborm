@@ -37,22 +37,31 @@ flowchart TD
     Results --> Value["Typed value"]
 ```
 
-The shell decides operation meaning. Builders ask the adapter to express each
-SQL concern. The executor knows how to run fragments, but it does not know what
-a relation mutation means.
+An operation shell is the concrete owner of one public operation family. It
+exposes `mode`, planning, compilation, and result parsing.
+`write-engine/routing.ts` owns route-wide gates and shared-envelope parsing.
+The routed root shell owns the remaining family- and arm-specific parsing,
+public target and result behavior, and direct folds. `CreateOperation` can also
+serve as a delegated fresh-record compiler inside an outer shell. Files in
+`write-engine/*Operation.ts` contain these owners. Files in `operations/*.ts`
+contain operation-specific SQL, plan, identity, and ordering helpers despite
+their historical directory name. The executor knows how to run fragments, but
+it does not know what a relation mutation means.
 
 | Owner | Responsibility |
 | --- | --- |
 | `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
 | `PendingOperation` | Lazy and Promise-like public operation lifecycle |
-| operation shells | Validation, public target behavior, direct folds, and result declaration |
+| `write-engine/routing.ts` | Route-wide operation gates, shared-envelope parsing, and shell construction |
+| `write-engine/*Operation.ts` | Public-operation-family owners and their executable fragments |
+| `operations/*.ts` | Operation-specific SQL, plan, identity, and ordering helpers |
 | `CreateOperation` | One non-bulk fresh record subtree |
 | `RecordUpdateCompiler` | One already-selected non-bulk record update |
 | relation Parts | Child-held/junction selection, membership, guards, pins, and edge effects |
 | `ManyToManyStatements` | Adapter-backed junction SQL materialization |
 | `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
 | `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
-| `builders/` | Pure adapter-backed SQL construction by semantic concern |
+| `builders/` | Shared SQL and semantic builders, including payload and topology parsing |
 | `result/` | Strict row, relation, aggregate, count, scalar, and shape parsing |
 
 `QueryEngine` is a real owner. A transaction-bound engine preserves its client
@@ -149,6 +158,10 @@ These facts stay separate:
 Binding happens at the first topology decision so an earlier validation failure
 still wins and an untaken upsert arm remains inert.
 
+Here, parent means the current source record at one relation edge and child
+means its target. `parentHeldToOne` means the source record stores the FK. The
+terms do not define a global model hierarchy.
+
 Before emission, OwnWrite analysis rejects nested trees whose writes cannot be
 linearized safely. `RecordUpdateCompiler` and relation owners that pass it a
 selected target address the captured primary key rather than re-evaluating the
@@ -159,21 +172,33 @@ substrate: its found guard binds the complete selector to the captured primary
 key, and its UPDATE addresses that key. Transaction mode keeps the original
 selector because the locate locks the row. An eligible `ON CONFLICT` fold has no
 planning read, and a relation-bearing found arm uses `RecordUpdateCompiler` with
-its captured identity. Conditional-skip terminal reads use the located primary
-key; post-update terminal reads use the rebuilt primary key.
+its captured identity.
+
+A conditional-skip batch arm first proves, without retry, that the complete
+selector still names the captured primary key. It then proves, with a raceable
+absence guard, that this same row still does not match the conditional. The
+order separates replacement or deletion from a false-to-true condition change.
+The absence query preserves SQL UNKNOWN as a no-match. Its terminal read uses
+the captured key; a post-update terminal read uses the rebuilt key.
+`RecordUpdateCompiler` never owns a public terminal read. The routed shell
+normally does; a relation-bearing upsert create arm instead delegates its
+result-producing fragment to `CreateOperation`, and the outer
+`UpsertOperation` re-exposes and parses that result. Direct folds need no
+terminal read. Both guards run in the same atomic driver batch, so the second
+premise adds a statement but not a network round trip.
 
 ### Practical write-flow map
 
 | Flow | Shell | Decision/edge owner | Record owner | Planning and identity source | Final order and premise pin |
 | --- | --- | --- | --- | --- | --- |
 | Structural single-statement fast path | The operation shell | The shell that produced the candidate | The specialized shell or record compiler that built the statement | Empty planning; exactly one statement with no unresolved executor-only effect | One direct statement; direct execution may still enforce its postcondition |
-| Fresh record subtree | `CreateOperation` | `CreateOperation` for parent-held edges; relation Parts for child-held and junction edges | `CreateOperation` | Relation probes plus literal, lookup, or demand-driven root output identities | Selected guards, parent-held target work, root INSERT, then child-held or junction descendants; a missing same-target insert uses the root `racePin` |
-| Selected record update | `UpdateOperation` or an enclosing relation Part | The enclosing shell or relation Part | `RecordUpdateCompiler` | Target locate and descendant probes; the locate publishes the captured primary key | Locked premise or batch guard, before-root descendants, root UPDATE, after-root descendants, then terminal read; key transitions decide each side of the root |
-| Parent-held to-one edge | `CreateOperation` or `RecordUpdateCompiler` | The same record compiler, because the edge chooses its root FK columns | The same fresh or selected record compiler | Target literal, lookup, or fresh-target output supplies the FK | Target work runs before the root; the FK folds into the root INSERT or UPDATE; the selected branch uses its locked read, batch guard, or missing-arm `racePin` |
-| Child-held targeted edge | An enclosing create or update shell | The child-held relation Part | `RecordUpdateCompiler` for a selected target; `CreateOperation` for a fresh target | A correlated target read captures the target primary key and parent value | Transaction lock or batch captured-row guard, then the selected target or edge effects in relation order |
-| Junction existing-target mutation | An enclosing create or update shell | `RelationJunctionPart` | `RecordUpdateCompiler` only when the target record changes | Membership or global probes capture target identity and parent membership | Locked decision or batch membership/identity guard, then target and junction effects in the selected branch |
-| Junction fresh-target attachment | An enclosing create or update shell | `RelationJunctionPart` | Junction-local INSERT for an inline target; `CreateOperation` for a delegated target | Literal identity or a demanded inline/delegated INSERT output; a missing same-target create carries `racePin` | Inline: target INSERT, junction INSERT, descendants. Delegated: complete fresh subtree, then junction INSERT |
-| Nested set/bulk relation mutation | An enclosing selected-record flow | `RelationSetPart`, `RelationWritePart`, or `RelationJunctionPart` | None; the specialized Part owns set semantics | Materialized membership sets, filters, and correlated parent values | Guards precede specialized set or bulk effects; zero matches remain legal where the operation contract allows them |
+| Fresh record subtree | The outer routed operation | `CreateOperation` for parent-held edges; relation Parts for child-held and junction edges | `CreateOperation` | Relation probes plus literal, lookup, or demand-driven root output identities | Selected guards, parent-held target work, root INSERT, then child-held or junction descendants; a missing same-target insert uses the root `racePin` |
+| Selected record update | The outer routed operation | `UpdateOperation`, `UpsertOperation`, or the enclosing relation Part | `RecordUpdateCompiler` | Target locate and descendant probes; the locate publishes the captured primary key | Locked premise or batch guard, before-root descendants, root UPDATE, then after-root descendants; the outer shell can add its terminal read, and key transitions decide each side of the root |
+| Parent-held to-one edge | The outer routed operation | The fresh or selected record compiler, because the edge chooses its root FK columns | `CreateOperation` or `RecordUpdateCompiler` | Target literal, lookup, or fresh-target output supplies the FK | Target work runs before the root; the FK folds into the root INSERT or UPDATE; the selected branch uses its locked read, batch guard, or missing-arm `racePin` |
+| Child-held targeted edge | The outer routed operation | The child-held relation Part | `RecordUpdateCompiler` for a selected target; `CreateOperation` for a fresh target | A correlated target read captures the target primary key and parent value | Transaction lock or batch captured-row guard, then the selected target or edge effects in relation order |
+| Junction existing-target mutation | The outer routed operation | `RelationJunctionPart` | `RecordUpdateCompiler` only when the target record changes | Membership or global probes capture target identity and parent membership | Locked decision or batch membership/identity guard, then target and junction effects in the selected branch |
+| Junction fresh-target attachment | The outer routed operation | `RelationJunctionPart` | Junction-local INSERT for an inline target; `CreateOperation` for a delegated target | Literal identity or a demanded inline/delegated INSERT output; a missing same-target create carries `racePin` | Inline: target INSERT, junction INSERT, descendants. Delegated: complete fresh subtree, then junction INSERT |
+| Nested set/bulk relation mutation | The outer routed operation | `RelationSetPart`, `RelationWritePart`, or `RelationJunctionPart` | None; the specialized Part owns set semantics | Materialized membership sets, filters, and correlated parent values | Guards precede specialized set or bulk effects; zero matches remain legal where the operation contract allows them |
 | Top-level bulk write | `CreateManyOperation`, `BulkCountOperation`, or `ManyAndReturnOperation` | The specialized shell | None; there is no one-record loop | Row-shape grouping, optional preparation writes, and captured output groups | Specialized statements preserve skip and bulk semantics; output folds concatenate rows or sum counts |
 
 Junction compilation also uses exact discriminated state. Inline fresh targets
@@ -196,6 +221,11 @@ the transformed value, so correlation and assignment cannot silently swap.
 `createMany`, `updateMany`, `deleteMany`, and relation `set` remain specialized
 because they have set semantics rather than one-record semantics.
 
+Nested `createMany` stays with the owner of its placement. `CreateOperation`
+stores post-insert groups for a fresh parent, `nested-target-parts.ts` builds
+them for a selected parent, and `RelationJunctionPart` keeps target rows ordered
+with join effects. The top-level form stays in `CreateManyOperation`.
+
 ## SQL and adapter boundary
 
 > The query engine decides what to query. The adapter decides how the database
@@ -209,10 +239,10 @@ sql`COALESCE(json_agg(...), '[]'::json)`;
 scope.adapter.json.agg(expression);
 ```
 
-Builders return parameterized `Sql` fragments. The query engine does not match
-provider-specific SQL tokens to recover facts that the compiler already knows.
-Provider error-message and assertion-marker recognition belongs to driver error
-mapping.
+SQL-emitting builders return parameterized `Sql` fragments. The query engine
+does not match provider-specific SQL tokens to recover facts that the compiler
+already knows. Provider error-message and assertion-marker recognition belongs
+to driver error mapping.
 
 Compiler facts required by a later fold travel beside the opaque SQL fragment.
 For example, PostgreSQL create CTE folding receives the target table,
@@ -250,6 +280,21 @@ during its compatibility window; no runtime metadata object exists.
 
 ## Architecture gates
 
-`pnpm test:gates` checks fragment vocabulary, layer imports, parsing boundaries,
-write-engine runtime import acyclicity, result contracts, and provider-neutral behavior. The shared driver suites prove
-the same portable semantics on PostgreSQL, MySQL, SQLite, LibSQL, and PGlite.
+`pnpm test:layer:query-engine` checks fragment vocabulary, parsing boundaries,
+write-engine runtime import acyclicity, result contracts, and provider-neutral
+behavior. `pnpm test` runs the complete core estate. Extended and provider
+contracts use the scripts documented in `tests/README.md`.
+
+The fast layer gate is not the write-engine coverage oracle. The authoritative
+credential-free report is `pnpm test:coverage:write-engine`, which selects the
+complete local write behavior estate plus its query and architecture sentinels.
+The 2026-08-07 measurement covers 93.00% of statements and lines, 90.12% of
+branches, and 98.90% of functions in 223.53–232.92 seconds across two complete
+runs.
+
+PGlite behavior is provisioned by schema family: one database and one schema
+push, then table truncation with identity restart between ordinary cases.
+Parity arms reset explicitly. Fresh databases remain only where the contract
+observes DDL, lifecycle, destructive schema changes, independently committed
+concurrency, staleness/races, or rollback isolation. Structural compiler tests
+do not boot a database, and the family fixture is the sole disconnect owner.

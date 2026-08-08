@@ -5,7 +5,7 @@ A minimal, StandardSchema-compliant validation library designed for the VibORM p
 ## Features
 
 - **Recursive type support**: Thunks for circular references (no separate `lazy` needed)
-- **Fail-fast validation**: Throws on first error for optimized performance
+- **Fail-fast validation**: Returns the first issue without throwing
 - **Options-based API**: Clean, non-verbose schema definitions
 - **Strict objects by default**: Extra keys are rejected
 - **StandardSchema v1 compliant**: Works with any StandardSchema consumer
@@ -217,6 +217,20 @@ if (result.issues) {
   console.log("Valid:", result.value);
 }
 ```
+
+## Failure Model and Coverage
+
+Primitive schemas report `{ issues }`. Boundary APIs that throw use the public
+`ValidationError` with an immutable discriminated `source`. Operation sources
+retain V4001 and Prisma P2009. Registry, schema-builder, and JSON Schema sources
+use V4002 without a Prisma equivalent. `SchemaRegistry` contains unexpected
+throws from external Standard Schema validators and preserves a sanitized
+`cause` when the thrown value is an `Error`.
+
+Run `pnpm test:coverage:validation` for the memory-capped 100% statements,
+lines, functions, and branches gate on `src/validation/**/*.ts`. Its report is
+`coverage/validation/index.html`. Definition-time model validation in
+`src/schema/validation` is a separate layer and is not part of this command.
 
 ## Comparison with Valibot
 

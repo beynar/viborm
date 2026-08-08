@@ -3,6 +3,7 @@ import type {
   ObjectOptions,
   ObjectSchema,
 } from "@validation/primitives/object";
+import { isRecord } from "@validation/value-guards";
 
 /**
  * A bulk write projects SCALARS.
@@ -86,11 +87,8 @@ export const restrictToScalarProjection = <
 
 const issue = (message: string) => ({ issues: [{ message }] });
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
 const hasOwnKey = (value: unknown, key: string): boolean =>
-  isPlainRecord(value) && Object.hasOwn(value, key);
+  isRecord(value) && Object.hasOwn(value, key);
 
 /**
  * The first relation-shaped key in the payload's `select`, or `undefined`.
@@ -101,9 +99,9 @@ const findProjectedRelation = (
   value: unknown,
   relationKeys: ReadonlySet<string>
 ): string | undefined => {
-  if (!isPlainRecord(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const select = value.select;
-  if (!isPlainRecord(select)) return undefined;
+  if (!isRecord(select)) return undefined;
   for (const key of Object.keys(select)) {
     if (select[key] === undefined) continue;
     if (key === "_count" || relationKeys.has(key)) return key;

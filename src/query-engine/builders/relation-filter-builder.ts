@@ -10,6 +10,7 @@
  */
 
 import type { Sql } from "@sql";
+import { isRecord } from "@validation/value-guards";
 import { createChildScope, getColumnName, getTableName } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
@@ -154,16 +155,12 @@ function requireFilterObject(
   operator: string,
   value: unknown
 ): Record<string, unknown> {
-  if (!isFilterObject(value)) {
+  if (!isRecord(value)) {
     throw new QueryEngineError(
       `Relation filter '${relationInfo.name}.${operator}' requires an object.`
     );
   }
   return value;
-}
-
-function isFilterObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

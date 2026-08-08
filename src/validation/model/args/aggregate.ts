@@ -67,10 +67,7 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
   const minMaxKeys: string[] = [];
 
   for (const name of Object.keys(state.scalars)) {
-    const scalar = state.scalars[name];
-    if (!scalar) {
-      continue;
-    }
+    const scalar = state.scalars[name]!;
     const scalarType = scalar["~"].state.type;
 
     // Count can include all scalars
@@ -398,10 +395,7 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
   const numericKeys: string[] = [];
 
   for (const name of Object.keys(state.scalars)) {
-    const scalar = state.scalars[name];
-    if (!scalar) {
-      continue;
-    }
+    const scalar = state.scalars[name]!;
     scalarKeys.push(name);
     if (
       ["int", "float", "decimal", "bigint"].includes(scalar["~"].state.type)

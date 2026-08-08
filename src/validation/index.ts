@@ -62,15 +62,10 @@ export type {
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { ParseResult, ValidationFailure } from "./types";
+import { isFunction, isRecord } from "./value-guards";
 
 const isPromiseLike = (value: unknown): value is PromiseLike<unknown> => {
-  const candidate = value as { then?: unknown };
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof candidate.then === "function"
-  );
+  return isRecord(value) && "then" in value && isFunction(value.then);
 };
 
 const asyncValidationFailure: ValidationFailure = {

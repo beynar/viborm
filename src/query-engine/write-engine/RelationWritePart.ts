@@ -79,30 +79,23 @@ import {
  *   `WHERE unique AND fk = Ref(parentLocate)` (technique #1's SQL-level
  *   planning→planning `Ref`) with **no** found-uncorrelated arm; present →
  *   `UPDATE … SET data` / `DELETE … WHERE unique`, pinned in batch by an exists
- *   guard on the correlated row; absent → V1's verbatim `Cannot {op} … for this
+ *   guard on the correlated row; absent → the public `Cannot {op} … for this
  *   parent` error.
  * - **bulk** (`updateMany`, `deleteMany`): no probe — one correlated bulk write
- *   `WHERE fk = parent AND filter`; zero matched rows is a silent success (V1's
- *   contract), so no postcondition.
+ *   `WHERE fk = parent AND filter`; zero matched rows is a silent success, so
+ *   there is no postcondition.
  *
  * The membership/target row sets never cross a write boundary at runtime (ATOM
  * §3 corollary): the located parent id is inlined at compile as a literal, and
  * every correlation is expressed in SQL.
  */
-export type RelationWriteKind =
-  | "delete"
-  | "deleteMany"
-  | "update"
-  | "updateMany";
-
 type ChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
 
-export interface RelationWriteConfig {
+interface RelationWriteContext {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;
   readonly childName: string;
   readonly relation: ChildHeldRelation;
-  readonly kind: RelationWriteKind;
   /**
    * The child-held foreign-key columns and the parent columns they reference,
    * index-aligned (compound keys are per-field, ATOM “Field-bound foreign-key provenance”).
@@ -119,28 +112,24 @@ export interface RelationWriteConfig {
   readonly data?: Record<string, unknown>;
   /** Bulk (`updateMany`/`deleteMany`): the user filter, correlated to the parent. */
   readonly filter?: Record<string, unknown>;
-  /**
-   * W4-U3 — an **inverse-side to-one** `update: { where, data }`: the NON-unique
-   * `WhereInput` the CURRENTLY CONNECTED record must satisfy. It is ANDed into the
-   * correlated probe and the batch presence guard, never into the write (which
-   * addresses the captured PK), so a connected row that fails it simply leaves the
-   * probe empty — already this family's `Cannot update … for this parent` abort,
-   * atomic on both substrates. Distinct from {@link filter}: a bulk filter selects a
-   * possibly-empty set and matching nothing is a silent success; this one is a
-   * precondition on the single connected row.
-   */
+  /** Optional non-unique filter that the currently connected inverse to-one row
+   * must satisfy. It narrows the probe and guard, while the write uses captured
+   * identity. Unlike a bulk filter, no match is a target-not-found failure. */
   readonly targetFilter?: Record<string, unknown>;
-  /**
-   * Inverse-side one-to-one upsert: the create arm
-   * scalar data taken when the correlated probe finds NO child of this parent. When
-   * present, this `kind: "update"` part becomes an upsert — `data` is the found-arm
-   * update payload. The locator stays the FK correlation alone (no unique `where`); the
-   * absent arm has no `racePin` and no found guard (V1's `missingPin: none`), the
-   * found arm carries the upsert-family premise/vanished wording.
-   */
-  /** N4-U2 — the inverse-side to-one upsert's CREATE arm is always a fresh subtree. */
-  readonly upsertCreateSubtree?: Part;
 }
+
+export type RelationWriteConfig = RelationWriteContext &
+  (
+    | {
+        readonly kind: "delete" | "deleteMany" | "update" | "updateMany";
+        readonly createSubtree?: never;
+      }
+    | {
+        readonly kind: "inverseUpsert";
+        readonly data: Record<string, unknown>;
+        readonly createSubtree: Part;
+      }
+  );
 
 export class RelationWritePart implements Part {
   private readonly config: RelationWriteConfig;
@@ -151,31 +140,25 @@ export class RelationWritePart implements Part {
   // The validated scalar assignments of a targeted `update`/`updateMany` (∅ when a
   // relation-only nested update carries no scalars — then no self-UPDATE is emitted,
   // only the child Parts). Computed once at construction.
-  private readonly updateScalarData?: Record<string, unknown>;
+  private readonly updateScalarData: Record<string, unknown> = {};
   private readonly updateCompiler?: RecordUpdateCompiler;
-  // N7-U-B — a nested `update`/`updateMany` arm that asks for nothing: no scalar
-  // assignment, no deeper relation write, and not an upsert arm (whose CREATE half
-  // still runs when the probe finds no row). Prisma skips such an arm entirely, so
-  // this Part emits NO step — not the probe, not the presence guard, not an empty-SET
-  // UPDATE — and in particular does not require the target to exist.
+  // A nested update that asks for nothing emits no probe, guard, or empty SET;
+  // target existence is not a precondition. An upsert remains non-empty because
+  // its create arm can still run.
   private readonly isNoOpUpdate: boolean = false;
 
   private get relationName(): string {
     return this.config.relation.relationInfo.name;
   }
 
-  private get foreignFields(): readonly string[] {
-    return this.config.relation.foreignFields;
-  }
-
-  private get referencedFields(): readonly string[] {
-    return this.config.relation.referencedFields;
+  private get operationKind() {
+    return this.config.kind === "inverseUpsert" ? "update" : this.config.kind;
   }
 
   constructor(scope: StepScope, config: RelationWriteConfig) {
     this.config = config;
     let updateCompiler: RecordUpdateCompiler | undefined;
-    if (config.kind === "update" && config.upsertCreateSubtree === undefined) {
+    if (config.kind === "update") {
       updateCompiler = this.buildUpdateCompiler(scope);
       this.isNoOpUpdate = updateCompiler === undefined;
     }
@@ -191,20 +174,15 @@ export class RelationWritePart implements Part {
       scope.allocate(`${config.childName}.find`);
     this.writeId =
       updateCompiler?.writeId ??
-      scope.allocate(`${config.childName}.${config.kind}`);
+      scope.allocate(`${config.childName}.${this.operationKind}`);
     this.guardId = scope.allocate(`${config.childName}.guard.exists`);
-    // Payload-determined support decisions are made at CONSTRUCTION — before any
-    // I/O — so a shape V2 does not own declines with a typed UnsupportedOperationError
-    // that PROPAGATES (post-P6: no V1 fallback catches it). A nested relation write
-    // inside `update`/`updateMany` data was, pre-T3b, such a shape; mechanism 1 now
-    // folds it one level deeper (see `interpretChildParts`).
+    // Payload support is decided before I/O. Ordinary targeted updates delegate
+    // nested relations to the record compiler; bulk and inverse-upsert leaves
+    // remain scalar-only.
     if (config.kind === "updateMany") {
       this.updateScalarData = this.parseScalarUpdateData();
       this.isNoOpUpdate = Object.keys(this.updateScalarData).length === 0;
-    } else if (
-      config.kind === "update" &&
-      config.upsertCreateSubtree !== undefined
-    ) {
+    } else if (config.kind === "inverseUpsert") {
       const scalarData = this.parseScalarUpdateData();
       updateCompiler = config.recordCompilers.updateSelected({
         scope,
@@ -227,16 +205,18 @@ export class RelationWritePart implements Part {
     // The probe is built LAST: whether it owes the deeper edges the located primary
     // key is a fact about the child Parts, which are interpreted above. A no-op arm
     // gets no probe — it must not make the target's existence a precondition.
+    const isTargeted =
+      config.kind !== "updateMany" && config.kind !== "deleteMany";
     this.probe =
-      this.isTargeted() && !this.isNoOpUpdate ? this.buildProbe() : undefined;
+      isTargeted && !this.isNoOpUpdate ? this.buildProbe() : undefined;
   }
 
   planning(scope: StepScope): readonly StatementStep[] {
     if (this.isNoOpUpdate) return [];
     const steps: StatementStep[] = this.probe ? [this.probe] : [];
     if (this.updateCompiler) steps.push(...this.updateCompiler.planning());
-    if (this.config.upsertCreateSubtree) {
-      steps.push(...this.config.upsertCreateSubtree.planning(scope));
+    if (this.config.kind === "inverseUpsert") {
+      steps.push(...this.config.createSubtree.planning(scope));
     }
     return steps;
   }
@@ -250,19 +230,20 @@ export class RelationWritePart implements Part {
 
   /**
    * `update` one / `delete` one: the leaf write addresses the **captured PK** the
-   * probe locked at planning, not the user selector (V1's mutation-identity, the
-   * `WHERE id` mechanics). In batch mode the presence guard correlates the ORIGINAL
-   * selector AND that captured PK on the same row (fk = parent too): a concurrent
-   * "split-witness" that moves the selector to a replacement row leaves no row
-   * matching both, so the guard fails and the batch rolls back — V2 never mutates
-   * the replacement the selector-alone guard would have found.
+   * probe selected, not the user selector. In batch mode the presence guard binds
+   * the original selector, parent correlation, and captured PK to the same row, so
+   * moving the selector to a replacement fails the guard.
    */
   private compileTargeted(
     scope: StepScope,
     known: PlanningKnown
   ): readonly OperationStep[] {
-    if (this.config.upsertCreateSubtree !== undefined) {
-      return this.compileInverseToOneUpsert(scope, known);
+    if (this.config.kind === "inverseUpsert") {
+      return this.compileInverseToOneUpsert(
+        scope,
+        known,
+        this.config.createSubtree
+      );
     }
     const capturedPk = this.capturedPk(known);
     const capturedWhere = { [this.config.childPrimaryKey]: capturedPk };
@@ -293,10 +274,9 @@ export class RelationWritePart implements Part {
    * The inverse-side one-to-one upsert. The correlated
    * probe (`WHERE fk = parent`) already decided the three-way at plan time:
    *
-   * - absent (0 rows) → CREATE arm: `INSERT child (createData, fk = parent)`. No
-   *   `racePin`, no found guard — V1's `missingPin: none` for a to-one upsert with no
-   *   unique `where` (the child FK's UNIQUE constraint is the sole invariant; a losing
-   *   concurrent insert surfaces its constraint error, exactly as V1 leaves it).
+   * - absent (0 rows) → CREATE arm: `INSERT child (createData, fk = parent)`. It
+   *   has no unique target to pin, so a losing concurrent insert surfaces the
+   *   child-FK constraint error;
    * - found → UPDATE arm: the captured correlated child, pinned in batch by an exists
    *   guard on `fk = parent AND pk = capturedPk` (the upsert-family premise wording),
    *   and in tx by the update's affected-rows expectation (the upsert-vanished wording).
@@ -306,16 +286,11 @@ export class RelationWritePart implements Part {
    */
   private compileInverseToOneUpsert(
     scope: StepScope,
-    known: PlanningKnown
+    known: PlanningKnown,
+    createSubtree: Part
   ): readonly OperationStep[] {
     const rows = this.probeRows(known);
     if (rows.length === 0) {
-      const createSubtree = this.config.upsertCreateSubtree;
-      if (!createSubtree) {
-        throw new QueryEngineError(
-          `query-engine-v2 upsert for relation '${this.relationName}' requires a create subtree.`
-        );
-      }
       return createSubtree.compile(scope, known);
     }
     const first = rows[0];
@@ -377,7 +352,7 @@ export class RelationWritePart implements Part {
       kind: "write",
       statement: buildUpdateMany(this.config.childScope, {
         where: this.correlatedFilter(known),
-        data: this.requireUpdateScalarData(),
+        data: this.updateScalarData,
       }),
       outputs: {},
     };
@@ -416,7 +391,7 @@ export class RelationWritePart implements Part {
                 {
                   kind: "firstRowField" as const,
                   field,
-                  ...(this.config.upsertCreateSubtree
+                  ...(this.config.kind === "inverseUpsert"
                     ? { optional: true }
                     : {}),
                 },
@@ -425,7 +400,7 @@ export class RelationWritePart implements Part {
           : {}),
       },
     };
-    return this.updateCompiler && !this.config.upsertCreateSubtree
+    return this.updateCompiler && this.config.kind !== "inverseUpsert"
       ? { ...step, expects: exactlyOneRow(this.targetFailure()) }
       : step;
   }
@@ -472,7 +447,7 @@ export class RelationWritePart implements Part {
   /** `WHERE fk = <parentLiteral> [AND filter]` for a bulk write. */
   private correlatedFilter(known: PlanningKnown): Record<string, unknown> {
     const correlation =
-      this.foreignFields.length === 1
+      this.config.relation.foreignFields.length === 1
         ? this.correlationFilters(known, false)[0]!
         : { AND: this.correlationFilters(known, false) };
     const filter = this.config.filter;
@@ -481,18 +456,15 @@ export class RelationWritePart implements Part {
       : correlation;
   }
 
-  /** `fk_i = <parent_i>` for every compound-key field — a SQL `Ref` to the
-   *  located-parent read at planning (technique #1) for a `planned` parent, or the
-   *  inlined literal at compile. A `literal` parent id — a depth-composed inverse-side
-   *  to-one under a located-by-PK nested target (T3b mechanism 1) — is a compile-time
-   *  constant, so even the planning probe inlines its value (no `Ref` is possible or
-   *  needed), exactly as the junction membership read already does. */
+  /** `fk_i = <parent_i>` for every compound-key field. A planned parent uses a
+   * SQL reference during planning; a literal parent is already a compile-time
+   * constant and is inlined in both phases. */
   private correlationFilters(
     known: PlanningKnown | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
-    return this.foreignFields.map((fkField, index) => {
-      const referencedField = this.referencedFields[index]!;
+    return this.config.relation.foreignFields.map((fkField, index) => {
+      const referencedField = this.config.relation.referencedFields[index]!;
       const member = {
         foreignField: fkField,
         referencedField,
@@ -506,14 +478,14 @@ export class RelationWritePart implements Part {
                 readSource: planningSourceFromFinal(
                   this.config.parentId,
                   this.relationName,
-                  this.config.kind
+                  this.operationKind
                 ),
               })
             : foreignKeyWriteValue(
                 member,
                 known,
                 this.relationName,
-                this.config.kind
+                this.operationKind
               ),
         },
       };
@@ -569,9 +541,10 @@ export class RelationWritePart implements Part {
     });
   }
 
-  /** Bulk updates and the legacy inverse-to-one upsert leaf accept scalar data only. */
+  /** Bulk updates and inverse-to-one upsert updates accept scalar data only. */
   private parseScalarUpdateData(): Record<string, unknown> {
-    const { data, childScope, kind } = this.config;
+    const { data, childScope } = this.config;
+    const kind = this.operationKind;
     if (!data) {
       throw new QueryEngineError(
         `query-engine-v2 ${kind} for relation '${this.relationName}' requires data.`
@@ -586,8 +559,7 @@ export class RelationWritePart implements Part {
     });
     assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
     if (Object.keys(relations).length > 0) {
-      const operation =
-        this.config.upsertCreateSubtree === undefined ? kind : "upsert";
+      const operation = this.config.kind === "inverseUpsert" ? "upsert" : kind;
       throw new UnsupportedOperationError(
         `query-engine-v2 ${operation} for relation '${this.relationName}' does not support nested relation writes in its data.`
       );
@@ -595,28 +567,13 @@ export class RelationWritePart implements Part {
     return scalarData;
   }
 
-  /** The validated scalar assignments of a targeted `update`/`updateMany`; the leaf
-   *  UPDATE consumes them. Present for every `update`/`updateMany` (computed once at
-   *  construction); a relation-only nested update never reaches a leaf that needs it. */
-  private requireUpdateScalarData(): Record<string, unknown> {
-    if (!this.updateScalarData) {
-      throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.relationName}' has no scalar data.`
-      );
-    }
-    return this.updateScalarData;
-  }
-
-  /**
-   * The primary key the correlated probe captured at planning — the row this
-   * targeted mutation is pinned to. Absent rows are V1's verbatim target-not-found
-   * (the correlated probe found no child of this parent matching the selector).
-   */
+  /** The primary key captured by the correlated probe. An absent row uses the
+   * relation family's target-not-found failure. */
   private capturedPk(known: PlanningKnown): unknown {
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 ${this.config.kind} probe for relation '${this.relationName}' did not expose rows.`,
+        `query-engine-v2 ${this.operationKind} probe for relation '${this.relationName}' did not expose rows.`,
         this.relationName
       );
     }
@@ -632,7 +589,7 @@ export class RelationWritePart implements Part {
     const first = rows[0];
     if (!(first && typeof first === "object")) {
       throw new NestedWriteError(
-        `query-engine-v2 ${this.config.kind} probe for relation '${this.relationName}' captured no row shape.`,
+        `query-engine-v2 ${this.operationKind} probe for relation '${this.relationName}' captured no row shape.`,
         this.relationName
       );
     }
@@ -652,18 +609,11 @@ export class RelationWritePart implements Part {
 
   /** The correlated-operation name for the target-not-found message (update/delete). */
   private targetedOp(): "delete" | "update" {
-    return this.config.kind === "update" ? "update" : "delete";
+    return this.operationKind === "update" ? "update" : "delete";
   }
 
-  private isTargeted(): boolean {
-    return this.config.kind === "update" || this.config.kind === "delete";
-  }
-
-  /** W4-U3 — the inverse-side to-one `update: { where, data }` filter on the currently
-   *  connected record, as a single ordinary `WhereInput` term (not a unique
-   *  discriminator, so it is handed to the find builder whole). `[]` for the bare
-   *  `update: <data>` spelling and for every other kind, which keeps their probe and
-   *  guard SQL byte-identical to pre-W4-U3. */
+  /** The optional inverse-side to-one update filter on the currently connected
+   * record. It is an ordinary `WhereInput`, not a unique discriminator. */
   private targetFilters(): Record<string, unknown>[] {
     const filter = this.config.targetFilter;
     return filter && Object.keys(filter).length > 0 ? [filter] : [];
@@ -675,13 +625,9 @@ export class RelationWritePart implements Part {
    * whole locator. A to-many targeted
    * `update`/`delete` always supplies its unique `where`.
    *
-   * N6-U1: the selector may now be EXTENDED, so its filter half rides along —
-   * {@link uniqueSelectorConjuncts} is the one home that appends it. Both consumers
-   * of this list need it and for the same reason: the correlated probe LOCATES the
-   * row the caller named, and the batch guard re-asserts that the located row is
-   * still that row. Feeding the probe the filter but not the guard would let a
-   * concurrent write to the filtered column slip a row past the guard the locate had
-   * excluded.
+   * Extended-selector filters ride with the discriminator through
+   * {@link uniqueSelectorConjuncts}. Both the planning probe and batch guard must
+   * address the same narrowed row.
    */
   private optionalWhereFilters(): Record<string, unknown>[] {
     return this.config.where
@@ -700,16 +646,8 @@ export interface RelationSetConfig {
   readonly requiredFields: readonly string[];
   readonly targets: readonly Record<string, unknown>[];
   readonly parentId: FinalReferenceSource;
-  /**
-   * N5-U1 — where this parent's children ALREADY are, when that is not where the
-   * reparented ones must GO. `set` is two halves against one parent value: the
-   * departing half asks "which rows carry my key today", the target half writes
-   * "carry my key from now on". They coincide everywhere except under a non-cascade
-   * referenced-key transition, where the part is ordered after the root UPDATE and
-   * assigns the POST-transition key while the departing rows still carry the
-   * PRE-transition one. Absent → both halves read {@link parentId}, byte-identical
-   * to pre-N5.
-   */
+  /** Source used to find current members when it differs from the assignment
+   * source. A non-cascade key transition reads the old key and writes the new. */
   readonly membershipReadSource?: FinalReferenceSource;
   readonly txMode: boolean;
 }
@@ -728,8 +666,8 @@ interface SetTarget {
  * disconnected (nullable FK) or, if their FK is required, the operation is
  * rejected by the **retained `notExists` orphan guard** (ATOM “Branch premises and pins,” `raceable:
  * true`); target children are (re)parented. `set` adopts globally, so target
- * existence is verified by an *uncorrelated* read (V1's `set` capture) —
- * absent → V1's verbatim `Cannot set … ` (no "for this parent").
+ * existence is verified by an uncorrelated read; absence uses the public
+ * `Cannot set …` message without "for this parent".
  *
  * The departing set is a planning-time correlated read inlined at compile (a SQL
  * `NOT (unique … )` list of runtime cardinality); it never threads a row set
@@ -801,11 +739,10 @@ export class RelationSetPart implements Part {
   }
 
   /**
-   * P4 — the departing half, then every target's batch guard, then ONE reparent
-   * write over the captured primary keys.
+   * Emit the departing half, every target's batch guard, then one reparent write
+   * over the captured primary keys.
    *
-   * `set` already addressed each target by the primary key its own probe captured
-   * (V1's mutation-identity: the write can never land on a replacement), so the
+   * `set` addresses each target by the primary key its own probe captured, so the
    * whole target list is one `UPDATE … SET fk = parent WHERE pk IN (…)`. The
    * per-target PROBES stay, and so do the per-target guards: each guard is the
    * split-witness assertion pairing ONE selector with the primary key THAT
@@ -863,9 +800,7 @@ export class RelationSetPart implements Part {
         id: this.targets[0]!.reparentId,
         kind: "write",
         statement: buildUpdateMany(this.config.childScope, {
-          // Reparent the captured rows by their PKs, not the user selectors
-          // (V1's mutation-identity), so the write can never land on a
-          // replacement.
+          // Reparent captured rows by PK, never by a selector that can move.
           where: { [this.config.childPrimaryKey]: { in: capturedPks } },
           data: this.fkAssignData(known),
         }),
@@ -877,7 +812,7 @@ export class RelationSetPart implements Part {
 
   /**
    * The departing rows (currently this parent's children NOT in the target set).
-   * Required FK: reject at compile if any exist (V1's orphan error), and pin the
+   * Required FK: reject at compile if any exist, and pin the
    * emptiness in batch with the retained `notExists` guard. Nullable FK: null
    * their FK with one correlated bulk update.
    */
@@ -1077,34 +1012,15 @@ interface WritePartBase {
   readonly childPrimaryKey: string;
   readonly parentId: FinalReferenceSource;
   readonly txMode: boolean;
-  /** N4-U2: the fresh-arm seam the inverse-side to-one upsert's relation-carrying
-   *  CREATE arm is built through. REQUIRED, so the absorption cannot be reached without
-   *  it — a caller that forgot the seam would otherwise turn a typed refusal into an
-   *  internal invariant break, and a runtime fallback for that would be a guard with no
-   *  reachable coverage to name. */
+  /** Compiler dependency for an inverse upsert's relation-bearing create arm. */
   readonly recordCompilers: RecordCompilerSeam;
 }
 
 /**
- * **M12 — the relation's own foreign key, spelled in nested UPDATE data.** The column
- * `fkFields` names is not the payload's to write here: this family DERIVES it from the
- * row the enclosing step acted on (`fk = <parent>`, the correlation every Part below is
- * built around). A value spelled beside the relation is a SECOND provenance for that
- * same column — and it WINS, because it rides the target's own SET, which lands after
- * the correlation has already chosen the row. Measured live (PGlite, public client): the
- * parent silently loses the child it was updating through, no error, wrong row reparented.
- * That is the wrong-row doctrine at the value path, so the shape is refused, not absorbed.
- *
- * ONE check covers BOTH spellings, by construction rather than by a second branch: the
- * parse boundary coerces a bare literal into the `{ set: … }` envelope
- * (`validation/primitives/shorthand.ts`), and the model-data partition files it under the
- * FIELD NAME whichever envelope it wears — so keying on the key is spelling-blind, and an
- * unwrap here would be a check with no coverage of its own to name. `undefined` is
- * absence (the partition drops it), matching Prisma and the adopt-family seam.
- *
- * The three nested UPDATE positions call this; the nested CREATE positions do not need
- * it (`v.omit(core.create, fkFields)` answers them at the parse boundary), and the adopt family already has its
- * own (`buildOneUpsertPart`, `RelationUpsertPart.ts`). All say it from one string.
+ * Reject a nested update that assigns the relation-owned FK. Correlation derives
+ * that column from the enclosing record; a second value source could move the
+ * selected child away after it was located. The parse boundary normalizes scalar
+ * shorthand, so checking the partitioned field name covers both spellings.
  */
 function assertOwnedFkAbsentFromUpdateData(
   base: WritePartBase,
@@ -1139,10 +1055,7 @@ export function buildToManyUpdateParts(
         `query-engine-v2 internal: to-many update for relation '${relationName}' requires a unique target.`
       );
     }
-    // M12 position 1 — the to-many `update` arm's data (`posts: { update: { where,
-    // data } }`). Uniquely covered here because it is the only place this payload is
-    // held before the fork below: refusing on BOTH sides costs one check, while a
-    // check inside either branch would leave the other silent.
+    // Refuse a second value source for the FK before record compilation forks.
     assertOwnedFkAbsentFromUpdateData(base, item.data);
     return new RelationWritePart(base.scope, {
       ...partConfig(base, "update"),
@@ -1158,13 +1071,12 @@ export function buildToManyUpdateParts(
  * `update` carries no unique `where`. The captured PK is the single correlated
  * child and the write addresses that captured identity.
  *
- * W4-U3: the payload arrives as the relation update schema's canonical
+ * The payload arrives as the relation update schema's canonical
  * `{ data, where? }` envelope — the ONE place the bare/wrapper spellings are told
  * apart is that parse, off the user's own payload ({@link splitToOneUpdateTarget}).
  * The wrapper's `where` is a NON-unique filter the connected record must satisfy; it
  * joins the correlated probe (and the batch guard), so a filter-miss is the family's
- * existing `Cannot update … for this parent` abort. The bare form yields no filter
- * and every step is byte-identical to pre-W4-U3, at the root and at every depth.
+ * existing `Cannot update … for this parent` abort. The bare form yields no filter.
  */
 export function buildToOneUpdatePart(
   base: WritePartBase,
@@ -1177,12 +1089,7 @@ export function buildToOneUpdatePart(
       `query-engine-v2 internal: to-one update for relation '${relationName}' requires one correlated target.`
     );
   }
-  // M12 position 2 — the inverse-side to-one `update` arm's data (`profile: { update:
-  // … } }`). Uniquely covered here: this is the only place BOTH the bare and the
-  // `{ data, where }` spellings are the same object (`splitToOneUpdateTarget` has just
-  // reconciled them) and the only place before the X1c fork below. This relation's FK
-  // is the child's whole locator — spelling it moves the row OUT of the parent that is
-  // updating through it.
+  // The relation-owned FK is the whole locator and cannot also be update data.
   assertOwnedFkAbsentFromUpdateData(base, target.data);
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
@@ -1197,7 +1104,7 @@ export function buildToOneUpdatePart(
  * unique `where`, exactly as the to-one `update` arm. Found → update it; absent →
  * create it with `fk = parent`. Composes the certified correlated-update leaf
  * ({@link buildToOneUpdatePart}) with an absent-arm create: a scalar-only arm is one
- * INSERT, and — N4-U2 — a relation-carrying arm is the create SUBTREE below.
+ * INSERT, and a relation-carrying arm is the create subtree below.
  */
 export function buildInverseToOneUpsertPart(
   base: WritePartBase,
@@ -1210,17 +1117,10 @@ export function buildInverseToOneUpsertPart(
     );
   }
   const createData = input.create;
-  // M12 position 3 — the inverse-side to-one `upsert` UPDATE arm. Uniquely covered
-  // here: this arm reaches `RelationWritePart` as an `update` config, but through a
-  // builder position no other guard sees, and it is the arm the FOUND branch runs — the
-  // one branch whose row already belongs to this parent and can therefore be stolen from
-  // it. The CREATE arm needs nothing: `v.omit(core.create, fkFields)` refuses the key at
-  // the parse boundary.
+  // The found arm cannot move the child away by assigning its relation-owned FK.
   assertOwnedFkAbsentFromUpdateData(base, input.update);
-  // N4-U2 — a relation-carrying create arm is the create SUBTREE, the same absorption
-  // the to-many adopt family's create arm takes. The arm's foreign key is injected into
-  // the subtree's root INSERT by the identical expression the scalar arm writes, so the
-  // two spellings land the same row under the same parent.
+  // A relation-bearing create arm uses the ordinary fresh-record compiler; its
+  // incoming FK is injected into the subtree's root INSERT.
   const subtree = base.recordCompilers.createFresh({
     childScope: base.childScope,
     data: createData,
@@ -1233,8 +1133,9 @@ export function buildInverseToOneUpsertPart(
   });
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
+    kind: "inverseUpsert",
     data: input.update,
-    upsertCreateSubtree: subtree,
+    createSubtree: subtree,
   });
 }
 
@@ -1299,9 +1200,8 @@ export function buildToManyDeleteManyParts(
   );
 }
 
-/** `set`: one membership Part over every unique target `where`. `membershipReadSource`
- *  (N5-U1) splits the departing half off the assigned half; omit it and both read
- *  `base.parentId`. */
+/** `set`: one membership Part over every unique target `where`. An explicit
+ * membership source separates old-key reads from new-key assignments. */
 export function buildToManySetPart(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "set" }>,
@@ -1325,7 +1225,7 @@ export function buildToManySetPart(
 
 function partConfig(
   base: WritePartBase,
-  kind: RelationWriteKind
+  kind: "delete" | "deleteMany" | "update" | "updateMany"
 ): RelationWriteConfig {
   return {
     engine: base.engine,

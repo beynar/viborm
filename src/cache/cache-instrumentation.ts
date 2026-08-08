@@ -1,7 +1,6 @@
 import type { QueryExecutionContext } from "@drivers";
 import { sanitizeErrorForLogging } from "@errors";
 import type { InstrumentationContext } from "@instrumentation/context";
-import { ignoreObserverFailure } from "@instrumentation/ignore-observer-failure";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
@@ -18,11 +17,7 @@ export type CacheLogEvent = "hit" | "miss" | "revalidate" | "bypass";
 export function getCacheTracer(
   instrumentation: InstrumentationContext | undefined
 ): TracerWrapper {
-  try {
-    return instrumentation?.tracer ?? getNoopTracer();
-  } catch {
-    return getNoopTracer();
-  }
+  return instrumentation?.tracer ?? getNoopTracer();
 }
 
 export function getCacheOperationAttributes(
@@ -49,23 +44,16 @@ export function emitCacheLogEvent(
   error: unknown,
   context: QueryExecutionContext | undefined
 ): void {
-  try {
-    const logger = instrumentation?.logger;
-    if (!logger) return;
-    ignoreObserverFailure(
-      logger.cache({
-        timestamp: new Date(),
-        model: context?.model,
-        operation: context?.operation,
-        correlationId: context?.correlationId,
-        error:
-          error instanceof Error ? sanitizeErrorForLogging(error) : undefined,
-        meta: { event, status },
-      })
-    );
-  } catch {
-    // Cache logging is observational and cannot alter query behavior.
-  }
+  const logger = instrumentation?.logger;
+  if (!logger) return;
+  logger.cache({
+    timestamp: new Date(),
+    model: context?.model,
+    operation: context?.operation,
+    correlationId: context?.correlationId,
+    error: error instanceof Error ? sanitizeErrorForLogging(error) : undefined,
+    meta: { event, status },
+  });
 }
 
 export function setSpanAttribute(

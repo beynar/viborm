@@ -214,28 +214,9 @@ function sql(strings: readonly string[], ...values: readonly RawValue[]) {
   return new Sql(strings, values);
 }
 
-const sqlProxy = new Proxy(sql, {
-  get(target, prop) {
-    if (prop === "raw") {
-      return raw;
-    }
-    if (prop === "empty") {
-      return empty;
-    }
-    if (prop === "join") {
-      return join;
-    }
-    return (strings: TemplateStringsArray, ...values: RawValue[]) => {
-      return target(strings, ...values);
-    };
-  },
-}) as typeof sql & {
-  raw: typeof raw;
-  empty: typeof empty;
-  join: typeof join;
-};
+const sqlTag = Object.assign(sql, { raw, empty, join });
 
-export { empty, join, raw, sqlProxy as sql };
+export { empty, join, raw, sqlTag as sql };
 
 /**
  * Type guard for Sql fragments. Structural check rather than instanceof so it

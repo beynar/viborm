@@ -1,0 +1,346 @@
+- main [ref=f1e2]:
+  - generic "Main" [ref=f1e3]:
+    - navigation [ref=f1e6]:
+      - link "VibORM" [ref=f1e7] [cursor=pointer]:
+        - /url: /
+      - list
+      - generic [ref=f1e8]:
+        - button "Search ⌘ K" [ref=f1e9]:
+          - text: Search
+          - generic [ref=f1e13]:
+            - generic [ref=f1e14]: ⌘
+            - generic [ref=f1e15]: K
+        - button "Toggle Theme" [ref=f1e16]
+  - main [ref=f1e25]:
+    - generic [ref=f1e30]:
+      - heading "VibORM" [level=1] [ref=f1e31]
+      - generic [ref=f1e33]:
+        - generic [ref=f1e34]:
+          - generic [ref=f1e35]: viborm.ts
+          - generic [ref=f1e36]: VibORM
+        - generic [ref=f1e37]:
+          - generic [ref=f1e38]: typescript
+          - code [ref=f1e40]:
+            - generic [ref=f1e41]: "const viborm = await orms.findUnique({"
+            - generic [ref=f1e42]: "where: {"
+            - generic [ref=f1e43]: "prismaLikeSyntax: true,"
+            - generic [ref=f1e44]: "working: true,"
+            - generic [ref=f1e45]: "typescript: true,"
+            - generic [ref=f1e46]: "wasm: false,"
+            - generic [ref=f1e47]: "databaseIsomorphic: true,"
+            - generic [ref=f1e48]: "inlineRelationsSchema: true,"
+            - generic [ref=f1e49]: "},"
+            - generic [ref=f1e50]: "});"
+      - generic [ref=f1e51]:
+        - link "Get Started" [ref=f1e52] [cursor=pointer]:
+          - /url: /docs/getting-started/quick-start
+        - link "Read the Docs" [ref=f1e55] [cursor=pointer]:
+          - /url: /docs
+    - generic [ref=f1e58]:
+      - generic [ref=f1e59]:
+        - heading "Schema Definition" [level=2] [ref=f1e60]
+        - paragraph [ref=f1e61]: Relations are defined inline with the model.
+      - generic [ref=f1e62]:
+        - generic [ref=f1e63]:
+          - generic [ref=f1e64]:
+            - generic [ref=f1e65]: drizzle-schema.ts
+            - generic [ref=f1e66]: Drizzle
+          - generic [ref=f1e67]:
+            - generic [ref=f1e68]: typescript
+            - code [ref=f1e70]:
+              - generic [ref=f1e71]: // Tables defined here...
+              - generic [ref=f1e72]: "const users = pgTable(\"users\", {"
+              - generic [ref=f1e73]: "id: text(\"id\").primaryKey(),"
+              - generic [ref=f1e74]: "email: text(\"email\").notNull().unique(),"
+              - generic [ref=f1e75]: "name: text(\"name\"),"
+              - generic [ref=f1e76]: "});"
+              - generic [ref=f1e78]: "const posts = pgTable(\"posts\", {"
+              - generic [ref=f1e79]: "id: text(\"id\").primaryKey(),"
+              - generic [ref=f1e80]: "title: text(\"title\").notNull(),"
+              - generic [ref=f1e81]: "authorId: text(\"author_id\").references(() => users.id),"
+              - generic [ref=f1e82]: "});"
+              - generic [ref=f1e84]: // ...but relations defined separately 😕
+              - generic [ref=f1e85]: "const usersRelations = relations(users, ({ many }) => ({"
+              - generic [ref=f1e86]: "posts: many(posts),"
+              - generic [ref=f1e87]: "}));"
+              - generic [ref=f1e89]: "const postsRelations = relations(posts, ({ one }) => ({"
+              - generic [ref=f1e90]: "author: one(users, {"
+              - generic [ref=f1e91]: "fields: [posts.authorId],"
+              - generic [ref=f1e92]: "references: [users.id],"
+              - generic [ref=f1e93]: "}),"
+              - generic [ref=f1e94]: "}));"
+        - generic [ref=f1e95]:
+          - generic [ref=f1e96]:
+            - generic [ref=f1e97]: viborm-schema.ts
+            - generic [ref=f1e98]: VibORM
+          - generic [ref=f1e99]:
+            - generic [ref=f1e100]: typescript
+            - code [ref=f1e102]:
+              - generic [ref=f1e103]: // Everything in one place — clean & elegant
+              - generic [ref=f1e104]: "const user = s.model({"
+              - generic [ref=f1e105]: "id: s.string().id().ulid(),"
+              - generic [ref=f1e106]: "email: s.string().unique(),"
+              - generic [ref=f1e107]: "name: s.string().nullable(),"
+              - generic [ref=f1e108]: "posts: s.oneToMany(() => post),"
+              - generic [ref=f1e109]: "});"
+              - generic [ref=f1e111]: "const post = s.model({"
+              - generic [ref=f1e112]: "id: s.string().id().ulid(),"
+              - generic [ref=f1e113]: "title: s.string(),"
+              - generic [ref=f1e114]: "authorId: s.string(),"
+              - generic [ref=f1e115]: "author: s.manyToOne(() => user)"
+              - generic [ref=f1e116]: .fields("authorId")
+              - generic [ref=f1e117]: .references("id"),
+              - generic [ref=f1e118]: "});"
+    - generic [ref=f1e121]:
+      - generic [ref=f1e122]:
+        - heading "Standard Schema Support" [level=2] [ref=f1e123]
+        - paragraph [ref=f1e124]: Use Zod, Valibot, or ArkType to narrow field validation and define typed JSON columns.
+      - generic [ref=f1e125]:
+        - generic [ref=f1e126]:
+          - generic [ref=f1e127]:
+            - generic [ref=f1e128]: typed-json.ts
+            - generic [ref=f1e129]: Typed JSON
+          - generic [ref=f1e130]:
+            - generic [ref=f1e131]: typescript
+            - code [ref=f1e133]:
+              - generic [ref=f1e134]: "import { s } from \"viborm\";"
+              - generic [ref=f1e135]: "import { z } from \"zod\";"
+              - generic [ref=f1e137]: // Define your JSON structure with Zod
+              - generic [ref=f1e138]: "const addressSchema = z.object({"
+              - generic [ref=f1e139]: "street: z.string(),"
+              - generic [ref=f1e140]: "city: z.string(),"
+              - generic [ref=f1e141]: "zip: z.string(),"
+              - generic [ref=f1e142]: "country: z.string(),"
+              - generic [ref=f1e143]: "});"
+              - generic [ref=f1e145]: "const user = s.model({"
+              - generic [ref=f1e146]: "id: s.string().id().ulid(),"
+              - generic [ref=f1e147]: "email: s.string().unique(),"
+              - generic [ref=f1e148]: // Typed JSON column with full inference
+              - generic [ref=f1e149]: "address: s.json().schema(addressSchema),"
+              - generic [ref=f1e150]: // Nullable typed JSON
+              - generic [ref=f1e151]: "preferences: s.json().schema(prefsSchema).nullable(),"
+              - generic [ref=f1e152]: "});"
+              - generic [ref=f1e154]: "// TypeScript knows address is { street, city, zip, country }"
+              - generic [ref=f1e155]: // Runtime validation included — invalid JSON throws
+        - generic [ref=f1e156]:
+          - generic [ref=f1e157]:
+            - generic [ref=f1e158]: narrowed-validation.ts
+            - generic [ref=f1e159]: Standard Schema
+          - generic [ref=f1e160]:
+            - generic [ref=f1e161]: typescript
+            - code [ref=f1e163]:
+              - generic [ref=f1e164]: "import { s } from \"viborm\";"
+              - generic [ref=f1e165]: "import { z } from \"zod\";"
+              - generic [ref=f1e166]: import * as v from "valibot";
+              - generic [ref=f1e168]: // Use Zod for email validation
+              - generic [ref=f1e169]: "const user = s.model({"
+              - generic [ref=f1e170]: "id: s.string().id().ulid(),"
+              - generic [ref=f1e171]: "email: s.string().schema("
+              - generic [ref=f1e172]: z.string().email()
+              - generic [ref=f1e173]: ),
+              - generic [ref=f1e174]: // Or use Valibot
+              - generic [ref=f1e175]: "phone: s.string().schema("
+              - generic [ref=f1e176]: "v.pipe(v.string(), v.regex(/^\\+[0-9]{10,15}$/))"
+              - generic [ref=f1e177]: ),
+              - generic [ref=f1e178]: // Or ArkType
+              - generic [ref=f1e179]: "age: s.int().schema(type(\"number > 0 & < 150\")),"
+              - generic [ref=f1e180]: "});"
+              - generic [ref=f1e182]: // Works with any Standard Schema compliant library
+              - generic [ref=f1e183]: // Same API, your choice of validator
+      - generic [ref=f1e184]:
+        - generic [ref=f1e185]:
+          - generic [ref=f1e186]: Zod
+          - paragraph [ref=f1e187]: Most popular schema library
+        - generic [ref=f1e188]:
+          - generic [ref=f1e189]: Valibot
+          - paragraph [ref=f1e190]: Lightweight alternative
+        - generic [ref=f1e191]:
+          - generic [ref=f1e192]: ArkType
+          - paragraph [ref=f1e193]: Fastest runtime validation
+    - generic [ref=f1e196]:
+      - generic [ref=f1e197]:
+        - heading "Query API" [level=2] [ref=f1e198]
+        - paragraph [ref=f1e199]: Object-based queries with full type inference.
+      - generic [ref=f1e201]:
+        - generic [ref=f1e202]:
+          - generic [ref=f1e203]: queries.ts
+          - generic [ref=f1e204]: Prisma-like API
+        - generic [ref=f1e205]:
+          - generic [ref=f1e206]: typescript
+          - code [ref=f1e208]:
+            - generic [ref=f1e209]: // Find admins with their published posts
+            - generic [ref=f1e210]: "const admins = await client.user.findMany({"
+            - generic [ref=f1e211]: "where: { role: \"ADMIN\" },"
+            - generic [ref=f1e212]: "include: {"
+            - generic [ref=f1e213]: "posts: {"
+            - generic [ref=f1e214]: "where: { published: true },"
+            - generic [ref=f1e215]: "orderBy: { createdAt: \"desc\" },"
+            - generic [ref=f1e216]: "},"
+            - generic [ref=f1e217]: "},"
+            - generic [ref=f1e218]: "});"
+            - generic [ref=f1e220]: // Create a user with posts in one call
+            - generic [ref=f1e221]: "const newUser = await client.user.create({"
+            - generic [ref=f1e222]: "data: {"
+            - generic [ref=f1e223]: "email: \"alice@example.com\","
+            - generic [ref=f1e224]: "name: \"Alice\","
+            - generic [ref=f1e225]: "posts: {"
+            - generic [ref=f1e226]: "create: ["
+            - generic [ref=f1e227]: "{ title: \"Hello World\" },"
+            - generic [ref=f1e228]: "{ title: \"Second Post\" },"
+            - generic [ref=f1e229]: "],"
+            - generic [ref=f1e230]: "},"
+            - generic [ref=f1e231]: "},"
+            - generic [ref=f1e232]: "include: { posts: true },"
+            - generic [ref=f1e233]: "});"
+            - generic [ref=f1e235]: // TypeScript knows the exact return type
+            - generic [ref=f1e236]: // No generation. No guessing. Just inference.
+    - generic [ref=f1e238]:
+      - heading "Feature Comparison" [level=2] [ref=f1e240]
+      - table [ref=f1e242]:
+        - rowgroup [ref=f1e243]:
+          - row [ref=f1e244]:
+            - columnheader "Feature" [ref=f1e245]
+            - columnheader "Prisma" [ref=f1e246]
+            - columnheader "Drizzle v1" [ref=f1e247]
+            - columnheader "Drizzle v2" [ref=f1e248]
+            - columnheader "VibORM" [ref=f1e249]
+        - rowgroup [ref=f1e250]:
+          - row [ref=f1e251]:
+            - cell "Object-based queries" [ref=f1e252]
+            - cell "✓" [ref=f1e253]
+            - cell "✗" [ref=f1e254]
+            - cell "Partial" [ref=f1e255]
+            - cell "Complete" [ref=f1e256]
+          - row [ref=f1e257]:
+            - cell "Zero code generation" [ref=f1e258]
+            - cell "✗" [ref=f1e259]
+            - cell "✓" [ref=f1e260]
+            - cell "✓" [ref=f1e261]
+            - cell "✓" [ref=f1e262]
+          - row [ref=f1e263]:
+            - cell "Pure TypeScript (no WASM)" [ref=f1e264]
+            - cell "✗" [ref=f1e265]
+            - cell "✓" [ref=f1e266]
+            - cell "✓" [ref=f1e267]
+            - cell "✓" [ref=f1e268]
+          - row [ref=f1e269]:
+            - cell "Full type inference" [ref=f1e270]
+            - cell "Generated" [ref=f1e271]
+            - cell "Partial" [ref=f1e272]
+            - cell "Partial" [ref=f1e273]
+            - cell "Full" [ref=f1e274]
+          - row [ref=f1e275]:
+            - cell "Relational queries" [ref=f1e276]
+            - cell "✓" [ref=f1e277]
+            - cell "Limited" [ref=f1e278]
+            - cell "✓" [ref=f1e279]
+            - cell "✓" [ref=f1e280]
+          - row [ref=f1e281]:
+            - cell "Typed JSON columns" [ref=f1e282]
+            - cell "✗" [ref=f1e283]
+            - cell "✗" [ref=f1e284]
+            - cell "✗" [ref=f1e285]
+            - cell "✓" [ref=f1e286]
+          - row [ref=f1e287]:
+            - cell "Standard Schema integration" [ref=f1e288]
+            - cell "✗" [ref=f1e289]
+            - cell "✗" [ref=f1e290]
+            - cell "✗" [ref=f1e291]
+            - cell "Zod/Valibot/ArkType" [ref=f1e292]
+          - row [ref=f1e293]:
+            - cell "Exported model schemas" [ref=f1e294]
+            - cell "✗" [ref=f1e295]
+            - cell "✗" [ref=f1e296]
+            - cell "✗" [ref=f1e297]
+            - cell "✓" [ref=f1e298]
+          - row [ref=f1e299]:
+            - cell "TypeScript schema" [ref=f1e300]
+            - cell "PSL file" [ref=f1e301]
+            - cell "✓" [ref=f1e302]
+            - cell "✓" [ref=f1e303]
+            - cell "✓" [ref=f1e304]
+          - row [ref=f1e305]:
+            - cell "Relations inline" [ref=f1e306]
+            - cell "✓" [ref=f1e307]
+            - cell "✗" [ref=f1e308]
+            - cell "✗" [ref=f1e309]
+            - cell "✓" [ref=f1e310]
+          - row [ref=f1e311]:
+            - cell "Filtering by relations" [ref=f1e312]
+            - cell "✓" [ref=f1e313]
+            - cell "✗" [ref=f1e314]
+            - cell "✓" [ref=f1e315]
+            - cell "✓" [ref=f1e316]
+          - row [ref=f1e317]:
+            - cell "Nested select on relations" [ref=f1e318]
+            - cell "✓" [ref=f1e319]
+            - cell "✗" [ref=f1e320]
+            - cell "Partial" [ref=f1e321]
+            - cell "✓" [ref=f1e322]
+          - row [ref=f1e323]:
+            - cell "Scalar arrays on MySQL" [ref=f1e324]
+            - cell "✗" [ref=f1e325]
+            - cell "✗" [ref=f1e326]
+            - cell "✗" [ref=f1e327]
+            - cell "✓" [ref=f1e328]
+          - row [ref=f1e329]:
+            - cell "DISTINCT on all databases" [ref=f1e330]
+            - cell "Partial" [ref=f1e331]
+            - cell "DB-dependent" [ref=f1e332]
+            - cell "DB-dependent" [ref=f1e333]
+            - cell "✓" [ref=f1e334]
+          - row [ref=f1e335]:
+            - cell "Consistent feature set" [ref=f1e336]
+            - cell "DB-dependent" [ref=f1e337]
+            - cell "DB-dependent" [ref=f1e338]
+            - cell "DB-dependent" [ref=f1e339]
+            - cell "Always" [ref=f1e340]
+    - generic [ref=f1e343]:
+      - generic [ref=f1e344]:
+        - heading "Database Abstraction" [level=2] [ref=f1e345]
+        - paragraph [ref=f1e346]: Same API across PostgreSQL, MySQL, and SQLite.
+      - generic [ref=f1e347]:
+        - generic [ref=f1e348]:
+          - heading "Scalar Arrays" [level=3] [ref=f1e352]
+          - paragraph [ref=f1e353]: MySQL doesn't support array columns natively. VibORM emulates them with JSON — same API, same types, any database.
+        - generic [ref=f1e354]:
+          - heading "DISTINCT Queries" [level=3] [ref=f1e358]
+          - paragraph [ref=f1e359]: DISTINCT ON isn't available everywhere. VibORM provides consistent distinct behavior across all supported databases.
+        - generic [ref=f1e360]:
+          - heading "Switch Anytime" [level=3] [ref=f1e364]
+          - paragraph [ref=f1e365]: Start with SQLite for development, deploy to PostgreSQL. Your queries don't change — the ORM handles the translation.
+    - generic [ref=f1e367]:
+      - heading "Features" [level=2] [ref=f1e369]
+      - generic [ref=f1e370]:
+        - generic [ref=f1e371]:
+          - heading "Chainable API" [level=3] [ref=f1e375]
+          - paragraph [ref=f1e376]: Chainable schemas with relations defined inline.
+        - generic [ref=f1e377]:
+          - heading "Inline Relations" [level=3] [ref=f1e381]
+          - paragraph [ref=f1e382]: Relations defined inline with include, nested select, and relation filters.
+        - generic [ref=f1e383]:
+          - heading "Full Type Safety" [level=3] [ref=f1e387]
+          - paragraph [ref=f1e388]: Every query, filter, and result is typed.
+        - generic [ref=f1e389]:
+          - heading "Pure TypeScript" [level=3] [ref=f1e393]
+          - paragraph [ref=f1e394]: No code generation, no WASM engine, no binary downloads.
+        - generic [ref=f1e395]:
+          - heading "Exported Model Schemas" [level=3] [ref=f1e399]
+          - paragraph [ref=f1e400]: Validation schemas auto-generated from your models using our internal validation library.
+        - generic [ref=f1e401]:
+          - heading "Standard Schema Integration" [level=3] [ref=f1e405]
+          - paragraph [ref=f1e406]: Use Zod, Valibot, or ArkType to narrow field validation and type JSON columns.
+        - generic [ref=f1e407]:
+          - heading "Database Abstraction" [level=3] [ref=f1e411]
+          - paragraph [ref=f1e412]: Scalar arrays on MySQL, DISTINCT on SQLite. Database limitations are abstracted away.
+    - generic [ref=f1e415]:
+      - heading "Installation" [level=2] [ref=f1e416]
+      - generic [ref=f1e418]:
+        - generic [ref=f1e419]: $
+        - generic [ref=f1e420]: npm install viborm
+      - generic [ref=f1e421]:
+        - link "Get Started" [ref=f1e422] [cursor=pointer]:
+          - /url: /docs/getting-started/quick-start
+        - link "GitHub" [ref=f1e425] [cursor=pointer]:
+          - /url: https://github.com/your-org/viborm
+    - paragraph [ref=f1e430]: VibORM

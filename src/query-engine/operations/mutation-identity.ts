@@ -1,5 +1,6 @@
 import type { Model } from "@schema/model";
 import { isSql } from "@sql";
+import { isRecord as isPlainRecord } from "@validation/value-guards";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
@@ -404,8 +405,4 @@ function toFiniteNumber(value: unknown): number | undefined {
         ? Number(value)
         : Number.NaN;
   return Number.isFinite(number) ? number : undefined;
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -560,7 +560,7 @@ The repo is honest about this in its own docs (`tests/drivers/README.md:38`, `ne
    - **The driver could not connect at all.** `initClient` passed `options ?? {}`, and `new Database(path, {})` throws SQLITE_MISUSE — *"flags must include SQLITE_OPEN_READONLY or SQLITE_OPEN_READWRITE"*. The documented default (`createClient({ schema })`, no options) had **never** executed a query. Fixed in the same unit: an options bag with no keys is omitted so Bun applies its own default.
    - **"Silently" was wrong for `s.bigInt()` fields.** A rounded value past 2^53 is not a safe integer, so the shared result parser rejected it — `QueryEngineError V9001, "returned a malformed bigint scalar … not a canonical integer"`. Loud, not silent. Silent loss was confined to `int`-typed columns and raw reads.
    - **"With no test" is now false in the strongest sense available.** [tests/drivers/bun-sqlite-runtime.test.ts](../../tests/drivers/bun-sqlite-runtime.test.ts) spawns Bun on a probe that drives the real client — push, create, findUnique, include, both raw forms — against a real in-memory `bun:sqlite`, and skips cleanly when Bun is absent. [tests/drivers/sqlite-integer-safety.test.ts](../../tests/drivers/sqlite-integer-safety.test.ts) pins the same split at the unit level against a fake that rounds like the real provider, next to the `sqlite3` contract it matches. **`bun-sqlite` is therefore no longer one of the five drivers that have never executed a query** (§2.10) — it is the first of them to be moved out.
-7. **The MySQL/SQLite portability warnings are dead code.** `DB001` ("will use JSON") and `DB002` ("will use CHECK constraint") at [database.ts:32-89](../../src/schema/validation/rules/database.ts:32) are only reachable via `createDatabaseRules(db)`, which nothing calls; the default rule set contains only `enumValueValid`. Users are never told their arrays became JSON.
+7. **Resolved after this audit: the dead MySQL/SQLite portability warnings were deleted.** Dialect restrictions now remain with migration dialect validation, where the target database and its real behavior are known; definition-time validation no longer exposes rules that no production path executes.
 8. **ORM-level vector *writes* are untested on every dialect.** `buildScalarSqlValue` has no `vector` branch; the only vector suite seeds rows with raw `$3::vector` SQL.
 
 ## 2.10 Verdict
@@ -703,7 +703,7 @@ These are ordinary Prisma payloads:
 
 **C9. Genuinely unimplemented features with written specs.** Polymorphic relations (8 phases, "Large"); recursive queries (`WITH RECURSIVE`, "Medium"); Redis cache driver. *(Query-level `omit` was on this list; shipped in W5-U4.)*
 
-**C10. A registered schema-validation rule that is an empty stub.** `enumValueValid` (rule **V001**) — [database.ts:93-108](../../src/schema/validation/rules/database.ts:93). The loop body contains only a comment. Registered and **can never report anything**. *(This is why the DB001/DB002 portability warnings in §2.9-7 are unreachable: `enumValueValid` is the only rule in the default set.)*
+**C10. Resolved after this audit.** The empty `enumValueValid` rule and its unreachable database-rule subsystem were deleted instead of being covered by artificial tests.
 
 **C11. Type-safety and heuristic holes accepted by design.** `RelationState.getter` must stay `any` (circular model references); the `*Id`-suffix FK heuristic emits false-positive CM001 warnings; a "simplified" FK-direction check in `relation-data-builder.ts:314`.
 

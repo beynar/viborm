@@ -18,22 +18,14 @@ import type { JsonSchemaConverter, JsonSchemaOptions } from "./types";
 export function createJsonSchemaConverter(
   schema: VibSchema<unknown, unknown>
 ): JsonSchemaConverter {
-  const supportedTargets = ["draft-07", "draft-2020-12", "openapi-3.0"];
-
   return {
     input(options: JsonSchemaOptions): Record<string, unknown> {
-      if (!supportedTargets.includes(options.target)) {
-        throw new Error(`Unsupported JSON Schema target: ${options.target}`);
-      }
       // For input type, we use the same conversion
       // (VibORM doesn't have separate input/output transformations at schema level)
       return toJsonSchema(schema, options.target) as Record<string, unknown>;
     },
 
     output(options: JsonSchemaOptions): Record<string, unknown> {
-      if (!supportedTargets.includes(options.target)) {
-        throw new Error(`Unsupported JSON Schema target: ${options.target}`);
-      }
       // For output type, we use the same conversion
       // (VibORM doesn't have separate input/output transformations at schema level)
       return toJsonSchema(schema, options.target) as Record<string, unknown>;
