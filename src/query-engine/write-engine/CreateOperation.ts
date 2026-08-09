@@ -476,7 +476,8 @@ export class CreateOperation {
       assertCreateOwnWriteSafety(
         parent,
         parsedData.scalarData,
-        parsedData.relations
+        parsedData.relations,
+        parsedData.polymorphic
       );
     };
     if (options.skipOwnWrite) {

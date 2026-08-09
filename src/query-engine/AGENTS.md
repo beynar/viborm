@@ -157,6 +157,16 @@ or generic polymorphic strategy. On a non-returning driver, `select` plus
 `skipDuplicates` is refused when those memberships are present because target
 resolution and skip-capture cannot both own the same preparation phase.
 
+Polymorphic to-many `set` uses the existing relation owner. It compares exact
+`(type, identity)` membership. Optional storage clears departing pairs;
+required storage guards that the departing set is empty.
+
+OwnWrite maps direct payload-selected polymorphic edges and inverse relations
+to the same exact `polymorphicForeignKey` scope. The synthetic parent-held edge
+used by record compilation does not change that physical fact. Direct
+disconnect contributes one exact scope per configured variant; never replace
+this with a discriminator-free wildcard.
+
 For inverse writes, connect and connect-or-create adopt globally. A fresh-parent
 upsert also adopts globally. A selected-parent upsert requires the found row to
 already have the exact fixed membership; a same-id row with another

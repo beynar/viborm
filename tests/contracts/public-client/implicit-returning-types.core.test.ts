@@ -26,8 +26,8 @@ import type {
 } from "@client/types";
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
-import { describe, expectTypeOf, test } from "vitest";
 import type { testUser } from "@tests/fixtures/schema.js";
+import { describe, expectTypeOf, test } from "vitest";
 
 type UserModel = typeof testUser;
 

@@ -98,15 +98,17 @@ The two record compilers recurse through the type-only `RecordCompilerSeam`
 required.
 
 Polymorphic inverse relation Parts use the same child-held family. The singular
-variant reuses the ordinary child-held-to-one arity and mutation composition;
+variant reuses the ordinary child-held-to-one mutation composition, including
+the fixed vacate-then-supply replacement pairs;
 both variants reuse the same exact membership binding. Connect and
 connect-or-create adopt globally; fresh-parent upsert does the same. A
 selected-parent upsert is correlated to the exact `(type, identity)` pair and
-rejects a foreign same-id row. On a to-many inverse, disconnect and set exist
-only when child membership can be cleared, and they clear both private columns
-atomically. A singular inverse has no set: its slot is always optional, so
-delete is available, while disconnect still requires clearable child storage.
-Nested createMany applies one shared pair to every grouped row.
+rejects a foreign same-id row. On a to-many inverse, disconnect requires
+clearable child membership. Set is always present: optional storage clears both
+private columns on departures, while required storage guards that no current
+exact member departs. A singular inverse has no set: its slot is always
+optional, so delete is available, while disconnect still requires clearable
+child storage. Nested createMany applies one shared pair to every grouped row.
 
 Direct polymorphic fields stay with the record compilers because their private
 pair is part of the owner record's INSERT or UPDATE. Fresh owners support

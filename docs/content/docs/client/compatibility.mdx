@@ -114,11 +114,10 @@ Their membership is the exact stored `(type, identity)` pair. See the
 [polymorphic relation reference](/docs/schema/relations/polymorphic) for their
 payload shapes.
 
-An ordinary child-held to-many `set` with required membership is accepted only
-when it retains every current member; any departing member would require
-clearing required storage and the operation is rejected. A polymorphic inverse
-with required membership omits `set` at the input boundary instead. This is a
-current API asymmetry, not a difference in stored membership semantics.
+Ordinary and polymorphic child-held to-many `set` accept required membership.
+They may retain existing members and adopt new ones, but reject when any current
+exact member would depart. `disconnect` requires clearable membership and its
+key is absent otherwise.
 
 On a **many-to-many** relation, `createMany` inserts each row and links it to the parent. `skipDuplicates` there skips the child ROW's insert — the join row is a different row and is still written, so a skipped item leaves the existing target untouched and links it. It is refused (typed, before any write) when the target's primary key is database-generated: a skipped insert produces no identity for its join row. Supply the key, or drop `skipDuplicates`.
 
@@ -139,26 +138,31 @@ On a **many-to-many** relation, `createMany` inserts each row and links it to th
 - A to-one `update: { where, data }` throws the same not-found error when the connected record fails the filter; the whole operation rolls back. The two spellings are told apart structurally — an object with a `data` key whose value is an object is the envelope. On a related model owning a field named `data` that shape means two different things (set the row's fields, or store the document), so VibORM **refuses** it instead of picking one as Prisma does: spell the envelope out, `update: { where: {}, data: { … } }`.
 - Nested `updateMany` and `deleteMany` may match zero rows without throwing.
 - A nested `upsert` creates only when nothing matches `where`; if the match belongs to another parent, it's rejected rather than stolen or duplicated.
-- You cannot `disconnect`, use an empty `set`, or otherwise clear a membership
-  whose physical storage is required.
+- Required membership omits `disconnect`. A to-many `set` remains valid, but it
+  must retain every current member.
 - `createMany` with `skipDuplicates` rejects a row containing only database-owned defaults before any parent or child write.
 
 ### Structural restrictions
 
 The matrices show operation support. These restrictions are independent:
 
-- A required membership cannot be cleared by `disconnect`, `set: []`, or
-  another membership change that preserves the related record.
+- A required membership cannot be cleared while preserving the related record.
+  `disconnect` is absent; `set` rejects only when it would create a departing
+  member.
 - To-one `disconnect` and `delete` use their boolean form. Selector arrays and
   `set` are to-many operations.
-- A to-one payload names one operation. Ordinary inputs are parsed as keyed
-  bags and the engine rejects contradictory multiple operations; direct
-  polymorphic inputs enforce the same rule as an exact union at validation.
-- Nested `createMany`, `updateMany`, and `deleteMany` do not accept relation
-  writes in each row's `data`.
-- The current ordinary and polymorphic-inverse `updateMany.data` contextual
-  type can still suggest relation keys. They are rejected by the query engine
-  before SQL; scalar-only data is the public contract.
+- To-one create payloads and parent-held to-one updates name at most one active
+  operation. Child-held to-one updates additionally accept these replacement
+  pairs: `disconnect + connectOrCreate`, `disconnect + connect`,
+  `disconnect + create`, `delete + connect`, and `delete + create`. The vacate
+  runs before the supplier. Literal `false` is inactive. Other combinations
+  fail at the validation and type boundary. Direct polymorphic payloads contain
+  exactly one typed intent. To-many payloads may combine operation kinds.
+- Nested `createMany` rows are scalar-only. Executable nested
+  `updateMany.data` is also scalar-only, but its parsed/contextual shape remains
+  broad so an invalid relation write in an untaken top-level upsert update arm
+  stays inert. If that arm is selected, the query engine rejects the relation
+  write before SQL. `deleteMany` contains filters, not update data.
 - Relation-link selectors (`connect`, `disconnect`, `set`, and
   `connectOrCreate.where`) require unique discriminators; they do not accept the
   extra filters allowed by nested update and upsert targets.

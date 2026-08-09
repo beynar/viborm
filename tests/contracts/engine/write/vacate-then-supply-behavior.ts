@@ -2,29 +2,12 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 
 /**
- * E6.5 — a VACATE followed by a SUPPLY on one to-one slot at the UPDATE root, as
- * behavior every driver leg runs.
+ * A child-held to-one update may replace its current member in one payload. The
+ * relation owner emits the vacate before the supplier. Other multi-operation
+ * payloads are rejected by the operation schema.
  *
- * Measured at 8c2908d over ALL 21 unordered pairs the update-root to-one parse factory
- * delivers (`toOneUpdateFactory`: `create`, `connect`, `connectOrCreate`, `update`,
- * `upsert`, plus `disconnect` / `delete` on an optional relation), on BOTH directions,
- * plus the empty `{}` payload. The enumeration is what corrected the old argument:
- *
- *  · 15 of the 21 pairs on this direction died at the dispatch guard with
- *    "query-engine-v2 update supports one mutation kind on the to-one relation
- *    'badge'; it has <a>, <b>." — construction-time, 0 statements;
- *  · 6 died EARLIER, in the own-write legality walk ("Nested operation 'x' … depends
- *    on an earlier 'y' … Split these operations into separate queries."), which is a
- *    different guard with a different reason and is not this unit's to lift;
- *  · `{}` executed as a no-op — the payload the old argument never classified at all.
- *
- * The "two intents for one slot" contradiction is real for two SUPPLIERS (two
- * identities, one slot, no canonical winner). A vacate and a supplier carry ONE
- * identity between them and a fixed order, so the pair has a state and the sequence
- * IS that state. Prisma refuses it; the maintainer's rule says parity is not a reason.
- *
- * `b-alt` is the decoy: it is a live, unconnected row of the same model, so a pair
- * that vacated the wrong row, or supplied the wrong one, moves it.
+ * `b-alt` is a live, unconnected decoy, so a pair that vacates or supplies the
+ * wrong row is observable.
  */
 export const vacateThenSupplySchema = (() => {
   const station = s
@@ -178,13 +161,10 @@ export function registerVacateThenSupplyBehavior(
       ]);
     });
 
-    test("delete + connectOrCreate keeps the own-write legality walk's refusal", async () => {
+    test("delete + connectOrCreate is not a supported replacement pair", async () => {
       const client = await connect();
       await resetVacateThenSupply(client);
 
-      // NOT the dispatch guard: a DIFFERENT guard, one layer up, with its own reason.
-      // Lifting the dispatch guard for this pair changed which message a caller sees
-      // for the other five and none for this one.
       await expect(
         client.station.update({
           where: { id: "s1" },
@@ -199,7 +179,7 @@ export function registerVacateThenSupplyBehavior(
           },
         })
       ).rejects.toThrow(
-        "Nested operation 'connectOrCreate' on relation 'badge' depends on an earlier 'delete' target write in the same nested write."
+        "Unsupported to-one operation combination: connectOrCreate, delete"
       );
       expect(await badges(client)).toEqual([
         ["b-alt", "alt", null],
@@ -222,7 +202,7 @@ export function registerVacateThenSupplyBehavior(
           },
         })
       ).rejects.toThrow(
-        "query-engine-v2 update supports one mutation kind on the to-one relation 'badge'; it has connect, create."
+        "Unsupported to-one operation combination: create, connect"
       );
       expect(await badges(client)).toEqual([
         ["b-alt", "alt", null],
@@ -240,7 +220,7 @@ export function registerVacateThenSupplyBehavior(
           data: { badge: { disconnect: true, delete: true } },
         })
       ).rejects.toThrow(
-        "query-engine-v2 update supports one mutation kind on the to-one relation 'badge'; it has disconnect, delete."
+        "Unsupported to-one operation combination: disconnect, delete"
       );
       await expect(
         client.station.update({
@@ -248,7 +228,7 @@ export function registerVacateThenSupplyBehavior(
           data: { badge: { update: { tag: "u" }, connect: { id: "b-alt" } } },
         })
       ).rejects.toThrow(
-        "query-engine-v2 update supports one mutation kind on the to-one relation 'badge'; it has update, connect."
+        "Unsupported to-one operation combination: connect, update"
       );
       expect(await badges(client)).toEqual([
         ["b-alt", "alt", null],
@@ -272,7 +252,7 @@ export function registerVacateThenSupplyBehavior(
           },
         })
       ).rejects.toThrow(
-        "query-engine-v2 update supports one mutation kind on the to-one relation 'badge'; it has disconnect, connect, create."
+        "Unsupported to-one operation combination: create, connect, disconnect"
       );
       expect(await badges(client)).toEqual([
         ["b-alt", "alt", null],

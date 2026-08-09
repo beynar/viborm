@@ -1,16 +1,15 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import {
   registerVacateThenSupplyBehavior,
   resetVacateThenSupply,
   vacateThenSupplySchema,
 } from "@tests/contracts/engine/write/vacate-then-supply-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 const substrates = [
   {
@@ -37,22 +36,7 @@ for (const substrate of substrates) {
   });
 }
 
-/**
- * THE ENUMERATION, as a pin rather than a claim in a comment.
- *
- * The old argument called every two-kind to-one payload a contradiction without ever
- * listing them, so it never had to say which guard actually fired for which pair — and
- * two of its cases (the mutator-involving pairs and the empty payload) it did not
- * classify at all. This walks all 21 unordered pairs the update-root to-one parse factory
- * delivers plus `{}`, and pins each one's DISPOSITION.
- *
- * Measured at 8c2908d (before the absorption): 15 DISPATCH-GUARD, 6 OWN-WRITE-WALK,
- * 0 EXECUTED. After it: 10 / 6 / 5 — the five absorbed pairs moved across, and NOTHING
- * moved between the two refusal classes. That last part is the reason this test exists:
- * the own-write legality walk is a different guard with a different reason, and an
- * absorption that quietly took payloads away from it would be changing a contract this
- * unit never measured.
- */
+/** All 21 unordered pairs pin the public child-held to-one update lattice. */
 const PAIR_ARMS: Record<string, unknown> = {
   disconnect: true,
   delete: true,
@@ -66,13 +50,13 @@ const PAIR_ARMS: Record<string, unknown> = {
   create: { id: "b-new", tag: "fresh" },
 };
 
-/** Which guard (if any) the payload met — never the message text, so this pin does not
- *  duplicate the message assertions the behavior suite already owns. */
+/** Whether the schema accepted the exact pair and the engine executed it. */
 function disposition(error: unknown): string {
   if (error === undefined) return "EXECUTED";
   const message = (error as Error).message;
-  if (message.includes("supports one mutation kind")) return "DISPATCH-GUARD";
-  if (message.includes("Split these operations")) return "OWN-WRITE-WALK";
+  if (message.includes("Unsupported to-one operation combination")) {
+    return "VALIDATION-GUARD";
+  }
   return `UNCLASSIFIED: ${message}`;
 }
 
@@ -107,45 +91,35 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
       .catch((caught: unknown) => caught);
 
     expect(verdicts).toEqual({
-      // The five this unit absorbs: a vacate, then a supplier.
+      // The five executable replacements: one vacate, then one supplier.
       "disconnect+connectOrCreate": "EXECUTED",
       "disconnect+connect": "EXECUTED",
       "disconnect+create": "EXECUTED",
       "delete+connect": "EXECUTED",
       "delete+create": "EXECUTED",
-      // The sixth vacate+supply pair never reaches the dispatch: `connectOrCreate`
-      // READS the row `delete` removes, and the own-write walk says so first.
-      "delete+connectOrCreate": "OWN-WRITE-WALK",
-      // Every other pair involving a mutator meets one guard or the other, unchanged.
-      "disconnect+update": "OWN-WRITE-WALK",
-      "disconnect+upsert": "OWN-WRITE-WALK",
-      "delete+update": "OWN-WRITE-WALK",
-      "delete+upsert": "OWN-WRITE-WALK",
-      "upsert+connectOrCreate": "OWN-WRITE-WALK",
-      "disconnect+delete": "DISPATCH-GUARD",
-      "update+upsert": "DISPATCH-GUARD",
-      "update+connectOrCreate": "DISPATCH-GUARD",
-      "update+connect": "DISPATCH-GUARD",
-      "update+create": "DISPATCH-GUARD",
-      "upsert+connect": "DISPATCH-GUARD",
-      "upsert+create": "DISPATCH-GUARD",
-      "connectOrCreate+connect": "DISPATCH-GUARD",
-      "connectOrCreate+create": "DISPATCH-GUARD",
-      // Two SUPPLIERS: the contradiction the old argument was right about.
-      "connect+create": "DISPATCH-GUARD",
+      "delete+connectOrCreate": "VALIDATION-GUARD",
+      "disconnect+update": "VALIDATION-GUARD",
+      "disconnect+upsert": "VALIDATION-GUARD",
+      "delete+update": "VALIDATION-GUARD",
+      "delete+upsert": "VALIDATION-GUARD",
+      "upsert+connectOrCreate": "VALIDATION-GUARD",
+      "disconnect+delete": "VALIDATION-GUARD",
+      "update+upsert": "VALIDATION-GUARD",
+      "update+connectOrCreate": "VALIDATION-GUARD",
+      "update+connect": "VALIDATION-GUARD",
+      "update+create": "VALIDATION-GUARD",
+      "upsert+connect": "VALIDATION-GUARD",
+      "upsert+create": "VALIDATION-GUARD",
+      "connectOrCreate+connect": "VALIDATION-GUARD",
+      "connectOrCreate+create": "VALIDATION-GUARD",
+      "connect+create": "VALIDATION-GUARD",
     });
     expect(disposition(emptyError)).toBe("EXECUTED");
     await client.$disconnect();
   }, 120_000);
 });
 
-/**
- * The PARENT-HELD twin of the same payload. It stays refused, and the reason is this
- * direction's write shape rather than the payload's meaning: `delete` NULLs the
- * parent's own foreign key in a post-root write, which lands AFTER the supplier's
- * rebind has been folded into the root SET. Lifting the guard here was measured to
- * insert the fresh row and then ORPHAN it.
- */
+/** Parent-held to-one updates do not support a replacement pair. */
 const parentHeldSchema = (() => {
   const depot = s
     .model({
@@ -192,7 +166,7 @@ describe("E6.5 the parent-held direction keeps the pair refused", () => {
         },
       })
     ).rejects.toThrow(
-      "query-engine-v2 update supports one mutation kind on the to-one relation 'depot'; it has delete, create."
+      "Unsupported to-one operation combination: create, delete"
     );
 
     // Construction-time: nothing ran.

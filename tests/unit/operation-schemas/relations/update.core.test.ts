@@ -38,6 +38,29 @@ test("to-one updates validate both envelope fields and bare failures", () => {
   ).toBeDefined();
 });
 
+test("to-one create and parent-held update accept at most one operation", () => {
+  expect(parse(requiredManyToOneSchemas.create, {}).issues).toBeUndefined();
+  expect(parse(requiredManyToOneSchemas.update, {}).issues).toBeUndefined();
+
+  expect(
+    parse(requiredManyToOneSchemas.create, {
+      connect: { id: "author-1" },
+      create: {
+        id: "author-2",
+        name: "Second",
+        email: "second@example.com",
+      },
+    }).issues?.[0]?.message
+  ).toBe("Unsupported to-one operation combination: create, connect");
+
+  expect(
+    parse(requiredManyToOneSchemas.update, {
+      connect: { id: "author-1" },
+      update: { name: "Changed" },
+    }).issues?.[0]?.message
+  ).toBe("Unsupported to-one operation combination: connect, update");
+});
+
 test("to-one updates refuse an ambiguous data-field spelling", () => {
   const target = s.model({ id: s.string().id(), data: s.json() });
   const source = s.model({ target: s.oneToOne(() => target).optional() });
@@ -94,10 +117,96 @@ test("inverse to-one delete follows slot absence while disconnect follows FK nul
     disconnect: true;
   }>().not.toMatchTypeOf<RequiredMembershipInput>();
   expectTypeOf<{ disconnect: true }>().toMatchTypeOf<OptionalMembershipInput>();
+  expectTypeOf<{
+    delete: true;
+    create: { id: string };
+  }>().toMatchTypeOf<RequiredMembershipInput>();
+  expectTypeOf<{
+    disconnect: true;
+    connect: { id: string };
+  }>().toMatchTypeOf<OptionalMembershipInput>();
   expect(parse(requiredMembership, { delete: true }).issues).toBeUndefined();
   expect(parse(requiredMembership, { disconnect: true }).issues).toBeDefined();
   expect(
+    parse(requiredMembership, {
+      delete: true,
+      create: { id: "child-2" },
+    }).issues
+  ).toBeUndefined();
+  expect(
     parse(optionalMembership, { disconnect: true }).issues
+  ).toBeUndefined();
+  expect(
+    parse(optionalMembership, {
+      disconnect: true,
+      connect: { id: "child-1" },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(optionalMembership, {
+      delete: true,
+      connectOrCreate: {
+        where: { id: "child-1" },
+        create: { id: "child-2" },
+      },
+    }).issues?.[0]?.message
+  ).toBe("Unsupported to-one operation combination: connectOrCreate, delete");
+});
+
+test("to-many disconnect follows membership clearability while set stays available", () => {
+  const requiredParent = s.model({
+    id: s.string().id(),
+    children: s.oneToMany(() => requiredChild),
+  });
+  const requiredChild = s.model({
+    id: s.string().id(),
+    parentId: s.string(),
+    parent: s
+      .manyToOne(() => requiredParent)
+      .fields("parentId")
+      .references("id"),
+  });
+  const optionalParent = s.model({
+    id: s.string().id(),
+    children: s.oneToMany(() => optionalChild),
+  });
+  const optionalChild = s.model({
+    id: s.string().id(),
+    parentId: s.string().nullable(),
+    parent: s
+      .manyToOne(() => optionalParent)
+      .fields("parentId")
+      .references("id")
+      .optional(),
+  });
+  const registry = createSchemaRegistry({
+    requiredParent,
+    requiredChild,
+    optionalParent,
+    optionalChild,
+  });
+  const requiredMembership =
+    registry.proxy.requiredParent.relations.children.update;
+  const optionalMembership =
+    registry.proxy.optionalParent.relations.children.update;
+  type RequiredInput = InferInput<typeof requiredMembership>;
+  type OptionalInput = InferInput<typeof optionalMembership>;
+
+  expectTypeOf<
+    "disconnect" extends keyof RequiredInput ? true : false
+  >().toEqualTypeOf<false>();
+  expectTypeOf<
+    "set" extends keyof RequiredInput ? true : false
+  >().toEqualTypeOf<true>();
+  expectTypeOf<
+    "disconnect" extends keyof OptionalInput ? true : false
+  >().toEqualTypeOf<true>();
+  expect(parse(requiredMembership, { set: [] }).issues).toBeUndefined();
+  expect(
+    parse(requiredMembership, { disconnect: { id: "child-1" } }).issues
+  ).toBeDefined();
+  expect(
+    parse(optionalMembership, { disconnect: { id: "child-1" } }).issues
   ).toBeUndefined();
 });
 
@@ -118,13 +227,19 @@ describe("ToOne Update - Required (Post.author)", () => {
 
   describe("type", () => {
     test("type: accepts create property", () => {
-      expectTypeOf<{
-        create?: { id: string; name: string; email: string };
-      }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<
+        {
+          create: { id: string; name: string; email: string };
+        } extends UpdateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: accepts connect property", () => {
-      expectTypeOf<{ connect?: { id: string } }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<
+        { connect: { id: string } } extends UpdateInput ? true : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: connectOrCreate requires where and create", () => {
@@ -139,26 +254,34 @@ describe("ToOne Update - Required (Post.author)", () => {
           create: { id: string; name: string; email: string };
         };
       }>().not.toMatchTypeOf<UpdateInput>();
-      expectTypeOf<{
-        connectOrCreate?: {
-          where: { id: string };
-          create: { id: string; name: string; email: string };
-        };
-      }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<
+        {
+          connectOrCreate: {
+            where: { id: string };
+            create: { id: string; name: string; email: string };
+          };
+        } extends UpdateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: accepts planned update and upsert properties", () => {
       expectTypeOf<UpdateInput>().toHaveProperty("update");
       expectTypeOf<UpdateInput>().toHaveProperty("upsert");
-      expectTypeOf<{
-        update?: { name?: string };
-      }>().toMatchTypeOf<UpdateInput>();
-      expectTypeOf<{
-        upsert?: {
-          create: { id: string; name: string; email: string };
-          update: { name?: string };
-        };
-      }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<
+        { update: { name?: string } } extends UpdateInput ? true : false
+      >().toEqualTypeOf<true>();
+      expectTypeOf<
+        {
+          upsert: {
+            create: { id: string; name: string; email: string };
+            update: { name?: string };
+          };
+        } extends UpdateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: rejects to-many-only planned properties", () => {
@@ -306,12 +429,35 @@ describe("ToOne Update - Optional (Profile.user)", () => {
   type UpdateInput = InferInput<typeof schema>;
 
   describe("type", () => {
+    test("type: false no-ops do not consume the active operation", () => {
+      expectTypeOf<
+        {
+          disconnect: false;
+          connect: { id: string };
+        } extends UpdateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
+      expectTypeOf<
+        {
+          disconnect: true;
+          connect: { id: string };
+        } extends UpdateInput
+          ? true
+          : false
+      >().toEqualTypeOf<false>();
+    });
+
     test("type: accepts disconnect for optional relation", () => {
-      expectTypeOf<{ disconnect?: boolean }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<
+        { disconnect: true } extends UpdateInput ? true : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: accepts delete for optional relation", () => {
-      expectTypeOf<{ delete?: boolean }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<
+        { delete: true } extends UpdateInput ? true : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: connectOrCreate requires where and create", () => {
@@ -331,15 +477,19 @@ describe("ToOne Update - Optional (Profile.user)", () => {
     test("type: accepts planned update and upsert properties", () => {
       expectTypeOf<UpdateInput>().toHaveProperty("update");
       expectTypeOf<UpdateInput>().toHaveProperty("upsert");
-      expectTypeOf<{
-        update?: { username?: string };
-      }>().toMatchTypeOf<UpdateInput>();
-      expectTypeOf<{
-        upsert?: {
-          create: { id: string; username: string };
-          update: { username?: string };
-        };
-      }>().toMatchTypeOf<UpdateInput>();
+      expectTypeOf<
+        { update: { username?: string } } extends UpdateInput ? true : false
+      >().toEqualTypeOf<true>();
+      expectTypeOf<
+        {
+          upsert: {
+            create: { id: string; username: string };
+            update: { username?: string };
+          };
+        } extends UpdateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: rejects to-many-only planned properties", () => {
@@ -353,6 +503,21 @@ describe("ToOne Update - Optional (Profile.user)", () => {
   });
 
   describe("runtime", () => {
+    test("runtime: false no-ops compose with one active operation", () => {
+      expect(
+        parse(schema, {
+          disconnect: false,
+          connect: { id: "user-1" },
+        }).issues
+      ).toBeUndefined();
+      expect(
+        parse(schema, {
+          disconnect: true,
+          connect: { id: "user-1" },
+        }).issues?.[0]?.message
+      ).toBe("Unsupported to-one operation combination: connect, disconnect");
+    });
+
     test("runtime: accepts disconnect boolean for optional relation", () => {
       const input = { disconnect: true };
       const result = parse(schema, input);
@@ -440,6 +605,15 @@ describe("ToMany Update - Required (Author.posts)", () => {
   type UpdateInput = InferInput<typeof schema>;
 
   describe("type", () => {
+    test("type: omits disconnect but retains set for required membership", () => {
+      expectTypeOf<
+        "disconnect" extends keyof UpdateInput ? true : false
+      >().toEqualTypeOf<false>();
+      expectTypeOf<
+        "set" extends keyof UpdateInput ? true : false
+      >().toEqualTypeOf<true>();
+    });
+
     test("type: accepts create as single or array", () => {
       expectTypeOf<{
         create?: {
@@ -748,32 +922,10 @@ describe("ToMany Update - Required (Author.posts)", () => {
       }
     });
 
-    test("runtime: accepts single disconnect", () => {
+    test("runtime: rejects disconnect for required membership", () => {
       const input = { disconnect: { id: "post-1" } };
       const result = parse(schema, input);
-      expect(result.issues).toBeUndefined();
-      if (!result.issues) {
-        expect(Array.isArray(relationOutput(result.value).disconnect)).toBe(
-          true
-        );
-        expect(relationOutput(result.value).disconnect?.[0]).toEqual({
-          id: "post-1",
-        });
-      }
-    });
-
-    test("runtime: accepts array disconnect", () => {
-      const input = { disconnect: [{ id: "post-1" }, { id: "post-2" }] };
-      const result = parse(schema, input);
-      expect(result.issues).toBeUndefined();
-      if (!result.issues) {
-        expect(Array.isArray(relationOutput(result.value).disconnect)).toBe(
-          true
-        );
-        expect(
-          relationOutput(result.value).disconnect?.length
-        ).toBeGreaterThanOrEqual(1);
-      }
+      expect(result.issues?.[0]?.message).toBe("Unknown key: disconnect");
     });
 
     test("runtime: accepts single set", () => {
@@ -917,7 +1069,7 @@ describe("ToMany Update - Required (Author.posts)", () => {
       const input = {
         create: { id: "new-post", title: "New", content: "C", authorId: "a1" },
         connect: { id: "existing-post" },
-        disconnect: { id: "old-post" },
+        set: { id: "retained-post" },
         delete: { id: "deleted-post" },
       };
       const result = parse(schema, input);
@@ -927,8 +1079,8 @@ describe("ToMany Update - Required (Author.posts)", () => {
         expect(relationOutput(result.value).connect?.[0]).toEqual({
           id: "existing-post",
         });
-        expect(relationOutput(result.value).disconnect?.[0]).toEqual({
-          id: "old-post",
+        expect(relationOutput(result.value).set?.[0]).toEqual({
+          id: "retained-post",
         });
         expect(relationOutput(result.value).delete?.[0]).toEqual({
           id: "deleted-post",

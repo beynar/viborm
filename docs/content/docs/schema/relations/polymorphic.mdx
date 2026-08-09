@@ -411,6 +411,10 @@ The parent supplies both the variant and its identity. Child `create` and
 `update` data must omit the direct polymorphic field owned by the enclosing
 inverse operation.
 
+In the shapes below, `ChildCreate` and `ChildUpdate` are the normal nested
+record inputs with that owning relation omitted. `ChildScalarCreate` contains
+scalar fields only.
+
 ### Parent create
 
 | Operation | Payload |
@@ -445,7 +449,7 @@ Parent update accepts `create`, `createMany`, `connect`, and
 | `deleteMany` | `ChildWhere` or an array | Always |
 | `upsert` | `{ where: ChildWhereUniqueExtended, create: ChildCreate, update: ChildUpdate }` or an array | Always |
 | `disconnect` | `ChildWhereUnique` or an array | Optional direct field only |
-| `set` | `ChildWhereUnique` or `ChildWhereUnique[]` | Optional direct field only |
+| `set` | `ChildWhereUnique` or `ChildWhereUnique[]` | Always; required membership must retain every current exact member |
 
 ```ts
 await client.post.update({
@@ -471,14 +475,25 @@ or creates a child; duplicate inputs use first-create-wins semantics. An
 `upsert` below a new parent also locates globally. Below an existing parent,
 its found row must already belong to that exact parent membership.
 
-`disconnect` and `set` clear or replace memberships without deleting child
-rows. Both private columns are changed atomically. `set: []` disconnects every
-current child, while rows with the same identity and another discriminator are
+`disconnect` preserves the child and therefore exists only when its direct
+polymorphic membership can be cleared. It clears both private columns
+atomically.
+
+`set` is available for optional and required child membership. Optional
+membership clears both private columns on departing rows. Required membership
+uses a departing-member guard: every current exact member must be retained, so
+`set: []` succeeds only when the relation is already empty. Rows with the same
+identity and another discriminator are not members of this relation and remain
 untouched.
 
 Nested inverse `createMany` applies the enclosing `(type, identity)` pair to
 every scalar row. It is unavailable if another required polymorphic relation on
 the child would remain unsatisfied.
+
+An executable `updateMany.data` must contain scalar updates. Its input remains
+broad because top-level upsert defers update-arm legality until that arm is
+selected. A selected relation-bearing `updateMany` fails before SQL; use
+targeted `update` for nested relation work.
 
 ## Write an inverse one-to-one relation
 
@@ -524,6 +539,12 @@ await client.post.update({
 `createMany`, `updateMany`, `deleteMany`, and `set` are not part of the singular
 surface. Connecting into an occupied one-to-one slot fails with a unique
 constraint error and does not leave partial effects.
+
+An update normally contains one active operation. It may also replace the
+current child in one payload with `disconnect` plus `connectOrCreate`,
+`connect`, or `create`, or with `delete` plus `connect` or `create`. The vacate
+runs first. `disconnect` pairs are available only when the direct membership is
+optional. Other operation combinations are rejected before compilation.
 
 The inverse slot itself is always optional because it stores no foreign key:
 there may be no child row. Deleting the current child is therefore always

@@ -267,6 +267,12 @@ class PolymorphicRelation<State extends PolymorphicRelationState> {
 
 Relation operation schemas are built by `SchemaRegistry` in `src/validation/relations/` from relation state and full model graph context.
 
+To-one mutation compatibility belongs to L3 validation. Create payloads and
+parent-held updates have at most one active verb. Child-held updates also admit
+the fixed vacate-then-supply pairs that the relation owner can execute in
+canonical order. `false` remains a no-op for boolean verbs. To-many schemas
+remain keyed bags because combining operation kinds is part of their contract.
+
 ### Filter (WHERE)
 
 ```typescript
@@ -299,6 +305,7 @@ update: {
     create: [{ title: "New" }],
     update: [{ where: { id: "1" }, data: { title: "Updated" } }],
     delete: [{ id: "2" }],
+    // Available only when the child-held membership can be cleared.
     disconnect: [{ id: "3" }],
   }
 }
@@ -320,8 +327,11 @@ correlated `update`, and `upsert`. Optional storage also accepts `disconnect`
 and typed target `delete`. A bound inverse `oneToMany` keeps its ordinary read,
 filter, count, order, and pagination surface and exposes the safe child-held
 write family: create/createMany/connect/connectOrCreate/upsert on create, plus
-update/updateMany/delete/deleteMany on update. Clearable child storage also
-exposes disconnect and set. A bound inverse `oneToOne` returns one record or `null` and
+targeted update with full child update data, updateMany with selected-arm
+scalar-only legality, and delete/deleteMany on update. Clearable child storage
+also exposes disconnect.
+To-many set is present for optional and required storage; required storage
+rejects departing members. A bound inverse `oneToOne` returns one record or `null` and
 uses the ordinary singular surface: create/connect/connectOrCreate on create;
 create/connect/connectOrCreate/update/upsert on update. Its public slot is
 always optional, so delete is available; disconnect is available only when the

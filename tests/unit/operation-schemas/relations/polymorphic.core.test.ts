@@ -340,18 +340,20 @@ describe("polymorphic operation schema factories", () => {
       ).toBe(false);
     }
 
-    for (const requiredOnly of [
-      { disconnect: { id: "remark-1" } },
-      { set: [] },
-    ]) {
+    expect(
+      accepts(registry.proxy.article.core.update, {
+        comments: { disconnect: { id: "remark-1" } },
+      })
+    ).toBe(false);
+    expect(
+      accepts(registry.proxy.optionalArticle.core.update, {
+        comments: { disconnect: { id: "remark-1" } },
+      })
+    ).toBe(true);
+    for (const source of ["article", "optionalArticle"] as const) {
       expect(
-        accepts(registry.proxy.article.core.update, {
-          comments: requiredOnly,
-        })
-      ).toBe(false);
-      expect(
-        accepts(registry.proxy.optionalArticle.core.update, {
-          comments: requiredOnly,
+        accepts(registry.proxy[source].core.update, {
+          comments: { set: [] },
         })
       ).toBe(true);
     }
@@ -402,6 +404,11 @@ describe("polymorphic operation schema factories", () => {
       },
       { disconnect: true },
       { delete: true },
+      { disconnect: true, connect: { id: "comment-1" } },
+      {
+        delete: true,
+        create: { id: "comment-2", body: "replacement" },
+      },
     ]) {
       expect(
         accepts(registry.proxy.featuredPost.core.update, {
@@ -447,6 +454,17 @@ describe("polymorphic operation schema factories", () => {
         featuredComment: { delete: true },
       })
     ).toBe(true);
+    expect(
+      accepts(registry.proxy.featuredPost.core.update, {
+        featuredComment: {
+          delete: true,
+          connectOrCreate: {
+            where: { id: "comment-1" },
+            create: { id: "comment-1", body: "first" },
+          },
+        },
+      })
+    ).toBe(false);
   });
 
   test("inverse mutation data cannot restate its owning direct edge", () => {

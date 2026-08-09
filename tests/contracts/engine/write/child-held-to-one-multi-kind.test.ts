@@ -2,35 +2,15 @@ import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { UnsupportedOperationError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { beforeAll, expect, test } from "vitest";
 
 /**
- * M8(a) — **two kinds on a CHILD-HELD to-one**.
- *
- * The parent-held to-one dispatch has always asked for exactly one kind
- * (`CreateOperation.interpretParentHeld`, `UpdateOperation.interpretRelation`'s
- * `fk.holdsFK` branch): a to-one slot holds ONE row, so `{ create, connect }` names two
- * intents for one slot and there is no order in which both are right. The CHILD-HELD
- * dispatch — where the target holds the foreign key — had no such gate at either root and
- * simply LOOPED the kinds, building every arm.
- *
- * What that produced, measured at 330d43c through the public client:
- *   · on a 1:1 leg (the child's FK carries the `FK008` unique) — an engine-emitted
- *     `UniqueConstraintError` from the second arm, a database contradiction standing in
- *     for a typed refusal;
- *   · on a leg whose child FK is NOT unique — the fields-less `manyToOne` inverse, whose
- *     FK is resolved from the target's own back-reference — **two rows in a to-one slot**,
- *     silently, with no diagnostic at all. `hub.ticket` then reads back one arbitrary row
- *     of two.
- *
- * The guard added at both child-held dispatch positions is the twin of the parent-held
- * one, and this file is its permanent witness: the refusal is typed, it happens at
- * CONSTRUCTION (no statement reaches the database), and the three neighbours it must not
- * touch — the parent-held control, the single-kind controls, and the to-MANY sibling that
- * legitimately composes many kinds — are pinned alongside it.
+ * A to-one create and a parent-held update have at most one active operation.
+ * A child-held update additionally accepts the fixed vacate-then-supply pairs
+ * covered by `vacate-then-supply.test.ts`. Other combinations fail before
+ * query-engine construction, while to-many payloads keep combining kinds.
  */
 
 // =============================================================================
@@ -38,16 +18,16 @@ import { beforeAll, expect, test } from "vitest";
 // =============================================================================
 
 /**
- * Four legs on one parent, so a single call can prove the guard fires on the child-held
- * dispatch and NOT on its neighbours:
+ * Four legs on one parent pin the boundary and its neighboring contracts:
  *
  *   · `hub.card`   — child-held to-one, the child's FK unique (a real 1:1);
  *   · `hub.ticket` — child-held to-one spelled with the MANY-side helper and no
- *     `.fields()`: `getFkDirection` resolves the edge from `ticket.hub`'s back-reference,
- *     so `isToOne` is true while `ticket.hubId` carries no unique. This is the leg where
- *     the missing guard wrote two rows into a to-one slot. `hub.tickets` / `ticket.hubs`
- *     exist only to satisfy the inverse-pairing rules (R003/R004) for that spelling;
- *   · `hub.owner`  — parent-held to-one, the control for the guard that already existed;
+ *     `.fields()`: bound topology resolves the edge from `ticket.hub`'s
+ *     back-reference, while `ticket.hubId` carries no unique. This is the leg
+ *     where an unchecked multi-operation payload could write two rows.
+ *     `hub.tickets` / `ticket.hubs` satisfy inverse-pairing rules for that
+ *     spelling;
+ *   · `hub.owner`  — parent-held to-one control;
  *   · `hub.notes`  — to-many, the control that must keep composing several kinds.
  */
 const hub = s
@@ -188,16 +168,20 @@ test("create root refuses two kinds on a child-held to-one before any statement"
       data: {
         id: 1,
         label: "a",
-        card: { create: { id: 11, name: "fresh" }, connect: { id: 10 } },
+        card: {
+          create: { id: 11, name: "fresh" },
+          // @ts-expect-error - to-one payloads accept one active operation
+          connect: { id: 10 },
+        },
       },
     })
   );
 
-  expect(error).toBeInstanceOf(UnsupportedOperationError);
+  expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toBe(
-    "query-engine-v2 create supports one operation on the to-one relation 'card'; it has connect, create."
+    "Validation failed for create: Unsupported to-one operation combination: create, connect"
   );
-  // The refusal is a CONSTRUCTION decision: nothing was planned, so nothing ran.
+  // Validation rejects the payload before planning, so nothing ran.
   expect(statements).toEqual([]);
   await expect(client.hub.findUnique({ where: { id: 1 } })).resolves.toBeNull();
   await expect(
@@ -213,14 +197,18 @@ test("update root refuses two kinds on a child-held to-one before any statement"
     client.hub.update({
       where: { id: 2 },
       data: {
-        card: { create: { id: 21, name: "fresh" }, connect: { id: 20 } },
+        card: {
+          create: { id: 21, name: "fresh" },
+          // @ts-expect-error - to-one payloads accept one active operation
+          connect: { id: 20 },
+        },
       },
     })
   );
 
-  expect(error).toBeInstanceOf(UnsupportedOperationError);
+  expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toBe(
-    "query-engine-v2 update supports one mutation kind on the to-one relation 'card'; it has connect, create."
+    "Validation failed for update: Unsupported to-one operation combination: create, connect"
   );
   expect(statements).toEqual([]);
   await expect(client.card.findMany({ where: { hubId: 2 } })).resolves.toEqual(
@@ -238,7 +226,11 @@ test("update root refuses two kinds on a NON-unique child-held to-one (the two-r
     client.hub.update({
       where: { id: 3 },
       data: {
-        ticket: { create: { id: 31, code: "fresh" }, connect: { id: 30 } },
+        ticket: {
+          create: { id: 31, code: "fresh" },
+          // @ts-expect-error - to-one payloads accept one active operation
+          connect: { id: 30 },
+        },
       },
     })
   );
@@ -249,18 +241,18 @@ test("update root refuses two kinds on a NON-unique child-held to-one (the two-r
   await expect(
     client.ticket.findMany({ where: { hubId: 3 }, orderBy: { id: "asc" } })
   ).resolves.toEqual([]);
-  expect(error).toBeInstanceOf(UnsupportedOperationError);
+  expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toBe(
-    "query-engine-v2 update supports one mutation kind on the to-one relation 'ticket'; it has connect, create."
+    "Validation failed for update: Unsupported to-one operation combination: create, connect"
   );
   expect(statements).toEqual([]);
 });
 
 // =============================================================================
-// CONTROLS — the neighbours the guard must not move
+// CONTROLS — neighboring contracts the arity boundary must not move
 // =============================================================================
 
-test("the parent-held control keeps its own refusal, unchanged", async () => {
+test("the parent-held control uses the same validation boundary", async () => {
   await client.owner.create({ data: { id: 40, name: "o" } });
 
   await expect(
@@ -268,11 +260,15 @@ test("the parent-held control keeps its own refusal, unchanged", async () => {
       data: {
         id: 4,
         label: "d",
-        owner: { create: { id: 41, name: "fresh" }, connect: { id: 40 } },
+        owner: {
+          create: { id: 41, name: "fresh" },
+          // @ts-expect-error - to-one payloads accept one active operation
+          connect: { id: 40 },
+        },
       },
     })
   ).rejects.toThrow(
-    "query-engine-v2 create supports one operation on the to-one relation 'owner'; it has connect, create."
+    "Unsupported to-one operation combination: create, connect"
   );
 
   await client.hub.create({ data: { id: 5, label: "e" } });
@@ -280,11 +276,15 @@ test("the parent-held control keeps its own refusal, unchanged", async () => {
     client.hub.update({
       where: { id: 5 },
       data: {
-        owner: { create: { id: 42, name: "fresh" }, connect: { id: 40 } },
+        owner: {
+          create: { id: 42, name: "fresh" },
+          // @ts-expect-error - to-one payloads accept one active operation
+          connect: { id: 40 },
+        },
       },
     })
   ).rejects.toThrow(
-    "query-engine-v2 update supports one mutation kind on the to-one relation 'owner'; it has connect, create."
+    "Unsupported to-one operation combination: create, connect"
   );
 });
 
@@ -317,9 +317,7 @@ test("ONE kind on a child-held to-one still executes at both roots", async () =>
 });
 
 test("a to-one payload naming NO kind stays Prisma's no-op", async () => {
-  // The boundary of the guard's predicate (`> 1`, not `!== 1`): an empty relation payload
-  // asks for nothing, which is why the child-held dispatch answers it by building
-  // nothing. Pinned so a later `!== 1` "tidy-up" of the guard fails here.
+  // An empty ordinary relation payload means "no nested work" and stays valid.
   await client.hub.create({ data: { id: 9, label: "i", card: {} } });
   await expect(
     client.hub.findUnique({ where: { id: 9 } })
@@ -331,8 +329,7 @@ test("a to-one payload naming NO kind stays Prisma's no-op", async () => {
 });
 
 test("the to-MANY sibling still composes several kinds on one relation", async () => {
-  // The guard is keyed on to-ONE arity, not on the child-held direction: a to-many
-  // relation legitimately names several kinds at once and must be untouched.
+  // A to-many relation legitimately combines kinds in fixed program order.
   await client.hub.create({ data: { id: 8, label: "h" } });
   await client.note.create({ data: { id: 80, body: "adopted" } });
   await client.hub.update({

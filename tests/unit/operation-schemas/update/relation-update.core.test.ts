@@ -5,9 +5,13 @@
  * nested write operation shapes for relations.
  */
 
+import {
+  authorSchemas,
+  postSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, postSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // TYPE TESTS - Author Model (has oneToMany)
@@ -154,13 +158,14 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: accepts disconnect nested write", () => {
+  test("runtime: rejects disconnect for required relation membership", () => {
     const result = parse(schema, {
       posts: {
         disconnect: { id: "post-to-disconnect" },
       },
     });
-    expect(result.issues).toBeUndefined();
+    expect(result.issues?.[0]?.message).toBe("Unknown key: disconnect");
+    expect(result.issues?.[0]?.path).toEqual(["posts", "disconnect"]);
   });
 
   test("runtime: accepts delete nested write", () => {

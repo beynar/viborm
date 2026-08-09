@@ -17,6 +17,10 @@ import {
   type CreateManyAvailability,
 } from "./create-many-availability";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
+import {
+  type ToOneMutationSchema,
+  toOneMutationSchema,
+} from "./to-one-mutation-schema";
 
 // =============================================================================
 // CREATE SCHEMA TYPES (exported for consumer use)
@@ -169,23 +173,22 @@ export type NestedCreateManySchema<
 /**
  * To-one create: { create?, connect?, connectOrCreate? }
  */
+type ToOneCreateEntries<S extends RelationState, Source extends AnyModel> = {
+  create: () => CreateWithOmittedFk<S, Source>;
+  connect: () => GetTargetSchemas<S>["core"]["whereUnique"];
+  connectOrCreate: V.Object<
+    {
+      where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+      create: () => CreateWithOmittedFk<S, Source>;
+    },
+    { partial: false }
+  >;
+};
+
 export type ToOneCreateSchema<
   S extends RelationState,
   Source extends AnyModel,
-> = V.Object<
-  {
-    create: () => CreateWithOmittedFk<S, Source>;
-    connect: () => GetTargetSchemas<S>["core"]["whereUnique"];
-    connectOrCreate: V.Object<
-      {
-        where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-        create: () => CreateWithOmittedFk<S, Source>;
-      },
-      { partial: false }
-    >;
-  },
-  { optional: true }
->;
+> = ToOneMutationSchema<ToOneCreateEntries<S, Source>, { optional: true }>;
 
 export const toOneCreateFactory = <
   S extends RelationState,
@@ -201,7 +204,7 @@ export const toOneCreateFactory = <
     return v.omit(targetSchemas().core.create, fkFields);
   };
 
-  return v.object(
+  return toOneMutationSchema(
     {
       create: getCreateSchema,
       connect: () => targetSchemas().core.whereUnique,

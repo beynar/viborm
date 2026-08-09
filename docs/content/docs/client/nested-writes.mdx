@@ -29,6 +29,16 @@ Direct polymorphic relations use the same operation meanings but add a target
 [polymorphic write matrices](/docs/schema/relations/polymorphic#write-the-direct-relation)
 for the exact payloads and optionality rules.
 
+To-one create payloads and parent-held to-one updates accept at most one active
+operation. A child-held to-one update may instead replace its member with one
+fixed vacate-then-supply pair, such as
+`{ disconnect: true, connect: { id: "new_profile" } }`. An empty ordinary
+to-one payload is a no-op, and `false` is inactive for boolean operations. A
+supplied direct polymorphic payload must contain exactly one typed intent.
+To-many payloads may combine operation kinds. See the
+[compatibility contract](/docs/client/compatibility#structural-restrictions) for
+the complete replacement-pair list.
+
 ## Create Operations
 
 ### create
@@ -240,7 +250,10 @@ const user = await client.user.update({
 });
 ```
 
-`updateMany` applies to to-many relations only.
+`updateMany` applies to to-many relations only. Its executable `data` is
+scalar-only; use targeted nested `update` when a child update must contain
+relation operations. The compatibility reference explains the deliberately
+deferred validation of an untaken upsert update arm.
 
 ### upsert (nested)
 
@@ -286,7 +299,7 @@ The to-many form also accepts an array of `{ where, create, update }` envelopes.
 
 ### disconnect
 
-Disconnect related records (many-to-many):
+Disconnect related records:
 
 ```ts
 // Disconnect specific tags
@@ -307,6 +320,11 @@ const post = await client.post.update({
   },
 });
 ```
+
+An ordinary child-held relation exposes `disconnect` only when its physical
+child membership can be cleared. A required child foreign key therefore omits
+the key from its input. Junction relations always expose it because they remove
+a join row instead of clearing child storage.
 
 ### set
 
@@ -404,8 +422,8 @@ const user = await client.user.update({
 
 ### Required relations
 
-When membership storage is required, you cannot clear it while preserving the
-related record. These operations are rejected and nothing is written:
+When membership storage is required, it cannot be cleared while preserving the
+related record. `disconnect` is absent from that relation input:
 
 ```ts
 // post.authorId is required, so the author cannot be disconnected.
@@ -419,8 +437,10 @@ await client.post.update({
 });
 ```
 
+This call fails input validation before query-engine compilation.
+
 ```ts
-// post.authorId is required, so the posts cannot remain after this membership is cleared.
+// post.authorId is required. set is valid only when every current post remains.
 await client.user.update({
   where: { id: "user_123" },
   data: {
@@ -430,6 +450,11 @@ await client.user.update({
   },
 });
 ```
+
+The second call reaches the set owner, but a departing-member guard rejects it
+when the relation currently contains a post. A required `set` may retain all
+current members and adopt new ones; `set: []` succeeds only when the relation is
+already empty.
 
 ```ts
 // Required foreign keys cannot be nulled through nested updateMany data.

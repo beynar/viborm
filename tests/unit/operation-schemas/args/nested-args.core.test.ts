@@ -9,9 +9,12 @@
  */
 
 import { s } from "@schema";
+import {
+  authorSchemas,
+  postSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, postSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // Test-only view over generated nested selection output unions.
 // The runtime assertions below still verify concrete transformed shapes.
@@ -853,7 +856,7 @@ describe("Deeply Nested Updates", () => {
           posts: {
             create: { id: "new-post", title: "New", authorId: "author-1" },
             connect: { id: "existing-post" },
-            disconnect: { id: "old-post" },
+            set: { id: "retained-post" },
           },
         },
       });
@@ -865,9 +868,9 @@ describe("Deeply Nested Updates", () => {
         expect(
           Array.isArray(nestedOutput(result.value).data.posts?.connect)
         ).toBe(true);
-        expect(
-          Array.isArray(nestedOutput(result.value).data.posts?.disconnect)
-        ).toBe(true);
+        expect(Array.isArray(nestedOutput(result.value).data.posts?.set)).toBe(
+          true
+        );
       }
     });
   });

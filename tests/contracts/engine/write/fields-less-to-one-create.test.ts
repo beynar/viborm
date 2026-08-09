@@ -1,65 +1,18 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { UnsupportedOperationError, ValidationError } from "@errors";
+import { PGlite } from "@electric-sql/pglite";
+import { ValidationError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
- * E4-U1 — **the relation type outside the create dispatch.**
- *
- * `CreateOperation.interpretRelation` used to end its child-held branch with a
- * type-NAME predicate — `oneToMany || oneToOne` — and refuse everything else:
- *
- *   UnsupportedOperationError: query-engine-v2 create supports only child-held
- *   one-to-many / one-to-one relations; relation 'tag' is 'manyToOne'.
- *
- * Measured at f410d6c on the schema below, 0 statements, for all three kinds the parse
- * admits (`create`, `connect`, `connectOrCreate`). The shape it refused is a `manyToOne`
- * declared WITHOUT `.fields()` — the inverse side spelled with the many-side helper,
- * its foreign key resolved from the target's own back-reference. `getFkDirection`
- * answers `holdsFK === false` for it, so it is a child-held edge in every way that
- * matters to the create tree, and the SAME relation on the SAME schema has always
- * constructed under `update` (`UpdateOperation`'s sibling gate asks
- * `isToOne || type === "oneToMany"`). It was a capability gap, not a decision.
- *
- * The absorption DELETES the predicate rather than adding a third name to it, because
- * the union it tested is closed and every other member leaves earlier:
- *
- *   · `manyToMany` returns at the top of `interpretRelation` (the junction branch);
- *   · `holdsFK` returns one line above (the parent-held branch);
- *   · an edge with NO inverse to resolve never arrives at all — `getFkDirection`
- *     raises its own typed "Cannot determine FK fields for relation '…'. Define the
- *     inverse relation with .fields([...]) …" before a direction exists. This file
- *     pins that, so "the union is closed" is a measurement and not an argument.
- *
- * **The two M8 gates the plan put in front of this widening are CLOSED by the D-wave,
- * and are probed here rather than re-decided:**
- *
- *   · D5's arity twin in `CreateOperation.interpretChildHeld` (`isToOne && kinds.length
- *     > 1`) answers a multi-kind payload on the fields-less edge. It reads
- *     `relationInfo.isToOne`, never a type name, so it covered this spelling the moment
- *     the widening let a payload reach it. Its own permanent witness is
- *     `child-held-to-one-multi-kind.test.ts`; the probe here proves the composition.
- *   · D5's scanner alignment (`findInverseRelationState` ⟷ `getInverseRelationMap`)
- *     is what makes a name-mismatched sole back-reference resolve the same way on both
- *     sides. The parse OMITS the engine-owned foreign key, so the spelled-FK
- *     silent-overwrite hazard the plan flagged is answered at the parse boundary with
- *     `ValidationError: Unknown key: <fk>` — no second engine guard ships beside the
- *     widening (one guard per invariant).
- *
- * **No occupied-slot guard ships either.** The parent this dispatch builds is FRESH, so
- * its to-one slot starts empty and each admitted kind is a pure add against it — the
- * same fresh-parent elision the many-to-many branch cites one screen above. The
- * occupied question belongs to the UPDATE root, whose slot may already hold a row (M10).
- *
- * **The carve-out that ships:** a fields-less `manyToOne` whose resolved edge references
- * a COMPOUND key still meets `CreateOperation.edgeParentId`'s arity refusal on the adopt
- * kinds. That is E4-U2's site, not this one, and it is pinned below so the widening
- * cannot be read as having lifted it.
+ * A fields-less `manyToOne` is child-held topology: the target's physical
+ * back-reference owns its membership. Fresh create supports the same single
+ * operations as other child-held to-one relations. Validation owns operation
+ * arity and omission of the engine-supplied FK. Compound referenced identities
+ * remain an explicit adopt limitation.
  */
 
 // =============================================================================
@@ -70,11 +23,11 @@ import { describe, expect, test } from "vitest";
  * `desk.tag` is the shape: `manyToOne` with no `.fields()`. `tag.desk` (the sole to-one
  * back-reference from `tag` to `desk`) carries the columns, so the resolved edge is
  * `tag.deskId → desk.id` — child-held, and NOT unique, which is why this leg is the one
- * that could hold two rows before D5. `desk.tags` / `tag.desks` exist only to satisfy
+ * where unchecked operation arity could write two rows. `desk.tags` / `tag.desks` satisfy
  * the inverse-pairing rules (R003/R004) for that spelling.
  *
  * `desk.pins` is the to-many control on the same parent: it must keep composing several
- * kinds after the widening.
+ * kinds.
  */
 const desk = s
   .model({
@@ -146,8 +99,8 @@ const slot = s
 
 /**
  * The no-inverse edge: `crate.holder` is a `manyToOne` with no `.fields()`, and `holder`
- * carries no to-one relation back to `crate` — only the to-many. `getFkDirection` has
- * nothing to resolve, and says so, BEFORE the deleted predicate would have been asked.
+ * carries no physical back-reference to `crate`. Bound topology has nothing to
+ * resolve and fails with the relation metadata error.
  */
 const crate = s
   .model({
@@ -166,7 +119,7 @@ const holder = s
   .map("e4u1_holders");
 
 /**
- * D5's scanner-alignment schema, on the create root: `author.books` carries
+ * The inverse-scanner alignment schema: `author.books` carries
  * `.name("writer")`, and `book.author` — the only relation on `book` pointing back at
  * `author` — carries no name. Both scanners now read a sole back-reference as THE edge.
  */
@@ -310,11 +263,11 @@ for (const substrate of substrates) {
 }
 
 // =============================================================================
-// THE TWO M8 GATES — probed, not re-decided
+// VALIDATION BOUNDARIES
 // =============================================================================
 
-describe("E4-U1 the gates the D-wave closed", () => {
-  test("a multi-kind payload on the widened edge meets D5's arity twin", async () => {
+describe("fields-less to-one validation", () => {
+  test("a multi-kind payload fails at the to-one schema boundary", async () => {
     const client = await setup(new PGliteDriver({ client: new PGlite() }));
     try {
       await client.tag.create({ data: { id: 11, code: "free" } });
@@ -323,22 +276,30 @@ describe("E4-U1 the gates the D-wave closed", () => {
           data: {
             id: 4,
             label: "d",
-            tag: { create: { id: 13, code: "x" }, connect: { id: 11 } },
+            tag: {
+              create: { id: 13, code: "x" },
+              // @ts-expect-error - to-one payloads accept one active operation
+              connect: { id: 11 },
+            },
           },
         })
-      ).rejects.toThrow(UnsupportedOperationError);
+      ).rejects.toThrow(ValidationError);
       await expect(
         client.desk.create({
           data: {
             id: 4,
             label: "d",
-            tag: { create: { id: 13, code: "x" }, connect: { id: 11 } },
+            tag: {
+              create: { id: 13, code: "x" },
+              // @ts-expect-error - to-one payloads accept one active operation
+              connect: { id: 11 },
+            },
           },
         })
       ).rejects.toThrow(
-        "query-engine-v2 create supports one operation on the to-one relation 'tag'; it has connect, create."
+        "Unsupported to-one operation combination: create, connect"
       );
-      // A construction refusal: neither arm ran, and the free row stayed free.
+      // Validation refuses both arms, and the free row stays free.
       await expect(
         client.desk.findUnique({ where: { id: 4 } })
       ).resolves.toBeNull();
@@ -396,7 +357,7 @@ describe("E4-U1 the gates the D-wave closed", () => {
 // =============================================================================
 
 describe("E4-U1 what still refuses", () => {
-  test("a no-inverse edge dies at getFkDirection, before the deleted predicate", async () => {
+  test("a no-inverse edge fails at bound topology resolution", async () => {
     const client = await setup(new PGliteDriver({ client: new PGlite() }));
     try {
       await expect(

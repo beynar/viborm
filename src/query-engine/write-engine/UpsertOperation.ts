@@ -454,6 +454,7 @@ export class UpsertOperation {
             parent,
             partitionModelData(parent, parsedArgs.data).scalarData,
             updateRelations,
+            updatePolymorphic,
             where
           );
         }

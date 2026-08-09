@@ -5,9 +5,13 @@
  * update schemas.
  */
 
+import {
+  authorSchemas,
+  postSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, postSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
@@ -103,13 +107,14 @@ describe("Update Schema - Author Model Runtime (with relations)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("runtime: accepts relation update with disconnect", () => {
+  test("runtime: rejects disconnect for required relation membership", () => {
     const result = parse(schema, {
       posts: {
         disconnect: [{ id: "post-1" }],
       },
     });
-    expect(result.issues).toBeUndefined();
+    expect(result.issues?.[0]?.message).toBe("Unknown key: disconnect");
+    expect(result.issues?.[0]?.path).toEqual(["posts", "disconnect"]);
   });
 
   test("runtime: accepts relation update with delete", () => {

@@ -1,13 +1,13 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import {
   createClient as PGliteCreateClient,
   PGliteDriver,
 } from "@drivers/pglite";
-import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { runBatchPrimaryKeyDataflowBehavior } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
   afterAll,
   beforeAll,
@@ -16,7 +16,6 @@ import {
   expect,
   test,
 } from "vitest";
-import { runBatchPrimaryKeyDataflowBehavior } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 
 const user = s.model({
   id: s.string().id(),
@@ -1598,11 +1597,12 @@ describe("Nested Mutation Routing", () => {
         data: {
           name: "Changed",
           posts: {
+            // @ts-expect-error - required child membership cannot disconnect
             disconnect: { id: "required-post-1" },
           },
         },
       })
-    ).rejects.toThrow("foreign key field(s) userId are required");
+    ).rejects.toThrow("Unknown key: disconnect");
 
     const [user, post] = await Promise.all([
       client.requiredUser.findUnique({ where: { id: "required-user-1" } }),

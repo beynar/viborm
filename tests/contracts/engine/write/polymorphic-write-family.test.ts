@@ -134,7 +134,27 @@ const polymorphicWriteSchema = (() => {
     })
     .map("poly_write_featured_comments");
 
-  return { board, post, video, comment, requiredComment, featuredComment };
+  const node = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      children: s.oneToMany(() => node).name("tree"),
+      parent: s
+        .polymorphic({ node: () => node }, { values: { node: "tree.node.v1" } })
+        .name("tree")
+        .optional(),
+    })
+    .map("poly_write_nodes");
+
+  return {
+    board,
+    post,
+    video,
+    comment,
+    requiredComment,
+    featuredComment,
+    node,
+  };
 })();
 
 type PolymorphicWriteFamily = PGliteSchemaFamily<typeof polymorphicWriteSchema>;
@@ -424,6 +444,63 @@ function registerPolymorphicWriteBehavior(
           include: { featuredComment: true },
         })
       ).toMatchObject({ featuredComment: { body: "created" } });
+    });
+
+    test("singular inverse replaces a member with vacate-then-supply pairs", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: {
+          slug: "singular-replacement-owner",
+          title: "Replacement owner",
+          featuredComment: {
+            create: { code: "singular-incumbent", body: "incumbent" },
+          },
+        },
+      });
+      const adopted = await client.featuredComment.create({
+        data: { code: "singular-adopted", body: "adopted" },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          featuredComment: {
+            disconnect: true,
+            connect: { id: adopted.id },
+          },
+        },
+      });
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: { id: adopted.id } });
+      expect(
+        await client.featuredComment.findUniqueOrThrow({
+          where: { code: "singular-incumbent" },
+          include: { commentable: true },
+        })
+      ).toMatchObject({ commentable: null });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          featuredComment: {
+            delete: true,
+            create: { code: "singular-created", body: "created" },
+          },
+        },
+      });
+      await expect(
+        client.featuredComment.findUniqueOrThrow({ where: { id: adopted.id } })
+      ).rejects.toMatchObject({ name: "NotFoundError" });
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: { code: "singular-created" } });
     });
 
     test("singular inverse rejects a second occupant without partial effects", async () => {
@@ -1899,7 +1976,7 @@ function registerPolymorphicWriteBehavior(
       ]);
     });
 
-    test("required inverse membership refuses disconnect and set before effects", async () => {
+    test("required inverse membership rejects clearing but permits retaining set", async () => {
       const family = getFamily();
       const { client } = family;
       const post = await client.post.create({
@@ -1929,6 +2006,12 @@ function registerPolymorphicWriteBehavior(
           })
         )
       ).rejects.toThrow();
+      await expect(
+        executePostUpdate(family, {
+          where: { id: post.id },
+          data: { requiredComments: { set: [{ id: child.id }] } },
+        })
+      ).resolves.toBeDefined();
       expect(await storedRequiredComments(family)).toEqual([
         {
           id: child.id,
@@ -2813,6 +2896,79 @@ function registerPolymorphicWriteBehavior(
           },
         })
       ).toEqual([]);
+    });
+
+    test("direct and inverse forms share one OwnWrite membership scope", async () => {
+      const { client } = getFamily();
+      await client.node.create({ data: { id: 900, label: "root" } });
+
+      await expect(
+        client.node.update({
+          where: { id: 900 },
+          data: {
+            children: { connect: { id: 900 } },
+            parent: {
+              upsert: {
+                type: "node",
+                create: { id: 901, label: "must not create" },
+                update: { label: "must not update" },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow(
+        "Nested operation 'upsert' on relation 'parent' depends on an earlier 'connect' membership write in the same nested write. Split these operations into separate queries."
+      );
+
+      expect(await client.node.findMany({ orderBy: { id: "asc" } })).toEqual([
+        { id: 900, label: "root" },
+      ]);
+    });
+
+    test("direct disconnect contributes exact OwnWrite scopes", async () => {
+      const { client } = getFamily();
+      await client.node.create({ data: { id: 910, label: "root" } });
+      await client.node.update({
+        where: { id: 910 },
+        data: {
+          parent: { connect: { type: "node", where: { id: 910 } } },
+        },
+      });
+
+      await expect(
+        client.node.update({
+          where: { id: 910 },
+          data: {
+            children: {
+              upsert: {
+                where: { id: 910 },
+                create: { id: 911, label: "must not create" },
+                update: { label: "must not update" },
+              },
+            },
+            parent: { disconnect: true },
+          },
+        })
+      ).rejects.toThrow(
+        "Nested operation 'upsert' on relation 'children' depends on an earlier 'disconnect' membership write in the same nested write. Split these operations into separate queries."
+      );
+
+      await expect(
+        client.node.findUniqueOrThrow({
+          where: { id: 910 },
+          include: { parent: true },
+        })
+      ).resolves.toMatchObject({
+        id: 910,
+        label: "root",
+        parent: {
+          type: "node",
+          data: { id: 910, label: "root" },
+        },
+      });
+      await expect(
+        client.node.findUnique({ where: { id: 911 } })
+      ).resolves.toBeNull();
     });
 
     test("database orphans fail regardless of direct optionality", async () => {

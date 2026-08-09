@@ -34,6 +34,11 @@
 - Size memory limits by workload instead of reusing the Vitest limit. In this
   repository the complete TypeScript graph exhausts 2 GB but passes with a
   4 GB ceiling; keep Vitest at 768 MB and record both caps in the command.
+- A green full type-check can hide a layer-specific type-memory regression
+  because its heap is larger. Run the owning layer after adding a recursive
+  mapped union. If the same structural type is instantiated throughout a model
+  graph, expose it through an interface so TypeScript can cache the boundary;
+  verify again under the layer's smaller heap before keeping the abstraction.
 - In zsh, never use `path` as a loop or local variable: it is tied to `PATH` and
   makes later commands disappear. Use a concern-specific name such as
   `report_file`, then verify the remaining commands ran.

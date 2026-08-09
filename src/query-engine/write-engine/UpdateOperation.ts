@@ -204,7 +204,13 @@ export class UpdateOperation {
 
     const parsedData = requireRecord(validatedArgs.data, "update.data");
     const parsedScalarData = partitionModelData(parent, parsedData).scalarData;
-    assertUpdateOwnWriteSafety(parent, parsedScalarData, relations, where);
+    assertUpdateOwnWriteSafety(
+      parent,
+      parsedScalarData,
+      relations,
+      polymorphic,
+      where
+    );
 
     const scalarData =
       Object.keys(partitioned.scalarData).length === 0

@@ -3,8 +3,6 @@ import { NestedWriteError } from "@errors";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
@@ -12,6 +10,8 @@ import {
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * The P2c nested-mutation family (nested update/updateMany/delete/deleteMany/set
@@ -346,7 +346,7 @@ export function runNestedMutationBehavior(
     );
 
     test(
-      "disconnect of a required-FK child rejects typed",
+      "disconnect of a required-FK child rejects at validation",
       { timeout: 30_000 },
       async () => {
         const { client, dispose, update } = await setup();
@@ -367,9 +367,7 @@ export function runNestedMutationBehavior(
               where: { id: "po1" },
               data: { postTags: { disconnect: { id: "j1" } } },
             })
-          ).rejects.toThrow(
-            "Cannot disconnect relation 'postTags' because foreign key field(s) postId are required."
-          );
+          ).rejects.toThrow("Unknown key: disconnect");
           expect(await client.postTag.findMany()).toMatchObject([
             { id: "j1", postId: "po1" },
           ]);

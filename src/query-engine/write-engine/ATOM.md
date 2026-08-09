@@ -171,6 +171,12 @@ interface RelationMutationProgram {
 
 It records request meaning, not execution policy.
 
+The operation-schema boundary supplies at most one active entry for a to-one
+create or parent-held update. A child-held to-one update may supply one of the
+five documented vacate-then-supply pairs; fixed mutation-kind order emits the
+vacate before the supplier. To-many payloads may contribute several kinds;
+their fixed order is preserved here.
+
 Program construction preserves:
 
 - the fixed mutation-kind order;
@@ -512,6 +518,12 @@ OwnWrite analysis rejects such one-operation feedback with the established
 The analyzer consumes canonical mutation programs and uses bound relation
 positions. Execution-specific deduplication remains inside the analyzer.
 
+For a direct polymorphic mutation, its resolved payload edge overrides the
+synthetic ordinary relation's analytical scope. Direct and inverse access then
+compare the same exact discriminator-aware physical membership. A targetless
+disconnect contributes one scope per configured storage member rather than a
+wildcard.
+
 Legality timing is part of behavior:
 
 - standalone update runs it before planning;
@@ -624,6 +636,12 @@ These remain specialized:
 Bulk semantics include row grouping, optional zero matches, membership sets,
 and output concatenation. A generic record compiler would hide those facts
 rather than compress them.
+
+`updateMany` never delegates each row to `RecordUpdateCompiler`. Its selected
+arm legality rejects relation-bearing data before SQL; that check remains
+deferred so an untaken top-level upsert update arm is inert. Relation `set` is
+independent of membership clearability: optional storage emits departures,
+while required storage guards that the departing set is empty.
 
 Skip-duplicate preparation writes remain in planning. Adapter `batchRefs` and executor
 `insertId` handling remain because they express real substrate capabilities.

@@ -67,6 +67,10 @@ import {
   toOneSelectFactory,
 } from "./select-include";
 import {
+  type ToOneMutationSchema,
+  toOneMutationSchema,
+} from "./to-one-mutation-schema";
+import {
   type ToManyUpdateSchema,
   type ToOneUpdateSchema,
   type ToOneUpdateTargetWithDataSchema,
@@ -307,11 +311,11 @@ type PolymorphicInverseUpdateEntries<
     >
   >;
   deleteMany: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["where"]>;
+  set: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
 };
 
 type OptionalPolymorphicInverseUpdateEntries<S extends RelationState> = {
   disconnect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
-  set: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
 };
 
 type PolymorphicInverseToManySchemas<
@@ -374,18 +378,20 @@ type PolymorphicInverseToOneSchemas<
   S extends RelationState,
   Source extends AnyModel,
 > = Omit<ToOneSchemas<S, Source>, "create" | "update"> & {
-  create: V.Object<
+  create: ToOneMutationSchema<
     PolymorphicInverseToOneCreateEntries<S, Source>,
     { optional: true }
   >;
-  update: V.Object<
+  update: ToOneMutationSchema<
     PolymorphicInverseToOneUpdateEntries<S, Source> &
       (S["optional"] extends true
         ? EmptyPolymorphicInverseToOneUpdateEntries &
             (PolymorphicMembershipCanBeCleared<S, Source> extends true
               ? ClearablePolymorphicInverseToOneUpdateEntries
               : Record<never, never>)
-        : Record<never, never>)
+        : Record<never, never>),
+    undefined,
+    true
   >;
 };
 
@@ -558,12 +564,12 @@ export const getRelationSchemas = <
           updateMany,
           upsert,
           deleteMany: () => v.singleOrArray(targetSchemas().core.where),
+          set: () => v.singleOrArray(targetSchemas().core.whereUnique),
         });
         return inverse.membershipCanBeCleared
           ? entries.extend({
               disconnect: () =>
                 v.singleOrArray(targetSchemas().core.whereUnique),
-              set: () => v.singleOrArray(targetSchemas().core.whereUnique),
             })
           : entries;
       }),
@@ -579,7 +585,7 @@ export const getRelationSchemas = <
       create: v.lazy(() => {
         const inverse = getInverseMutationSchemas();
         if (!inverse) return schemas.create;
-        return v.object(
+        return toOneMutationSchema(
           {
             create: inverse.getCreateSchema,
             connect: () => targetSchemas().core.whereUnique,
@@ -591,7 +597,7 @@ export const getRelationSchemas = <
       update: v.lazy(() => {
         const inverse = getInverseMutationSchemas();
         if (!inverse) return schemas.update;
-        const entries = v.object({
+        const entries = {
           create: inverse.getCreateSchema,
           connect: () => targetSchemas().core.whereUnique,
           connectOrCreate: inverse.connectOrCreate,
@@ -608,10 +614,22 @@ export const getRelationSchemas = <
             },
             { partial: false }
           ),
-        });
+        };
         return inverse.membershipCanBeCleared
-          ? entries.extend({ disconnect: v.boolean(), delete: v.boolean() })
-          : entries.extend({ delete: v.boolean() });
+          ? toOneMutationSchema(
+              {
+                ...entries,
+                disconnect: v.boolean(),
+                delete: v.boolean(),
+              },
+              undefined,
+              true
+            )
+          : toOneMutationSchema(
+              { ...entries, delete: v.boolean() },
+              undefined,
+              true
+            );
       }),
     } as unknown as GetRelationSchemas<S, Source>;
   }

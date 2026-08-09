@@ -168,6 +168,12 @@ linearized safely. `RecordUpdateCompiler` and relation owners that pass it a
 selected target address the captured primary key rather than re-evaluating the
 selector.
 
+Direct polymorphic mutation intent and its inverse relation use the same exact
+discriminator-aware OwnWrite scope. The synthetic ordinary edge used to reuse
+record compilation supplies endpoint orientation only. A targetless direct
+disconnect contributes one exact footprint per configured variant, so no
+wildcard scope can conflate equal identities under different discriminators.
+
 The compiler exposes one `TargetProjection` for everything it consumes from the
 located row: public model fields and any private physical columns. On an atomic
 batch, the owner extends its existing captured-row guard with equality checks for
@@ -310,11 +316,12 @@ owner also exposes update and upsert, plus disconnect and delete when the direct
 membership is optional. The direct edge is to-one, so collection set does not
 apply. A bound inverse `oneToMany` exposes
 create/createMany/connect/connectOrCreate/upsert on create, the ordinary
-targeted and bulk update/delete family on update, and disconnect/set only when
-membership is clearable. A bound inverse `oneToOne` always has an optional
-public slot: delete may empty it, while disconnect additionally requires
-clearable child storage. Exact membership always includes both the fixed
-discriminator and parent identity. Root createMany accepts direct connect-only
+targeted and bulk update/delete family on update. Disconnect requires clearable
+membership. Set is available for both storage modes; required membership uses a
+materialized departing-member guard. A bound inverse `oneToOne` always has an
+optional public slot: delete may empty it, while disconnect additionally
+requires clearable child storage. Exact membership always includes both the
+fixed discriminator and parent identity. Root createMany accepts direct connect-only
 memberships; inverse nested createMany can satisfy its owning required relation
 but not another required polymorphic relation. The feature adds no runtime step
 kind, executor protocol, adapter semantic namespace, or round trip beyond the

@@ -1,4 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
+
+import type { ResolvedPolymorphicMutation } from "./builders/polymorphic-mutation";
 import {
   type BoundRelation,
   bindRelation,
@@ -19,6 +21,7 @@ import {
 import {
   buildRootUpdateMembershipFootprints,
   buildTransitiveUpdateMembershipFootprints,
+  getPolymorphicMembershipScope,
   getRelationMembershipScope,
   type RootMembershipFootprint,
 } from "./RelationMembership";
@@ -38,9 +41,13 @@ export class OwnWriteAnalyzer {
   analyze(
     ctx: QueryScope,
     relations: Record<string, RelationMutationProgram>,
-    family: OwnWriteDependencyFamily
+    family: OwnWriteDependencyFamily,
+    polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>> = {}
   ): void {
-    new OwnWriteNode(this, ctx, family, this.ledger).analyze(relations);
+    new OwnWriteNode(this, ctx, family, this.ledger).analyze(
+      relations,
+      polymorphic
+    );
   }
 
   analyzeCreate(
@@ -50,10 +57,7 @@ export class OwnWriteAnalyzer {
     insertSummary?: OwnWriteCreateSummary
   ): void {
     const childCtx = relation.createChildScope();
-    const { scalarData, relations } = buildParsedRelationPrograms(
-      childCtx,
-      data
-    );
+    const parsed = buildParsedRelationPrograms(childCtx, data);
     const insertBarrier = insertSummary
       ? new OwnWriteInsertBarrier(relation, insertSummary)
       : undefined;
@@ -62,9 +66,9 @@ export class OwnWriteAnalyzer {
       new OwnWriteNode(
         this,
         childCtx,
-        { kind: "create", rootOperation, scalarData },
+        { kind: "create", rootOperation, scalarData: parsed.scalarData },
         relation.ledger
-      ).analyze(relations, insertBarrier);
+      ).analyze(parsed.relations, parsed.polymorphic, insertBarrier);
     });
   }
 
@@ -75,18 +79,20 @@ export class OwnWriteAnalyzer {
     rootOperation: "update" | "upsert" = "update"
   ): void {
     const childCtx = relation.createChildScope();
-    const { scalarData, relations } = buildParsedRelationPrograms(
-      childCtx,
-      data
-    );
+    const parsed = buildParsedRelationPrograms(childCtx, data);
 
     relation.ledger.withNestedScope(() => {
       new OwnWriteNode(
         this,
         childCtx,
-        { kind: "update", rootOperation, scalarData, selector },
+        {
+          kind: "update",
+          rootOperation,
+          scalarData: parsed.scalarData,
+          selector,
+        },
         relation.ledger
-      ).analyze(relations);
+      ).analyze(parsed.relations, parsed.polymorphic);
     });
   }
 }
@@ -124,9 +130,11 @@ export class OwnWriteNode {
 
   analyze(
     relations: Record<string, RelationMutationProgram>,
+    polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>> = {},
     insertBarrier?: OwnWriteInsertBarrier
   ): void {
     this.seedRootTargetWrites();
+    this.seedDirectPolymorphicDisconnectWrites(polymorphic);
     const rootMembershipFootprints =
       this.family.kind === "update"
         ? buildRootUpdateMembershipFootprints(
@@ -141,7 +149,8 @@ export class OwnWriteNode {
     const relationGroups = getRelationEntryGroups(
       this.ctx,
       relations,
-      this.family.kind
+      this.family.kind,
+      polymorphic
     );
 
     for (const [groupIndex, relationEntries] of relationGroups.entries()) {
@@ -156,7 +165,8 @@ export class OwnWriteNode {
           rootMembershipFootprints,
           this.family.kind === "create" && groupIndex === 0
             ? beforeParentMembershipLedger
-            : undefined
+            : undefined,
+          entry.membershipScope
         ).analyze();
       }
 
@@ -218,48 +228,87 @@ export class OwnWriteNode {
     }
   }
 
+  private seedDirectPolymorphicDisconnectWrites(
+    polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>>
+  ): void {
+    for (const mutation of Object.values(polymorphic)) {
+      if (mutation.kind !== "disconnect") continue;
+      for (const member of mutation.storage.members.values()) {
+        this.ledger.appendMembership(
+          "disconnect",
+          {
+            first: this.currentConstraint,
+            second: unknownConstraint(member.targetModel),
+          },
+          getPolymorphicMembershipScope(
+            this.ctx.model,
+            member.targetModel,
+            mutation.storage,
+            member.storedType,
+            member.referencedField
+          ),
+          "physical",
+          "operation"
+        );
+      }
+    }
+  }
 }
 
 export function analyzeOwnWriteTree(
   ctx: QueryScope,
   relations: Record<string, RelationMutationProgram>,
-  family: OwnWriteDependencyFamily
+  family: OwnWriteDependencyFamily,
+  polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>> = {}
 ): OwnWriteLedger {
   const analyzer = new OwnWriteAnalyzer();
-  analyzer.analyze(ctx, relations, family);
+  analyzer.analyze(ctx, relations, family, polymorphic);
   return analyzer.ledger;
 }
 
 export function assertNoRelationsOwnWriteDependencies(
   ctx: QueryScope,
   relations: Record<string, RelationMutationProgram>,
-  family: OwnWriteDependencyFamily
+  family: OwnWriteDependencyFamily,
+  polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>> = {}
 ): void {
-  analyzeOwnWriteTree(ctx, relations, family);
+  analyzeOwnWriteTree(ctx, relations, family, polymorphic);
 }
 
 export function assertCreateOwnWriteSafety(
   ctx: QueryScope,
   scalarData: Record<string, unknown>,
-  relations: Record<string, RelationMutationProgram>
+  relations: Record<string, RelationMutationProgram>,
+  polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>>
 ): void {
-  assertNoRelationsOwnWriteDependencies(ctx, relations, {
-    kind: "create",
-    scalarData,
-  });
+  assertNoRelationsOwnWriteDependencies(
+    ctx,
+    relations,
+    {
+      kind: "create",
+      scalarData,
+    },
+    polymorphic
+  );
 }
 
 export function assertUpdateOwnWriteSafety(
   ctx: QueryScope,
   scalarData: Record<string, unknown>,
   relations: Record<string, RelationMutationProgram>,
+  polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>>,
   selector: Record<string, unknown> | undefined
 ): void {
-  assertNoRelationsOwnWriteDependencies(ctx, relations, {
-    kind: "update",
-    scalarData,
-    selector,
-  });
+  assertNoRelationsOwnWriteDependencies(
+    ctx,
+    relations,
+    {
+      kind: "update",
+      scalarData,
+      selector,
+    },
+    polymorphic
+  );
 }
 
 class OwnWriteInsertBarrier {
@@ -313,16 +362,32 @@ function getCurrentReadConstraint(
 function getRelationEntryGroups(
   ctx: QueryScope,
   relations: Record<string, RelationMutationProgram>,
-  family: OwnWriteDependencyFamily["kind"]
+  family: OwnWriteDependencyFamily["kind"],
+  polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>>
 ): RelationAnalysisEntry[][] {
   if (family === "update") {
-    return [Object.values(relations).map((mutation) => ({ mutation }))];
+    return [
+      Object.entries(relations).map(([relationName, mutation]) => ({
+        mutation,
+        membershipScope: getDirectPolymorphicScope(
+          ctx,
+          polymorphic[relationName]
+        ),
+      })),
+    ];
   }
   const currentHoldsFk: RelationAnalysisEntry[] = [];
   const relatedHoldsFk: RelationAnalysisEntry[] = [];
-  for (const mutation of Object.values(relations)) {
+  for (const [relationName, mutation] of Object.entries(relations)) {
     const boundRelation = bindRelation(ctx, mutation.relationInfo);
-    const entry = { mutation, boundRelation };
+    const entry = {
+      mutation,
+      boundRelation,
+      membershipScope: getDirectPolymorphicScope(
+        ctx,
+        polymorphic[relationName]
+      ),
+    };
     if (boundRelation.kind === "parentHeldToOne") {
       currentHoldsFk.push(entry);
     } else {
@@ -335,4 +400,20 @@ function getRelationEntryGroups(
 interface RelationAnalysisEntry {
   readonly mutation: RelationMutationProgram;
   readonly boundRelation?: BoundRelation;
+  readonly membershipScope?: ReturnType<typeof getRelationMembershipScope>;
+}
+
+function getDirectPolymorphicScope(
+  ctx: QueryScope,
+  mutation: ResolvedPolymorphicMutation | undefined
+): ReturnType<typeof getRelationMembershipScope> | undefined {
+  if (!mutation || mutation.kind !== "targeted") return undefined;
+  const { edge } = mutation;
+  return getPolymorphicMembershipScope(
+    ctx.model,
+    edge.targetModel,
+    edge.storage,
+    edge.storedType,
+    edge.referencedField
+  );
 }

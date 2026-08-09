@@ -1613,7 +1613,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           push(buildToManyDeleteManyParts(writeBase, entry));
           break;
         case "set":
-          assertRelationCanDisconnect(relation);
           push([
             buildToManySetPart(
               { ...writeBase, parentId: parent.write },

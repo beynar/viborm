@@ -60,7 +60,8 @@ export class OwnWriteRelation {
     program: RelationMutationProgram,
     boundRelation: BoundRelation,
     ledger: OwnWriteLedger,
-    membershipLedger: OwnWriteLedger | undefined
+    membershipLedger: OwnWriteLedger | undefined,
+    membershipScope: RelationMembershipScope
   ) {
     this.node = node;
     this.program = program;
@@ -69,7 +70,7 @@ export class OwnWriteRelation {
     this.boundRelation = boundRelation;
     this.relationName = boundRelation.relationInfo.name;
     this.target = boundRelation.relationInfo.targetModel;
-    this.membershipScope = getRelationMembershipScope(node.ctx, boundRelation);
+    this.membershipScope = membershipScope;
     this.membershipOrientation = getMembershipReadOrientation(boundRelation);
     this.checkpoint = ledger.checkpoint();
     this.steps = new OwnWriteSteps(this);
@@ -80,10 +81,10 @@ export class OwnWriteRelation {
     program: RelationMutationProgram,
     boundRelation: BoundRelation,
     rootMembershipFootprints: readonly RootMembershipFootprint[],
-    membershipLedger: OwnWriteLedger | undefined
+    membershipLedger: OwnWriteLedger | undefined,
+    membershipScope = getRelationMembershipScope(node.ctx, boundRelation)
   ): OwnWriteRelation {
     const ledger = node.ledger.fork();
-    const membershipScope = getRelationMembershipScope(node.ctx, boundRelation);
     for (const footprint of rootMembershipFootprints) {
       if (footprint.relation.relationInfo !== program.relationInfo) continue;
       ledger.appendMembership(
@@ -106,7 +107,8 @@ export class OwnWriteRelation {
       program,
       boundRelation,
       ledger,
-      membershipLedger
+      membershipLedger,
+      membershipScope
     );
   }
 
@@ -135,7 +137,8 @@ export class OwnWriteRelation {
       this.program,
       this.boundRelation,
       ledger,
-      membershipLedger
+      membershipLedger,
+      this.membershipScope
     );
   }
 

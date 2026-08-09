@@ -441,13 +441,12 @@ const requiredDisconnectIsRejected = () =>
     },
   } satisfies OperationPayload<"update", typeof folder>);
 
-const requiredSetIsRejected = () =>
+const requiredSetIsAccepted = () =>
   inverseClient.folder.update({
     where: { id: "folder-1" },
     data: {
       entries: {
         connect: { id: "entry-1" },
-        // @ts-expect-error - required inverse membership cannot be replaced
         set: [],
       },
     },
@@ -551,6 +550,43 @@ const ordinaryInverseClient = createClient({
   driver: new PGliteDriver(),
 });
 
+const ordinaryRequiredManyParent = s.model({
+  id: s.string().id(),
+  children: s.oneToMany(() => ordinaryRequiredManyChild),
+});
+const ordinaryRequiredManyChild = s.model({
+  id: s.string().id(),
+  label: s.string(),
+  parentId: s.string(),
+  parent: s
+    .manyToOne(() => ordinaryRequiredManyParent)
+    .fields("parentId")
+    .references("id"),
+});
+const ordinaryOptionalManyParent = s.model({
+  id: s.string().id(),
+  children: s.oneToMany(() => ordinaryOptionalManyChild),
+});
+const ordinaryOptionalManyChild = s.model({
+  id: s.string().id(),
+  label: s.string(),
+  parentId: s.string().nullable(),
+  parent: s
+    .manyToOne(() => ordinaryOptionalManyParent)
+    .fields("parentId")
+    .references("id")
+    .optional(),
+});
+const ordinaryManyClient = createClient({
+  schema: {
+    ordinaryRequiredManyParent,
+    ordinaryRequiredManyChild,
+    ordinaryOptionalManyParent,
+    ordinaryOptionalManyChild,
+  },
+  driver: new PGliteDriver(),
+});
+
 const ordinaryInverseAbsenceSurface = () => {
   ordinaryInverseClient.ordinaryRequiredParent.update({
     where: { id: "parent-1" },
@@ -573,6 +609,63 @@ const ordinaryInverseAbsenceSurface = () => {
   ordinaryInverseClient.ordinaryOptionalParent.update({
     where: { id: "parent-2" },
     data: { child: { delete: true } },
+  });
+};
+
+const ordinaryToOneOperationCompatibility = () => {
+  const disconnectCondition = true as boolean;
+  ordinaryInverseClient.ordinaryOptionalParent.update({
+    where: { id: "parent-1" },
+    data: { child: { disconnect: disconnectCondition } },
+  });
+  ordinaryInverseClient.ordinaryOptionalParent.update({
+    where: { id: "parent-1" },
+    data: {
+      child: { disconnect: false, connect: { id: "child-1" } },
+    },
+  });
+  ordinaryInverseClient.ordinaryOptionalParent.update({
+    where: { id: "parent-1" },
+    data: {
+      child: { disconnect: true, connect: { id: "child-1" } },
+    },
+  });
+  const replacement = {
+    delete: true,
+    create: { id: "child-2" },
+  } as const;
+  ordinaryInverseClient.ordinaryOptionalParent.update({
+    where: { id: "parent-1" },
+    data: { child: replacement },
+  });
+
+  const contradictory = {
+    connect: { id: "child-1" },
+    update: { id: "child-2" },
+  } as const;
+  ordinaryInverseClient.ordinaryOptionalParent.update({
+    where: { id: "parent-1" },
+    data: {
+      // @ts-expect-error - a to-one payload cannot carry two active operations
+      child: contradictory,
+    },
+  });
+};
+
+const ordinaryToManyCapabilitySurface = () => {
+  ordinaryManyClient.ordinaryRequiredManyParent.update({
+    where: { id: "parent-1" },
+    data: {
+      children: {
+        set: [{ id: "child-1" }],
+        // @ts-expect-error - required child membership cannot disconnect
+        disconnect: { id: "child-2" },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof ordinaryRequiredManyParent>);
+  ordinaryManyClient.ordinaryOptionalManyParent.update({
+    where: { id: "parent-1" },
+    data: { children: { disconnect: { id: "child-1" } } },
   });
 };
 
@@ -642,6 +735,23 @@ const singularInverseSurface = () => {
   singularInverseClient.featuredPost.update({
     where: { id: "post-1" },
     data: { featuredComment: { connect: { id: "comment-1" } } },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        disconnect: true,
+        connect: { id: "comment-1" },
+      },
+    },
+  });
+  const replacement = {
+    delete: true,
+    create: { id: "comment-3", body: "replacement" },
+  } as const;
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: { featuredComment: replacement },
   });
   singularInverseClient.featuredPost.create({
     data: {
@@ -779,14 +889,19 @@ const _publicSurfaceProbes = [
   inverseUpdateCanCreateMany,
   inverseCreateManyStillRefusesAnotherRequiredOwner,
   directCreateAndUpdateSurface,
+  directPresenceFilterSurface,
   requiredDirectRemovalIsRejected,
   rootCreateManyAcceptsConnectOnlyMembership,
   requiredDisconnectIsRejected,
-  requiredSetIsRejected,
+  requiredSetIsAccepted,
   updateOwnerCannotBeRestated,
   createOwnerCannotBeRestated,
   typoProbes,
   singularInverseSurface,
   singularInverseNonFreshSurface,
   singularInverseRefusals,
+  requiredMembershipSurface,
+  ordinaryInverseAbsenceSurface,
+  ordinaryToOneOperationCompatibility,
+  ordinaryToManyCapabilitySurface,
 ];

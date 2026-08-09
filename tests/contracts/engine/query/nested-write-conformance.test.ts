@@ -1,14 +1,13 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient, type VibORMClient } from "@client/client";
 import type { Schema } from "@client/types";
 import { PGliteDriver } from "@drivers/pglite";
-import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { describe, expect, test } from "vitest";
 
 // A schema exercising a foreign key that references a NON-primary-key unique
 // column of the parent. Updating that referenced column mid-operation while a
@@ -780,7 +779,10 @@ const fkScenarios: Scenario<NestedWriteSchema>[] = [
         where: { id: "po1" },
         data: {
           title: "Changed",
-          postTags: { disconnect: { id: "j1" } },
+          postTags: {
+            // @ts-expect-error - required child membership cannot disconnect
+            disconnect: { id: "j1" },
+          },
         },
       }),
     expected: {
@@ -3970,6 +3972,7 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         data: {
           profile: {
             disconnect: true,
+            // @ts-expect-error - not an executable replacement pair
             upsert: {
               create: { id: 2, bio: "created" },
               update: { bio: "updated" },
@@ -3978,7 +3981,7 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: OWN_WRITE_ERROR,
+    expectedError: "Unsupported to-one operation combination",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [],
@@ -3999,6 +4002,7 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         data: {
           profile: {
             delete: true,
+            // @ts-expect-error - not an executable replacement pair
             upsert: {
               create: { id: 2, bio: "created" },
               update: { bio: "updated" },
@@ -4007,7 +4011,7 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: OWN_WRITE_ERROR,
+    expectedError: "Unsupported to-one operation combination",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [],
@@ -4173,6 +4177,7 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         data: {
           profile: {
             update: { ownerId: null },
+            // @ts-expect-error - a mutator cannot compose with upsert
             upsert: {
               create: { id: 2, bio: "created" },
               update: { bio: "updated" },
@@ -4181,7 +4186,7 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: "depends on an earlier 'update' membership write",
+    expectedError: "Unsupported to-one operation combination",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [],
@@ -4292,13 +4297,13 @@ const crossRelationTargetScenarios: Scenario<CrossRelationTargetSchema>[] = [
         data: {
           primary: {
             create: { id: 2, label: "created" },
+            // @ts-expect-error - to-one payloads accept one active operation
             connect: { id: 2 },
           },
         },
       }),
     expectReject: true,
-    expectedError:
-      "supports one mutation kind on the to-one relation 'primary'",
+    expectedError: "Unsupported to-one operation combination",
     expected: {
       accounts: [],
       records: [{ id: 1, primaryId: null, secondaryId: null }],

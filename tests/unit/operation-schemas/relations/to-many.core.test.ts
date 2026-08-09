@@ -4,15 +4,15 @@
  * Tests schemas for oneToMany and manyToMany relations:
  * - Filter schemas (some, every, none)
  * - Create schemas (create, connect, connectOrCreate) - single or array
- * - Update schemas (create, createMany, connect, disconnect, set, delete,
+ * - Update schemas (create, createMany, connect, guarded disconnect, set, delete,
  *   connectOrCreate, update, updateMany, upsert, deleteMany)
  * - Select/Include schemas with pagination
  * - OrderBy schemas (_count)
  */
 
+import { authorSchemas } from "@tests/unit/operation-schemas/fixtures";
 import { parse } from "@validation";
 import { describe, expect, test } from "vitest";
-import { authorSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // Test-only view over generated relation output unions.
 // Runtime assertions below still verify concrete transformed shapes.
@@ -317,23 +317,24 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  // Disconnect operations
-  test("accepts single 'disconnect'", () => {
+  test("rejects single 'disconnect' for required membership", () => {
     const result = parse(schema, {
       posts: {
         disconnect: { id: "post-1" },
       },
     });
-    expect(result.issues).toBeUndefined();
+    expect(result.issues?.[0]?.message).toBe("Unknown key: disconnect");
+    expect(result.issues?.[0]?.path).toEqual(["posts", "disconnect"]);
   });
 
-  test("accepts array 'disconnect'", () => {
+  test("rejects array 'disconnect' for required membership", () => {
     const result = parse(schema, {
       posts: {
         disconnect: [{ id: "post-1" }, { id: "post-2" }],
       },
     });
-    expect(result.issues).toBeUndefined();
+    expect(result.issues?.[0]?.message).toBe("Unknown key: disconnect");
+    expect(result.issues?.[0]?.path).toEqual(["posts", "disconnect"]);
   });
 
   // Set operations (replace all)
@@ -466,7 +467,7 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
       posts: {
         create: { id: "new-post", title: "New", authorId: "author-1" },
         connect: { id: "existing-post" },
-        disconnect: { id: "old-post" },
+        set: { id: "retained-post" },
         delete: { id: "old-post" },
       },
     });

@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner RelationMembership.
 import type { Model } from "@schema/model";
+import type { PolymorphicStorage } from "@schema/relation";
 import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
 import {
   type BoundRelation,
@@ -40,6 +41,29 @@ export type RelationMembershipScope =
       readonly referencedField: string;
     };
 
+type PolymorphicRelationMembershipScope = Extract<
+  RelationMembershipScope,
+  { kind: "polymorphicForeignKey" }
+>;
+
+export function getPolymorphicMembershipScope(
+  holder: Model<any>,
+  referenced: Model<any>,
+  storage: PolymorphicStorage,
+  storedType: string,
+  referencedField: string
+): PolymorphicRelationMembershipScope {
+  return {
+    kind: "polymorphicForeignKey",
+    holder,
+    referenced,
+    typeField: storage.typeColumn.name,
+    storedType,
+    identityField: storage.idColumn.name,
+    referencedField,
+  };
+}
+
 export function getRelationMembershipScope(
   ctx: QueryScope,
   relation: BoundRelation
@@ -59,15 +83,13 @@ export function getRelationMembershipScope(
     };
   }
   if (isPolymorphicChildHeldRelation(relation)) {
-    return {
-      kind: "polymorphicForeignKey",
-      holder: relation.relationInfo.targetModel,
-      referenced: relation.sourceModel,
-      typeField: relation.storage.typeColumn.name,
-      storedType: relation.storedType,
-      identityField: relation.storage.idColumn.name,
-      referencedField: relation.referencedFields[0],
-    };
+    return getPolymorphicMembershipScope(
+      relation.relationInfo.targetModel,
+      relation.sourceModel,
+      relation.storage,
+      relation.storedType,
+      relation.referencedFields[0]
+    );
   }
 
   const fields: Array<{ foreignKey: string; referencedKey: string }> = [];

@@ -20,6 +20,10 @@ import type {
 import { applyCreateManyAvailability } from "./create-many-availability";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 import {
+  type ToOneMutationSchema,
+  toOneMutationSchema,
+} from "./to-one-mutation-schema";
+import {
   AMBIGUOUS_TO_ONE_UPDATE,
   readToOneUpdateForm,
   toOneUpdateEnvelope,
@@ -145,10 +149,10 @@ export function toOneUpdateTargetFactory<
  * disconnect and delete only available for optional relations.
  */
 
-type ToOneUpdateSchemaBase<
+type ToOneUpdateEntriesBase<
   S extends RelationState,
   Source extends AnyModel,
-> = V.Object<{
+> = {
   create: () => CreateWithOmittedFk<S, Source>;
   connect: () => GetTargetSchemas<S>["core"]["whereUnique"];
   connectOrCreate: V.Object<
@@ -166,7 +170,7 @@ type ToOneUpdateSchemaBase<
     },
     { partial: false }
   >;
-}>;
+};
 
 type ToOneUpdateSchemaDisconnect = V.Object<{
   disconnect: V.Boolean;
@@ -205,12 +209,32 @@ type InverseMembershipCanBeCleared<
       : false
   : false;
 
+function inverseMembershipCanBeCleared(
+  state: RelationState,
+  source: AnyModel
+): boolean {
+  const inverseFields: unknown = getInverseRelationMapRuntime(state, source);
+  if (!Array.isArray(inverseFields) || inverseFields.length === 0) return false;
+  const targetModel = state.getter();
+  return inverseFields.every(
+    (field) =>
+      typeof field === "string" &&
+      targetModel["~"].state.scalars[field]?.["~"].state.nullable === true
+  );
+}
+
 type IsFieldsLessInverseOneToOne<S extends RelationState> =
   S["type"] extends "oneToOne"
     ? S extends { fields: readonly [string, ...string[]] }
       ? false
       : true
     : false;
+
+type IsChildHeldToOne<S extends RelationState> = S extends {
+  fields: readonly [string, ...string[]];
+}
+  ? false
+  : true;
 
 type OptionalToOneUpdateEntries<
   S extends RelationState,
@@ -226,11 +250,16 @@ export type ToOneUpdateSchema<
   S extends RelationState,
   Source extends AnyModel,
 > = S["optional"] extends true
-  ? V.Object<
-      OptionalToOneUpdateEntries<S, Source> &
-        ToOneUpdateSchemaBase<S, Source>["entries"]
+  ? ToOneMutationSchema<
+      OptionalToOneUpdateEntries<S, Source> & ToOneUpdateEntriesBase<S, Source>,
+      undefined,
+      IsChildHeldToOne<S>
     >
-  : ToOneUpdateSchemaBase<S, Source>;
+  : ToOneMutationSchema<
+      ToOneUpdateEntriesBase<S, Source>,
+      undefined,
+      IsChildHeldToOne<S>
+    >;
 
 export const toOneUpdateFactory = <
   S extends RelationState,
@@ -262,7 +291,7 @@ export const toOneUpdateFactory = <
     { partial: false }
   );
 
-  const baseEntries = v.object({
+  const baseEntries = {
     create: getCreateSchema,
     connect: () => targetSchemas().core.whereUnique,
     connectOrCreate: connectOrCreateSchema,
@@ -270,37 +299,51 @@ export const toOneUpdateFactory = <
     // currently connected record (see `toOneUpdateTargetFactory`).
     update: () => toOneUpdateTargetFactory<S, T>(targetSchemas),
     upsert: upsertSchema,
-  });
+  };
+  const isChildHeld = state.fields === undefined || state.fields.length === 0;
 
   if (state.optional !== true) {
-    return baseEntries as unknown as ToOneUpdateSchema<S, Source>;
+    return toOneMutationSchema(
+      baseEntries,
+      undefined,
+      isChildHeld
+    ) as unknown as ToOneUpdateSchema<S, Source>;
   }
 
   const isFieldsLessInverse =
     state.type === "oneToOne" &&
     (state.fields === undefined || state.fields.length === 0);
   if (!isFieldsLessInverse) {
-    return baseEntries.extend({
-      disconnect: v.boolean(),
-      delete: v.boolean(),
-    }) as unknown as ToOneUpdateSchema<S, Source>;
+    return toOneMutationSchema(
+      {
+        ...baseEntries,
+        disconnect: v.boolean(),
+        delete: v.boolean(),
+      },
+      undefined,
+      isChildHeld
+    ) as unknown as ToOneUpdateSchema<S, Source>;
   }
 
-  const targetModel = state.getter();
-  const inverseFields: unknown = getInverseRelationMapRuntime(state, source);
-  const membershipCanBeCleared =
-    Array.isArray(inverseFields) &&
-    inverseFields.length > 0 &&
-    inverseFields.every(
-      (field) =>
-        typeof field === "string" &&
-        targetModel["~"].state.scalars[field]?.["~"].state.nullable === true
-    );
+  const membershipCanBeCleared = inverseMembershipCanBeCleared(state, source);
   return (membershipCanBeCleared
-    ? baseEntries.extend({ disconnect: v.boolean(), delete: v.boolean() })
-    : baseEntries.extend({
-        delete: v.boolean(),
-      })) as unknown as ToOneUpdateSchema<S, Source>;
+    ? toOneMutationSchema(
+        {
+          ...baseEntries,
+          disconnect: v.boolean(),
+          delete: v.boolean(),
+        },
+        undefined,
+        true
+      )
+    : toOneMutationSchema(
+        {
+          ...baseEntries,
+          delete: v.boolean(),
+        },
+        undefined,
+        true
+      )) as unknown as ToOneUpdateSchema<S, Source>;
 };
 
 /**
@@ -311,14 +354,10 @@ export const toOneUpdateFactory = <
  * Most operations accept single or array.
  */
 
-export type ToManyUpdateSchema<
-  S extends RelationState,
-  Source extends AnyModel,
-> = V.Object<{
+type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
   create: () => V.SingleOrArray<CreateWithOmittedFk<S, Source>>;
   createMany: NestedCreateManySchema<S, Source>;
   connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
-  disconnect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
   delete: () => V.SingleOrArray<
     GetTargetSchemas<S>["core"]["whereUniqueExtended"]
   >;
@@ -361,7 +400,23 @@ export type ToManyUpdateSchema<
     >
   >;
   deleteMany: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["where"]>;
-}>;
+};
+
+type ToManyDisconnectEntry<S extends RelationState> = {
+  disconnect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
+};
+
+export type ToManyUpdateSchema<
+  S extends RelationState,
+  Source extends AnyModel,
+> = V.Object<
+  ToManyUpdateEntries<S, Source> &
+    (S["type"] extends "manyToMany"
+      ? ToManyDisconnectEntry<S>
+      : InverseMembershipCanBeCleared<S, Source> extends true
+        ? ToManyDisconnectEntry<S>
+        : Record<never, never>)
+>;
 
 export const toManyUpdateFactory = <
   S extends RelationState,
@@ -441,13 +496,19 @@ export const toManyUpdateFactory = <
     { partial: false }
   );
 
+  const canDisconnect =
+    state.type === "manyToMany" || inverseMembershipCanBeCleared(state, source);
+  const disconnectEntry = canDisconnect
+    ? {
+        disconnect: () => v.singleOrArray(targetSchemas().core.whereUnique),
+      }
+    : {};
+
   return v.object({
     create: () => v.singleOrArray(getCreateSchema()),
     createMany: createManySchema,
     connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
-    // Prisma parity: boolean disconnect is a to-one concept; on to-many it
-    // would silently wipe every association, so it is rejected here.
-    disconnect: () => v.singleOrArray(targetSchemas().core.whereUnique),
+    ...disconnectEntry,
     delete: () => v.singleOrArray(targetSchemas().core.whereUniqueExtended),
     connectOrCreate: v.singleOrArray(connectOrCreateSchema),
     set: () => v.singleOrArray(targetSchemas().core.whereUnique),

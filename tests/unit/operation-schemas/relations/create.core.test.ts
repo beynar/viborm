@@ -32,22 +32,32 @@ describe("ToOne Create - Required (Post.author)", () => {
 
   describe("type", () => {
     test("type: accepts create property", () => {
-      expectTypeOf<{
-        create?: { id: string; name: string; email: string };
-      }>().toMatchTypeOf<CreateInput>();
+      expectTypeOf<
+        {
+          create: { id: string; name: string; email: string };
+        } extends CreateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: accepts connect property", () => {
-      expectTypeOf<{ connect?: { id: string } }>().toMatchTypeOf<CreateInput>();
+      expectTypeOf<
+        { connect: { id: string } } extends CreateInput ? true : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: accepts connectOrCreate property", () => {
-      expectTypeOf<{
-        connectOrCreate?: {
-          where: { id: string };
-          create: { id: string; name: string; email: string };
-        };
-      }>().toMatchTypeOf<CreateInput>();
+      expectTypeOf<
+        {
+          connectOrCreate: {
+            where: { id: string };
+            create: { id: string; name: string; email: string };
+          };
+        } extends CreateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
     });
 
     test("type: connectOrCreate requires where and create", () => {

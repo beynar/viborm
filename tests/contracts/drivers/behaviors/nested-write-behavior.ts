@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -6,8 +5,9 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
 import { nestedWriteBehaviorSchema as schema } from "@tests/fixtures/nested-write-behavior-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 type NestedWriteClientConfig = VibORMConfig & {
   schema: typeof schema;
@@ -788,11 +788,12 @@ export function runNestedWriteBehavior({
           data: {
             title: "Changed",
             postTags: {
+              // @ts-expect-error - required child membership cannot disconnect
               disconnect: { id: "join-required" },
             },
           },
         })
-      ).rejects.toThrow("foreign key field(s) postId are required");
+      ).rejects.toThrow("Unknown key: disconnect");
 
       const [post, join] = await Promise.all([
         currentClient.post.findUnique({ where: { id: "post-required" } }),
