@@ -12,7 +12,11 @@ Lift the query-engine restrictions that have useful, coherent semantics while ex
 - BoundRelation continues to describe physical relation topology.
 - CreateOperation remains the only non-bulk fresh-record compiler.
 - RecordUpdateCompiler remains the only selected-record update compiler.
-- TargetProjection becomes the single owner of a selected record's ordered identity and required captured fields.
+- TargetProjection becomes the single owner of a selected record's ordered row
+  key and required captured fields.
+- Ordered reference keys describe what a relation points to; stored references
+  describe where those key members live. Row addressing and relation storage
+  remain distinct even when both use the same primary-key fields.
 - Existing field-bound FinalReferenceSource values continue to carry literals, planning values, transitioned values, final references, and lookups.
 - One new operation-level execution form, RecordSeriesOperation, expresses a transaction containing a data-dependent sequence of ordinary record operations.
 - PostgreSQL receives an optional dependency-aware mutation CTE fold over the existing OperationValueReference graph.
@@ -133,7 +137,8 @@ They must still:
 
 This plan does not:
 
-- Add compound many-to-many join sides.
+- Add compound many-to-many join sides. It does establish the ordered row-key,
+  reference-key, and junction-side contracts that the later capability must use.
 - Define skipDuplicates plus nested-effect semantics.
 - Emulate database referential actions.
 - Add adapter APIs solely for relation concepts.
@@ -143,7 +148,49 @@ This plan does not:
 
 ## 4. Final internal contracts
 
-### 4.1 Selected target identity
+### 4.1 Row keys, reference keys, and membership keys
+
+Use these terms consistently. Do not introduce a universal `Identity`, tuple,
+or value-bag abstraction that erases their different owners.
+
+- **Row key:** the ordered model fields used to address one record for a
+  selected update, delete, guard, or result read. In this plan it is the
+  complete primary key in schema order.
+- **Reference key:** the ordered target fields to which a relation points. A
+  reference key may be the primary key, but it may instead be a compound unique
+  key or another legal referenced key.
+- **Stored reference:** the ordered correspondence between storage members and
+  reference-key fields. The storage may be ordinary model FK fields, private
+  polymorphic columns, or one side of a junction table.
+- **Membership key:** the complete physical association. An ordinary FK has one
+  stored reference; polymorphic membership has a fixed discriminator plus one
+  stored reference; junction membership has a source stored reference and a
+  target stored reference.
+
+These are deliberately not interchangeable. For example, a target may have row
+key `[id]` while a child stores `(tenantId, targetCode)` referencing the target's
+reference key `(tenantId, code)`. The target projection captures `id` to address
+the selected target and also captures `tenantId` and `code` when relation
+compilation needs them. The relation topology—not TargetProjection—owns the
+mapping from child storage fields to those referenced fields.
+
+Keep topology separate from execution provenance:
+
+- Bound relation metadata owns ordered storage/reference correspondence.
+- TargetProjection owns which target values a selected-record probe publishes.
+- `ForeignKeyMember`, `CorrelatedForeignKeyMember`, and the existing planning
+  and final source types own literal, captured, transitioned, and produced
+  values for one compilation.
+- Constant qualifiers such as a polymorphic discriminator remain topology data;
+  they are not fabricated as referenced row-key members.
+
+Do not add a generic `ReferenceShape` or `Identity` interface merely to rename
+the existing arrays. A shared runtime type is earned only when it replaces the
+same ordered correspondence in at least two live owners without introducing
+storage-kind switches downstream. The semantic model above is fixed even when
+the current ordinary-FK types remain the most truthful concrete representation.
+
+### 4.2 Selected target row key
 
 Extend the existing TargetProjection rather than adding CapturedIdentity, OperationValueTuple, or nth-row output concepts:
 
@@ -157,12 +204,17 @@ interface TargetProjection {
 
 Rules:
 
-- identityFields is the target model's complete primary key in schema order.
+- identityFields is the target model's complete row key: its primary key in
+  schema order.
 - fields contains identityFields first, followed by other scalar fields required by compilation.
 - fields contains no duplicate.
 - columns contains private polymorphic storage columns required by exact-membership decisions.
 - A caller never passes one external primary-key field beside a TargetProjection.
 - The target-projection owner constructs a captured unique selector from all identity fields.
+- Reference-key fields that are not row-key fields belong in `fields`, not in
+  `identityFields`.
+- TargetProjection never stores foreign-field, private-column, or junction-field
+  mappings. It publishes values; bound relation topology explains their use.
 
 Add or consolidate these owner functions in target-projection.ts:
 
@@ -187,7 +239,7 @@ capturedTargetConstraint(
 
 Use the existing getPrimaryKeyValuesFromRecord and buildPrimaryKeyWhereUnique implementations. Do not duplicate compound-key extraction or arity checks.
 
-### 4.2 Demand-driven record-field publication
+### 4.3 Demand-driven record-field publication
 
 Generalize CreateOperation's existing demand-driven generated-identity capture into demand-driven publication of a fresh record field.
 
@@ -217,7 +269,7 @@ Do not add:
 
 Demand is registered only by calls to rootReferenced(field). Existing calls that request no generated field retain their current SQL.
 
-### 4.3 Transactional record series
+### 4.4 Transactional record series
 
 The current fragment atom has one planning phase followed by one final compilation. It cannot truthfully represent a data-dependent number of record operations when every member may have its own planning.
 
@@ -288,7 +340,7 @@ The operation form must be refused by:
 
 No new OperationStep kind is added.
 
-### 4.4 PostgreSQL write-dependency fold
+### 4.5 PostgreSQL write-dependency fold
 
 Extend the existing mutation CTE owner with one module-local or private function:
 
@@ -342,13 +394,15 @@ The second retained scope may include multiple trees only when:
 
 The fold is kept only if a measured witness reduces statements without changing values, errors, or retry behavior. Otherwise remove the prototype with apply_patch and keep the transaction series.
 
-### 4.5 File ownership
+### 4.6 File ownership
 
 Use these exact owners:
 
 | Responsibility | File |
 |---|---|
-| Complete captured identity and projection helpers | src/query-engine/write-engine/target-projection.ts |
+| Complete captured row-key and projection helpers | src/query-engine/write-engine/target-projection.ts |
+| Ordered ordinary/polymorphic reference bindings and execution provenance | src/query-engine/write-engine/relation-membership.ts |
+| Row-key extraction and complete unique selectors | src/query-engine/operations/mutation-identity.ts |
 | Fresh field demand and publication | src/query-engine/write-engine/CreateOperation.ts |
 | Selected record mutation | src/query-engine/write-engine/RecordUpdateCompiler.ts |
 | Relation target/membership orchestration | Existing RelationWritePart, RelationUpsertPart, RelationJunctionPart, and nested-target-parts modules |
@@ -481,25 +535,53 @@ Stop if the baseline is red.
 
 #### A2. Correct the limitation inventory
 
-Remove already-delivered items from the working ledger:
+Two items were already delivered and are removed from the working ledger. Each
+was re-verified against the tree at the plan commit before removal:
 
-- L5 optional descendant planning publication.
-- S4 empty to-one payload no-op.
+| Item | Owner today | Removed from |
+|---|---|---|
+| L5 optional descendant planning publication | `conditionalArmPlanning` (write-engine/Part.ts:63) marks every descendant `firstRowField` output optional and drops `expects`; the flag is declared on `StatementOutputSource` (write-engine/OperationFragment.ts:37) and write-engine/OperationExecutor.ts:905 resolves an absent value to `undefined` instead of raising | forbidden-shapes-reference.md's future-work table. The refusal it replaced — a deeper write "whose planning read asserts that its own target exists" — has no occurrence left anywhere in `src` |
+| S4 empty to-one payload no-op | `buildRelationMutationProgram` returns `undefined` when no kind is active (builders/relation-mutation-parser.ts:309, with `false` stripped at :227) and `buildParsedRelationPrograms` records no program for it (:354), so `{ profile: {} }` and `{ posts: {} }` reach no record compiler in either direction | forbidden-shapes-reference.md §1.1's parity note |
 
-Replace obsolete vocabulary:
+Two residues stay on the books, both as Package O material rather than as lifts:
 
-- PerFieldParentIdSource with field-bound relation membership sources.
-- ParentIdSource.transitioned with transitionedPlanningField.
-- buildNestedTargetChildParts with RecordCompilerSeam.updateSelected.
-- deferArmLegality with found-arm legality closure.
-- createManyAndReturn with createMany using select.
+- RecordUpdateCompiler.ts:1177 states the update direction's own empty-payload
+  no-op a second time, downstream of the parser that already guarantees it.
+- CreateOperation.ts:1377 counts parent-held arms with `!== 1` and its message
+  still ends `|| "none"`. No route can build a zero-entry program, so the
+  zero-kind half of that refusal is unreachable spelling. Its child-held twin
+  already counts `> 1` (CreateOperation.ts:1685).
 
-Reclassify:
+Obsolete vocabulary is replaced below. Each new name was confirmed to name live
+code before the replacement was applied, and the old names now appear nowhere
+else in either ledger document:
 
-- L3, L4, and L9 as one stale-guard falsification package.
-- L6 and L7 as one old-read/new-write transition package.
-- K6 as part of the to-one composition lattice.
-- Compound M2M as a future capability, not a meaningless validation seal.
+| Plan's name | Current owner | Evidence |
+|---|---|---|
+| PerFieldParentIdSource | field-bound relation membership sources: `ForeignKeyMember`, `CorrelatedForeignKeyMember`, `RelationMembershipBinding`, `CorrelatedRelationMembershipBinding` | write-engine/relation-membership.ts:33, :39, :43, :55; built by `pairForeignKeyMembers` (:73) and `pairCorrelatedForeignKeyMembers` (:86) |
+| ParentIdSource.transitioned | `transitionedPlanningField`, one member of `FinalReferenceSource` | write-engine/relation-membership.ts:27, constructed by `transitionedParentId` (:109) |
+| buildNestedTargetChildParts | `RecordCompilerSeam.updateSelected` | declared write-engine/RecordUpdateCompiler.ts:183; called from RelationWritePart.ts:198, RelationUpsertPart.ts:1113, RelationJunctionPart.ts:1972, CreateOperation.ts:397 |
+| deferArmLegality | two found-arm legality closures, not one | update arm: `updateLegality` (RecordUpdateCompiler.ts:325, RelationUpsertPart.ts:163, UpsertOperation.ts:196). Create arm: `armLegalityChecks` behind `assertArmLegality()` (CreateOperation.ts:387 and :574, called from UpsertOperation.ts:655). §G2 and §K4 mean the update-arm closure |
+| createManyAndReturn | `createMany` carrying `select` | the client surface is 16 families and no longer contains it (operation-construction-inventory.test.ts:2190). The string survives in `src` as the removed-name diagnostic and as the internal operation kind of ManyAndReturnOperation (query-engine/types.ts:121, write-engine/routing.ts:188, errors/validation.ts:56). That is the removal's error surface, not stale vocabulary, and must not be deleted |
+
+One further stale name, outside those five: §C3's focused family is
+`parent-held-compound-edge` (`.test.ts`, `-behavior.ts`, `-docker.test.ts`).
+No `e64-` prefix exists in the tree.
+
+The reclassifications below are already carried by the packages named. A2 only
+records that the ledger agrees with them:
+
+- L3, L4, and L9 are one stale-guard falsification package — Package B. The
+  three guards are real and adjacent: `assertArmEdgeIsChildHeld`
+  (RelationUpsertPart.ts:1202), `assertArmPkStable` (:1241), and
+  `assertArmEdgeReferencesLocatedPk` (:1283), reached from one call site
+  (:1071 through :1083).
+- L6 and L7 are one old-read/new-write transition package — Package D.
+- K6 belongs to the to-one composition lattice — Package H. This K6 is the
+  limitation; Package K's unit K6 (Results) is a different thing with the same
+  label.
+- Compound many-to-many is a future capability, not a validation seal — §7.4
+  and Package N2 own it. Its live refusal is CreateOperation.ts:1998.
 
 Add parity witnesses before each later production lift. A parity witness compares:
 
@@ -570,13 +652,18 @@ Suggested commit:
 refactor: trust selected upsert record compilation
 ~~~
 
-### Package C — Make selected identity compound by construction
+### Package C — Make selected row keys compound by construction
 
 This package covers L1.
 
 #### C1. Extend TargetProjection
 
 Add identityFields and central captured-selector construction. Preserve existing field and private-column output order.
+
+`identityFields` is a row-addressing key, not a declaration of every field that
+can participate in a relation. Add non-primary reference-key fields to the
+ordinary `fields` demand when a relation owner needs them. Do not make
+TargetProjection aware of FK storage members or junction columns.
 
 Add focused unit tests for:
 
@@ -623,10 +710,40 @@ rg -n "childPrimaryKey" src/query-engine/write-engine
 
 The command must return no selected-target scalar identity channel. A name retained for genuinely scalar bulk SQL must be documented at its owner.
 
+#### C4. Prove row-key/reference-key separation
+
+Add one selected-target witness whose complete row key differs from the
+relation's complete reference key, for example:
+
+~~~text
+target row key:        [id]
+target reference key:  [tenantId, code]
+child stored reference:[tenantId, targetCode]
+~~~
+
+The target probe must publish all three required values in deterministic order:
+
+1. `id` as the row-key member used by captured update/delete targeting.
+2. `tenantId` and `code` as additional reference-key fields consumed by the
+   relation membership binding.
+
+Assertions:
+
+- The selected record is addressed only through the projection-derived complete
+  row-key selector.
+- Relation assignment pairs child storage fields with reference-key fields in
+  schema order.
+- No caller reconstructs either key from the original public selector.
+- No configuration carries a scalar child PK beside TargetProjection.
+- No `OperationValueTuple`, `CapturedIdentity`, or universal identity carrier is
+  introduced.
+- Existing ordinary compound-FK and polymorphic membership SQL remains
+  byte-identical.
+
 Suggested commit:
 
 ~~~text
-refactor: capture complete selected record identities
+refactor: capture complete selected record keys
 ~~~
 
 ### Package D — Unify old-read and new-write transition provenance
@@ -1177,12 +1294,70 @@ Delete the engine guard only when its falsifier can no longer construct the inva
 
 #### N2. Do not seal compound M2M
 
-Keep the current focused capability refusal. Document the required future work:
+Keep the current focused capability refusal. The limitation-lift implementation
+must not absorb compound M2M, but it must leave the following design path open.
 
-- Compound join-side schema metadata.
-- Migration and introspection support.
-- Join SQL with ordered multi-column halves.
-- Engine membership and identity projection.
+The future bound junction topology is two ordered reference sides, not two
+scalar IDs and not parallel source/target arrays:
+
+~~~ts
+interface JunctionReferenceMember {
+  readonly junctionField: string;
+  readonly referencedField: string;
+}
+
+interface JunctionSide {
+  readonly model: Model<any>;
+  readonly members: readonly JunctionReferenceMember[];
+}
+
+interface JunctionRelation extends BoundRelationBase {
+  readonly kind: "junction";
+  readonly table: string;
+  readonly source: JunctionSide;
+  readonly target: JunctionSide;
+}
+~~~
+
+This is a future contract, not a type to add during Package C unless it replaces
+a live scalar junction representation in the same validated unit. When the
+capability is implemented, the work includes:
+
+- Schema metadata that derives one ordered side from every member of the source
+  row key and one ordered side from every member of the target row key.
+- Explicit junction field names for every member while retaining the current
+  one-member shorthand.
+- Migration serialization, differ, introspection, and DDL for all side columns,
+  two compound foreign keys, and one membership uniqueness/primary constraint
+  across `source.members + target.members` in that order.
+- `ManyToManyJoinInfo` expressed as `source: JunctionSide` and
+  `target: JunctionSide`; delete singular source/target PK and junction-field
+  channels.
+- Junction insert, connect, disconnect, set, update, delete, and membership SQL
+  constructed by iterating complete side members.
+- Portable correlated conjunctions/`EXISTS` for membership matching. Do not
+  depend on provider-specific row-value `IN` syntax or tuple null semantics.
+- TargetProjection publishing every selected target row-key member plus any
+  additional reference-key field required by the side. JunctionSide—not the
+  projection—maps those values to junction fields.
+- OwnWrite many-to-many membership scopes containing both ordered sides rather
+  than scalar `firstField` and `secondField` members.
+- Self-relation, mapped-column, destination-cast, non-PK referenced-key, and
+  wrong-member-order witnesses across all providers.
+
+The first compound-M2M version may require both sides to reference complete
+primary keys. The representation must nevertheless name them as reference-key
+members so support for a legal compound unique reference does not require a
+second junction architecture later.
+
+Do not solve this by:
+
+- Adding `sourceValues[]` and `targetValues[]` parallel to the current scalar
+  fields.
+- Introducing an `OperationValueTuple`, nth-row output, or generic identity bag.
+- Treating the polymorphic discriminator as a referenced key member.
+- Moving junction column ownership into TargetProjection.
+- Adding a validation seal that makes the future topology unreachable.
 
 Do not add a redundant validation rule merely to move the error earlier.
 
@@ -1233,7 +1408,7 @@ Apply these fixed dispositions:
 
 | Repeated invariant | Current expression | Final owner |
 |---|---|---|
-| Complete selected identity | Several child-requires-one-PK guards | TargetProjection.identityFields; no downstream arity guard |
+| Complete selected row key | Several child-requires-one-PK guards | TargetProjection.identityFields; no downstream arity guard |
 | Fresh referenced field publication | Repeated Create, Update, Junction, and Upsert cannot-resolve branches | CreateOperation demand publication, plus one selected-transition owner when the value comes from UPDATE |
 | To-one composition legality | Repeated operation-count checks in create/update emitters | Public to-one lattice; at most one canonical-program guard if a trusted internal route can bypass public parsing |
 | Relation-bearing bulk capability | Legality owner plus relation-emitter refusals | RecordSeriesOperation consumer before effects |
@@ -1291,7 +1466,7 @@ Focused validation:
 - forbidden-shapes reference contracts
 - OwnWrite dependency, ledger, and target contracts
 - public validation/type probes for to-one composition
-- compound identity targeting
+- compound row-key targeting and distinct compound reference-key membership
 - mutation identity and produced identity contracts
 - nested bulk substrate refusals
 
@@ -1325,7 +1500,12 @@ These restrictions have a concrete reason and must not be removed by weakening a
 
 ### 7.4 Topology features not implemented here
 
-- Compound many-to-many join sides.
+- Compound many-to-many join sides. This is an unimplemented future capability,
+  not a semantic seal: the engine refusal stands at CreateOperation.ts:1998 and
+  Package N2 fixes its future topology as two ordered `JunctionSide` reference
+  keys and records the schema, migration, join-SQL, OwnWrite, and engine work it
+  waits on. Do not restate it as a validation rule merely to move the error
+  earlier.
 - Any new polymorphic cardinality or identity form outside current relation contracts.
 
 ### 7.5 Substrate boundaries
@@ -1445,7 +1625,7 @@ Use one validated Conventional Commit per coherent unit:
 ~~~text
 test: refresh query engine limitation witnesses
 refactor: trust selected upsert record compilation
-refactor: capture complete selected record identities
+refactor: capture complete selected record keys
 refactor: unify relation transition provenance
 refactor: fold shared primary keys into selected updates
 refactor: publish demanded fresh record fields
@@ -1467,7 +1647,14 @@ Skip the nested-series commit when Package L is rejected. Skip the CTE commit wh
 
 The engine should gain capability by making its existing atoms more truthful:
 
-- A selected record identity is all of its primary-key members.
+- A selected record's row key contains all of its primary-key members.
+- A relation's reference key names the ordered target fields it points to and
+  may differ from that target's row key.
+- A stored reference maps storage members to reference-key members; a membership
+  key composes stored references and fixed qualifiers without erasing their
+  topology.
+- TargetProjection publishes selected target values; it does not own FK,
+  polymorphic-column, or junction-column mappings.
 - A fresh record can publish a demanded field once that field becomes knowable.
 - A record compiler owns one complete record mutation.
 - A relation owner owns membership and branch decisions.
