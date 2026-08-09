@@ -35,7 +35,10 @@ const comment = s.model({
 const note = s.model({
   id: s.string().id(),
   postId: s.string().map("post_fk"),
-  post: s.manyToOne(() => post).fields("postId").references("id"),
+  post: s
+    .manyToOne(() => post)
+    .fields("postId")
+    .references("id"),
   // Coexists with the ordinary post relation. The unnamed `post.notes` inverse
   // must keep using postId, not silently adopt these private columns.
   subject: s.polymorphic(
@@ -49,8 +52,33 @@ const note = s.model({
   ),
 });
 
+const singularPost = s.model({
+  id: s.string().id().map("post_pk"),
+  featuredComment: s
+    .oneToOne(() => singularComment)
+    .name("featuredCommentable")
+    .optional(),
+});
+const singularVideo = s.model({ id: s.string().id() });
+const singularComment = s.model({
+  id: s.string().id(),
+  body: s.string(),
+  commentable: s
+    .polymorphic({ post: () => singularPost, video: () => singularVideo })
+    .name("featuredCommentable")
+    .optional(),
+});
+
 beforeAll(() => {
-  const schema = { post, video, comment, note };
+  const schema = {
+    post,
+    video,
+    comment,
+    note,
+    singularPost,
+    singularVideo,
+    singularComment,
+  };
   hydrateSchemaNames(schema);
   validateSchemaOrThrow(schema);
 });
@@ -101,35 +129,30 @@ describe("polymorphic inverse read correlation", () => {
     expect(statement).toContain(
       '"t1"."subject_id" = "t0"."post_pk" AND "t1"."subject_type" COLLATE BINARY = ?'
     );
-    expect(projection.sql.values).toEqual([
-      "id",
-      "body",
-      "content.post.v1",
-    ]);
+    expect(projection.sql.values).toEqual(["id", "body", "content.post.v1"]);
   });
 
-  test.each(TO_MANY_FILTER_OPERATORS)(
-    "binds the %s filter to both private columns",
-    (operator) => {
-      const scope = createQueryScope(new PostgresAdapter(), post);
-      const condition = buildWhere(
-        scope,
-        {
-          comments: {
-            [operator]: { body: { equals: operator } },
-          },
+  test.each(
+    TO_MANY_FILTER_OPERATORS
+  )("binds the %s filter to both private columns", (operator) => {
+    const scope = createQueryScope(new PostgresAdapter(), post);
+    const condition = buildWhere(
+      scope,
+      {
+        comments: {
+          [operator]: { body: { equals: operator } },
         },
-        scope.rootAlias
-      );
-      const statement = condition?.toStatement("$n") ?? "";
+      },
+      scope.rootAlias
+    );
+    const statement = condition?.toStatement("$n") ?? "";
 
-      expect(statement).toContain(`${EXPECTED_INVERSE_CORRELATION}$1`);
-      expect(condition?.values).toEqual(["content.post.v1", operator]);
-      if (operator === "some") expect(statement).toContain("EXISTS");
-      if (operator === "every") expect(statement).toContain("NOT EXISTS");
-      if (operator === "none") expect(statement).toContain("NOT EXISTS");
-    }
-  );
+    expect(statement).toContain(`${EXPECTED_INVERSE_CORRELATION}$1`);
+    expect(condition?.values).toEqual(["content.post.v1", operator]);
+    if (operator === "some") expect(statement).toContain("EXISTS");
+    if (operator === "every") expect(statement).toContain("NOT EXISTS");
+    if (operator === "none") expect(statement).toContain("NOT EXISTS");
+  });
 
   test("binds relation count before its nested filter", () => {
     const scope = createQueryScope(new PostgresAdapter(), post);
@@ -190,5 +213,34 @@ describe("polymorphic inverse read correlation", () => {
     expect(lateral).toContain("LEFT JOIN LATERAL");
     expect(lateral).toContain('"t0"."post_pk" = "t1"."post_fk"');
     expect(projection.lateralJoins[0]!.values).toEqual(["id", "postId"]);
+  });
+
+  test("uses the same exact membership for a singular include and filter", () => {
+    const scope = createQueryScope(new PostgresAdapter(), singularPost);
+    const projection = buildSelectWithAliases(
+      scope,
+      undefined,
+      { featuredComment: true },
+      scope.rootAlias
+    );
+    const condition = buildWhere(
+      scope,
+      { featuredComment: { is: { body: { equals: "featured" } } } },
+      scope.rootAlias
+    );
+
+    expect(projection.lateralJoins[0]!.toStatement("$n")).toContain(
+      '"t1"."commentable_id" = "t0"."post_pk" AND "t1"."commentable_type" = '
+    );
+    expect(projection.lateralJoins[0]!.values).toEqual([
+      "id",
+      "body",
+      "post",
+      1,
+    ]);
+    expect(condition?.toStatement("$n")).toContain(
+      '"t3"."commentable_id" = "t0"."post_pk" AND "t3"."commentable_type" = $1'
+    );
+    expect(condition?.values).toEqual(["post", "featured"]);
   });
 });

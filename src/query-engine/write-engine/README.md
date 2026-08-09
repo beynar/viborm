@@ -58,7 +58,8 @@ Execution-specific deduplication stays with the consumer that owns it.
 ### Relation position
 
 `BoundRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
-`childHeldToMany`, `polymorphicChildHeldToMany`, or `junction`. It stores
+`childHeldToMany`, `polymorphicChildHeldToOne`,
+`polymorphicChildHeldToMany`, or `junction`. It stores
 topology only: source model, ordered storage fields, referenced fields, and the
 schema-fixed discriminator needed by a polymorphic inverse. It does not store
 scopes, runtime identities, value sources, transition state, SQL, or branch
@@ -96,7 +97,9 @@ The two record compilers recurse through the type-only `RecordCompilerSeam`
 (`createFresh`, `updateSelected`). No runtime import cycle or strategy object is
 required.
 
-Polymorphic inverse relation Parts use the same child-held family. Connect and
+Polymorphic inverse relation Parts use the same child-held family. The singular
+variant reuses the ordinary child-held-to-one arity and mutation composition;
+both variants reuse the same exact membership binding. Connect and
 connect-or-create adopt globally; fresh-parent upsert does the same. A
 selected-parent upsert is correlated to the exact `(type, identity)` pair and
 rejects a foreign same-id row. Optional disconnect and set clear both private
@@ -117,6 +120,10 @@ polymorphic memberships. `bulk-polymorphic-connect.ts` groups target probes by
 relation and discriminator, resolves one private pair per row, and hands the
 rows back to the existing grouped INSERT planner. Count and returning shells
 consume the same preparation; neither performs one lookup per input row.
+
+For a singular inverse, the relation-wide unique `(type, identity)` index is
+the occupied-slot guard. A concurrent slot occupation is reported as a genuine
+unique conflict and is not treated as a retryable missing-target race.
 
 ## Source-bound relation membership
 

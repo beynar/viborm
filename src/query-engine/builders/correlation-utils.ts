@@ -7,15 +7,12 @@
 
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
-import {
-  getColumnName,
-  getCompoundIdConstraint,
-  getPrimaryKeyFields,
-} from "../context";
+import { getColumnName, getCompoundIdConstraint } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import {
+  type BoundPolymorphicChildHeldRelation,
   bindRelation,
-  type PolymorphicChildHeldToMany,
+  isPolymorphicChildHeldRelation,
 } from "./relation-data-builder";
 
 export { getCompoundIdConstraint, getPrimaryKeyFields } from "../context";
@@ -43,7 +40,7 @@ export function buildCorrelation(
 ): Sql {
   const { adapter } = ctx;
   const relation = bindRelation(ctx, relationInfo);
-  if (relation.kind === "polymorphicChildHeldToMany") {
+  if (isPolymorphicChildHeldRelation(relation)) {
     const parentIdentity = adapter.identifiers.column(
       parentAlias,
       getColumnName(ctx.model, relation.referencedFields[0])
@@ -101,7 +98,7 @@ export function buildCorrelation(
 
 export function buildPolymorphicMembershipPredicate(
   ctx: QueryScope,
-  relation: PolymorphicChildHeldToMany,
+  relation: BoundPolymorphicChildHeldRelation,
   childQualifier: string,
   parentIdentity: Sql
 ): Sql {

@@ -843,7 +843,11 @@ function buildUpsertParts(
   if (
     relation.kind !== "childHeldToMany" &&
     relation.kind !== "polymorphicChildHeldToMany" &&
-    !(relation.kind === "childHeldToOne" && family === "connectOrCreate")
+    !(
+      (relation.kind === "childHeldToOne" ||
+        relation.kind === "polymorphicChildHeldToOne") &&
+      family === "connectOrCreate"
+    )
   ) {
     // Callers bind and dispatch topology before this builder. Only a child-held to-many,
     // or the child-held to-one `connectOrCreate` case, can reach this point.

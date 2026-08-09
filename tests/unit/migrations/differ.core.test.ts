@@ -2,13 +2,13 @@
  * Schema Differ Tests
  */
 
-import { describe, expect, it } from "vitest";
 import { diff, hasDestructiveOperations } from "@src/migrations/differ";
 import type {
   ColumnDef,
   SchemaSnapshot,
   TableDef,
 } from "@src/migrations/types";
+import { describe, expect, it } from "vitest";
 
 // =============================================================================
 // HELPERS
@@ -281,6 +281,44 @@ describe("diff", () => {
         tableName: "users",
         indexName: "idx_users_email",
       });
+    });
+
+    it("recreates an index when its uniqueness changes", async () => {
+      const table = (unique: boolean) =>
+        makeTable(
+          "comments",
+          [
+            makeColumn("commentable_type", "text"),
+            makeColumn("commentable_id", "text"),
+          ],
+          {
+            indexes: [
+              {
+                name: "comments_commentable_poly_idx",
+                columns: ["commentable_type", "commentable_id"],
+                unique,
+              },
+            ],
+          }
+        );
+
+      const toOne = await diff(
+        makeSnapshot([table(false)]),
+        makeSnapshot([table(true)])
+      );
+      const toMany = await diff(
+        makeSnapshot([table(true)]),
+        makeSnapshot([table(false)])
+      );
+
+      expect(toOne.operations.map((operation) => operation.type)).toEqual([
+        "dropIndex",
+        "createIndex",
+      ]);
+      expect(toMany.operations.map((operation) => operation.type)).toEqual([
+        "dropIndex",
+        "createIndex",
+      ]);
     });
 
     // The introspected snapshot reads "btree" back from the Postgres/MySQL

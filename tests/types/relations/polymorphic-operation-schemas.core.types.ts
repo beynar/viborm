@@ -458,6 +458,152 @@ const typoProbes = () => {
   } satisfies OperationPayload<"create", typeof optionalArticle>);
 };
 
+const featuredPost = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => featuredComment)
+    .name("featuredCommentable")
+    .optional(),
+});
+const featuredVideo = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => featuredComment)
+    .name("featuredCommentable")
+    .optional(),
+});
+const featuredComment = s.model({
+  id: s.string().id(),
+  body: s.string(),
+  commentable: s
+    .polymorphic({ post: () => featuredPost, video: () => featuredVideo })
+    .name("featuredCommentable")
+    .optional(),
+});
+const singularInverseClient = createClient({
+  schema: { featuredPost, featuredVideo, featuredComment },
+  driver: new PGliteDriver(),
+});
+
+const singularInverseSurface = () => {
+  singularInverseClient.featuredPost.create({
+    data: {
+      id: "post-1",
+      featuredComment: {
+        create: { id: "comment-1", body: "first" },
+      },
+    },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        update: { where: { body: "first" }, data: { body: "changed" } },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof featuredPost>);
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        upsert: {
+          create: { id: "comment-2", body: "second" },
+          update: { body: "changed" },
+        },
+      },
+    },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: { featuredComment: { disconnect: true } },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: { featuredComment: { delete: true } },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: { featuredComment: { connect: { id: "comment-1" } } },
+  });
+  singularInverseClient.featuredPost.create({
+    data: {
+      id: "post-2",
+      featuredComment: {
+        connectOrCreate: {
+          where: { id: "comment-2" },
+          create: { id: "comment-2", body: "second" },
+        },
+      },
+    },
+  });
+};
+
+const nonFreshSingularUpdate = {
+  where: { id: "post-1" },
+  data: { featuredComment: { update: { body: "non-fresh" } } },
+} satisfies OperationPayload<"update", typeof featuredPost>;
+
+const singularInverseNonFreshSurface = () =>
+  singularInverseClient.featuredPost.update(nonFreshSingularUpdate);
+
+const singularInverseRefusals = () => {
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        connect: { id: "comment-1" },
+        // @ts-expect-error - plural operations are absent from a singular inverse
+        set: [],
+      },
+    },
+  } satisfies OperationPayload<"update", typeof featuredPost>);
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        connect: { id: "comment-1" },
+        // @ts-expect-error - singular inverse has no createMany
+        createMany: { data: [{ id: "comment-2", body: "second" }] },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof featuredPost>);
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        connect: { id: "comment-1" },
+        // @ts-expect-error - singular inverse has no updateMany
+        updateMany: { data: { body: "changed" } },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof featuredPost>);
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        connect: { id: "comment-1" },
+        // @ts-expect-error - singular inverse has no deleteMany
+        deleteMany: {},
+      },
+    },
+  } satisfies OperationPayload<"update", typeof featuredPost>);
+  singularInverseClient.featuredPost.create({
+    data: {
+      id: "post-1",
+      featuredComment: {
+        create: {
+          id: "comment-1",
+          body: "first",
+          // @ts-expect-error - the enclosing inverse owns this direct membership
+          commentable: {
+            connect: { type: "post", where: { id: "post-1" } },
+          },
+        },
+      },
+    },
+  } satisfies OperationPayload<"create", typeof featuredPost>);
+};
+
 const _publicSurfaceProbes = [
   inverseCreateSurface,
   inverseUpdateSurface,
@@ -473,4 +619,7 @@ const _publicSurfaceProbes = [
   updateOwnerCannotBeRestated,
   createOwnerCannotBeRestated,
   typoProbes,
+  singularInverseSurface,
+  singularInverseNonFreshSurface,
+  singularInverseRefusals,
 ];

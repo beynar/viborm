@@ -137,10 +137,12 @@ equality and the existing nested selection builder. The variant count controls
 SQL size; returned row count does not create more statements. Ordinary relation
 LATERAL selection remains unchanged.
 
-An inverse polymorphic `oneToMany` is still an ordinary public relation, but its
-membership predicate is two-part: private id correlation followed by exact
-stored-discriminator equality. `correlation-utils.ts` owns this conjunction for
-include, filters, and count. Never rebuild it at individual call sites.
+An inverse polymorphic `oneToMany` or fields-less `oneToOne` is still an
+ordinary public relation, but its membership predicate is two-part: private id
+correlation followed by exact stored-discriminator equality.
+`correlation-utils.ts` owns this conjunction. Ordinary relation builders own
+the cardinality-specific include, filter, count, ordering, and null behavior.
+Never rebuild the private conjunction at individual call sites.
 
 `polymorphic-mutation.ts` parses one direct verb into a concrete target edge and
 an ordinary mutation program. Record compilers own single-record lowering.

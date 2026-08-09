@@ -88,6 +88,10 @@ export function relationHasInverse(
     if (!targetName) continue;
 
     const expected = INVERSE[type];
+    const fields = rel["~"].state.fields;
+    const canBindPolymorphic =
+      type === "oneToMany" ||
+      (type === "oneToOne" && (fields === undefined || fields.length === 0));
     if (
       !hasInverse(
         target,
@@ -95,6 +99,7 @@ export function relationHasInverse(
         name,
         expected,
         rel["~"].state.name,
+        canBindPolymorphic,
         ctx
       )
     ) {
@@ -302,7 +307,7 @@ export function junctionConfigConsistent(
       (s1.a !== undefined && s2.b !== undefined && s1.a !== s2.b) ||
       (s1.b !== undefined && s2.a !== undefined && s1.b !== s2.a);
     const selfColumnsMissing =
-      s1.model === s1.target && (!(s1.a ?? s2.b) || !(s1.b ?? s2.a));
+      s1.model === s1.target && !((s1.a ?? s2.b) && (s1.b ?? s2.a));
     const columnsCollide = sourceColumn === targetColumn;
 
     if (
@@ -537,6 +542,7 @@ function hasInverse(
   sourceName: string,
   expectedType: RelationType,
   pairingName: string | undefined,
+  canBindPolymorphic: boolean,
   ctx: ValidationContext
 ): boolean {
   for (const rel of getRelationValues(target)) {
@@ -544,7 +550,7 @@ function hasInverse(
     if (t === sourceName && rel["~"].state.type === expectedType) return true;
   }
   if (
-    expectedType === "manyToOne" &&
+    canBindPolymorphic &&
     getPolymorphicInverseBinding(target, source, pairingName)
   ) {
     return true;

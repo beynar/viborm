@@ -3,6 +3,11 @@ import {
   hydrateSchemaNames,
   s,
 } from "@src/schema";
+import {
+  getPolymorphicInverseCandidates,
+  isPolymorphicRelation,
+  PolymorphicRelation,
+} from "@src/schema/relation";
 import { describe, expect, it } from "vitest";
 
 describe("polymorphic relation carrier", () => {
@@ -267,9 +272,15 @@ describe("polymorphic relation carrier", () => {
       publicType: "source",
       storedType: "source.sole.v1",
     });
-    expect(getPolymorphicInverseBinding(multiple, source, undefined)).toBeUndefined();
-    expect(getPolymorphicInverseBinding(multiple, source, "missing")).toBeUndefined();
-    expect(getPolymorphicInverseBinding(multiple, source, "shared")).toBeUndefined();
+    expect(
+      getPolymorphicInverseBinding(multiple, source, undefined)
+    ).toBeUndefined();
+    expect(
+      getPolymorphicInverseBinding(multiple, source, "missing")
+    ).toBeUndefined();
+    expect(
+      getPolymorphicInverseBinding(multiple, source, "shared")
+    ).toBeUndefined();
     expect(
       getPolymorphicInverseBinding(
         selectedWithUnselectedDuplicate,
@@ -344,5 +355,62 @@ describe("polymorphic relation carrier", () => {
       publicType: "parent",
       storedType: "parent.v1",
     });
+  });
+});
+
+describe("coverage low value", () => {
+  it("fails closed for malformed relation carriers", () => {
+    const source = s.model({ id: s.string().id() });
+    const malformedTargets = Reflect.construct(PolymorphicRelation, [
+      {
+        type: "polymorphic",
+        targets: {
+          [Symbol("ignored")]: () => source,
+          badGetter: 42,
+          badValue: () => source,
+        },
+        values: {
+          badGetter: "bad-getter",
+          badValue: 42,
+        },
+      },
+    ]);
+    const target = s.model({ id: s.string().id(), subject: malformedTargets });
+    const malformedState = Reflect.construct(PolymorphicRelation, [
+      { type: "polymorphic", targets: null, values: null },
+    ]);
+    const missingValues = Reflect.construct(PolymorphicRelation, [
+      {
+        type: "polymorphic",
+        targets: { source: () => source },
+        values: 42,
+      },
+    ]);
+
+    expect(getPolymorphicInverseCandidates(target, source)).toEqual([]);
+    expect(malformedState["~"].targetEntries()).toEqual([]);
+    expect(missingValues["~"].targetEntries()).toEqual([
+      {
+        publicType: "source",
+        targetGetter: expect.any(Function),
+        targetModel: source,
+        storedType: undefined,
+      },
+    ]);
+  });
+
+  it("recognizes only a complete polymorphic carrier", () => {
+    const relation = s.polymorphic({
+      post: () => s.model({ id: s.string().id() }),
+    });
+
+    expect(isPolymorphicRelation(relation)).toBe(true);
+    expect(isPolymorphicRelation(42)).toBe(false);
+    expect(isPolymorphicRelation(() => undefined)).toBe(false);
+    expect(isPolymorphicRelation({ "~": null })).toBe(false);
+    expect(isPolymorphicRelation({ "~": { state: null } })).toBe(false);
+    expect(
+      isPolymorphicRelation({ "~": { state: { type: "ordinary" } } })
+    ).toBe(false);
   });
 });

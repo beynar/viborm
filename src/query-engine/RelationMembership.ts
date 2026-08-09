@@ -4,6 +4,7 @@ import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
 import {
   type BoundRelation,
   bindRelation,
+  isPolymorphicChildHeldRelation,
 } from "./builders/relation-data-builder";
 import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
 import { getRelationInfo, getRelationNames } from "./context";
@@ -57,7 +58,7 @@ export function getRelationMembershipScope(
       secondField: orderedFields[1],
     };
   }
-  if (relation.kind === "polymorphicChildHeldToMany") {
+  if (isPolymorphicChildHeldRelation(relation)) {
     return {
       kind: "polymorphicForeignKey",
       holder: relation.relationInfo.targetModel,

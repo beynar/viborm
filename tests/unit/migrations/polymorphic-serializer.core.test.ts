@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import type { MigrationDriver } from "@src/migrations/drivers";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
@@ -8,6 +7,7 @@ import { serializeModels } from "@src/migrations/serializer";
 import { s } from "@src/schema";
 import { hydrateSchemaNames } from "@src/schema/hydration";
 import { validateSchemaOrThrow } from "@src/schema/validation";
+import { describe, expect, it } from "vitest";
 
 function polymorphicSchema(optional = false) {
   const post = s
@@ -31,6 +31,27 @@ function polymorphicSchema(optional = false) {
       subject: optional ? relation.optional() : relation,
     })
     .map("comments");
+  const schema = { post, video, comment };
+  hydrateSchemaNames(schema);
+  validateSchemaOrThrow(schema);
+  return schema;
+}
+
+function polymorphicOneToOneSchema() {
+  const post = s.model({
+    id: s.string().id(),
+    featuredComment: s.oneToOne(() => comment).name("commentable"),
+  });
+  const video = s.model({
+    id: s.string().id(),
+    featuredComment: s.oneToOne(() => comment).name("commentable"),
+  });
+  const comment = s.model({
+    id: s.string().id(),
+    commentable: s
+      .polymorphic({ post: () => post, video: () => video })
+      .name("commentable"),
+  });
   const schema = { post, video, comment };
   hydrateSchemaNames(schema);
   validateSchemaOrThrow(schema);
@@ -89,45 +110,44 @@ describe("polymorphic migration serialization", () => {
     },
   ];
 
-  it.each(ddlCases)(
-    "$name emits private columns and their ordered index without relation constraints",
-    ({
-      driver,
-      requiredTypeColumn,
-      requiredIdColumn,
-      optionalTypeColumn,
-      optionalIdColumn,
-      index,
-    }) => {
-      const requiredOwner = serializeModels(polymorphicSchema(), {
-        migrationDriver: driver,
-      }).tables.find((table) => table.name === "comments");
-      const optionalOwner = serializeModels(polymorphicSchema(true), {
-        migrationDriver: driver,
-      }).tables.find((table) => table.name === "comments");
-      if (!(requiredOwner && optionalOwner)) {
-        throw new Error("Polymorphic owner table was not serialized");
-      }
-
-      const requiredDdl = driver.generateDDL({
-        type: "createTable",
-        table: requiredOwner,
-      });
-      const optionalDdl = driver.generateDDL({
-        type: "createTable",
-        table: optionalOwner,
-      });
-
-      expect(requiredDdl).toContain(requiredTypeColumn);
-      expect(requiredDdl).toContain(requiredIdColumn);
-      expect(requiredDdl).toContain(index);
-      expect(requiredDdl).not.toMatch(/\b(?:FOREIGN KEY|CHECK|UNIQUE)\b/i);
-      expect(optionalDdl).toContain(optionalTypeColumn);
-      expect(optionalDdl).toContain(optionalIdColumn);
-      expect(optionalDdl).not.toContain(`${optionalTypeColumn} NOT NULL`);
-      expect(optionalDdl).not.toContain(`${optionalIdColumn} NOT NULL`);
+  it.each(
+    ddlCases
+  )("$name emits private columns and their ordered index without relation constraints", ({
+    driver,
+    requiredTypeColumn,
+    requiredIdColumn,
+    optionalTypeColumn,
+    optionalIdColumn,
+    index,
+  }) => {
+    const requiredOwner = serializeModels(polymorphicSchema(), {
+      migrationDriver: driver,
+    }).tables.find((table) => table.name === "comments");
+    const optionalOwner = serializeModels(polymorphicSchema(true), {
+      migrationDriver: driver,
+    }).tables.find((table) => table.name === "comments");
+    if (!(requiredOwner && optionalOwner)) {
+      throw new Error("Polymorphic owner table was not serialized");
     }
-  );
+
+    const requiredDdl = driver.generateDDL({
+      type: "createTable",
+      table: requiredOwner,
+    });
+    const optionalDdl = driver.generateDDL({
+      type: "createTable",
+      table: optionalOwner,
+    });
+
+    expect(requiredDdl).toContain(requiredTypeColumn);
+    expect(requiredDdl).toContain(requiredIdColumn);
+    expect(requiredDdl).toContain(index);
+    expect(requiredDdl).not.toMatch(/\b(?:FOREIGN KEY|CHECK|UNIQUE)\b/i);
+    expect(optionalDdl).toContain(optionalTypeColumn);
+    expect(optionalDdl).toContain(optionalIdColumn);
+    expect(optionalDdl).not.toContain(`${optionalTypeColumn} NOT NULL`);
+    expect(optionalDdl).not.toContain(`${optionalIdColumn} NOT NULL`);
+  });
 
   it("emits required private storage, its composite index, and physical member metadata", () => {
     const snapshot = serializeModels(polymorphicSchema(), {
@@ -170,6 +190,35 @@ describe("polymorphic migration serialization", () => {
         ],
       },
     ]);
+  });
+
+  it("makes the existing composite index unique for a singular inverse", () => {
+    const snapshot = serializeModels(polymorphicOneToOneSchema(), {
+      migrationDriver: postgresMigrationDriver,
+    });
+    const owner = snapshot.tables.find((table) => table.name === "comment");
+
+    expect(owner?.indexes).toContainEqual({
+      name: "comment_commentable_poly_idx",
+      columns: ["commentable_type", "commentable_id"],
+      unique: true,
+    });
+  });
+
+  it.each(
+    ddlCases
+  )("$name emits the singular storage index as unique without changing its identity", ({
+    driver,
+  }) => {
+    const owner = serializeModels(polymorphicOneToOneSchema(), {
+      migrationDriver: driver,
+    }).tables.find((table) => table.name === "comment");
+    if (!owner) throw new Error("Polymorphic owner table was not serialized");
+
+    const ddl = driver.generateDDL({ type: "createTable", table: owner });
+
+    expect(ddl).toMatch(/CREATE UNIQUE INDEX/);
+    expect(ddl).toContain("comment_commentable_poly_idx");
   });
 
   it("makes both private columns nullable only for an optional relation", () => {

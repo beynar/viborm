@@ -1,5 +1,5 @@
-import type { OperationResult } from "@client/types";
 import { createClient } from "@client/client";
+import type { OperationResult } from "@client/types";
 import {
   createClient as createPGliteClient,
   PGliteDriver,
@@ -64,7 +64,7 @@ const client = createClient({
 });
 
 type _commentPolymorphicKeyIsConcrete = Expect<
-  Equal<keyof typeof comment["~"]["state"]["polymorphicRelations"], "subject">
+  Equal<keyof (typeof comment)["~"]["state"]["polymorphicRelations"], "subject">
 >;
 
 const _publicPolymorphicCalls = () => {
@@ -147,7 +147,6 @@ const _publicPolymorphicCalls = () => {
       },
     },
   });
-
 };
 
 void _publicPolymorphicCalls;
@@ -233,6 +232,40 @@ type _configuredNodesReuseOrdinaryProjectionInference = Expect<
         readonly type: "video";
         readonly data: { duration: number };
       }
+  >
+>;
+
+const featuredPost = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => featuredComment)
+    .name("featuredCommentable")
+    .optional(),
+});
+const featuredVideo = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => featuredComment)
+    .name("featuredCommentable")
+    .optional(),
+});
+const featuredComment = s.model({
+  id: s.string().id(),
+  body: s.string(),
+  commentable: s
+    .polymorphic({ post: () => featuredPost, video: () => featuredVideo })
+    .name("featuredCommentable")
+    .optional(),
+});
+type FeaturedPostRows = OperationResult<
+  "findMany",
+  typeof featuredPost,
+  { include: { featuredComment: true } }
+>;
+type _singularInverseResultIsNullableObject = Expect<
+  Equal<
+    FeaturedPostRows[number]["featuredComment"],
+    { id: string; body: string } | null
   >
 >;
 

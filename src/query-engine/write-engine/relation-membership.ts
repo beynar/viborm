@@ -5,7 +5,7 @@ import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import type {
   ChildHeldToMany,
   ChildHeldToOne,
-  PolymorphicChildHeldToMany,
+  PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
@@ -48,7 +48,7 @@ export type RelationMembershipBinding =
     }
   | {
       readonly kind: "polymorphic";
-      readonly relation: PolymorphicChildHeldToMany;
+      readonly relation: PolymorphicChildHeldRelation;
       readonly writeSource: FinalReferenceSource;
     };
 
@@ -60,7 +60,7 @@ export type CorrelatedRelationMembershipBinding =
     }
   | {
       readonly kind: "polymorphic";
-      readonly relation: PolymorphicChildHeldToMany;
+      readonly relation: PolymorphicChildHeldRelation;
       readonly readSource: PlanningReferenceSource;
       readonly writeSource: FinalReferenceSource;
     };
@@ -130,10 +130,13 @@ export function fkEquals(left: unknown, right: unknown): boolean {
 }
 
 export function bindRelationMembership(
-  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldToMany,
+  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldRelation,
   writeSource: FinalReferenceSource
 ): RelationMembershipBinding {
-  if (relation.kind === "polymorphicChildHeldToMany") {
+  if (
+    relation.kind === "polymorphicChildHeldToOne" ||
+    relation.kind === "polymorphicChildHeldToMany"
+  ) {
     return { kind: "polymorphic", relation, writeSource };
   }
   return {
@@ -148,11 +151,14 @@ export function bindRelationMembership(
 }
 
 export function bindCorrelatedRelationMembership(
-  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldToMany,
+  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldRelation,
   readSource: PlanningReferenceSource,
   writeSource: FinalReferenceSource
 ): CorrelatedRelationMembershipBinding {
-  if (relation.kind === "polymorphicChildHeldToMany") {
+  if (
+    relation.kind === "polymorphicChildHeldToOne" ||
+    relation.kind === "polymorphicChildHeldToMany"
+  ) {
     return { kind: "polymorphic", relation, readSource, writeSource };
   }
   return {
@@ -498,7 +504,7 @@ export function resolvePolymorphicStorageValue(
 
 /** Bind a value to one resolved private polymorphic edge. */
 export function linkedPolymorphicStorage(
-  relation: PolymorphicChildHeldToMany | ResolvedPolymorphicEdge,
+  relation: PolymorphicChildHeldRelation | ResolvedPolymorphicEdge,
   id: FinalReferenceSource
 ): Extract<PolymorphicStorageValue<FinalReferenceSource>, { kind: "linked" }> {
   const referencedField =

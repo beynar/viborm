@@ -83,7 +83,7 @@ The declaration has four important parts:
 | `post` and `video` keys | Public discriminators used in inputs and result narrowing |
 | `() => post` and `() => video` | Lazy target getters, which keep circular model declarations safe |
 | Optional `values` argument | Custom stable strings persisted instead of the public keys |
-| `.name("commentable")` | Pairing label used by inverse `oneToMany` relations |
+| `.name("commentable")` | Pairing label used by inverse `oneToMany` or fields-less `oneToOne` relations |
 
 With no second argument, VibORM stores `"post"` and `"video"`. This is the
 smallest useful form and does not depend on model or table names.
@@ -138,8 +138,8 @@ commentable: s
 
 ### Add inverse relations
 
-The inverse side is an ordinary `oneToMany` relation. Give it the same pairing
-name as the polymorphic field:
+Use an ordinary `oneToMany` when each target may own several child records. Give
+it the same pairing name as the polymorphic field:
 
 ```ts
 const post = s.model({
@@ -153,6 +153,23 @@ The label is especially important when the target model owns more than one
 polymorphic relation. It identifies the relation pair; it is not a database
 column name.
 
+Use a fields-less `oneToOne` when each exact target may own at most one child:
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  featuredComment: s
+    .oneToOne(() => comment)
+    .name("commentable")
+    .optional(),
+});
+```
+
+All inverse declarations that share one polymorphic storage pair must agree on
+cardinality. Mixing `oneToMany` and fields-less `oneToOne` inverses is invalid,
+even when the declarations belong to different target variants. A
+fields-bearing `oneToOne` remains an ordinary foreign-key relation.
+
 ## How it is stored
 
 VibORM generates two private columns on the owner table and a composite index.
@@ -163,6 +180,10 @@ commentable_type TEXT         -- "post" or "video" by default
 commentable_id   <target PK>  -- ID in the selected target table
 INDEX (commentable_type, commentable_id)
 ```
+
+For an inverse `oneToOne`, the composite index is unique. This portable rule
+prevents two owner rows from selecting the same exact `(type, id)` target while
+still allowing equal IDs under different discriminators.
 
 The private columns are migration storage. They do not appear as public model
 scalars, create fields, selections, or result properties.
@@ -296,7 +317,8 @@ an untyped filter that searches every target table.
 
 ## Query from the inverse side
 
-Inverse polymorphic relations behave as type-safe to-many relations for reads:
+An inverse polymorphic `oneToMany` behaves as a type-safe to-many relation for
+reads:
 
 ```ts
 const post = await client.post.findUniqueOrThrow({
@@ -326,6 +348,10 @@ Every inverse include, filter, and count matches both
 `commentable_id = post.id` and
 `commentable_type = "post"`. A video with the same ID cannot leak
 into the post's comments.
+
+A singular inverse returns one object or `null` and supports normal to-one
+`is`/`isNot` filtering. It uses the same exact two-column membership predicate;
+only the public result arity changes.
 
 ## Write the direct relation
 
@@ -491,6 +517,32 @@ Nested inverse `createMany` stays scalar-only and applies the one enclosing
 `(type, identity)` pair to every row. It is unavailable when another required
 polymorphic relation on the child would remain unsatisfied.
 
+### Singular inverse writes
+
+An inverse `oneToOne` uses the ordinary singular relation surface. Parent create
+accepts `create`, `connect`, and `connectOrCreate`. Parent update accepts those
+operations plus correlated `update` and `upsert`:
+
+```ts
+await client.post.update({
+  where: { id: "post_123" },
+  data: {
+    featuredComment: {
+      upsert: {
+        create: { body: "First" },
+        update: { body: "Revised" },
+      },
+    },
+  },
+});
+```
+
+If the direct polymorphic field is optional, update also accepts `disconnect`
+and `delete`. Plural operations (`createMany`, `updateMany`, `deleteMany`, and
+`set`) are rejected. Connect adopts an existing child, while update and upsert
+operate on the currently captured exact member. A competing occupant of the
+same slot produces a unique-constraint error without partial effects.
+
 ## Integrity and orphan behavior
 
 VibORM treats the private pair as one atomic value:
@@ -522,6 +574,11 @@ relation machinery:
 These operations add no query or round trip beyond the corresponding ordinary
 child-held relation operation.
 
+Singular inverses are also supported. They reuse the same exact membership and
+record compilers, while the ordinary child-held-to-one path owns result arity
+and mutation shape. Portable uniqueness is enforced by the composite storage
+index rather than a new execution path.
+
 ## Remaining limitations
 
 The current release keeps these boundaries:
@@ -535,12 +592,10 @@ The current release keeps these boundaries:
   and `upsert`; optional storage supports `disconnect` and typed target
   `delete`. The direct field stores one membership, so it has no
   collection-style `set` operation.
-- **Topology:** polymorphic many-to-many and inverse one-to-one relations are
-  not supported. An inverse is also ambiguous when the same model appears more
-  than once in one target map. A polymorphic one-to-one is conceptually possible:
-  the owner still stores one `(type, identity)` pair, while a uniqueness rule on
-  that pair prevents two owners from selecting the same target. VibORM does not
-  yet model or enforce that inverse cardinality.
+- **Topology:** polymorphic many-to-many is not supported. An inverse is also
+  ambiguous when the same model appears more than once in one target map.
+  Inverse cardinality is relation-wide: every declared inverse for one private
+  storage pair must be consistently `oneToOne` or `oneToMany`.
 - **Cross-target queries:** `orderBy` cannot traverse a direct polymorphic
   relation, and filters must select one `type`; there is no untyped filter that
   searches all target schemas.
@@ -576,12 +631,18 @@ Treat stored discriminator values as database identifiers:
 The public target key and stored value serve different purposes: the key shapes
 TypeScript inputs and results, while the stored value protects database history.
 
+Changing inverse cardinality recreates the same composite index as unique or
+non-unique. Before moving from `oneToMany` to `oneToOne`, remove every duplicate
+`(type, id)` pair. VibORM does not guess which row to keep; existing duplicates
+make the migration fail and roll back.
+
 ## Summary
 
 VibORM's model is best described as a **typed polymorphic association**:
 
 - independent target tables, with no base or subtype hierarchy;
 - one private `(type, id)` pair on the owner;
+- a relation-wide unique pair when the inverse is `oneToOne`;
 - one discriminated TypeScript result union;
 - one SQL statement for a direct polymorphic include;
 - application-level integrity because SQL cannot express the cross-table FK.

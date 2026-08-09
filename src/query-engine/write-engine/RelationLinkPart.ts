@@ -5,6 +5,7 @@ import type {
   ChildHeldToMany,
   ChildHeldToOne,
   PolymorphicChildHeldToMany,
+  PolymorphicChildHeldToOne,
 } from "../builders/relation-data-builder";
 import type { RelationMutationEntry } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
@@ -46,6 +47,7 @@ export type LinkKind = "connect" | "disconnect";
 type LinkedRelation =
   | ChildHeldToOne
   | ChildHeldToMany
+  | PolymorphicChildHeldToOne
   | PolymorphicChildHeldToMany;
 
 interface RelationLinkConfigBase {

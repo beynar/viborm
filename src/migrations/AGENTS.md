@@ -241,8 +241,13 @@ index from its validated `PolymorphicStorage` descriptor:
 ```
 
 Required relations make both columns non-null; optional relations make both
-nullable. They never enter public scalar state, and no cross-target database FK
-or V1 CHECK constraint is emitted. Existing migration-driver scalar and index
+nullable. The existing composite index is non-unique for an inverse `oneToMany`
+and unique for an inverse `oneToOne`; its name and column order do not change.
+Changing inverse cardinality therefore uses the normal drop-index/create-index
+diff. Existing duplicate pairs make a many-to-one cardinality migration fail
+transactionally; VibORM does not synthesize deduplication DML. The private
+columns never enter public scalar state, and no cross-target database FK or V1
+CHECK constraint is emitted. Existing migration-driver scalar and index
 primitives generate PostgreSQL, MySQL, SQLite, and libSQL DDL.
 
 The snapshot also records each public discriminator, stable stored value,

@@ -6,8 +6,8 @@
 > **Plan date:** 2026-08-08
 >
 > **Status:** implemented and validated on the feature branch. Fixed inverse
-> membership is now bound topology, and the inverse one-to-many write surface
-> uses the ordinary relation owners and record compilers described below.
+> membership is now bound topology. The later singular-inverse phase added
+> relation-wide cardinality and reused the ordinary child-held-to-one owners.
 >
 > **Architecture:** consolidated query engine; no `query-engine-v2`
 
@@ -34,7 +34,8 @@ Fixed compatibility boundaries for the inverse-parity phase:
 - Direct polymorphic write APIs did not change in that phase. The subsequent
   direct-parity phase added create `connectOrCreate`, selected-owner target
   mutation, and root bulk connect.
-- Polymorphic many-to-many and inverse one-to-one remain out of scope.
+- Polymorphic many-to-many remained out of scope. Inverse one-to-one was added
+  by the completed singular-inverse phase documented in section 11.
 - Root `createMany` now accepts connect-only polymorphic memberships beside
   scalar row data.
 - No referential-action emulation is added.
@@ -469,7 +470,6 @@ per-row target query was added.
 The following work is explicitly separate from this implementation:
 
 - polymorphic many-to-many;
-- inverse one-to-one;
 - inverse binding when one target map names the same model more than once;
 - compound, mixed-kind, array, or native-override polymorphic identities;
 - root createMany verbs beyond connect;
@@ -480,3 +480,29 @@ The following work is explicitly separate from this implementation:
 These features may reuse exact `(type, identity)` membership, but they require
 their own product semantics and acceptance gates. They must not be smuggled into
 the existing inverse parity work.
+
+## 11. Singular inverse completion
+
+The singular follow-up added two durable facts:
+
+```ts
+type PolymorphicInverseCardinality = "one" | "many";
+
+interface PolymorphicChildHeldToOne
+  extends BoundPolymorphicChildHeldRelation {
+  readonly kind: "polymorphicChildHeldToOne";
+}
+```
+
+Cardinality is resolved across every inverse sharing one private storage pair.
+Mixed cardinalities fail definition validation. The existing composite index
+becomes unique for `one`, without changing its name or column order; normal
+index differ and DDL owners handle both transition directions. Duplicate live
+memberships make a many-to-one migration fail transactionally.
+
+The public singular inverse accepts create/connect/connectOrCreate on parent
+create; parent update adds correlated update/upsert and, for optional storage,
+disconnect/delete. Reads and writes reuse the central exact membership
+predicate, ordinary child-held-to-one Parts, `CreateOperation`, and
+`RecordUpdateCompiler`. No mutation Part, runtime step, adapter method, or
+additional round trip was added.

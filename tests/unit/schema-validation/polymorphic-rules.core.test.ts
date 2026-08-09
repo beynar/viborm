@@ -63,6 +63,7 @@ describe("polymorphic definition rules", () => {
       indexName: "comment_commentable_poly_idx",
       typeColumn: { name: "commentable_type", nullable: false },
       idColumn: { name: "commentable_id", nullable: false },
+      inverseCardinality: "many",
     });
     expect([
       ...(comment["~"].getPolymorphicStorage("commentable")?.members ?? []),
@@ -145,7 +146,12 @@ describe("polymorphic definition rules", () => {
       ),
     });
 
-    const result = validateSchema({ stringTarget, intTarget, arrayTarget, owner });
+    const result = validateSchema({
+      stringTarget,
+      intTarget,
+      arrayTarget,
+      owner,
+    });
 
     expect(codes(result).filter((code) => code === "P002")).toHaveLength(2);
   });
@@ -209,6 +215,99 @@ describe("polymorphic definition rules", () => {
     expect(codes(validateSchema({ post, video, comment }))).not.toContain(
       "R003"
     );
+  });
+
+  it("stores one relation-wide cardinality for fields-less one-to-one inverses", () => {
+    const post = s.model({
+      id: s.string().id(),
+      featuredComment: s.oneToOne(() => comment).name("commentable"),
+    });
+    const video = s.model({
+      id: s.string().id(),
+      featuredComment: s.oneToOne(() => comment).name("commentable"),
+    });
+    const comment = s.model({
+      id: s.string().id(),
+      commentable: s
+        .polymorphic({ post: () => post, video: () => video })
+        .name("commentable"),
+    });
+
+    const result = validateSchema({ post, video, comment });
+
+    expect(result.errors).toEqual([]);
+    expect(
+      comment["~"].getPolymorphicStorage("commentable")?.inverseCardinality
+    ).toBe("one");
+  });
+
+  it("rejects mixed inverse cardinalities for one polymorphic storage", () => {
+    const post = s.model({
+      id: s.string().id(),
+      comments: s.oneToMany(() => comment).name("commentable"),
+    });
+    const video = s.model({
+      id: s.string().id(),
+      featuredComment: s.oneToOne(() => comment).name("commentable"),
+    });
+    const comment = s.model({
+      id: s.string().id(),
+      commentable: s
+        .polymorphic({ post: () => post, video: () => video })
+        .name("commentable"),
+    });
+
+    const result = validateSchema({ post, video, comment });
+
+    expect(codes(result)).toContain("P012");
+    expect(comment["~"].getPolymorphicStorage("commentable")).toBeUndefined();
+  });
+
+  it("applies a resolved singular cardinality to variants without inverses", () => {
+    const post = s.model({
+      id: s.string().id(),
+      featuredComment: s.oneToOne(() => comment).name("commentable"),
+    });
+    const video = s.model({ id: s.string().id() });
+    const comment = s.model({
+      id: s.string().id(),
+      commentable: s
+        .polymorphic({ post: () => post, video: () => video })
+        .name("commentable"),
+    });
+
+    const result = validateSchema({ post, video, comment });
+
+    expect(result.errors).toEqual([]);
+    expect(
+      comment["~"].getPolymorphicStorage("commentable")?.inverseCardinality
+    ).toBe("one");
+  });
+
+  it("keeps a fields-bearing one-to-one on the ordinary FK path", () => {
+    const post = s.model({
+      id: s.string().id(),
+      commentId: s.string(),
+      featuredComment: s
+        .oneToOne(() => comment)
+        .fields("commentId")
+        .references("id")
+        .name("commentable"),
+    });
+    const video = s.model({ id: s.string().id() });
+    const comment = s.model({
+      id: s.string().id(),
+      commentable: s
+        .polymorphic({ post: () => post, video: () => video })
+        .name("commentable"),
+    });
+
+    const result = validateSchema({ post, video, comment });
+
+    expect(codes(result)).toContain("R002");
+    expect(
+      comment["~"].getPolymorphicStorage("commentable")?.inverseCardinality
+    ).toBe("many");
   });
 
   it("rejects one inverse name that selects both ordinary and polymorphic storage", () => {
@@ -495,8 +594,9 @@ describe("polymorphic definition rules", () => {
 
     expect(codes(result)).not.toContain("P001");
     expect(codes(result)).not.toContain("P003");
-    expect(owner["~"].getPolymorphicStorage("target")?.members.get("post"))
-      .toMatchObject({ storedType: "post.v1", targetModel: post });
+    expect(
+      owner["~"].getPolymorphicStorage("target")?.members.get("post")
+    ).toMatchObject({ storedType: "post.v1", targetModel: post });
   });
 
   it("rejects non-plain, symbolic, and inexact maps", () => {
@@ -540,15 +640,15 @@ describe("polymorphic definition rules", () => {
       ]),
     });
 
-    expect(
-      codes(validateSchema({ post, owner: nonPlainOwner }))
-    ).toContain("P003");
-    expect(
-      codes(validateSchema({ post, owner: symbolicOwner }))
-    ).toContain("P003");
-    expect(
-      codes(validateSchema({ post, owner: nullValuesOwner }))
-    ).toContain("P003");
+    expect(codes(validateSchema({ post, owner: nonPlainOwner }))).toContain(
+      "P003"
+    );
+    expect(codes(validateSchema({ post, owner: symbolicOwner }))).toContain(
+      "P003"
+    );
+    expect(codes(validateSchema({ post, owner: nullValuesOwner }))).toContain(
+      "P003"
+    );
   });
 
   it("accepts 191-character stored values and rejects 192", () => {
@@ -586,10 +686,9 @@ describe("polymorphic definition rules", () => {
         id: s.string().id(),
         target: s.polymorphic(targets, { values }),
       });
-      expect(
-        codes(validateSchema({ post, owner })),
-        publicType
-      ).toContain("P003");
+      expect(codes(validateSchema({ post, owner })), publicType).toContain(
+        "P003"
+      );
     }
     const emptyTargets = s.model({
       id: s.string().id(),
@@ -601,10 +700,7 @@ describe("polymorphic definition rules", () => {
     });
     const emptyValue = s.model({
       id: s.string().id(),
-      target: s.polymorphic(
-        { post: () => post },
-        { values: { post: "" } }
-      ),
+      target: s.polymorphic({ post: () => post }, { values: { post: "" } }),
     });
     const duplicateValues = s.model({
       id: s.string().id(),
@@ -616,7 +712,9 @@ describe("polymorphic definition rules", () => {
 
     const emptyResult = validateSchema({ owner: emptyTargets });
     expect(codes(emptyResult)).toContain("P007");
-    expect(codes(validateSchema({ post, owner: emptyValue }))).toContain("P003");
+    expect(codes(validateSchema({ post, owner: emptyValue }))).toContain(
+      "P003"
+    );
     expect(
       codes(validateSchema({ post, video, owner: duplicateValues }))
     ).toContain("P003");
@@ -677,10 +775,7 @@ describe("polymorphic definition rules", () => {
   it("uses serialized names for column, index, and constraint collisions", () => {
     const post = s.model({ id: s.string().id() });
     const relation = () =>
-      s.polymorphic(
-        { post: () => post },
-        { values: { post: "post.v1" } }
-      );
+      s.polymorphic({ post: () => post }, { values: { post: "post.v1" } });
     const mappedColumnOwner = s.model({
       id: s.string().id(),
       shadow: s.string().map("target_type"),
@@ -716,18 +811,18 @@ describe("polymorphic definition rules", () => {
       })
       .unique(["tenantId", "localId"], { name: "owner_target_poly_idx" });
 
-    expect(
-      codes(validateSchema({ post, owner: mappedColumnOwner }))
-    ).toContain("P008");
+    expect(codes(validateSchema({ post, owner: mappedColumnOwner }))).toContain(
+      "P008"
+    );
     expect(
       codes(validateSchema({ post, owner: declaredIndexOwner }))
     ).toContain("P008");
-    expect(
-      codes(validateSchema({ post, owner: unnamedIndexOwner }))
-    ).toContain("P008");
-    expect(codes(validateSchema({ post, owner: compoundIdOwner }))).not.toContain(
+    expect(codes(validateSchema({ post, owner: unnamedIndexOwner }))).toContain(
       "P008"
     );
+    expect(
+      codes(validateSchema({ post, owner: compoundIdOwner }))
+    ).not.toContain("P008");
     expect(
       codes(validateSchema({ post, owner: compoundUniqueOwner }))
     ).not.toContain("P008");
@@ -756,15 +851,11 @@ describe("polymorphic definition rules", () => {
     const post = s.model({ id: s.string().id() });
     const left = s.model({
       id: s.string().id(),
-      rights: s
-        .manyToMany(() => right)
-        .through("owner_target_poly_idx"),
+      rights: s.manyToMany(() => right).through("owner_target_poly_idx"),
     });
     const right = s.model({
       id: s.string().id(),
-      lefts: s
-        .manyToMany(() => left)
-        .through("owner_target_poly_idx"),
+      lefts: s.manyToMany(() => left).through("owner_target_poly_idx"),
     });
     const owner = s.model({
       id: s.string().id(),
@@ -864,5 +955,94 @@ describe("polymorphic definition rules", () => {
         driver: new DefinitionDriver(),
       })
     ).toThrow("[F006]");
+  });
+});
+
+describe("coverage low value", () => {
+  it("visits asymmetric and multiply named junction storage", () => {
+    const left = s.model({
+      id: s.string().id(),
+      featured: s.manyToMany(() => right).name("featured"),
+    });
+    const right = s.model({
+      id: s.string().id(),
+      featured: s.manyToMany(() => left).name("featured"),
+      unnamed: s.manyToMany(() => left),
+    });
+    const asymmetricLeft = s.model({
+      id: s.string().id(),
+      named: s.manyToMany(() => asymmetricRight).name("named"),
+    });
+    const asymmetricRight = s.model({
+      id: s.string().id(),
+      unnamed: s.manyToMany(() => asymmetricLeft),
+    });
+    const post = s.model({ id: s.string().id() });
+    const owner = s.model({
+      id: s.string().id(),
+      target: s.polymorphic({ post: () => post }),
+    });
+
+    expect(
+      codes(
+        validateSchema({
+          left,
+          right,
+          asymmetricLeft,
+          asymmetricRight,
+          post,
+          owner,
+        })
+      )
+    ).not.toContain("P008");
+  });
+
+  it("visits covered and name-colliding automatic foreign-key indexes", () => {
+    const parent = s.model({ id: s.string().id() });
+    const post = s.model({ id: s.string().id() });
+    const owner = s
+      .model({
+        id: s.string().id(),
+        coveredParentId: s.string().unique(),
+        fallbackParentId: s.string(),
+        spareA: s.string(),
+        spareB: s.string(),
+        coveredParent: s
+          .manyToOne(() => parent)
+          .fields("coveredParentId")
+          .references("id"),
+        fallbackParent: s
+          .manyToOne(() => parent)
+          .fields("fallbackParentId")
+          .references("id"),
+        target: s.polymorphic({ post: () => post }),
+      })
+      .index(["spareA"], { name: "owner_fallbackParentId_idx" })
+      .index(["spareB"], { name: "owner_fallbackParentId_fkey_idx" });
+
+    expect(codes(validateSchema({ parent, post, owner }))).not.toContain(
+      "P008"
+    );
+  });
+
+  it("fails closed for unregistered inverse targets and malformed getters", () => {
+    const missing = s.model({ id: s.string().id() });
+    const source = s.model({
+      id: s.string().id(),
+      missing: s.oneToOne(() => missing),
+    });
+    const malformedOwner = s.model({
+      id: s.string().id(),
+      target: Reflect.construct(PolymorphicRelation, [
+        {
+          type: "polymorphic",
+          targets: { malformed: 42 },
+          values: { malformed: "malformed" },
+        },
+      ]),
+    });
+
+    expect(codes(validateSchema({ source }))).toContain("R006");
+    expect(codes(validateSchema({ malformedOwner }))).toContain("P001");
   });
 });

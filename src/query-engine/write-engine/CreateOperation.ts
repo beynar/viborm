@@ -9,13 +9,16 @@ import {
 import { isMissingGeneratedIncrement } from "../builders/generated-scalar";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
+  type BoundPolymorphicChildHeldRelation,
   type BoundRelation,
   bindRelation,
   buildConnectSubqueryForField,
   type ChildHeldToMany,
   type ChildHeldToOne,
+  isPolymorphicChildHeldRelation,
   type ParentHeldToOne,
   type PolymorphicChildHeldToMany,
+  type PolymorphicChildHeldToOne,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -115,6 +118,7 @@ type ExecutionMode = "transaction" | "batch";
 type ChildHeldRelation =
   | ChildHeldToOne
   | ChildHeldToMany
+  | PolymorphicChildHeldToOne
   | PolymorphicChildHeldToMany;
 
 export interface FreshRecordPart extends Part {
@@ -1076,7 +1080,7 @@ export class CreateOperation {
     for (const [relationName, program] of Object.entries(relations)) {
       if (polymorphic[relationName]?.kind === "targeted") continue;
       const relation = bindRelation(childScope, program.relationInfo);
-      if (relation.kind === "polymorphicChildHeldToMany") continue;
+      if (isPolymorphicChildHeldRelation(relation)) continue;
       if (relation.kind !== "parentHeldToOne") continue;
       const sharedForeignFields = relation.foreignFields.filter(
         (foreignField) => recordPk.includes(foreignField)
@@ -1190,7 +1194,7 @@ export class CreateOperation {
         continue;
       }
       const relation = bindRelation(childScope, program.relationInfo);
-      if (relation.kind === "polymorphicChildHeldToMany") continue;
+      if (isPolymorphicChildHeldRelation(relation)) continue;
       if (relation.kind !== "parentHeldToOne") continue;
       const createEntry = program.entries.find(
         (entry) => entry.kind === "create"
@@ -1674,7 +1678,11 @@ export class CreateOperation {
     // `> 1`, not `!== 1`: a payload naming NO kind (`{ card: {} }`) asks for nothing and
     // is Prisma's no-op, which this loop already answers by building nothing — the same
     // reading `RecordUpdateCompiler.interpretRelation` spells out for its empty payload.
-    if (relation.kind === "childHeldToOne" && entries.length > 1) {
+    if (
+      (relation.kind === "childHeldToOne" ||
+        relation.kind === "polymorphicChildHeldToOne") &&
+      entries.length > 1
+    ) {
       throw new UnsupportedOperationError(
         `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
       );
@@ -1706,7 +1714,7 @@ export class CreateOperation {
                 wheres,
                 txMode,
               };
-              return relation.kind === "polymorphicChildHeldToMany"
+              return isPolymorphicChildHeldRelation(relation)
                 ? new ChildConnectPart(this.scope, {
                     ...common,
                     relation,
@@ -1733,7 +1741,7 @@ export class CreateOperation {
               this.scope,
               this.engine,
               entry.items,
-              relation.kind === "polymorphicChildHeldToMany"
+              isPolymorphicChildHeldRelation(relation)
                 ? bindRelationMembership(
                     relation,
                     this.referencedParentSource(
@@ -1758,7 +1766,7 @@ export class CreateOperation {
               this.scope,
               this.engine,
               entry.items,
-              relation.kind === "polymorphicChildHeldToMany"
+              isPolymorphicChildHeldRelation(relation)
                 ? bindRelationMembership(
                     relation,
                     this.referencedParentSource(
@@ -1798,14 +1806,12 @@ export class CreateOperation {
     relation: ChildHeldRelation,
     items: readonly Record<string, unknown>[]
   ): void {
-    const inject =
-      relation.kind === "polymorphicChildHeldToMany"
-        ? {}
-        : this.childFkAssign(input.self, relation, childScope.model);
-    const polymorphicStorage =
-      relation.kind === "polymorphicChildHeldToMany"
-        ? [this.childPolymorphicStorage(input.self, relation)]
-        : undefined;
+    const inject = isPolymorphicChildHeldRelation(relation)
+      ? {}
+      : this.childFkAssign(input.self, relation, childScope.model);
+    const polymorphicStorage = isPolymorphicChildHeldRelation(relation)
+      ? [this.childPolymorphicStorage(input.self, relation)]
+      : undefined;
     for (const item of items) {
       input.childCreates.push({
         record: this.buildRecord(childScope, item, input.txMode),
@@ -1841,10 +1847,9 @@ export class CreateOperation {
         groups.some((group) => group.columns.length === 0)
       );
     }
-    const inject =
-      relation.kind === "polymorphicChildHeldToMany"
-        ? {}
-        : this.childFkAssign(input.self, relation, childScope.model);
+    const inject = isPolymorphicChildHeldRelation(relation)
+      ? {}
+      : this.childFkAssign(input.self, relation, childScope.model);
     const rows = userRows.map((row) => ({ ...row, ...inject }));
     if (rows.length === 0) return;
     // Lower to grouped INSERTs (buildCreateManyPlan): one statement per same-shape
@@ -1855,15 +1860,14 @@ export class CreateOperation {
     // statement; a `recoverableUniqueError` dialect (MySQL) has no leaf, so each
     // per-row statement carries the savepoint-wrapped `onUniqueConflict: "skip"`
     // executor effect — exactly as the root `createMany` (ATOM “Bulk specializations”).
-    const sharedPolymorphicStorage =
-      relation.kind === "polymorphicChildHeldToMany"
-        ? resolvePolymorphicStorageValue(
-            this.engine,
-            this.childPolymorphicStorage(input.self, relation),
-            undefined,
-            "create"
-          )
-        : undefined;
+    const sharedPolymorphicStorage = isPolymorphicChildHeldRelation(relation)
+      ? resolvePolymorphicStorageValue(
+          this.engine,
+          this.childPolymorphicStorage(input.self, relation),
+          undefined,
+          "create"
+        )
+      : undefined;
     const plan = buildCreateManyPlan(
       childScope,
       { data: rows, skipDuplicates },
@@ -1932,7 +1936,7 @@ export class CreateOperation {
 
   private childPolymorphicStorage(
     self: RecordIdentity,
-    relation: PolymorphicChildHeldToMany
+    relation: BoundPolymorphicChildHeldRelation
   ): Extract<
     PolymorphicStorageValue<FinalReferenceSource>,
     { kind: "linked" }
@@ -2782,7 +2786,7 @@ type ChildConnectConfig = ChildConnectContext &
         readonly fkAssign: Record<string, unknown>;
       }
     | {
-        readonly relation: PolymorphicChildHeldToMany;
+        readonly relation: BoundPolymorphicChildHeldRelation;
         readonly polymorphicStorage: Extract<
           PolymorphicStorageValue<FinalReferenceSource>,
           { kind: "linked" }

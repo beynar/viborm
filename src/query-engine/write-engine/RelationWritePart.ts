@@ -5,6 +5,7 @@ import type {
   ChildHeldToMany,
   ChildHeldToOne,
   PolymorphicChildHeldToMany,
+  PolymorphicChildHeldToOne,
 } from "../builders/relation-data-builder";
 import type {
   NestedUpdateManyInput,
@@ -105,6 +106,7 @@ import {
 type ChildHeldRelation =
   | ChildHeldToOne
   | ChildHeldToMany
+  | PolymorphicChildHeldToOne
   | PolymorphicChildHeldToMany;
 
 interface RelationWriteContext {
@@ -1019,6 +1021,7 @@ interface WritePartBase {
   readonly childScope: QueryScope;
   readonly childPrimaryKey: string;
   readonly parentId: FinalReferenceSource;
+  readonly membershipReadSource?: FinalReferenceSource;
   readonly txMode: boolean;
   /** Compiler dependency for an inverse upsert's relation-bearing create arm. */
   readonly recordCompilers: RecordCompilerSeam;
@@ -1212,7 +1215,8 @@ export function buildToManySetPart(
   membershipReadSource?: FinalReferenceSource
 ): RelationSetPart {
   const requiredFields = requiredForeignKeyFields(base.relation);
-  const readSource = membershipReadSource ?? base.parentId;
+  const readSource =
+    membershipReadSource ?? base.membershipReadSource ?? base.parentId;
   return new RelationSetPart(base.scope, {
     engine: base.engine,
     childScope: base.childScope,
@@ -1246,7 +1250,7 @@ function partConfig(
     membership: bindCorrelatedRelationMembership(
       base.relation,
       planningSourceFromFinal(
-        base.parentId,
+        base.membershipReadSource ?? base.parentId,
         base.relation.relationInfo.name,
         kind
       ),

@@ -25,6 +25,7 @@ const polymorphicWriteSchema = (() => {
       id: s.int().id().increment(),
       name: s.string(),
       entries: s.oneToMany(() => comment).name("boardEntry"),
+      featuredEntries: s.oneToMany(() => featuredComment).name("featuredBoard"),
       posts: s.oneToMany(() => post).name("boardPost"),
     })
     .map("poly_write_boards");
@@ -42,6 +43,10 @@ const polymorphicWriteSchema = (() => {
         .optional()
         .name("boardPost"),
       comments: s.oneToMany(() => comment).name("commentable"),
+      featuredComment: s
+        .oneToOne(() => featuredComment)
+        .name("featuredCommentable")
+        .optional(),
       requiredComments: s.oneToMany(() => requiredComment).name("subject"),
     })
     .unique(["slug", "title"])
@@ -52,6 +57,10 @@ const polymorphicWriteSchema = (() => {
       id: s.int().id().increment(),
       slug: s.string().unique(),
       title: s.string(),
+      featuredComment: s
+        .oneToOne(() => featuredComment)
+        .name("featuredCommentable")
+        .optional(),
     })
     .map("poly_write_videos");
 
@@ -98,7 +107,34 @@ const polymorphicWriteSchema = (() => {
     })
     .map("poly_write_required_comments");
 
-  return { board, post, video, comment, requiredComment };
+  const featuredComment = s
+    .model({
+      id: s.int().id().increment(),
+      code: s.string().unique(),
+      body: s.string(),
+      boardId: s.int().nullable(),
+      board: s
+        .manyToOne(() => board)
+        .fields("boardId")
+        .references("id")
+        .name("featuredBoard")
+        .optional(),
+      commentable: s
+        .polymorphic(
+          { post: () => post, video: () => video },
+          {
+            values: {
+              post: "featured.post.v1",
+              video: "featured.video.v1",
+            },
+          }
+        )
+        .name("featuredCommentable")
+        .optional(),
+    })
+    .map("poly_write_featured_comments");
+
+  return { board, post, video, comment, requiredComment, featuredComment };
 })();
 
 type PolymorphicWriteFamily = PGliteSchemaFamily<typeof polymorphicWriteSchema>;
@@ -266,6 +302,277 @@ function registerPolymorphicWriteBehavior(
 ): void {
   describe(`polymorphic writes (${name})`, () => {
     const getFamily = usePGliteSchemaFamily(polymorphicWriteSchema, mode);
+
+    test("singular inverse reads and creates exact discriminator memberships", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: {
+          slug: "featured-post",
+          title: "Featured post",
+          featuredComment: {
+            create: { code: "post-feature", body: "post comment" },
+          },
+        },
+        include: { featuredComment: true },
+      });
+      const video = await client.video.create({
+        data: {
+          slug: "featured-video",
+          title: "Featured video",
+          featuredComment: {
+            create: { code: "video-feature", body: "video comment" },
+          },
+        },
+        include: { featuredComment: true },
+      });
+
+      expect(post.featuredComment).toMatchObject({ body: "post comment" });
+      expect(video.featuredComment).toMatchObject({ body: "video comment" });
+      expect(post.id).toBe(video.id);
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: { body: "post comment" } });
+    });
+
+    test("singular inverse reuses connect, update, upsert, and disconnect", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { slug: "singular-owner", title: "Owner" },
+      });
+      await client.featuredComment.create({
+        data: { code: "adopt-me", body: "unattached" },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: { featuredComment: { connect: { code: "adopt-me" } } },
+      });
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          featuredComment: {
+            update: {
+              body: "updated",
+              board: {
+                connect: {
+                  id: (
+                    await client.board.create({
+                      data: { name: "nested selected update" },
+                    })
+                  ).id,
+                },
+              },
+            },
+          },
+        },
+      });
+      expect(
+        await client.featuredComment.findUniqueOrThrow({
+          where: { code: "adopt-me" },
+          include: { board: true },
+        })
+      ).toMatchObject({
+        body: "updated",
+        board: { name: "nested selected update" },
+      });
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          featuredComment: {
+            upsert: {
+              create: { code: "unused", body: "unused" },
+              update: { body: "upserted" },
+            },
+          },
+        },
+      });
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: { body: "upserted" } });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: { featuredComment: { disconnect: true } },
+      });
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: null });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          featuredComment: {
+            upsert: {
+              create: { code: "created-by-upsert", body: "created" },
+              update: { body: "not reached" },
+            },
+          },
+        },
+      });
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: { body: "created" } });
+    });
+
+    test("singular inverse rejects a second occupant without partial effects", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { slug: "occupied-owner", title: "Owner" },
+      });
+      const first = await client.featuredComment.create({
+        data: { code: "first-occupant", body: "first" },
+      });
+      const second = await client.featuredComment.create({
+        data: { code: "second-occupant", body: "second" },
+      });
+      await client.post.update({
+        where: { id: post.id },
+        data: { featuredComment: { connect: { id: first.id } } },
+      });
+
+      await expect(
+        client.post.update({
+          where: { id: post.id },
+          data: { featuredComment: { connect: { id: second.id } } },
+        })
+      ).rejects.toMatchObject({ name: "UniqueConstraintError" });
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: { id: first.id } });
+    });
+
+    test("singular inverse connect-or-create and delete keep ordinary to-one semantics", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: {
+          slug: "coc-missing-owner",
+          title: "Missing arm",
+          featuredComment: {
+            connectOrCreate: {
+              where: { code: "created-by-coc" },
+              create: { code: "created-by-coc", body: "created" },
+            },
+          },
+        },
+        include: { featuredComment: true },
+      });
+      expect(post.featuredComment).toMatchObject({ body: "created" });
+
+      const video = await client.video.create({
+        data: { slug: "coc-found-owner", title: "Found arm" },
+      });
+      const existing = await client.featuredComment.create({
+        data: { code: "found-by-coc", body: "existing" },
+      });
+      await client.video.update({
+        where: { id: video.id },
+        data: {
+          featuredComment: {
+            connectOrCreate: {
+              where: { code: "found-by-coc" },
+              create: { code: "unused-coc", body: "unused" },
+            },
+          },
+        },
+      });
+      expect(
+        await client.video.findUniqueOrThrow({
+          where: { id: video.id },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: { id: existing.id } });
+
+      await client.video.update({
+        where: { id: video.id },
+        data: { featuredComment: { delete: true } },
+      });
+      await expect(
+        client.featuredComment.findUniqueOrThrow({ where: { id: existing.id } })
+      ).rejects.toMatchObject({ name: "NotFoundError" });
+    });
+
+    test("singular inverse writes the transitioned parent identity", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { slug: "transition-owner", title: "Transition" },
+      });
+      const nextId = post.id + 100;
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          id: nextId,
+          featuredComment: {
+            create: { code: "transition-child", body: "after" },
+          },
+        },
+      });
+
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: nextId },
+          include: { featuredComment: true },
+        })
+      ).toMatchObject({ featuredComment: { body: "after" } });
+      const stored = await client.$queryRawUnsafe<{
+        commentable_type: string;
+        commentable_id: number;
+      }>(
+        'SELECT "commentable_type", "commentable_id" FROM "poly_write_featured_comments" WHERE "code" = $1',
+        "transition-child"
+      );
+      expect(stored).toEqual([
+        { commentable_type: "featured.post.v1", commentable_id: nextId },
+      ]);
+    });
+
+    test("direct createMany obeys singular membership uniqueness and skip semantics", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { slug: "bulk-singular-owner", title: "Bulk" },
+      });
+
+      await client.featuredComment.createMany({
+        data: [
+          {
+            code: "bulk-first",
+            body: "first",
+            commentable: {
+              connect: { type: "post", where: { id: post.id } },
+            },
+          },
+          {
+            code: "bulk-second",
+            body: "second",
+            commentable: {
+              connect: { type: "post", where: { id: post.id } },
+            },
+          },
+        ],
+        skipDuplicates: true,
+      });
+
+      expect(
+        await client.featuredComment.findMany({
+          where: { code: { in: ["bulk-first", "bulk-second"] } },
+        })
+      ).toHaveLength(1);
+    });
 
     test("direct create connects an existing target and creates a fresh target", async () => {
       const { client, ...family } = getFamily();
@@ -1301,6 +1608,112 @@ function registerPolymorphicWriteBehavior(
           body: "concurrent winner",
           commentable: { type: "post", data: { id: parent.id } },
         });
+      });
+
+      test("singular inverse update rejects a replacement that reused the captured id", async () => {
+        const family = getFamily();
+        const parent = await family.client.post.create({
+          data: {
+            id: 647,
+            slug: "singular-replaced-member",
+            title: "Singular replaced member",
+            featuredComment: {
+              create: {
+                id: 648,
+                code: "singular-captured",
+                body: "captured member",
+              },
+            },
+          },
+        });
+
+        await expect(
+          executePostUpdateAfterPlanning(
+            family,
+            async () => {
+              await family.client.featuredComment.delete({
+                where: { id: 648 },
+              });
+              await family.client.featuredComment.create({
+                data: {
+                  id: 648,
+                  code: "singular-replacement",
+                  body: "replacement row",
+                },
+              });
+            },
+            {
+              where: { id: parent.id },
+              data: {
+                featuredComment: { update: { body: "must not follow" } },
+              },
+            }
+          )
+        ).rejects.toThrow(
+          "Cannot update relation 'featuredComment': target record was not found for this parent."
+        );
+        await expect(
+          family.client.featuredComment.findUniqueOrThrow({
+            where: { id: 648 },
+          })
+        ).resolves.toMatchObject({ body: "replacement row" });
+      });
+
+      test("singular inverse slot occupation is a non-retryable unique conflict", async () => {
+        const family = getFamily();
+        const parent = await family.client.post.create({
+          data: {
+            id: 649,
+            slug: "singular-slot-race",
+            title: "Singular slot race",
+          },
+        });
+
+        await expect(
+          executePostUpdateAfterPlanning(
+            family,
+            async () => {
+              await family.client.featuredComment.create({
+                data: {
+                  id: 650,
+                  code: "singular-race-winner",
+                  body: "winner",
+                  commentable: {
+                    connect: { type: "post", where: { id: parent.id } },
+                  },
+                },
+              });
+            },
+            {
+              where: { id: parent.id },
+              data: {
+                featuredComment: {
+                  connectOrCreate: {
+                    where: { code: "singular-race-loser" },
+                    create: {
+                      id: 651,
+                      code: "singular-race-loser",
+                      body: "loser",
+                    },
+                  },
+                },
+              },
+            }
+          )
+        ).rejects.toMatchObject({ name: "UniqueConstraintError" });
+        await expect(
+          family.client.post.findUniqueOrThrow({
+            where: { id: parent.id },
+            include: { featuredComment: true },
+          })
+        ).resolves.toMatchObject({
+          featuredComment: { code: "singular-race-winner" },
+        });
+        await expect(
+          family.client.featuredComment.findMany({
+            where: { code: "singular-race-loser" },
+          })
+        ).resolves.toEqual([]);
       });
     }
 

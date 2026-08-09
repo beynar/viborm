@@ -211,6 +211,7 @@ export class OwnWriteRelation {
     if (
       this.boundRelation.kind === "parentHeldToOne" ||
       this.boundRelation.kind === "childHeldToOne" ||
+      this.boundRelation.kind === "polymorphicChildHeldToOne" ||
       !where
     ) {
       const unknown = unknownConstraint(this.target);
@@ -305,6 +306,7 @@ export class OwnWriteRelation {
     return (
       this.boundRelation.kind === "childHeldToOne" ||
       this.boundRelation.kind === "childHeldToMany" ||
+      this.boundRelation.kind === "polymorphicChildHeldToOne" ||
       this.boundRelation.kind === "polymorphicChildHeldToMany"
     );
   }
@@ -315,7 +317,8 @@ export class OwnWriteRelation {
   ): ReturnType<typeof getRelationMembershipEndpoints> {
     const currentConstraint =
       access === "read" &&
-      this.boundRelation.kind === "polymorphicChildHeldToMany"
+      (this.boundRelation.kind === "polymorphicChildHeldToOne" ||
+        this.boundRelation.kind === "polymorphicChildHeldToMany")
         ? this.node.currentReadConstraint
         : this.node.currentConstraint;
     return getRelationMembershipEndpoints(

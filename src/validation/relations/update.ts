@@ -31,10 +31,13 @@ import {
  * `where` is a NON-unique `WhereInput` — a to-one has exactly one connected record,
  * so this filters that record rather than selecting among candidates.
  */
-type ToOneUpdateWrapperSchema<S extends RelationState> = V.Object<
+type ToOneUpdateWrapperSchema<
+  S extends RelationState,
+  UpdateSchema extends V.Object<any, any>,
+> = V.Object<
   {
     where: () => GetTargetSchemas<S>["core"]["where"];
-    data: () => GetTargetSchemas<S>["core"]["update"];
+    data: () => UpdateSchema;
   },
   { atLeast: ["data"] }
 >;
@@ -54,27 +57,46 @@ type ToOneUpdateWrapperSchema<S extends RelationState> = V.Object<
  * envelope's shape is also how bare data spells that field, and only the caller can
  * say which was meant.
  */
-export type ToOneUpdateTargetSchema<S extends RelationState> = V.Union<
-  readonly [ToOneUpdateWrapperSchema<S>, GetTargetSchemas<S>["core"]["update"]]
->;
+export type ToOneUpdateTargetWithDataSchema<
+  S extends RelationState,
+  UpdateSchema extends V.Object<any, any>,
+> = V.Union<readonly [ToOneUpdateWrapperSchema<S, UpdateSchema>, UpdateSchema]>;
 
-const toOneUpdateTargetFactory = <
+export type ToOneUpdateTargetSchema<S extends RelationState> =
+  ToOneUpdateTargetWithDataSchema<S, GetTargetSchemas<S>["core"]["update"]>;
+
+export function toOneUpdateTargetFactory<
   S extends RelationState,
   T extends SchemaGetter<S>,
+>(targetSchemas: T): ToOneUpdateTargetSchema<S>;
+export function toOneUpdateTargetFactory<
+  S extends RelationState,
+  T extends SchemaGetter<S>,
+  UpdateSchema extends V.Object<any, any>,
 >(
-  targetSchemas: T
-): ToOneUpdateTargetSchema<S> => {
+  targetSchemas: T,
+  getUpdateSchema: () => UpdateSchema
+): ToOneUpdateTargetWithDataSchema<S, UpdateSchema>;
+export function toOneUpdateTargetFactory<
+  S extends RelationState,
+  T extends SchemaGetter<S>,
+  UpdateSchema extends V.Object<any, any>,
+>(
+  targetSchemas: T,
+  getUpdateSchema?: () => UpdateSchema
+): ToOneUpdateTargetWithDataSchema<S, UpdateSchema> {
+  const updateSchema = () => getUpdateSchema?.() ?? targetSchemas().core.update;
   const wrapper = v.object(
     {
       where: () => targetSchemas().core.where,
-      data: () => targetSchemas().core.update,
+      data: updateSchema,
     },
     { atLeast: ["data"] }
   );
   // The bare arm is reached through a thunk: building it here would resolve the
   // target model's schemas while this one is still under construction, which never
   // terminates for a self-referential relation.
-  const bare = v.lazy(() => targetSchemas().core.update);
+  const bare = v.lazy(updateSchema);
   const members: readonly VibSchema<unknown, unknown>[] = [
     wrapper as unknown as VibSchema<unknown, unknown>,
     bare as unknown as VibSchema<unknown, unknown>,
@@ -88,7 +110,7 @@ const toOneUpdateTargetFactory = <
   let ownsDataKey: boolean | undefined;
   const targetOwnsDataField = (): boolean => {
     if (ownsDataKey === undefined) {
-      ownsDataKey = Object.hasOwn(targetSchemas().core.update.entries, "data");
+      ownsDataKey = Object.hasOwn(updateSchema().entries, "data");
     }
     return ownsDataKey;
   };
@@ -105,13 +127,15 @@ const toOneUpdateTargetFactory = <
     const parsed = validateSchema(bare, value);
     return parsed.issues
       ? parsed
-      : ok(toOneUpdateEnvelope(parsed.value, ownsData));
+      : ok(
+          toOneUpdateEnvelope(parsed.value as Record<string, unknown>, ownsData)
+        );
   });
   // Mirror `v.union`'s introspection surface so JSON-schema conversion sees the
   // alternatives it expects (the same shape `toOneFilterFactory` publishes).
   (schema as { options?: unknown }).options = members;
-  return schema as unknown as ToOneUpdateTargetSchema<S>;
-};
+  return schema as unknown as ToOneUpdateTargetWithDataSchema<S, UpdateSchema>;
+}
 
 /**
  * To-one update: { create?, connect?, connectOrCreate?, update?, upsert?, disconnect?, delete? }

@@ -7,9 +7,16 @@ import {
   validateSchemaOrThrow,
 } from "@src/index";
 import { s } from "@src/schema";
+import { validatePolymorphicSchemaOrThrow } from "@src/schema/validation";
 import { describe, expect, it } from "vitest";
 
 describe("SchemaValidator boundaries", () => {
+  it("skips the polymorphic-only definition gate for an ordinary schema", () => {
+    const user = s.model({ id: s.string().id() });
+
+    expect(() => validatePolymorphicSchemaOrThrow({ user })).not.toThrow();
+  });
+
   it("registers one model through the fluent API", () => {
     const user = s.model({ id: s.string().id() });
     const validator = new SchemaValidator();

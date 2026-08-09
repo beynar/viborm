@@ -6,8 +6,8 @@
 
 import type { Model } from "@schema/model";
 import {
-  getPolymorphicInverseBinding,
   type AnyRelation,
+  getPolymorphicInverseBinding,
   type PolymorphicStorage,
   type ReferentialAction,
 } from "@schema/relation";
@@ -48,13 +48,27 @@ export interface ChildHeldToMany extends BoundForeignKeyRelation {
   readonly kind: "childHeldToMany";
 }
 
-export interface PolymorphicChildHeldToMany extends BoundForeignKeyRelation {
-  readonly kind: "polymorphicChildHeldToMany";
+export interface BoundPolymorphicChildHeldRelation
+  extends BoundForeignKeyRelation {
   readonly foreignFields: readonly [string];
   readonly referencedFields: readonly [string];
   readonly storage: PolymorphicStorage;
   readonly storedType: string;
 }
+
+export interface PolymorphicChildHeldToOne
+  extends BoundPolymorphicChildHeldRelation {
+  readonly kind: "polymorphicChildHeldToOne";
+}
+
+export interface PolymorphicChildHeldToMany
+  extends BoundPolymorphicChildHeldRelation {
+  readonly kind: "polymorphicChildHeldToMany";
+}
+
+export type PolymorphicChildHeldRelation =
+  | PolymorphicChildHeldToOne
+  | PolymorphicChildHeldToMany;
 
 export interface JunctionRelation extends BoundRelationBase {
   readonly kind: "junction";
@@ -64,8 +78,18 @@ export type BoundRelation =
   | ParentHeldToOne
   | ChildHeldToOne
   | ChildHeldToMany
+  | PolymorphicChildHeldToOne
   | PolymorphicChildHeldToMany
   | JunctionRelation;
+
+export function isPolymorphicChildHeldRelation(
+  relation: BoundRelation
+): relation is PolymorphicChildHeldRelation {
+  return (
+    relation.kind === "polymorphicChildHeldToOne" ||
+    relation.kind === "polymorphicChildHeldToMany"
+  );
+}
 
 /** Bind one relation to its structural position relative to the current model. */
 export function bindRelation(
@@ -123,8 +147,10 @@ export function bindRelation(
 function bindPolymorphicInverse(
   ctx: QueryScope,
   relationInfo: RelationInfo
-): PolymorphicChildHeldToMany | undefined {
-  if (relationInfo.type !== "oneToMany") return undefined;
+): PolymorphicChildHeldToOne | PolymorphicChildHeldToMany | undefined {
+  if (relationInfo.type !== "oneToOne" && relationInfo.type !== "oneToMany") {
+    return undefined;
+  }
   const binding = getPolymorphicInverseBinding(
     relationInfo.targetModel,
     ctx.model,
@@ -136,14 +162,16 @@ function bindPolymorphicInverse(
     binding.relationKey
   );
   const member = storage?.members.get(binding.publicType);
-  if (!storage || !member) {
+  if (!(storage && member)) {
     throw new QueryEngineError(
       `Polymorphic inverse '${relationInfo.name}' has no resolved storage binding.`
     );
   }
 
   return {
-    kind: "polymorphicChildHeldToMany",
+    kind: relationInfo.isToOne
+      ? "polymorphicChildHeldToOne"
+      : "polymorphicChildHeldToMany",
     relationInfo,
     sourceModel: ctx.model,
     foreignFields: [storage.idColumn.name],

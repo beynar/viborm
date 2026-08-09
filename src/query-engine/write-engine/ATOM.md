@@ -217,6 +217,7 @@ type BoundRelation =
   | ParentHeldToOne
   | ChildHeldToOne
   | ChildHeldToMany
+  | PolymorphicChildHeldToOne
   | PolymorphicChildHeldToMany
   | JunctionRelation;
 ```
@@ -225,7 +226,8 @@ Classification is ordered:
 
 1. `manyToMany` is `junction`;
 2. a relation whose current model holds the FK is `parentHeldToOne`;
-3. a resolved polymorphic inverse is `polymorphicChildHeldToMany`;
+3. a resolved polymorphic inverse is `polymorphicChildHeldToOne` for a
+   fields-less `oneToOne`, otherwise `polymorphicChildHeldToMany`;
 4. an ordinary child-held to-one is `childHeldToOne`;
 5. the remaining ordinary child-held relation is `childHeldToMany`.
 
@@ -239,7 +241,7 @@ A bound FK relation carries:
 - ordered referenced fields;
 - the `onUpdate` action.
 
-The polymorphic child-held variant additionally carries its private storage and
+The polymorphic child-held variants additionally carry their private storage and
 fixed stored discriminator. Its one identity field references the parent field
 at the same index. It expresses a conjunction, not two independent links:
 
@@ -251,6 +253,11 @@ AND child.privateType = storedDiscriminator
 The discriminator participates in membership scope equality, OwnWrite
 footprints, read correlation, target probes, set departure, and bulk predicates.
 A same-id row with another discriminator is a different membership.
+
+Cardinality remains an ordinary relation concern. The singular variant selects
+one member, uses to-one operation arity, and relies on the relation-wide unique
+storage index for occupied-slot enforcement. The storage predicate and value
+lowering remain shared with the to-many variant.
 
 It does not carry:
 

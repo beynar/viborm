@@ -5,7 +5,9 @@ import {
   bindRelation,
   type ChildHeldToMany,
   type ChildHeldToOne,
+  type PolymorphicChildHeldRelation,
   type PolymorphicChildHeldToMany,
+  type PolymorphicChildHeldToOne,
 } from "../builders/relation-data-builder";
 import type {
   RelationMutationEntry,
@@ -226,7 +228,11 @@ function foldJunctionChildHeldEntry(args: {
   recordCompilers: RecordCompilerSeam;
   childScope: QueryScope;
   childName: string;
-  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldToMany;
+  relation:
+    | ChildHeldToOne
+    | ChildHeldToMany
+    | PolymorphicChildHeldToOne
+    | PolymorphicChildHeldToMany;
   writeBase: Parameters<typeof buildToManyUpdateParts>[0];
   scope: StepScope;
   engine: QueryEngine;
@@ -249,7 +255,9 @@ function foldJunctionChildHeldEntry(args: {
     txMode,
     parts,
   } = args;
-  const isInverseToOne = relation.kind === "childHeldToOne";
+  const isInverseToOne =
+    relation.kind === "childHeldToOne" ||
+    relation.kind === "polymorphicChildHeldToOne";
   const relationName = relation.relationInfo.name;
   const push = (built: readonly Part[]) => parts.push(...built);
 
@@ -396,7 +404,10 @@ function foldJunctionChildHeldEntry(args: {
     case "createMany": {
       // Literal parents inject now; planned parents inject the captured value at
       // compile. Skip semantics are independent of that provenance.
-      if (relation.kind === "polymorphicChildHeldToMany") {
+      if (
+        relation.kind === "polymorphicChildHeldToOne" ||
+        relation.kind === "polymorphicChildHeldToMany"
+      ) {
         parts.push(
           buildPolymorphicParentCreateManyPart({
             scope,
@@ -629,7 +640,7 @@ export function buildPolymorphicParentCreateManyPart(input: {
   engine: QueryEngine;
   childScope: QueryScope;
   childName: string;
-  relation: PolymorphicChildHeldToMany;
+  relation: PolymorphicChildHeldRelation;
   parentId: FinalReferenceSource;
   createManyEntry: Extract<RelationMutationEntry, { kind: "createMany" }>;
 }): Part {

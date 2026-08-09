@@ -17,14 +17,15 @@ export {
   getPolymorphicInverseBinding,
   getPolymorphicInverseCandidates,
   isPolymorphicRelation,
-  PolymorphicRelation,
-  polymorphic,
-  type PolymorphicRelationState,
   type PolymorphicInverseBinding,
+  type PolymorphicInverseCardinality,
+  PolymorphicRelation,
+  type PolymorphicRelationState,
   type PolymorphicStorage,
   type PolymorphicStorageColumn,
   type PolymorphicStorageMember,
   type PolymorphicTargetGetters,
+  polymorphic,
 } from "./polymorphic";
 export { oneToMany, ToManyRelation } from "./to-many";
 // =============================================================================

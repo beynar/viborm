@@ -253,7 +253,8 @@ export class OwnWriteSteps {
   ): void {
     if (
       this.relation.boundRelation.kind === "parentHeldToOne" ||
-      this.relation.boundRelation.kind === "childHeldToOne"
+      this.relation.boundRelation.kind === "childHeldToOne" ||
+      this.relation.boundRelation.kind === "polymorphicChildHeldToOne"
     ) {
       const [input] = entry.items;
       if (!input) return;
@@ -359,11 +360,10 @@ function processConnectOrCreateBranches(
 ): void {
   const entryLedger = relation.ledger.fork();
   const priorItems: ConnectOrCreateAnalysis[] = [];
-  for (const {
-    input,
-    target,
-    repeatedSelector,
-  } of prepareConnectOrCreateItems(relation, entry.items)) {
+  for (const { input, target, repeatedSelector } of prepareConnectOrCreateItems(
+    relation,
+    entry.items
+  )) {
     const selector = assertConnectOrCreateDecision(
       relation,
       entryLedger,
@@ -586,7 +586,10 @@ function assertConnectOrCreateDecision(
   relation: OwnWriteRelation,
   entryLedger: OwnWriteLedger,
   priorItems: readonly ConnectOrCreateAnalysis[],
-  input: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>["items"][number],
+  input: Extract<
+    RelationMutationEntry,
+    { kind: "connectOrCreate" }
+  >["items"][number],
   target: TargetConstraint,
   repeatedSelector: boolean
 ): TargetConstraint {

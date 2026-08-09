@@ -78,16 +78,19 @@ once at its trust boundary and pass transformed meaning downstream.
 ### Relation topology
 
 `bindRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
-`childHeldToMany`, `polymorphicChildHeldToMany`, or `junction`.
+`childHeldToMany`, `polymorphicChildHeldToOne`,
+`polymorphicChildHeldToMany`, or `junction`.
 `BoundRelation` carries ordered topology only. It does not carry scopes,
 runtime identities, value sources, transition state, SQL, or branch policy.
 Bind at the first topology decision so error order and untaken arm behavior do
 not move.
 
-A `polymorphicChildHeldToMany` is a fixed inverse topology. It carries the
-private type/id storage, the inverse's stored discriminator, and the one parent
-field the private identity references. Its physical membership is exactly
-`child.id = parent.referenced AND child.type = storedType`.
+A polymorphic child-held relation is a fixed inverse topology. Both cardinality
+variants carry the private type/id storage, the inverse's stored discriminator,
+and the one parent field the private identity references. Their physical
+membership is exactly `child.id = parent.referenced AND child.type = storedType`.
+The `ToOne` variant changes public arity and operation shape; it does not create
+another storage or execution owner.
 
 Direct polymorphic payloads remain separate. After schema transformation,
 `ResolvedPolymorphicMutation` selects one concrete direct target or a targetless
@@ -131,10 +134,10 @@ selection builder. It emits one SQL statement and no client-side per-row query.
 Ordinary relations retain their existing LATERAL/correlated capability path.
 
 Direct filters are type-correlated: `type`, `type + is`, `type + isNot`, or
-`null` for an optional field. An inverse `oneToMany` uses the central
-correlation owner to add both `child.<private id> = parent.<referenced field>`
-and `child.<private type> = <fixed stored discriminator>` to include,
-`some`/`every`/`none`, and count SQL.
+`null` for an optional field. Both inverse cardinalities use the central
+correlation owner to add `child.<private id> = parent.<referenced field>` and
+`child.<private type> = <fixed stored discriminator>`. The ordinary to-one or
+to-many relation builder then owns result arity, filters, and count behavior.
 
 `CreateOperation` owns direct connect/create/connect-or-create storage on a
 fresh owner and fresh inverse targets. `RecordUpdateCompiler` owns direct
@@ -159,6 +162,11 @@ discriminator is foreign and fails V7001. During a parent referenced-value
 transition, membership reads use the old value and create/adopt writes use the
 new value. Existing members are not rewritten because the database has no
 polymorphic foreign key or automatic referential action.
+
+A singular inverse reuses the ordinary child-held-to-one Parts and record
+compilers. The composite storage index supplies portable occupied-slot
+uniqueness. A slot collision is a genuine unique conflict, not a retryable
+missing-target race.
 
 Strict results keep a separate polymorphic expected-shape map and parser. The
 existing adapter/driver relation decode chain receives result kind

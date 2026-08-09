@@ -1,10 +1,11 @@
 # Polymorphic Relations in VibORM
 
-> **Revision 6 — 2026-08-08**
+> **Revision 7 — 2026-08-09**
 >
 > This document describes the current implementation. A polymorphic inverse is
-> now a first-class `BoundRelation`, and inverse `oneToMany` writes use the same
-> relation Parts and record compilers as ordinary child-held relations.
+> now a first-class `BoundRelation`. Inverse `oneToMany` and fields-less
+> `oneToOne` relations use the same relation Parts and record compilers as their
+> ordinary child-held counterparts.
 >
 > **Implementation contract:**
 > [`polymorphic-relations-implementation-plan.md`](./polymorphic-relations-implementation-plan.md)
@@ -35,8 +36,8 @@ The query engine represents the feature with five distinct facts:
    target, or an optional direct disconnect.
 4. `ResolvedPolymorphicEdge` is the concrete direct target selected for one
    compilation.
-5. `PolymorphicChildHeldToMany` is the bound topology of an inverse relation
-   whose child owns the private pair.
+5. `PolymorphicChildHeldToOne | PolymorphicChildHeldToMany` is the bound
+   topology of an inverse relation whose child owns the private pair.
 
 The fifth fact is the important compression. Inverse reads, OwnWrite analysis,
 and inverse mutation emitters no longer rediscover a special inverse binding.
@@ -100,7 +101,8 @@ commentable: s
 
 ### 2.2 Inverse relation
 
-The inverse is declared as an ordinary `oneToMany` relation:
+The inverse is declared as an ordinary `oneToMany` relation when a target owns
+several children:
 
 ```ts
 const post = s.model({
@@ -118,8 +120,23 @@ member of the selected polymorphic relation. Two public discriminator keys may
 target the same model for direct-only use, but that shape cannot provide an
 unambiguous inverse.
 
-Inverse `oneToOne` is not supported. Portable uniqueness across a discriminator
-and several target tables needs a separate design.
+A fields-less `oneToOne` declares a singular inverse:
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  featuredComment: s
+    .oneToOne(() => comment)
+    .name("commentableTarget")
+    .optional(),
+});
+```
+
+Inverse cardinality belongs to the complete private storage pair. All declared
+inverses must agree; mixed `oneToOne` and `oneToMany` declarations fail schema
+validation. Missing inverses for some variants are allowed, but the resolved
+cardinality still applies to those discriminators. A fields-bearing `oneToOne`
+remains an ordinary FK relation.
 
 ### 2.3 Model-field taxonomy
 
@@ -203,7 +220,9 @@ target schema.
 The direct relation stores one membership on its owner. With an inverse
 `oneToMany`, it is the polymorphic equivalent of an ordinary parent-held
 `manyToOne`: many owners may select the same target, while each owner stores at
-most one `(type, identity)` pair.
+most one `(type, identity)` pair. With an inverse `oneToOne`, the direct API is
+unchanged but the composite pair is unique, so at most one owner may select an
+exact target.
 
 ### Create
 
@@ -341,21 +360,42 @@ other mutation verbs remain unavailable in root bulk rows. A driver without
 polymorphic membership because it cannot observe which attempted rows were
 inserted after the target-resolution reads.
 
+### 5.5 Singular inverse surface
+
+An inverse `oneToOne` returns one target or `null`. Its create payload supports
+`create`, `connect`, and `connectOrCreate`. Its update payload additionally
+supports correlated `update` and `upsert`; optional direct storage adds
+`disconnect` and `delete`. Plural operations are not exposed.
+
+The singular path reuses ordinary child-held-to-one selection and record
+compilation. Exact polymorphic membership still owns the discriminator and
+identity predicate. A relation-wide unique composite storage index prevents a
+second owner from occupying the same exact target slot.
+
 ## 6. Bound inverse topology
 
 The inverse relation is bound once at the first topology decision:
 
 ```ts
-interface PolymorphicChildHeldToMany extends BoundForeignKeyRelation {
-  readonly kind: "polymorphicChildHeldToMany";
+interface BoundPolymorphicChildHeldRelation extends BoundForeignKeyRelation {
   readonly foreignFields: readonly [string];
   readonly referencedFields: readonly [string];
   readonly storage: PolymorphicStorage;
   readonly storedType: string;
 }
+
+interface PolymorphicChildHeldToOne
+  extends BoundPolymorphicChildHeldRelation {
+  readonly kind: "polymorphicChildHeldToOne";
+}
+
+interface PolymorphicChildHeldToMany
+  extends BoundPolymorphicChildHeldRelation {
+  readonly kind: "polymorphicChildHeldToMany";
+}
 ```
 
-For this variant:
+For both variants:
 
 ```text
 foreignFields     = [storage.idColumn.name]
@@ -444,7 +484,8 @@ flowchart LR
 Ownership is precise:
 
 - `RelationMutationProgram` describes what the user requested.
-- `PolymorphicChildHeldToMany` describes where and how membership is stored.
+- The bound polymorphic child-held variant describes where membership is stored
+  and whether the public inverse is singular or plural.
 - Relation Parts own probes, membership, found/missing decisions, guards, race
   pins, and standalone edge writes.
 - `CreateOperation` owns fresh child subtrees and receives one
@@ -564,13 +605,18 @@ deletes, connectOrCreate, and upsert. Optional storage also supports disconnect
 and set. Every one of these paths treats `(type, identity)` as one exact
 membership.
 
+A bound inverse `oneToOne` uses the same exact membership owner and the ordinary
+child-held-to-one relation Parts. Its relation-wide unique index supplies the
+occupied-slot guarantee without adding an execution branch or database round
+trip.
+
 ## 15. Remaining limits
 
 The following remain outside the implemented surface:
 
 - target identities must be one scalar field, share one portable `string`,
   `int`, or `bigint` representation, and use no native type override;
-- polymorphic many-to-many and inverse one-to-one;
+- polymorphic many-to-many;
 - inverse binding when one target map names the same model more than once;
 - root `createMany` supports connect-only memberships, not nested creates or
   other relation verbs;
@@ -579,14 +625,8 @@ The following remain outside the implemented surface:
 - untyped filters across all targets and order-by through a direct polymorphic
   target.
 
-These are separate product or storage decisions, not gaps in inverse
-`oneToMany` membership modeling.
-
-A polymorphic one-to-one is physically possible: the owner keeps the same
-single `(type, identity)` pair, and a uniqueness rule on that pair prevents a
-second owner from selecting the target. The remaining work is schema syntax,
-inverse cardinality, validation, and portable uniqueness behavior; the current
-runtime intentionally exposes only the one-to-many inverse.
+These are separate product or storage decisions, not gaps in inverse membership
+modeling.
 
 ## 16. Ownership map
 
@@ -595,7 +635,7 @@ runtime intentionally exposes only the one-to-many inverse.
 | Public targets and stored discriminator values | `src/schema/relation/polymorphic.ts` |
 | Private `(type, identity)` storage | `PolymorphicStorage` |
 | Direct payload-selected target | `ResolvedPolymorphicMutation` / `ResolvedPolymorphicEdge` |
-| Inverse fixed topology | `PolymorphicChildHeldToMany` in `relation-data-builder.ts` |
+| Inverse fixed topology | `PolymorphicChildHeldToOne` / `PolymorphicChildHeldToMany` in `relation-data-builder.ts` |
 | Exact membership scope | `RelationMembership.ts` |
 | Exact SQL membership predicate | `builders/correlation-utils.ts` |
 | User mutation meaning | `RelationMutationProgram` |

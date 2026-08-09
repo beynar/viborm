@@ -12,12 +12,14 @@ import type {
   ResolvedPolymorphicMutation,
 } from "../builders/polymorphic-mutation";
 import {
+  type BoundPolymorphicChildHeldRelation,
   bindRelation,
   buildConnectSubqueryForField,
   type ChildHeldToMany,
   type ChildHeldToOne,
   type ParentHeldToOne,
   type PolymorphicChildHeldToMany,
+  type PolymorphicChildHeldToOne,
 } from "../builders/relation-data-builder";
 import type {
   NormalizedRelationUpsert,
@@ -140,7 +142,10 @@ import {
 } from "./target-projection";
 
 type ExecutionMode = "transaction" | "batch";
-type ChildHeldRelation = OrdinaryChildHeldRelation | PolymorphicChildHeldToMany;
+type ChildHeldRelation =
+  | OrdinaryChildHeldRelation
+  | PolymorphicChildHeldToOne
+  | PolymorphicChildHeldToMany;
 type OrdinaryChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
 
 export interface RecordUpdateCompiler {
@@ -1253,7 +1258,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
 
-    if (relation.kind === "polymorphicChildHeldToMany") {
+    if (
+      relation.kind === "polymorphicChildHeldToOne" ||
+      relation.kind === "polymorphicChildHeldToMany"
+    ) {
       this.interpretPolymorphicChildHeld(input, relation, entries);
       return;
     }
@@ -1285,11 +1293,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // GONE under `delete`, the supplied row ends connected, and the untouched decoy
     // stays untouched. (`delete` + `connectOrCreate` is refused one layer up, by the
     // own-write legality walk, and keeps that refusal.)
-    if (isInverseToOne && kinds.length > 1 && !isVacateThenSupply(kinds)) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ")}.`
-      );
-    }
+    if (isInverseToOne) assertToOneMutationArity(relationName, kinds);
     // Compound foreign keys are per-field (ATOM “Field-bound foreign-key provenance”): every referenced parent
     // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
     // to the locate read's select/outputs so a per-field child part reads or refs
@@ -1424,10 +1428,13 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private interpretPolymorphicChildHeld(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: PolymorphicChildHeldToMany,
+    relation: PolymorphicChildHeldToOne | PolymorphicChildHeldToMany,
     entries: readonly RelationMutationEntry[]
   ): void {
     const relationName = relation.relationInfo.name;
+    const isInverseToOne = relation.kind === "polymorphicChildHeldToOne";
+    const kinds = entries.map((entry) => entry.kind);
+    if (isInverseToOne) assertToOneMutationArity(relationName, kinds);
     const childScope = createQueryScope(
       this.engine.adapter,
       relation.relationInfo.targetModel
@@ -1496,7 +1503,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       childName,
       childScope,
       childPrimaryKey,
-      parentId: parent.read,
+      parentId: parent.write,
+      membershipReadSource: parent.read,
       txMode: input.txMode,
       recordCompilers: this.recordCompilers,
     } as const;
@@ -1554,6 +1562,16 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           );
           break;
         case "upsert":
+          if (isInverseToOne) {
+            const item = entry.items[0];
+            if (!item) {
+              throw new QueryEngineError(
+                `query-engine-v2 internal: inverse to-one upsert on relation '${relationName}' has no item.`
+              );
+            }
+            push([buildInverseToOneUpsertPart(writeBase, item)]);
+            break;
+          }
           push(
             buildCorrelatedToManyUpsertParts(
               input.scope,
@@ -1570,7 +1588,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           );
           break;
         case "update":
-          push(buildToManyUpdateParts(writeBase, entry));
+          push(
+            isInverseToOne
+              ? [buildToOneUpdatePart(writeBase, entry)]
+              : buildToManyUpdateParts(writeBase, entry)
+          );
           break;
         case "updateMany":
           if (!updateManyCarriesRelations(childScope, entry.items)) {
@@ -1578,7 +1600,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           }
           break;
         case "delete":
-          push(buildToManyDeleteParts(writeBase, entry));
+          push(
+            isInverseToOne
+              ? buildToManyDeleteManyParts(writeBase, {
+                  kind: "deleteMany",
+                  filters: [{}],
+                })
+              : buildToManyDeleteParts(writeBase, entry)
+          );
           break;
         case "deleteMany":
           push(buildToManyDeleteManyParts(writeBase, entry));
@@ -1599,7 +1628,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private resolvePolymorphicParent(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: PolymorphicChildHeldToMany
+    relation: BoundPolymorphicChildHeldRelation
   ): {
     readonly read: FinalReferenceSource;
     readonly write: FinalReferenceSource;
@@ -4077,6 +4106,16 @@ function isVacateThenSupply(kinds: readonly string[]): boolean {
     kinds.length === 2 &&
     TO_ONE_VACATE_KINDS.has(kinds[0]!) &&
     TO_ONE_SUPPLY_KINDS.has(kinds[1]!)
+  );
+}
+
+function assertToOneMutationArity(
+  relationName: string,
+  kinds: readonly string[]
+): void {
+  if (kinds.length <= 1 || isVacateThenSupply(kinds)) return;
+  throw new UnsupportedOperationError(
+    `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ")}.`
   );
 }
 

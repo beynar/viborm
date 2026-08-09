@@ -3,7 +3,9 @@ import { Model } from "../../model";
 import {
   generateJunctionFieldName,
   generateJunctionTableName,
+  getPolymorphicInverseBinding,
   getPolymorphicInverseCandidates,
+  type PolymorphicInverseCardinality,
   type PolymorphicStorageMember,
 } from "../../relation";
 import { string } from "../../scalars";
@@ -97,7 +99,7 @@ function junctionPhysicalNames(
       const base = generateJunctionTableName(sourceName, targetName);
       const tableName =
         explicit ??
-        (state.name ?? paired?.name
+        ((state.name ?? paired?.name)
           ? `${base}_${state.name ?? paired?.name}`
           : base);
       names.add(tableName);
@@ -147,9 +149,7 @@ function singlePrimaryKey(
     ([, scalar]) => scalar["~"].state.isId
   );
   if (primaryKeys.length !== 1) return undefined;
-  const primaryKey = primaryKeys[0];
-  if (primaryKey === undefined) return undefined;
-  const [field, scalar] = primaryKey;
+  const [field, scalar] = primaryKeys[0]!;
   return { field, scalar };
 }
 
@@ -245,13 +245,19 @@ function validateInverseBindings(
 ): SchemaValidationIssue[] {
   const issues: SchemaValidationIssue[] = [];
   for (const [relationName, relation] of getRelations(model)) {
-    if (relation["~"].state.type !== "oneToMany") continue;
-    const target = relation["~"].state.getter();
+    const relationState = relation["~"].state;
+    const isPolymorphicInverseCandidate =
+      relationState.type === "oneToMany" ||
+      (relationState.type === "oneToOne" &&
+        (relationState.fields === undefined ||
+          relationState.fields.length === 0));
+    if (!isPolymorphicInverseCandidate) continue;
+    const target = relationState.getter();
     if (!findModelName(ctx, target)) continue;
     const candidates = getPolymorphicInverseCandidates(target, model);
     if (candidates.length === 0) continue;
     const relationGroups = getPolymorphicRelations(target);
-    const pairingName = relation["~"].state.name;
+    const pairingName = relationState.name;
     const ordinaryInverses = getRelations(target).filter(([, candidate]) => {
       const state = candidate["~"].state;
       return (
@@ -333,6 +339,31 @@ function validateInverseBindings(
   return issues;
 }
 
+function inverseCardinality(
+  schema: Schema,
+  owner: Model<any>,
+  relationName: string
+): PolymorphicInverseCardinality | "mixed" {
+  const cardinalities = new Set<PolymorphicInverseCardinality>();
+  for (const [, source] of schema) {
+    for (const [, relation] of getRelations(source)) {
+      const state = relation["~"].state;
+      const cardinality =
+        state.type === "oneToMany"
+          ? "many"
+          : state.type === "oneToOne" &&
+              (state.fields === undefined || state.fields.length === 0)
+            ? "one"
+            : undefined;
+      if (!cardinality || state.getter() !== owner) continue;
+      const binding = getPolymorphicInverseBinding(owner, source, state.name);
+      if (binding?.relationKey === relationName) cardinalities.add(cardinality);
+    }
+  }
+  if (cardinalities.size > 1) return "mixed";
+  return cardinalities.values().next().value ?? "many";
+}
+
 export function validatePolymorphicRelations(
   schema: Schema,
   name: string,
@@ -378,14 +409,17 @@ export function validatePolymorphicRelations(
       reservedIndexes.add(indexName);
     }
   }
-  for (const tableName of ctx.tableToModels.keys()) reservedIndexes.add(tableName);
+  for (const tableName of ctx.tableToModels.keys())
+    reservedIndexes.add(tableName);
   for (const physicalName of junctionPhysicalNames(schema, ctx)) {
     reservedIndexes.add(physicalName);
   }
   const ownerTable = model["~"].state.tableName ?? name;
 
   for (const [relationName, relation] of getPolymorphicRelations(model)) {
-    const errorCount = issues.filter((entry) => entry.severity === "error").length;
+    const errorCount = issues.filter(
+      (entry) => entry.severity === "error"
+    ).length;
     const state = relation["~"].state;
     const targets: unknown = state.targets;
     const values: unknown = state.values;
@@ -502,7 +536,7 @@ export function validatePolymorphicRelations(
         );
         continue;
       }
-      if (!(targetModel instanceof Model) || !ctx.modelToName.has(targetModel)) {
+      if (!(targetModel instanceof Model && ctx.modelToName.has(targetModel))) {
         issues.push(
           issue(
             "P001",
@@ -566,8 +600,19 @@ export function validatePolymorphicRelations(
       continue;
     }
 
-    const firstTarget = resolvedTargets[0];
-    if (firstTarget === undefined) continue;
+    const firstTarget = resolvedTargets[0]!;
+    const cardinality = inverseCardinality(schema, model, relationName);
+    if (cardinality === "mixed") {
+      issues.push(
+        issue(
+          "P012",
+          `Polymorphic relation '${relationName}' in '${name}' cannot mix one-to-one and one-to-many inverses`,
+          name,
+          relationName
+        )
+      );
+      continue;
+    }
     const members = new Map<string, PolymorphicStorageMember>();
     for (const target of resolvedTargets) {
       members.set(target.publicType, {
@@ -587,6 +632,7 @@ export function validatePolymorphicRelations(
         scalar: firstTarget.primaryKey.scalar,
         nullable,
       },
+      inverseCardinality: cardinality,
       members,
     });
   }

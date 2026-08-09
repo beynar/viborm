@@ -107,6 +107,11 @@ storage needs stable namespaced or versioned values. There is no partial
 fallback when that argument is present. Each target has its own getter so
 recursive declarations stay lazy without widening the outer key map.
 
+An inverse can be an ordinary `oneToMany` or a fields-less `oneToOne`. All
+inverses that share one private `(type, id)` pair must use the same cardinality.
+The validated `PolymorphicStorage.inverseCardinality` is therefore relation-wide,
+not discriminator-specific. Mixed inverse cardinalities are rejected as P012.
+
 ---
 
 ## Core Rules
@@ -307,7 +312,10 @@ and typed target `delete`. A bound inverse `oneToMany` keeps its ordinary read,
 filter, count, order, and pagination surface and exposes the safe child-held
 write family: create/createMany/connect/connectOrCreate/upsert on create, plus
 update/updateMany/delete/deleteMany on update. Optional storage also exposes
-disconnect and set.
+disconnect and set. A bound inverse `oneToOne` returns one record or `null` and
+uses the ordinary singular surface: create/connect/connectOrCreate on create;
+create/connect/connectOrCreate/update/upsert on update; optional storage also
+exposes disconnect and delete.
 
 The direct edge stores one membership, so collection `set` does not apply. Root
 `createMany` accepts scalar row fields plus connect-only polymorphic
@@ -351,10 +359,11 @@ caller performs the needed DML.
 ### Polymorphic Storage Has No Database Foreign Key
 
 The owner table gets private `<relation>_type` and `<relation>_id` columns plus a
-composite `(type, id)` index. No portable foreign key can point to several
-tables. Optional missing known targets parse as `null`; required missing targets
-raise `QueryEngineError`; unknown or half-null storage is malformed provider
-data.
+composite `(type, id)` index. The index is unique when inverse cardinality is
+`one`; this prevents two owner rows from selecting the same exact target across
+all discriminators. No portable foreign key can point to several tables.
+Optional missing known targets parse as `null`; required missing targets raise
+`QueryEngineError`; unknown or half-null storage is malformed provider data.
 
 ### Why standalone classes instead of inheritance
 Early versions used a `Relation` base class, but TypeScript struggled with method return types. Standalone classes with explicit method signatures provide cleaner type inference.

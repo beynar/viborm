@@ -81,6 +81,53 @@ const folderEntry = s.model({
     { values: { auditLog: "audit.log.v1" } }
   ),
 });
+const featuredPost = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => featuredComment)
+    .name("featuredCommentable")
+    .optional(),
+});
+const featuredVideo = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => featuredComment)
+    .name("featuredCommentable")
+    .optional(),
+});
+const featuredComment = s.model({
+  id: s.string().id(),
+  body: s.string(),
+  commentable: s
+    .polymorphic({
+      post: () => featuredPost,
+      video: () => featuredVideo,
+    })
+    .name("featuredCommentable")
+    .optional(),
+});
+const requiredFeaturedPost = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => requiredFeaturedComment)
+    .name("requiredFeaturedCommentable"),
+});
+const requiredFeaturedVideo = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => requiredFeaturedComment)
+    .name("requiredFeaturedCommentable"),
+});
+const requiredFeaturedComment = s.model({
+  id: s.string().id(),
+  body: s.string(),
+  commentable: s
+    .polymorphic({
+      post: () => requiredFeaturedPost,
+      video: () => requiredFeaturedVideo,
+    })
+    .name("requiredFeaturedCommentable"),
+});
 
 const registry = createSchemaRegistry({
   post,
@@ -94,6 +141,12 @@ const registry = createSchemaRegistry({
   auditLog,
   folder,
   folderEntry,
+  featuredPost,
+  featuredVideo,
+  featuredComment,
+  requiredFeaturedPost,
+  requiredFeaturedVideo,
+  requiredFeaturedComment,
 });
 const targetSchemas = {
   post: () => registry.proxy.post,
@@ -317,6 +370,83 @@ describe("polymorphic operation schema factories", () => {
     ).toBe(false);
   });
 
+  test("inverse one-to-one exposes only the singular mutation family", () => {
+    for (const supported of [
+      { create: { id: "comment-1", body: "first" } },
+      { connect: { id: "comment-1" } },
+      {
+        connectOrCreate: {
+          where: { id: "comment-1" },
+          create: { id: "comment-1", body: "first" },
+        },
+      },
+    ]) {
+      expect(
+        accepts(registry.proxy.featuredPost.core.create, {
+          id: "post-1",
+          featuredComment: supported,
+        })
+      ).toBe(true);
+    }
+
+    for (const supported of [
+      { update: { body: "changed" } },
+      { update: { where: { body: "first" }, data: { body: "changed" } } },
+      {
+        upsert: {
+          create: { id: "comment-1", body: "first" },
+          update: { body: "changed" },
+        },
+      },
+      { disconnect: true },
+      { delete: true },
+    ]) {
+      expect(
+        accepts(registry.proxy.featuredPost.core.update, {
+          featuredComment: supported,
+        })
+      ).toBe(true);
+    }
+
+    for (const plural of [
+      { createMany: { data: [{ id: "comment-1", body: "first" }] } },
+      { updateMany: { data: { body: "changed" } } },
+      { deleteMany: {} },
+      { set: [] },
+    ]) {
+      expect(
+        accepts(registry.proxy.featuredPost.core.update, {
+          featuredComment: plural,
+        })
+      ).toBe(false);
+    }
+
+    expect(
+      accepts(registry.proxy.featuredPost.core.create, {
+        id: "post-1",
+        featuredComment: {
+          create: {
+            id: "comment-1",
+            body: "first",
+            commentable: {
+              connect: { type: "post", where: { id: "post-1" } },
+            },
+          },
+        },
+      })
+    ).toBe(false);
+    expect(
+      accepts(registry.proxy.requiredFeaturedPost.core.update, {
+        featuredComment: { disconnect: true },
+      })
+    ).toBe(false);
+    expect(
+      accepts(registry.proxy.requiredFeaturedPost.core.update, {
+        featuredComment: { delete: true },
+      })
+    ).toBe(false);
+  });
+
   test("inverse mutation data cannot restate its owning direct edge", () => {
     const directOwner = {
       connect: { type: "article", where: { id: "article-2" } },
@@ -450,6 +580,15 @@ describe("polymorphic operation schema factories", () => {
     ).toBe(true);
     expect(
       accepts(schema, {
+        connectOrCreate: {
+          type: "post",
+          where: { id: "p1" },
+          create: { id: "p2", title: "new" },
+        },
+      })
+    ).toBe(true);
+    expect(
+      accepts(schema, {
         connect: { type: "post", where: { id: "p1" } },
         create: { type: "post", data: { id: "p2", title: "second" } },
       })
@@ -564,5 +703,44 @@ describe("polymorphic operation schema factories", () => {
         video: { select: { id: true }, omit: { duration: true } },
       })
     ).toBe(false);
+  });
+});
+
+describe("coverage low value", () => {
+  test("keeps an empty polymorphic projection empty", () => {
+    const emptyTarget = s.model({});
+    const emptyOwner = s.model({
+      id: s.string().id(),
+      subject: s.polymorphic({ empty: () => emptyTarget }),
+    });
+    const emptyRegistry = createSchemaRegistry({ emptyTarget, emptyOwner });
+    const schema = polymorphicIncludeFactory(
+      emptyOwner["~"].state.polymorphicRelations.subject,
+      { empty: () => emptyRegistry.proxy.emptyTarget }
+    );
+
+    expect(parse(schema, { empty: {} })).toEqual({
+      value: { empty: {} },
+      issues: undefined,
+    });
+  });
+
+  test("constructs the ordinary many-to-many fallback schema", () => {
+    const article = s.model({
+      id: s.string().id(),
+      labels: s.manyToMany(() => label),
+    });
+    const label = s.model({
+      id: s.string().id(),
+      articles: s.manyToMany(() => article),
+    });
+    const ordinaryRegistry = createSchemaRegistry({ article, label });
+
+    expect(
+      accepts(ordinaryRegistry.proxy.article.core.create, {
+        id: "article-1",
+        labels: { connect: { id: "label-1" } },
+      })
+    ).toBe(true);
   });
 });

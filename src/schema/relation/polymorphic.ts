@@ -29,12 +29,15 @@ export interface PolymorphicStorageColumn {
   readonly nullable: boolean;
 }
 
+export type PolymorphicInverseCardinality = "one" | "many";
+
 export interface PolymorphicStorage {
   readonly relationName: string;
   readonly ownerModel: AnyModel;
   readonly indexName: string;
   readonly typeColumn: PolymorphicStorageColumn;
   readonly idColumn: PolymorphicStorageColumn;
+  readonly inverseCardinality: PolymorphicInverseCardinality;
   readonly members: ReadonlyMap<string, PolymorphicStorageMember>;
 }
 
@@ -71,10 +74,7 @@ type RelationContainsSource<Relation, SourceModel> =
 
 type PolymorphicRelationKeys<TargetModel> =
   TargetModel extends ModelWithPolymorphicRelations
-    ? Extract<
-        keyof TargetModel["~"]["state"]["polymorphicRelations"],
-        string
-      >
+    ? Extract<keyof TargetModel["~"]["state"]["polymorphicRelations"], string>
     : never;
 
 type NamedPolymorphicRelationKeys<TargetModel, Name> =
@@ -91,7 +91,9 @@ type NamedPolymorphicRelationKeys<TargetModel, Name> =
     : never;
 
 type UnionToIntersection<Union> = (
-  Union extends unknown ? (value: Union) => void : never
+  Union extends unknown
+    ? (value: Union) => void
+    : never
 ) extends (value: infer Intersection) => void
   ? Intersection
   : never;
@@ -102,15 +104,16 @@ type IsSingleMember<Union> = [Union] extends [never]
     ? true
     : false;
 
-type SelectedRelationKey<TargetModel, Name> = IsSingleMember<
-  PolymorphicRelationKeys<TargetModel>
-> extends true
-  ? PolymorphicRelationKeys<TargetModel>
-  : Name extends string
-    ? IsSingleMember<NamedPolymorphicRelationKeys<TargetModel, Name>> extends true
-      ? NamedPolymorphicRelationKeys<TargetModel, Name>
-      : never
-    : never;
+type SelectedRelationKey<TargetModel, Name> =
+  IsSingleMember<PolymorphicRelationKeys<TargetModel>> extends true
+    ? PolymorphicRelationKeys<TargetModel>
+    : Name extends string
+      ? IsSingleMember<
+          NamedPolymorphicRelationKeys<TargetModel, Name>
+        > extends true
+        ? NamedPolymorphicRelationKeys<TargetModel, Name>
+        : never
+      : never;
 
 type RelationKeyBinding<TargetModel, SourceModel, RelationKey> =
   TargetModel extends ModelWithPolymorphicRelations
@@ -124,15 +127,12 @@ type RelationKeyBinding<TargetModel, SourceModel, RelationKey> =
       : never
     : never;
 
-export type GetPolymorphicInverseBinding<
-  TargetModel,
-  SourceModel,
-  Name,
-> = RelationKeyBinding<
-  TargetModel,
-  SourceModel,
-  SelectedRelationKey<TargetModel, Name>
->;
+export type GetPolymorphicInverseBinding<TargetModel, SourceModel, Name> =
+  RelationKeyBinding<
+    TargetModel,
+    SourceModel,
+    SelectedRelationKey<TargetModel, Name>
+  >;
 
 export interface RuntimePolymorphicInverseCandidate
   extends PolymorphicInverseBinding {
@@ -154,9 +154,12 @@ export function getPolymorphicInverseCandidates(
   const relations: Readonly<Record<string, AnyPolymorphicRelation>> =
     targetModel["~"].state.polymorphicRelations;
   for (const [relationKey, relation] of Object.entries(relations)) {
-    for (const { publicType, targetGetter, targetModel, storedType } of relation[
-      "~"
-    ].targetEntries()) {
+    for (const {
+      publicType,
+      targetGetter,
+      targetModel,
+      storedType,
+    } of relation["~"].targetEntries()) {
       if (typeof targetGetter !== "function") continue;
       if (targetModel !== sourceModel) continue;
       if (typeof storedType !== "string") continue;
@@ -179,9 +182,7 @@ export function getPolymorphicInverseBinding(
   const candidates = getPolymorphicInverseCandidates(targetModel, sourceModel);
   const polymorphicRelations: Readonly<Record<string, AnyPolymorphicRelation>> =
     targetModel["~"].state.polymorphicRelations;
-  const relationGroups = Object.entries(
-    polymorphicRelations
-  );
+  const relationGroups = Object.entries(polymorphicRelations);
   const namedMatches =
     typeof name === "string"
       ? relationGroups.filter(
@@ -195,14 +196,16 @@ export function getPolymorphicInverseBinding(
   // preserve the convenient single-polymorphic-owner rule.
   const ordinaryRelations: Readonly<Record<string, AnyRelation>> =
     targetModel["~"].state.relations;
-  const hasOrdinaryInverse = Object.values(ordinaryRelations).some((relation) => {
-    const state = relation["~"].state;
-    return (
-      state.getter() === sourceModel &&
-      state.fields !== undefined &&
-      state.fields.length > 0
-    );
-  });
+  const hasOrdinaryInverse = Object.values(ordinaryRelations).some(
+    (relation) => {
+      const state = relation["~"].state;
+      return (
+        state.getter() === sourceModel &&
+        state.fields !== undefined &&
+        state.fields.length > 0
+      );
+    }
+  );
   const selectedRelation = namedRelation
     ? namedRelation
     : hasOrdinaryInverse
@@ -281,18 +284,17 @@ export class PolymorphicRelation<State extends PolymorphicRelationState> {
   }
 }
 
-export type AnyPolymorphicRelation = PolymorphicRelation<PolymorphicRelationState>;
+export type AnyPolymorphicRelation =
+  PolymorphicRelation<PolymorphicRelationState>;
 
 export function polymorphic<const Targets extends PolymorphicTargetGetters>(
   targets: Targets,
   options?: undefined
-): PolymorphicRelation<
-  {
-    readonly type: "polymorphic";
-    readonly targets: Targets;
-    readonly values: DefaultValuesFor<Targets>;
-  }
->;
+): PolymorphicRelation<{
+  readonly type: "polymorphic";
+  readonly targets: Targets;
+  readonly values: DefaultValuesFor<Targets>;
+}>;
 
 export function polymorphic<
   const Targets extends PolymorphicTargetGetters,
@@ -302,13 +304,11 @@ export function polymorphic<
   options: {
     readonly values: Values & NoExtraKeys<Values, ValuesFor<Targets>>;
   }
-): PolymorphicRelation<
-  {
-    readonly type: "polymorphic";
-    readonly targets: Targets;
-    readonly values: Values;
-  }
->;
+): PolymorphicRelation<{
+  readonly type: "polymorphic";
+  readonly targets: Targets;
+  readonly values: Values;
+}>;
 
 export function polymorphic(
   targets: PolymorphicTargetGetters,
@@ -366,7 +366,10 @@ function resolveTargetEntries(
 export function isPolymorphicRelation(
   value: unknown
 ): value is AnyPolymorphicRelation {
-  if ((typeof value !== "object" || value === null) && typeof value !== "function") {
+  if (
+    (typeof value !== "object" || value === null) &&
+    typeof value !== "function"
+  ) {
     return false;
   }
   const internal = Reflect.get(value, "~");

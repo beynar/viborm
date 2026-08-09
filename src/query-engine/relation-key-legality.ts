@@ -4,10 +4,7 @@ import {
   buildParsedRelationPrograms,
   type RelationMutationProgram,
 } from "./builders/relation-mutation-parser";
-import {
-  createQueryScope,
-  getPrimaryKeyFields,
-} from "./context/query-scope";
+import { createQueryScope, getPrimaryKeyFields } from "./context/query-scope";
 import { classifyRelationKeyScalarUpdate } from "./TargetConstraint";
 import type { QueryScope } from "./types";
 
@@ -79,6 +76,7 @@ export function assertPinnedTransitionIsCompilable(
     const relation = bindRelation(targetScope, program.relationInfo);
     if (
       relation.kind === "junction" ||
+      relation.kind === "polymorphicChildHeldToOne" ||
       relation.kind === "polymorphicChildHeldToMany"
     ) {
       continue;

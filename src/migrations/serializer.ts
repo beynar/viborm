@@ -265,7 +265,7 @@ export function serializeModels(
       indexes.push({
         name: storage.indexName,
         columns: [storage.typeColumn.name, storage.idColumn.name],
-        unique: false,
+        unique: storage.inverseCardinality === "one",
       });
 
       const members: PolymorphicSnapshotMember[] = [];
@@ -278,8 +278,9 @@ export function serializeModels(
             member.targetModel,
             targetModelName?.toLowerCase() ?? "unknown"
           ),
-          referencedColumn:
-            member.targetModel["~"].getFieldName(member.referencedField).sql,
+          referencedColumn: member.targetModel["~"].getFieldName(
+            member.referencedField
+          ).sql,
         });
       }
       polymorphicStorage.push({

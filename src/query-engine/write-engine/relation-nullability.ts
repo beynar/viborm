@@ -3,19 +3,22 @@ import type {
   ChildHeldToMany,
   ChildHeldToOne,
   ParentHeldToOne,
-  PolymorphicChildHeldToMany,
+  PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
 
 type ForeignKeyRelation =
   | ParentHeldToOne
   | ChildHeldToOne
   | ChildHeldToMany
-  | PolymorphicChildHeldToMany;
+  | PolymorphicChildHeldRelation;
 
 export function requiredForeignKeyFields(
   relation: ForeignKeyRelation
 ): string[] {
-  if (relation.kind === "polymorphicChildHeldToMany") {
+  if (
+    relation.kind === "polymorphicChildHeldToOne" ||
+    relation.kind === "polymorphicChildHeldToMany"
+  ) {
     return [relation.storage.typeColumn, relation.storage.idColumn]
       .filter((column) => !column.nullable)
       .map((column) => column.name);

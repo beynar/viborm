@@ -13,7 +13,11 @@ export {
   toOneIncludeFactory,
   toOneSelectFactory,
 } from "./select-include";
-export { toManyUpdateFactory, toOneUpdateFactory } from "./update";
+export {
+  toManyUpdateFactory,
+  toOneUpdateFactory,
+  toOneUpdateTargetFactory,
+} from "./update";
 
 import type { AnyModel } from "@schema/model";
 import {
@@ -34,6 +38,10 @@ import {
   toManyCreateFactory,
   toOneCreateFactory,
 } from "./create";
+import {
+  applyCreateManyAvailability,
+  type CreateManyAvailability,
+} from "./create-many-availability";
 import {
   type ToManyFilterSchema,
   type ToOneFilterSchema,
@@ -61,13 +69,11 @@ import {
 import {
   type ToManyUpdateSchema,
   type ToOneUpdateSchema,
+  type ToOneUpdateTargetWithDataSchema,
   toManyUpdateFactory,
   toOneUpdateFactory,
+  toOneUpdateTargetFactory,
 } from "./update";
-import {
-  applyCreateManyAvailability,
-  type CreateManyAvailability,
-} from "./create-many-availability";
 
 // =============================================================================
 // SCHEMA BUNDLES
@@ -324,6 +330,59 @@ type PolymorphicInverseToManySchemas<
   >;
 };
 
+type PolymorphicInverseToOneCreateEntries<
+  S extends RelationState,
+  Source extends AnyModel,
+> = {
+  create: () => PolymorphicInverseCreateTarget<S, Source>;
+  connect: () => GetTargetSchemas<S>["core"]["whereUnique"];
+  connectOrCreate: V.Object<
+    {
+      where: () => GetTargetSchemas<S>["core"]["whereUnique"];
+      create: () => PolymorphicInverseCreateTarget<S, Source>;
+    },
+    { partial: false }
+  >;
+};
+
+type PolymorphicInverseToOneUpdateEntries<
+  S extends RelationState,
+  Source extends AnyModel,
+> = PolymorphicInverseToOneCreateEntries<S, Source> & {
+  update: () => ToOneUpdateTargetWithDataSchema<
+    S,
+    PolymorphicInverseUpdateTarget<S, Source>
+  >;
+  upsert: V.Object<
+    {
+      create: () => PolymorphicInverseCreateTarget<S, Source>;
+      update: () => PolymorphicInverseUpdateTarget<S, Source>;
+    },
+    { partial: false }
+  >;
+};
+
+type OptionalPolymorphicInverseToOneUpdateEntries = {
+  disconnect: V.Boolean;
+  delete: V.Boolean;
+};
+
+type PolymorphicInverseToOneSchemas<
+  S extends RelationState,
+  Source extends AnyModel,
+> = Omit<ToOneSchemas<S, Source>, "create" | "update"> & {
+  create: V.Object<
+    PolymorphicInverseToOneCreateEntries<S, Source>,
+    { optional: true }
+  >;
+  update: V.Object<
+    PolymorphicInverseToOneUpdateEntries<S, Source> &
+      (PolymorphicInverseIsOptional<S, Source> extends true
+        ? OptionalPolymorphicInverseToOneUpdateEntries
+        : Record<never, never>)
+  >;
+};
+
 export type GetRelationSchemas<
   S extends RelationState,
   Source extends AnyModel,
@@ -335,7 +394,15 @@ export type GetRelationSchemas<
         : ToManySchemas<S, Source>
       : ToManySchemas<S, Source>
     : ToManySchemas<S, Source>
-  : ToOneSchemas<S, Source>;
+  : S["type"] extends "oneToOne"
+    ? S extends { fields: readonly string[] }
+      ? ToOneSchemas<S, Source>
+      : HasNamedTargetPolymorphicRelations<S> extends true
+        ? HasExactPolymorphicInverse<S, Source> extends true
+          ? PolymorphicInverseToOneSchemas<S, Source>
+          : ToOneSchemas<S, Source>
+        : ToOneSchemas<S, Source>
+    : ToOneSchemas<S, Source>;
 
 // =============================================================================
 // MAIN EXPORT
@@ -355,50 +422,49 @@ export const getRelationSchemas = <
   targetSchemas: T
 ) => {
   const isToMany = state.type === "manyToMany" || state.type === "oneToMany";
-  if (state.type === "oneToMany") {
-    const schemas = toManySchemas(state, source, targetSchemas);
-    let inverseBinding:
-      | ReturnType<typeof getPolymorphicInverseBinding>
-      | undefined;
-    let inverseBindingResolved = false;
-    const getInverseBinding = () => {
-      if (!inverseBindingResolved) {
-        inverseBinding = getPolymorphicInverseBinding(
-          state.getter(),
-          source,
-          state.name
-        );
-        inverseBindingResolved = true;
-      }
-      return inverseBinding;
+  let inverseBinding:
+    | ReturnType<typeof getPolymorphicInverseBinding>
+    | undefined;
+  let inverseBindingResolved = false;
+  const getInverseMutationSchemas = () => {
+    if (!inverseBindingResolved) {
+      inverseBinding = getPolymorphicInverseBinding(
+        state.getter(),
+        source,
+        state.name
+      );
+      inverseBindingResolved = true;
+    }
+    if (!inverseBinding) return undefined;
+    const targetModel: TargetModel<S> = state.getter();
+    const runtimeTargetModel: AnyModel = state.getter();
+    const inverseOptional =
+      runtimeTargetModel["~"].state.polymorphicRelations[
+        inverseBinding.relationKey
+      ]?.["~"].state.optional === true;
+    const relationKey = inverseBinding.relationKey;
+    const getCreateSchema = () =>
+      v.omit(targetSchemas().core.create, [relationKey]);
+    const getUpdateSchema = () =>
+      v.omit(targetSchemas().core.update, [relationKey]);
+    const getCreateManyDataSchema = () => {
+      const target = targetSchemas();
+      const noOmittedRequiredKeys: readonly [] = [];
+      return getNestedScalarCreateWithOmittedRequiredKeys(
+        targetModel,
+        {
+          scalars: target.scalars,
+          relations: target.relations,
+          polymorphic: target.polymorphic,
+        },
+        noOmittedRequiredKeys
+      );
     };
-    const getInverseMutationSchemas = () => {
-      const binding = getInverseBinding();
-      if (!binding) return undefined;
-      const targetModel: TargetModel<S> = state.getter();
-      const runtimeTargetModel: AnyModel = state.getter();
-      const inverseOptional =
-        runtimeTargetModel["~"].state.polymorphicRelations[
-          binding.relationKey
-        ]?.["~"].state.optional === true;
-      const getCreateSchema = () =>
-        v.omit(targetSchemas().core.create, [binding.relationKey]);
-      const getUpdateSchema = () =>
-        v.omit(targetSchemas().core.update, [binding.relationKey]);
-      const getCreateManyDataSchema = () => {
-        const schemas = targetSchemas();
-        const noOmittedRequiredKeys: readonly [] = [];
-        return getNestedScalarCreateWithOmittedRequiredKeys(
-          targetModel,
-          {
-            scalars: schemas.scalars,
-            relations: schemas.relations,
-            polymorphic: schemas.polymorphic,
-          },
-          noOmittedRequiredKeys
-        );
-      };
-      const createMany = applyCreateManyAvailability(
+    return {
+      inverseOptional,
+      getCreateSchema,
+      getUpdateSchema,
+      createMany: applyCreateManyAvailability(
         targetModel,
         v.object(
           {
@@ -407,36 +473,27 @@ export const getRelationSchemas = <
           },
           { atLeast: ["data"] }
         ),
-        binding.relationKey
-      );
-      const connectOrCreate = v.singleOrArray(
-        v.object(
-          {
-            where: () => targetSchemas().core.whereUnique,
-            create: getCreateSchema,
-          },
-          { partial: false }
-        )
-      );
-      const createUpsert = v.singleOrArray(
-        v.object(
-          {
-            where: () => targetSchemas().core.whereUnique,
-            create: getCreateSchema,
-            update: getUpdateSchema,
-          },
-          { partial: false }
-        )
-      );
-      return {
-        inverseOptional,
-        getCreateSchema,
-        getUpdateSchema,
-        createMany,
-        connectOrCreate,
-        createUpsert,
-      };
+        relationKey
+      ),
+      connectOrCreate: v.object(
+        {
+          where: () => targetSchemas().core.whereUnique,
+          create: getCreateSchema,
+        },
+        { partial: false }
+      ),
+      createUpsert: v.object(
+        {
+          where: () => targetSchemas().core.whereUnique,
+          create: getCreateSchema,
+          update: getUpdateSchema,
+        },
+        { partial: false }
+      ),
     };
+  };
+  if (state.type === "oneToMany") {
+    const schemas = toManySchemas(state, source, targetSchemas);
     return {
       ...schemas,
       create: v.lazy(() => {
@@ -447,8 +504,8 @@ export const getRelationSchemas = <
             create: () => v.singleOrArray(inverse.getCreateSchema()),
             createMany: inverse.createMany,
             connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
-            connectOrCreate: inverse.connectOrCreate,
-            upsert: inverse.createUpsert,
+            connectOrCreate: v.singleOrArray(inverse.connectOrCreate),
+            upsert: v.singleOrArray(inverse.createUpsert),
           },
           { optional: true }
         );
@@ -490,7 +547,7 @@ export const getRelationSchemas = <
           connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
           delete: () =>
             v.singleOrArray(targetSchemas().core.whereUniqueExtended),
-          connectOrCreate: inverse.connectOrCreate,
+          connectOrCreate: v.singleOrArray(inverse.connectOrCreate),
           update,
           updateMany,
           upsert,
@@ -501,6 +558,55 @@ export const getRelationSchemas = <
               disconnect: () =>
                 v.singleOrArray(targetSchemas().core.whereUnique),
               set: () => v.singleOrArray(targetSchemas().core.whereUnique),
+            })
+          : entries;
+      }),
+    } as unknown as GetRelationSchemas<S, Source>;
+  }
+  if (
+    state.type === "oneToOne" &&
+    (state.fields === undefined || state.fields.length === 0)
+  ) {
+    const schemas = toOneSchemas(state, source, targetSchemas);
+    return {
+      ...schemas,
+      create: v.lazy(() => {
+        const inverse = getInverseMutationSchemas();
+        if (!inverse) return schemas.create;
+        return v.object(
+          {
+            create: inverse.getCreateSchema,
+            connect: () => targetSchemas().core.whereUnique,
+            connectOrCreate: inverse.connectOrCreate,
+          },
+          { optional: true }
+        );
+      }),
+      update: v.lazy(() => {
+        const inverse = getInverseMutationSchemas();
+        if (!inverse) return schemas.update;
+        const entries = v.object({
+          create: inverse.getCreateSchema,
+          connect: () => targetSchemas().core.whereUnique,
+          connectOrCreate: inverse.connectOrCreate,
+          update: () =>
+            toOneUpdateTargetFactory<
+              S,
+              T,
+              ReturnType<typeof inverse.getUpdateSchema>
+            >(targetSchemas, inverse.getUpdateSchema),
+          upsert: v.object(
+            {
+              create: inverse.getCreateSchema,
+              update: inverse.getUpdateSchema,
+            },
+            { partial: false }
+          ),
+        });
+        return inverse.inverseOptional
+          ? entries.extend({
+              disconnect: v.boolean(),
+              delete: v.boolean(),
             })
           : entries;
       }),
