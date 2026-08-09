@@ -18,30 +18,36 @@ import { describe, expect, test } from "vitest";
 /**
  * PARITY WITNESS — Package B (§6 B, "Trust the selected-record compiler").
  *
- * Package B deletes `assertArmPkStable`, `assertArmEdgeIsChildHeld`, and
- * `assertArmEdgeReferencesLocatedPk` (RelationUpsertPart.ts:1241, :1202, :1283 — all
- * three reached from the one call site at :1071-:1088). Deleting a construction-time
- * guard changes what the surface ACCEPTS; it must not change how an already-accepted
- * payload compiles. This file is the "already-accepted" half, byte for byte, so the
- * lift can be proved additive.
+ * Package B's outcome (commit 4ef2fa57): `assertArmPkStable` and
+ * `assertArmEdgeReferencesLocatedPk` are DELETED; `assertArmEdgeIsChildHeld`
+ * (RelationUpsertPart.ts:1196) is RESTORED after a measured silent-write defect —
+ * a parent-held to-one written on the relation the upsert ARRIVED THROUGH is
+ * silently overridden by the arm's own reparent (its docblock carries the
+ * measurement). Deleting a construction-time guard changes what the surface
+ * ACCEPTS; it must not change how an already-accepted payload compiles. This
+ * file is the "already-accepted" half, byte for byte, so the lift is proved
+ * additive.
  *
  * DIMENSIONS PINNED (plan §6 A2's nine):
  *   · planning IDs and order, planning SQL and parameters, planning outputs;
  *   · final IDs and order, final SQL and parameters;
  *   · guards (batch premise SQL + failure) and expects;
  *   · race pins;
- *   · exact errors — none. The three refusals this package deletes are pinned verbatim
- *     elsewhere (below); restating them here would be a second copy of one invariant;
+ *   · exact errors — none. The surviving refusal and the two lifted ones are
+ *     pinned or quoted verbatim elsewhere (below); restating them here would be
+ *     a second copy of one invariant;
  *   · statement counts — the step list IS the statement count, so the fragment
  *     equalities below are that pin. Round-trip counts are not a separate fact for
  *     these shapes: each substrate issues one round trip per step it lists.
  *
- * The three refusal MESSAGES are not restated here. All three are already pinned
- * exact-string with an empty statement log on the public client — `assertArmPkStable`
- * and `assertArmEdgeIsChildHeld` at nested-arm-dispatch.test.ts:435 and :401 (the
- * latter across five deeper kinds), `assertArmEdgeReferencesLocatedPk` at
- * upsert-arm-referenced-edge.test.ts:156. This file carries the fragment dimension
- * those two do not, and nothing else.
+ * The refusal MESSAGES are not restated here. The surviving
+ * `assertArmEdgeIsChildHeld` refusal is pinned exact-string with an empty
+ * statement log at nested-arm-dispatch.test.ts (the PARENT_HELD block). The two
+ * DELETED guards' former messages are quoted verbatim inside the accept
+ * witnesses that replaced them (nested-arm-dispatch.test.ts for the PK move,
+ * upsert-arm-referenced-edge.test.ts for the referenced edge), as the record of
+ * what each lift discharged. This file carries the fragment dimension those
+ * files do not, and nothing else.
  *
  * CAPTURED IDENTITY vs PUBLIC SELECTOR. `buildUpdateArm` addresses the arm by the
  * CAPTURED primary key (RelationUpsertPart.ts:455, reading :473's `locatedRow(rows)`),

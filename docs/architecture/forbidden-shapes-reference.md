@@ -291,7 +291,15 @@ The agree case is absorbed only where the parent value is a construction-time **
 
 ## 6. Depth on an upsert's update arm (1)
 
-**6.1 — a parent-held to-one write one level deeper** · `RelationUpsertPart.ts:1203` (`assertArmEdgeIsChildHeld`)
+**6.1 — a parent-held to-one write one level deeper** · `RelationUpsertPart.ts:1196` (`assertArmEdgeIsChildHeld`)
+
+*Package B (commit `4ef2fa57`) attempted this deletion and RESTORED the guard on a
+measured defect: when the deeper parent-held write names the relation the upsert
+ARRIVED THROUGH, the arm's own reparent silently overrides it (`connect` no-ops,
+`create` commits an unreferenced row, `delete` removes the enclosing root row).
+The guard's docblock now carries that measurement in place of the original
+architecture argument, which the same package disproved for relations the arm
+did NOT arrive through.*
 
 ```ts
 client.org.update({
