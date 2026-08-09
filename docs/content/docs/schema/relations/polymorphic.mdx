@@ -4,48 +4,36 @@ description: Relate one record to one of several independent target models with 
 icon: waypoints
 ---
 
-A polymorphic relation lets one field point to records from several models. A
-comment, for example, can belong to either a post or a video while exposing one
-`commentable` field in queries.
+A polymorphic relation lets one field reference one of several independent
+models. A comment, for example, can belong to either a post or a video while
+exposing one `commentable` field in queries.
 
-> **VibORM uses a polymorphic association, not table inheritance.** The owner
-> stores a private `(type, id)` pair. Each target remains an independent model
-> and table.
+> **VibORM implements a polymorphic association, not table inheritance.** The
+> owner stores a private `(type, id)` pair. Each target remains an independent
+> model and table.
 
-## Which relational pattern does VibORM use?
+## Choose the relation shape
 
-[Table inheritance](https://www.prisma.io/docs/orm/prisma-schema/data-model/table-inheritance)
-models a hierarchy of entities that share an identity or common fields. Its two
-usual forms are:
+Use an ordinary relation when a field always references the same model. Use
+`s.polymorphic()` when one field must select between heterogeneous models such
+as posts and videos, attachments and messages, or audit subjects of several
+types.
 
-| Pattern | Physical model | Typical purpose | VibORM `s.polymorphic()` |
-|---------|----------------|-----------------|--------------------------|
-| Single-table inheritance (STI) | Every variant is stored in one wide table with a discriminator | Model a base type and its subtypes without joins | No |
-| Multi-table inheritance (MTI, or delegated types) | A base table stores shared fields; subtype tables reference it | Model a base type and normalized subtype data | No |
-| Polymorphic association | The referring row stores a discriminator and an ID; targets stay in their own tables | Let one relation point to heterogeneous existing models | **Yes** |
+This differs from the two common
+[table-inheritance patterns](https://www.prisma.io/docs/orm/prisma-schema/data-model/table-inheritance):
 
-This distinction matters. In an MTI design, `Post` and `Video` would be
-subtypes of a shared base row such as `Content`. With a VibORM polymorphic
-relation, they do not inherit anything from one another. A `Comment` merely
-holds a typed reference to either table.
+| Pattern | Storage | Purpose |
+|---------|---------|---------|
+| Single-table inheritance (STI) | All variants share one table and a discriminator | Represent a hierarchy in one wide table |
+| Multi-table inheritance (MTI, or delegated types) | A base table holds shared identity and subtype tables hold variant data | Represent a normalized hierarchy |
+| VibORM polymorphic association | The referring row stores a target type and target ID | Reference one of several independent models |
 
-This is the same broad relational pattern commonly called a
-[polymorphic association](https://guides.rubyonrails.org/association_basics.html#polymorphic-associations).
-It is a relation feature, not an object-inheritance feature.
+`s.polymorphic()` does not create a base model, shared identity, or inherited
+fields. Model STI or MTI explicitly when the variants form a domain hierarchy.
 
-### When to use each approach
+## Define the direct relation
 
-- Use an ordinary VibORM relation when a field has exactly one target model.
-- Use `s.polymorphic()` when an owner must reference one of several independent
-  models, such as comments, attachments, reactions, or audit subjects.
-- Model STI or MTI explicitly when the variants form a real domain hierarchy
-  with shared fields, lifecycle, or identity. `s.polymorphic()` does not create
-  a base model or share columns between targets.
-
-## Model a polymorphic relation
-
-The target map defines the public variants. By default, each public key is also
-the discriminator stored in the database.
+The target map defines the public variant names:
 
 ```ts
 import { s } from "viborm";
@@ -76,22 +64,21 @@ const comment = s.model({
 });
 ```
 
-The declaration has four important parts:
+| Declaration | Public meaning |
+|-------------|----------------|
+| `post` and `video` | Discriminators used in inputs and result narrowing |
+| `() => post` and `() => video` | Lazy target getters that allow circular declarations |
+| `.name("commentable")` | Pairing label shared with inverse relations |
+| `.optional()` | Allows the direct field to be absent |
 
-| Part | Meaning |
-|------|---------|
-| `post` and `video` keys | Public discriminators used in inputs and result narrowing |
-| `() => post` and `() => video` | Lazy target getters, which keep circular model declarations safe |
-| Optional `values` argument | Custom stable strings persisted instead of the public keys |
-| `.name("commentable")` | Pairing label used by inverse `oneToMany` or fields-less `oneToOne` relations |
+The direct field is a to-one slot: each `comment` references at most one target,
+regardless of which inverse cardinality you declare.
 
-With no second argument, VibORM stores `"post"` and `"video"`. This is the
-smallest useful form and does not depend on model or table names.
+### Customize stored discriminator values
 
-### Custom stored discriminators
-
-Pass an explicit `values` map when the database identifier should be
-namespaced, versioned, or independent of the public API key:
+By default, VibORM stores the public keys (`"post"` and `"video"`). The second
+argument is optional. Supply it when database values must be namespaced,
+versioned, or independent of public API names:
 
 ```ts
 commentable: s.polymorphic(
@@ -108,52 +95,45 @@ commentable: s.polymorphic(
 )
 ```
 
-The second argument is all-or-nothing: its keys must exactly match the target
-map. Stored values are case-sensitive and must remain stable after data exists.
-Prefer versioned, domain-qualified values instead of class or table names that
-may later change.
+The `values` keys must exactly match the target map. Values are case-sensitive
+database identifiers; keep them stable after data exists.
 
-### Required and optional relations
+### Required and optional direct fields
 
-The relation is required by default:
+A direct polymorphic field is required by default:
 
 ```ts
-subject: s.polymorphic({
+commentable: s.polymorphic({
   post: () => post,
   video: () => video,
 })
 ```
 
-A required relation must be supplied when its owner is created. Add
-`.optional()` when both private storage columns may be null:
+Add `.optional()` when the owner may have no target. Optionality controls
+whether direct `disconnect` and destructive inverse operations are available.
 
-```ts
-commentable: s
-  .polymorphic({
-    post: () => post,
-    video: () => video,
-  })
-  .optional()
-```
+## Define an inverse relation
 
-### Add inverse relations
+An inverse exposes owners from the selected target. It uses an ordinary
+`oneToMany` or a fields-less `oneToOne` with the same pairing name as the direct
+field.
 
-Use an ordinary `oneToMany` when each target may own several child records. Give
-it the same pairing name as the polymorphic field:
+### One-to-many inverse
+
+Use `oneToMany` when one post or video can own several comments:
 
 ```ts
 const post = s.model({
   id: s.string().id().ulid(),
-  title: s.string(),
   comments: s.oneToMany(() => comment).name("commentable"),
 });
 ```
 
-The label is especially important when the target model owns more than one
-polymorphic relation. It identifies the relation pair; it is not a database
-column name.
+The public shape is `Comment[]`.
 
-Use a fields-less `oneToOne` when each exact target may own at most one child:
+### One-to-one inverse
+
+Use a fields-less `oneToOne` when one exact target may own at most one comment:
 
 ```ts
 const post = s.model({
@@ -165,66 +145,18 @@ const post = s.model({
 });
 ```
 
-All inverse declarations that share one polymorphic storage pair must agree on
-cardinality. Mixing `oneToMany` and fields-less `oneToOne` inverses is invalid,
-even when the declarations belong to different target variants. A
-fields-bearing `oneToOne` remains an ordinary foreign-key relation.
+The public shape is `Comment | null`. A fields-bearing `oneToOne` is an
+ordinary foreign-key relation, not a polymorphic inverse.
 
-## How it is stored
-
-VibORM generates two private columns on the owner table and a composite index.
-For the `commentable` field above, the logical shape is:
-
-```sql
-commentable_type TEXT         -- "post" or "video" by default
-commentable_id   <target PK>  -- ID in the selected target table
-INDEX (commentable_type, commentable_id)
-```
-
-For an inverse `oneToOne`, the composite index is unique. This portable rule
-prevents two owner rows from selecting the same exact `(type, id)` target while
-still allowing equal IDs under different discriminators.
-
-The private columns are migration storage. They do not appear as public model
-scalars, create fields, selections, or result properties.
-
-```mermaid
-erDiagram
-  COMMENT {
-    string id PK
-    string body
-    string commentable_type "private discriminator"
-    string commentable_id "private target id"
-  }
-  POST {
-    string id PK
-    string title
-  }
-  VIDEO {
-    string id PK
-    string title
-    int duration
-  }
-  COMMENT }o--o| POST : "type = post"
-  COMMENT }o--o| VIDEO : "type = video"
-```
-
-A relational database cannot create one foreign-key constraint whose target
-changes according to another column. VibORM therefore enforces this association
-at the application and result boundaries:
-
-- direct writes verify the selected target and store its type and ID together;
-- inverse queries correlate on **both** the discriminator and the ID;
-- result parsing rejects unknown or half-null storage;
-- the generated `(type, id)` index supports inverse reads.
-
-The ID alone is never enough. A post and a video may legally have the same
-primary-key value.
+Inverse cardinality applies to the complete direct relation. All inverses that
+share one private `(type, id)` pair must consistently use `oneToMany` or
+fields-less `oneToOne`; mixing them is invalid. A one-to-one inverse makes the
+composite storage index unique for every discriminator, including variants
+without a declared inverse.
 
 ## Read the direct relation
 
-Use `include: { commentable: true }` to return the default scalar projection of
-the selected target:
+### Include the selected target
 
 ```ts
 const comments = await client.comment.findMany({
@@ -232,13 +164,13 @@ const comments = await client.comment.findMany({
 });
 ```
 
-The relation is an exhaustive discriminated union:
+The result is an exhaustive discriminated union:
 
 ```ts
 type Commentable =
   | { type: "post"; data: Post }
   | { type: "video"; data: Video }
-  | null; // only when the relation is optional
+  | null; // only when commentable is optional
 ```
 
 Narrow on `type` before using variant-specific fields:
@@ -248,20 +180,17 @@ for (const comment of comments) {
   const target = comment.commentable;
   if (!target) continue;
 
-  switch (target.type) {
-    case "post":
-      console.log(target.data.title);
-      break;
-    case "video":
-      console.log(target.data.duration);
-      break;
+  if (target.type === "post") {
+    console.log(target.data.title);
+  } else {
+    console.log(target.data.duration);
   }
 }
 ```
 
-### Select a shape per variant
+### Select a shape for each variant
 
-Each variant can have its own `select`, `include`, or `omit`:
+Each target can have its own `select`, `include`, or `omit`:
 
 ```ts
 const comments = await client.comment.findMany({
@@ -278,56 +207,43 @@ const comments = await client.comment.findMany({
 });
 ```
 
-An omitted configured variant still uses that model's default scalar
-projection. The result therefore remains an exhaustive union.
+An omitted variant uses that model's default scalar projection, so the result
+union remains exhaustive. VibORM compiles the variants into one statement; it
+does not query once per owner row.
 
-VibORM compiles the variants into one portable `CASE` expression with one
-correlated target branch per configured variant. The database receives one
-statement; VibORM does not issue a query per row.
+### Filter by variant and target fields
 
-## Filter the direct relation
-
-The `type` discriminator selects the target schema before the nested filter is
-validated:
+Every direct filter selects one `type` first. The selected type determines the
+schema accepted by `is` or `isNot`:
 
 ```ts
-const commentsOnTypeScriptPosts = await client.comment.findMany({
+const comments = await client.comment.findMany({
   where: {
     commentable: {
       type: "post",
-      is: {
-        title: { contains: "TypeScript" },
-      },
+      is: { title: { contains: "TypeScript" } },
     },
   },
 });
 ```
 
-Supported direct forms are:
+The accepted shapes are:
 
 ```ts
 commentable: { type: "post" }
-commentable: { type: "post", is: { title: "Hello" } }
-commentable: { type: "post", isNot: { title: "Draft" } }
-commentable: null // optional relations only
+commentable: { type: "post", is: PostWhere }
+commentable: { type: "post", isNot: PostWhere }
+commentable: null // optional direct fields only
 ```
 
-`is` and `isNot` are mutually exclusive. VibORM deliberately does not provide
-an untyped filter that searches every target table.
+`is` and `isNot` are mutually exclusive. The filter has no untyped form that
+searches all target schemas.
 
-## Query from the inverse side
+## Read an inverse relation
 
-An inverse polymorphic `oneToMany` behaves as a type-safe to-many relation for
-reads:
+### One-to-many inverse
 
-```ts
-const post = await client.post.findUniqueOrThrow({
-  where: { id: "post_123" },
-  include: { comments: true },
-});
-```
-
-They support normal to-many filters and counts:
+An inverse `oneToMany` uses the ordinary to-many read shape:
 
 ```ts
 const posts = await client.post.findMany({
@@ -338,150 +254,183 @@ const posts = await client.post.findMany({
   },
   select: {
     id: true,
-    title: true,
+    comments: true,
     _count: { select: { comments: true } },
   },
 });
 ```
 
-Every inverse include, filter, and count matches both
-`commentable_id = post.id` and
-`commentable_type = "post"`. A video with the same ID cannot leak
-into the post's comments.
+`some`, `every`, and `none` operate only on rows whose stored type and identity
+both match the current parent.
 
-A singular inverse returns one object or `null` and supports normal to-one
-`is`/`isNot` filtering. It uses the same exact two-column membership predicate;
-only the public result arity changes.
+### One-to-one inverse
+
+An inverse `oneToOne` uses the ordinary to-one read shape and returns an object
+or `null`:
+
+```ts
+const posts = await client.post.findMany({
+  where: {
+    featuredComment: {
+      is: { body: { contains: "featured" } },
+    },
+  },
+  include: { featuredComment: true },
+});
+```
+
+The explicit filter forms are:
+
+```ts
+featuredComment: { is: CommentWhere }
+featuredComment: { isNot: CommentWhere }
+featuredComment: { is: null }
+featuredComment: { isNot: null }
+```
+
+You can also pass a target `where` object directly as shorthand for `is`:
+
+```ts
+featuredComment: { body: { contains: "featured" } }
+```
+
+Every inverse include, filter, and count matches the complete membership:
+
+```sql
+comment.commentable_id = post.id
+AND comment.commentable_type = 'post'
+```
+
+A video with the same ID cannot appear in a post relation.
 
 ## Write the direct relation
 
-### Connect an existing target
+Direct relation inputs contain exactly one operation. The selected variant is
+inside that operation's payload.
+
+In the tables below, `TargetWhereUnique` is the selected target model's unique
+selector, `TargetWhere` is its normal filter, and `TargetCreate` and
+`TargetUpdate` are its ordinary create and update inputs. The corresponding
+`Child...` names describe the inverse child model.
+
+### Owner create
+
+| Operation | Payload |
+|-----------|---------|
+| `connect` | `{ type, where: TargetWhereUnique }` |
+| `create` | `{ type, data: TargetCreate }` |
+| `connectOrCreate` | `{ type, where: TargetWhereUnique, create: TargetCreate }` |
 
 ```ts
 await client.comment.create({
   data: {
     body: "Useful",
     commentable: {
-      connect: {
-        type: "post",
-        where: { id: "post_123" },
-      },
-    },
-  },
-});
-```
-
-### Create the target and owner together
-
-```ts
-await client.comment.create({
-  data: {
-    body: "First!",
-    commentable: {
-      create: {
-        type: "video",
-        data: {
-          title: "Launch",
-          duration: 42,
-        },
-      },
-    },
-  },
-});
-```
-
-### Connect or create a target
-
-```ts
-await client.comment.create({
-  data: {
-    body: "First!",
-    commentable: {
       connectOrCreate: {
         type: "post",
-        where: { slug: "launch" },
-        create: { slug: "launch", title: "Launch" },
+        where: { id: "post_123" },
+        create: { id: "post_123", title: "Launch" },
       },
     },
   },
 });
 ```
 
-### Replace, mutate, or disconnect the target
+A required direct field must be present on owner creation. An optional field
+may be omitted.
 
-An update can connect another target:
+### Owner update
+
+| Operation | Payload | Availability |
+|-----------|---------|--------------|
+| `connect` | `{ type, where: TargetWhereUnique }` | Always |
+| `create` | `{ type, data: TargetCreate }` | Always |
+| `connectOrCreate` | `{ type, where: TargetWhereUnique, create: TargetCreate }` | Always |
+| `update` | `{ type, where?: TargetWhere, data: TargetUpdate }` | Always |
+| `upsert` | `{ type, create: TargetCreate, update: TargetUpdate }` | Always |
+| `disconnect` | `true` | Optional direct field only |
+| `delete` | `{ type }` | Optional direct field only |
 
 ```ts
 await client.comment.update({
   where: { id: "comment_123" },
   data: {
     commentable: {
-      connect: {
-        type: "video",
-        where: { id: "video_456" },
+      update: {
+        type: "post",
+        where: { published: true },
+        data: { title: "Revised" },
       },
     },
   },
 });
 ```
 
-Optional relations can also be disconnected:
+`update` and `delete` must name the type currently stored by the owner. `upsert`
+updates the current target when the requested type matches; otherwise it
+creates and binds the requested variant without deleting the previous target
+row.
+
+### Root createMany
+
+Root `createMany` rows may use direct `connect`:
 
 ```ts
-await client.comment.update({
-  where: { id: "comment_123" },
-  data: {
-    commentable: { disconnect: true },
-  },
-});
-```
-
-A selected owner can also use typed `create`, `connectOrCreate`, correlated
-`update`, and `upsert`. Optional relations support typed target `delete`. Each
-payload is an exact one-intent input: verbs cannot be combined. An `update` or
-`delete` must name the type currently stored by the owner. A cross-type `upsert`
-creates and binds the requested variant without deleting the old target row.
-
-Root `createMany` accepts the same `connect` envelope per row. It does not
-accept nested create or update verbs; target selectors are grouped by relation
-and type before the bulk INSERT runs.
-
-## Write from the inverse side
-
-An inverse polymorphic `oneToMany` behaves like an ordinary child-held to-many
-relation. The parent fixes both the variant and the target ID, so child create
-and update payloads do not repeat `commentable`:
-
-```ts
-await client.post.update({
-  where: { id: "post_123" },
-  data: {
-    comments: {
-      create: [
-        { body: "First comment" },
-        { body: "Second comment" },
-      ],
+await client.comment.createMany({
+  data: [
+    {
+      body: "Useful",
+      commentable: {
+        connect: { type: "post", where: { id: "post_123" } },
+      },
     },
-  },
+  ],
 });
 ```
 
-The same form works when creating the parent:
+Other relation operations are not accepted in root bulk rows. A model with a
+required polymorphic field must therefore provide one `connect` membership per
+row.
+
+## Write an inverse one-to-many relation
+
+The parent supplies both the variant and its identity. Child `create` and
+`update` data must omit the direct polymorphic field owned by the enclosing
+inverse operation.
+
+### Parent create
+
+| Operation | Payload |
+|-----------|---------|
+| `create` | `ChildCreate` or `ChildCreate[]` |
+| `createMany` | `{ data: ChildScalarCreate[], skipDuplicates?: boolean }` |
+| `connect` | `ChildWhereUnique` or `ChildWhereUnique[]` |
+| `connectOrCreate` | `{ where, create }` or `{ where, create }[]` |
+| `upsert` | `{ where, create, update }` or `{ where, create, update }[]` |
 
 ```ts
 await client.post.create({
   data: {
     title: "New post",
     comments: {
-      create: [{ body: "Welcome" }],
+      create: [{ body: "First" }, { body: "Second" }],
     },
   },
 });
 ```
 
-On create, the inverse relation supports `create`, scalar-only `createMany`,
-`connect`, `connectOrCreate`, and `upsert`. On update it also supports `update`,
-`updateMany`, `delete`, and `deleteMany`.
+### Parent update
+
+Parent update accepts every parent-create operation plus:
+
+| Operation | Payload | Availability |
+|-----------|---------|--------------|
+| `update` | `{ where: ChildWhereUniqueExtended, data: ChildUpdate }` or an array | Always |
+| `updateMany` | `{ where?: ChildWhere, data: ChildUpdate }` or an array | Always |
+| `delete` | `ChildWhereUniqueExtended` or an array | Always |
+| `deleteMany` | `ChildWhere` or an array | Always |
+| `disconnect` | `ChildWhereUnique` or an array | Optional direct field only |
+| `set` | `ChildWhereUnique` or `ChildWhereUnique[]` | Optional direct field only |
 
 ```ts
 await client.post.update({
@@ -502,26 +451,44 @@ await client.post.update({
 });
 ```
 
-`connect` locates a row globally and adopts it. `connectOrCreate` does the same
-or creates it, with first-create-wins for duplicate inputs. An upsert below a
-new parent also adopts globally. Below an existing parent, the found row must
-already belong to that exact parent variant; a same-ID row owned by another
-variant is rejected.
+`connect` locates and adopts a child globally. `connectOrCreate` does the same
+or creates a child; duplicate inputs use first-create-wins semantics. An
+`upsert` below a new parent also locates globally. Below an existing parent,
+its found row must already belong to that exact parent membership.
 
-If the direct polymorphic relation is optional, inverse `disconnect` and `set`
-are also available. Both private columns are cleared together. `set: []`
-disconnects every current member, while same-ID rows with another discriminator
-remain untouched. Required storage rejects both operations before SQL.
+`disconnect` and `set` clear or replace memberships without deleting child
+rows. Both private columns are changed atomically. `set: []` disconnects every
+current child, while rows with the same identity and another discriminator are
+untouched.
 
-Nested inverse `createMany` stays scalar-only and applies the one enclosing
-`(type, identity)` pair to every row. It is unavailable when another required
-polymorphic relation on the child would remain unsatisfied.
+Nested inverse `createMany` applies the enclosing `(type, identity)` pair to
+every scalar row. It is unavailable if another required polymorphic relation on
+the child would remain unsatisfied.
 
-### Singular inverse writes
+## Write an inverse one-to-one relation
 
-An inverse `oneToOne` uses the ordinary singular relation surface. Parent create
-accepts `create`, `connect`, and `connectOrCreate`. Parent update accepts those
-operations plus correlated `update` and `upsert`:
+The singular inverse uses ordinary to-one payloads. It does not accept plural
+operations.
+
+### Parent create
+
+| Operation | Payload |
+|-----------|---------|
+| `create` | `ChildCreate` |
+| `connect` | `ChildWhereUnique` |
+| `connectOrCreate` | `{ where: ChildWhereUnique, create: ChildCreate }` |
+
+### Parent update
+
+| Operation | Payload | Availability |
+|-----------|---------|--------------|
+| `create` | `ChildCreate` | Always |
+| `connect` | `ChildWhereUnique` | Always |
+| `connectOrCreate` | `{ where, create }` | Always |
+| `update` | `ChildUpdate` or `{ where?: ChildWhere, data: ChildUpdate }` | Always |
+| `upsert` | `{ create: ChildCreate, update: ChildUpdate }` | Always |
+| `disconnect` | `true` | Optional direct field only |
+| `delete` | `true` | Optional direct field only |
 
 ```ts
 await client.post.update({
@@ -537,116 +504,94 @@ await client.post.update({
 });
 ```
 
-If the direct polymorphic field is optional, update also accepts `disconnect`
-and `delete`. Plural operations (`createMany`, `updateMany`, `deleteMany`, and
-`set`) are rejected. Connect adopts an existing child, while update and upsert
-operate on the currently captured exact member. A competing occupant of the
-same slot produces a unique-constraint error without partial effects.
+`createMany`, `updateMany`, `deleteMany`, and `set` are not part of the singular
+surface. Connecting into an occupied one-to-one slot fails with a unique
+constraint error and does not leave partial effects.
 
-## Integrity and orphan behavior
+## Storage and integrity
 
-VibORM treats the private pair as one atomic value:
+VibORM generates two private columns on the owner table:
 
-| Stored state | Optional relation | Required relation |
-|--------------|-------------------|-------------------|
+```sql
+commentable_type TEXT         -- "post" or "video" by default
+commentable_id   <target PK>  -- identity in the selected target table
+INDEX (commentable_type, commentable_id)
+```
+
+For an inverse `oneToOne`, the composite index is unique. Equal IDs remain
+legal under different discriminators.
+
+The private columns are migration storage. They do not appear as public model
+scalars, create fields, selections, or result properties.
+
+```mermaid
+erDiagram
+  COMMENT {
+    string id PK
+    string body
+    string commentable_type "private discriminator"
+    string commentable_id "private target id"
+  }
+  POST {
+    string id PK
+    string title
+  }
+  VIDEO {
+    string id PK
+    string title
+  }
+  COMMENT }o--o| POST : "type = post"
+  COMMENT }o--o| VIDEO : "type = video"
+```
+
+A relational database cannot create one foreign key whose target table depends
+on another column. VibORM therefore checks targets in the query engine and
+always reads and writes the type and identity as one membership.
+
+| Stored state | Optional direct field | Required direct field |
+|--------------|-----------------------|-----------------------|
 | Both columns null | Returns `null` | Integrity error |
 | Known type and existing target | Returns `{ type, data }` | Returns `{ type, data }` |
 | Known type and missing target | Returns `null` | Query-engine integrity error |
-| Unknown type or only one null column | Provider-result integrity error | Provider-result integrity error |
+| Unknown type or one null column | Provider-result integrity error | Provider-result integrity error |
 
-There is no configurable orphan policy in the current release. Since the
-database cannot enforce a cross-table foreign key, delete target records with
-care and keep related cleanup in the same application transaction when
-possible.
+There is no database foreign key or configurable orphan policy. Delete target
+rows with care and keep related cleanup in the same application transaction
+when possible.
 
-## Limits removed by inverse membership
+## Constraints
 
-The inverse side is no longer create-only. It now uses the ordinary child-held
-relation machinery:
-
-- parent create supports `create`, scalar-only `createMany`, `connect`,
-  `connectOrCreate`, and `upsert`;
-- parent update adds `update`, `updateMany`, `delete`, and `deleteMany`;
-- optional storage adds `disconnect` and `set`, including `set: []`;
-- every operation matches and writes the complete `(type, id)` membership, so a
-  same-ID row from another variant is not a member.
-
-These operations add no query or round trip beyond the corresponding ordinary
-child-held relation operation.
-
-Singular inverses are also supported. They reuse the same exact membership and
-record compilers, while the ordinary child-held-to-one path owns result arity
-and mutation shape. Portable uniqueness is enforced by the composite storage
-index rather than a new execution path.
-
-## Remaining limitations
-
-The current release keeps these boundaries:
-
-- **Target identity:** every target needs exactly one scalar primary key. All
-  targets in the relation must use the same portable `string`, `int`, or
-  `bigint` representation. Compound IDs, array IDs, mixed scalar kinds, and
-  database-native type overrides are not supported.
-- **Direct writes:** owner create supports `connect`, nested `create`, and
-  `connectOrCreate`. Selected-owner update also supports correlated `update`
-  and `upsert`; optional storage supports `disconnect` and typed target
-  `delete`. The direct field stores one membership, so it has no
-  collection-style `set` operation.
-- **Topology:** polymorphic many-to-many is not supported. An inverse is also
-  ambiguous when the same model appears more than once in one target map.
-  Inverse cardinality is relation-wide: every declared inverse for one private
-  storage pair must be consistently `oneToOne` or `oneToMany`.
+- **Target identity:** every target needs one scalar primary key. All targets
+  must use the same portable `string`, `int`, or `bigint` representation.
+  Compound IDs, array IDs, mixed scalar kinds, and database-native type
+  overrides are not supported.
+- **Topology:** polymorphic many-to-many is not supported. The same model cannot
+  appear more than once in one target map when an inverse would be ambiguous.
+  Inverse cardinality must be consistent across the relation.
 - **Cross-target queries:** `orderBy` cannot traverse a direct polymorphic
-  relation, and filters must select one `type`; there is no untyped filter that
-  searches all target schemas.
-- **Root bulk create:** root `createMany` rows accept scalar fields and
-  connect-only polymorphic memberships. VibORM groups target probes by relation
-  and discriminator, then preserves the ordinary grouped INSERT plan. Nested
-  creates and other relation verbs remain unavailable in root bulk rows. On a
-  driver without `RETURNING`, the combination of `select`, `skipDuplicates`,
-  and a polymorphic membership is refused: after resolving the target, that
-  driver cannot identify which attempted rows the database skipped.
-- **Database integrity:** one SQL foreign key cannot target several tables, so
-  the database does not enforce the association. VibORM does not yet emulate
-  referential actions such as cascade or set-null when a target changes or is
-  deleted.
+  relation. Direct filters must select one `type`.
+- **Root bulk create:** `createMany` rows accept scalar fields and direct
+  `connect` memberships only. On a driver without `RETURNING`, combining
+  `select`, `skipDuplicates`, and a polymorphic membership is not supported.
+- **Referential actions:** the database cannot enforce a cross-table foreign
+  key. VibORM does not emulate cascade, restrict, or set-null when a target is
+  changed or deleted.
 
-Operation schemas reject unsupported mutation shapes before SQL execution.
-Schema validation rejects unsupported topology and identity declarations.
+Unsupported schemas and mutation shapes are rejected before SQL execution.
 
 ## Schema evolution
 
-The generated migration snapshot records the relation members and their stored
-discriminators even though the private columns are shared. This lets migration
-generation distinguish a newly added target from an unsafe retargeting.
-
-Treat stored discriminator values as database identifiers:
+Stored discriminator values are database identifiers:
 
 - add a new target with a new unique stored value;
-- do not reuse an old stored value for a different model;
-- migrate existing rows deliberately before changing a stored value;
-- keep each value within 191 portable indexed characters using letters,
-  numbers, `.`, `_`, `:`, or `-`.
+- do not reuse an old value for a different model;
+- migrate existing rows before changing a stored value;
+- keep values within 191 portable indexed characters using letters, numbers,
+  `.`, `_`, `:`, or `-`.
 
-The public target key and stored value serve different purposes: the key shapes
-TypeScript inputs and results, while the stored value protects database history.
+The public target key shapes TypeScript inputs and results. The stored value
+protects database history, so the two may evolve independently.
 
 Changing inverse cardinality recreates the same composite index as unique or
-non-unique. Before moving from `oneToMany` to `oneToOne`, remove every duplicate
-`(type, id)` pair. VibORM does not guess which row to keep; existing duplicates
-make the migration fail and roll back.
-
-## Summary
-
-VibORM's model is best described as a **typed polymorphic association**:
-
-- independent target tables, with no base or subtype hierarchy;
-- one private `(type, id)` pair on the owner;
-- a relation-wide unique pair when the inverse is `oneToOne`;
-- one discriminated TypeScript result union;
-- one SQL statement for a direct polymorphic include;
-- application-level integrity because SQL cannot express the cross-table FK.
-
-If your domain needs shared subtype fields or a common base identity, model STI
-or MTI explicitly. If it needs one relation to select among heterogeneous
-records, use `s.polymorphic()`.
+non-unique. Before changing from `oneToMany` to `oneToOne`, remove duplicate
+`(type, id)` pairs. VibORM does not choose which duplicate row to keep.
