@@ -242,8 +242,8 @@ with join effects. The top-level form stays in `CreateManyOperation`.
 
 ## Polymorphic relation path
 
-V1 defines a direct multi-target to-one field with an exact lazy getter map and
-a separate stable stored-value map:
+A polymorphic field defines a direct multi-target to-one relation with an exact
+lazy getter map and a separate stable stored-value map:
 
 ```typescript
 subject: s
@@ -273,14 +273,17 @@ The direct and inverse paths are deliberately different:
 
 | Path | Read meaning | Write meaning |
 | --- | --- | --- |
-| direct field | One correlated CASE statement, one exact discriminator arm per configured target | `CreateOperation` owns fresh-owner connect/create; `RecordUpdateCompiler` owns selected-owner connect/disconnect |
+| direct field | One correlated CASE statement, one exact discriminator arm per configured target | `CreateOperation` owns fresh-owner connect/create/connectOrCreate; `RecordUpdateCompiler` owns those operations plus selected-owner update/upsert and optional disconnect/delete |
 | inverse `oneToMany` | Ordinary include/filter/count plus `child.id = parent.pk AND child.type = fixed discriminator` | Ordinary child-held relation Parts own the full safe to-many mutation family; record compilers own fresh and selected child records |
+| inverse `oneToOne` | Ordinary singular include/filter plus the same exact type-and-identity membership | Ordinary child-held-to-one Parts own selection and membership; record compilers own fresh and selected child records |
 
 Direct include/select supports target-specific nested projections. A configured
 variant omitted from the projection object still uses that target's default
 scalar projection, so the public result remains an exhaustive discriminated
-union. Direct filters accept `type`, `type + is`, `type + isNot`, and `null`
-only for an optional relation.
+union. Direct filters accept `type`, `type + is`, and `type + isNot`. An
+optional relation also accepts bare `null`, `{ is: null }`, and
+`{ isNot: null }`. Presence filters compare the private storage pair directly;
+target-specific filters keep the discriminator-correlated target query.
 
 The query compiler emits one CASE-based statement and does not execute a query
 per row or target. Ordinary relations keep their existing capability-selected

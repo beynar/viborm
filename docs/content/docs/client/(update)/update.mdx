@@ -68,7 +68,9 @@ await client.post.update({
 
 ## With Relations
 
-From an `update` you can `create`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, and `deleteMany` related records:
+Depending on relation cardinality and whether its membership can be cleared,
+an `update` can use `create`, `connect`, `connectOrCreate`, `disconnect`,
+`delete`, `set`, `update`, `updateMany`, `upsert`, and `deleteMany`:
 
 ```ts
 await client.user.update({

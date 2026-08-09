@@ -36,7 +36,9 @@ const user = s.model({
 
 ## Configuration
 
-Many-to-one is the FK-owning side — `.fields()` and `.references()` are required. See the [relation method reference](/docs/schema/relations) and [referential actions](/docs/schema/relations#referential-actions):
+The normal many-to-one form owns the FK, so `.fields()` and `.references()` are
+required. See the [relation method reference](/docs/schema/relations) and
+[referential actions](/docs/schema/relations#referential-actions):
 
 ```ts
 s.manyToOne(() => user)
@@ -55,6 +57,15 @@ s.manyToOne(() => organization)
   .fields("orgId", "teamId")
   .references("id", "teamId")
 ```
+
+:::warning
+VibORM currently retains a compatibility spelling in which `manyToOne` omits
+`.fields()` and resolves storage from an inverse edge. The query engine binds
+that shape as child-held singular, and schema validation reports `FK004` as a
+warning. It is not the normal many-to-one model and should not be used in new
+schemas. Use a fields-bearing `manyToOne` for this relation, or an optional
+fields-less `oneToOne` when the inverse slot is genuinely singular.
+:::
 
 ## The foreign-key index
 

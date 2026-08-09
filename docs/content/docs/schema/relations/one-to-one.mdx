@@ -111,6 +111,8 @@ user: s.oneToOne(() => user)
 A fields-less `oneToOne` is the non-owning side. It has no local foreign key
 that can require another row to exist, so its public slot is always zero-or-one
 and must call `.optional()`. VibORM reports `R008` when it does not.
+Adding `.optional()` to this non-owning declaration changes only its public
+cardinality contract; it adds no column and produces no DDL change.
 
 An owning `oneToOne` has `.fields()` and `.references()`. It may remain required
 when its foreign-key scalars are required, or become optional when its storage

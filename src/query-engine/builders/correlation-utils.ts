@@ -23,7 +23,7 @@ export { getCompoundIdConstraint, getPrimaryKeyFields } from "../context";
  * For manyToOne relations: uses fields/references directly
  * For oneToMany/oneToOne: finds inverse relation on target model to get FK info
  * For a resolved polymorphic inverse: binds its private id and fixed stored type
- * For manyToMany: will need junction table handling (not yet implemented)
+ * For manyToMany: rejects direct use because the junction owner builds it
  *
  * @param ctx - Query context
  * @param relationInfo - Relation metadata

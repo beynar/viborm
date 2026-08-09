@@ -501,8 +501,10 @@ index differ and DDL owners handle both transition directions. Duplicate live
 memberships make a many-to-one migration fail transactionally.
 
 The public singular inverse accepts create/connect/connectOrCreate on parent
-create; parent update adds correlated update/upsert and, for optional storage,
-disconnect/delete. Reads and writes reuse the central exact membership
+create; parent update adds correlated update/upsert and always permits delete.
+Disconnect is available only when direct storage is optional and child
+membership can be cleared. The fields-less inverse itself must call
+`.optional()` (`R008`). Reads and writes reuse the central exact membership
 predicate, ordinary child-held-to-one Parts, `CreateOperation`, and
 `RecordUpdateCompiler`. No mutation Part, runtime step, adapter method, or
 additional round trip was added.

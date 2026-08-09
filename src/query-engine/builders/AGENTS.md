@@ -16,15 +16,15 @@ adapter methods for dialect syntax and keep values parameterized.
 | File | Responsibility |
 | --- | --- |
 | `relation-mutation-parser.ts` | scalar/relation partition and lossless mutation programs |
-| `relation-data-builder.ts` | bound relation topology and relation SQL data |
-| `polymorphic-relation.ts` | direct member and inverse binding resolution |
+| `relation-data-builder.ts` | bound ordinary/polymorphic inverse topology and relation SQL data |
+| `polymorphic-relation.ts` | direct public discriminator resolution |
 | `polymorphic-read-builder.ts` | direct CASE projection and correlated target filters |
 | `polymorphic-mutation.ts` | resolved direct intent and atomic private `(type, id)` values |
 | `where-builder.ts` | scalar and logical filters |
 | `relation-filter-builder.ts` | relation `some`/`every`/`none` and `is`/`isNot` |
 | `include-builder.ts` | nested relation reads and JSON projection |
 | `select-builder.ts` | selected columns and result pairs |
-| `correlation-utils.ts` | inverse relation resolution and model keys |
+| `correlation-utils.ts` | ordinary/polymorphic correlation predicates and model keys |
 | `many-to-many-utils.ts` | junction identity and joins |
 | `values-builder.ts` | INSERT values and destination scalar conversion |
 | `set-builder.ts` | UPDATE assignments |
@@ -88,8 +88,10 @@ Classification is:
 
 1. many-to-many → `junction`;
 2. current model holds FK → `parentHeldToOne`;
-3. child-held to-one → `childHeldToOne`;
-4. remaining child-held edge → `childHeldToMany`.
+3. resolved polymorphic inverse → `polymorphicChildHeldToOne` or
+   `polymorphicChildHeldToMany`;
+4. ordinary child-held to-one → `childHeldToOne`;
+5. remaining ordinary child-held edge → `childHeldToMany`.
 
 The bound value contains the source model, ordered foreign and referenced
 fields, and update action. It does not contain scopes, aliases, identity
@@ -159,7 +161,8 @@ private storage columns through public row data.
 - reparsing canonical nested data;
 - raw relation-mutation key inspection downstream;
 - early relation binding that changes failure timing;
-- treating a multi-target relation as `AnyRelation` or `BoundRelation`;
+- treating a direct payload-selected polymorphic field as `AnyRelation` or
+  `BoundRelation`; fixed polymorphic inverses are correctly bound relations;
 - writing one private polymorphic storage column without the other;
 - omitting the discriminator conjunct from an inverse predicate;
 - a generic payload walker;

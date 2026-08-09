@@ -37,6 +37,9 @@
 - In zsh, never use `path` as a loop or local variable: it is tied to `PATH` and
   makes later commands disappear. Use a concern-specific name such as
   `report_file`, then verify the remaining commands ran.
+- In shell search commands, never place raw Markdown backticks inside a
+  double-quoted argument: zsh treats them as command substitution. Use a
+  single-quoted shell pattern or search for the surrounding words instead.
 - Treat a SQL predicate's value provenance and its statement qualifier as
   independent facts. A planning value can be correct while an alias copied from
   a read statement makes the final write invalid. Pass the physical or aliased

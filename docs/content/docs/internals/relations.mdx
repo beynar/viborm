@@ -1,6 +1,6 @@
 ---
 title: L4 - Relations
-description: How models connect via one-to-many, many-to-one, many-to-many, and one-to-one relationships
+description: How ordinary and polymorphic relations declare cardinality, storage, and inverse topology
 icon: link
 ---
 
@@ -35,6 +35,7 @@ JavaScript can't reference a variable before it's declared. We solve this with *
 | `manyToOne` | Many records belong to one | On this side |
 | `oneToOne` | One-to-one relationship | Configurable |
 | `manyToMany` | Many-to-many via join table | Join table |
+| `polymorphic` | One stored slot can reference one of several target models | Private type and identity columns on this model |
 
 ## Chainable API
 
@@ -57,6 +58,7 @@ const post = s.model({
 | `manyToOne` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()`, `.name()` |
 | `oneToMany` | `.name()` only (FK is on other side) |
 | `manyToMany` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()`, `.name()` |
+| `polymorphic` | `.name()`, `.optional()`; the constructor accepts a target map and optional stable stored values |
 
 A fields-less `oneToOne` is non-owning and must call `.optional()`: it has no
 local foreign key that can require the related row to exist. Its slot may be
@@ -105,13 +107,16 @@ declaration relative to the current model:
 | `parentHeldToOne` | The current record stores the foreign key |
 | `childHeldToOne` | One target record stores the foreign key |
 | `childHeldToMany` | Many target records store the foreign key |
+| `polymorphicChildHeldToOne` | One target stores an exact fixed-discriminator membership in private columns |
+| `polymorphicChildHeldToMany` | Many targets store exact fixed-discriminator memberships in private columns |
 | `junction` | Membership is stored in a junction table |
 
 The bound value carries only the source model, ordered foreign and referenced
 fields, and `onUpdate` action where an FK exists. It carries no query scope,
 record identity, SQL, branch, or execution policy. A fields-less `manyToOne`
-whose inverse stores the FK is therefore `childHeldToOne`, not a special fifth
-case.
+whose inverse stores the FK is therefore `childHeldToOne`. A resolved
+polymorphic inverse uses one of the two polymorphic child-held kinds because its
+membership is the private `(type, identity)` pair rather than an ordinary FK.
 
 `BoundRelation` also stays separate from `RelationMutationProgram`: one says
 where an edge is stored, while the other says what the user requested. Relation
@@ -174,4 +179,6 @@ posts: s.oneToMany(() => post)
 
 - **L3 (Query Schemas)**: Relations generate nested schemas for include/select
 - **L6 (Query Engine)**: Binds relation storage positions for joins and nested mutations
-- **L12 (Migrations)**: Relations inform foreign key constraints
+- **L12 (Migrations)**: Ordinary relations inform foreign-key constraints;
+  polymorphic relations add private storage columns and a composite membership
+  index because one database FK cannot target several tables

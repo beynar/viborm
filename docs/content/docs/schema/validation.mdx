@@ -1,10 +1,20 @@
 ---
 title: Schema Validation
-description: Schema validation runs automatically on push and migrate — call it manually for early startup checks
+description: When relation and schema rules run during client construction, push, migrate, and explicit validation
 icon: shield-check
 ---
 
-Schema validation checks your models for structural errors — missing IDs, broken foreign keys, invalid referential actions, database-specific constraints — before anything touches the database. It runs automatically on `viborm push` and `viborm migrate`; you only call it yourself if you want errors surfaced at application startup.
+Schema validation checks your models for structural errors — missing IDs, broken
+foreign keys, invalid referential actions, and database-specific constraints —
+before anything touches the database. The complete rule set runs automatically
+on `viborm push` and `viborm migrate`.
+
+Client construction always enforces `R008`, the rule that a non-owning
+fields-less `oneToOne` must be optional. When the schema contains a polymorphic
+field, client construction runs the complete rule set because it must validate
+and materialize the full target/inverse graph and private storage contract.
+Manual validation remains useful when you want all errors surfaced explicitly
+at application startup.
 
 ## Manual Validation
 
@@ -35,4 +45,5 @@ for (const warning of result.warnings) {
 [M001] 'user' must have an ID field (or use .id() for compound key)
 [F006] ID 'id' in 'user' cannot be nullable
 [F004] Default value for 'age' in 'user' doesn't match type
+[R008] Non-owning one-to-one 'profile' in 'user' must call .optional() because this model stores no foreign key fields.
 ```

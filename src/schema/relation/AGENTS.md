@@ -49,7 +49,11 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 | `manyToOne` | This model | post → author | `is`, `isNot` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()` |
 | `oneToMany` | Other model | author → posts | `some`, `every`, `none` | `.name()` only (FK is on other side) |
 | `manyToMany` | Join table | posts ↔ tags | `some`, `every`, `none` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()` |
-| `polymorphic` | Private `(type, id)` pair on this model | comment → post or video | correlated `type` + `is`/`isNot` | `.name()`, `.optional()` |
+| `polymorphic` | Private `(type, id)` pair on this model | comment → post or video | correlated `type` + `is`/`isNot`; optional fields also accept null-presence forms | `.name()`, `.optional()` |
+
+`manyToOne` normally owns the FK. The retained fields-less compatibility form
+can resolve storage from an inverse edge and binds as child-held singular; full
+schema validation warns with `FK004`. Do not use that spelling for new schemas.
 
 ---
 
@@ -177,11 +181,12 @@ ordinary `RelationType`. A model stores polymorphic fields separately in
 `ModelState.polymorphicRelations`; private storage never enters
 `ModelState.scalars` or the public field surface.
 
-Client construction hydrates field names, then runs the mandatory full schema
-definition gate when any polymorphic field exists. That gate validates lazy
-targets, exact discriminator maps, portable single-column primary keys,
-generated-name collisions, inverse pairing, and private storage. Downstream
-query and migration code trusts the resulting cached `PolymorphicStorage`.
+Client construction hydrates field names and always enforces the non-owning
+one-to-one optionality rule. When any polymorphic field exists, it additionally
+runs the complete schema definition gate. That gate validates lazy targets,
+exact discriminator maps, portable single-column primary keys, generated-name
+collisions, inverse pairing, and private storage. Downstream query and migration
+code trusts the resulting cached `PolymorphicStorage`.
 
 ---
 
@@ -299,7 +304,7 @@ update: {
 }
 ```
 
-### Polymorphic V1 Inputs
+### Polymorphic Inputs
 
 Direct create accepts exactly one of `connect`, `create`, or
 `connectOrCreate`:
@@ -315,11 +320,12 @@ correlated `update`, and `upsert`. Optional storage also accepts `disconnect`
 and typed target `delete`. A bound inverse `oneToMany` keeps its ordinary read,
 filter, count, order, and pagination surface and exposes the safe child-held
 write family: create/createMany/connect/connectOrCreate/upsert on create, plus
-update/updateMany/delete/deleteMany on update. Optional storage also exposes
-disconnect and set. A bound inverse `oneToOne` returns one record or `null` and
+update/updateMany/delete/deleteMany on update. Clearable child storage also
+exposes disconnect and set. A bound inverse `oneToOne` returns one record or `null` and
 uses the ordinary singular surface: create/connect/connectOrCreate on create;
-create/connect/connectOrCreate/update/upsert on update; optional storage also
-exposes disconnect and delete.
+create/connect/connectOrCreate/update/upsert on update. Its public slot is
+always optional, so delete is available; disconnect is available only when the
+child's direct polymorphic storage is optional and can be cleared.
 
 The direct edge stores one membership, so collection `set` does not apply. Root
 `createMany` accepts scalar row fields plus connect-only polymorphic

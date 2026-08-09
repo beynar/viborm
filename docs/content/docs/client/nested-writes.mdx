@@ -7,20 +7,27 @@ icon: layers
 Nested writes let you create, connect, update, and delete related records in the same call as their parent. The whole operation is **atomic** — if any part fails, nothing is written — and generated IDs flow automatically from a parent to its children.
 
 :::info
-Every `where` that **selects** a nested target — `connect`, `disconnect`, `set`,
-and a to-many nested `update` / `upsert` / `delete` — takes **unique
-discriminators only**: a unique scalar or a complete compound constraint. The
-extra scalar filters a top-level unique `where` accepts
+Link selectors — `connect`, `connectOrCreate.where`, `disconnect`, and `set` —
+take **unique discriminators only**: a unique scalar or a complete compound
+constraint. The extra scalar filters a top-level unique `where` accepts
 ([Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup))
 are not available there, a deliberate divergence from Prisma: a nested target is
 located against its parent by primary key, and the extra predicate would collide
 with that correlation.
 
-The one `where` that **filters** rather than selects is the to-one nested
-`update: { where, data }` envelope ([below](#update-nested)): a to-one has
-exactly one related row, so its `where` is an ordinary non-unique filter that row
-must satisfy.
+To-many nested `update`, `upsert`, and `delete` accept an extended unique
+selector: one unique discriminator plus optional scalar or relation filters.
+The parent membership remains an additional mandatory correlation. A to-one
+nested `update: { where, data }` envelope ([below](#update-nested)) is different
+again: a to-one has exactly one related row, so its `where` is an ordinary
+non-unique precondition that row must satisfy.
 :::
+
+Direct polymorphic relations use the same operation meanings but add a target
+`type` and accept exactly one intent per payload. Their inverse `oneToOne` and
+`oneToMany` fields use the ordinary singular and collection shapes. See the
+[polymorphic write matrices](/docs/schema/relations/polymorphic#write-the-direct-relation)
+for the exact payloads and optionality rules.
 
 ## Create Operations
 
@@ -292,7 +299,7 @@ const post = await client.post.update({
   },
 });
 
-// Disconnect to-one (set FK to null)
+// Disconnect to-one (clear its stored membership)
 const post = await client.post.update({
   where: { id: "post_123" },
   data: {
@@ -352,6 +359,11 @@ const user = await client.user.update({
 });
 ```
 
+For a to-one relation, use `delete: true`. Deleting the related row needs an
+empty slot to be valid, but it does not require clearable membership storage:
+the child is removed rather than preserved. This is why a non-owning optional
+one-to-one can allow `delete` while refusing `disconnect`.
+
 ### deleteMany (nested)
 
 Nested `deleteMany` is supported for to-many relations only. It combines the filter with parent correlation. Matching zero rows is allowed and does not throw:
@@ -392,7 +404,8 @@ const user = await client.user.update({
 
 ### Required relations
 
-When a relation's foreign key is required, you can't detach or orphan its records — these are rejected and nothing is written:
+When membership storage is required, you cannot clear it while preserving the
+related record. These operations are rejected and nothing is written:
 
 ```ts
 // post.authorId is required, so the author cannot be disconnected.
@@ -407,7 +420,7 @@ await client.post.update({
 ```
 
 ```ts
-// post.authorId is required, so clearing the user's posts would orphan rows.
+// post.authorId is required, so the posts cannot remain after this membership is cleared.
 await client.user.update({
   where: { id: "user_123" },
   data: {

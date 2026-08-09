@@ -133,9 +133,11 @@ with adapter-owned exact-text equality and reuses the normal nested target
 selection builder. It emits one SQL statement and no client-side per-row query.
 Ordinary relations retain their existing LATERAL/correlated capability path.
 
-Direct filters are type-correlated: `type`, `type + is`, `type + isNot`, or
-`null` for an optional field. Both inverse cardinalities use the central
-correlation owner to add `child.<private id> = parent.<referenced field>` and
+Direct filters are type-correlated: `type`, `type + is`, or `type + isNot`.
+Optional fields also accept bare `null`, `{ is: null }`, and `{ isNot: null }`;
+those presence forms compare the private pair directly. Both inverse
+cardinalities use the central correlation owner to add
+`child.<private id> = parent.<referenced field>` and
 `child.<private type> = <fixed stored discriminator>`. The ordinary to-one or
 to-many relation builder then owns result arity, filters, and count behavior.
 

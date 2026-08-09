@@ -6,7 +6,10 @@ icon: git-branch
 
 ## Overview
 
-Filter records by their relations using operators that depend on the relation's cardinality — `is`/`isNot` for to-one relations, and `some`/`every`/`none` for to-many.
+Filter records by their relations using operators that depend on cardinality:
+`is`/`isNot` for to-one relations, and `some`/`every`/`none` for to-many.
+Direct polymorphic filters first select a target `type`; polymorphic inverses
+use their declared to-one or to-many cardinality.
 
 ## To-One Relations
 
@@ -26,6 +29,14 @@ For `oneToMany` and `manyToMany` relations:
 | `some` | At least one match |
 | `every` | All must match |
 | `none` | No matches |
+
+## Polymorphic Relations
+
+A direct polymorphic relation combines one public target discriminator with a
+target-specific `is` or `isNot` filter. Optional direct storage also supports
+bare `null`, `{ is: null }`, and `{ isNot: null }`. An inverse polymorphic
+relation uses the ordinary operator family for its declared cardinality. See
+[Polymorphic Relations](/docs/schema/relations/polymorphic#filter-by-variant-and-target-fields).
 
 ## Quick Examples
 

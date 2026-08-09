@@ -18,7 +18,7 @@ The thunk `() => targetModel` comes first to handle circular references between 
 
 | Relation | Description | Example |
 |----------|-------------|---------|
-| `s.oneToOne()` | One record relates to one other | User → Profile |
+| `s.oneToOne()` | Each side relates to at most one record | User → Profile |
 | `s.oneToMany()` | One record relates to many | User → Posts |
 | `s.manyToOne()` | Many records relate to one | Post → Author |
 | `s.manyToMany()` | Many relate to many | Post ↔ Tags |

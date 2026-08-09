@@ -45,34 +45,40 @@ const posts = await client.post.findMany({
 
 ## Null Checks
 
+Null checks are available only when the to-one relation is optional. Bare
+`null` is shorthand for `{ is: null }`.
+
 ```ts
-// Posts with an author
-const withAuthor = await client.post.findMany({
+// Users with a profile
+const withProfile = await client.user.findMany({
   where: {
-    author: {
+    profile: {
       isNot: null,
     },
   },
 });
 
-// Posts without an author (orphaned)
-const orphaned = await client.post.findMany({
+// Users without a profile
+const withoutProfile = await client.user.findMany({
   where: {
-    author: {
-      is: null,
-    },
+    profile: { is: null },
   },
 });
 
-// Users without a profile
-const noProfile = await client.user.findMany({
-  where: {
-    profile: {
-      is: null,
-    },
-  },
+// Equivalent shorthand
+const alsoWithoutProfile = await client.user.findMany({
+  where: { profile: null },
 });
 ```
+
+An empty optional relation is not an orphaned membership. An orphaned
+membership has non-empty stored identity whose target row is missing; that is
+invalid data and relation projection fails rather than returning `null`.
+
+Direct polymorphic relations are variant-aware: target filters include a
+`type`, while optional-presence checks accept bare `null`, `{ is: null }`, and
+`{ isNot: null }`. Polymorphic inverse `oneToOne` fields use the ordinary forms
+shown above. See [Polymorphic Relations](/docs/schema/relations/polymorphic#filter-by-variant-and-target-fields).
 
 ## Nested Conditions
 
@@ -152,5 +158,3 @@ async function getPostsByAuthorEmail(email: string) {
   });
 }
 ```
-
-

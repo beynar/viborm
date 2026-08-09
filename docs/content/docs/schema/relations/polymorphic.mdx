@@ -214,8 +214,8 @@ does not query once per owner row.
 
 ### Filter by variant and target fields
 
-Every direct filter selects one `type` first. The selected type determines the
-schema accepted by `is` or `isNot`:
+Every target-specific direct filter selects one `type` first. The selected type
+determines the schema accepted by `is` or `isNot`:
 
 ```ts
 const comments = await client.comment.findMany({
@@ -239,10 +239,17 @@ commentable: { is: null }   // equivalent to bare null
 commentable: { isNot: null }
 ```
 
-`is` and `isNot` are mutually exclusive. The filter has no untyped form that
-searches all target schemas. `{ type: "post", isNot: ... }` means “the stored
-variant is `post`, and its target does not match.” Use root `NOT` when you need
-the global complement across every variant.
+The three null-presence forms are available only when the direct relation is
+optional. `is: null` checks that both private membership columns are null;
+`isNot: null` checks that both are non-null. The latter proves stored
+membership, not that the referenced target still exists: projecting a dangling
+membership remains an integrity error.
+
+`is` and `isNot` are mutually exclusive. Apart from presence checks, the filter
+has no untyped form that searches all target schemas.
+`{ type: "post", isNot: ... }` means “the stored variant is `post`, and its
+target does not match.” Use root `NOT` when you need the global complement
+across every variant.
 
 ## Read an inverse relation
 
@@ -289,6 +296,7 @@ The explicit filter forms are:
 ```ts
 featuredComment: { is: CommentWhere }
 featuredComment: { isNot: CommentWhere }
+featuredComment: null // equivalent to { is: null }
 featuredComment: { is: null }
 featuredComment: { isNot: null }
 ```
@@ -410,8 +418,8 @@ inverse operation.
 | `create` | `ChildCreate` or `ChildCreate[]` |
 | `createMany` | `{ data: ChildScalarCreate[], skipDuplicates?: boolean }` |
 | `connect` | `ChildWhereUnique` or `ChildWhereUnique[]` |
-| `connectOrCreate` | `{ where, create }` or `{ where, create }[]` |
-| `upsert` | `{ where, create, update }` or `{ where, create, update }[]` |
+| `connectOrCreate` | `{ where: ChildWhereUnique, create: ChildCreate }` or an array |
+| `upsert` | `{ where: ChildWhereUnique, create: ChildCreate, update: ChildUpdate }` or an array |
 
 ```ts
 await client.post.create({
@@ -426,7 +434,8 @@ await client.post.create({
 
 ### Parent update
 
-Parent update accepts every parent-create operation plus:
+Parent update accepts `create`, `createMany`, `connect`, and
+`connectOrCreate` from parent create. It also accepts:
 
 | Operation | Payload | Availability |
 |-----------|---------|--------------|
@@ -434,6 +443,7 @@ Parent update accepts every parent-create operation plus:
 | `updateMany` | `{ where?: ChildWhere, data: ChildUpdate }` or an array | Always |
 | `delete` | `ChildWhereUniqueExtended` or an array | Always |
 | `deleteMany` | `ChildWhere` or an array | Always |
+| `upsert` | `{ where: ChildWhereUniqueExtended, create: ChildCreate, update: ChildUpdate }` or an array | Always |
 | `disconnect` | `ChildWhereUnique` or an array | Optional direct field only |
 | `set` | `ChildWhereUnique` or `ChildWhereUnique[]` | Optional direct field only |
 
@@ -473,7 +483,9 @@ the child would remain unsatisfied.
 ## Write an inverse one-to-one relation
 
 The singular inverse uses ordinary to-one payloads. It does not accept plural
-operations.
+operations. Its `ChildCreate` and `ChildUpdate` data omit the direct
+polymorphic key owned by the enclosing inverse, so callers cannot spell the
+same membership twice.
 
 ### Parent create
 
@@ -580,8 +592,9 @@ non-empty membership with a missing target into `null`.
 - **Topology:** polymorphic many-to-many is not supported. The same model cannot
   appear more than once in one target map when an inverse would be ambiguous.
   Inverse cardinality must be consistent across the relation.
-- **Cross-target queries:** `orderBy` cannot traverse a direct polymorphic
-  relation. Direct filters must select one `type`.
+- **Cross-target queries:** `orderBy` and explicit `_count` cannot traverse a
+  direct polymorphic relation. Target-specific direct filters must select one
+  `type`; optional presence filters are type-free.
 - **Root bulk create:** `createMany` rows accept scalar fields and direct
   `connect` memberships only. On a driver without `RETURNING`, combining
   `select`, `skipDuplicates`, and a polymorphic membership is not supported.

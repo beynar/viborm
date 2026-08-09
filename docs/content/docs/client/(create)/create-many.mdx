@@ -17,7 +17,14 @@ const result = await client.user.createMany({
 // Result: { count: 3 }
 ```
 
-`createMany` returns a `{ count }`. It doesn't accept nested relations — for that, use [`create`](/docs/client/create) or [nested writes](/docs/client/nested-writes).
+`createMany` returns a `{ count }`. It does not accept general nested relation
+writes — use [`create`](/docs/client/create) for nested create, update, or
+delete operations.
+
+A direct polymorphic field is the one relation exception: each row may provide
+`connect`, which VibORM resolves into that row's private type-and-identity
+membership. A required polymorphic field must provide it. See
+[Root createMany with polymorphic relations](/docs/schema/relations/polymorphic#root-createmany).
 
 ## Skip duplicates
 

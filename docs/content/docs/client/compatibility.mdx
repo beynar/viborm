@@ -18,7 +18,7 @@ Everything in the API works the same on every database unless noted under [Datab
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
-| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`). Relation nesting isn't supported inside `createMany`. |
+| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`). General relation nesting is unsupported; a direct polymorphic field may provide a connect-only membership per row. |
 | `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
 | `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only. Prisma 6's `limit` is supported, with Prisma's own caveat: it caps how many rows are affected, not which. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
@@ -37,8 +37,10 @@ scalar, or a complete compound constraint) plus any non-unique filters — scala
 **and relation** — and `AND` / `OR` / `NOT`. Full semantics, per operation, are in
 [Narrowing a Unique Lookup](/docs/client/find-unique#narrowing-a-unique-lookup).
 
-Nested `update` / `upsert` / `delete` targets take the extended `where` too — a
-superset of Prisma, which is unique-only in those three positions.
+Nested to-many `update`, `upsert`, and `delete` targets take the extended
+unique `where` too — a superset of Prisma in those positions. A nested to-one
+`update` instead accepts an ordinary non-unique precondition on the one current
+member; to-one `upsert` and boolean `delete` have no selector.
 
 One deliberate divergence, and it covers only the LINK selectors:
 
@@ -50,8 +52,10 @@ One deliberate divergence, and it covers only the LINK selectors:
 
 | Relation | Filters | Notes |
 |----------|---------|-------|
-| To-one (`oneToOne`, `manyToOne`) | `is`, `isNot` | Filters against the related model's `where`. Pass `null` to match records with no relation. |
-| To-many (`oneToMany`, `manyToMany`) | `some`, `every`, `none` | `every` also matches records with no related rows; combine with `some: {}` when you need at least one. |
+| Ordinary to-one (`oneToOne`, `manyToOne`) | `is`, `isNot` | Filters against the related model's `where`. Optional relations also accept bare `null` and null inside `is`/`isNot`. |
+| Ordinary to-many (`oneToMany`, `manyToMany`) | `some`, `every`, `none` | `every` also matches records with no related rows; combine with `some: {}` when you need at least one. |
+| Direct polymorphic to-one | `type` with `is` or `isNot`; optional storage also accepts `null`, `{ is: null }`, and `{ isNot: null }` | The discriminator selects the target model before its filter is parsed. |
+| Polymorphic inverse | Ordinary to-one or to-many operators | The declared inverse cardinality owns the public filter shape; every predicate still matches both stored type and identity. |
 
 ## Nested writes
 
@@ -90,13 +94,31 @@ This matrix also applies to the update branch of a top-level `upsert`.
 | `createMany` | — | — | ✅ | ✅ |
 | `connect` | ✅ | ✅ | ✅ | ✅ |
 | `connectOrCreate` | ✅ | ✅ | ✅ | ✅ |
-| `disconnect` | ✅ Optional relation | ✅ Optional relation | ✅ | ✅ |
-| `delete` | ✅ Optional relation | ✅ Optional relation | ✅ | ✅ |
-| `set` | — | — | ✅ | ✅ |
+| `disconnect` | ✅ Clearable membership | ✅ Clearable membership | ✅ Clearable membership | ✅ |
+| `delete` | ✅ Empty slot allowed | ✅ Empty slot allowed | ✅ | ✅ |
+| `set` | — | — | ✅ See required-membership rule below | ✅ |
 | `update` | ✅ | ✅ | ✅ | ✅ |
 | `updateMany` | — | — | ✅ | ✅ |
 | `upsert` | ✅ | ✅ | ✅ | ✅ |
 | `deleteMany` | — | — | ✅ | ✅ |
+
+An empty slot and a clearable membership are different facts. For an owning
+to-one they normally coincide. For a non-owning one-to-one, `R008` requires the
+public slot to be optional, so deleting its child is valid; disconnecting must
+preserve that child and therefore still requires nullable child-side storage.
+
+Direct polymorphic fields follow the parent-held to-one availability above,
+with a required `type` in target-specific payloads. Polymorphic inverse
+`oneToOne` and `oneToMany` fields follow the corresponding child-held column.
+Their membership is the exact stored `(type, identity)` pair. See the
+[polymorphic relation reference](/docs/schema/relations/polymorphic) for their
+payload shapes.
+
+An ordinary child-held to-many `set` with required membership is accepted only
+when it retains every current member; any departing member would require
+clearing required storage and the operation is rejected. A polymorphic inverse
+with required membership omits `set` at the input boundary instead. This is a
+current API asymmetry, not a difference in stored membership semantics.
 
 On a **many-to-many** relation, `createMany` inserts each row and links it to the parent. `skipDuplicates` there skips the child ROW's insert — the join row is a different row and is still written, so a skipped item leaves the existing target untouched and links it. It is refused (typed, before any write) when the target's primary key is database-generated: a skipped insert produces no identity for its join row. Supply the key, or drop `skipDuplicates`.
 
@@ -117,19 +139,26 @@ On a **many-to-many** relation, `createMany` inserts each row and links it to th
 - A to-one `update: { where, data }` throws the same not-found error when the connected record fails the filter; the whole operation rolls back. The two spellings are told apart structurally — an object with a `data` key whose value is an object is the envelope. On a related model owning a field named `data` that shape means two different things (set the row's fields, or store the document), so VibORM **refuses** it instead of picking one as Prisma does: spell the envelope out, `update: { where: {}, data: { … } }`.
 - Nested `updateMany` and `deleteMany` may match zero rows without throwing.
 - A nested `upsert` creates only when nothing matches `where`; if the match belongs to another parent, it's rejected rather than stolen or duplicated.
-- You can't `disconnect`, empty-`set`, or otherwise orphan records on a **required** relation.
+- You cannot `disconnect`, use an empty `set`, or otherwise clear a membership
+  whose physical storage is required.
 - `createMany` with `skipDuplicates` rejects a row containing only database-owned defaults before any parent or child write.
 
 ### Structural restrictions
 
 The matrices show operation support. These restrictions are independent:
 
-- A required relation cannot be orphaned by `disconnect`, `set: []`, or another
-  membership change.
+- A required membership cannot be cleared by `disconnect`, `set: []`, or
+  another membership change that preserves the related record.
 - To-one `disconnect` and `delete` use their boolean form. Selector arrays and
   `set` are to-many operations.
+- A to-one payload names one operation. Ordinary inputs are parsed as keyed
+  bags and the engine rejects contradictory multiple operations; direct
+  polymorphic inputs enforce the same rule as an exact union at validation.
 - Nested `createMany`, `updateMany`, and `deleteMany` do not accept relation
   writes in each row's `data`.
+- The current ordinary and polymorphic-inverse `updateMany.data` contextual
+  type can still suggest relation keys. They are rejected by the query engine
+  before SQL; scalar-only data is the public contract.
 - Relation-link selectors (`connect`, `disconnect`, `set`, and
   `connectOrCreate.where`) require unique discriminators; they do not accept the
   extra filters allowed by nested update and upsert targets.
