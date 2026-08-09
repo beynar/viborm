@@ -50,6 +50,57 @@ test("to-one updates refuse an ambiguous data-field spelling", () => {
   ).toContain("Ambiguous to-one nested `update`");
 });
 
+test("inverse to-one delete follows slot absence while disconnect follows FK nullability", () => {
+  const requiredParent = s.model({
+    id: s.string().id(),
+    child: s.oneToOne(() => requiredChild).optional(),
+  });
+  const requiredChild = s.model({
+    id: s.string().id(),
+    parentId: s.string().unique(),
+    parent: s
+      .oneToOne(() => requiredParent)
+      .fields("parentId")
+      .references("id"),
+  });
+  const optionalParent = s.model({
+    id: s.string().id(),
+    child: s.oneToOne(() => optionalChild).optional(),
+  });
+  const optionalChild = s.model({
+    id: s.string().id(),
+    parentId: s.string().nullable().unique(),
+    parent: s
+      .oneToOne(() => optionalParent)
+      .fields("parentId")
+      .references("id")
+      .optional(),
+  });
+  const registry = createSchemaRegistry({
+    requiredParent,
+    requiredChild,
+    optionalParent,
+    optionalChild,
+  });
+  const requiredMembership =
+    registry.proxy.requiredParent.relations.child.update;
+  const optionalMembership =
+    registry.proxy.optionalParent.relations.child.update;
+  type RequiredMembershipInput = InferInput<typeof requiredMembership>;
+  type OptionalMembershipInput = InferInput<typeof optionalMembership>;
+
+  expectTypeOf<{ delete: true }>().toMatchTypeOf<RequiredMembershipInput>();
+  expectTypeOf<{
+    disconnect: true;
+  }>().not.toMatchTypeOf<RequiredMembershipInput>();
+  expectTypeOf<{ disconnect: true }>().toMatchTypeOf<OptionalMembershipInput>();
+  expect(parse(requiredMembership, { delete: true }).issues).toBeUndefined();
+  expect(parse(requiredMembership, { disconnect: true }).issues).toBeDefined();
+  expect(
+    parse(optionalMembership, { disconnect: true }).issues
+  ).toBeUndefined();
+});
+
 // Test-only view over generated relation update output unions.
 // Runtime assertions below still verify concrete transformed shapes.
 type RelationUpdateOutput = any;

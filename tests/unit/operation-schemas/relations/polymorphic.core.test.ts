@@ -110,13 +110,15 @@ const requiredFeaturedPost = s.model({
   id: s.string().id(),
   featuredComment: s
     .oneToOne(() => requiredFeaturedComment)
-    .name("requiredFeaturedCommentable"),
+    .name("requiredFeaturedCommentable")
+    .optional(),
 });
 const requiredFeaturedVideo = s.model({
   id: s.string().id(),
   featuredComment: s
     .oneToOne(() => requiredFeaturedComment)
-    .name("requiredFeaturedCommentable"),
+    .name("requiredFeaturedCommentable")
+    .optional(),
 });
 const requiredFeaturedComment = s.model({
   id: s.string().id(),
@@ -444,7 +446,7 @@ describe("polymorphic operation schema factories", () => {
       accepts(registry.proxy.requiredFeaturedPost.core.update, {
         featuredComment: { delete: true },
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("inverse mutation data cannot restate its owning direct edge", () => {
@@ -648,6 +650,7 @@ describe("polymorphic operation schema factories", () => {
       true
     );
     expect(accepts(required, { is: { title: "hello" } })).toBe(false);
+    expect(accepts(required, "post")).toBe(false);
     expect(accepts(required, { type: "post", is: { duration: 0 } })).toBe(
       false
     );
@@ -660,6 +663,13 @@ describe("polymorphic operation schema factories", () => {
     ).toBe(false);
     expect(accepts(required, null)).toBe(false);
     expect(accepts(optional, null)).toBe(true);
+    expect(accepts(required, { is: null })).toBe(false);
+    expect(accepts(required, { isNot: null })).toBe(false);
+    expect(accepts(optional, { is: null })).toBe(true);
+    expect(accepts(optional, { isNot: null })).toBe(true);
+    expect(parse(optional, null)).toMatchObject({ value: { is: null } });
+    expect(accepts(optional, { is: null, isNot: null })).toBe(false);
+    expect(accepts(optional, { is: null, typo: null })).toBe(false);
   });
 
   test("select/include accepts strict per-target projection overrides", () => {

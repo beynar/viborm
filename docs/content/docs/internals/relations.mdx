@@ -58,6 +58,13 @@ const post = s.model({
 | `oneToMany` | `.name()` only (FK is on other side) |
 | `manyToMany` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()`, `.name()` |
 
+A fields-less `oneToOne` is non-owning and must call `.optional()`: it has no
+local foreign key that can require the related row to exist. Its slot may be
+empty even when the child-side membership is required. These are separate
+facts: `delete` can remove the child and leave the slot empty, while
+`disconnect` must preserve the child and is valid only when the owning
+membership storage is nullable.
+
 ## Bidirectional Relations
 
 Both sides of a relation can be defined:

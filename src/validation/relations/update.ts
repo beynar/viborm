@@ -1,7 +1,10 @@
 // Relation Update Schemas
 
 import type { AnyModel } from "@schema/model";
-import type { RelationState } from "@schema/relation/types";
+import type {
+  GetInverseRelationMap,
+  RelationState,
+} from "@schema/relation/types";
 import { getInverseRelationMap as getInverseRelationMapRuntime } from "@schema/relation/types";
 import type { ScalarSchemas } from "../model";
 import { getNestedScalarCreateWithOmittedRequiredKeys } from "../model/core/create";
@@ -165,17 +168,66 @@ type ToOneUpdateSchemaBase<
   >;
 }>;
 
-type ToOneUpdateSchemaOptional = V.Object<{
+type ToOneUpdateSchemaDisconnect = V.Object<{
   disconnect: V.Boolean;
+}>;
+
+type ToOneUpdateSchemaDelete = V.Object<{
   delete: V.Boolean;
 }>;
+
+type NullableScalarKeys<Model extends AnyModel> = {
+  [Key in keyof Model["~"]["state"]["scalars"]]: Model["~"]["state"]["scalars"][Key]["~"]["state"] extends {
+    nullable: true;
+  }
+    ? Key
+    : never;
+}[keyof Model["~"]["state"]["scalars"]];
+
+type InverseMembershipCanBeCleared<
+  S extends RelationState,
+  Source extends AnyModel,
+> = Extract<
+  GetInverseRelationMap<S, Source>,
+  readonly string[]
+> extends infer Fields
+  ? [Fields] extends [never]
+    ? false
+    : Fields extends readonly string[]
+      ? [Fields[number]] extends [never]
+        ? false
+        : Exclude<
+              Fields[number],
+              NullableScalarKeys<TargetModel<S>>
+            > extends never
+          ? true
+          : false
+      : false
+  : false;
+
+type IsFieldsLessInverseOneToOne<S extends RelationState> =
+  S["type"] extends "oneToOne"
+    ? S extends { fields: readonly [string, ...string[]] }
+      ? false
+      : true
+    : false;
+
+type OptionalToOneUpdateEntries<
+  S extends RelationState,
+  Source extends AnyModel,
+> = IsFieldsLessInverseOneToOne<S> extends true
+  ? ToOneUpdateSchemaDelete["entries"] &
+      (InverseMembershipCanBeCleared<S, Source> extends true
+        ? ToOneUpdateSchemaDisconnect["entries"]
+        : Record<never, never>)
+  : ToOneUpdateSchemaDisconnect["entries"] & ToOneUpdateSchemaDelete["entries"];
 
 export type ToOneUpdateSchema<
   S extends RelationState,
   Source extends AnyModel,
 > = S["optional"] extends true
   ? V.Object<
-      ToOneUpdateSchemaOptional["entries"] &
+      OptionalToOneUpdateEntries<S, Source> &
         ToOneUpdateSchemaBase<S, Source>["entries"]
     >
   : ToOneUpdateSchemaBase<S, Source>;
@@ -220,14 +272,35 @@ export const toOneUpdateFactory = <
     upsert: upsertSchema,
   });
 
-  const optionalEntries = baseEntries.extend({
-    disconnect: v.boolean(),
-    delete: v.boolean(),
-  });
+  if (state.optional !== true) {
+    return baseEntries as unknown as ToOneUpdateSchema<S, Source>;
+  }
 
-  return (state.optional
-    ? optionalEntries
-    : baseEntries) as unknown as ToOneUpdateSchema<S, Source>;
+  const isFieldsLessInverse =
+    state.type === "oneToOne" &&
+    (state.fields === undefined || state.fields.length === 0);
+  if (!isFieldsLessInverse) {
+    return baseEntries.extend({
+      disconnect: v.boolean(),
+      delete: v.boolean(),
+    }) as unknown as ToOneUpdateSchema<S, Source>;
+  }
+
+  const targetModel = state.getter();
+  const inverseFields: unknown = getInverseRelationMapRuntime(state, source);
+  const membershipCanBeCleared =
+    Array.isArray(inverseFields) &&
+    inverseFields.length > 0 &&
+    inverseFields.every(
+      (field) =>
+        typeof field === "string" &&
+        targetModel["~"].state.scalars[field]?.["~"].state.nullable === true
+    );
+  return (membershipCanBeCleared
+    ? baseEntries.extend({ disconnect: v.boolean(), delete: v.boolean() })
+    : baseEntries.extend({
+        delete: v.boolean(),
+      })) as unknown as ToOneUpdateSchema<S, Source>;
 };
 
 /**

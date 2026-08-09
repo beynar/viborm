@@ -66,7 +66,7 @@ export const testUser = s.model({
   updatedAt: s.dateTime().now(),
   // Relations - using builder pattern: s.relation.config().type(() => model)
   posts: s.oneToMany(() => testPost),
-  profile: s.oneToOne(() => testProfile),
+  profile: s.oneToOne(() => testProfile).optional(),
   friends: s.manyToMany(() => testUser),
 });
 
@@ -102,7 +102,7 @@ export const testProfile = s.model({
   avatar: s.string().nullable(),
   userId: s.string().unique(),
   // Relations
-  user: s.oneToOne(() => testUser),
+  user: s.oneToOne(() => testUser).optional(),
 });
 
 // =============================================================================

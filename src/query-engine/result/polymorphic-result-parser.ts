@@ -110,7 +110,6 @@ export function parsePolymorphicValueDefault(
   }
 
   if (value.data === null) {
-    if (shape.optional) return null;
     throw new QueryEngineError(
       `Polymorphic relation '${relationName}' references a missing '${publicType}' record.`,
       {

@@ -109,8 +109,9 @@ commentable: s.polymorphic({
 })
 ```
 
-Add `.optional()` when the owner may have no target. Optionality controls
-whether direct `disconnect` and destructive inverse operations are available.
+Add `.optional()` when the owner may have no target. This controls whether the
+stored membership may be cleared and therefore whether direct `disconnect` is
+available.
 
 ## Define an inverse relation
 
@@ -233,11 +234,15 @@ The accepted shapes are:
 commentable: { type: "post" }
 commentable: { type: "post", is: PostWhere }
 commentable: { type: "post", isNot: PostWhere }
-commentable: null // optional direct fields only
+commentable: null           // optional direct fields only
+commentable: { is: null }   // equivalent to bare null
+commentable: { isNot: null }
 ```
 
 `is` and `isNot` are mutually exclusive. The filter has no untyped form that
-searches all target schemas.
+searches all target schemas. `{ type: "post", isNot: ... }` means “the stored
+variant is `post`, and its target does not match.” Use root `NOT` when you need
+the global complement across every variant.
 
 ## Read an inverse relation
 
@@ -487,8 +492,8 @@ operations.
 | `connectOrCreate` | `{ where, create }` | Always |
 | `update` | `ChildUpdate` or `{ where?: ChildWhere, data: ChildUpdate }` | Always |
 | `upsert` | `{ create: ChildCreate, update: ChildUpdate }` | Always |
+| `delete` | `true` | Always |
 | `disconnect` | `true` | Optional direct field only |
-| `delete` | `true` | Optional direct field only |
 
 ```ts
 await client.post.update({
@@ -507,6 +512,12 @@ await client.post.update({
 `createMany`, `updateMany`, `deleteMany`, and `set` are not part of the singular
 surface. Connecting into an occupied one-to-one slot fails with a unique
 constraint error and does not leave partial effects.
+
+The inverse slot itself is always optional because it stores no foreign key:
+there may be no child row. Deleting the current child is therefore always
+valid. Disconnecting preserves that child, so it is available only when the
+child's direct polymorphic membership is optional and both private columns can
+be cleared.
 
 ## Storage and integrity
 
@@ -552,12 +563,13 @@ always reads and writes the type and identity as one membership.
 |--------------|-----------------------|-----------------------|
 | Both columns null | Returns `null` | Integrity error |
 | Known type and existing target | Returns `{ type, data }` | Returns `{ type, data }` |
-| Known type and missing target | Returns `null` | Query-engine integrity error |
+| Known type and missing target | Query-engine integrity error | Query-engine integrity error |
 | Unknown type or one null column | Provider-result integrity error | Provider-result integrity error |
 
 There is no database foreign key or configurable orphan policy. Delete target
 rows with care and keep related cleanup in the same application transaction
-when possible.
+when possible. Optionality permits genuinely empty storage; it never turns a
+non-empty membership with a missing target into `null`.
 
 ## Constraints
 

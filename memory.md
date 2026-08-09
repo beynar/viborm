@@ -50,3 +50,7 @@
   schema to confirm that the representation is reachable. If the current schema
   makes the added value identical to an existing captured value, the extra guard
   is speculative redundant defense and must be removed.
+- When relation optionality affects an API, separate three questions before
+  deriving capabilities: may the public slot be empty, can stored membership be
+  cleared while both records survive, and is non-empty membership valid. Do not
+  use one `optional` flag as a proxy for all three.

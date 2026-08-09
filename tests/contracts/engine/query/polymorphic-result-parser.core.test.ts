@@ -168,7 +168,7 @@ describe("polymorphic result parsing", () => {
     ]);
   });
 
-  it("applies the approved empty and orphan semantics", () => {
+  it("returns null only for empty optional storage", () => {
     const optionalParser = new ResultParser(
       new PostgresAdapter(),
       models.optionalComment
@@ -181,14 +181,28 @@ describe("polymorphic result parsing", () => {
         projection
       )
     ).toEqual([{ id: "comment-1", subject: null }]);
-    expect(
+
+    let optionalError: unknown;
+    try {
       parseResult(
         optionalParser,
         "findMany",
         [{ id: "comment-1", subject: linked("post", null) }],
         projection
-      )
-    ).toEqual([{ id: "comment-1", subject: null }]);
+      );
+    } catch (caught) {
+      optionalError = caught;
+    }
+    expect(optionalError).toBeInstanceOf(QueryEngineError);
+    expect(optionalError).toMatchObject({
+      message:
+        "Polymorphic relation 'subject' references a missing 'post' record.",
+      meta: {
+        model: "optionalComment",
+        relation: "subject",
+        type: "post",
+      },
+    });
 
     let error: unknown;
     try {

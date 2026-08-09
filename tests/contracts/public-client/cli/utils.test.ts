@@ -15,7 +15,6 @@
 
 import { chdir, cwd } from "node:process";
 import { s } from "@schema";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defineConfig,
   formatBytes,
@@ -31,6 +30,7 @@ import {
   type TempProject,
   writeConfigFixture,
 } from "@tests/contracts/public-client/cli/_harness";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // ===========================================================================
 // loadConfig
@@ -153,6 +153,45 @@ describe("loadConfig", () => {
     );
     expect(thrown.message).not.toContain(
       "Make sure you're running with a TypeScript loader"
+    );
+  });
+
+  it("surfaces R008 for a required non-owning one-to-one", async () => {
+    writeConfigFixture(project, {
+      schemaBody: `
+        const user = s.model({
+          id: s.string().id(),
+          profile: s.oneToOne(() => profile),
+        });
+        const profile = s.model({
+          id: s.string().id(),
+          userId: s.string().unique(),
+          user: s
+            .oneToOne(() => user)
+            .fields("userId")
+            .references("id"),
+        });
+        const schema = { user, profile };
+      `,
+    });
+
+    const thrown = await loadConfig({ config: project.configPath }).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+
+    expect(thrown).toBeInstanceOf(SchemaValidationError);
+    if (!(thrown instanceof SchemaValidationError)) {
+      throw new Error("expected the original SchemaValidationError");
+    }
+    expect(thrown.issues).toContainEqual(
+      expect.objectContaining({
+        code: "R008",
+        model: "user",
+        relation: "profile",
+        message:
+          "Non-owning one-to-one 'profile' in 'user' must call .optional() because this model stores no foreign key fields.",
+      })
     );
   });
 

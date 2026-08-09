@@ -297,23 +297,25 @@ counts as root work.
 
 The strict result parser receives the existing relation decode middleware with
 kind `"polymorphic"`, validates the internal carrier, selects the exact variant
-shape, and parses target data through the normal row parser. Optional empty or
-known-target orphan storage returns `null`. A required known-target orphan
-throws `QueryEngineError`. Unknown discriminators and half-null storage are
-malformed provider results.
+shape, and parses target data through the normal row parser. Empty storage
+returns `null` only for an optional relation. A non-empty membership whose
+known target is missing always throws `QueryEngineError`. Unknown
+discriminators and half-null storage are malformed provider results.
 
-Direct owner creation exposes connect or nested create. A selected owner
-exposes connect and optional disconnect, but not create-, update-, delete-,
-connectOrCreate-, or upsert-through. The direct edge is to-one, so collection
-set does not apply. A bound inverse `oneToMany` exposes
+Direct owner creation exposes connect, create, and connect-or-create. A selected
+owner also exposes update and upsert, plus disconnect and delete when the direct
+membership is optional. The direct edge is to-one, so collection set does not
+apply. A bound inverse `oneToMany` exposes
 create/createMany/connect/connectOrCreate/upsert on create, the ordinary
-targeted and bulk update/delete family on update, and disconnect/set only for
-optional storage. Exact membership always includes both the fixed discriminator
-and parent identity. Root createMany remains scalar-only; inverse nested
-createMany can satisfy its owning required relation but not another required
-polymorphic relation. The feature adds no runtime step kind, executor protocol,
-adapter semantic namespace, or round trip beyond the ordinary child-held
-analogue.
+targeted and bulk update/delete family on update, and disconnect/set only when
+membership is clearable. A bound inverse `oneToOne` always has an optional
+public slot: delete may empty it, while disconnect additionally requires
+clearable child storage. Exact membership always includes both the fixed
+discriminator and parent identity. Root createMany accepts direct connect-only
+memberships; inverse nested createMany can satisfy its owning required relation
+but not another required polymorphic relation. The feature adds no runtime step
+kind, executor protocol, adapter semantic namespace, or round trip beyond the
+ordinary child-held analogue.
 
 ## SQL and adapter boundary
 

@@ -11,6 +11,49 @@ function warnings(result: ReturnType<typeof validateSchema>): string[] {
 }
 
 describe("relation definition rules", () => {
+  it("rejects a required non-owning one-to-one with R008", () => {
+    const user = s.model({
+      id: s.string().id(),
+      profile: s.oneToOne(() => profile),
+    });
+    const profile = s.model({
+      id: s.string().id(),
+      userId: s.string().unique(),
+      user: s
+        .oneToOne(() => user)
+        .fields("userId")
+        .references("id"),
+    });
+
+    expect(validateSchema({ user, profile }).errors).toContainEqual({
+      code: "R008",
+      message:
+        "Non-owning one-to-one 'profile' in 'user' must call .optional() because this model stores no foreign key fields.",
+      severity: "error",
+      model: "user",
+      relation: "profile",
+    });
+  });
+
+  it("treats empty fields as non-owning and keeps fields-bearing owners required", () => {
+    const target = s.model({ id: s.string().id() });
+    const invalid = s.model({
+      id: s.string().id(),
+      target: s.oneToOne(() => target).fields(),
+    });
+    const valid = s.model({
+      id: s.string().id(),
+      targetId: s.string().unique(),
+      target: s
+        .oneToOne(() => target)
+        .fields("targetId")
+        .references("id"),
+    });
+
+    expect(codes(validateSchema({ invalid, target }))).toContain("R008");
+    expect(codes(validateSchema({ valid, target }))).not.toContain("R008");
+  });
+
   it("reports the one-to-one inverse code", () => {
     const user = s.model({ id: s.string().id() });
     const profile = s.model({
@@ -189,7 +232,7 @@ describe("relation definition rules", () => {
     const user = s.model({
       id: s.string().id(),
       unrelated: s.oneToMany(() => profile),
-      profile: s.oneToOne(() => profile),
+      profile: s.oneToOne(() => profile).optional(),
     });
     const profile = s.model({
       id: s.string().id(),

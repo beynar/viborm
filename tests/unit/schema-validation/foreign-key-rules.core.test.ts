@@ -94,7 +94,7 @@ describe("foreign-key definition rules", () => {
       .model({
         tenantId: s.string(),
         id: s.string(),
-        account: s.oneToOne(() => account),
+        account: s.oneToOne(() => account).optional(),
       })
       .id(["tenantId", "id"]);
     const account = s

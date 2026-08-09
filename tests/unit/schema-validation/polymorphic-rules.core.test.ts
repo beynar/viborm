@@ -220,11 +220,17 @@ describe("polymorphic definition rules", () => {
   it("stores one relation-wide cardinality for fields-less one-to-one inverses", () => {
     const post = s.model({
       id: s.string().id(),
-      featuredComment: s.oneToOne(() => comment).name("commentable"),
+      featuredComment: s
+        .oneToOne(() => comment)
+        .name("commentable")
+        .optional(),
     });
     const video = s.model({
       id: s.string().id(),
-      featuredComment: s.oneToOne(() => comment).name("commentable"),
+      featuredComment: s
+        .oneToOne(() => comment)
+        .name("commentable")
+        .optional(),
     });
     const comment = s.model({
       id: s.string().id(),
@@ -248,7 +254,10 @@ describe("polymorphic definition rules", () => {
     });
     const video = s.model({
       id: s.string().id(),
-      featuredComment: s.oneToOne(() => comment).name("commentable"),
+      featuredComment: s
+        .oneToOne(() => comment)
+        .name("commentable")
+        .optional(),
     });
     const comment = s.model({
       id: s.string().id(),
@@ -266,7 +275,10 @@ describe("polymorphic definition rules", () => {
   it("applies a resolved singular cardinality to variants without inverses", () => {
     const post = s.model({
       id: s.string().id(),
-      featuredComment: s.oneToOne(() => comment).name("commentable"),
+      featuredComment: s
+        .oneToOne(() => comment)
+        .name("commentable")
+        .optional(),
     });
     const video = s.model({ id: s.string().id() });
     const comment = s.model({
@@ -939,6 +951,28 @@ describe("polymorphic definition rules", () => {
     ).toThrow("[P003]");
   });
 
+  it("rejects required ordinary inverses at client construction", () => {
+    const parent = s.model({
+      id: s.string().id(),
+      child: s.oneToOne(() => child),
+    });
+    const child = s.model({
+      id: s.string().id(),
+      parentId: s.string().unique(),
+      parent: s
+        .oneToOne(() => parent)
+        .fields("parentId")
+        .references("id"),
+    });
+
+    expect(() =>
+      createClient({
+        schema: { parent, child },
+        driver: new DefinitionDriver(),
+      })
+    ).toThrow("[R008]");
+  });
+
   it("runs prerequisite model rules at the mandatory client gate", () => {
     const invalidTarget = s.model({ id: s.string().id().nullable() });
     const owner = s.model({
@@ -1029,7 +1063,7 @@ describe("coverage low value", () => {
     const missing = s.model({ id: s.string().id() });
     const source = s.model({
       id: s.string().id(),
-      missing: s.oneToOne(() => missing),
+      missing: s.oneToOne(() => missing).optional(),
     });
     const malformedOwner = s.model({
       id: s.string().id(),

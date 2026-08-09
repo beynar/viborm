@@ -434,7 +434,7 @@ describe("foreign key rules", () => {
   it("errors FK008 when an owning 1:1 FK is not unique", () => {
     const user = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => profile),
+      profile: s.oneToOne(() => profile).optional(),
     });
     const profile = s.model({
       id: s.string().id(),
@@ -451,7 +451,7 @@ describe("foreign key rules", () => {
   it("accepts an owning 1:1 FK marked .unique()", () => {
     const user = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => profile),
+      profile: s.oneToOne(() => profile).optional(),
     });
     const profile = s.model({
       id: s.string().id(),
@@ -470,7 +470,7 @@ describe("foreign key rules", () => {
     const user = s.model({
       id: s.string().id(),
       orgId: s.string(),
-      profile: s.oneToOne(() => profile),
+      profile: s.oneToOne(() => profile).optional(),
     });
     const profile = s
       .model({
@@ -490,7 +490,7 @@ describe("foreign key rules", () => {
   it("accepts an owning 1:1 FK covered by a unique index", () => {
     const user = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => profile),
+      profile: s.oneToOne(() => profile).optional(),
     });
     const profile = s
       .model({

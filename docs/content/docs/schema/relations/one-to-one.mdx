@@ -1,6 +1,6 @@
 ---
 title: One-to-One
-description: Define one-to-one relationships connecting a single record to exactly one other record
+description: Define relations in which each side can reference at most one record
 icon: link
 ---
 
@@ -34,7 +34,7 @@ The distinctive rule of one-to-one: exactly one side has the foreign key, and **
 | Side | Has FK | Configuration |
 |------|--------|---------------|
 | Owner (Profile) | Yes | `.fields("userId").references("id")` |
-| Non-owner (User) | No | `.optional()` if nullable, or nothing |
+| Non-owner (User) | No | `.optional()` is required |
 
 ## Configuration
 
@@ -56,7 +56,7 @@ s.oneToOne(() => user)
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  // Non-owning side - no FK, can be optional
+  // Non-owning side - no FK, so zero related rows is valid
   profile: s.oneToOne(() => profile).optional(),
 });
 
@@ -96,13 +96,27 @@ const users = await client.user.findMany({
 
 See [To-One Relation Filters](/docs/client/filtering/relations-to-one) for all operators and [Nested Writes](/docs/client/nested-writes) for creating related records.
 
-## Required vs Optional
+## Ownership and absence
 
 ```ts
-// Required: Every user MUST have a profile
-// (Create profile in same transaction)
-profile: s.oneToOne(() => profile)
-
-// Optional: User MAY have a profile
+// Non-owning: the related row may not exist, so .optional() is required
 profile: s.oneToOne(() => profile).optional()
+
+// Owning and required: this model stores a non-null foreign key
+user: s.oneToOne(() => user)
+  .fields("userId")
+  .references("id")
 ```
+
+A fields-less `oneToOne` is the non-owning side. It has no local foreign key
+that can require another row to exist, so its public slot is always zero-or-one
+and must call `.optional()`. VibORM reports `R008` when it does not.
+
+An owning `oneToOne` has `.fields()` and `.references()`. It may remain required
+when its foreign-key scalars are required, or become optional when its storage
+is nullable.
+
+For nested updates through the non-owning side, `delete` is available because
+removing the child leaves the slot empty. `disconnect` is available only when
+the child's owning foreign key is nullable: disconnect preserves the child and
+must therefore be able to clear its membership.

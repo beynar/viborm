@@ -1,13 +1,9 @@
-import { type Sql } from "@sql";
+import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
+import { createChildScope, getColumnName, getTableName } from "../context";
 import {
-  createChildScope,
-  getColumnName,
-  getTableName,
-} from "../context";
-import {
-  POLYMORPHIC_RESULT_STATE_KEY,
   POLYMORPHIC_RESULT_STATE_INVALID,
+  POLYMORPHIC_RESULT_STATE_KEY,
   POLYMORPHIC_RESULT_STATE_LINKED,
 } from "../result-aliases";
 import type { PolymorphicRelationInfo, QueryScope } from "../types";
@@ -118,14 +114,19 @@ export function buildPolymorphicFilterSql(
     parentAlias,
     relation.storage.idColumn.name
   );
-  if (filter === null) {
+  const record = filter as Record<string, unknown>;
+  if (record.is === null) {
     return adapter.operators.and(
       adapter.operators.isNull(typeColumn),
       adapter.operators.isNull(idColumn)
     );
   }
-
-  const record = filter as Record<string, unknown>;
+  if (record.isNot === null) {
+    return adapter.operators.and(
+      adapter.operators.isNotNull(typeColumn),
+      adapter.operators.isNotNull(idColumn)
+    );
+  }
   const publicType = String(record.type);
   const edge = resolvePolymorphicEdge(scope, relation, publicType);
   const discriminator = adapter.operators.exactTextEq(

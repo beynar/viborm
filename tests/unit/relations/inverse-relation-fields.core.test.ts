@@ -148,7 +148,7 @@ describe("getInverseRelationMap", () => {
       const post = s.model({
         id: s.string().id(),
         comments: s.oneToMany(() => comment),
-        profile: s.oneToOne(() => profile),
+        profile: s.oneToOne(() => profile).optional(),
         authorId: s.string(),
         author: s
           .manyToOne(() => user)

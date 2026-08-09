@@ -419,10 +419,36 @@ describe("enum serialization", () => {
 // =============================================================================
 
 describe("one-to-one FK unique constraint", () => {
+  it("keeps the R008 optional correction out of physical snapshots", () => {
+    function snapshot(optional: boolean) {
+      const User = s.model({
+        id: s.string().id(),
+        profile: optional
+          ? s.oneToOne(() => Profile).optional()
+          : s.oneToOne(() => Profile),
+      });
+      const Profile = s.model({
+        id: s.string().id(),
+        userId: s.string().unique(),
+        user: s
+          .oneToOne(() => User)
+          .fields("userId")
+          .references("id"),
+      });
+      const schema = { user: User, profile: Profile };
+      hydrateSchemaNames(schema);
+      return serializeModels(schema, {
+        migrationDriver: postgresMigrationDriver,
+      });
+    }
+
+    expect(snapshot(true)).toEqual(snapshot(false));
+  });
+
   it("emits a unique constraint on the owning 1:1 FK column", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile),
+      profile: s.oneToOne(() => Profile).optional(),
     });
 
     const Profile = s.model({
@@ -450,7 +476,7 @@ describe("one-to-one FK unique constraint", () => {
   it("does not duplicate the constraint when the FK is already .unique()", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile),
+      profile: s.oneToOne(() => Profile).optional(),
     });
 
     const Profile = s.model({
@@ -990,7 +1016,7 @@ describe("foreign-key index for to-many relations", () => {
   it("adds no FK index for a oneToOne relation", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile),
+      profile: s.oneToOne(() => Profile).optional(),
     });
 
     const Profile = s.model({
@@ -1017,7 +1043,7 @@ describe("foreign-key index for to-many relations", () => {
   it("accepts a total declared UNIQUE index as the 1:1 uniqueness", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile),
+      profile: s.oneToOne(() => Profile).optional(),
     });
 
     const Profile = s
@@ -1045,7 +1071,7 @@ describe("foreign-key index for to-many relations", () => {
   it("does not accept a partial UNIQUE index as the 1:1 uniqueness", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile),
+      profile: s.oneToOne(() => Profile).optional(),
     });
 
     const Profile = s

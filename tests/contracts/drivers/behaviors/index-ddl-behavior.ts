@@ -142,7 +142,7 @@ const coverIndexSchema = { coverUser, coverPost };
 const coverOwner = s
   .model({
     id: s.string().id(),
-    profile: s.oneToOne(() => coverProfile),
+    profile: s.oneToOne(() => coverProfile).optional(),
   })
   .map("idx_cov_owners");
 

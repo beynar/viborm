@@ -1,5 +1,8 @@
 import type { PolymorphicRelationState } from "@schema/relation";
 import v from "@validation/primitives/v";
+import { createSchema, fail, validateSchema } from "../../primitives/helpers";
+import type { VibSchema } from "../../types";
+import { isRecord } from "../../value-guards";
 import type {
   CoreInputAt,
   CoreOutputAt,
@@ -43,12 +46,18 @@ type FilterOutput<Getters> = {
   [PublicType in keyof Getters]: FilterOutputFor<Getters, PublicType>;
 }[keyof Getters];
 
+type PresenceFilter =
+  | { readonly is: null; readonly isNot?: never }
+  | { readonly is?: never; readonly isNot: null };
+
 export type PolymorphicFilterSchema<
   State extends PolymorphicRelationState,
   Getters,
 > = PolymorphicSchema<
-  FilterInput<Getters> | (State["optional"] extends true ? null : never),
-  FilterOutput<Getters> | (State["optional"] extends true ? null : never)
+  | FilterInput<Getters>
+  | (State["optional"] extends true ? PresenceFilter | null : never),
+  | FilterOutput<Getters>
+  | (State["optional"] extends true ? PresenceFilter : never)
 >;
 
 export function polymorphicFilterFactory<
@@ -59,7 +68,7 @@ export function polymorphicFilterFactory<
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
 ): PolymorphicFilterSchema<State, Getters> {
   const schemaGetters: PolymorphicTargetSchemaGetters<State> = targetSchemas;
-  const members = polymorphicPublicTypes(state).flatMap((publicType) => {
+  const targetMembers = polymorphicPublicTypes(state).flatMap((publicType) => {
     const schemas = schemaGetters[publicType];
     return [
       v.object({ type: v.literal(publicType) }, { partial: false }),
@@ -79,6 +88,35 @@ export function polymorphicFilterFactory<
       ),
     ];
   });
-  if (state.optional === true) members.push(v.literal(null) as never);
-  return v.union(members) as PolymorphicFilterSchema<State, Getters>;
+  const targetFilter = v.union(targetMembers);
+  const isNull = v.object({ is: v.literal(null) }, { partial: false });
+  const isNotNull = v.object({ isNot: v.literal(null) }, { partial: false });
+  const presenceMembers: readonly [typeof isNull, typeof isNotNull] = [
+    isNull,
+    isNotNull,
+  ];
+  const presenceFilter = v.union(presenceMembers);
+  const nullShorthand = v.literal(null, {
+    transform: (): { readonly is: null } => ({ is: null }),
+  });
+  const optional = state.optional === true;
+  const options: readonly VibSchema<unknown, unknown>[] = optional
+    ? [nullShorthand, presenceFilter, targetFilter]
+    : [targetFilter];
+  const schema = createSchema<unknown, unknown>("union", (value) => {
+    if (value === null) {
+      return optional
+        ? validateSchema(nullShorthand, value)
+        : fail("Expected polymorphic filter with a type");
+    }
+    if (!isRecord(value)) return fail("Expected object");
+    if (Object.hasOwn(value, "type")) {
+      return validateSchema(targetFilter, value);
+    }
+    return optional
+      ? validateSchema(presenceFilter, value)
+      : fail("Expected polymorphic filter with a type");
+  });
+  (schema as { options?: unknown }).options = options;
+  return schema as PolymorphicFilterSchema<State, Getters>;
 }

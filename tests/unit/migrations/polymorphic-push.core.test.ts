@@ -35,14 +35,20 @@ function polymorphicOneToOneSchema() {
     .model({
       id: s.string().id(),
       title: s.string(),
-      featuredComment: s.oneToOne(() => comment).name("subject"),
+      featuredComment: s
+        .oneToOne(() => comment)
+        .name("subject")
+        .optional(),
     })
     .map("poly_push_posts");
   const video = s
     .model({
       id: s.string().id(),
       title: s.string(),
-      featuredComment: s.oneToOne(() => comment).name("subject"),
+      featuredComment: s
+        .oneToOne(() => comment)
+        .name("subject")
+        .optional(),
     })
     .map("poly_push_videos");
   const comment = s

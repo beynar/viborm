@@ -76,7 +76,7 @@ const Profile = s.model({
   avatar: s.string().nullable(),
   website: s.string().nullable(),
   userId: s.string().unique(),
-  user: s.oneToOne(() => Author),
+  user: s.oneToOne(() => Author).optional(),
 });
 
 const schemaRegistry = createSchemaRegistry({

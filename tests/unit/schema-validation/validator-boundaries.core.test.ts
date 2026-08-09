@@ -7,7 +7,11 @@ import {
   validateSchemaOrThrow,
 } from "@src/index";
 import { s } from "@src/schema";
-import { validatePolymorphicSchemaOrThrow } from "@src/schema/validation";
+import { PolymorphicRelation } from "@src/schema/relation";
+import {
+  validateClientSchemaOrThrow,
+  validatePolymorphicSchemaOrThrow,
+} from "@src/schema/validation/validator";
 import { describe, expect, it } from "vitest";
 
 describe("SchemaValidator boundaries", () => {
@@ -15,6 +19,38 @@ describe("SchemaValidator boundaries", () => {
     const user = s.model({ id: s.string().id() });
 
     expect(() => validatePolymorphicSchemaOrThrow({ user })).not.toThrow();
+  });
+
+  it("runs the complete definition gate for a polymorphic schema", () => {
+    const target = s.model({ id: s.string().id() });
+    const owner = s.model({
+      id: s.string().id(),
+      target: new PolymorphicRelation({
+        type: "polymorphic",
+        targets: { target: () => target },
+        values: {},
+      }),
+    });
+
+    expect(() =>
+      validatePolymorphicSchemaOrThrow({ target, owner })
+    ).toThrowError(
+      expect.objectContaining({
+        issues: [expect.objectContaining({ code: "P003" })],
+      })
+    );
+  });
+
+  it("runs only the inverse optionality contract for ordinary clients", () => {
+    const child = s.model({ id: s.string().id() });
+    const missingInverse = s.model({
+      id: s.string().id(),
+      children: s.oneToMany(() => child),
+    });
+
+    expect(() =>
+      validateClientSchemaOrThrow({ missingInverse, child })
+    ).not.toThrow();
   });
 
   it("registers one model through the fluent API", () => {

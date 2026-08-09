@@ -336,10 +336,7 @@ export function runPolymorphicRelationBehavior(
       });
       expect(inverse).toEqual({
         id: post.id,
-        comments: [
-          { body: "first exact post" },
-          { body: "second exact post" },
-        ],
+        comments: [{ body: "first exact post" }, { body: "second exact post" }],
         _count: { comments: 2 },
       });
       await expect(
@@ -405,14 +402,12 @@ export function runPolymorphicRelationBehavior(
           ...statement.params
         );
         const plan = rows.map((row) => row["QUERY PLAN"]).join("\n");
-        expect(plan).toContain(
-          "poly_contract_comments_commentable_poly_idx"
-        );
+        expect(plan).toContain("poly_contract_comments_commentable_poly_idx");
         expect(plan).not.toContain("Seq Scan on poly_contract_comments");
       }
     );
 
-    test("empty and orphan relations follow declared optionality", async () => {
+    test("empty storage is optional but orphaned membership is invalid", async () => {
       const { client } = requireDatabase();
       const ident = client.$driver.adapter.identifiers.escape;
       const empty = await client.comment.create({ data: { body: "empty" } });
@@ -446,6 +441,25 @@ export function runPolymorphicRelationBehavior(
         })
       ).resolves.toMatchObject({ commentable: null });
 
+      await expect(
+        client.comment.findMany({
+          where: { commentable: { is: null } },
+          select: { id: true },
+        })
+      ).resolves.toContainEqual({ id: empty.id });
+      await expect(
+        client.comment.findMany({
+          where: { commentable: null },
+          select: { id: true },
+        })
+      ).resolves.toContainEqual({ id: empty.id });
+      await expect(
+        client.comment.findMany({
+          where: { commentable: { isNot: null } },
+          select: { id: true },
+        })
+      ).resolves.toContainEqual({ id: optional.id });
+
       await client.$executeRaw(
         sql`DELETE FROM ${ident("poly_contract_posts")} WHERE ${ident(
           "id"
@@ -457,12 +471,14 @@ export function runPolymorphicRelationBehavior(
         )} = ${requiredTarget.id}`
       );
 
-      await expect(
-        client.comment.findUniqueOrThrow({
-          where: { id: optional.id },
-          include: { commentable: true },
-        })
-      ).resolves.toMatchObject({ commentable: null });
+      const optionalRead = client.comment.findUniqueOrThrow({
+        where: { id: optional.id },
+        include: { commentable: true },
+      });
+      await expect(optionalRead).rejects.toBeInstanceOf(QueryEngineError);
+      await expect(optionalRead).rejects.toThrow(
+        "Polymorphic relation 'commentable' references a missing 'post' record."
+      );
       const requiredRead = client.requiredComment.findUniqueOrThrow({
         where: { id: required.id },
         include: { subject: true },

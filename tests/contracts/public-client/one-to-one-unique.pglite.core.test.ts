@@ -16,7 +16,7 @@ const User = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    profile: s.oneToOne(() => Profile),
+    profile: s.oneToOne(() => Profile).optional(),
   })
   .map("o2o_users");
 

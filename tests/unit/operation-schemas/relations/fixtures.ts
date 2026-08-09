@@ -43,8 +43,12 @@ export const Post = s.model({
 export const Profile = s.model({
   id: s.string().id(),
   bio: s.string().nullable(),
-  userId: s.string().nullable(),
-  user: s.oneToOne(() => User).optional(),
+  userId: s.string().nullable().unique(),
+  user: s
+    .oneToOne(() => User)
+    .fields("userId")
+    .references("id")
+    .optional(),
 });
 
 /**

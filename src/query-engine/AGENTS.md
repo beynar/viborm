@@ -172,9 +172,9 @@ Strict results keep a separate polymorphic expected-shape map and parser. The
 existing adapter/driver relation decode chain receives result kind
 `"polymorphic"`, then `polymorphic-result-parser.ts` validates the internal
 carrier, chooses the exact target shape, and delegates target rows to the normal
-strict row parser. Optional empty or known-target orphan storage returns
-`null`; a required orphan throws `QueryEngineError`; unknown or half-null
-storage is malformed provider data.
+strict row parser. Empty storage returns `null` only when the relation is
+optional. A non-empty membership whose known target is missing always throws
+`QueryEngineError`; unknown or half-null storage is malformed provider data.
 
 ### Source-bound relation membership
 

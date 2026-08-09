@@ -210,7 +210,7 @@ type PolymorphicInverseRelationState<
     : never
   : never;
 
-type PolymorphicInverseIsOptional<
+type PolymorphicMembershipCanBeCleared<
   S extends RelationState,
   Source extends AnyModel,
 > = [PolymorphicInverseRelationState<S, Source>] extends [never]
@@ -324,7 +324,7 @@ type PolymorphicInverseToManySchemas<
   >;
   update: V.Object<
     PolymorphicInverseUpdateEntries<S, Source> &
-      (PolymorphicInverseIsOptional<S, Source> extends true
+      (PolymorphicMembershipCanBeCleared<S, Source> extends true
         ? OptionalPolymorphicInverseUpdateEntries<S>
         : Record<never, never>)
   >;
@@ -362,8 +362,11 @@ type PolymorphicInverseToOneUpdateEntries<
   >;
 };
 
-type OptionalPolymorphicInverseToOneUpdateEntries = {
+type ClearablePolymorphicInverseToOneUpdateEntries = {
   disconnect: V.Boolean;
+};
+
+type EmptyPolymorphicInverseToOneUpdateEntries = {
   delete: V.Boolean;
 };
 
@@ -377,8 +380,11 @@ type PolymorphicInverseToOneSchemas<
   >;
   update: V.Object<
     PolymorphicInverseToOneUpdateEntries<S, Source> &
-      (PolymorphicInverseIsOptional<S, Source> extends true
-        ? OptionalPolymorphicInverseToOneUpdateEntries
+      (S["optional"] extends true
+        ? EmptyPolymorphicInverseToOneUpdateEntries &
+            (PolymorphicMembershipCanBeCleared<S, Source> extends true
+              ? ClearablePolymorphicInverseToOneUpdateEntries
+              : Record<never, never>)
         : Record<never, never>)
   >;
 };
@@ -438,7 +444,7 @@ export const getRelationSchemas = <
     if (!inverseBinding) return undefined;
     const targetModel: TargetModel<S> = state.getter();
     const runtimeTargetModel: AnyModel = state.getter();
-    const inverseOptional =
+    const membershipCanBeCleared =
       runtimeTargetModel["~"].state.polymorphicRelations[
         inverseBinding.relationKey
       ]?.["~"].state.optional === true;
@@ -461,7 +467,7 @@ export const getRelationSchemas = <
       );
     };
     return {
-      inverseOptional,
+      membershipCanBeCleared,
       getCreateSchema,
       getUpdateSchema,
       createMany: applyCreateManyAvailability(
@@ -553,7 +559,7 @@ export const getRelationSchemas = <
           upsert,
           deleteMany: () => v.singleOrArray(targetSchemas().core.where),
         });
-        return inverse.inverseOptional
+        return inverse.membershipCanBeCleared
           ? entries.extend({
               disconnect: () =>
                 v.singleOrArray(targetSchemas().core.whereUnique),
@@ -603,12 +609,9 @@ export const getRelationSchemas = <
             { partial: false }
           ),
         });
-        return inverse.inverseOptional
-          ? entries.extend({
-              disconnect: v.boolean(),
-              delete: v.boolean(),
-            })
-          : entries;
+        return inverse.membershipCanBeCleared
+          ? entries.extend({ disconnect: v.boolean(), delete: v.boolean() })
+          : entries.extend({ delete: v.boolean() });
       }),
     } as unknown as GetRelationSchemas<S, Source>;
   }

@@ -47,8 +47,35 @@ function isFirstModel(schema: Schema, name: string): boolean {
 }
 
 // =============================================================================
-// RELATION RULES (R002-R007)
+// RELATION RULES (R002-R008)
 // =============================================================================
+
+/** R008: A non-owning one-to-one cannot guarantee that a member exists. */
+export function inverseOneToOneMustBeOptional(
+  _schema: Schema,
+  name: string,
+  model: Model<any>
+): SchemaValidationIssue[] {
+  const errors: SchemaValidationIssue[] = [];
+  for (const [relationName, relation] of getRelations(model)) {
+    const state = relation["~"].state;
+    if (
+      state.type !== "oneToOne" ||
+      (state.fields !== undefined && state.fields.length > 0) ||
+      state.optional === true
+    ) {
+      continue;
+    }
+    errors.push({
+      code: "R008",
+      message: `Non-owning one-to-one '${relationName}' in '${name}' must call .optional() because this model stores no foreign key fields.`,
+      severity: "error",
+      model: name,
+      relation: relationName,
+    });
+  }
+  return errors;
+}
 
 /** R006: Relation target must exist in schema */
 export function relationTargetExists(
@@ -559,6 +586,7 @@ function hasInverse(
 }
 
 export const relationRules = [
+  inverseOneToOneMustBeOptional,
   relationTargetExists,
   relationHasInverse,
   relationNameUnique,

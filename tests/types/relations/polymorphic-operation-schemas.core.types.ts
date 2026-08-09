@@ -56,10 +56,23 @@ const getters = {
 const createSchema = polymorphicCreateFactory(relation["~"].state, getters);
 const updateSchema = polymorphicUpdateFactory(relation["~"].state, getters);
 const filterSchema = polymorphicFilterFactory(relation["~"].state, getters);
+const requiredFilterSchema = polymorphicFilterFactory(
+  s.polymorphic({ post: () => post, video: () => video })["~"].state,
+  getters
+);
 
 type CreateInput = InferInput<typeof createSchema>;
 type UpdateInput = InferInput<typeof updateSchema>;
 type FilterInput = InferInput<typeof filterSchema>;
+type RequiredFilterInput = InferInput<typeof requiredFilterSchema>;
+
+const _nullShorthandFilter: FilterInput = null;
+const _isNullFilter: FilterInput = { is: null };
+const _isNotNullFilter: FilterInput = { isNot: null };
+const nonFreshPresenceFilter = { isNot: null } as const;
+const _nonFreshPresenceFilter: FilterInput = nonFreshPresenceFilter;
+// @ts-expect-error - required polymorphic relations cannot filter for absence
+const _requiredNullFilter: RequiredFilterInput = { is: null };
 
 const mixedCreate = {
   connect: { type: "post", where: { id: "post-1" } },
@@ -82,6 +95,9 @@ const mixedFilter = {
 } as const;
 // @ts-expect-error - a non-fresh correlated filter has one predicate intent
 const _mixedFilter: FilterInput = mixedFilter;
+const mixedPresenceFilter = { is: null, isNot: null } as const;
+// @ts-expect-error - a presence filter has exactly one intent
+const _mixedPresenceFilter: FilterInput = mixedPresenceFilter;
 
 const auditLog = s.model({ id: s.string().id() });
 const folder = s.model({
@@ -332,6 +348,48 @@ const directCreateAndUpdateSurface = () => {
   });
 };
 
+const directPresenceFilterSurface = () => {
+  inverseClient.optionalRemark.findMany({
+    where: { commentable: null },
+  });
+  inverseClient.optionalRemark.findMany({
+    where: { commentable: { is: null } },
+  });
+  inverseClient.optionalRemark.findMany({
+    where: { commentable: { isNot: null } },
+  });
+  const nonFresh = { commentable: { isNot: null } } as const;
+  inverseClient.optionalRemark.findMany({ where: nonFresh });
+
+  inverseClient.optionalRemark.findMany({
+    where: {
+      commentable: {
+        is: null,
+        // @ts-expect-error - unknown presence key beside the real key
+        iss: null,
+      },
+    },
+  } satisfies OperationPayload<"findMany", typeof optionalRemark>);
+  inverseClient.remark.findMany({
+    where: {
+      // @ts-expect-error - required polymorphic membership cannot be absent
+      commentable: null,
+    },
+  });
+  inverseClient.remark.findMany({
+    where: {
+      // @ts-expect-error - required polymorphic membership cannot filter for absence
+      commentable: { is: null },
+    },
+  });
+  inverseClient.remark.findMany({
+    where: {
+      // @ts-expect-error - required polymorphic membership cannot filter for presence
+      commentable: { isNot: null },
+    },
+  });
+};
+
 const requiredDirectRemovalIsRejected = () => {
   inverseClient.remark.update({
     where: { id: "comment-1" },
@@ -458,6 +516,66 @@ const typoProbes = () => {
   } satisfies OperationPayload<"create", typeof optionalArticle>);
 };
 
+const ordinaryRequiredParent = s.model({
+  id: s.string().id(),
+  child: s.oneToOne(() => ordinaryRequiredChild).optional(),
+});
+const ordinaryRequiredChild = s.model({
+  id: s.string().id(),
+  parentId: s.string().unique(),
+  parent: s
+    .oneToOne(() => ordinaryRequiredParent)
+    .fields("parentId")
+    .references("id"),
+});
+const ordinaryOptionalParent = s.model({
+  id: s.string().id(),
+  child: s.oneToOne(() => ordinaryOptionalChild).optional(),
+});
+const ordinaryOptionalChild = s.model({
+  id: s.string().id(),
+  parentId: s.string().nullable().unique(),
+  parent: s
+    .oneToOne(() => ordinaryOptionalParent)
+    .fields("parentId")
+    .references("id")
+    .optional(),
+});
+const ordinaryInverseClient = createClient({
+  schema: {
+    ordinaryRequiredParent,
+    ordinaryRequiredChild,
+    ordinaryOptionalParent,
+    ordinaryOptionalChild,
+  },
+  driver: new PGliteDriver(),
+});
+
+const ordinaryInverseAbsenceSurface = () => {
+  ordinaryInverseClient.ordinaryRequiredParent.update({
+    where: { id: "parent-1" },
+    data: { child: { delete: true } },
+  });
+  ordinaryInverseClient.ordinaryRequiredParent.update({
+    where: { id: "parent-1" },
+    data: {
+      child: {
+        // @ts-expect-error - disconnect cannot preserve a child with a required FK
+        disconnect: true,
+      },
+    },
+  });
+  const optionalMembershipUpdate = {
+    where: { id: "parent-2" },
+    data: { child: { disconnect: true } },
+  } satisfies OperationPayload<"update", typeof ordinaryOptionalParent>;
+  ordinaryInverseClient.ordinaryOptionalParent.update(optionalMembershipUpdate);
+  ordinaryInverseClient.ordinaryOptionalParent.update({
+    where: { id: "parent-2" },
+    data: { child: { delete: true } },
+  });
+};
+
 const featuredPost = s.model({
   id: s.string().id(),
   featuredComment: s
@@ -533,6 +651,55 @@ const singularInverseSurface = () => {
           where: { id: "comment-2" },
           create: { id: "comment-2", body: "second" },
         },
+      },
+    },
+  });
+};
+
+const requiredMembershipPost = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => requiredMembershipComment)
+    .name("requiredMembership")
+    .optional(),
+});
+const requiredMembershipVideo = s.model({
+  id: s.string().id(),
+  featuredComment: s
+    .oneToOne(() => requiredMembershipComment)
+    .name("requiredMembership")
+    .optional(),
+});
+const requiredMembershipComment = s.model({
+  id: s.string().id(),
+  body: s.string(),
+  commentable: s
+    .polymorphic({
+      post: () => requiredMembershipPost,
+      video: () => requiredMembershipVideo,
+    })
+    .name("requiredMembership"),
+});
+const requiredMembershipClient = createClient({
+  schema: {
+    requiredMembershipPost,
+    requiredMembershipVideo,
+    requiredMembershipComment,
+  },
+  driver: new PGliteDriver(),
+});
+
+const requiredMembershipSurface = () => {
+  requiredMembershipClient.requiredMembershipPost.update({
+    where: { id: "post-1" },
+    data: { featuredComment: { delete: true } },
+  });
+  requiredMembershipClient.requiredMembershipPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        // @ts-expect-error - disconnect would preserve a child whose membership is required
+        disconnect: true,
       },
     },
   });

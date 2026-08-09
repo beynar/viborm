@@ -235,17 +235,29 @@ describe("direct polymorphic read SQL", () => {
     expect(projection.sql.toStatement("?")).toContain("json((SELECT");
   });
 
-  test("compiles null and negative target filters from both storage columns", () => {
+  test("compiles presence and negative target filters from exact storage", () => {
     const adapter = new SQLiteAdapter();
     const nullScope = createQueryScope(adapter, comment);
     const empty = buildWhere(
       nullScope,
-      { subject: null },
+      { subject: { is: null } },
       nullScope.rootAlias
     );
     expect(empty?.toStatement("?")).toContain(
       '"t0"."subject_type" IS NULL AND "t0"."subject_id" IS NULL'
     );
+    expect(empty?.values).toEqual([]);
+
+    const presentScope = createQueryScope(adapter, comment);
+    const present = buildWhere(
+      presentScope,
+      { subject: { isNot: null } },
+      presentScope.rootAlias
+    );
+    expect(present?.toStatement("?")).toContain(
+      '"t0"."subject_type" IS NOT NULL AND "t0"."subject_id" IS NOT NULL'
+    );
+    expect(present?.values).toEqual([]);
 
     const negativeScope = createQueryScope(adapter, comment);
     const negative = buildWhere(

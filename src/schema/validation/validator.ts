@@ -3,6 +3,7 @@
 import type { Model } from "../model";
 import { SchemaValidationError } from "./error";
 import { allRules } from "./rules";
+import { inverseOneToOneMustBeOptional } from "./rules/relation";
 import type {
   Schema,
   SchemaValidationIssue,
@@ -142,10 +143,28 @@ export function validateSchemaOrThrow(
 export function validatePolymorphicSchemaOrThrow(
   models: Record<string, Model<any>>
 ): void {
-  const hasPolymorphicRelation = Object.values(models).some(
-    (model) =>
-      Object.keys(model["~"].state.polymorphicRelations).length > 0
-  );
-  if (!hasPolymorphicRelation) return;
+  if (!hasPolymorphicRelations(models)) return;
   new SchemaValidator().registerAll(models).validateOrThrow();
+}
+
+/** Validate the definition contracts that every query client relies on.
+ * Polymorphic schemas need the complete graph validation that materializes
+ * their private storage. Ordinary schemas need only the non-owning one-to-one
+ * rule here; their remaining definition rules keep their existing explicit
+ * validation boundary. */
+export function validateClientSchemaOrThrow(
+  models: Record<string, Model<any>>
+): void {
+  const validator = new SchemaValidator().registerAll(models);
+  validator.validateOrThrow(
+    hasPolymorphicRelations(models)
+      ? undefined
+      : [inverseOneToOneMustBeOptional]
+  );
+}
+
+function hasPolymorphicRelations(models: Record<string, Model<any>>): boolean {
+  return Object.values(models).some(
+    (model) => Object.keys(model["~"].state.polymorphicRelations).length > 0
+  );
 }

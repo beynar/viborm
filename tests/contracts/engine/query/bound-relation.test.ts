@@ -47,7 +47,10 @@ const membership = s.model({
 
 const user = s.model({
   id: s.string().id(),
-  profile: s.oneToOne(() => profile).name("profile"),
+  profile: s
+    .oneToOne(() => profile)
+    .name("profile")
+    .optional(),
 });
 
 const profile = s.model({

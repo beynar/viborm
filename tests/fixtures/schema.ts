@@ -84,7 +84,7 @@ export const model = s.model({
   enumScalarWithDefault,
   enumScalarWithValidation,
   nullableEnumScalar,
-  oneToOne: s.oneToOne(() => oneToOne),
+  oneToOne: s.oneToOne(() => oneToOne).optional(),
   oneToMany: s.oneToMany(() => oneToMany),
   manyToMany: s.manyToMany(() => manyToMany),
   manyToOne: s.manyToOne(() => manyToOne),
@@ -92,7 +92,7 @@ export const model = s.model({
 
 export const oneToOne = s.model({
   id: s.string().id().ulid(),
-  test: s.oneToOne(() => oneToOne),
+  test: s.oneToOne(() => oneToOne).optional(),
 });
 
 export const oneToMany = s.model({
@@ -119,7 +119,7 @@ const example = s.model({
 
 const relation = s.model({
   id: s.string().id().ulid(),
-  example: s.oneToOne(() => example),
+  example: s.oneToOne(() => example).optional(),
 });
 /**
  * Test user model for client type tests
@@ -134,7 +134,7 @@ export const testUser = s.model({
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
   posts: s.oneToMany(() => testPost),
-  profile: s.oneToOne(() => testProfile),
+  profile: s.oneToOne(() => testProfile).optional(),
 });
 
 /**
@@ -149,7 +149,10 @@ export const testPost = s
     createdAt: s.dateTime().now(),
     updatedAt: s.dateTime().now(),
     authorId: s.string(),
-    author: s.oneToOne(() => testUser).name("author"),
+    author: s
+      .oneToOne(() => testUser)
+      .name("author")
+      .optional(),
     // metadata: s
     //   .json(
     //     z.object({
@@ -171,7 +174,10 @@ export const testProfile = s
     bio: s.string().nullable(),
     avatar: s.string().nullable(),
     userId: s.string().unique(),
-    user: s.oneToOne(() => testUser).name("user"),
+    user: s
+      .oneToOne(() => testUser)
+      .name("user")
+      .optional(),
   })
   .map("Profile")
   .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" })

@@ -2815,7 +2815,7 @@ function registerPolymorphicWriteBehavior(
       ).toEqual([]);
     });
 
-    test("database orphans follow optional and required read semantics", async () => {
+    test("database orphans fail regardless of direct optionality", async () => {
       const { client } = getFamily();
       const optionalTarget = await client.post.create({
         data: { slug: "optional-orphan", title: "Optional orphan" },
@@ -2849,12 +2849,14 @@ function registerPolymorphicWriteBehavior(
         requiredTarget.id
       );
 
-      await expect(
-        client.comment.findUniqueOrThrow({
-          where: { id: optional.id },
-          include: { commentable: true },
-        })
-      ).resolves.toMatchObject({ commentable: null });
+      const optionalRead = client.comment.findUniqueOrThrow({
+        where: { id: optional.id },
+        include: { commentable: true },
+      });
+      await expect(optionalRead).rejects.toBeInstanceOf(QueryEngineError);
+      await expect(optionalRead).rejects.toThrow(
+        "Polymorphic relation 'commentable' references a missing 'post' record."
+      );
 
       const requiredRead = client.requiredComment.findUniqueOrThrow({
         where: { id: required.id },

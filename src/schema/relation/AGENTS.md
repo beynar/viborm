@@ -111,6 +111,10 @@ An inverse can be an ordinary `oneToMany` or a fields-less `oneToOne`. All
 inverses that share one private `(type, id)` pair must use the same cardinality.
 The validated `PolymorphicStorage.inverseCardinality` is therefore relation-wide,
 not discriminator-specific. Mixed inverse cardinalities are rejected as P012.
+A fields-less `oneToOne` is non-owning and must call `.optional()` because no
+local FK can require a related row to exist. This slot optionality is distinct
+from membership clearability: inverse delete removes the child, while inverse
+disconnect preserves it and therefore requires nullable child-side storage.
 
 ---
 
@@ -362,8 +366,9 @@ The owner table gets private `<relation>_type` and `<relation>_id` columns plus 
 composite `(type, id)` index. The index is unique when inverse cardinality is
 `one`; this prevents two owner rows from selecting the same exact target across
 all discriminators. No portable foreign key can point to several tables.
-Optional missing known targets parse as `null`; required missing targets raise
-`QueryEngineError`; unknown or half-null storage is malformed provider data.
+Empty optional storage parses as `null`. A non-empty known membership whose
+target is missing raises `QueryEngineError` regardless of optionality; unknown
+or half-null storage is malformed provider data.
 
 ### Why standalone classes instead of inheritance
 Early versions used a `Relation` base class, but TypeScript struggled with method return types. Standalone classes with explicit method signatures provide cleaner type inference.
