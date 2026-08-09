@@ -9,13 +9,9 @@ import {
   type NormalizedRelationUpsert,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
-import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique, buildUpdate } from "../operations";
-import {
-  assertPortablePrimaryKeyUpdateInput,
-  getUpdatedPrimaryKeyValue,
-} from "../operations/mutation-identity";
+import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import {
   assertPinnedTransitionIsCompilable,
@@ -71,7 +67,6 @@ import {
   getStepModelName,
   isRecord,
   pinnedTargetValues,
-  sameScalarValue,
   UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
@@ -154,9 +149,6 @@ interface RelationUpsertConfigCore {
    * parent source, and a final reference source is a value, so the id has to exist first.
    */
   readonly probeId: string;
-  /** Whether the probe publishes its captured primary key as a `firstRowField`
-   *  output (set exactly when the update arm's grandchildren `planned`-read it). */
-  readonly publishesLocatedPk?: boolean;
   readonly where: Record<string, unknown>;
   readonly updateData: Readonly<Record<string, unknown>>;
   readonly updateCompiler?: RecordUpdateCompiler;
@@ -276,12 +268,13 @@ export class RelationUpsertPart implements Part {
             : {}),
         }
       ),
-      // N4-U1: when the update arm's grandchildren take this probe's captured primary
-      // key as their parent value, the probe must PUBLISH it so their planning probes
-      // can `Ref` it in SQL. The output is OPTIONAL because an empty probe is this
-      // part's legitimate CREATE decision — and on that decision no update-arm
-      // grandchild ever compiles, so the value has no consumer (the same superset
-      // tolerance an upsert root's locate already declares).
+      // N4-U1: when the update arm's descendants take values from this probe's captured
+      // row, the probe must PUBLISH them so their planning probes can `Ref` them in SQL.
+      // The target projection names exactly those fields, so the compiler's presence is
+      // the whole condition — a payload with no update arm has no consumer. Every output
+      // is OPTIONAL because an empty probe is this part's legitimate CREATE decision, on
+      // which no update-arm descendant compiles (the same superset tolerance an upsert
+      // root's locate already declares).
       outputs: this.updateCompiler
         ? {
             rows: { kind: "rows" },
@@ -290,16 +283,7 @@ export class RelationUpsertPart implements Part {
               true
             ),
           }
-        : config.publishesLocatedPk
-          ? {
-              rows: { kind: "rows" },
-              [config.childPrimaryKey]: {
-                kind: "firstRowField",
-                field: config.childPrimaryKey,
-                optional: true,
-              },
-            }
-          : { rows: { kind: "rows" } },
+        : { rows: { kind: "rows" } },
     };
 
     // The probe pairs its read with the premise its decision creates (ATOM “Branch premises and pins”).
@@ -332,8 +316,11 @@ export class RelationUpsertPart implements Part {
   }
 
   /** The probe's (and the found pin's, and the update arm's) projection: this child's
-   *  primary key plus every FK column — its identity and its current parent, the two
-   *  things every arm's decision is made from. */
+   *  primary key and every FK column — its identity and its current parent, the two
+   *  things every arm's decision is made from — plus every field the update arm's own
+   *  compiler declared it consumes. That third group is what lets a deeper edge
+   *  referencing a compound or non-primary-key key of this child resolve each referenced
+   *  column BY NAME from the located row instead of from one broadcast value. */
   private identitySelect(): Record<string, boolean> {
     const select: Record<string, boolean> = {
       [this.config.childPrimaryKey]: true,
@@ -1065,27 +1052,10 @@ function buildOneUpsertPart(
   }
   const childPrimaryKey = childPrimaryKeys[0]!;
   const childName = getStepModelName(relationInfo.targetModel, relationName);
-  const wherePk = getWhereUniqueEntries(child, where).find(
-    (entry) => entry.fieldName === childPrimaryKey
-  );
-  assertArmPkStable(
-    child,
-    childPrimaryKey,
-    relationName,
-    wherePk,
-    childUpdate.scalarData,
-    childUpdate.relations
-  );
   for (const [childRelationName, program] of Object.entries(
     childUpdate.relations
   )) {
     assertArmEdgeIsChildHeld(child, childRelationName, program);
-    assertArmEdgeReferencesLocatedPk(
-      child,
-      childPrimaryKey,
-      childRelationName,
-      program
-    );
   }
   const parentId =
     parent.membership.kind === "foreignKey"
@@ -1188,16 +1158,40 @@ function buildOneUpsertPart(
  * write to the DEEPER table, correlated to the value this arm's parent source carries —
  * which is what every Part below the seam is built from. A PARENT-HELD edge is not: the
  * arm's OWN row holds the foreign key, so `create`/`connect`/`connectOrCreate` there is
- * a change to the arm's own UPDATE SET (child-SET folding), landing beside the reparent
- * {@link RelationUpsertPart.buildUpdateArm} already writes.
- *
- * The selected-record compiler owns ordinary located-row SET folding. This adopt seam
- * also folds the incoming reparent assignment and owns the found premise. A deeper
- * parent-held edge would have to share that same UPDATE while preserving the arm's pin
- * and legality timing; that unsupported shape is refused here.
+ * a change to the arm's own UPDATE SET, landing beside the reparent this seam already
+ * folds.
  *
  * A many-to-many edge needs no fold: its membership is a join row the junction writes,
  * correlated to this arm's parent value like any child-held edge.
+ *
+ * B3 OF THE LIMITATION LIFT TRIED TO DELETE THIS AND WAS FALSIFIED. The selected-record
+ * compiler does own a parent-held fold (`interpretParentHeldToOne` → `toOneLinks` /
+ * `parentHeldTargets`, merged into `compileLocatedRecord`'s one root UPDATE), and for a
+ * relation the arm did NOT arrive through that fold lands correctly. But this seam also
+ * hands that compiler an `incomingMembership` — the reparent onto the enclosing row —
+ * and `compileLocatedRecord` applies it with `Object.assign(rootExtraSet.data,
+ * incoming.data)` AFTER the fold, over the same foreign-key column. So for the relation
+ * the arm ARRIVED THROUGH, which is the one this refusal's own message names, the
+ * enclosing membership silently wins. Measured on PGlite at the public client, with
+ * `org.update` → `teams.upsert[].update.org`:
+ *
+ *  · `connect: { id: 'o2' }` resolves with no error, the o2 existence probe runs, and
+ *    `orgId` stays `'o1'` — the requested reparent is dropped, not refused;
+ *  · `create: { id: 'o9' }` INSERTs o9 before the arm's UPDATE, which then writes
+ *    `orgId = 'o1'`, committing a row nothing references;
+ *  · `disconnect: true` leaves `orgId = 'o1'`;
+ *  · the SAME payload spelled on both arms resolves to `'o2'` on the CREATE arm
+ *    (`CreateOperation.emitParentHeldArm` assigns AFTER the injected membership) and
+ *    `'o1'` on this one — one payload, two opposite memberships;
+ *  · `delete: true` deletes the enclosing operation's own root row and fails the
+ *    terminal read with a bare `TransactionError`.
+ *
+ * The nested targeted-update seam is NOT affected and is not parity for this: it passes
+ * no `incomingMembership` (`RelationWritePart`), so the same `connect` lands `'o2'`
+ * there. The collision is this seam's alone. Lifting it needs the fold and the incoming
+ * reparent to be reconciled in ONE owner — a per-column precedence with a refusal when
+ * they disagree — which is Package D's transition/membership provenance work, not a
+ * deletion here.
  */
 function assertArmEdgeIsChildHeld(
   child: QueryScope,
@@ -1208,99 +1202,6 @@ function assertArmEdgeIsChildHeld(
   if (relation.kind !== "parentHeldToOne") return;
   throw new UnsupportedOperationError(
     `query-engine-v2 does not support a parent-held to-one write on relation '${relationName}' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent.`
-  );
-}
-
-/**
- * E3 — the arm's own primary key may not MOVE while the arm carries deeper edges.
- *
- * Every deeper edge on this arm is correlated to the arm row's primary key — as the
- * `where`'s literal, or as a `planned` read of this part's probe, which runs BEFORE the
- * arm's UPDATE. A SET that moves that key therefore leaves every deeper write bound to
- * the value the transition vacates: a junction row correlating on a key no row carries,
- * a child INSERT whose foreign key names a row that no longer exists, a targeted update
- * that finds nothing. The root answers this with an ordering regime
- * (`RelationWritePart.interpretChildParts`: the cascade/non-cascade split, the
- * post-transition literal, the occupied guards), which is module-private to that class
- * and is not ported here — so the composition fails closed instead of binding a stale
- * key.
- *
- * A SET that NAMES the key is not automatically a MOVE, and the same two literals the
- * root uses decide it: the `where`-pinned pre-value and `getUpdatedPrimaryKeyValue` over
- * the operand. `id: <the value it already has>` and `increment: 0` write the key without
- * moving it, and the root accepts those beside deeper edges — asking `Object.hasOwn`
- * alone would refuse at this arm a payload the root runs. When some OTHER unique named
- * the arm's row there is no compile-time pre-value to compare, so a no-op is
- * indistinguishable from a move and takes the refusing path — the same place the root's
- * unpinned pre-value leaves it.
- *
- * Scoped to `relations` being non-empty: a scalar-only arm transitions its key freely
- * (nothing below it references the key), which is the shipped behaviour this must not
- * narrow.
- */
-function assertArmPkStable(
-  child: QueryScope,
-  childPrimaryKey: string,
-  relationName: string,
-  wherePk: { readonly value: unknown } | undefined,
-  updateScalarData: Record<string, unknown>,
-  relations: Record<string, RelationMutationProgram>
-): void {
-  if (Object.keys(relations).length === 0) return;
-  if (!Object.hasOwn(updateScalarData, childPrimaryKey)) return;
-  if (wherePk !== undefined) {
-    const after = getUpdatedPrimaryKeyValue(
-      child.model,
-      childPrimaryKey,
-      wherePk.value,
-      updateScalarData[childPrimaryKey],
-      getStepModelName(child.model, relationName)
-    );
-    if (sameScalarValue(wherePk.value, after)) return;
-  }
-  throw new UnsupportedOperationError(
-    `query-engine-v2 does not support an update arm that moves the primary key '${childPrimaryKey}' of relation '${relationName}' while it carries deeper relation writes; those writes correlate on the key the arm vacates.`
-  );
-}
-
-/**
- * M11 — the update arm's parent value speaks for exactly ONE column of the located row:
- * this child's primary key. It is that key's `where` literal, or a `planned` read of this
- * part's own probe, whose projection ({@link RelationUpsertPart.identitySelect}) is the
- * child's primary key plus the child's OWN foreign key columns and nothing else. But
- * {@link fkAssignData} writes EVERY foreign-key column of a deeper edge from that one
- * value, so an edge referencing a compound tuple — or a single NON-primary-key column —
- * of this child receives the primary key in all of them. Measured through the public
- * client: a grandchild silently adopted by whichever row happens to hold the
- * cross-matched tuple, a grandchild silently reparented away, and a bare
- * `ForeignKeyError` when no row holds it. No wrong value is representable once this
- * refuses at construction, before a statement exists.
- *
- * Such an edge needs one located value per referenced field. This seam exposes only the
- * located primary key, so it refuses compound and non-primary-key references before SQL
- * is built.
- */
-function assertArmEdgeReferencesLocatedPk(
-  child: QueryScope,
-  childPrimaryKey: string,
-  relationName: string,
-  mutation: RelationMutationProgram
-): void {
-  const relation = bindRelation(child, mutation.relationInfo);
-  // A junction's membership is correlated to the arm's parent value as a whole — never
-  // a per-column FK write, so there is no cross-match to make. A parent-held relation's
-  // referenced fields belong to the TARGET rather than this child, so it is not fed from
-  // the arm's parent value either; {@link assertArmEdgeIsChildHeld} stops it first.
-  if (relation.kind === "junction" || relation.kind === "parentHeldToOne")
-    return;
-  if (
-    relation.referencedFields.length === 1 &&
-    relation.referencedFields[0] === childPrimaryKey
-  ) {
-    return;
-  }
-  throw new UnsupportedOperationError(
-    `query-engine-v2 does not support a compound or non-primary-key referenced edge one level deeper on the update arm of relation '${relationName}'; the arm's parent value is the located row's primary key '${childPrimaryKey}' alone, and each referenced column needs a per-field parent source.`
   );
 }
 

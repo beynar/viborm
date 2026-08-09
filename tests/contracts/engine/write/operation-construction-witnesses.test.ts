@@ -12,14 +12,14 @@ import type { RelationInfo } from "@query-engine/types";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
 } from "@src/query-engine/write-engine/routing";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * N7-U-A — THE CONVERSION WITNESSES.
@@ -49,11 +49,14 @@ import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior
  *     so they are pinned STRUCTURALLY: the invariant that makes them unreachable is
  *     asserted directly, and the assertion fails the day the invariant does.
  *
- * TWO sites are deliberately absent, because their (c-i) claims FAILED re-verification:
+ * TWO sites were deliberately absent, because their (c-i) claims FAILED re-verification:
  * `CreateOperation` :822 and `RelationUpsertPart` :708. Their witnesses are here too, at
- * the bottom — REACHABILITY tests asserting they still throw `UnsupportedOperationError`,
- * pinning the reclassification so the next reader cannot mistake either for a converted
- * site.
+ * the bottom. The first has since been ABSORBED (E4-U1), so its test pins that claim in
+ * its discharged form: the payload the census counted CONSTRUCTS. The second is a
+ * REACHABILITY test asserting the site still throws `UnsupportedOperationError` — B3 of
+ * the limitation lift tried to absorb it too and was falsified at the package gate. The
+ * reclassifying record stays on each test so the next reader cannot mistake either for a
+ * converted site.
  */
 
 // Top-level so Biome's `useTopLevelRegex` rule is satisfied — every witness below matches
@@ -921,6 +924,12 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
    * write belongs in the arm's UPDATE SET. The class assertion below is the load-bearing
    * half: an absorption may not turn a typed refusal into an internal error, and this
    * proves it did not.
+   *
+   * B3 of the limitation lift tried to delete `assertArmEdgeIsChildHeld` and was
+   * FALSIFIED at the package gate: the record compiler's fold is real, but the arm's own
+   * incoming membership silently overwrites it on the relation the upsert traversed —
+   * which is exactly this payload's `author` under `posts`. Measured record in
+   * `nested-arm-dispatch.test.ts`.
    */
   test("the parent-held to-one connectOrCreate on an upsert update arm is refused by DIRECTION", () => {
     const engine = new QueryEngine(

@@ -1,8 +1,3 @@
-import {
-  BatchOnlyPGliteDriver,
-  type PGliteSchemaFamily,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
@@ -14,24 +9,26 @@ import {
 } from "@errors";
 import { push } from "@migrations";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
-import {
-  createModelRegistry,
-  QueryEngine,
-} from "@query-engine/query-engine";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import {
   runUpsertFamilyBehavior,
   upsertFamilySchema,
 } from "@tests/contracts/engine/write/upsert-family-behavior";
-import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import {
+  BatchOnlyPGliteDriver,
+  type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 // The whole upsert family on PGlite, both substrates (driver-matrix legs live in
 // tests/drivers/{sqlite3,mysql2,pg,libsql}.test.ts).
@@ -293,6 +290,13 @@ describe("write boundary upsert construction surface", () => {
 // SUBCLASS, never a bare QueryEngineError) during UpdateOperation construction,
 // before any I/O. Pre-P6 the proxy caught that and observed the whole tree to Direct;
 // post-P6 the typed refusal is the caller's outcome.
+//
+// Package B3 of the limitation lift tried to discharge this and was FALSIFIED at the
+// package gate. `author` is the INVERSE of the traversed `posts`, so the arm's incoming
+// membership and the deeper parent-held fold both write `authorId`, and the incoming one
+// wins silently — an accepted payload whose requested write is discarded. The refusal
+// below is what keeps that unreachable; the measurement is recorded in
+// `nested-arm-dispatch.test.ts`.
 // ---------------------------------------------------------------------------
 
 describe("write boundary depth-2 to-one grandchild refusal", () => {

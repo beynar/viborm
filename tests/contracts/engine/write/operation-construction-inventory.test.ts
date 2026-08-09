@@ -1891,6 +1891,12 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     build: widen `identitySelect` with the deeper edge's referenced columns and hand
   //     `perFieldParentId` a `plannedParentId` per column. Both halves exist post-E; the
   //     site is re-filed (c-ii) with that mechanism named, not as an impossibility.
+  //     DISCHARGED (limitation lift, Package B2 — see the `31 -> 28` entry): the arm's
+  //     found arm now delegates to `RecordUpdateCompiler`, which is that different build.
+  //     `identitySelect` unions the compiler's target projection, so every consumed
+  //     referenced column is in the probe's SELECT and outputs, and each foreign-key
+  //     member resolves by NAME. The site is deleted and the file's witnesses are now
+  //     accept-and-land measurements against the same decoy.
   //   · **+1, the foreign key the relation already spoke for** (M12 —
   //     `RelationWritePart`, `assertOwnedFkAbsentFromUpdateData`, one throw site, three
   //     call positions). The relation-owned FK spelled in nested UPDATE data was silently
@@ -2122,6 +2128,14 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     delivered and did not lift it — different seam), and `RelationWritePart:828`'s
   //     "no `ParentIdSource` applies the SET's operand to a planned value at compile",
   //     which enumerates a three-member union that E6.7 made four (`transitioned`).
+  //   · SUPERSEDED IN PART (limitation lift, Package B): the `RelationUpsertPart` entries
+  //     of the (c-ii) list above are stale coordinates into a pre-B file. That file now
+  //     holds THREE refusal sites — the owned-FK-spelled-beside-its-relation one, the
+  //     single-primary-key-child one, and `assertArmEdgeIsChildHeld` — because B deleted
+  //     two of the five arm-local guards. Read any `RelationUpsertPart` filing in this
+  //     block against the `31 -> 29` entry below before treating it as an open item; no
+  //     line-number mapping is asserted here, because the deletions moved every
+  //     coordinate.
   // The selected-record compiler absorbed the conditional update-arm planning refusal:
   // captured descendant outputs are optional until the found arm is selected. The pin is
   // therefore 30; the removed site is covered by the found/inert dual-substrate witnesses
@@ -2132,6 +2146,73 @@ describe("write engine route inventory (P6 accounting)", () => {
   // one captured child primary key, matching the ordinary selected-record compiler's
   // existing portable boundary. Compound-child targeting is a narrower, reviewed
   // refusal; it does not affect the previously supported inverse create surface.
+  //
+  // 31 -> 29 (LIMITATION LIFT, PACKAGE B — "trust the selected-record compiler"). TWO of
+  // the three attempted deletions from `RelationUpsertPart` shipped; the third was
+  // FALSIFIED AT THE PACKAGE GATE and its guard is restored. No site was added and no
+  // narrowed residual kept. Each of the two that shipped was an arm-local restatement of
+  // an invariant the found arm's delegate, `RecordUpdateCompiler`, already owns; each was
+  // falsified by a behavior witness on both substrates BEFORE its deletion, and each
+  // deletion was kept only because that witness then passed with the ordering and the
+  // wrong-row protection intact. The third is recorded below with the measurement that
+  // stopped it — the delegate owns the MECHANISM but not the whole INVARIANT.
+  //   · **-1, `assertArmPkStable`** (B1) — "an update arm may not move its own primary key
+  //     while it carries deeper relation writes". The compiler has owned primary-key
+  //     transitions since T4b/T4c/N5-U1: it derives the post-transition value from the
+  //     where-pinned pre-value and the root SET, defers every write that must reference it
+  //     until after the root UPDATE, and rejects an occupied old slot with V1's
+  //     referential-action message. Retargeted witness (`nested-arm-dispatch.test.ts`): the
+  //     arm's row moves while a deeper `create` and a deeper `connect` both land the
+  //     POST-transition key, with the statement order pinned (arm UPDATE, then the two
+  //     writes) — and the payload that used to meet the deleted guard now meets the
+  //     CLASS IV occupied guard instead, which is the half of the invariant that was ever
+  //     real. RESIDUE, measured not guarded: a junction edge is classified before the
+  //     transition is, so a pair that opts out of the implicit `ON UPDATE CASCADE` has no
+  //     engine owner — and the update ROOT has none either. Both fail closed at the
+  //     constraint with identical statements and no partial effect, so the constraint is
+  //     the owner and a refusal at the arm alone would be an asymmetric duplicate. Pinned
+  //     three ways in the same file's "B1 RESIDUE" block.
+  //   · **-1, `assertArmEdgeReferencesLocatedPk`** (B2) — the M11 entry above, discharged.
+  //     Its recorded reason named the exact mechanism it was waiting for ("widen
+  //     `identitySelect` with the deeper edge's referenced columns and hand the leaf a
+  //     per-column source"), and the delegation to the record compiler IS that mechanism:
+  //     every consumed referenced field joins `locateFields`, the arm's probe publishes
+  //     the target projection, and each member resolves BY NAME. The defect the site was
+  //     created for cannot be constructed any more, which is why deleting it does not
+  //     restore it: `upsert-arm-referenced-edge.test.ts` keeps the same decoy — whose
+  //     `(region, code)` IS the cross-match of the arm's key and whose `slug` IS that key —
+  //     and measures that the compound edge correlates per field, both create paths file
+  //     the located tuple, and the arity-1 non-PK edge writes the slug.
+  //   · **±0, `assertArmEdgeIsChildHeld`** (B3) — ATTEMPTED, FALSIFIED, RESTORED. The
+  //     guard says "a parent-held to-one write belongs in the arm's own UPDATE SET", and
+  //     `interpretParentHeldToOne` really does put it there: for a parent-held relation
+  //     the arm did NOT arrive through, `connect` / `create` / both `connectOrCreate`
+  //     arms / `disconnect` all fold into the ONE UPDATE the arm already emits. The
+  //     invariant the guard owns is bigger than that mechanism. This seam also hands the
+  //     compiler an `incomingMembership` — the reparent onto the enclosing row — and
+  //     `compileLocatedRecord` applies it with `Object.assign` AFTER the fold, over the
+  //     same column. So on the relation the arm ARRIVED THROUGH, which is the one the
+  //     refusal's own message names, the deletion made the engine accept-and-discard:
+  //     `connect` resolved with the target's probe run and the membership unchanged,
+  //     `create` committed an unreferenced row, `disconnect` was ignored, the same
+  //     payload resolved to opposite memberships on the two arms, and `delete` removed
+  //     the enclosing operation's own root row and failed the terminal read with a bare
+  //     `TransactionError`. The nested targeted-update seam passes no
+  //     `incomingMembership` and lands the same `connect` correctly, so this was not
+  //     parity — it was a new silent-write path unique to this seam. CARRIED FORWARD as
+  //     a Package D case: reconcile the fold and the incoming reparent in one owner,
+  //     with a refusal when they disagree per column.
+  // FALSIFIED, in the order the deletions happened: each unit's witnesses were run
+  // against the tree with that guard still in place and went red at construction with
+  // that guard's own message, on both substrates, before it was removed. Both shipped
+  // messages are quoted verbatim in the witness that replaced them, so restoring a guard
+  // is a one-line diff away from being measured again — and B3 is the case that proves
+  // the discipline works, because its witness was written, run, and then thrown away
+  // when the payload it did NOT cover turned out to be the one that mattered.
+  // SWEPT while in the file: the `publishesLocatedPk` config channel (declared, read, and
+  // never supplied once the compiler's projection took over publication) and the stale
+  // `{@link fkAssignData}` reference in the deleted M11 docblock, whose symbol no longer
+  // exists in `src`.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -2142,7 +2223,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(31);
+    expect(sites).toBe(29);
   });
 });
 

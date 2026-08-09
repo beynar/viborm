@@ -2,17 +2,17 @@
 
 **Date:** 2026-08-05
 **Re-anchored:** 2026-08-09, against the tree at the limitation-lift plan commit.
-**Scope:** the 30 refusals standing after PR #20, MINUS the 9 the final re-audit re-filed as expressible work. What remains is **21 shapes**, each with the payload that raises it and the reason it stands.
+**Scope:** the 30 refusals standing after PR #20, MINUS the 9 the final re-audit re-filed as expressible work, MINUS the 2 that Package B of the limitation lift deleted (2026-08-10; see "What has been DELIVERED since"). What remains is **21 shapes**, each with the payload that raises it and the reason it stands.
 
 Every refusal below is an `UnsupportedOperationError` raised at CONSTRUCTION — before any statement runs, so nothing is written. Each has a committed witness in `tests/contracts/engine/write/`. The examples are derived from the refusal conditions in code, the re-audit's per-site arguments, and those witnesses; they show the SHAPE, not a runnable fixture.
 
 **Anchoring convention.** A refusal SITE is anchored on its
 `throw new UnsupportedOperationError(` line, not on the message template one line
 below it. A named guard FUNCTION is anchored on its declaration line instead, and
-is always given by name — `RelationUpsertPart.ts:1261` (`assertArmPkStable`) is a
-throw, `RelationUpsertPart.ts:1241` in the plan's §A2 table is that function's
-declaration. The limitation-lift plan and the parity witnesses use the same two
-rules; when a number here and a number there differ by one, the file that moved is
+is always given by name — `RelationWritePart.ts:1046`
+(`assertOwnedFkAbsentFromUpdateData`) is a throw, and `:1036` is that same
+function's declaration. The limitation-lift plan and the parity witnesses use the
+same two rules; when a number here and a number there differ, the file that moved is
 the one at fault.
 
 Every site coordinate below was re-anchored on 2026-08-09. Two things had moved
@@ -26,9 +26,9 @@ since the original writing, and neither changes a shape:
 
 The executable census owner is
 `tests/contracts/engine/write/operation-construction-inventory.test.ts`; it pins
-31 `new UnsupportedOperationError` sites under `src/query-engine/write-engine`.
+29 `new UnsupportedOperationError` sites under `src/query-engine/write-engine`.
 Sites are positions, not shapes: the 21 shapes below occupy 23 of those sites,
-and the remaining 8 belong to the shapes under "What is NOT here".
+and the remaining 6 belong to the shapes under "What is NOT here".
 
 ## The schema these examples use
 
@@ -265,7 +265,7 @@ client.user.update({
 
 Newly forbidden in PR #20 (D4). Before the fix the spelled value **won** — it rides the target's own SET, which lands *after* the correlation already chose the row, so the parent silently lost the child it was updating through. Measured live at three positions.
 
-**5.2 — spelled with a DISAGREEING value at the adopt seam** · `RelationUpsertPart.ts:746`
+**5.2 — spelled with a DISAGREEING value at the adopt seam** · `RelationUpsertPart.ts:733`
 
 ```ts
 client.author.update({
@@ -291,7 +291,7 @@ The agree case is absorbed only where the parent value is a construction-time **
 
 ## 6. Depth on an upsert's update arm (1)
 
-**6.1 — a parent-held to-one write one level deeper** · `RelationUpsertPart.ts:1209` (`assertArmEdgeIsChildHeld`)
+**6.1 — a parent-held to-one write one level deeper** · `RelationUpsertPart.ts:1203` (`assertArmEdgeIsChildHeld`)
 
 ```ts
 client.org.update({
@@ -308,9 +308,34 @@ client.org.update({
 });
 ```
 
-An architecture boundary, not a missing value: the arm is ONE UPDATE carrying the reparent, the upsert-premise `expects` and the found pin. A delegated sub-operation would emit a SECOND UPDATE of the same row and fork the premise this Part pins.
+The original argument was an architecture one — "a delegated sub-operation would emit a
+SECOND UPDATE of the same row and fork the premise this Part pins" — and that argument
+is now WRONG: the arm's found arm IS the selected-record compiler, and
+`interpretParentHeldToOne` folds the target's key into the ONE root UPDATE that compiler
+already emits. Package B3 (2026-08-10) attempted the deletion on exactly that ground and
+was FALSIFIED at the package gate, so the shape stands for a different, measured reason.
 
-*(The other three arm-depth refusals — the asserting probe, the arm moving its own PK, and the compound/non-PK deeper edge — all failed the re-audit and are listed as future work, not here.)*
+This seam also hands that compiler an `incomingMembership` — the reparent onto the
+enclosing row — and `compileLocatedRecord` applies it AFTER the fold, over the same
+column. For a parent-held relation the arm did NOT arrive through (`category` above) the
+fold lands correctly; for the relation the arm ARRIVED THROUGH the enclosing membership
+silently wins. Measured with `org.update` → `teams.upsert[].update.org`: `connect`
+resolved with the target probe run and the membership unchanged, `create` committed an
+unreferenced row, `disconnect` was ignored, the same payload resolved to opposite
+memberships on the two arms, and `delete` removed the enclosing operation's own root row
+and failed the terminal read with a bare `TransactionError`. The nested targeted-update
+seam passes no `incomingMembership` and lands the same `connect` correctly, so this is
+not parity — it is unique to this seam.
+
+Because one guard owns one invariant, the refusal covers BOTH directions rather than
+being narrowed to the colliding one. Lifting it needs the fold and the incoming reparent
+reconciled in a single owner, with a per-column refusal when they disagree; that is
+carried as a Package D case.
+
+*(The other three arm-depth refusals — the asserting probe, the arm moving its own PK,
+and the compound/non-PK deeper edge — are all DELIVERED and gone; see "What has been
+DELIVERED since".)*
+
 
 ---
 
@@ -399,18 +424,20 @@ The refusals the final re-audit re-filed as expressible work — they still thro
 
 | Site | Shape |
 |---|---|
-| `RecordUpdateCompiler.ts:1324`, `:1495`, `:2631`, `RelationUpsertPart.ts:1062`, `nested-target-parts.ts:190` | any nested write whose CHILD model has a compound primary key (five positions; `:1495` is the bound-polymorphic inverse one) |
+| `RecordUpdateCompiler.ts:1324`, `:1495`, `:2631`, `RelationUpsertPart.ts:1049`, `nested-target-parts.ts:190` | any nested write whose CHILD model has a compound primary key (five positions; `:1495` is the bound-polymorphic inverse one) |
 | `RecordUpdateCompiler.ts:3084` | shared-PK create/connectOrCreate/upsert at an update root |
-| `RelationUpsertPart.ts:1261` (`assertArmPkStable`) | an upsert arm that moves its own PK while carrying deeper writes |
-| `RelationUpsertPart.ts:1302` (`assertArmEdgeReferencesLocatedPk`) | a compound / non-PK referenced edge deeper on the update arm |
 | `relation-key-legality.ts:88` (`assertPinnedTransitionIsCompilable`) | a target PK transition plus a non-cascading deeper edge, located by another unique |
 
 Plus the inverse-to-one upsert-arm half of `RelationWritePart.ts:601`.
 
-Two changes since this list was written, both verified against the tree on 2026-08-09:
+Changes since this list was written, each verified against the tree:
 
-- The list had **six** rows. One of them — a deeper write on the update arm "whose planning read asserts that its own target exists" — is **DELIVERED and removed**: the selected-record compiler makes a conditional arm's descendant outputs optional until the found arm is selected (`conditionalArmPlanning`, `write-engine/Part.ts:63`; `StatementOutputSource.optional`, `write-engine/OperationFragment.ts:37`; resolution at `write-engine/OperationExecutor.ts:905`). That message no longer occurs anywhere in `src`.
-- The compound-child-PK row grew from four positions to five with the bound-polymorphic inverse write parity, and the last row moved OUT of the write engine into `src/query-engine/relation-key-legality.ts`, so the write-engine census no longer counts it. The five rows now hold nine positions, eight of them inside the write engine.
+- (2026-08-09) The list had **six** rows. One of them — a deeper write on the update arm "whose planning read asserts that its own target exists" — is **DELIVERED and removed**: the selected-record compiler makes a conditional arm's descendant outputs optional until the found arm is selected (`conditionalArmPlanning`, `write-engine/Part.ts:63`; `StatementOutputSource.optional`, `write-engine/OperationFragment.ts:37`; resolution at `write-engine/OperationExecutor.ts:905`). That message no longer occurs anywhere in `src`.
+- (2026-08-09) The compound-child-PK row grew from four positions to five with the bound-polymorphic inverse write parity, and the last row moved OUT of the write engine into `src/query-engine/relation-key-legality.ts`, so the write-engine census no longer counts it.
+- (2026-08-10, Package B) **Two more rows are DELIVERED and removed**, both by the same change — the upsert arm's found arm delegates to `RecordUpdateCompiler`:
+  - `assertArmPkStable`, "an upsert arm that moves its own PK while carrying deeper writes". The compiler owns primary-key transitions: it derives the post-transition value, defers the writes that reference it until after the root UPDATE, and refuses an OCCUPIED old slot with V1's referential-action message — which is the half of the invariant that was real. RESIDUE, measured and deliberately unguarded: a junction pair that opts out of the implicit `ON UPDATE CASCADE` has no engine owner for the transition at the arm OR at the update root; both fail closed at the constraint with identical statements and no partial effect, so the constraint owns it and a refusal at the arm alone would be an asymmetric duplicate (`nested-arm-dispatch.test.ts`, "B1 RESIDUE").
+  - `assertArmEdgeReferencesLocatedPk`, "a compound / non-PK referenced edge deeper on the update arm". Its recorded reason named the mechanism it waited for — widen the arm probe's projection and give the leaf a per-column source — and the delegation is that mechanism: every consumed referenced field joins `locateFields`, the probe publishes the target projection, and each foreign-key member resolves by NAME (`upsert-arm-referenced-edge.test.ts`).
+  The three remaining rows now hold seven positions, six of them inside the write engine. A THIRD deletion was attempted in the same package — `assertArmEdgeIsChildHeld`, §6.1 above — and was falsified at the package gate; it is neither delivered nor listed here.
 
 ## The honesty note
 
