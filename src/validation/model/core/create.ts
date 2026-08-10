@@ -115,26 +115,38 @@ export const getScalarCreate = <M extends AnyModel, F extends ScalarSchemas<M>>(
   });
 };
 
-type RequiredPolymorphicKeys<M extends AnyModel> = {
-  [K in keyof ModelStateOf<M>["polymorphicRelations"]]: ModelStateOf<M>["polymorphicRelations"][K]["~"]["state"] extends {
-    optional: true;
-  }
-    ? never
-    : Extract<K, string>;
-}[keyof ModelStateOf<M>["polymorphicRelations"]];
-
-/** Root createMany rows: scalar data plus connect-only polymorphic memberships. */
+/**
+ * Root `createMany` rows: the ORDINARY create data shape (plan §6 J1), minus the
+ * one exclusion root `createMany` keeps.
+ *
+ * The entries are the create schema's, key for key, with ONE substitution: the
+ * polymorphic memberships stay at mode `"createMany"` — the connect-only union
+ * (`relations/polymorphic/create-many.ts`). That is not a leftover. A row whose
+ * ONLY relation work is a direct polymorphic `connect` is still bulk-compatible,
+ * and the engine groups those connects into one probe per (relation, variant)
+ * across the whole payload (`bulk-polymorphic-connect.ts`); plan §5.1 keeps that
+ * route's SQL. Widening the membership to the full `"create"` union would make
+ * such a row relation-BEARING and route it to the record series a row at a time,
+ * which the plan does not ask for.
+ *
+ * Everything else is `getCreateSchema` verbatim, including WHY: foreign-key
+ * columns become optional (a row may spell the edge as a relation instead), and
+ * `requiresOneOfKeySets` — the one owner of "an edge required on create must
+ * arrive one way or the other" — replaces the blunt required-scalar list. The
+ * required-polymorphic keys move into that same derivation, so a row that omits
+ * one now fails with the create family's sentence rather than a second spelling
+ * of it.
+ */
 export type BulkCreateSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
   V.FromObject<F["scalars"], "create">["entries"] &
+    V.FromObject<F["relations"], "create">["entries"] &
     V.FromObject<F["polymorphic"], "createMany">["entries"],
   {
-    atLeast: (
-      | ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>
-      | RequiredPolymorphicKeys<M>
-    )[];
+    atLeast: NestedRequiredScalarKeys<M, F>[];
+    requiresOneOfKeySets: readonly CreateRequirementGroup<M>[];
   }
 >;
 
@@ -142,17 +154,16 @@ export function getBulkCreate<M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
   fieldSchemas: F
 ): BulkCreateSchema<M, F> {
-  const requiredScalars = Object.keys(model["~"].state.scalars).filter(
-    (key) => !model["~"].state.scalars[key]!["~"].state.optional
-  );
-  const requiredPolymorphic = Object.keys(
-    model["~"].state.polymorphicRelations
-  ).filter(
-    (key) =>
-      model["~"].state.polymorphicRelations[key]!["~"].state.optional !== true
-  );
+  const state = model["~"].state;
+  const fkFields = getFkFields(state);
+  const fkRequirementKeySets = getFkRequirementKeySets(state);
+  const requiredScalars = getRequiredCreateScalars(state, fkFields);
   const scalarCreate = v.fromObject<F["scalars"], "create">(
     fieldSchemas.scalars,
+    "create"
+  );
+  const relationCreate = v.fromObject<F["relations"], "create">(
+    fieldSchemas.relations,
     "create"
   );
   const polymorphicCreateMany = v.fromObject<F["polymorphic"], "createMany">(
@@ -160,8 +171,15 @@ export function getBulkCreate<M extends AnyModel, F extends ScalarSchemas<M>>(
     "createMany"
   );
   return v.object(
-    { ...scalarCreate.entries, ...polymorphicCreateMany.entries },
-    { atLeast: [...requiredScalars, ...requiredPolymorphic] }
+    {
+      ...scalarCreate.entries,
+      ...relationCreate.entries,
+      ...polymorphicCreateMany.entries,
+    },
+    {
+      atLeast: requiredScalars,
+      requiresOneOfKeySets: fkRequirementKeySets,
+    }
   ) as unknown as BulkCreateSchema<M, F>;
 }
 
@@ -203,6 +221,28 @@ function getFkFields(state: ModelState): Set<string> {
     }
   }
   return fkFields;
+}
+
+/**
+ * The scalar keys a create payload must carry ITSELF: every scalar that is neither
+ * optional, nor defaulted, nor an FK column (an FK may arrive through its relation
+ * instead, which is what `requiresOneOfKeySets` then arbitrates).
+ *
+ * ONE derivation with two readers — {@link getCreateSchema} and {@link getBulkCreate}.
+ * Package J made a root `createMany` row the ordinary create data shape, and "the
+ * entries are the create schema's, key for key" is only true if the two families
+ * cannot drift on which scalars are required; a second copy of this filter is exactly
+ * how they would.
+ */
+function getRequiredCreateScalars(
+  state: ModelState,
+  fkFields: Set<string>
+): string[] {
+  return Object.keys(state.scalars).filter((key) => {
+    if (fkFields.has(key)) return false;
+    const scalarState = state.scalars[key]!["~"].state;
+    return !(scalarState.hasDefault || scalarState.optional);
+  });
 }
 
 function getFkRequirementKeySets(state: ModelState): string[][][] {
@@ -319,13 +359,10 @@ export const getCreateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   const fkRequirementKeySets = getFkRequirementKeySets(state);
 
   // Get required scalar field names (non-FK fields without defaults or optional)
-  const requiredScalars = Object.keys(state.scalars).filter((key) => {
-    // FK fields are optional (can use connect instead)
-    if (fkFields.has(key)) return false;
-    // Check if scalar has default or is optional
-    const scalarState = state.scalars[key]!["~"].state;
-    return !(scalarState.hasDefault || scalarState.optional);
-  }) as ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
+  const requiredScalars = getRequiredCreateScalars(
+    state,
+    fkFields
+  ) as ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
 
   // Build scalar schema with FK fields as optional
   const scalarCreate = v.fromObject<F["scalars"], "create">(

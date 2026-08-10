@@ -288,10 +288,16 @@ update and upsert; optional storage accepts disconnect and typed target delete.
 The locate exposes private storage columns only for verbs whose branch depends
 on current membership.
 
-Root createMany accepts connect-only polymorphic memberships per row. Its bulk
-preparation groups selectors by relation and stored discriminator, resolves the
-private pair once per row, and preserves the existing contiguous row-shape
-grouping. Count and returning operations use this same owner.
+Root createMany's BULK path accepts connect-only polymorphic memberships per
+row. Its bulk preparation groups selectors by relation and stored discriminator,
+resolves the private pair once per row, and preserves the existing contiguous
+row-shape grouping. Count and returning operations use this same owner.
+
+A row that also names an ordinary relation leaves that path entirely: the whole
+operation becomes a record series (§9, §17), and the membership is then owned by
+the member's own fresh-record compilation above — a different plan for the same
+stored pair, correctly so, because a series member is one row and has nothing to
+group across.
 
 ## 8. Source-bound relation membership
 
@@ -403,11 +409,20 @@ Destination scalar casts are untouched by publication. They belong to the
 consuming column, which sees a reference exactly as it saw the generated
 identity's.
 
-`createMany` remains specialized because row grouping, skip semantics, and
-multi-row output folding are not one-record compilation. A fresh parent stores
-post-insert groups in `CreateOperation`; a selected parent delegates to
-`nested-target-parts.ts`; a junction retains target-row and join ordering in
-`RelationJunctionPart`.
+`createMany` keeps a specialized FAST PATH because row grouping, skip semantics,
+and multi-row output folding are not one-record compilation. That path covers a
+row whose data is scalars, and a row whose only relation work is a direct
+polymorphic `connect` — the shape whose target probes group across rows.
+
+A row carrying a general relation program is not compiled here at all. The whole
+operation routes to `CreateManyRecordSeries`, whose members are ordinary
+`CreateOperation` instances run left to right in one transaction, so a bulk row's
+relation semantics are the single-record ones by construction rather than by a
+second implementation. See §17 and plan §5.1.
+
+A fresh parent stores post-insert groups in `CreateOperation`; a selected parent
+delegates to `nested-target-parts.ts`; a junction retains target-row and join
+ordering in `RelationJunctionPart`.
 
 ## 10. Selected-record compiler
 
@@ -721,7 +736,8 @@ The one-record compilers do not absorb set-oriented operations.
 
 These remain specialized:
 
-- `createMany`;
+- `createMany` over rows the bulk path expresses — scalar rows, and rows whose
+  only relation work is a direct polymorphic `connect`;
 - `updateMany`;
 - `deleteMany`;
 - relation `set`;
@@ -731,6 +747,30 @@ These remain specialized:
 Bulk semantics include row grouping, optional zero matches, membership sets,
 and output concatenation. A generic record compiler would hide those facts
 rather than compress them.
+
+What is NOT specialized is a `createMany` row carrying a general relation
+program. Routing sends the whole operation to `CreateManyRecordSeries`, a record
+series whose members are ordinary `CreateOperation` instances (plan §4.4, §5.1).
+The reason is semantic, not architectural taste: row N may observe what row N-1
+committed inside the transaction, which is what makes duplicate
+`connectOrCreate` targets converge on one row. A pre-planned bulk form cannot
+express that, and a second relation compiler for bulk rows would be the thing
+this document exists to prevent. The empty payload and the two bulk shapes above
+never reach the series, so their plans are unchanged.
+
+`skipDuplicates` beside a general nested effect is refused at construction: a
+skipped root has two defensible meanings for its nested effects (suppress them,
+or apply them to the row that already exists) and the product has not chosen
+one.
+
+The series' returning arm reads each member's final root row key after every
+member finishes, and each of those reads carries an `exactlyOneRow`
+postcondition. It is the ordinal contract of an ordered source list whose rows
+concatenate: without it a read that matched nothing would shorten the public
+answer instead of failing. One thing reaches it — a later member moving an
+earlier member's row key, which is legal whenever a row-key member is also a
+foreign key — and the answer is a refusal, because a row whose address moved can
+no longer be addressed by the key its own member reported.
 
 `updateMany` never delegates each row to `RecordUpdateCompiler`. Its selected
 arm legality rejects relation-bearing data before SQL; that check remains

@@ -239,7 +239,11 @@ key transition uses one read source for the old value and one write source for
 the transformed value, so correlation and assignment cannot silently swap.
 
 `createMany`, `updateMany`, `deleteMany`, and relation `set` remain specialized
-because they have set semantics rather than one-record semantics.
+because they have set semantics rather than one-record semantics. The one
+exception is a `createMany` row carrying a general relation program: the whole
+call becomes a transactional record series whose members are ordinary create
+operations, run left to right, because a later row may need to observe what an
+earlier one wrote.
 
 Nested `createMany` stays with the owner of its placement. `CreateOperation`
 stores post-insert groups for a fresh parent, `nested-target-parts.ts` builds

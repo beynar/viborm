@@ -62,6 +62,28 @@ type AndReturnKind =
   | "deleteManyAndReturn";
 
 /**
+ * Does THIS substrate make the row-returning arm impossible? One condition, two
+ * readers: this operation's constructor (which raises the sentence below) and
+ * `routing.ts`, which must know the answer BEFORE it picks a shell — Package J gave
+ * `createMany` a third destination, and a relation-bearing payload with `select` has
+ * to reach this owner so the specific sentence answers instead of a record series'
+ * generic "no interactive transaction" one.
+ *
+ * Exported rather than mirrored: the router used to restate these two clauses, so a
+ * future widening here would have silently stopped matching there and downgraded the
+ * message with every test still green.
+ */
+export function refusesRowReturningSubstrate(
+  engine: QueryEngine,
+  kind: AndReturnKind
+): boolean {
+  return (
+    selectExecutionMode(engine, kind) === "batch" &&
+    !engine.adapter.capabilities.supportsReturning
+  );
+}
+
+/**
  * The row-returning arm of the bulk mutations. Reached only when the client
  * payload carries a `select`. Both kinds
  * return the affected rows, and both are the consumer that makes the census's
@@ -152,7 +174,7 @@ export class ManyAndReturnOperation {
     // ATOM “Error-order rules” refusal (kept as contract): a non-returning driver in forced batch
     // cannot resolve the returned identity atomically, because result parsing
     // happens after the atomic unit commits and cannot be rolled back.
-    if (this.mode === "batch" && !supportsReturning) {
+    if (refusesRowReturningSubstrate(engine, kind)) {
       throw new TransactionError(
         `Driver '${engine.driver.driverName}' cannot execute '${publicOperationName(kind)}' with 'select' because public result parsing cannot be rolled back.`,
         {

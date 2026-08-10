@@ -80,6 +80,10 @@ import { beforeAll, describe, expect, test } from "vitest";
 const REMAINING_ROUTE =
   "createMany with select + skipDuplicates on non-returning drivers";
 
+/** PACKAGE J's one new route: `skipDuplicates` beside a general nested effect. */
+const J_SKIP_WITH_RELATIONS =
+  "createMany with skipDuplicates + relation-bearing rows";
+
 class BatchlessNonReturningMySQL2 extends MySQL2Driver {
   // Transaction-capable + non-returning: the skipDuplicates route decision is
   // reached (the ATOM §7 batch-only refusal would otherwise pre-empt it).
@@ -262,15 +266,34 @@ describe("write engine route inventory (P6 accounting)", () => {
           );
         },
       },
+      // --- PACKAGE J (2026-08-10): the one refusal the lift ADDS. ---
+      // Plan §5.1 keeps `skipDuplicates` + general nested effects refused because the
+      // PRODUCT meaning is undecided (does a skipped root suppress its nested effects,
+      // or adopt the existing row and apply them?), and says not to guess it. Tracked
+      // here on purpose: it is a live route, not a historical label.
+      {
+        label: J_SKIP_WITH_RELATIONS,
+        construct: () => {
+          constructRoutedOperation(m2m, manyToManySchema.post, "createMany", {
+            data: [{ id: "p1", title: "a", tags: { connect: { id: "t1" } } }],
+            skipDuplicates: true,
+          });
+        },
+      },
     ];
   });
 
   // RETARGETED BY E6.9 (authorized test change): the maintainer authorized wiring the
-  // tx-mode savepoint mechanism, and the census's one deliberate refusal is ABSORBED —
+  // tx-mode savepoint mechanism, and the census's one deliberate refusal was ABSORBED —
   // the shape constructs and executes (per-row skippable writes + captured-identity
-  // refetch; witnesses in skip-select-capture-behavior.ts). ZERO tracked write
-  // shapes refuse at construction; REMAINING_ROUTE survives as the corpus label only.
-  test("no tracked write shape refuses at construction any more", () => {
+  // refetch; witnesses in skip-select-capture-behavior.ts). REMAINING_ROUTE survives as
+  // the corpus label only.
+  //
+  // AMENDED BY PACKAGE J: the tracked-refusal list is no longer empty, and being
+  // non-empty is the point. J lifted the relation-bearing `createMany` refusal and, in
+  // the same move, drew ONE narrower boundary the plan asked for by name — so the list
+  // says exactly which shape that is, rather than going quiet again.
+  test("exactly one tracked write shape refuses at construction", () => {
     const routed: string[] = [];
     for (const c of cases) {
       try {
@@ -283,7 +306,7 @@ describe("write engine route inventory (P6 accounting)", () => {
         }
       }
     }
-    expect(routed).toEqual([]);
+    expect(routed).toEqual([J_SKIP_WITH_RELATIONS]);
   });
 
   // The corpus above exercises the *tracked* shapes; this tripwire catches the
@@ -2516,6 +2539,44 @@ describe("write engine route inventory (P6 accounting)", () => {
   // Package D's existing owner, not a new sentence. The alternative considered and
   // rejected was a fresh "a shared fold may not coexist with a child-held edge" guard,
   // which would have been a second owner for an invariant that already has one.
+  // PACKAGE J (2026-08-10) — 22 → 23, ONE SITE ADDED, in a package that mostly REMOVES a
+  // refusal. Root `createMany` rows now take the ordinary create data shape and any row
+  // carrying a general relation program routes the whole operation to
+  // `CreateManyRecordSeries`. The site added is the boundary plan §5.1 draws by name:
+  // `skipDuplicates` beside a general nested effect, refused typed at construction
+  // (`CreateManyRecordSeries.ts`), tracked in the corpus above as
+  // {@link J_SKIP_WITH_RELATIONS}.
+  //
+  // WHY IT IS AN UnsupportedOperationError AND NOT A TransactionError. The two substrate
+  // refusals it sits beside (`ManyAndReturnOperation`'s `select`-in-forced-batch, and its
+  // polymorphic-connect twin) are facts about a DRIVER: a returning driver answers them.
+  // This one is a fact about the PRODUCT — §5.1 lists two incompatible meanings for a
+  // skipped root's nested effects and says not to guess between them — so no capability
+  // changes the answer, and calling it a transaction problem would be a lie.
+  //
+  // WHY IT IS THE ONLY SITE THE PACKAGE ADDS, given three candidates were available:
+  //   · the "does this row carry a general relation program" predicate is the ROUTER's
+  //     shell choice, not a refusal — the wrong rows route, they do not throw;
+  //   · the batch-only `select` refusal is REUSED, not copied: `routing.ts` skips the
+  //     series when that owner would refuse, so the specific sentence still answers
+  //     (Package I brief, item 3) and no second copy of it exists;
+  //   · the member-identity narrowing in `CreateManyRecordSeries` is a `QueryEngineError`
+  //     — a member that answered with something other than its row key is an engine fault,
+  //     never a payload, and the family it would otherwise join is user-facing.
+  //
+  // ONE REACHABILITY CAVEAT, so the ledger does not over-claim: the J site is reachable
+  // on a transaction-capable substrate (the case above, and the behavior suites on
+  // PGlite / PG / MySQL), but a payload that ALSO carries `select` on a batch-only
+  // NON-returning driver never reaches it — routing hands that shape to the row-returning
+  // owner first, whose substrate refusal fires inside the constructor. Both refuse, so
+  // nothing is wrong; the site is simply not substrate-independent for select payloads.
+  //
+  // NOT A CENSUS SITE, recorded so a later reader does not go looking: J also added one
+  // EXECUTION-time refusal, `FinalRootRead`'s `exactlyOneRow` postcondition (a
+  // `TransactionError` through the ordinary `Failure` channel, no `new
+  // UnsupportedOperationError`). It answers when a later row moved an earlier row's
+  // primary key so the returning arm can no longer address it — the alternative was
+  // silently returning fewer rows than the payload created.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -2526,7 +2587,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(22);
+    expect(sites).toBe(23);
   });
 });
 

@@ -456,6 +456,15 @@ export class CreateOperation {
       this.parsedInclude = undefined;
       this.parsedSelect = undefined;
       this.resultArgs = {};
+    } else if (options.parsedRoot) {
+      // J3 — an independent root whose row the enclosing `createMany` args schema
+      // already validated (each row is parsed exactly once, §5.1). Only the parse is
+      // replaced: this operation keeps its terminal read, its own-write preflight,
+      // and its result parse, because it IS a root — see `SubOperationOptions`.
+      data = options.parsedRoot.data;
+      this.parsedInclude = undefined;
+      this.parsedSelect = options.parsedRoot.select;
+      this.resultArgs = { select: this.parsedSelect };
     } else {
       const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
       // THE one home for create's legality (X2): the whole-args schema is the front

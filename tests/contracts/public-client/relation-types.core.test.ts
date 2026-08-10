@@ -259,13 +259,25 @@ describe("Relation Types Integration Test", () => {
     }>().toMatchTypeOf<ParentUpsertArgs>();
   });
 
-  test("type: client createMany rejects relation mutation envelopes", () => {
-    type ParentCreateManyArgs = Parameters<
+  // LIFTED BY PACKAGE J1 (plan §6 J1, "the ordinary create data shape"). This test
+  // used to assert `.not.toHaveProperty("children")` — a root `createMany` row could
+  // spell scalars only. It now carries the positive half: the row admits the same
+  // relation envelopes an ordinary `create` does, and the owned foreign key it can
+  // now be spelled INSTEAD of became optional.
+  test("type: client createMany rows take relation mutation envelopes", () => {
+    type ParentCreateManyItem = Parameters<
       typeof client.parentModel.createMany
-    >[0];
-    type ParentCreateManyItem = ParentCreateManyArgs["data"][number];
+    >[0]["data"][number];
+    type ChildCreateManyItem = Parameters<
+      typeof client.childModel.createMany
+    >[0]["data"][number];
 
-    expectTypeOf<ParentCreateManyItem>().not.toHaveProperty("children");
+    expectTypeOf<ParentCreateManyItem>().toHaveProperty("children");
+    expectTypeOf<ChildCreateManyItem>().toHaveProperty("parent");
+    // The FK is no longer required on the row: `parent: { connect }` supplies it.
+    expectTypeOf<{ id: string; parentId: string }>().toMatchTypeOf<
+      Pick<ChildCreateManyItem, "id" | "parentId">
+    >();
   });
 
   test("type: createMany accepts scalar data and returns BatchPayload", () => {

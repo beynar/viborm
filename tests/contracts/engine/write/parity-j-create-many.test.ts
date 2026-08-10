@@ -5,6 +5,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
+import { validateClientSchemaOrThrow } from "@schema/validation/validator";
 import {
   isOperationValueReference,
   type OperationFragment,
@@ -12,6 +13,7 @@ import {
   type PlanningFragment,
   type StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
+import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
@@ -50,14 +52,21 @@ import { describe, expect, test } from "vitest";
  * that file deliberately left as `toContain("INSERT")` — the dimension a re-plan
  * moves without failing it.
  *
- * NOT PINNED HERE, recorded so the family stays auditable. J's keep gate names
- * "scalar AND direct-polymorphic-connect plans are byte-identical", and `parityJSchema`
- * has no polymorphic member, so the whole `bulk-polymorphic-connect` route inside
- * `ManyAndReturnOperation` — the probe steps, the resolved guards, the grouped INSERT's
- * private `(type, id)` values, and its own refusal at ManyAndReturnOperation.ts:185
+ * HOLE CLOSED BY PACKAGE J (it was declared here, unpinned, by Package A). J's keep gate
+ * names "scalar AND direct-polymorphic-connect plans are byte-identical", and
+ * `parityJSchema` had no polymorphic member — so the whole `bulk-polymorphic-connect`
+ * route had no before-picture at all. It does now: the probe steps (one per relation and
+ * concrete variant, `FOR UPDATE` in a transaction and guarded in a forced batch), the
+ * grouped INSERT's private `(type, id)` values, and the route's own refusal
  * ("Driver '<name>' cannot execute 'createMany' with 'select', 'skipDuplicates', and
- * polymorphic connects…") — has no before-picture. It is the one path on which
- * `createMany` PLANS anything, which is exactly the fact J2's router keys on.
+ * polymorphic connects…") are pinned below. It is the one path on which `createMany`
+ * PLANS anything, which is exactly the fact J2's router keys on.
+ *
+ * MEASURED AS A TRUE BEFORE-PICTURE, 2026-08-10: the four polymorphic pins were run with
+ * `routing.ts` and `validation/model/core/create.ts` restored to their pre-J contents
+ * (copied back from a scratchpad snapshot, never `git checkout`), and passed unchanged.
+ * J moves nothing on this route — by construction, since its discriminant reads the
+ * ORDINARY relation set.
  *
  * FALSIFIED 2026-08-09 against `src/query-engine/operations/create.ts`: in
  * `buildCreateManyPlan`, forcing `const units = splitGroupsIntoRows(valueGroups);`
@@ -106,10 +115,35 @@ const parityJSchema = (() => {
       parcels: s.oneToMany(() => parcel),
     })
     .map("pj_bins");
-  return { crate, autoCrate, blank, parcel, bin };
+  // PACKAGE J closes the hole this file's header declared: `parityJSchema` had no
+  // polymorphic member, so the direct-polymorphic BULK CONNECT route — the one path on
+  // which `createMany` plans anything — had no before-picture at all. It is half of J's
+  // keep gate ("scalar AND direct-polymorphic-connect plans are byte-identical"), and it
+  // is also the route J2's discriminant must NOT claim: a row whose only relation work
+  // is a polymorphic `connect` stays bulk-compatible.
+  const label = s
+    .model({ id: s.int().id(), text: s.string() })
+    .map("pj_labels");
+  const sticker = s
+    .model({ id: s.int().id(), text: s.string() })
+    .map("pj_stickers");
+  const tag = s
+    .model({
+      id: s.int().id(),
+      note: s.string(),
+      subject: s.polymorphic(
+        { label: () => label, sticker: () => sticker },
+        { values: { label: "pj.label.v1", sticker: "pj.sticker.v1" } }
+      ),
+    })
+    .map("pj_tags");
+  return { crate, autoCrate, blank, parcel, bin, label, sticker, tag };
 })();
 
 hydrateSchemaNames(parityJSchema);
+// The polymorphic member needs its storage resolved, which is what the client does on
+// construction (`validateClientSchemaOrThrow`); this file builds engines directly.
+validateClientSchemaOrThrow(parityJSchema);
 
 function engineFor(driver: AnyDriver): QueryEngine {
   return new QueryEngine(
@@ -154,7 +188,20 @@ function prepared(
 }
 
 function stepContract(driver: AnyDriver, current: OperationStep): unknown {
-  if (current.kind === "guard") throw new Error("createMany plans no guard.");
+  if (current.kind === "guard") {
+    // Only the direct-polymorphic bulk connect route emits one, and only in BATCH mode
+    // (in a transaction the probe's `FOR UPDATE` IS the lock). Every scalar arm below
+    // pins its complete step list, so a guard appearing there fails on the list.
+    const probe = driver._prepare(current.premise.statement);
+    return {
+      id: current.id,
+      kind: current.kind,
+      premise: current.premise.kind,
+      sql: probe.sql,
+      params: normalized(probe.params),
+      failure: current.failure,
+    };
+  }
   return {
     id: current.id,
     kind: current.kind,
@@ -522,8 +569,263 @@ describe("parity J — the atomic-batch substrate plans nothing either", () => {
   });
 });
 
-describe("parity J — the refusal J1 lifts, verbatim", () => {
-  const refusalOf = async (
+/**
+ * THE DIRECT-POLYMORPHIC BULK CONNECT ROUTE — the half of J's keep gate that had no
+ * before-picture (this file's header declared the hole; Package A named it as J's
+ * highest-value first addition).
+ *
+ * It is the ONE `createMany` shape that PLANS anything, and everything about it is
+ * cross-ROW: one probe per (relation, concrete variant) covering every row that named
+ * that variant, and per-row private `(type, id)` values folded into the ONE grouped
+ * INSERT. A router that sent these rows to a record series would turn two probes into
+ * three single-row lookups and three INSERTs — plan §5.1 says it must not, and
+ * `isRelation` (the ordinary relation set, which excludes polymorphic memberships) is
+ * what keeps it out of J2's discriminant.
+ *
+ * Pinned on both substrates because they differ in exactly one dimension, and it is a
+ * dimension a re-route would silently drop: in a transaction the probe's `FOR UPDATE`
+ * IS the lock, so no guard is emitted; in a forced batch the probe cannot hold one, so
+ * every target gets its own presence guard AHEAD of the write.
+ */
+describe("parity J — the direct-polymorphic bulk connect route", () => {
+  const POLY_ROWS = [
+    {
+      id: 1,
+      note: "a",
+      subject: { connect: { type: "label", where: { id: 10 } } },
+    },
+    {
+      id: 2,
+      note: "b",
+      subject: { connect: { type: "sticker", where: { id: 20 } } },
+    },
+    {
+      id: 3,
+      note: "c",
+      subject: { connect: { type: "label", where: { id: 11 } } },
+    },
+  ];
+  /** What the two probes answered: every named target exists. */
+  const PROBED = {
+    "label.find.rows": [{ id: 10 }, { id: 11 }],
+    "sticker.find.rows": [{ id: 20 }],
+  };
+  /** ONE grouped INSERT, with the private `(type, id)` pair per row. */
+  const GROUPED_INSERT_PARAMS = [
+    1,
+    "a",
+    "pj.label.v1",
+    10,
+    2,
+    "b",
+    "pj.sticker.v1",
+    20,
+    3,
+    "c",
+    "pj.label.v1",
+    11,
+  ];
+  const TARGET_MISSING = {
+    kind: "nestedWrite",
+    message: "Cannot connect relation 'subject': target record was not found.",
+    relation: "subject",
+    raceable: false,
+  };
+
+  test("transaction: one locking probe per variant, and ONE grouped INSERT", () => {
+    const driver = new PGliteDriver();
+    const operation = route(driver, parityJSchema.tag, { data: POLY_ROWS });
+
+    // TWO probes for THREE rows — the grouping key is (relation, variant), and the two
+    // `label` rows share one `OR`-ed lookup. That collapse is the whole route.
+    expect(fragmentContract(driver, operation.planning())).toEqual({
+      steps: [
+        {
+          id: "label.find",
+          kind: "read",
+          sql: 'SELECT "t0"."id" AS "id" FROM "pj_labels" AS "t0" WHERE ("t0"."id" = $1 OR "t0"."id" = $2) FOR UPDATE',
+          params: [10, 11],
+          outputs: { rows: { kind: "rows" } },
+          ...NO_BRANCH,
+        },
+        {
+          id: "sticker.find",
+          kind: "read",
+          sql: 'SELECT "t0"."id" AS "id" FROM "pj_stickers" AS "t0" WHERE "t0"."id" = $1 FOR UPDATE',
+          params: [20],
+          outputs: { rows: { kind: "rows" } },
+          ...NO_BRANCH,
+        },
+      ],
+      outputs: {
+        "label.find.rows": reference("label.find", "rows"),
+        "sticker.find.rows": reference("sticker.find", "rows"),
+      },
+    });
+    expect(fragmentContract(driver, operation.compile(PROBED))).toEqual({
+      steps: [
+        {
+          id: "tag.createMany",
+          kind: "write",
+          sql: 'INSERT INTO "pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
+          params: GROUPED_INSERT_PARAMS,
+          outputs: COUNT_OUTPUT,
+          ...NO_BRANCH,
+        },
+      ],
+      outputs: { count: [reference("tag.createMany", "count")] },
+    });
+  });
+
+  test("forced batch: no lock, so each target gets its own guard before the write", () => {
+    const driver = new BatchOnlyPGliteDriver();
+    const operation = route(driver, parityJSchema.tag, { data: POLY_ROWS });
+
+    expect(fragmentContract(driver, operation.planning())).toEqual({
+      steps: [
+        {
+          id: "label.find",
+          kind: "read",
+          sql: 'SELECT "t0"."id" AS "id" FROM "pj_labels" AS "t0" WHERE ("t0"."id" = $1 OR "t0"."id" = $2)',
+          params: [10, 11],
+          outputs: { rows: { kind: "rows" } },
+          ...NO_BRANCH,
+        },
+        {
+          id: "sticker.find",
+          kind: "read",
+          sql: 'SELECT "t0"."id" AS "id" FROM "pj_stickers" AS "t0" WHERE "t0"."id" = $1',
+          params: [20],
+          outputs: { rows: { kind: "rows" } },
+          ...NO_BRANCH,
+        },
+      ],
+      outputs: {
+        "label.find.rows": reference("label.find", "rows"),
+        "sticker.find.rows": reference("sticker.find", "rows"),
+      },
+    });
+    expect(fragmentContract(driver, operation.compile(PROBED))).toEqual({
+      steps: [
+        {
+          id: "label.guard.exists",
+          kind: "guard",
+          premise: "exists",
+          sql: 'SELECT "t0"."id" AS "id" FROM "pj_labels" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
+          params: [10, 1],
+          failure: TARGET_MISSING,
+        },
+        {
+          id: "label.guard.exists#1",
+          kind: "guard",
+          premise: "exists",
+          sql: 'SELECT "t0"."id" AS "id" FROM "pj_labels" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
+          params: [11, 1],
+          failure: TARGET_MISSING,
+        },
+        {
+          id: "sticker.guard.exists",
+          kind: "guard",
+          premise: "exists",
+          sql: 'SELECT "t0"."id" AS "id" FROM "pj_stickers" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
+          params: [20, 1],
+          failure: TARGET_MISSING,
+        },
+        {
+          id: "tag.createMany",
+          kind: "write",
+          sql: 'INSERT INTO "pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
+          params: GROUPED_INSERT_PARAMS,
+          outputs: COUNT_OUTPUT,
+          ...NO_BRANCH,
+        },
+      ],
+      outputs: { count: [reference("tag.createMany", "count")] },
+    });
+  });
+
+  test("the returning arm keeps the same grouped INSERT and adds RETURNING", () => {
+    const driver = new PGliteDriver();
+    const operation = route(driver, parityJSchema.tag, {
+      data: POLY_ROWS,
+      select: { id: true },
+    });
+    expect(fragmentContract(driver, operation.compile(PROBED))).toEqual({
+      steps: [
+        {
+          id: "tag.createManyReturn",
+          kind: "write",
+          sql: 'INSERT INTO "pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12) RETURNING "id" AS "id"',
+          params: GROUPED_INSERT_PARAMS,
+          outputs: { result: { kind: "rows" } },
+          ...NO_BRANCH,
+        },
+      ],
+      outputs: { result: [reference("tag.createManyReturn", "result")] },
+    });
+  });
+
+  test("a polymorphic-only payload is NOT a record series, on either arm", () => {
+    // J2's discriminant reads the ORDINARY relation set. This is the assertion that
+    // keeps the route above reachable at all.
+    const driver = new PGliteDriver();
+    const engine = engineFor(driver);
+    const arms = [
+      constructRoutedOperation(engine, parityJSchema.tag, "createMany", {
+        data: POLY_ROWS,
+      }),
+      constructRoutedOperation(engine, parityJSchema.tag, "createMany", {
+        data: POLY_ROWS,
+        select: { id: true },
+      }),
+    ];
+    expect(arms.map((arm) => arm && isRecordSeries(arm))).toEqual([
+      false,
+      false,
+    ]);
+  });
+
+  test("the non-returning select+skipDuplicates+polymorphic refusal, verbatim", () => {
+    // The route's own refusal (`ManyAndReturnOperation`), which has no other pin. It
+    // needs a NON-returning but transaction-capable substrate: on a returning dialect
+    // the skipped identities are observable, and on a batch-only one the generic
+    // `select`-in-forced-batch refusal answers first.
+    let thrown: unknown;
+    try {
+      route(new MySQL2Driver(), parityJSchema.tag, {
+        data: POLY_ROWS,
+        skipDuplicates: true,
+        select: { id: true },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect({
+      name: (thrown as Error).constructor.name,
+      message: (thrown as Error).message,
+    }).toEqual({
+      name: "TransactionError",
+      message:
+        "Driver 'mysql2' cannot execute 'createMany' with 'select', 'skipDuplicates', and polymorphic connects because skipped insert identities cannot be observed.",
+    });
+  });
+});
+
+/**
+ * WHAT J1 LIFTED, AND THE ONE BOUNDARY IT LEFT.
+ *
+ * Before Package J both arms answered `Validation failed for createMany: Unknown key:
+ * bin` — the root `createMany` row schema was scalars plus a connect-only polymorphic
+ * membership, and every ordinary relation key was simply unknown. That pair of pins is
+ * replaced here by what the same two payloads do NOW: they route (they no longer refuse),
+ * and the router sends them to the record series rather than to either bulk owner.
+ *
+ * The third member of the family — the portability refusal — is unchanged and stays
+ * pinned verbatim below, because it is a different question (a DEFAULT VALUES row under
+ * `skipDuplicates`) that J does not touch.
+ */
+describe("parity J — the refusal J1 lifts", () => {
+  const outcomeOf = async (
     args: Record<string, unknown>
   ): Promise<string | undefined> => {
     const client = createClient({
@@ -536,27 +838,42 @@ describe("parity J — the refusal J1 lifts, verbatim", () => {
     );
   };
 
-  test("a relation key inside a createMany row is an unknown key today", async () => {
+  test("a relation key inside a createMany row is no longer an unknown key", async () => {
+    // The payload reaches the database now (nothing was migrated in this compiler-only
+    // file, so it fails there) instead of being refused by the schema. The point is
+    // which failure it is: the message is no longer a ValidationError about `bin`.
     expect(
-      await refusalOf({
+      await outcomeOf({
         data: [{ id: 1, label: "one", bin: { connect: { id: 9 } } }],
       })
-    ).toBe("Validation failed for createMany: Unknown key: bin");
+    ).not.toBe("Validation failed for createMany: Unknown key: bin");
   });
 
-  test("the returning arm refuses it under the SAME public operation name", async () => {
-    // `createManyAndReturn` is the internal routed kind, never the diagnostic: both
-    // arms answer as the one public family the client called.
-    expect(
-      await refusalOf({
+  test("both arms of the lifted payload construct a record series, not a bulk owner", () => {
+    const driver = new PGliteDriver();
+    const countArm = constructRoutedOperation(
+      engineFor(driver),
+      parityJSchema.parcel,
+      "createMany",
+      { data: [{ id: 1, label: "one", bin: { connect: { id: 9 } } }] }
+    );
+    const returningArm = constructRoutedOperation(
+      engineFor(driver),
+      parityJSchema.parcel,
+      "createMany",
+      {
         data: [{ id: 1, label: "one", bin: { create: { id: 9, name: "b" } } }],
         select: { id: true },
-      })
-    ).toBe("Validation failed for createMany: Unknown key: bin");
+      }
+    );
+    expect([
+      countArm && isRecordSeries(countArm),
+      returningArm && isRecordSeries(returningArm),
+    ]).toEqual([true, true]);
   });
 
-  /** J1 adds a THIRD refusal to this family. Its two live members are pinned here so a
-   *  re-sort that changes which one answers first is visible. */
+  /** The portability refusal J does NOT touch; pinned so a re-sort that changes which
+   *  member of the family answers first is visible. */
   test("a duplicate-only DEFAULT VALUES row still refuses under skipDuplicates", () => {
     const driver = new PGliteDriver();
     let thrown: unknown;

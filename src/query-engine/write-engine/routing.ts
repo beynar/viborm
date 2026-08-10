@@ -1,20 +1,23 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
+import { isRelation } from "../context/query-scope";
 import type { QueryEngine } from "../query-engine";
 import { BulkCountOperation } from "./BulkCountOperation";
 import { CreateManyOperation } from "./CreateManyOperation";
+import { CreateManyRecordSeries } from "./CreateManyRecordSeries";
 import { CreateOperation } from "./CreateOperation";
 import { DeleteOperation } from "./DeleteOperation";
-import { ManyAndReturnOperation } from "./ManyAndReturnOperation";
-import type {
-  ExecutableOperation,
-  OperationExecutor,
-} from "./OperationExecutor";
+import {
+  ManyAndReturnOperation,
+  refusesRowReturningSubstrate,
+} from "./ManyAndReturnOperation";
+import type { OperationExecutor } from "./OperationExecutor";
 import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import { ReadOperation } from "./ReadOperation";
 import { isRetryableRace } from "./race-retry";
 import type { RoutedExecutableOperation } from "./record-series";
+import { isRecord } from "./shared";
 import { UpdateOperation } from "./UpdateOperation";
 import { UpsertOperation } from "./UpsertOperation";
 
@@ -160,7 +163,7 @@ function constructOperation(
   model: Model<any>,
   operation: string,
   args: Record<string, unknown>
-): ExecutableOperation | undefined {
+): RoutedExecutableOperation | undefined {
   if (READ_OPERATIONS.has(operation)) {
     return new ReadOperation(engine, model, operation, args);
   }
@@ -191,6 +194,30 @@ function constructOperation(
     // itself is validated by the ONE arg schema inside whichever arm is built,
     // so a malformed `select` still rejects with a typed ValidationError.
     case "createMany":
+      // PACKAGE J2 — three destinations, one discriminant each, in this order.
+      //
+      // (1) The row-returning owner comes FIRST when the substrate is the one it
+      //     refuses on. A bulk write with `select` on a batch-only, non-returning
+      //     driver is refused by `ManyAndReturnOperation` with a typed sentence
+      //     naming `createMany` and `select`; a series on that substrate would
+      //     instead inherit `withTransaction`'s generic "does not support callback
+      //     transactions". Reaching for the existing owner keeps the specific
+      //     message without minting a second copy of it (Package I brief, item 3).
+      // (2) Any row carrying a general relation program routes the WHOLE operation
+      //     to the record series (§5.1). Empty data has no row, so it never reaches
+      //     here — and that matters more than it looks: a series REQUIRES an
+      //     interactive transaction, so `createMany({ data: [] })` (what every caller
+      //     spreading a possibly-empty array sends) would turn from `{ count: 0 }`
+      //     into a TransactionError on every batch-only driver. Measured, correcting
+      //     the Package I brief: the cost is NOT an extra BEGIN/COMMIT — the existing
+      //     empty arm already opens one, because its plan is not a single statement.
+      // (3) Otherwise the two existing owners, constructed unchanged.
+      if (
+        relationBearingRow(model, args.data) &&
+        !refusesReturningHere(engine, args)
+      ) {
+        return new CreateManyRecordSeries(engine, model, args);
+      }
       return returnsRows(args)
         ? new ManyAndReturnOperation(engine, model, "createManyAndReturn", args)
         : new CreateManyOperation(engine, model, args);
@@ -229,4 +256,56 @@ function constructOperation(
  */
 function returnsRows(args: Record<string, unknown>): boolean {
   return args.select !== undefined || args.omit !== undefined;
+}
+
+/**
+ * J2 — does this raw `createMany` payload carry a GENERAL relation program, the
+ * thing the grouped bulk INSERT cannot express?
+ *
+ * It reads the RAW rows, before any parse, because §6 J2 requires the two existing
+ * owners to be constructed unchanged: routing cannot hand them a pre-parsed payload,
+ * and re-parsing a schema's own transformed output is measured non-idempotent (X2,
+ * `parse-boundary.ts`). Raw key presence is exact here — neither the relation `create`
+ * schema nor the polymorphic `createMany` union renames a key, and `undefined` is
+ * absent on every path — so this agrees with what `partitionModelData` will later see.
+ *
+ * `isRelation` is the ORDINARY relation set: a direct polymorphic membership is a
+ * different set and stays bulk-compatible, which is what keeps the grouped
+ * cross-row probe route in `bulk-polymorphic-connect.ts` reachable (§5.1).
+ *
+ * Total and non-throwing by construction. Anything it cannot see with certainty — a
+ * `data` that is not an array, a row that is not a record, a relation key holding
+ * garbage — falls back to the existing owner, so every malformed payload keeps its
+ * current error verbatim, including which of the two arms' issue paths it carries.
+ */
+function relationBearingRow(model: Model<any>, data: unknown): boolean {
+  if (!Array.isArray(data)) return false;
+  for (const row of data) {
+    if (!isRecord(row)) continue;
+    for (const key of Object.keys(row)) {
+      if (row[key] !== undefined && isRelation(model, key)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Would the row-returning owner refuse this payload on this substrate? That refusal
+ * ("cannot execute 'createMany' with 'select' because public result parsing cannot be
+ * rolled back") is the specific answer for a batch-only non-returning driver, and it
+ * must survive J2's new destination — so the series is skipped when it applies and the
+ * existing owner answers instead.
+ *
+ * The substrate half is that owner's OWN exported predicate, not a copy of it: this
+ * file adds only the question the router alone can answer, which is whether the
+ * payload asks for rows at all.
+ */
+function refusesReturningHere(
+  engine: QueryEngine,
+  args: Record<string, unknown>
+): boolean {
+  return (
+    returnsRows(args) &&
+    refusesRowReturningSubstrate(engine, "createManyAndReturn")
+  );
 }

@@ -62,6 +62,35 @@ export interface SubOperationOptions {
      */
     readonly rootRacePin?: TargetConstraintPin;
   };
+  /**
+   * PACKAGE J3 — an INDEPENDENT ROOT create whose data a caller has already
+   * validated: one row of a relation-bearing root `createMany`, handed to
+   * `CreateOperation` as a series member (`CreateManyRecordSeries`).
+   *
+   * It is a discriminated CONSTRUCTOR INPUT, not a second create compiler: the only
+   * thing it replaces is the whole-args parse, because the `createMany` args schema
+   * already validated this row (each row is parsed exactly once, plan §5.1) and
+   * re-parsing a schema's transformed output is non-idempotent (X2). Everything
+   * downstream — the tree walk, the own-write preflight, the terminal read, the
+   * result parse — is the public route's, unchanged.
+   *
+   * It is deliberately NOT {@link nestedFresh}, which is the other already-validated
+   * input route and answers a different question. A nested fresh subtree is spliced
+   * under an enclosing record: it suppresses its terminal read (the enclosing
+   * operation owns the result) and defers its own-write preflight to the enclosing
+   * whole-tree walk. A series member is nobody's subtree — it must produce a result
+   * for its caller and it must run its OWN preflight, because there is no enclosing
+   * tree that ran one.
+   *
+   * `select` is the projection the member answers with. The series asks for the
+   * complete final root row key and nothing else (plan §6 J3 step 4); the public
+   * returning projection is read later, by {@link file://./CreateManyRecordSeries.ts},
+   * after every member's effects have landed.
+   */
+  readonly parsedRoot?: {
+    readonly data: Record<string, unknown>;
+    readonly select: Record<string, unknown>;
+  };
 }
 
 export function pinnedTargetValues(
