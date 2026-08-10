@@ -1846,8 +1846,21 @@ export function buildJunctionParts(input: {
     }
     const produced = subtree.rootReferenced(targetPkField);
     if (produced === undefined) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create-through-junction for relation '${relationName}' requires the target primary key '${targetPkField}' in the create data (${foldKind}).`
+      // MEASURED UNREACHABLE (Package F, F4). This used to be a capability refusal —
+      // "the target primary key must be in the create data" — and the shape it named is
+      // real, but no payload arrives here holding it. `targetPkField` is
+      // `getRequiredSinglePrimaryKeyField`, and `planNestedCreateIdentity` is TOTAL over
+      // a single-member primary key: it puts a spelled value into the record's identity
+      // (so `freshReferenced` answers with a literal), makes an absent auto-increment the
+      // record's `generatedField` (so it answers with the produced reference), and throws
+      // `NestedWriteError` for an absent key that is neither — one line EARLIER, inside
+      // the `createFresh` call above. The two other candidates die further upstream: an
+      // `Sql` primary key is parse-unreachable in write data (E6.6), and a `null` one is
+      // refused by the target's own create schema before the engine sees it. So this is a
+      // code path a user cannot reach, and a `QueryEngineError` is what that is — the
+      // disposition `assertCreateTreeKinds` already carries for the same situation.
+      throw new QueryEngineError(
+        `query-engine-v2 internal: create-through-junction for relation '${relationName}' resolved no primary key '${targetPkField}' from the target subtree (${foldKind}).`
       );
     }
     let hasGeneratedIdentity = false;

@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-05
 **Re-anchored:** 2026-08-09, against the tree at the limitation-lift plan commit.
-**Scope:** the 30 refusals standing after PR #20, MINUS the 9 the final re-audit re-filed as expressible work, MINUS the 2 that Package B of the limitation lift deleted (2026-08-10; see "What has been DELIVERED since"). What remains is **21 shapes**, each with the payload that raises it and the reason it stands.
+**Scope:** the 30 refusals standing after PR #20, MINUS the 9 the final re-audit re-filed as expressible work, MINUS the 2 that Package B of the limitation lift deleted, MINUS the 1 that Package F deleted (2026-08-10; see "What has been DELIVERED since"). What remains is **20 shapes**, each with the payload that raises it and the reason it stands.
 
 Every refusal below is an `UnsupportedOperationError` raised at CONSTRUCTION — before any statement runs, so nothing is written. Each has a committed witness in `tests/contracts/engine/write/`. The examples are derived from the refusal conditions in code, the re-audit's per-site arguments, and those witnesses; they show the SHAPE, not a runnable fixture.
 
@@ -15,6 +15,16 @@ function's declaration. The limitation-lift plan and the parity witnesses use th
 same two rules; when a number here and a number there differ, the file that moved is
 the one at fault.
 
+**Partial re-anchor, 2026-08-10 (Package F).** The coordinates in §2, §3.1 and §4
+were re-measured against the tree at the Package F commit and corrected; §1, §5, §6,
+§7, §8, §9, §10 and "What is NOT here" still carry their 2026-08-09 numbers, which
+Packages C, D and G have since moved. That drift is recorded rather than fixed
+here, because settling it means re-auditing three other packages' deliveries in
+sections Package F did not touch — Package O's guard-ownership ledger is the owner.
+Two entries changed shape as well as number and say so at the entry: §2.5 lost a
+position to Package D's closure collapse, and §3.1's guard is now anchored on its
+declaration, as this file's own convention requires.
+
 Every site coordinate below was re-anchored on 2026-08-09. Two things had moved
 since the original writing, and neither changes a shape:
 
@@ -26,9 +36,11 @@ since the original writing, and neither changes a shape:
 
 The executable census owner is
 `tests/contracts/engine/write/operation-construction-inventory.test.ts`; it pins
-29 `new UnsupportedOperationError` sites under `src/query-engine/write-engine`.
-Sites are positions, not shapes: the 21 shapes below occupy 23 of those sites,
-and the remaining 6 belong to the shapes under "What is NOT here".
+22 `new UnsupportedOperationError` sites under `src/query-engine/write-engine`
+(2026-08-10, after Packages B, C, D, G and F). Sites are positions, not shapes, and
+the mapping between the two is what that census test's narrative owns — including
+the one site Package F ADDED that is deliberately not a shape here (an atomic-batch
+substrate cannot publish a produced column) and the one it removed.
 
 ## The schema these examples use
 
@@ -118,11 +130,17 @@ client.user.update({
 
 ## 2. A value that names no row (5)
 
-A foreign key equal to `NULL` references nothing. These fire when the referenced column has no value knowable at construction.
+A foreign key equal to `NULL` references nothing. These fire when the referenced column has no value knowable at construction — and, since Package F, only then: a value the DATABASE will produce is knowable, because the statement that produces it is one this operation is about to send.
 
 **Maintainer ruling, 2026-08-06.** For the genuinely unknowable case the engine's refusal is CORRECT and stays: a value no row holds cannot be written, and no round trip produces one. That ruling does not cover a value the DATABASE produces — one the provider could RETURN, or that a stable unique selector could refetch after the INSERT. Those are re-audited under the limitation-lift plan's Package F (demand-driven fresh-record field publication), which classifies each site by value state and keeps the refusal only for the null, absent, or unnameable-row rows of its table. Read every entry below with that split in mind: **2.1**, **2.2**, and **2.3** are the database-produced cases Package F re-audits; **2.4** and **2.5** are the unknowable cases the ruling confirms.
 
-**2.1 — the record's own referenced column, under `create`** · `CreateOperation.ts:1968`
+**Package F delivered that re-audit (2026-08-10), and every site below SURVIVES with a narrower population.** What changed is which value states reach them, so the examples had to be rewritten: each one now spells a value the database does NOT produce, because the produced one compiles. `autoGenerate` is the only generation knob the schema language has, and `uuid`/`ulid`/`nanoid`/`cuid`/`now`/`updatedAt` all carry an application default factory the parse boundary materializes into the create data — so the database produces exactly one thing, an absent `increment` column, and that column now publishes to whoever demands it: through the INSERT's own `RETURNING` on a returning provider in a transaction, and through one focused post-insert SELECT by the created-row selector on a non-returning one. What remains refused at 2.1, 2.2, 2.3 **and 2.4** is the value state the ruling named: an omitted `.nullable()` column, which arrives as an explicit `null` because `.nullable()` sets `hasDefault: true, default: null`.
+
+**The split sentence above is superseded for 2.4, and the correction is stated rather than edited away** because the pre-Package-F reading was the maintainer's. 2.4's site is `referencedParentSource`, which resolves each component through the SAME `recordReferenced` seam as 2.1 — so a compound edge whose failing component is a database-produced column is narrowed exactly like the single-column cases, and only its NULL member survives. Measured: `org.unique(["region","code"])` with `code: s.int().increment()` and a nested `seats: { create: … }` threw at `CreateOperation.ts:2098` at `5bf1893f` and compiles at the Package F tree with `RETURNING "code"`. **2.5** is the only entry in this section the ruling confirms untouched — its value is a column the ROOT rewrites to a non-literal, which no INSERT of this operation produces.
+
+Package F also added **one new refusal**, kept deliberately outside this section because it is a substrate fact rather than a shape: on an atomic-batch substrate no statement's rows are addressable and the reference scratch carries the generated identity alone, so a produced column cannot be published there at all and says so in its own sentence (`CreateOperation.ts:2693`, `producedReference`). Witnessed in `fresh-produced-field-behavior.ts` and `fresh-produced-field.test.ts`; the before-picture is `parity-f-fresh-field.test.ts`.
+
+**2.1 — the record's own referenced column, under `create`** · `CreateOperation.ts:2014`
 
 ```ts
 client.org.create({
@@ -135,17 +153,19 @@ client.org.create({
 // record's primary key nor a knowable value in its own create data.
 ```
 
-Three provenances are accepted: the key the INSERT generates (a backward `Ref`), a key already in the identity, and a non-PK column the create data **spells**. A column left to the database has none of them at plan time.
+FOUR provenances are accepted since Package F: the key the INSERT generates (a backward `Ref`), a key already in the identity, a non-PK column the create data **spells**, and — new — a non-PK column the DATABASE produces, published by the same INSERT and spent through the same `Ref` vocabulary. `code` above is none of them: it is `.nullable()` and omitted, so the parsed create data holds an explicit `null`. Declare it `s.int().unique().increment()` instead and the same payload compiles.
 
-**2.2 — a before-parent target's referenced column, under `create`** · `CreateOperation.ts:1647`, and its bound-polymorphic twin at `:884`
+**Where it compiles is a provider fact, and narrower than the engine's** — worth stating because §3.2 lets a newly accepted shape cost round trips only where the provider needs them, so the matrix belongs with the shape. The lifted population is an absent NON-primary-key `increment` column, and this migration estate can only represent that on PostgreSQL (`SERIAL`/`BIGSERIAL`, any number per table) and on MySQL when it is the table's ONE auto column (`AUTO_INCREMENT`, which must also be a key — the inline `UNIQUE` satisfies that). The SQLite family cannot host it at all: its migration driver emits `INTEGER PRIMARY KEY AUTOINCREMENT` for any auto-increment column, so a non-primary one collides with the table's own primary key and a `bigInt` one is refused outright. SQLite declares `supportsReturning`, so the engine's F2 path is live there and no schema reaches it. Measured from the generated DDL of all three drivers.
+
+**2.2 — a before-parent target's referenced column, under `create`** · `CreateOperation.ts:1693`, and its bound-polymorphic twin at `:912`
 
 ```ts
 client.member.create({
-  data: { name: "x", org: { create: { name: "Acme" } } },   // org.code not spelled
+  data: { name: "x", org: { create: { name: "Acme" } } },   // org.code omitted → NULL
 });
 ```
 
-**2.3 — the same, at an `update` root** · `RecordUpdateCompiler.ts:3161`
+**2.3 — the same, at an `update` root** · `RecordUpdateCompiler.ts:3202`
 
 ```ts
 client.member.update({
@@ -154,7 +174,7 @@ client.member.update({
 });
 ```
 
-**2.4 — one COMPONENT of a compound edge** · `CreateOperation.ts:2052`
+**2.4 — one COMPONENT of a compound edge** · `CreateOperation.ts:2098`
 
 ```ts
 // org.unique(["region", "code"]); seat.(orgRegion, orgCode) references (region, code)
@@ -168,7 +188,7 @@ client.org.create({
 
 E4 made the source per-field, so this is now judged **per component**: a null member makes the adopt probe match nothing silently on a nullable column, and raises a bare NOT NULL on a required one.
 
-**2.5 — a nested create referencing a column the root rewrites to a non-literal** · `RecordUpdateCompiler.ts:1877`, `:1956` (the per-member twin inside `transitionedCreateParent`), and `:1670` (the bound-polymorphic twin inside `resolvePolymorphicParent`)
+**2.5 — a nested create referencing a column the root rewrites to a non-literal** · `RecordUpdateCompiler.ts:1715` (inside `postTransitionReference`, which Package D collapsed THREE closures onto — `transitionedCreateParent` and `resolvePolymorphicParent` both delegate to it now) and `:1924` (the nested-create leaf)
 
 ```ts
 client.org.update({
@@ -186,7 +206,7 @@ E6.6 measured that `Sql` operands are **parse-unreachable** in write data, so th
 
 ## 3. Shared primary key (1)
 
-**3.1 — a shared-PK edge whose value is not a compile-time literal, under `create`** · `CreateOperation.ts:2737` (`assertSharedPkResolved`)
+**3.1 — a shared-PK edge whose value is not a compile-time literal, under `create`** · `CreateOperation.ts:2982` (`assertSharedPkResolved`; the previous coordinate named this guard's THROW, which its own anchoring convention says a named guard function does not take)
 
 ```ts
 const profile = s.model({
@@ -207,9 +227,9 @@ The record's own primary key **is** the edge, so its value must exist before thi
 
 ---
 
-## 4. Junction / many-to-many (3)
+## 4. Junction / many-to-many (2)
 
-**4.1 — `skipDuplicates` where no single unique names the skipped-on row** · `RelationJunctionPart.ts:1348`
+**4.1 — `skipDuplicates` where no single unique names the skipped-on row** · `RelationJunctionPart.ts:1374`
 
 ```ts
 const tag = s.model({
@@ -228,11 +248,9 @@ client.post.create({
 
 E6.8 absorbed the two nameable cases (no conflictable unique at all → the flag is vacuous; exactly one complete unique per row → rewritten as an adopt). What remains: the probe can name a *different* row than the constraint that actually fired. Widening it was **falsified** — it joined the parent to a row the constraint may not have fired on. A compound unique with a `NULL` member stays refused for the same reason (NULL-distinct semantics).
 
-**4.2 — a junction create arm whose subtree cannot name its own row** · `RelationJunctionPart.ts:1813`
+**4.2 — a junction create arm whose subtree cannot name its own row** — **DELIVERED AND REMOVED (2026-08-10, Package F).** The recorded narrowing — "the parse boundary fills every defaulted key and requires undefaulted ones, so the public surface reaching this is small" — understated it: the surface is EMPTY. `targetPkField` is `getRequiredSinglePrimaryKeyField`, and `planNestedCreateIdentity` is total over a single-member primary key — a spelled value enters the record's identity, an absent auto-increment becomes its `generatedField`, and an absent key that is neither throws `NestedWriteError` one line earlier, inside the `createFresh` call that builds the subtree. The other two candidates die further upstream: an `Sql` primary key is parse-unreachable in write data (E6.6), and a `null` one is refused by the target's own create schema (measured: `ValidationError: … Expected integer`). So `rootReferenced` cannot answer `undefined` here, before Package F or after. The position survives as a `QueryEngineError` naming an internal invariant — the disposition `assertCreateTreeKinds` already carries — and leaves the census.
 
-The target's primary key is neither spelled in the create data, nor produced by the INSERT, nor knowable — so the join row would reference a value no row holds. *Narrow: the parse boundary fills every defaulted key and requires undefaulted ones, so the public surface reaching this is small.*
-
-**4.3 — relation writes inside m2m `updateMany` data** · `RelationJunctionPart.ts:2314`
+**4.3 — relation writes inside m2m `updateMany` data** · `RelationJunctionPart.ts:2354`
 
 ```ts
 client.post.update({
@@ -449,6 +467,8 @@ Changes since this list was written, each verified against the tree:
   RESIDUE, deliberate and narrow: a same-value write of a referenced column is treated as a real transition wherever the pre-value is not a construction literal — which needs BOTH a single-member reference and a locator that pins it, a compound reference having no construction-time post-value even when the locator pins every member. So an occupied old slot then refuses with the occupied message where a pinning single-member locator would accept. The no-op question needs the pre-value, and the two things the regime decides — `afterRootParts` ordering and the to-one upsert's create-arm reroute — are construction-time structure. For every nested kind but `create` / `createMany` this NARROWS a refusal that used to cover the whole shape.
   NOT a lift, and the ledger says so rather than letting the sentence above imply it: for nested `create` / `createMany` the occupied guard is a NEW REFUSAL on payloads that previously executed. `pastSurface` returned before the guard could be emitted and its caller let those two kinds through untouched, so a compound / non-primary-key / unpinned reference carrying create-only relations used to compile with no probe and no guard however occupied the old slot was — while the PINNED single-member twin of the same payload was refused with the occupied message throughout. The guard is kind-blind and relation-level, so unifying the two spellings costs that accept. This is a §3.1 change of "guards and postconditions", "statement count and round trips", and "error class, message" on an accepted payload, and it needs the coordinator's ratification rather than a package's. Measured on every driver leg (`compiled-key-transition-behavior.ts`, "an OCCUPIED old slot refuses the same nested create the empty slot accepts").
   BOUNDED at the gate: an old reference tuple with a NULL member addresses no row under MATCH SIMPLE, so the guard does not fire for it. That is decided once for both substrates, because the guard's two carriers lower a null pre-value differently — the planning probe binds it as a parameter (`= $n`, never true of NULL), the atomic batch's premise resolves it to a literal (`IS NULL`, true of NULL) — and the same payload was resolving on a transaction while throwing the occupied error on a batch (`RelationKeyGuard.oldReferenceIsAddressable`; pinned on both substrates in the same behavior file).
+- (2026-08-10, Package F) **§4.2 leaves this document**, and the "honest note" count below drops with it: the junction create arm that "cannot name its own row" has no reachable payload, measured rather than argued (see §4.2's entry). Package F's own work is not a deletion but a NARROWING of §2.1, §2.2, §2.3 and §3.1 to the value states the maintainer's ruling actually named. Each of those four used to refuse two different facts under one sentence — "no row holds this value" and "the row that will hold it has not been inserted yet" — and only the first is a boundary. A referenced column the database produces (an absent `.increment()`, which is the whole of that population in this schema language) is now published by the INSERT that produces it: through its own `RETURNING` list on a returning provider in a transaction, and through ONE focused post-insert SELECT by the created-row selector on a non-returning one, in the same transaction. Demand is registered only by `rootReferenced(field)`, so a create that asks for nothing extra is byte-identical; the generated primary key keeps its historical output channel for the same reason. What still refuses at all four sites is the omitted `.nullable()` column — `.nullable()` sets `hasDefault: true, default: null`, so it arrives as an explicit `null`. ONE refusal was ADDED and is deliberately not a shape in this document: on an atomic-batch substrate no statement's rows are addressable and the reference scratch carries the generated identity alone, so the produced column cannot be published there and says so in its own sentence (`CreateOperation.ts:2693`, inside `producedReference`). Witnessed in `fresh-produced-field-behavior.ts` (live, both provider families) and `fresh-produced-field.test.ts` (three substrate spellings, the channel-collision pin, the K2 survivors); the before-picture is `parity-f-fresh-field.test.ts`, which also gained the junction produced-identity consumer Package A had left unpinned.
+
 - (2026-08-10, Package G) **The last row of this section is DELIVERED and removed**: the inverse-to-one upsert-arm HALF of §8.1's site. Its recorded obstacle was that the arm had no captured target to hand a nested write; the arm's own correlated probe had been publishing exactly that since Package C, and Package D removed the last reason an UNPINNED target could not carry one. `RelationWritePart`'s `inverseUpsert` branch now parses the arm ONCE through `buildParsedRelationPrograms` and hands all three members — `scalarData`, `relations`, and the `polymorphic` map it used to drop on the floor — to `RecordCompilerSeam.updateSelected`, with no `incomingMembership` (the probe found the row BY the membership, so the arm never reparents) and no `pinnedTarget` (a correlated inverse to-one has no unique `where`, so nothing is construction-known). The relation owner keeps the correlated probe, the found/missing decision, the batch premise guard and the transaction affected-rows failure; what moved is the found arm's body and the timing of its legality, which is now a deferred closure invoked after the arm is selected — ATOM §13's wording, which this seam was the last one not to obey.
   DELIVERED TOO, in the same parse: a direct polymorphic `disconnect` resolves to an intent with no relation program, so it lived only in the dropped third member. Measured at `a8349793`, `owner.update > card.upsert.update: { subject: { disconnect: true } }` compiled the found arm to ZERO steps and the call succeeded having cleared nothing, while the sibling nested `update` kind emitted the UPDATE. That was a silent wrong answer, not a refusal, so it was never in this document; it is recorded here because the same line caused both.
   §3.1 CHANGE, small and named: PK-portability and relation-key legality used to run at CONSTRUCTION for this seam, so a `profile.upsert.update` that fails them threw with an empty statement log whether or not the found arm was taken. They now run after the planning probe and only on the found arm; on a MISSING probe they do not run at all. Same class as Package D's two retargets. Witnessed on both substrates in `inverse-to-one-update-depth` (found-arm depth and grandchild depth, missing-arm inertness, deferred legality, empty found arm), `record-compiler-contract` (convergence with the nested `update` kind, compound captured row key with a decoy, the polymorphic forward), and `polymorphic-write-family` (the singular polymorphic inverse, which rides the same Parts). Three falsifications: dropping `conditionalArmPlanning` breaks the missing arm on both substrates, dropping the deferred call breaks the legality split, dropping `polymorphic` restores the silent discard.
@@ -456,4 +476,4 @@ Changes since this list was written, each verified against the tree:
 
 ## The honesty note
 
-All 21 of these **type-check and pass validation**, then throw at construction. TH measured the type-narrowable surface as empty *for the current generator* — one relation-input type serves positions with opposite dispositions, so removing a key would forbid shapes that execute. Roughly five of the 21 are permanent AND statically decidable (the `updateMany` relation writes ×2, the supplier×supplier pairs, the unnameable-unique `skipDuplicates`) and could in principle become compile errors if the generator emitted position-aware inputs — at an instantiation-depth cost the estate has already measured once (34s → 172s for three guarded clauses). That measurement is proposed, not done. The compound junction edge is statically decidable too, but §10 reclassifies it as a future capability rather than a permanent refusal, so a type that forbade it would have to be reopened when that topology lands.
+All 20 of these **type-check and pass validation**, then throw at construction. TH measured the type-narrowable surface as empty *for the current generator* — one relation-input type serves positions with opposite dispositions, so removing a key would forbid shapes that execute. Roughly five of the 20 are permanent AND statically decidable (the `updateMany` relation writes ×2, the supplier×supplier pairs, the unnameable-unique `skipDuplicates`) and could in principle become compile errors if the generator emitted position-aware inputs — at an instantiation-depth cost the estate has already measured once (34s → 172s for three guarded clauses). That measurement is proposed, not done. The compound junction edge is statically decidable too, but §10 reclassifies it as a future capability rather than a permanent refusal, so a type that forbade it would have to be reopened when that topology lands.

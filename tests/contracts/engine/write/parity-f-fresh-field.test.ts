@@ -32,7 +32,8 @@ import { describe, expect, test } from "vitest";
  *   · a demanded GENERATED identity costs THREE statements on every driver class, and the
  *     driver class changes only HOW the root INSERT reports the key — `RETURNING <pk>` +
  *     `firstRowField` on a returning driver in transaction mode, a bare INSERT +
- *     `insertId` otherwise (CreateOperation.ts:2414). Same ids, same order, same count;
+ *     `insertId` otherwise (`capturesByReturning`, CreateOperation.ts:2469). Same ids,
+ *     same order, same count;
  *   · a demanded field that is already KNOWN from the create data costs ONE statement,
  *     because the whole subtree folds into a single write-dependency CTE. F1 must not turn
  *     a knowable value into a published one and buy a second statement with it;
@@ -45,10 +46,12 @@ import { describe, expect, test } from "vitest";
  *   · a relation-free create — no descendant, therefore no demand — is pinned on both a
  *     generated and an application-supplied key. That is F's keep gate stated as bytes.
  *
- * NOT PINNED HERE: F's focused families also name a junction consumer of a produced
- * identity, including RelationJunctionPart.ts:1349's `skipDuplicates` refusal. This schema
- * has no many-to-many member, so neither the accepted junction INSERT's parent parameter
- * nor that refusal has a before-picture in this file.
+ * THE JUNCTION CONSUMER (Package A's unpinned hole, closed 2026-08-10 by Package F). The
+ * `hub` ⇄ `wire` many-to-many below gives the join row a before-picture: a junction target
+ * whose own key is produced spends the SAME reference the join row spends, and the whole
+ * arm is three statements. `RelationJunctionPart.ts:1374`'s `skipDuplicates` refusal is
+ * still not reachable from this schema — `wire` declares one unique, which E6.8 rewrites
+ * as an adopt — and `junction-skip-adoption` owns that shape.
  *
  * DIMENSIONS PINNED (plan §6 A2's nine): planning IDs/order/SQL/params/outputs (all three
  * shapes plan NOTHING — a fresh record has no row to locate); final IDs and order; final
@@ -56,35 +59,48 @@ import { describe, expect, test } from "vitest";
  * (none survive — pinned `null`); exact errors; statement counts, which are the point.
  * Guards do not arise on these shapes and round trips equal the step count.
  *
- * THE CANNOT-RESOLVE CENSUS. §F4 classifies "every K1, K2, and K4 site" by value state,
- * so the family is listed in full — nine live sites, anchored on their `throw` statement
- * as forbidden-shapes-reference.md anchors them, four distinct sentences:
- *   · CreateOperation.ts:1968 — "…for relation '<r>'…". PINNED below, twice: once through
+ * THE CANNOT-RESOLVE CENSUS, re-anchored 2026-08-10 at the Package F commit. §F4
+ * classified "every K1, K2, and K4 site" by value state; the sites all SURVIVE, and what
+ * changed is which value states reach them. Every payload below is now the KEEP row of
+ * that table — an omitted NULLABLE unique, which the parse boundary supplies as an
+ * explicit `null` — because the DATABASE-PRODUCED row publishes instead of refusing
+ * (`fresh-produced-field`). Nine live sites, anchored on their `throw` statement as
+ * forbidden-shapes-reference.md anchors them, four distinct sentences:
+ *   · CreateOperation.ts:2014 — "…for relation '<r>'…". PINNED below, twice: once through
  *     `referencedValue` (a nested create leaf) and once through the connect Part's foreign
  *     key assignment. Both rows reach the SAME site with the same string, so they separate
  *     two payload paths, not two guards;
- *   · CreateOperation.ts:2052 — "…cannot resolve the parent id…". PINNED below. The same
+ *   · CreateOperation.ts:2098 — "…cannot resolve the parent id…". PINNED below. The same
  *     sentence is already pinned at compound-relation-adoption-behavior.ts:318, so this row
  *     is a restatement kept beside its siblings for the census's sake;
- *   · CreateOperation.ts:1647 — the `-v2` before-parent text. PINNED below;
- *   · CreateOperation.ts:884 and :908 — the SAME before-parent text without the `-v2`
- *     prefix, two byte-identical twins inside the bound-polymorphic path (and :908 is a
+ *   · CreateOperation.ts:1693 — the `-v2` before-parent text. PINNED below;
+ *   · CreateOperation.ts:912 and :936 — the SAME before-parent text without the `-v2`
+ *     prefix, two byte-identical twins inside the bound-polymorphic path (and :936 is a
  *     `QueryEngineError` rather than an `UnsupportedOperationError`). UNPINNED: this schema
  *     has no direct polymorphic edge, and no message could tell the twins apart anyway;
- *   · RecordUpdateCompiler.ts:3161 — the before-ROOT `-v2` text. PINNED below, and also
+ *   · RecordUpdateCompiler.ts:3202 — the before-ROOT `-v2` text. PINNED below, and also
  *     already pinned at parent-held-lookup-behavior.ts:619;
- *   · RecordUpdateCompiler.ts:815, :840 and :1048 — a fourth, shorter sentence
+ *   · RecordUpdateCompiler.ts:847, :872 and :1072 — a fourth, shorter sentence
  *     ("query-engine update cannot resolve referenced field '<f>' for relation '<r>'.")
  *     emitted verbatim at three `QueryEngineError` sites. UNPINNED, and unpinnable as
  *     three: §O2's duplicate-cluster ledger owns separating them first.
  *
+ * ONE SITE LEFT THE CENSUS in Package F, and it is named here because this file's job is
+ * to hold the family: `RelationJunctionPart.ts:1862` — "create-through-junction … requires
+ * the target primary key in the create data" — was measured UNREACHABLE and is now a
+ * `QueryEngineError` describing an internal invariant. `planNestedCreateIdentity` is total
+ * over a single-member primary key, and `getRequiredSinglePrimaryKeyField` guarantees the
+ * junction target has one. The write-engine census is unchanged at 22 because Package F
+ * also ADDED one: the batch-substrate publication refusal in `producedReference`.
+ *
  * The shared-primary-key SPLIT is `parity-e-shared-pk.test.ts`'s subject; only its
  * produced-identity leg is pinned below.
  *
- * FALSIFIED 2026-08-09 against `src/query-engine/write-engine/CreateOperation.ts`:
- * dropping the `txMode &&` conjunct from both halves of the identity-capture choice
- * (:2419 and :2433) made the PGlite ATOMIC-BATCH root INSERT emit `RETURNING "id"` with a
- * `firstRowField` output. Exactly the two PGlite-batch legs went red; the PGlite
+ * FALSIFIED 2026-08-09, re-run 2026-08-10 against
+ * `src/query-engine/write-engine/CreateOperation.ts`: dropping the `txMode &&` conjunct
+ * from the identity-capture choice (`capturesByReturning`, :2469 — one expression now,
+ * two before Package F) made the PGlite ATOMIC-BATCH root INSERT emit `RETURNING "id"`
+ * with a `firstRowField` output. Exactly the two PGlite-batch legs went red; the PGlite
  * transaction legs, the MySQL2 legs (refused by `supportsReturning`, the other conjunct),
  * the CTE-fold pin, and all five refusals stayed green. The original was restored from a
  * scratchpad copy taken before the edit.
@@ -102,8 +118,29 @@ const freshFieldSchema = (() => {
       clips: s.oneToMany(() => clip),
       marks: s.oneToMany(() => mark),
       badge: s.oneToOne(() => badge).optional(),
+      /** The junction consumer of a produced identity (Package A's unpinned hole). */
+      wires: s.manyToMany(() => wire),
     })
     .map("parity_f_hubs");
+  const wire = s
+    .model({
+      id: s.int().id().increment(),
+      label: s.string().unique(),
+      hubs: s.manyToMany(() => hub),
+      pins: s.oneToMany(() => pin),
+    })
+    .map("parity_f_wires");
+  /** A grandchild, so the junction arm is a delegated SUBTREE and not a folded leaf. */
+  const pin = s
+    .model({
+      id: s.string().id(),
+      wireId: s.int(),
+      wire: s
+        .manyToOne(() => wire)
+        .fields("wireId")
+        .references("id"),
+    })
+    .map("parity_f_pins");
   const span = s
     .model({
       id: s.string().id(),
@@ -167,7 +204,7 @@ const freshFieldSchema = (() => {
         .optional(),
     })
     .map("parity_f_boxes");
-  return { hub, span, clip, mark, badge, crate, box };
+  return { hub, span, clip, mark, badge, crate, box, wire, pin };
 })();
 
 hydrateSchemaNames(freshFieldSchema);
@@ -302,7 +339,8 @@ for (const substrate of [
             id: "hub.create",
             kind: "write",
             // `supportsReturning && txMode` decides this one clause and this one
-            // output kind (CreateOperation.ts:2414-2436). Nothing else moves.
+            // output kind — `capturesByReturning` at CreateOperation.ts:2469, spent
+            // at :2501 and :2507. Nothing else moves.
             sql: `INSERT INTO ${q("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, ${p(2)})${returningClause}`,
             params: ["H", "t"],
             outputs: { id: identityOutput },
@@ -568,6 +606,58 @@ for (const substrate of [
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// The junction consumer of a produced identity — Package A's unpinned hole
+// ---------------------------------------------------------------------------
+
+describe("parity F — a junction target whose own key its INSERT produces", () => {
+  test("the join row spends the SUBTREE's produced reference, not a re-derived key", () => {
+    const driver = new PGliteDriver();
+    const operation = new CreateOperation(
+      engineFor(driver),
+      freshFieldSchema.hub as Model<any>,
+      {
+        data: {
+          name: "H",
+          tag: "t",
+          wires: { create: { label: "w1", pins: { create: { id: "p1" } } } },
+        },
+        select: { id: true },
+      }
+    );
+    expect(fragmentContract(driver, operation.planning())).toEqual(
+      EMPTY_PLANNING
+    );
+    const compiled = fragmentContract(driver, operation.compile({})) as {
+      steps: { id: string; sql: string; params: unknown[] }[];
+    };
+    // FIVE statements: the hub INSERT, the wire subtree (its own INSERT + the grandchild),
+    // the join row, and the terminal read. The arm is a delegated SUBTREE — E4-U3 — so the
+    // wire's key is produced, not folded from a literal.
+    expect(compiled.steps.map((step) => step.id)).toEqual([
+      "hub.create",
+      "wire.create",
+      "pin.create",
+      "wire.junction.insert",
+      "hub.select",
+    ]);
+    // ONE produced identity per producing INSERT, and BOTH the grandchild and the join row
+    // spend the wire's. A join row that re-derived the key (a second lookup, a session
+    // sentinel) would not carry this reference at all.
+    expect(compiled.steps[2]?.params).toEqual([
+      "p1",
+      reference("wire.create", "id"),
+    ]);
+    expect(compiled.steps[3]?.params).toEqual([
+      reference("hub.create", "id"),
+      reference("wire.create", "id"),
+    ]);
+    expect(compiled.steps[1]?.sql).toBe(
+      `INSERT INTO "parity_f_wires" ("label") VALUES ($1) RETURNING "id" AS "id"`
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // A knowable non-primary-key referenced field: ONE statement, and it must stay one

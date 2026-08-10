@@ -71,9 +71,11 @@ import {
   isOperationValueReference,
   type OperationFragment,
   type OperationStep,
+  type OperationValueReference,
   type PlanningFragment,
   type ReadStep,
   ref,
+  type StatementOutputSource,
   type StatementStep,
   type TargetConstraintPin,
   type WriteStep,
@@ -373,7 +375,33 @@ export class CreateOperation {
   private readonly terminalId: string;
   private readonly planningSteps: StatementStep[] = [];
   private readonly registeredParts = new Set<Part>();
-  private readonly generatedIdentityConsumers = new Set<string>();
+  /**
+   * F1 — demand-driven record-field publication (§4.3). One record INSERT's step id
+   * maps to the fields some consumer asked that INSERT to publish. The generated
+   * primary key was the only publishable field before F; any DATABASE-PRODUCED
+   * referenced column is publishable now, and the entry is written ONLY by
+   * {@link CreateOperation.producedReference}. `buildInsertStep` reads it at compile,
+   * after every descendant and junction consumer has registered — so the output set is
+   * minimal by construction rather than by a second pass.
+   *
+   * TWO registrars reach `producedReference`, and both are named here because a reader
+   * looking for "who can demand a field" must find the whole answer in one place:
+   * {@link CreateOperation.recordReferenced} — the seam behind every `rootReferenced`
+   * call — and {@link CreateOperation.resolveSharedPkIdentity}, which must register
+   * BEFORE the target's record plan exists (it runs at the arm scan, and `buildRecord`
+   * builds that plan afterwards) and therefore cannot go through the record seam.
+   */
+  private readonly publishedFields = new Map<string, Set<string>>();
+  /**
+   * F3 — the ONE post-insert read that publishes every demanded field of a record
+   * whose substrate cannot RETURNING them, keyed by that record's INSERT step id.
+   * One entry per record, so the keep gate's "at most one post-insert read per root"
+   * holds by construction and not by inspection.
+   */
+  private readonly publishReads = new Map<
+    string,
+    { readonly stepId: string; readonly fields: Set<string> }
+  >();
   /** The single-step `INSERT … RETURNING select` fold, when eligible. */
   private readonly foldStep: WriteStep | undefined;
   /** X1b — a nested fresh subtree emits no terminal read (the enclosing op owns
@@ -1140,23 +1168,37 @@ export class CreateOperation {
           identity[foreignField] = spelled;
           continue;
         }
-        // N4-U4: the target's key is the one its own INSERT will generate. Pre-allocate
+        // N4-U4: the target's key is the one its own INSERT will PRODUCE. Pre-allocate
         // that INSERT's step id so the record's identity can `Ref` it here, before the
         // arms fold — one id, one producing statement, one value.
+        //
+        // F4: the referenced column no longer has to be the target's primary key. What
+        // the consumer needs at CONSTRUCTION is a reference, not a value, and a produced
+        // reference is exactly what {@link CreateOperation.producedReference} mints —
+        // registering the demand on the very step id allocated here, so the target's own
+        // INSERT publishes the column when its plan is built a few lines later. E6.3's
+        // measured obstacle is untouched: a NON-referenced connect's lookup subquery and
+        // a `connectOrCreate` whose two arms name different keys still resolve nothing,
+        // and still refuse below.
+        const targetModel = relation.relationInfo.targetModel;
         if (
           entry.kind === "create" &&
-          targetGeneratesReferencedKey(
-            relation.relationInfo.targetModel,
-            referenced
-          )
+          targetProducesKey(targetModel, referenced)
         ) {
           const producedStep =
             producedBy.get(relationName) ??
             this.scope.allocate(
-              `${getStepModelName(relation.relationInfo.targetModel, "record")}.create`
+              `${getStepModelName(targetModel, "record")}.create`
             );
           producedBy.set(relationName, producedStep);
-          identity[foreignField] = ref(producedStep, "id");
+          identity[foreignField] = this.producedReference(
+            targetModel,
+            producedStep,
+            referenced,
+            targetGeneratesReferencedKey(targetModel, referenced)
+              ? referenced
+              : undefined
+          );
         }
       }
       assertSharedPkResolved(childScope, entry.kind, relation, identity);
@@ -2095,8 +2137,13 @@ export class CreateOperation {
       );
     }
 
-    // 2. The record's own INSERT.
+    // 2. The record's own INSERT, and — on a substrate whose INSERT cannot report the
+    //    database-produced fields a consumer demanded (F3) — the one focused read that
+    //    publishes them. It sits here, between the statement that produces the values
+    //    and the first statement that spends them.
     writes.push(this.buildInsertStep(plan, insertData, polymorphicStorage));
+    const producedRead = this.buildProducedRead(plan);
+    if (producedRead) writes.push(producedRead);
 
     // 3. After the INSERT: child-held creates (recurse), createMany, and the
     //    adopt/M2M Parts — all correlated to this record's (fresh) identity.
@@ -2394,11 +2441,47 @@ export class CreateOperation {
       this.rootRacePin && writeStepId === this.root.writeStepId
         ? { racePin: this.rootRacePin }
         : {};
-    const capturesGeneratedIdentity =
+    const demanded = this.publishedFields.get(writeStepId);
+    // F3 — a focused post-insert read addresses its row through the created-row
+    // selector, and on a generated key that selector IS the captured identity. So a
+    // demand for some OTHER produced field makes the identity a substrate need here,
+    // exactly as the terminal read already makes it one for the root.
+    //
+    // NO SHIPPED PROVIDER REACHES THE `publishReads` DISJUNCT, measured: `publishReads`
+    // is non-empty only without RETURNING (MySQL and PlanetScale alone), and reaching it
+    // WITH a `generatedField` needs one table carrying two absent `increment` columns —
+    // which MySQL rejects at DDL time (ER_WRONG_AUTO_KEY: one auto column per table).
+    // The disjunct stays because it is not a defense: drop it and `createdRowWhere`
+    // still mints `ref(writeStepId, "id")` for that record, against an INSERT that now
+    // declares no such output — a dangling reference instead of a refusal. It is the
+    // consistency between the two, not a guard, and its structural pins say so.
+    const capturedIdentity =
       generatedField !== undefined &&
-      (this.generatedIdentityConsumers.has(writeStepId) ||
-        (!this.suppressTerminal && writeStepId === this.root.writeStepId));
-    if (!capturesGeneratedIdentity) {
+      (demanded?.has(generatedField) === true ||
+        this.publishReads.has(writeStepId) ||
+        (!this.suppressTerminal && writeStepId === this.root.writeStepId))
+        ? generatedField
+        : undefined;
+    // Capture the generated auto-increment identity: `firstRowField` on a
+    // returning driver in tx mode (INSERT … RETURNING pk), else the driver's
+    // `insertId` (scratch-threaded in batch mode by the executor).
+    const returning = this.engine.adapter.capabilities.supportsReturning;
+    const capturesByReturning = txMode && returning;
+    // F2 — the demanded database-produced columns this statement can report itself.
+    // Empty unless a consumer asked for a field that is not the generated key, which
+    // is what keeps every pre-F create's RETURNING list and outputs byte-identical.
+    //
+    // This list is a demand SET, not a column order, and it deliberately carries no sort.
+    // The emitted projection order belongs to `select-builder` (:232), which walks the
+    // model's DECLARED scalars and takes the ones the select names — so the `RETURNING`
+    // text is schema-ordered whatever order the fields arrive in here. MEASURED: reversing
+    // this list, and separately spelling the payload's relation keys in the opposite
+    // order, both compile the identical statement. Sorting here would be a second owner of
+    // an order one owner already fixes.
+    const returnedProduced = capturesByReturning
+      ? [...(demanded ?? [])].filter((field) => field !== generatedField)
+      : [];
+    if (capturedIdentity === undefined && returnedProduced.length === 0) {
       return {
         id: writeStepId,
         kind: "write",
@@ -2412,19 +2495,31 @@ export class CreateOperation {
         ...racePin,
       };
     }
-    // Capture the generated auto-increment identity: `firstRowField` on a
-    // returning driver in tx mode (INSERT … RETURNING pk), else the driver's
-    // `insertId` (scratch-threaded in batch mode by the executor).
-    const returning = this.engine.adapter.capabilities.supportsReturning;
+    // The generated identity leads the projection so its column position never moves
+    // when another field joins the list.
+    const select: Record<string, true> = {};
+    if (capturedIdentity !== undefined && capturesByReturning) {
+      select[capturedIdentity] = true;
+    }
+    for (const field of returnedProduced) select[field] = true;
+    const outputs: Record<string, StatementOutputSource> = {};
+    if (capturedIdentity !== undefined) {
+      outputs.id = capturesByReturning
+        ? { kind: "firstRowField", field: capturedIdentity }
+        : { kind: "insertId" };
+    }
+    for (const field of returnedProduced) {
+      outputs[producedKey(field)] = { kind: "firstRowField", field };
+    }
     return {
       id: writeStepId,
       kind: "write",
       statement:
-        txMode && returning
+        Object.keys(select).length > 0
           ? buildCreate(childScope, {
               data: insertData,
               polymorphicStorage,
-              select: { [generatedField]: true },
+              select,
             })
           : buildInsert(
               childScope,
@@ -2432,24 +2527,185 @@ export class CreateOperation {
               insertData,
               polymorphicStorage
             ),
-      outputs: {
-        id:
-          txMode && returning
-            ? { kind: "firstRowField", field: generatedField }
-            : { kind: "insertId" },
-      },
+      outputs,
       ...racePin,
     };
   }
 
+  /**
+   * F3 — the ONE focused read that publishes every demanded database-produced field of
+   * one record on a substrate whose INSERT cannot report them. It selects only those
+   * fields, by the selector that already names the created row, in the same transaction
+   * and immediately after the INSERT — so every consumer downstream reads a value this
+   * operation produced rather than one it re-derived.
+   *
+   * No postcondition rides it: an absent row leaves the declared `firstRowField` output
+   * unresolvable and `extractOutput` fails closed on it already, and a second assertion
+   * over the same premise is the redundant defense the house forbids. The cost of that
+   * choice is named rather than hidden: the failure arrives as `extractOutput`'s bare
+   * "step did not produce row field", without the model/operation attribution the
+   * terminal read's `terminalFailure()` carries. Attribution here would be a second
+   * owner for one premise, so it is deliberately not added.
+   */
+  private buildProducedRead(plan: RecordPlan): ReadStep | undefined {
+    const read = this.publishReads.get(plan.writeStepId);
+    if (!read) return undefined;
+    const outputs: Record<string, StatementOutputSource> = {};
+    const select: Record<string, true> = {};
+    for (const field of read.fields) {
+      select[field] = true;
+      outputs[producedKey(field)] = { kind: "firstRowField", field };
+    }
+    return {
+      id: read.stepId,
+      kind: "read",
+      statement: buildFindUnique(
+        createQueryScope(this.engine.adapter, plan.model),
+        { where: this.createdRowWhere(plan), select }
+      ),
+      outputs,
+    };
+  }
+
+  /**
+   * The created-row selector: the unique `where` that names the row one record's INSERT
+   * writes. The generated key is spent as the `Ref` that INSERT publishes — which is the
+   * driver's `insertId` on a substrate with no RETURNING, the one place F3 is allowed to
+   * spend it — and every other identity is the record's own primary key, a literal or
+   * the `Ref` a before-parent INSERT produces. ONE owner, because the terminal read and
+   * F3's focused read must name the same row or they are two different answers.
+   *
+   * Which arm each caller takes, measured rather than assumed. The TERMINAL read reaches
+   * both. {@link CreateOperation.buildProducedRead} reaches only the primary-key arm on
+   * every provider this repo ships: it exists only without RETURNING (MySQL and
+   * PlanetScale), and a record with a generated key AND another database-produced column
+   * is a table with two auto-increment columns, which MySQL rejects at DDL time. The
+   * generated arm is still written for it because the two callers must name the row the
+   * same way; see the note in {@link CreateOperation.buildInsertStep}.
+   *
+   * NOT the same owner as `getCreatedRowWhere` (query-engine/operations/mutation-identity.ts),
+   * which answers the same question for `ManyAndReturnOperation` through the adapter's
+   * `lastInsertId()` SQL rather than a backward reference. Two mechanisms, two owners,
+   * near-identical names — a Package O ledger item, recorded here so a later reuse is a
+   * decision and not an accident.
+   */
+  private createdRowWhere(plan: RecordPlan): Record<string, unknown> {
+    if (plan.generatedField) {
+      return {
+        [plan.generatedField]: referenceSql(
+          this.engine,
+          plan.model,
+          plan.generatedField,
+          ref(plan.writeStepId, "id")
+        ),
+      };
+    }
+    return buildPrimaryKeyWhereUnique(
+      plan.model,
+      this.terminalIdentity(plan.model, plan.identity)
+    );
+  }
+
+  /**
+   * F1 — the demand-registration seam every `rootReferenced` call goes through. Two of
+   * {@link freshReferenced}'s answers need no publication (a literal the create data
+   * spells, and an identity member — which is itself either a literal or the `Ref` a
+   * before-parent INSERT already produces); the generated primary key and every other
+   * DATABASE-PRODUCED column need the record's own INSERT to report the value, and this
+   * is where that request is recorded.
+   *
+   * The other registrar is {@link CreateOperation.resolveSharedPkIdentity}; see
+   * {@link CreateOperation.publishedFields} for why it cannot come through here.
+   */
   private recordReferenced(
     record: RecordIdentity,
     referencedField: string
   ): FinalReferenceSource | undefined {
     if (record.generatedField === referencedField) {
-      this.generatedIdentityConsumers.add(record.writeStepId);
+      return {
+        kind: "finalRef",
+        ref: this.producedReference(
+          record.model,
+          record.writeStepId,
+          referencedField,
+          record.generatedField
+        ),
+      };
     }
-    return freshReferenced(record, referencedField);
+    const resolved = freshReferenced(record, referencedField);
+    if (resolved) return resolved;
+    // §4.3 rule 5, and the maintainer's 2026-08-06 ruling: a value that is null,
+    // absent, or an `Sql` operand names no row and no round trip produces one, so the
+    // caller's focused refusal stands. Only a value the DATABASE produces is published.
+    if (
+      !isMissingGeneratedIncrement(
+        record.model["~"].state.scalars[referencedField],
+        record.scalarData[referencedField]
+      )
+    ) {
+      return undefined;
+    }
+    return {
+      kind: "finalRef",
+      ref: this.producedReference(
+        record.model,
+        record.writeStepId,
+        referencedField,
+        record.generatedField
+      ),
+    };
+  }
+
+  /**
+   * F2/F3 — register one demanded database-produced field on the INSERT that produces
+   * it, and hand back the reference the consumer spends. The channel depends on how the
+   * substrate can report the value, and on nothing else:
+   *
+   *  · **RETURNING, in a transaction** (F2) — the field joins the INSERT's own RETURNING
+   *    list and the reference names that write step. No extra statement, no extra round
+   *    trip. Destination scalar casts are untouched: they live at the CONSUMER's column
+   *    ({@link referenceSql}), which sees a `Ref` here exactly as it saw the generated
+   *    identity's `Ref` before F.
+   *  · **No RETURNING, in a transaction** (F3) — the INSERT keeps its current shape and
+   *    ONE focused read publishes every demanded field of this record by the created-row
+   *    selector the compiler already owns ({@link CreateOperation.createdRowWhere}). The
+   *    driver's `insertId` may IDENTIFY the row for that read; it is never substituted
+   *    for the field's own value.
+   *  · **A batch substrate** — a batch step's rows are not addressable and the scratch
+   *    substrate carries only `insertId`, so a value that is not the generated identity
+   *    cannot be carried at all. That is the F4 table's substrate row, and it is a
+   *    different fact from "no row holds this value", so it gets its own sentence.
+   *
+   * The generated primary key keeps the historical `id` output channel on every path,
+   * which is what makes every create that publishes only its identity byte-identical.
+   */
+  private producedReference(
+    model: Model<any>,
+    writeStepId: string,
+    field: string,
+    generatedField: string | undefined
+  ): OperationValueReference {
+    const demanded = this.publishedFields.get(writeStepId);
+    if (demanded) demanded.add(field);
+    else this.publishedFields.set(writeStepId, new Set([field]));
+    if (field === generatedField) return ref(writeStepId, "id");
+    if (this.mode !== "transaction") {
+      throw new UnsupportedOperationError(
+        `query-engine-v2 create cannot publish the database-produced field '${field}' of '${getStepModelName(model, "record")}' on a batch substrate: an atomic batch addresses no statement's rows, and its reference storage carries the generated identity alone. Run this write on a driver that offers an interactive transaction.`
+      );
+    }
+    if (this.engine.adapter.capabilities.supportsReturning) {
+      return ref(writeStepId, producedKey(field));
+    }
+    const read = this.publishReads.get(writeStepId) ?? {
+      stepId: this.scope.allocate(
+        `${getStepModelName(model, "record")}.produced`
+      ),
+      fields: new Set<string>(),
+    };
+    read.fields.add(field);
+    this.publishReads.set(writeStepId, read);
+    return ref(read.stepId, producedKey(field));
   }
 
   /**
@@ -2460,12 +2716,13 @@ export class CreateOperation {
    * through untouched, so every other create compiles the same `where` it always did.
    */
   private terminalIdentity(
+    model: Model<any>,
     identity: Record<string, unknown>
   ): Record<string, unknown> {
     const resolved: Record<string, unknown> = {};
     for (const [field, value] of Object.entries(identity)) {
       resolved[field] = isOperationValueReference(value)
-        ? referenceSql(this.engine, this.model, field, value)
+        ? referenceSql(this.engine, model, field, value)
         : value;
     }
     return resolved;
@@ -2474,24 +2731,11 @@ export class CreateOperation {
   private buildTerminal(plan: RecordPlan): ReadStep {
     const parent = createQueryScope(this.engine.adapter, this.model);
     const txMode = this.mode === "transaction";
-    const where = plan.generatedField
-      ? {
-          [plan.generatedField]: referenceSql(
-            this.engine,
-            this.model,
-            plan.generatedField,
-            ref(plan.writeStepId, "id")
-          ),
-        }
-      : buildPrimaryKeyWhereUnique(
-          this.model,
-          this.terminalIdentity(plan.identity)
-        );
     return {
       id: this.terminalId,
       kind: "read",
       statement: buildFindUnique(parent, {
-        where,
+        where: this.createdRowWhere(plan),
         ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
         ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
       }),
@@ -2549,20 +2793,36 @@ export class CreateOperation {
 }
 
 /**
+ * F2/F3 — the output channel one published database-produced field travels on. The
+ * GENERATED primary key keeps the historical `id` name on every path (four owners spell
+ * it, and every byte pin counts on it); every other field takes its own namespaced key,
+ * so a model whose generated key is not called `id` and which also publishes a column
+ * that IS cannot collide two values onto one channel.
+ */
+function producedKey(field: string): string {
+  return `produced:${field}`;
+}
+
+/**
  * N4-U4 — one referenced value of a FRESH record, in the ONE place every asker reads
  * it: the child-FK assignment, the after-parent adopt/M2M parent id, the before-parent
  * target's referenced value, and (through the identity) the terminal read.
  *
- * Three provenances, all of them the row this record's own INSERT writes:
+ * TWO provenances, both of them the row this record's own INSERT writes:
  *
- *  1. the primary key the INSERT GENERATES — a backward `Ref` to that statement;
- *  2. a primary key already resolved into the identity — a literal, or (shared-PK) the
+ *  1. a primary key already resolved into the identity — a literal, or (shared-PK) the
  *     `Ref` a before-parent INSERT produces, which `resolveSharedPkIdentity` put there;
- *  3. a NON-primary-key referenced column the record's own create data SPELLS. A fresh
+ *  2. a NON-primary-key referenced column the record's own create data SPELLS. A fresh
  *     record's identity is wider than its primary key: an FK referencing one of its
  *     uniques (the D4 shape on a create root) needs the value that unique is about to
  *     hold, and that value is in the same create data the primary key came from — the
  *     same provenance, one column over. Nothing is re-read and nothing is re-derived.
+ *
+ * A THIRD provenance used to live here — the primary key the INSERT generates — and
+ * Package F moved it out rather than leaving two owners for one answer: publication is
+ * a substrate decision now, and {@link CreateOperation.producedReference} is the only
+ * thing that makes it. Its caller intercepts the generated key before this function is
+ * reached, so an arm for it here could only ever disagree.
  *
  * A value that is not knowable NOW is not resolved: an `Sql` operand would be evaluated
  * a SECOND time for the foreign key, and two evaluations of one expression are two
@@ -2572,16 +2832,11 @@ export class CreateOperation {
  */
 function freshReferenced(
   record: {
-    readonly writeStepId: string;
-    readonly generatedField: string | undefined;
     readonly identity: Record<string, unknown>;
     readonly scalarData: Record<string, unknown>;
   },
   referencedField: string
 ): FinalReferenceSource | undefined {
-  if (record.generatedField === referencedField) {
-    return { kind: "finalRef", ref: ref(record.writeStepId, "id") };
-  }
   if (Object.hasOwn(record.identity, referencedField)) {
     const value = record.identity[referencedField];
     return isOperationValueReference(value)
@@ -2755,6 +3010,22 @@ function targetGeneratesReferencedKey(
 ): boolean {
   const pk = getPrimaryKeyFields(targetModel);
   if (!(pk.length === 1 && pk[0] === referencedField)) return false;
+  return targetProducesKey(targetModel, referencedField);
+}
+
+/**
+ * F4 — whether a before-parent target's referenced column is one the DATABASE assigns.
+ * `increment` is the only such column this schema language has: every other
+ * `autoGenerate` carries an application default factory the parse boundary materializes
+ * into the create data, and `assertApplicationGeneratedValues` refuses an omitted one —
+ * so an absent increment is the entire database-produced population, and it is int or
+ * bigint by construction. Callers reach this only where the create data does NOT spell
+ * the column, which is what makes "declared increment" the whole question here.
+ */
+function targetProducesKey(
+  targetModel: Model<any>,
+  referencedField: string
+): boolean {
   return (
     targetModel["~"].state.scalars[referencedField]?.["~"].state
       .autoGenerate === "increment"

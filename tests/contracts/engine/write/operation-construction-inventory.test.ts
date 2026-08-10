@@ -2372,6 +2372,98 @@ describe("write engine route inventory (P6 accounting)", () => {
   // its `targetPkField` is the junction's STORED REFERENCE, not a second answer to "what
   // is the row key", and it keeps that name with the carve-out documented at its owner
   // (plan N2 / §7.4: compound M2M is an unimplemented capability, not a seal).
+  //
+  // 22 -> 22 (PACKAGE F, demand-driven fresh-record field publication) — ONE SITE ADDED,
+  // ONE DELETED, and the two are unrelated, so the unchanged total is arithmetic and not
+  // an absence of work. Both halves are stated because a census of SITES cannot show a
+  // substitution.
+  //
+  // MEASURED FIRST, at `5bf1893f`, on a schema no existing witness carried — a NON-primary
+  // key `.unique().increment()` column that a relation `.references()`:
+  //   `depot.create({ data: { …, crates: { create: { … } } } })`, `crate.depotSerial ->
+  //   depot.serial` →
+  //   UnsupportedOperationError: query-engine-v2 create cannot resolve referenced field
+  //   'serial' for relation 'crates': …
+  // and the same value state reached four more sites: `referencedParentSource` (the adopt
+  // family's parent id), `targetReferencedValue` (a before-parent target under a create
+  // root), `RecordUpdateCompiler.beforeTargetReferencedValue` (the same under an update
+  // root), and `assertSharedPkResolved` (a shared primary key referencing that column).
+  //
+  // THE POPULATION IS EXACTLY ONE SHAPE, which is why the lift is this narrow.
+  // `autoGenerate` is the only generation knob the schema language has, and
+  // uuid/ulid/nanoid/cuid/now/updatedAt all carry an application default FACTORY the parse
+  // boundary materializes into the create data (`assertApplicationGeneratedValues` refuses
+  // an omitted one). So "database-produced" means an absent `increment` column and nothing
+  // else — int or bigint by construction, which is also why its parameter round trip is
+  // exact and no scalar-domain gate is needed. Everything ELSE that reached those sites is
+  // the maintainer's 2026-08-06 KEEP row: `.nullable()` sets `hasDefault: true, default:
+  // null`, so an OMITTED nullable unique arrives as an explicit `null`, a value no row
+  // holds. All five payloads `parity-f-fresh-field` pins are that row, and they still
+  // refuse, verbatim.
+  //
+  // THE ADDED SITE: `CreateOperation.producedReference`'s batch-substrate refusal. §4.3
+  // rule 4 offers the adapter's `batchRefs` as a carrier, and it cannot be one here: only
+  // `storeLastInsertId` is wired into the executor, an atomic batch's statement rows are
+  // not addressable at all, and widening scratch use also widens the set of operations
+  // `prepareSharedBatch` excludes from `$transaction([…])` merging — the trade
+  // `UpsertOperation.createArmIdentity` already records as a reason to prefer capture-free
+  // identities. That is the F4 table's "batch-only substrate cannot carry/refetch" row, and
+  // it is a DIFFERENT fact from "no row holds this value", so it gets its own sentence
+  // rather than degrading into the K1 one. Pinned in `fresh-produced-field`.
+  //
+  // THE DELETED SITE: `RelationJunctionPart`'s "create-through-junction … requires the
+  // target primary key '…' in the create data", measured UNREACHABLE and converted to a
+  // `QueryEngineError` naming an internal invariant — the disposition `assertCreateTreeKinds`
+  // already carries for the same situation. `targetPkField` is
+  // `getRequiredSinglePrimaryKeyField`, and `planNestedCreateIdentity` is TOTAL over a
+  // single-member primary key: a spelled value enters the record's identity, an absent
+  // auto-increment becomes its `generatedField`, and an absent key that is neither throws
+  // `NestedWriteError` one line EARLIER, inside the `createFresh` call that builds the
+  // subtree. The two remaining candidates die further upstream — an `Sql` primary key is
+  // parse-unreachable in write data (E6.6), and a `null` one is refused by the target's own
+  // create schema, measured: `ValidationError: … Expected integer`. So `rootReferenced`
+  // cannot answer `undefined` for a junction target, before Package F or after.
+  //
+  // SWEEP ENTRY (h) IS THEREFORE HALF-SETTLED: of its three `RelationJunctionPart` sites,
+  // this is the one it described as "a RELATION-CARRYING create arm whose deeper child
+  // Parts fold against a compile-time `literalParentId`". E4-U3 had already stopped folding
+  // that arm — it became a whole delegated subtree — and what the entry did not notice is
+  // that the refusal beyond the fold had no payload left. The other two are unchanged.
+  //
+  // SWEEP ENTRY (g)'s SHARED-PRIMARY-KEY HALF IS RE-MEASURED, and the N4-U4 entry above is
+  // WRONG on two points that this unit had to correct rather than inherit. It claims the
+  // site "is reachable only when the foreign-key column is itself declared `.increment()`
+  // (any other spelling hits `planNestedCreateIdentity` first)" and that it lives in
+  // `interpretParentHeld`. Neither holds: `resolveSharedPkIdentity` runs BEFORE
+  // `planNestedCreateIdentity` in `buildRecord` and raises from inside itself, so the
+  // `UnsupportedOperationError` precedes the `NestedWriteError` for every spelling —
+  // measured with `seal.depotSerial: s.int().id()` (no `.increment()`), which refuses here
+  // and not there. What Package F changed is one value state: a `create` arm whose target's
+  // REFERENCED column is database-produced now resolves, because the consumer needs a
+  // construction-time REFERENCE and not a construction-time value, and pre-allocating the
+  // target INSERT's step id supplies one — the N4-U1 allocation-order precedent this site
+  // already used for a produced primary key, now asked about any produced column through
+  // the same owner. E6.3's measured obstacle is untouched and both its causes SURVIVE: a
+  // `connect` by a NON-referenced unique resolves through a lookup SUBQUERY (re-evaluating
+  // it is a second provenance of one row), and a `connectOrCreate` chooses its arm at
+  // COMPILE while the identity is consumed at CONSTRUCTION. Pinned as "K2 SURVIVORS" in
+  // `fresh-produced-field`.
+  //
+  // ONE REFUSAL RETARGETED BY THAT CHANGE, recorded because a site census cannot show a
+  // move between error CLASSES and Package O's ledger needs it. The predicate the shared-
+  // primary-key branch consults widened from `targetGeneratesReferencedKey` (single-member
+  // primary key AND increment) to `targetProducesKey` (increment), so a shared-PK edge
+  // whose TARGET has a COMPOUND primary key one of whose members is an absent increment
+  // column now populates the identity with a produced reference, passes
+  // `assertSharedPkResolved`, and is refused a few steps later by `planNestedCreateIdentity`
+  // instead. Measured: `target { region, code: s.int().increment(), id([region, code]) }`
+  // with `child.targetCode -> target.code`, `child.create({ data: { target: { create: {
+  // region: "eu" } } } })` — `UnsupportedOperationError` at `5bf1893f`, and
+  // `NestedWriteError: Nested create cannot propagate generated compound primary keys.` at
+  // this tree. Refused before and refused after, so §3.1 (which speaks of payloads
+  // ACCEPTED before) is not engaged; it is the same class as Package D's two recorded
+  // retargets and Package G's deferred found-arm legality, and it is listed here for the
+  // same reason those were.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

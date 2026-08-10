@@ -350,8 +350,10 @@ The compiler owns:
 - incoming membership assignment;
 - parent-held before-writes;
 - child-held descendants;
-- generated identity capture when requested;
+- database-produced field capture when requested;
 - root insert construction;
+- the one focused post-insert read a non-returning substrate needs to publish
+  those fields;
 - descendant order.
 
 The nested fresh-record Part exposes:
@@ -364,9 +366,42 @@ The nested fresh-record Part exposes:
 It does not own the incoming relation's membership or found/missing decision.
 The explicit inline junction-target insert remains local to the junction owner.
 
-Generated identity capture is demand-driven. A generated value is requested
-when a descendant, an incoming edge consumer, a junction, or a terminal result
-needs it. An unused generated identity does not force a different insert shape.
+Database-produced field publication is demand-driven. A produced value is
+requested when a descendant, an incoming edge consumer, a junction, or a terminal
+result needs it, and requesting it is the ONLY way it is published: the request is
+`rootReferenced(field)` and there is no flag, no source kind, and no second
+record-reference abstraction beside it. An unrequested produced value does not
+force a different insert shape.
+
+A produced value is an absent `increment` column, which is the whole of what this
+schema language leaves to the database — every other `autoGenerate` carries an
+application default the parse boundary materializes. The generated primary key is
+one such column and keeps its historical output name; any other takes its own
+channel, so two produced columns of one record never share a value.
+
+How the value travels is a substrate fact, decided once, at the demand:
+
+- a returning provider in a transaction adds the column to the insert's own
+  `RETURNING` list;
+- a non-returning provider in a transaction keeps the insert and adds ONE focused
+  read of every demanded field of that record, by the created-row selector the
+  compiler already owns for its terminal read; the driver's insert id may NAME the
+  row for that read and is never substituted for a non-identity value;
+- an atomic batch refuses: no statement's rows are addressable and the reference
+  scratch carries the generated identity alone.
+
+Which providers can hold a produced NON-primary column is narrower than which
+can publish one, and the engine does not decide it: PostgreSQL takes any number
+per table, MySQL takes one and requires it to be a key, and the SQLite family
+takes none, because its migration driver spells every auto-increment column as
+the table's primary key. So the focused post-insert read is MySQL's path alone,
+and on MySQL it always addresses its row by that row's own primary key — a
+record with a generated key AND another produced column is a table with two auto
+columns, which MySQL rejects.
+
+Destination scalar casts are untouched by publication. They belong to the
+consuming column, which sees a reference exactly as it saw the generated
+identity's.
 
 `createMany` remains specialized because row grouping, skip semantics, and
 multi-row output folding are not one-record compilation. A fresh parent stores
