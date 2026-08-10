@@ -1,7 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import { bindRelation } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -71,7 +70,11 @@ import {
   uniqueSelectorConjuncts,
 } from "./shared";
 import {
+  buildTargetProjection,
   capturedTargetColumnPredicate,
+  capturedTargetFilters,
+  capturedTargetWhere,
+  type TargetProjection,
   targetProjectionColumns,
   targetProjectionOutputs,
 } from "./target-projection";
@@ -154,12 +157,12 @@ interface RelationUpsertConfigCore {
   readonly updateCompiler?: RecordUpdateCompiler;
   readonly updateLegality?: () => void;
   /**
-   * The child-held foreign-key columns and the parent columns they reference,
-   * index-aligned (compound keys are per-field, ATOM “Field-bound foreign-key provenance”). A single-column edge is
-   * the length-1 case — and the only one the `ref`/`literal` parent-id kinds
-   * (create context / depth) support.
+   * What this part's probe publishes about the target. The update arm's record
+   * compiler owns the wider projection when there is one; this is the
+   * compiler-less shape, and its complete row key is what the found arm's write
+   * and the found pin address.
    */
-  readonly childPrimaryKey: string;
+  readonly targetProjection: TargetProjection;
   readonly txMode: boolean;
   /** Adopt-family member (default `upsert`); `connectOrCreate` omits update data. */
   readonly family?: UpsertFamily;
@@ -316,22 +319,31 @@ export class RelationUpsertPart implements Part {
   }
 
   /** The probe's (and the found pin's, and the update arm's) projection: this child's
-   *  primary key and every FK column — its identity and its current parent, the two
-   *  things every arm's decision is made from — plus every field the update arm's own
-   *  compiler declared it consumes. That third group is what lets a deeper edge
-   *  referencing a compound or non-primary-key key of this child resolve each referenced
-   *  column BY NAME from the located row instead of from one broadcast value. */
+   *  complete row key and every FK column — how the arm addresses it and who its
+   *  current parent is, the two things every arm's decision is made from — plus every
+   *  field the update arm's own compiler declared it consumes. That third group is what
+   *  lets a deeper edge referencing a compound or non-primary-key key of this child
+   *  resolve each referenced column BY NAME from the located row instead of from one
+   *  broadcast value.
+   *
+   *  The row key arrives inside {@link targetProjection}, never as a field beside it:
+   *  one projection owns which target values exist here. */
   private identitySelect(): Record<string, boolean> {
-    const select: Record<string, boolean> = {
-      [this.config.childPrimaryKey]: true,
-    };
-    for (const field of this.boundProjection().fields) select[field] = true;
-    for (const field of this.updateCompiler
-      ? this.updateCompiler.targetProjection.fields
-      : []) {
+    const select: Record<string, boolean> = {};
+    for (const field of this.targetProjection.identityFields) {
       select[field] = true;
     }
+    for (const field of this.boundProjection().fields) select[field] = true;
+    for (const field of this.targetProjection.fields) select[field] = true;
     return select;
+  }
+
+  /** The update arm's compiler publishes the wider projection when it exists; both
+   *  open with the same complete row key. */
+  private get targetProjection(): TargetProjection {
+    return (
+      this.updateCompiler?.targetProjection ?? this.config.targetProjection
+    );
   }
 
   private boundProjection() {
@@ -341,12 +353,10 @@ export class RelationUpsertPart implements Part {
   private probeAdditionalColumns(): readonly Sql[] {
     return [
       ...this.boundProjection().additionalColumns,
-      ...(this.updateCompiler
-        ? targetProjectionColumns(
-            this.config.childScope,
-            this.updateCompiler.targetProjection
-          ).map((column) => column.sql)
-        : []),
+      ...targetProjectionColumns(
+        this.config.childScope,
+        this.targetProjection
+      ).map((column) => column.sql),
     ];
   }
 
@@ -410,15 +420,15 @@ export class RelationUpsertPart implements Part {
     // correlated to this child's PK.
     //
     // Every write this arm emits addresses THE ROW THE PROBE LOCATED, by its captured
-    // primary key — the wrong-row doctrine, and the same identity
+    // row key — every member of it — the wrong-row doctrine, and the same addressing
     // `RelationWritePart.compileTargeted` and `RelationJunctionPart.compileUpdate`
     // spend at their own seams. Before N4-U1 the selector had to name the primary key,
     // so "the selector's row" and "the located row" were one literal; once any unique
     // may name the target they are two provenances, and the update-arm grandchildren
-    // already take the located one (`plannedParentId(probeId, childPrimaryKey)`).
+    // already take the located one (`plannedParentId(probeId)`).
     // Addressing the selector here would let the halves of one nested write land on
     // two different rows.
-    const capturedPk = this.capturedPk(rows);
+    const captured = locatedRow(rows);
     const steps: OperationStep[] = [];
     if (
       !this.updateCompiler &&
@@ -431,33 +441,29 @@ export class RelationUpsertPart implements Part {
       return steps;
     }
     if (this.foundPin) {
-      steps.push(this.pinLocatedRow(this.foundPin, capturedPk, known));
+      steps.push(this.pinLocatedRow(this.foundPin, captured, known));
     }
     if (this.updateCompiler) {
       this.config.updateLegality?.();
       steps.push(...this.compileRecordUpdate(known));
       return steps;
     }
+    // A probe row with no readable shape publishes no row-key member, and the
+    // shared extractor names the missing one. That replaces the unique-`where`
+    // builder's refusal of an undefined discriminator as the place this fails
+    // closed; it does not add a second check, because the extractor is now the
+    // one owner of "read the row key out of this captured record".
     steps.push(
-      this.buildUpdateArm(known, { [this.config.childPrimaryKey]: capturedPk })
+      this.buildUpdateArm(
+        known,
+        capturedTargetWhere(
+          this.config.childScope.model,
+          this.targetProjection,
+          captured ?? {}
+        )
+      )
     );
     return steps;
-  }
-
-  /**
-   * The primary key of the row the probe located — the identity every found-arm write
-   * addresses, read from the row the probe ACTED ON (`forUpdate` in tx mode) and never
-   * re-derived from the selector. The same {@link locatedRow} the correlation decision
-   * reads its foreign key from, so one arm cannot be deciding about a different row than
-   * the other is writing.
-   *
-   * A row that carries no primary key is not guarded here: it makes the pin and the
-   * write address `pk = <undefined>`, which the unique-`where` builder refuses outright
-   * and which no substrate can silently satisfy — the operation already fails closed on
-   * both, so a check here would be redundant defense (one guard per invariant).
-   */
-  private capturedPk(rows: readonly unknown[]): unknown {
-    return locatedRow(rows)?.[this.config.childPrimaryKey];
   }
 
   /**
@@ -467,14 +473,14 @@ export class RelationUpsertPart implements Part {
    */
   private pinLocatedRow(
     pin: GuardStep,
-    capturedPk: unknown,
+    captured: Record<string, unknown> | undefined,
     known: PlanningKnown
   ): GuardStep {
     return {
       ...pin,
       premise: {
         ...pin.premise,
-        statement: this.foundGuardStatement(capturedPk, known),
+        statement: this.foundGuardStatement(captured, known),
       },
     };
   }
@@ -486,7 +492,8 @@ export class RelationUpsertPart implements Part {
    * the probe DECLARES: "a row matching the selector exists"), and with the located row
    * at compile, which narrows it to that row:
    *
-   *  · `pk = <captured>` — the selector and the row the decision was made about must
+   *  · `<row key> = <captured>`, every member — the selector and the row the decision
+   *    was made about must
    *    still COINCIDE. Without it, a concurrent writer that moves the unique to a
    *    DIFFERENT row between planning and the atomic batch leaves the selector-alone
    *    premise true of a REPLACEMENT: the guard passes, the update arm writes that
@@ -510,11 +517,11 @@ export class RelationUpsertPart implements Part {
    * all.
    */
   private foundGuardStatement(
-    capturedPk: unknown,
+    capturedTarget: Record<string, unknown> | undefined,
     known: PlanningKnown | undefined
   ): Sql {
     const config = this.config;
-    const { childScope, where, childPrimaryKey } = config;
+    const { childScope, where } = config;
     const membership =
       known && config.correlation === "correlated"
         ? finalMembershipCondition(
@@ -528,14 +535,13 @@ export class RelationUpsertPart implements Part {
         : { filters: [], predicate: undefined };
     const rows = known?.[planningKey(this.probeId, "rows")];
     const captured = Array.isArray(rows) ? locatedRow(rows) : undefined;
-    const capturedColumns =
-      captured && this.updateCompiler
-        ? capturedTargetColumnPredicate(
-            childScope,
-            this.updateCompiler.targetProjection,
-            captured
-          )
-        : undefined;
+    const capturedColumns = captured
+      ? capturedTargetColumnPredicate(
+          childScope,
+          this.targetProjection,
+          captured
+        )
+      : undefined;
     const predicates = [membership.predicate, capturedColumns].filter(
       (predicate): predicate is Sql => predicate !== undefined
     );
@@ -545,9 +551,13 @@ export class RelationUpsertPart implements Part {
         where: {
           AND: [
             ...uniqueSelectorConjuncts(childScope, where),
-            ...(capturedPk === undefined
-              ? []
-              : [{ [childPrimaryKey]: { equals: capturedPk } }]),
+            ...(capturedTarget
+              ? capturedTargetFilters(
+                  childScope.model,
+                  this.targetProjection,
+                  capturedTarget
+                )
+              : []),
             ...membership.filters,
           ],
         },
@@ -1044,13 +1054,9 @@ function buildOneUpsertPart(
     update === undefined
       ? { scalarData: {}, relations: {}, polymorphic: {} }
       : buildParsedRelationPrograms(child, update);
-  const childPrimaryKeys = getPrimaryKeyFields(child.model);
-  if (childPrimaryKeys.length !== 1) {
-    throw new UnsupportedOperationError(
-      `Relation '${relationName}' requires a child with one primary key.`
-    );
-  }
-  const childPrimaryKey = childPrimaryKeys[0]!;
+  // The probe publishes the child's complete row key and every found-arm write
+  // addresses all of it, so an adopt target keys on however many members it has.
+  const targetProjection = buildTargetProjection(child.model);
   const childName = getStepModelName(relationInfo.targetModel, relationName);
   for (const [childRelationName, program] of Object.entries(
     childUpdate.relations
@@ -1127,7 +1133,7 @@ function buildOneUpsertPart(
     probeId,
     where,
     updateData: childUpdate.scalarData,
-    childPrimaryKey,
+    targetProjection,
     txMode,
     family,
     duplicateOfEarlier,

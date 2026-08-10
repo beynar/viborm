@@ -561,13 +561,35 @@ Re-evaluating that selector after planning can select a different row.
 Therefore `RecordUpdateCompiler`, and every owner that passes it a captured
 target:
 
-1. captures the target primary key in its owner read;
-2. carries that captured value through planning outputs;
-3. writes by the captured primary key;
-4. gives descendants and any outer post-write read that same identity.
+1. captures the target's row key — every member of its primary key, in schema
+   order — in its owner read;
+2. carries those captured values through planning outputs;
+3. writes, guards, and re-addresses by every captured member;
+4. gives descendants and any outer post-write read that same row key.
+
+`TargetProjection.identityFields` is that row key, and within this doctrine's
+subject — `RecordUpdateCompiler` and the relation owners it serves — it is the
+only source a captured record is addressed by: no such owner is handed one
+primary-key field beside a projection, and no parallel row-key field survives
+next to one. Two scalar names sit deliberately outside that rule:
+
+- `RelationJunctionPart`'s `targetPkField` (and `sourcePkField`) — the junction's
+  stored reference to a target `getRequiredSinglePrimaryKeyField` already refused
+  to key on more than one field. The carve-out is documented at both of its
+  declarations, and nothing new may read a row key through it.
+- The root operations' own `parentPrimaryKeys` (`UpsertOperation`,
+  `DeleteOperation`) — the row key of the record their public `where` names, not
+  of a captured target handed to a compiler.
+
+Asking the SCHEMA whether a field belongs to a model's key is a third question
+again — topological, answered before any probe has published anything — and it
+stays with `getPrimaryKeyFields`. A reference key the relation points at is a
+different ordered key: it rides in `fields`, and bound relation topology — not
+the projection — maps storage members onto it.
 
 The wrong-row decoy tests are not optional detail. They prove that replacement
-or selector drift cannot redirect an update.
+or selector drift cannot redirect an update. A compound row key needs decoys
+that agree on ONE member, or a narrowing to the first member passes them.
 
 Top-level `UpsertOperation` has three distinct paths:
 

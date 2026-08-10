@@ -61,6 +61,13 @@ export function assertSelectedUpdateManyDataIsScalar(
   );
 }
 
+/**
+ * Every member of the target's row key is asked, not just the first: a compound
+ * key transitions whichever member the data rewrites, and a deeper edge that
+ * references THAT member is as uncompilable as one referencing the first. For a
+ * one-member row key this is the same question, asked the same way, refused with
+ * the same message.
+ */
 export function assertPinnedTransitionIsCompilable(
   targetScope: QueryScope,
   scalarData: Readonly<Record<string, unknown>>,
@@ -68,9 +75,11 @@ export function assertPinnedTransitionIsCompilable(
   relationName: string,
   pinnedTarget: Readonly<Record<string, unknown>>
 ): void {
-  const primaryKey = getPrimaryKeyFields(targetScope.model)[0];
-  if (!(primaryKey && Object.hasOwn(scalarData, primaryKey))) return;
-  if (Object.hasOwn(pinnedTarget, primaryKey)) return;
+  const transitioned = getPrimaryKeyFields(targetScope.model).filter(
+    (field) =>
+      Object.hasOwn(scalarData, field) && !Object.hasOwn(pinnedTarget, field)
+  );
+  if (transitioned.length === 0) return;
 
   for (const program of Object.values(relations)) {
     const relation = bindRelation(targetScope, program.relationInfo);
@@ -81,12 +90,12 @@ export function assertPinnedTransitionIsCompilable(
     ) {
       continue;
     }
-    if (
-      relation.referencedFields.includes(primaryKey) &&
-      relation.onUpdate !== "cascade"
-    ) {
+    const referenced = transitioned.find((field) =>
+      relation.referencedFields.includes(field)
+    );
+    if (referenced !== undefined && relation.onUpdate !== "cascade") {
       throw new UnsupportedOperationError(
-        `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${primaryKey}' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key.`
+        `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${referenced}' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key.`
       );
     }
   }

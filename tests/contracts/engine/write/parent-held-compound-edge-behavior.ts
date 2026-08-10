@@ -16,10 +16,16 @@ import { describe, expect, test } from "vitest";
  * VERY SAME compound edge, and all three executed. That is what makes the refusal a
  * conflation rather than a boundary: `parentHeldCorrelationFilters` already emits one
  * conjunct per referenced column, index-aligned with the parent FK column it reads —
- * the identical per-field loop the three executing kinds use. The single value in the
- * ledger is the CHILD'S OWN PRIMARY KEY (what the probe captures and the arm's write
- * addresses), and its arity is a fact about the child model, not about the edge. The
- * guard now asserts only that fact.
+ * the identical per-field loop the three executing kinds use. The other value in the
+ * ledger was the CHILD'S OWN ROW KEY (what the probe captures and the arm's write
+ * addresses), and its arity is a fact about the child model, not about the edge.
+ *
+ * PACKAGE C CLOSED THAT SECOND HALF. The probe publishes the child's complete row key
+ * through its `TargetProjection` and the arm's write, guard, and captured selector are
+ * built from every member of it, so the arity guard had nothing left to assert and was
+ * deleted. The berth tests at the bottom are that refusal, inverted into the accept it
+ * became — with one-member twins, so single-member addressing is a wrong ROW rather
+ * than a wrong string.
  *
  * THE DECOYS ARE THE MEASUREMENT. `depotRegionTwin` agrees with the target on the
  * REGION alone and `depotCodeTwin` on the CODE alone, so an implementation that spent
@@ -64,8 +70,9 @@ export const parentHeldCompoundEdgeSchema = (() => {
     })
     .map("e64_stations");
 
-  /** The half of the compound-identity family this unit does NOT absorb: a child
-   *  whose OWN primary key is compound, so the probe cannot capture one handle. */
+  /** The other half of the compound-key family: a child whose OWN row key is
+   *  compound, so the probe must capture — and every write must address — two
+   *  members instead of one handle. */
   const berth = s
     .model({
       tenantId: s.string(),
@@ -128,6 +135,37 @@ async function depots(client: any): Promise<Record<string, string>> {
   const rows = await client.depot.findMany({ orderBy: { id: "asc" } });
   return Object.fromEntries(
     rows.map((row: any) => [row.id as string, row.note as string])
+  );
+}
+
+/**
+ * The compound-ROW-KEY target plus its two one-member twins. `t1|s2` agrees with
+ * the target on the tenant alone and `t2|s1` on the slot alone, so a captured row
+ * key narrowed to either member does not write a wrong string — it writes A
+ * DIFFERENT ROW. The dock names the target through the compound edge.
+ */
+async function seedBerths(client: any): Promise<void> {
+  await resetParentHeldCompoundEdge(client);
+  await client.berth.create({
+    data: { tenantId: "t1", slot: "s1", note: "n" },
+  });
+  await client.berth.create({
+    data: { tenantId: "t1", slot: "s2", note: "n" },
+  });
+  await client.berth.create({
+    data: { tenantId: "t2", slot: "s1", note: "n" },
+  });
+  await client.dock.create({
+    data: { id: "k1", berthTenant: "t1", berthSlot: "s1" },
+  });
+}
+
+async function berths(client: any): Promise<Record<string, string>> {
+  const rows = await client.berth.findMany({
+    orderBy: [{ tenantId: "asc" }, { slot: "asc" }],
+  });
+  return Object.fromEntries(
+    rows.map((row: any) => [`${row.tenantId}|${row.slot}`, row.note as string])
   );
 }
 
@@ -316,30 +354,51 @@ export function registerParentHeldCompoundEdgeBehavior(
       });
     });
 
-    test("a child with a COMPOUND primary key keeps the (narrowed) refusal", async () => {
+    test("a child with a COMPOUND primary key is updated on BOTH captured members", async () => {
       const client = await connect();
-      await resetParentHeldCompoundEdge(client);
-      await client.berth.create({
-        data: { tenantId: "t1", slot: "s1", note: "n" },
-      });
-      await client.dock.create({
-        data: { id: "k1", berthTenant: "t1", berthSlot: "s1" },
+      await seedBerths(client);
+
+      await client.dock.update({
+        where: { id: "k1" },
+        data: { berth: { update: { note: "n2" } } },
       });
 
-      await expect(
-        client.dock.update({
-          where: { id: "k1" },
-          data: { berth: { update: { note: "n2" } } },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 update requires a child with one primary key for 'update' on the parent-held to-one relation 'berth'."
-      );
-      // Unchanged: the refusal is at construction, so nothing was written.
+      expect(await berths(client)).toEqual({
+        "t1|s1": "n2",
+        "t1|s2": "n",
+        "t2|s1": "n",
+      });
+    });
+
+    test("a compound-keyed child's upsert found arm and delete address both members", async () => {
+      const client = await connect();
+      await seedBerths(client);
+
+      await client.dock.update({
+        where: { id: "k1" },
+        data: {
+          berth: {
+            upsert: {
+              update: { note: "found-arm" },
+              create: { tenantId: "t1", slot: "s1", note: "unused" },
+            },
+          },
+        },
+      });
+      expect(await berths(client)).toEqual({
+        "t1|s1": "found-arm",
+        "t1|s2": "n",
+        "t2|s1": "n",
+      });
+
+      await client.dock.update({
+        where: { id: "k1" },
+        data: { berth: { delete: true } },
+      });
       expect(
-        await client.berth.findUnique({
-          where: { tenantId_slot: { tenantId: "t1", slot: "s1" } },
-        })
-      ).toMatchObject({ note: "n" });
+        await client.dock.findUnique({ where: { id: "k1" } })
+      ).toMatchObject({ berthSlot: null, berthTenant: null });
+      expect(await berths(client)).toEqual({ "t1|s2": "n", "t2|s1": "n" });
     });
   });
 }

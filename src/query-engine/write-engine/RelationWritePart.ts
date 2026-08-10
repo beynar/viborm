@@ -78,10 +78,15 @@ import {
   uniqueSelectorConjuncts,
 } from "./shared";
 import {
-  buildTargetProjection,
   capturedTargetColumnPredicate,
+  capturedTargetFilters,
+  capturedTargetValues,
+  capturedTargetWhere,
+  type TargetProjection,
   targetProjectionColumns,
   targetProjectionOutputs,
+  targetProjectionRowKeySelect,
+  targetProjectionSelect,
 } from "./target-projection";
 
 /**
@@ -114,7 +119,12 @@ interface RelationWriteContext {
   readonly childScope: QueryScope;
   readonly childName: string;
   readonly membership: CorrelatedRelationMembershipBinding;
-  readonly childPrimaryKey: string;
+  /**
+   * What the target probe publishes. A targeted arm with a record compiler uses
+   * that compiler's own projection; this one is the compiler-less fallback, and
+   * its row key is what every captured selector here is built from.
+   */
+  readonly targetProjection: TargetProjection;
   readonly recordCompilers: RecordCompilerSeam;
   readonly txMode: boolean;
   /** Targeted (`update`/`delete`): the child's unique locator. */
@@ -240,10 +250,11 @@ export class RelationWritePart implements Part {
   }
 
   /**
-   * `update` one / `delete` one: the leaf write addresses the **captured PK** the
-   * probe selected, not the user selector. In batch mode the presence guard binds
-   * the original selector, parent correlation, and captured PK to the same row, so
-   * moving the selector to a replacement fails the guard.
+   * `update` one / `delete` one: the leaf write addresses the **captured row key**
+   * the probe selected — every member of it — not the user selector. In batch mode
+   * the presence guard binds the original selector, parent correlation, and that
+   * whole captured row key to the same row, so moving the selector to a replacement
+   * fails the guard.
    */
   private compileTargeted(
     scope: StepScope,
@@ -256,20 +267,27 @@ export class RelationWritePart implements Part {
         this.config.createSubtree
       );
     }
-    const capturedPk = this.capturedPk(known);
-    const capturedWhere = { [this.config.childPrimaryKey]: capturedPk };
+    const captured = this.capturedRow(known);
     const steps: OperationStep[] = [];
     if (!this.config.txMode) {
       steps.push(
         presenceGuard(
           this.guardId,
-          this.correlatedProbeStatement(known, false, capturedPk),
+          this.correlatedProbeStatement(known, false, captured),
           this.targetFailure()
         )
       );
     }
     if (this.config.kind === "delete") {
-      steps.push(this.buildDeleteOne(capturedWhere));
+      steps.push(
+        this.buildDeleteOne(
+          capturedTargetWhere(
+            this.config.childScope.model,
+            this.targetProjection,
+            captured
+          )
+        )
+      );
       return steps;
     }
     if (this.updateCompiler) {
@@ -289,7 +307,8 @@ export class RelationWritePart implements Part {
    *   has no unique target to pin, so a losing concurrent insert surfaces the
    *   child-FK constraint error;
    * - found → UPDATE arm: the captured correlated child, pinned in batch by an exists
-   *   guard on `fk = parent AND pk = capturedPk` (the upsert-family premise wording),
+   *   guard on `fk = parent AND <every captured row-key member>` (the upsert-family
+   *   premise wording),
    *   and in tx by the update's affected-rows expectation (the upsert-vanished wording).
    *
    * This composes the already-certified correlated-update leaf with a create leaf; the
@@ -314,15 +333,16 @@ export class RelationWritePart implements Part {
     // The branch read remains necessary for the missing create arm, but an empty
     // selected update has no compiler and therefore no found-arm effect to pin.
     if (!this.updateCompiler) return [];
-    const capturedPk = (first as Record<string, unknown>)[
-      this.config.childPrimaryKey
-    ];
     const steps: OperationStep[] = [];
     if (!this.config.txMode) {
       steps.push(
         presenceGuard(
           this.guardId,
-          this.correlatedProbeStatement(known, false, capturedPk),
+          this.correlatedProbeStatement(
+            known,
+            false,
+            first as Record<string, unknown>
+          ),
           nestedWriteFailure(
             upsertPremiseChanged(this.relationName),
             this.relationName,
@@ -424,23 +444,20 @@ export class RelationWritePart implements Part {
   }
 
   /**
-   * `WHERE unique AND fk = <parent> [AND pk = <capturedPk>]`, limited to one row.
-   * When `useRef` the correlation carries a SQL `Ref` to the located-parent
+   * `WHERE unique AND fk = <parent> [AND <row key> = <captured>]`, limited to one
+   * row. When `useRef` the correlation carries a SQL `Ref` to the located-parent
    * planning read (technique #1, in the planning probe); otherwise the located id
    * is inlined as a literal (the batch exists guard, a final-fragment step). The
-   * batch guard additionally pins the captured PK so the selector and the row the
-   * probe locked must still coincide (the split-witness correlation); the planning
-   * probe omits it (it is what captures the PK).
+   * batch guard additionally pins EVERY captured row-key member so the selector and
+   * the row the probe locked must still coincide (the split-witness correlation);
+   * the planning probe omits them (it is what captures the row key).
    */
   private correlatedProbeStatement(
     known: PlanningKnown | undefined,
     useRef: boolean,
-    capturedPk?: unknown
+    capturedRow?: Record<string, unknown>
   ): Sql {
-    const projection =
-      this.updateCompiler?.targetProjection ??
-      buildTargetProjection([this.config.childPrimaryKey]);
-    const selectedFields = projection.fields;
+    const projection = this.targetProjection;
     const selectedColumns = targetProjectionColumns(
       this.config.childScope,
       projection
@@ -465,14 +482,13 @@ export class RelationWritePart implements Part {
       Array.isArray(capturedRows) && isRecord(capturedRows[0])
         ? capturedRows[0]
         : undefined;
-    const capturedColumns =
-      captured && this.updateCompiler
-        ? capturedTargetColumnPredicate(
-            this.config.childScope,
-            this.updateCompiler.targetProjection,
-            captured
-          )
-        : undefined;
+    const capturedColumns = captured
+      ? capturedTargetColumnPredicate(
+          this.config.childScope,
+          projection,
+          captured
+        )
+      : undefined;
     const predicates = [membership.predicate, capturedColumns].filter(
       (predicate): predicate is Sql => predicate !== undefined
     );
@@ -484,14 +500,16 @@ export class RelationWritePart implements Part {
             ...this.optionalWhereFilters(),
             ...this.targetFilters(),
             ...membership.filters,
-            ...(capturedPk === undefined
-              ? []
-              : [{ [this.config.childPrimaryKey]: { equals: capturedPk } }]),
+            ...(capturedRow
+              ? capturedTargetFilters(
+                  this.config.childScope.model,
+                  projection,
+                  capturedRow
+                )
+              : []),
           ],
         },
-        select: Object.fromEntries(
-          selectedFields.map((field) => [field, true])
-        ),
+        select: targetProjectionSelect(projection),
         forUpdate: this.config.txMode,
       },
       {
@@ -605,9 +623,10 @@ export class RelationWritePart implements Part {
     return scalarData;
   }
 
-  /** The primary key captured by the correlated probe. An absent row uses the
-   * relation family's target-not-found failure. */
-  private capturedPk(known: PlanningKnown): unknown {
+  /** The row the correlated probe captured — the one source of every row-key
+   * member this arm addresses. An absent row uses the relation family's
+   * target-not-found failure. */
+  private capturedRow(known: PlanningKnown): Record<string, unknown> {
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -631,7 +650,16 @@ export class RelationWritePart implements Part {
         this.relationName
       );
     }
-    return (first as Record<string, unknown>)[this.config.childPrimaryKey];
+    return first as Record<string, unknown>;
+  }
+
+  /** A targeted arm with a record compiler publishes that compiler's projection;
+   *  the compiler-less arms publish the configured one. Both open with the same
+   *  complete row key, which is what the captured selectors are built from. */
+  private get targetProjection(): TargetProjection {
+    return (
+      this.updateCompiler?.targetProjection ?? this.config.targetProjection
+    );
   }
 
   private targetFailure() {
@@ -681,7 +709,7 @@ export interface RelationSetConfig {
   readonly membership: RelationMembershipBinding;
   /** Reads may use the pre-transition source while writes use the new value. */
   readonly departingMembership: CorrelatedRelationMembershipBinding;
-  readonly childPrimaryKey: string;
+  readonly targetProjection: TargetProjection;
   readonly requiredFk: boolean;
   readonly requiredFields: readonly string[];
   readonly targets: readonly Record<string, unknown>[];
@@ -694,6 +722,36 @@ interface SetTarget {
   readonly reparentId: string;
   readonly guardId: string;
   readonly exist: ReadStep;
+}
+
+/**
+ * Address a captured target set portably.
+ *
+ * One member: the `IN` list the per-target writes folded into, byte for byte.
+ * Several members: `OR` of one `AND` per captured row — correlated conjunctions
+ * through the ordinary where-builder, because provider row-value `IN` syntax and
+ * its null semantics are not portable (plan N2). Still ONE statement either way.
+ */
+function capturedTargetSetWhere(
+  scope: QueryScope,
+  projection: TargetProjection,
+  captured: readonly Record<string, unknown>[]
+): Record<string, unknown> {
+  if (projection.identityFields.length === 1) {
+    const single = projection.identityFields[0]!;
+    return {
+      [single]: {
+        in: captured.map(
+          (row) => capturedTargetValues(scope.model, projection, row)[single]
+        ),
+      },
+    };
+  }
+  return {
+    OR: captured.map((row) => ({
+      AND: capturedTargetFilters(scope.model, projection, row),
+    })),
+  };
 }
 
 /**
@@ -735,7 +793,7 @@ export class RelationSetPart implements Part {
           kind: "read",
           statement: buildFindUnique(config.childScope, {
             where,
-            select: { [config.childPrimaryKey]: true },
+            select: targetProjectionRowKeySelect(config.targetProjection),
             forUpdate: config.txMode,
           }),
           outputs: { rows: { kind: "rows" } },
@@ -781,15 +839,15 @@ export class RelationSetPart implements Part {
    * guards at all.
    */
   compile(_scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
-    const capturedPks = this.targets.map((target) =>
-      this.capturedTargetPk(target, known)
+    const capturedRows = this.targets.map((target) =>
+      this.capturedTargetRow(target, known)
     );
     const steps: OperationStep[] = [];
     this.compileDeparting(known, steps);
     if (!this.config.txMode) {
       for (const [index, target] of this.targets.entries()) {
         // Split-witness correlation: the guard requires the ORIGINAL selector and
-        // the captured PK to still name the same row. A concurrent move of the
+        // the captured row key to still name the same row. A concurrent move of the
         // selector onto a replacement leaves no such row — reject, never adopt the
         // replacement a selector-only guard would have found.
         steps.push(
@@ -801,14 +859,16 @@ export class RelationSetPart implements Part {
                 where: {
                   AND: [
                     ...this.uniqueEqualityFilters(target.where),
-                    {
-                      [this.config.childPrimaryKey]: {
-                        equals: capturedPks[index],
-                      },
-                    },
+                    ...capturedTargetFilters(
+                      this.config.childScope.model,
+                      this.config.targetProjection,
+                      capturedRows[index]!
+                    ),
                   ],
                 },
-                select: { [this.config.childPrimaryKey]: true },
+                select: targetProjectionRowKeySelect(
+                  this.config.targetProjection
+                ),
               },
               { limit: 1 }
             ),
@@ -824,7 +884,7 @@ export class RelationSetPart implements Part {
         );
       }
     }
-    if (capturedPks.length > 0) {
+    if (capturedRows.length > 0) {
       const membership = lowerMembershipWrite(
         this.config.engine,
         this.config.childScope,
@@ -838,8 +898,13 @@ export class RelationSetPart implements Part {
         id: this.targets[0]!.reparentId,
         kind: "write",
         statement: buildUpdateMany(this.config.childScope, {
-          // Reparent captured rows by PK, never by a selector that can move.
-          where: { [this.config.childPrimaryKey]: { in: capturedPks } },
+          // Reparent captured rows by their row keys, never by a selector that
+          // can move.
+          where: capturedTargetSetWhere(
+            this.config.childScope,
+            this.config.targetProjection,
+            capturedRows
+          ),
           data: membership.data,
           ...(membership.polymorphicStorage.length > 0
             ? { polymorphicStorage: membership.polymorphicStorage }
@@ -941,7 +1006,7 @@ export class RelationSetPart implements Part {
       this.config.childScope,
       {
         where: this.departingWhere(membership.filters),
-        select: { [this.config.childPrimaryKey]: true },
+        select: targetProjectionRowKeySelect(this.config.targetProjection),
         forUpdate: this.config.txMode,
       },
       {
@@ -972,7 +1037,10 @@ export class RelationSetPart implements Part {
     return membership.length === 1 ? membership[0]! : { AND: membership };
   }
 
-  private capturedTargetPk(target: SetTarget, known: PlanningKnown): unknown {
+  private capturedTargetRow(
+    target: SetTarget,
+    known: PlanningKnown
+  ): Record<string, unknown> {
     const rows = known[planningKey(target.existId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -996,7 +1064,7 @@ export class RelationSetPart implements Part {
         this.relationName
       );
     }
-    return (first as Record<string, unknown>)[this.config.childPrimaryKey];
+    return first as Record<string, unknown>;
   }
 
   private uniqueEqualityFilters(
@@ -1019,7 +1087,8 @@ interface WritePartBase {
   readonly relation: ChildHeldRelation;
   readonly childName: string;
   readonly childScope: QueryScope;
-  readonly childPrimaryKey: string;
+  /** What the child's probe publishes — its complete row key at minimum. */
+  readonly targetProjection: TargetProjection;
   readonly parentId: FinalReferenceSource;
   readonly membershipReadSource?: FinalReferenceSource;
   readonly txMode: boolean;
@@ -1231,7 +1300,7 @@ export function buildToManySetPart(
       ),
       readSource
     ),
-    childPrimaryKey: base.childPrimaryKey,
+    targetProjection: base.targetProjection,
     requiredFk: requiredFields.length > 0,
     requiredFields,
     targets: entry.targets,
@@ -1257,7 +1326,7 @@ function partConfig(
       base.parentId
     ),
     kind,
-    childPrimaryKey: base.childPrimaryKey,
+    targetProjection: base.targetProjection,
     recordCompilers: base.recordCompilers,
     txMode: base.txMode,
   };

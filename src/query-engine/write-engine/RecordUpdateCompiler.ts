@@ -136,9 +136,12 @@ import {
 import {
   buildTargetProjection,
   capturedTargetColumnPredicate,
+  capturedTargetFilters,
   type TargetProjection,
   targetProjectionColumns,
   targetProjectionOutputs,
+  targetProjectionRowKeySelect,
+  targetProjectionSelect,
 } from "./target-projection";
 
 type ExecutionMode = "transaction" | "batch";
@@ -287,7 +290,6 @@ type ParentHeldTarget =
       readonly kind: "update";
       readonly relation: ParentHeldToOne;
       readonly childScope: QueryScope;
-      readonly childPrimaryKey: string;
       readonly probeId: string;
       readonly guardId: string;
       readonly correlation: ParentHeldCorrelation;
@@ -315,7 +317,6 @@ type ParentHeldTarget =
       readonly kind: "upsert";
       readonly relation: ParentHeldToOne;
       readonly childScope: QueryScope;
-      readonly childPrimaryKey: string;
       readonly probeId: string;
       readonly guardId: string;
       readonly parentSetId: string;
@@ -347,7 +348,6 @@ type ParentHeldTarget =
       readonly kind: "polymorphicUpdate";
       readonly edge: ResolvedPolymorphicEdge;
       readonly childScope: QueryScope;
-      readonly childPrimaryKey: string;
       readonly probeId: string;
       readonly guardId: string;
       readonly probe: ReadStep;
@@ -364,7 +364,6 @@ type ParentHeldTarget =
       readonly kind: "polymorphicUpsert";
       readonly edge: ResolvedPolymorphicEdge;
       readonly childScope: QueryScope;
-      readonly childPrimaryKey: string;
       readonly probeId: string;
       readonly guardId: string;
       readonly probe: ReadStep;
@@ -445,7 +444,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private readonly rootWriteFailure: Failure | undefined;
   private readonly pinnedTarget: Readonly<Record<string, unknown>>;
   private readonly incomingMembership: RelationMembershipBinding | undefined;
-  private readonly parentPrimaryKeys: readonly string[];
   private readonly parentIdSource: ReturnType<typeof plannedParentId>;
   private readonly childParts: readonly Part[];
   private readonly afterRootParts: readonly Part[];
@@ -478,13 +476,16 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         buildRecordUpdateCompiler(nestedInput, createFresh),
     };
 
+    // The selected record's own ROW KEY. It seeds the locate demand, so the probe
+    // publishes every member; the projection built from it at the end of this
+    // constructor is then the ONE thing every write, guard and re-address reads the
+    // key back from (ATOM "Wrong-row protection"). No field survives beside it.
     const parentPrimaryKeys = getPrimaryKeyFields(this.model);
     if (parentPrimaryKeys.length === 0) {
       throw new QueryEngineError(
         "query-engine-v2 internal: selected update reached a model with no primary key."
       );
     }
-    this.parentPrimaryKeys = parentPrimaryKeys;
     this.targetReadId = resolveStepAddress(input.scope, input.targetRead);
     this.writeId = resolveStepAddress(input.scope, input.rootWrite);
 
@@ -565,6 +566,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       childParts.length > 0 &&
       [...locateFields].some((field) => Object.hasOwn(parentSet, field));
     this.targetProjection = buildTargetProjection(
+      this.model,
       [...new Set([...locateFields, ...parentFkLocateFields])],
       [...targetColumns.values()]
     );
@@ -1004,13 +1006,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       relationName,
     });
     if (!compiler) return undefined;
-    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-    if (childPrimaryKeys.length !== 1) {
-      throw new QueryEngineError(
-        `query-engine update requires a target with one primary key for polymorphic relation '${relationName}'.`
-      );
-    }
-    const childPrimaryKey = childPrimaryKeys[0]!;
     const probe = this.buildPolymorphicTargetProbe(
       compiler.targetReadId,
       edge,
@@ -1024,7 +1019,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       kind: "polymorphicUpdate",
       edge,
       childScope,
-      childPrimaryKey,
       probeId: compiler.targetReadId,
       guardId: scope.allocate(`${childName}.guard.exists`),
       probe,
@@ -1070,25 +1064,17 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       : undefined;
     const probeId =
       compiler?.targetReadId ?? scope.allocate(`${childName}.find`);
-    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-    if (childPrimaryKeys.length !== 1) {
-      throw new QueryEngineError(
-        `query-engine update requires a target with one primary key for polymorphic relation '${relationName}'.`
-      );
-    }
     return {
       kind: "polymorphicUpsert",
       edge,
       childScope,
-      childPrimaryKey: childPrimaryKeys[0]!,
       probeId,
       guardId: scope.allocate(`${childName}.guard.exists`),
       probe: this.buildPolymorphicTargetProbe(
         probeId,
         edge,
         childScope,
-        compiler?.targetProjection ??
-          buildTargetProjection([childPrimaryKeys[0]!]),
+        compiler?.targetProjection ?? buildTargetProjection(childScope.model),
         undefined,
         txMode,
         true
@@ -1108,7 +1094,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     txMode: boolean,
     optional: boolean
   ): ReadStep {
-    const { fields } = projection;
     const columns = targetProjectionColumns(childScope, projection);
     const identity = referenceScalarSql(
       this.engine,
@@ -1128,7 +1113,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               ...(filter ? [filter] : []),
             ],
           },
-          select: Object.fromEntries(fields.map((field) => [field, true])),
+          select: targetProjectionSelect(projection),
           forUpdate: txMode,
         },
         {
@@ -1319,12 +1304,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-    if (childPrimaryKeys.length !== 1) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update requires a child with one primary key for relation '${relationName}'.`
-      );
-    }
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     // CLASS IV (T4c-fix) — V1's relation-level occupied guard for a non-cascade
     // referenced-PK transition, emitted ONCE for the relation before the per-kind
@@ -1373,7 +1352,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       relation,
       childName,
       childScope,
-      childPrimaryKey: childPrimaryKeys[0]!,
+      targetProjection: buildTargetProjection(childScope.model),
       parentId: input.parentIdSource,
       txMode: input.txMode,
       recordCompilers: this.recordCompilers,
@@ -1390,7 +1369,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           relation,
           childScope,
           childName,
-          childPrimaryKey: childPrimaryKeys[0]!,
           writeBase,
           input,
           keyTransition,
@@ -1418,7 +1396,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         relation,
         childScope,
         childName,
-        childPrimaryKey: childPrimaryKeys[0]!,
         writeBase,
         input,
         adopt,
@@ -1489,20 +1466,19 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
 
-    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-    const [childPrimaryKey] = childPrimaryKeys;
-    if (childPrimaryKeys.length !== 1 || childPrimaryKey === undefined) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update requires a child with one primary key for relation '${relationName}'.`
-      );
-    }
+    // The inverse topology's discriminator is a fixed qualifier of the MEMBERSHIP
+    // key, never a member of the target's row key: it is bound by
+    // `bindRelationMembership` beside `parent.write`, and the projection below
+    // publishes only the target's own row key. So a compound-keyed polymorphic
+    // target needs nothing here that an ordinary child-held one does not.
+    const targetProjection = buildTargetProjection(childScope.model);
     const writeBase = {
       scope: input.scope,
       engine: this.engine,
       relation,
       childName,
       childScope,
-      childPrimaryKey,
+      targetProjection,
       parentId: parent.write,
       membershipReadSource: parent.read,
       txMode: input.txMode,
@@ -1526,7 +1502,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               relation,
               childName,
               childScope,
-              childPrimaryKey,
+              targetProjection,
               entry,
               parent.write,
               input.txMode
@@ -1542,7 +1518,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               relation,
               childName,
               childScope,
-              childPrimaryKey,
+              targetProjection,
               entry,
               parent.read,
               input.txMode
@@ -1823,7 +1799,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // `assertPortablePrimaryKeyUpdateInput`, so a non-portable op is impossible here).
     // The INSERT is ordered AFTER the root UPDATE (`afterRoot: true`) because a
     // NO-ACTION FK does not cascade a fresh row: the new parent must exist first.
-    if (this.parentPrimaryKeys.includes(referencedField)) {
+    // Asked of the SCHEMA, not of a projection: this runs while the relation loop is
+    // still collecting what the probe will publish, and the question is topological
+    // ("is this referenced field a member of the selected model's row key?"), not
+    // "what did the probe capture".
+    if (getPrimaryKeyFields(this.model).includes(referencedField)) {
       const pinnedBefore = this.pinnedTargetValue(referencedField);
       if (!pinnedBefore) {
         // E6.7 — the `where` pins some OTHER unique, so the pre-transition value lives
@@ -2030,7 +2010,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ChildHeldToMany;
     childScope: QueryScope;
     childName: string;
-    childPrimaryKey: string;
     writeBase: Parameters<typeof buildToManyUpdateParts>[0];
     input: {
       scope: StepScope;
@@ -2042,16 +2021,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     /** N5-U1 — present only under a guarded non-cascade referenced-PK transition. */
     adopt?: PostTransitionAdopt;
   }): void {
-    const {
-      entry,
-      relation,
-      childScope,
-      childName,
-      childPrimaryKey,
-      writeBase,
-      input,
-      adopt,
-    } = args;
+    const { entry, relation, childScope, childName, writeBase, input, adopt } =
+      args;
     const { relationInfo, foreignFields, referencedFields } = relation;
     const relationName = relationInfo.name;
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
@@ -2129,7 +2100,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           relation,
           childName,
           childScope,
-          childPrimaryKey,
+          writeBase.targetProjection,
           entry,
           isAdopt ? adoptParentId : input.parentIdSource,
           input.txMode
@@ -2194,7 +2165,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ChildHeldToOne;
     childScope: QueryScope;
     childName: string;
-    childPrimaryKey: string;
     writeBase: Parameters<typeof buildToManyUpdateParts>[0];
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
     keyTransition: ReturnType<
@@ -2208,7 +2178,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       relation,
       childScope,
       childName,
-      childPrimaryKey,
       writeBase,
       input,
       keyTransition,
@@ -2244,7 +2213,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             relation,
             childName,
             childScope,
-            childPrimaryKey,
+            writeBase.targetProjection,
             entry,
             adoptParentId,
             input.txMode
@@ -2322,7 +2291,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             relation,
             childName,
             childScope,
-            childPrimaryKey,
+            writeBase.targetProjection,
             entry,
             input.parentIdSource,
             input.txMode
@@ -2411,7 +2380,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     if (
       referencedFields.length !== 1 ||
       foreignFields.length !== 1 ||
-      !this.parentPrimaryKeys.includes(referencedFields[0]!)
+      !getPrimaryKeyFields(this.model).includes(referencedFields[0]!)
     ) {
       return { regime: "pastSurface" };
     }
@@ -2461,7 +2430,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }): void {
     const { input, relation, childScope, childName, before, foreignField } =
       args;
-    const childPk = getPrimaryKeyFields(childScope.model)[0]!;
+    // Occupancy is decided by row COUNT, so this read selects the occupant's row
+    // key purely to have a legal select list — through the projection owner, so a
+    // compound-keyed child names every member instead of an arbitrary first one.
     const probeId = input.scope.allocate(`${childName}.transition.find`);
     input.relationKeyGuards.push({
       relation,
@@ -2474,7 +2445,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           childScope,
           {
             where: { [foreignField]: { equals: before } },
-            select: { [childPk]: true },
+            select: targetProjectionRowKeySelect(
+              buildTargetProjection(childScope.model)
+            ),
             forUpdate: input.txMode,
           },
           { limit: 1 }
@@ -2612,38 +2585,26 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    * referenced column, index-aligned with the parent FK column it reads (the same
    * per-field loop `connect` / `disconnect` / `create` on the very same compound edge
    * have always used — measured: those three kinds execute today while these three
-   * threw), so a compound edge needs no new mechanism here. What the probe CAPTURES
-   * and the arm's write ADDRESSES is the child's own primary key, and that is a
-   * single value exactly when the CHILD has one primary key — the one fact this guard
-   * still asserts, and the only half of the compound-identity family this unit leaves
-   * for the rest of E6.4.
+   * threw), so a compound edge needs no new mechanism here. The other half — the
+   * arity of the CHILD's own row key, which the probe captures and the arm's write
+   * addresses — is now answered by the target projection: every member is published
+   * and every member is addressed ({@link parentHeldProbeStatement},
+   * {@link parentHeldCapturedRow}), so neither arity is a refusal any more.
    */
   private parentHeldCorrelation(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
-    childScope: QueryScope,
-    kind: string
-  ): { correlation: ParentHeldCorrelation; childPrimaryKey: string } {
-    const { relationInfo, foreignFields, referencedFields } = relation;
-    const relationName = relationInfo.name;
-    const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-    if (childPrimaryKeys.length !== 1) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update requires a child with one primary key for '${kind}' on the parent-held to-one relation '${relationName}'.`
-      );
-    }
+    relation: ParentHeldToOne
+  ): ParentHeldCorrelation {
+    const { foreignFields, referencedFields } = relation;
     // Every parent FK column must be a firstRowField output of the locate read so
     // the untouched-column path can ref/read it. Held in the parent-FK set (NOT
     // `locateFields`): these are the parent's own columns, not child-referenced, so
     // a same-root rebind of one must not trigger the child-edge reorder.
     for (const field of foreignFields) input.parentFkLocateFields.add(field);
     return {
-      correlation: {
-        childReferencedFields: referencedFields,
-        parentFkFields: foreignFields,
-        override: resolveParentFkRebinds(input.rootScalarData, foreignFields),
-      },
-      childPrimaryKey: childPrimaryKeys[0]!,
+      childReferencedFields: referencedFields,
+      parentFkFields: foreignFields,
+      override: resolveParentFkRebinds(input.rootScalarData, foreignFields),
     };
   }
 
@@ -2661,12 +2622,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const { correlation, childPrimaryKey } = this.parentHeldCorrelation(
-      input,
-      relation,
-      childScope,
-      "update"
-    );
+    const correlation = this.parentHeldCorrelation(input, relation);
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const childUpdate = buildParsedRelationPrograms(childScope, target.data);
     assertPinnedTransitionIsCompilable(
@@ -2704,7 +2660,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       kind: "read",
       statement: this.parentHeldProbeStatement(
         childScope,
-        childPrimaryKey,
         correlation,
         undefined,
         true,
@@ -2734,7 +2689,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       kind: "update",
       relation,
       childScope,
-      childPrimaryKey,
       probeId,
       guardId: input.scope.allocate(`${childName}.guard.exists`),
       correlation,
@@ -2760,12 +2714,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const { correlation } = this.parentHeldCorrelation(
-      input,
-      relation,
-      childScope,
-      "delete"
-    );
+    const correlation = this.parentHeldCorrelation(input, relation);
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     return {
       kind: "delete",
@@ -2791,12 +2740,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const { correlation, childPrimaryKey } = this.parentHeldCorrelation(
-      input,
-      relation,
-      childScope,
-      "upsert"
-    );
+    const correlation = this.parentHeldCorrelation(input, relation);
     const spec = entry.items[0];
     if (!(spec && spec.target.kind === "correlated")) {
       throw new QueryEngineError(
@@ -2854,7 +2798,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       kind: "upsert",
       relation,
       childScope,
-      childPrimaryKey,
       probeId,
       guardId: input.scope.allocate(`${childName}.guard.exists`),
       parentSetId: input.scope.allocate("parent.fkset"),
@@ -2864,7 +2807,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         kind: "read",
         statement: this.parentHeldProbeStatement(
           childScope,
-          childPrimaryKey,
           correlation,
           undefined,
           true,
@@ -2922,22 +2864,27 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /** The correlated locate probe for a parent-held `update`/`upsert`: `WHERE
-   *  <referenced> = <finalFk> [AND <filter>] [AND <pk> = <capturedPk>]`, one row, FOR
-   *  UPDATE in tx. `filter` is W4-U3's non-unique `update: { where, data }` term on the
-   *  currently connected record — a plain `WhereInput` handed to the find builder whole;
-   *  a connected row that fails it leaves the probe empty, which is already this
-   *  family's target-not-found abort (`parentHeldCapturedPk`). */
+   *  <referenced> = <finalFk> [AND <filter>] [AND <every row-key member> =
+   *  <its captured value>]`, one row, FOR UPDATE in tx. `filter` is W4-U3's non-unique
+   *  `update: { where, data }` term on the currently connected record — a plain
+   *  `WhereInput` handed to the find builder whole; a connected row that fails it
+   *  leaves the probe empty, which is already this family's target-not-found abort
+   *  ({@link parentHeldCapturedRow}).
+   *
+   *  `captured` is the whole probed row, not one primary-key value: the batch guard
+   *  re-addresses the target through EVERY member of the projection's row key, so a
+   *  compound-keyed child is pinned as exactly as a scalar-keyed one. The projection
+   *  is the only source of both the select list and those conjuncts — nothing is
+   *  passed beside it. */
   private parentHeldProbeStatement(
     childScope: QueryScope,
-    childPrimaryKey: string,
     correlation: ParentHeldCorrelation,
-    capturedPk: unknown,
+    captured: Readonly<Record<string, unknown>> | undefined,
     useRef: boolean,
     known?: Readonly<Record<string, unknown>>,
     filter?: Record<string, unknown>,
-    projection: TargetProjection = buildTargetProjection([childPrimaryKey])
+    projection: TargetProjection = buildTargetProjection(childScope.model)
   ): Sql {
-    const selectedFields = projection.fields;
     const selectedColumns = targetProjectionColumns(childScope, projection);
     return buildFind(
       childScope,
@@ -2952,14 +2899,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               useRef
             ),
             ...(filter && Object.keys(filter).length > 0 ? [filter] : []),
-            ...(capturedPk === undefined
+            ...(captured === undefined
               ? []
-              : [{ [childPrimaryKey]: { equals: capturedPk } }]),
+              : capturedTargetFilters(childScope.model, projection, captured)),
           ],
         },
-        select: Object.fromEntries(
-          selectedFields.map((field) => [field, true])
-        ),
+        select: targetProjectionSelect(projection),
         forUpdate: this.mode === "transaction",
       },
       {
@@ -3419,15 +3364,17 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
                   {
                     where: {
                       AND: [
-                        {
-                          [target.childPrimaryKey]: {
-                            equals: captured[target.childPrimaryKey],
-                          },
-                        },
+                        ...capturedTargetFilters(
+                          target.childScope.model,
+                          target.compiler.targetProjection,
+                          captured
+                        ),
                         ...(target.filter ? [target.filter] : []),
                       ],
                     },
-                    select: { [target.childPrimaryKey]: true },
+                    select: targetProjectionRowKeySelect(
+                      target.compiler.targetProjection
+                    ),
                   },
                   {
                     limit: 1,
@@ -3491,15 +3438,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
                       target.childScope,
                       {
                         where: {
-                          AND: [
-                            {
-                              [target.childPrimaryKey]: {
-                                equals: captured[target.childPrimaryKey],
-                              },
-                            },
-                          ],
+                          AND: capturedTargetFilters(
+                            target.childScope.model,
+                            target.compiler.targetProjection,
+                            captured
+                          ),
                         },
-                        select: { [target.childPrimaryKey]: true },
+                        select: targetProjectionRowKeySelect(
+                          target.compiler.targetProjection
+                        ),
                       },
                       {
                         limit: 1,
@@ -3658,10 +3605,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   ): void {
     const { relationInfo } = target.relation;
     const relationName = relationInfo.name;
-    const capturedPk = this.parentHeldCapturedPk(
+    const captured = this.parentHeldCapturedRow(
       known,
       target.probeId,
-      target.childPrimaryKey,
       relationInfo,
       "update"
     );
@@ -3671,15 +3617,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           target.guardId,
           this.parentHeldProbeStatement(
             target.childScope,
-            target.childPrimaryKey,
             target.correlation,
-            capturedPk,
+            captured,
             false,
             known,
             // W4-U3: the batch guard re-asserts the wrapper's filter alongside the
-            // correlation and the captured PK — a concurrent write that makes the
-            // connected row fail the filter aborts the batch typed, exactly as the
-            // tx path's locked probe would have.
+            // correlation and the captured row key — a concurrent write that makes
+            // the connected row fail the filter aborts the batch typed, exactly as
+            // the tx path's locked probe would have.
             target.filter
           ),
           nestedWriteFailure(
@@ -3774,10 +3719,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
     if (!target.compiler) return;
-    const capturedPk = this.parentHeldCapturedPk(
+    const captured = this.parentHeldCapturedRow(
       known,
       target.probeId,
-      target.childPrimaryKey,
       relationInfo,
       "update"
     );
@@ -3787,9 +3731,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           target.guardId,
           this.parentHeldProbeStatement(
             target.childScope,
-            target.childPrimaryKey,
             target.correlation,
-            capturedPk,
+            captured,
             false,
             known
           ),
@@ -3805,14 +3748,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     bucketOperationSteps(target.compiler.compile(known), guards, writes);
   }
 
-  /** The parent's primary-key where-unique for a dedicated parent-FK write. */
+  /** The parent's row-key where-unique for a dedicated parent-FK write. */
   private parentPrimaryKeyWhere(
     locatedRow: Record<string, unknown>
   ): Record<string, unknown> {
     return buildPrimaryKeyWhereUnique(
       this.model,
       Object.fromEntries(
-        this.parentPrimaryKeys.map((pk) => [pk, locatedRow[pk]])
+        this.targetProjection.identityFields.map((pk) => [pk, locatedRow[pk]])
       )
     );
   }
@@ -3835,16 +3778,17 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     return filters.length === 1 ? filters[0]! : { AND: filters };
   }
 
-  /** The PK the parent-held probe captured at planning — the located target this
-   *  arm mutates. An empty capture is V1's verbatim "target record was not found
-   *  for this parent" (the parent's FK pointed at nothing / a vanished row). */
-  private parentHeldCapturedPk(
+  /** The row the parent-held probe captured at planning — the located target this
+   *  arm mutates, whole, so the caller can address every row-key member through the
+   *  projection instead of one field this function picked. An empty capture is V1's
+   *  verbatim "target record was not found for this parent" (the parent's FK pointed
+   *  at nothing / a vanished row). */
+  private parentHeldCapturedRow(
     known: Readonly<Record<string, unknown>>,
     probeId: string,
-    childPrimaryKey: string,
     relationInfo: RelationInfo,
     op: "update"
-  ): unknown {
+  ): Record<string, unknown> {
     const rows = known[planningKey(probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -3865,7 +3809,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         relationInfo.name
       );
     }
-    return (first as Record<string, unknown>)[childPrimaryKey];
+    return first as Record<string, unknown>;
   }
 
   private interpretToOneLink(
@@ -4057,9 +4001,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   private pkSelect(): Record<string, boolean> {
-    return Object.fromEntries(
-      this.parentPrimaryKeys.map((field) => [field, true])
-    );
+    return targetProjectionRowKeySelect(this.targetProjection);
   }
 
   private writeWhere(
@@ -4068,7 +4010,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     return buildPrimaryKeyWhereUnique(
       this.model,
       Object.fromEntries(
-        this.parentPrimaryKeys.map((field) => [field, locatedRow[field]])
+        this.targetProjection.identityFields.map((field) => [
+          field,
+          locatedRow[field],
+        ])
       )
     );
   }

@@ -89,14 +89,24 @@ export function getCreatedRowWhere(
   return { [primaryKey]: ctx.adapter.lastInsertId() };
 }
 
+/**
+ * Read one record's row-key values, in the order the row key declares them.
+ *
+ * `fields` defaults to the model's own primary key, which is what every refetch
+ * seam wants. A caller that already holds the row key it published — a target
+ * projection — passes it instead, so the fields read and the fields declared are
+ * one list and a member the record does not carry raises here rather than
+ * degrading into an absent value downstream.
+ */
 export function getPrimaryKeyValuesFromRecord(
   model: Model<any>,
   record: Record<string, unknown>,
-  modelName: string
+  modelName: string,
+  fields: readonly string[] = getPrimaryKeyFields(model)
 ): Record<string, unknown> {
   const values: Record<string, unknown> = {};
 
-  for (const pkField of getPrimaryKeyFields(model)) {
+  for (const pkField of fields) {
     const value = record[pkField];
     if (value === undefined || value === null) {
       throw new QueryEngineError(

@@ -883,6 +883,11 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     read the CHILD's own primary-key arity to address a targeted mutation, which no
   //     parent-side dataflow supplies. Listed so the sweep is complete, not because the Ref
   //     was ever a candidate.
+  //     SETTLED by the limitation lift's Package C, and the reading above was right about
+  //     the cause and wrong about the remedy: what these needed was not parent-side
+  //     dataflow but the target's OWN complete row key, which `TargetProjection` already
+  //     had the standing to publish. All three are DELETED, together with two more that
+  //     asked the same question elsewhere — see the `29 -> 24` entry below.
   // (j) `UpsertOperation`'s create-arm read-back identity — the create arm writes a FRESH
   //     row; there is no located parent. Its identity comes from the create data or the
   //     INSERT's own capture (W4-U1 above), which is the correct mechanism already.
@@ -2213,6 +2218,95 @@ describe("write engine route inventory (P6 accounting)", () => {
   // never supplied once the compiler's projection took over publication) and the stale
   // `{@link fkAssignData}` reference in the deleted M11 docblock, whose symbol no longer
   // exists in `src`.
+  // 29 -> 24 (LIMITATION LIFT, PACKAGE C — "capture complete selected record keys").
+  // FIVE sites deleted, none added, no narrowed residual kept. All five asked the SAME
+  // question — "does this child have exactly one primary key?" — and all five asked it
+  // because a selected-target consumer carried ONE scalar `childPrimaryKey` beside (or
+  // instead of) the `TargetProjection` that already described what its probe published.
+  // The projection now carries `identityFields`, the target's complete ROW KEY in schema
+  // order, and every probe select, captured selector, guard conjunct and targeted
+  // UPDATE/DELETE is built from every member of it. With the arity no longer load-bearing,
+  // there was nothing left for these to assert.
+  //   · **-1, `nested-target-parts`** — "query-engine-v2 update requires a child with one
+  //     primary key for relation '<r>' one level deeper." Its deeper link probe now reads
+  //     and addresses both members; pinned positively in `parity-c-selected-identity`
+  //     (the whole planning fragment of a compound-keyed `connect` under a fresh junction
+  //     target).
+  //   · **-1, `RelationUpsertPart`** — "Relation '<r>' requires a child with one primary
+  //     key." (the one text in the family with no `query-engine-v2` prefix; reachable only
+  //     under a FRESH parent, since under a selected parent the record compiler answered
+  //     first). Its adopt probe's compound SQL is pinned in the same file.
+  //   · **-1, `RecordUpdateCompiler.interpretRelation`** and **-1,
+  //     `interpretPolymorphicChildHeld`** — "query-engine-v2 update requires a child with
+  //     one primary key for relation '<r>'.", emitted VERBATIM at both, which is why the
+  //     witness that used to assert it could not say which guard answered. The ordinary
+  //     child-held half is now pinned on both substrates in `parity-c-selected-identity`
+  //     (a targeted `update` and an adopt `upsert`, each addressing the captured pair
+  //     while the batch guard re-asserts the written pair beside it). The polymorphic
+  //     INVERSE half was the hole Package A named as unpinned — no polymorphic witness
+  //     schema had a compound-keyed target anywhere in the estate — and it now has a
+  //     dedicated dual-substrate contract, `polymorphic-compound-target.test.ts`, whose
+  //     decoys separate the two facts the site conflated: a row key narrowed to one
+  //     member hits a one-member twin, and a membership predicate that drops the
+  //     discriminator adopts a row held by the OTHER polymorphic member with the same
+  //     stored id.
+  //   · **-1, `RecordUpdateCompiler.parentHeldCorrelation`** — "query-engine-v2 update
+  //     requires a child with one primary key for '<kind>' on the parent-held to-one
+  //     relation '<r>'." Its own docblock had already recorded that only the CHILD-KEY
+  //     half of E6.4 survived there; the refusal test at
+  //     `parent-held-compound-edge-behavior.ts` is inverted into the accept it became,
+  //     with one-member berth twins so a narrowed row key writes a different ROW.
+  // TWO MORE deletions are invisible to this census because they were `QueryEngineError`,
+  // not `UnsupportedOperationError`: `buildPolymorphicSelectedTarget` and
+  // `buildPolymorphicUpsert` both threw "query-engine update requires a target with one
+  // primary key for polymorphic relation '<r>'." on the DIRECT polymorphic edge. Recorded
+  // here because a raw-count reader would otherwise see 5 where 7 guards went — and
+  // recorded with their true reason, which is NOT the lift the other five got: a DIRECT
+  // polymorphic target cannot have a compound row key in the first place. Its referenced
+  // field is `target.primaryKey.field`, resolved by `singlePrimaryKey`
+  // (src/schema/validation/rules/polymorphic.ts), which returns undefined for any model
+  // with a compound id — so schema validation refuses the SCHEMA with P009 ("requires one
+  // scalar primary key") and `setPolymorphicStorage` never runs, leaving no payload that
+  // could reach either site. They were unreachable redundant defense behind a validation
+  // rule that already owns the invariant, and they are deleted as such. Nothing about the
+  // direct polymorphic path was widened, and no witness can exist for these two.
+  // FALSIFIED. The first measurement found the complete row key had TWO owners on these
+  // paths — `TargetProjection.identityFields` (what a probe publishes and every captured
+  // selector, guard conjunct and DELETE/set address is built from) and
+  // `RecordUpdateCompiler`'s own `parentPrimaryKeys` (what a SELECTED record's root UPDATE
+  // addresses) — because narrowing each to `.slice(0, 1)` reddened 11 and 12 tests in
+  // almost disjoint sets. Two independently mutable answers to one question is the shape
+  // this package exists to remove, so the second was DELETED rather than documented: the
+  // three addressing readers (`writeWhere`, `pkSelect`, `parentPrimaryKeyWhere`) read
+  // `this.targetProjection.identityFields`, and the two construction-time predicates that
+  // run before any projection exists ask `getPrimaryKeyFields(this.model)` at the site,
+  // which is a topological question about the SCHEMA, not about what a probe captured.
+  //   · `identityFields` narrowed to `.slice(0, 1)` now reddens BOTH former sets at once —
+  //     23 tests: `parity-c` 6, `polymorphic-compound-target` 8, `parent-held-compound-edge`
+  //     4 (the inverted berth witnesses, which the old projection mutation could not reach),
+  //     and 5 `target-projection.core` units.
+  //   · `identityFields` widened to `[...primaryKey, ...requiredFields]` reddens both legs
+  //     of the C4 separation witness at the anchor's own root UPDATE. Under two owners that
+  //     mutation left the transaction leg GREEN, so C4's "putting reference-key fields into
+  //     identityFields would add them here" was decorative; it is now measured.
+  // An ARITY narrowing still cannot reach C4 on its own — its target's row key is `[id]`,
+  // one member — which is correct: its job is the row-key/reference-key SEPARATION, and it
+  // fails when the two keys are confused for each other, as the widening shows.
+  // ONE DOWNSTREAM NARROWING THESE DELETIONS EXPOSED, generalized in the same commit:
+  // `assertPinnedTransitionIsCompilable` (src/query-engine/relation-key-legality.ts) read
+  // `getPrimaryKeyFields(model)[0]` and early-returned unless the data rewrote THAT member.
+  // Every caller sits behind a refusal deleted above, so a compound-keyed target could not
+  // reach it before; afterwards a payload transitioning a NON-FIRST member walked past a
+  // legality gate that a first-member payload is refused by. It now asks every member —
+  // identical question, identical message, identical behaviour for a one-member row key —
+  // and refuses the compound case in the same fail-closed direction. Lifting that refusal
+  // is Package D's transition-provenance work, not a hole left open here.
+  // WHAT DID NOT MOVE, deliberately: `RelationJunctionPart`'s three sites. A junction side
+  // is one column today and `getManyToManyJoinInfo` resolves it through
+  // `getRequiredSinglePrimaryKeyField`, which throws before the Part is constructed — so
+  // its `targetPkField` is the junction's STORED REFERENCE, not a second answer to "what
+  // is the row key", and it keeps that name with the carve-out documented at its owner
+  // (plan N2 / §7.4: compound M2M is an unimplemented capability, not a seal).
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -2223,7 +2317,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(29);
+    expect(sites).toBe(24);
   });
 });
 

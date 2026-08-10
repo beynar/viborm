@@ -12,7 +12,6 @@ import {
   type PlanningFragment,
   type StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
@@ -56,28 +55,26 @@ import { describe, expect, test } from "vitest";
  *   · statement counts — the step list IS the statement count. Round-trip counts are not
  *     a separate fact here: each substrate issues one round trip per step it lists.
  *
- * THE CENSUS. `getPrimaryKeyFields(...).length !== 1` refuses at five
- * `UnsupportedOperationError` sites, anchored on their `throw` statement as
- * forbidden-shapes-reference.md anchors them. Three are pinned below, each with a payload
- * measured to reach it: RelationUpsertPart.ts:1062 (the one text in this family with no
- * `query-engine-v2` prefix, and reachable only under a FRESH parent — under a selected
- * parent the record compiler answers first), RecordUpdateCompiler.ts:1324, and
- * nested-target-parts.ts:190 (reached through a fresh junction target, whose nestedBuilder
- * seam is the create path; a junction target's own `update` payload routes back through
- * RecordUpdateCompiler.ts:1324 instead). The two not pinned here are recorded so the
- * family stays auditable:
- *   · RecordUpdateCompiler.ts:2631 (parent-held to-one) already has its own DB-backed
- *     witness at parent-held-compound-edge-behavior.ts:335;
- *   · RecordUpdateCompiler.ts:1495 (`interpretPolymorphicChildHeld`) needs a polymorphic
- *     inverse whose target model has a compound primary key, which this schema has no
- *     member of. Its ACCEPTED path — the private `(type, id)` projection and the exact
- *     membership conjunct on a selected polymorphic target — is unpinned here for the
- *     same reason, and is C2 migration step 6's whole subject.
- *
- * NON-DISCRIMINATING. `query-engine-v2 update requires a child with one primary key for
- * relation '<r>'.` is emitted VERBATIM at RecordUpdateCompiler.ts:1324 AND :1495, so the
- * two rows below that assert it cannot say WHICH guard answered. That is a duplicate
- * cluster, and §O2 owns compressing it; recorded here rather than worked around.
+ * THE CENSUS, AND WHAT PACKAGE C LIFTED FROM IT. `getPrimaryKeyFields(...).length !== 1`
+ * refused at five `UnsupportedOperationError` sites when this witness was written. ALL
+ * FIVE ARE NOW DELETED, because every owner they guarded addresses its target through the
+ * projection's complete row key and needs no arity (the census entry is `29 -> 24` in
+ * operation-construction-inventory). Four of them are pinned positively below:
+ *   · RelationUpsertPart (the one text in this family that carried no `query-engine-v2`
+ *     prefix, reachable only under a FRESH parent — under a selected parent the record
+ *     compiler answers first): the adopt probe reads and addresses BOTH members.
+ *   · nested-target-parts (reached through a fresh junction target, whose nestedBuilder
+ *     seam is the create path): the deeper link probe's whole planning fragment.
+ *   · RecordUpdateCompiler.interpretRelation, twice and on both substrates — a targeted
+ *     update and the adopt payload under a SELECTED parent, which reached the same site.
+ *     These two tests ARE the inverted refusal rows; the values are chosen so a
+ *     selector-derived or one-member row key is a different string in the same SQL.
+ * The fifth, `interpretPolymorphicChildHeld`, needs a polymorphic inverse whose target
+ * model has a compound primary key, which this schema has no member of. It has its own
+ * dual-substrate contract instead: polymorphic-compound-target.test.ts, which also pins
+ * the ACCEPTED path this file cannot reach — the exact `(discriminator, stored reference)`
+ * membership on a compound-keyed selected target. The parent-held to-one site keeps its
+ * DB-backed witness in parent-held-compound-edge-behavior.ts, inverted the same way.
  *
  * FALSIFIED 2026-08-09 against `src/query-engine/write-engine/RelationWritePart.ts`:
  * rewriting `capturedWhere` (:260) from `{ [childPrimaryKey]: capturedPk }` to the
@@ -112,7 +109,7 @@ const paritySelectedSchema = (() => {
         .optional(),
     })
     .map("parity_c_items");
-  /** The compound-primary-key child: no single captured handle exists for it. */
+  /** The compound-row-key child: its captured handle is the PAIR, never one field. */
   const pair = s
     .model({
       tenantId: s.string(),
@@ -150,7 +147,38 @@ const paritySelectedSchema = (() => {
     })
     .id(["tenantId", "slot"])
     .map("parity_c_tag_slots");
-  return { owner, item, pair, tag, tagSlot };
+  /**
+   * C4's separation, in one pair of models: the ANCHOR's ROW KEY is `[id]` and the
+   * relation's REFERENCE KEY is `(tenantId, code)` — a compound unique that is not the
+   * row key — while the child's STORED REFERENCE is `(tenantId, targetCode)`, whose
+   * member names deliberately do not match the fields they point at.
+   */
+  const anchor = s
+    .model({
+      id: s.string().id(),
+      tenantId: s.string(),
+      code: s.string(),
+      note: s.string(),
+      refs: s.oneToMany(() => ref),
+    })
+    .unique(["tenantId", "code"])
+    .map("parity_c_anchors");
+
+  const ref = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      tenantId: s.string().nullable(),
+      targetCode: s.string().nullable(),
+      anchor: s
+        .manyToOne(() => anchor)
+        .fields("tenantId", "targetCode")
+        .references("tenantId", "code")
+        .optional(),
+    })
+    .map("parity_c_refs");
+
+  return { owner, item, pair, tag, tagSlot, anchor, ref };
 })();
 
 hydrateSchemaNames(paritySelectedSchema);
@@ -828,7 +856,7 @@ for (const substrate of [
   });
 }
 
-describe("parity C — child requires one primary key, verbatim", () => {
+describe("parity C — compound child row keys, per owner", () => {
   const clientOn = (): { client: any; driver: RecordingPGliteDriver } => {
     const driver = new RecordingPGliteDriver();
     const client = createClient({
@@ -839,52 +867,170 @@ describe("parity C — child requires one primary key, verbatim", () => {
     return { client, driver };
   };
 
-  const caught = async (
-    run: () => Promise<unknown>
-  ): Promise<{ name: string; message: string }> => {
-    const error = await run().then(
-      () => undefined,
-      (thrown: unknown) => thrown as Error
-    );
-    if (!(error instanceof UnsupportedOperationError)) {
-      throw new Error(
-        `Expected UnsupportedOperationError, got ${String(error)}`
-      );
-    }
-    return { name: error.name, message: error.message };
-  };
-
-  test("RelationUpsertPart: an adopt part under a FRESH parent", async () => {
+  /**
+   * LIFTED (C2 step 3). The adopt probe under a FRESH parent now READS both members of
+   * the compound row key and ADDRESSES the target by both, so the found arm's captured
+   * selector has every member it needs. The statement is captured off the driver rather
+   * than off a fragment because this arm's owner is the create root; the database behind
+   * it has no schema pushed, so the operation aborts AFTER the probe was issued, which is
+   * exactly the statement this asserts. A regression to a single-member probe changes
+   * this string.
+   */
+  test("RelationUpsertPart reads and addresses a whole compound row key", async () => {
     const { client, driver } = clientOn();
-    expect(
-      await caught(() =>
-        client.owner.create({
-          data: {
-            id: "o1",
-            name: "O",
-            pairs: {
-              connectOrCreate: [
-                {
-                  where: { tenantId_slot: { tenantId: "t1", slot: "s1" } },
-                  create: { tenantId: "t1", slot: "s1", note: "n" },
-                },
-              ],
-            },
+    await client.owner
+      .create({
+        data: {
+          id: "o1",
+          name: "O",
+          pairs: {
+            connectOrCreate: [
+              {
+                where: { tenantId_slot: { tenantId: "t1", slot: "s1" } },
+                create: { tenantId: "t1", slot: "s1", note: "n" },
+              },
+            ],
           },
-        })
-      )
-    ).toEqual({
-      name: "UnsupportedOperationError",
-      // The one site in this family whose text carries no `query-engine-v2` prefix.
-      message: "Relation 'pairs' requires a child with one primary key.",
-    });
-    expect(driver.statements).toEqual([]);
+        },
+      })
+      .catch(() => undefined);
+    expect(driver.statements).toEqual([
+      'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1 FOR UPDATE',
+    ]);
   });
 
-  test.each([
-    [
-      "RecordUpdateCompiler.interpretRelation: a targeted update",
-      {
+  /**
+   * LIFTED (C2 step 1). One level deeper than a FRESH junction target, the link probe
+   * selects and addresses both row-key members. Asserted structurally, so no database is
+   * involved and the whole planning fragment — ids, order, outputs — is pinned with it.
+   */
+  test("nested-target-parts links a compound-keyed target one level deeper", () => {
+    const driver = new PGliteDriver();
+    const operation = ownerUpdate(driver, {
+      tags: {
+        create: [
+          {
+            id: "g1",
+            name: "G",
+            slots: {
+              connect: [{ tenantId_slot: { tenantId: "t1", slot: "s1" } }],
+            },
+          },
+        ],
+      },
+    });
+    expect(fragmentContract(driver, operation.planning())).toEqual({
+      steps: [
+        {
+          id: "owner.locate",
+          kind: "read",
+          sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1 FOR UPDATE',
+          params: ["o1"],
+          outputs: {
+            rows: { kind: "rows" },
+            id: { kind: "firstRowField", field: "id" },
+          },
+          expects: { kind: "exactlyOneRow", failure: OWNER_NOT_FOUND },
+          racePin: null,
+          onUniqueConflict: null,
+        },
+        {
+          id: "tagSlot.find",
+          kind: "read",
+          sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "parity_c_tag_slots" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1 FOR UPDATE',
+          params: ["t1", "s1"],
+          outputs: { rows: { kind: "rows" } },
+          expects: null,
+          racePin: null,
+          onUniqueConflict: null,
+        },
+      ],
+      outputs: {
+        "owner.locate.rows": reference("owner.locate", "rows"),
+        "owner.locate.id": reference("owner.locate", "id"),
+        "tagSlot.find.rows": reference("tagSlot.find", "rows"),
+      },
+    });
+  });
+
+  /**
+   * LIFTED (C2 step 4). `RecordUpdateCompiler.interpretRelation` refused a compound-keyed
+   * child outright; it now hands its owners a `TargetProjection` and they address every
+   * row-key member. The two payloads below are the ones that refusal answered — a targeted
+   * `update` and the adopt (`upsert`) payload under a SELECTED parent, which reaches the
+   * same site.
+   *
+   * WHY THE VALUES DISCRIMINATE. `tCap` / `sCap` are what the probe CAPTURED; `t1` / `s1`
+   * are what the caller WROTE. Every write below addresses the captured pair and every
+   * batch premise re-asserts the written pair BESIDE it, so:
+   *   · a row key rebuilt from the public selector would read `t1` / `s1` in the UPDATE;
+   *   · a row key narrowed to its first member would drop `"slot" = $…` from both the
+   *     UPDATE and the guard.
+   * Neither is a subtle difference in these strings.
+   */
+  const compoundKnown = {
+    "owner.locate.rows": [{ id: "o1" }],
+    "owner.locate.id": "o1",
+    "pair.find.rows": [{ tenantId: "tCap", slot: "sCap", ownerId: "o1" }],
+    "pair.find.tenantId": "tCap",
+    "pair.find.slot": "sCap",
+    "pair.find.ownerId": "o1",
+  };
+
+  const compoundTerminal = (batch: boolean) => ({
+    id: "owner.select",
+    kind: "read",
+    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+    params: ["o1"],
+    outputs: { result: { kind: "rows" } },
+    expects: batch
+      ? null
+      : {
+          kind: "exactlyOneRow",
+          failure: {
+            kind: "query",
+            message:
+              "query-engine-v2 update terminal read expected exactly one row.",
+            raceable: false,
+          },
+        },
+    racePin: null,
+    onUniqueConflict: null,
+  });
+
+  const compoundOwnerLocate = (batch: boolean) => ({
+    id: "owner.locate",
+    kind: "read",
+    sql: `SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${
+      batch ? "" : " FOR UPDATE"
+    }`,
+    params: ["o1"],
+    outputs: {
+      rows: { kind: "rows" },
+      id: { kind: "firstRowField", field: "id" },
+    },
+    expects: { kind: "exactlyOneRow", failure: OWNER_NOT_FOUND },
+    racePin: null,
+    onUniqueConflict: null,
+  });
+
+  for (const substrate of [
+    {
+      name: "transaction",
+      batch: false,
+      createDriver: () => new PGliteDriver(),
+    },
+    {
+      name: "atomic batch",
+      batch: true,
+      createDriver: () => new BatchOnlyPGliteDriver(),
+    },
+  ]) {
+    const lock = substrate.batch ? "" : " FOR UPDATE";
+
+    test(`RecordUpdateCompiler targets a compound-keyed child update by every captured member (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const operation = ownerUpdate(driver, {
         pairs: {
           update: [
             {
@@ -893,14 +1039,98 @@ describe("parity C — child requires one primary key, verbatim", () => {
             },
           ],
         },
-      },
-      "query-engine-v2 update requires a child with one primary key for relation 'pairs'.",
-    ],
-    [
-      // The same site answers the ADOPT payload under a SELECTED parent, so
-      // RelationUpsertPart's own refusal is unreachable from an update root.
-      "RecordUpdateCompiler.interpretRelation: an adopt part under a SELECTED parent",
-      {
+      });
+      expect(fragmentContract(driver, operation.planning())).toEqual({
+        steps: [
+          compoundOwnerLocate(substrate.batch),
+          {
+            id: "pair.find",
+            kind: "read",
+            // The correlated probe publishes BOTH row-key members as firstRowField
+            // outputs — the single-member version published one.
+            sql: `SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."ownerId" = $3) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $4${lock}`,
+            params: ["t1", "s1", reference("owner.locate", "id"), 1],
+            outputs: {
+              rows: { kind: "rows" },
+              tenantId: { kind: "firstRowField", field: "tenantId" },
+              slot: { kind: "firstRowField", field: "slot" },
+            },
+            expects: {
+              kind: "exactlyOneRow",
+              failure: {
+                kind: "nestedWrite",
+                message:
+                  "Cannot update relation 'pairs': target record was not found for this parent.",
+                relation: "pairs",
+                raceable: false,
+              },
+            },
+            racePin: null,
+            onUniqueConflict: null,
+          },
+        ],
+        outputs: {
+          "owner.locate.rows": reference("owner.locate", "rows"),
+          "owner.locate.id": reference("owner.locate", "id"),
+          "pair.find.rows": reference("pair.find", "rows"),
+          "pair.find.tenantId": reference("pair.find", "tenantId"),
+          "pair.find.slot": reference("pair.find", "slot"),
+        },
+      });
+      expect(
+        fragmentContract(driver, operation.compile(compoundKnown))
+      ).toEqual({
+        steps: [
+          ...(substrate.batch
+            ? [
+                OWNER_GUARD,
+                {
+                  id: "pair.guard.exists",
+                  premise: {
+                    kind: "exists",
+                    sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."ownerId" = $3 AND "t0"."tenantId" = $4 AND "t0"."slot" = $5) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $6',
+                    params: ["t1", "s1", "o1", "tCap", "sCap", 1],
+                  },
+                  failure: {
+                    kind: "nestedWrite",
+                    message:
+                      "Cannot update relation 'pairs': target record was not found for this parent.",
+                    relation: "pairs",
+                    raceable: false,
+                  },
+                },
+              ]
+            : []),
+          {
+            id: "pair.update",
+            kind: "write",
+            sql: 'UPDATE "parity_c_pairs" SET "note" = $1 WHERE ("parity_c_pairs"."tenantId" = $2 AND "parity_c_pairs"."slot" = $3) RETURNING "tenantId" AS "tenantId", "slot" AS "slot"',
+            params: ["n2", "tCap", "sCap"],
+            outputs: {},
+            expects: substrate.batch
+              ? null
+              : {
+                  kind: "affectedRows",
+                  expected: 1,
+                  failure: {
+                    kind: "notFound",
+                    message:
+                      "query-engine-v2 update located no 'pair' row for its unique where.",
+                    raceable: false,
+                  },
+                },
+            racePin: null,
+            onUniqueConflict: null,
+          },
+          compoundTerminal(substrate.batch),
+        ],
+        outputs: { result: reference("owner.select", "result") },
+      });
+    });
+
+    test(`RecordUpdateCompiler runs a compound-keyed adopt found arm on the captured row key (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const operation = ownerUpdate(driver, {
         pairs: {
           upsert: [
             {
@@ -910,31 +1140,391 @@ describe("parity C — child requires one primary key, verbatim", () => {
             },
           ],
         },
-      },
-      "query-engine-v2 update requires a child with one primary key for relation 'pairs'.",
-    ],
-    [
-      "nested-target-parts: one level deeper than a FRESH junction target",
+      });
+      expect(fragmentContract(driver, operation.planning())).toEqual({
+        steps: [
+          compoundOwnerLocate(substrate.batch),
+          {
+            // The adopt probe is GLOBAL (an upsert may adopt a non-member), so it
+            // also publishes the FK it will overwrite; both row-key members lead.
+            id: "pair.find",
+            kind: "read",
+            sql: `SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1${lock}`,
+            params: ["t1", "s1"],
+            outputs: {
+              rows: { kind: "rows" },
+              tenantId: {
+                kind: "firstRowField",
+                field: "tenantId",
+                optional: true,
+              },
+              slot: { kind: "firstRowField", field: "slot", optional: true },
+            },
+            expects: null,
+            racePin: null,
+            onUniqueConflict: null,
+          },
+        ],
+        outputs: {
+          "owner.locate.rows": reference("owner.locate", "rows"),
+          "owner.locate.id": reference("owner.locate", "id"),
+          "pair.find.rows": reference("pair.find", "rows"),
+          "pair.find.tenantId": reference("pair.find", "tenantId"),
+          "pair.find.slot": reference("pair.find", "slot"),
+        },
+      });
+      expect(
+        fragmentContract(driver, operation.compile(compoundKnown))
+      ).toEqual({
+        steps: [
+          ...(substrate.batch
+            ? [
+                OWNER_GUARD,
+                {
+                  id: "pair.guard.exists",
+                  premise: {
+                    kind: "exists",
+                    sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."tenantId" = $3 AND "t0"."slot" = $4 AND "t0"."ownerId" = $5) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $6',
+                    params: ["t1", "s1", "tCap", "sCap", "o1", 1],
+                  },
+                  failure: {
+                    kind: "nestedWrite",
+                    message:
+                      "Nested upsert premise changed for relation 'pairs'.",
+                    relation: "pairs",
+                    raceable: false,
+                  },
+                },
+              ]
+            : []),
+          {
+            // The found arm both REWRITES the adopted FK and addresses the target by
+            // the captured pair.
+            id: "pair.update",
+            kind: "write",
+            sql: 'UPDATE "parity_c_pairs" SET "note" = $1, "ownerId" = CAST($2 AS TEXT) WHERE ("parity_c_pairs"."tenantId" = $3 AND "parity_c_pairs"."slot" = $4) RETURNING "tenantId" AS "tenantId", "slot" AS "slot"',
+            params: ["n2", "o1", "tCap", "sCap"],
+            outputs: {},
+            expects: substrate.batch
+              ? null
+              : {
+                  kind: "affectedRows",
+                  expected: 1,
+                  failure: {
+                    kind: "notFound",
+                    message:
+                      "Nested upsert target for relation 'pairs' vanished before its update.",
+                    relation: "pairs",
+                    raceable: false,
+                  },
+                },
+            racePin: null,
+            onUniqueConflict: null,
+          },
+          compoundTerminal(substrate.batch),
+        ],
+        outputs: { result: reference("owner.select", "result") },
+      });
+    });
+  }
+});
+
+/**
+ * PACKAGE C4 — THE MANDATED FALSIFIER: a selected target whose ROW KEY and the
+ * relation's REFERENCE KEY are DIFFERENT ORDERED KEYS.
+ *
+ *   target row key:         [id]                     — addresses the anchor row
+ *   target reference key:   [tenantId, code]         — a compound unique, not the row key
+ *   child stored reference: [tenantId, targetCode]   — the member names do not match
+ *
+ * The payload selects the anchor through a parent-held to-one edge and mutates it while
+ * a nested `connect` on the anchor's own inverse relation consumes the reference key. So
+ * ONE probe has to publish both keys, and the two must not be confused anywhere:
+ *
+ * 1. THE PROBE PUBLISHES THREE VALUES, DETERMINISTICALLY. `SELECT "id", "tenantId",
+ *    "code"` — the row key first (`identityFields` leads `fields`), then the demanded
+ *    reference-key fields. Reordering the projection changes this string and its outputs.
+ * 2. THE WRITE ADDRESSES THE ROW KEY, WHOLE AND ALONE. `UPDATE … WHERE "id" = 'aCaptured'`
+ *    names neither `tenantId` nor `code` — putting reference-key fields into
+ *    `identityFields` would add them here.
+ * 3. THE ASSIGNMENT MAPS STORAGE TO REFERENCE KEY IN SCHEMA ORDER. `SET "tenantId" =
+ *    'tCap', "targetCode" = 'cCap'` — `targetCode` takes `code`'s value. A projection
+ *    that owned this mapping, or a pairing by position against the row key, writes
+ *    'aCaptured' into one of these columns.
+ * 4. NEITHER KEY IS RECONSTRUCTED FROM THE PUBLIC SELECTOR. Every captured value is
+ *    spelled `…Cap`; the located parent's own FK values are spelled `…Sel`. The write
+ *    parameters are the captured ones, and the BATCH guard re-asserts the selector-side
+ *    correlation (`tSel`, `cSel`) BESIDE the captured row key (`aCaptured`) — the
+ *    split-witness shape, with the two keys visibly distinct in one statement.
+ *
+ * WHAT THIS FILE CANNOT ASSERT, AND WHERE IT LIVES INSTEAD. "No configuration carries a
+ * scalar child primary key beside a TargetProjection" is a static fact about private
+ * fields: its owner is the `rg -n "childPrimaryKey" src/query-engine/write-engine` gate
+ * plus `target-projection.core.test.ts`, which pins the projection's member set. "Existing
+ * ordinary compound-FK and polymorphic membership SQL stays byte-identical" is likewise
+ * carried by the pins that already exist — record-compiler-contract, compound-key,
+ * compound-relation-adoption, nested-arm-dispatch and the polymorphic families — not by
+ * re-asserting their strings here.
+ *
+ * FALSIFIED 2026-08-10, three times, each mutation restored from a copy taken before it:
+ *   · `buildTargetProjection` returning `[...getPrimaryKeyFields(model), ...requiredFields]`
+ *     as `identityFields` — claim 2's parenthetical, the "stuffed the reference key into
+ *     the row key" bug this witness exists to catch. BOTH legs went red, at the anchor's
+ *     own root UPDATE: with `tenantId` and `code` in the row key, the write's where-unique
+ *     carries them and the builder refuses ("Filter for 'tenantId' must be a filter
+ *     object"). This is the mutation that a second parallel row-key field in
+ *     `RecordUpdateCompiler` used to absorb — the compiler addressed the root write by its
+ *     own `getPrimaryKeyFields` copy, so the transaction leg stayed green and the claim
+ *     was decorative. There is one row-key owner now, and the claim is measured.
+ *   · `pairForeignKeyMembers` pairing each foreign field with the referenced field at the
+ *     MIRRORED index (`referencedFields[len - 1 - index]`) — the "map the storage to the
+ *     reference key in schema order" claim. Exactly these two tests went red, and nothing
+ *     else in the file: `ref.connect` filed `'cCap'` into `tenantId` and `'tCap'` into
+ *     `targetCode`. Every other witness here has a one-member or same-named edge, so this
+ *     is the only place the order is observable.
+ *   · `compileParentHeldUpdate` passing `undefined` where it passes the captured row —
+ *     the "the guard re-asserts the captured row key BESIDE the selector correlation"
+ *     claim. The atomic-batch leg alone went red (`"id" = $3` and its parameter vanished
+ *     from `anchor.guard.exists`), which is correct: transaction mode locks the row at
+ *     the probe and emits no guard at all.
+ */
+describe("parity C4 — a row key that is not the reference key", () => {
+  /** The located parent's own FK values ("…Sel") differ from every captured anchor
+   *  value ("…Cap"), so a selector-derived key cannot pass by accident. */
+  const separationKnown = {
+    "ref.locate.rows": [{ id: "r1", tenantId: "tSel", targetCode: "cSel" }],
+    "ref.locate.id": "r1",
+    "ref.locate.tenantId": "tSel",
+    "ref.locate.targetCode": "cSel",
+    "anchor.find.rows": [{ id: "aCaptured", tenantId: "tCap", code: "cCap" }],
+    "anchor.find.id": "aCaptured",
+    "anchor.find.tenantId": "tCap",
+    "anchor.find.code": "cCap",
+    "ref.find.rows": [{ id: "r2" }],
+  };
+
+  const refUpdate = (driver: PGliteDriver): UpdateOperation =>
+    new UpdateOperation(
+      engineFor(driver),
+      paritySelectedSchema.ref as Model<any>,
       {
-        tags: {
-          create: [
-            {
-              id: "g1",
-              name: "G",
-              slots: {
-                connect: [{ tenantId_slot: { tenantId: "t1", slot: "s1" } }],
+        where: { id: "r1" },
+        data: {
+          anchor: { update: { note: "n2", refs: { connect: [{ id: "r2" }] } } },
+        },
+        select: { id: true },
+      }
+    );
+
+  for (const substrate of [
+    {
+      name: "transaction",
+      batch: false,
+      createDriver: () => new PGliteDriver(),
+    },
+    {
+      name: "atomic batch",
+      batch: true,
+      createDriver: () => new BatchOnlyPGliteDriver(),
+    },
+  ]) {
+    const lock = substrate.batch ? "" : " FOR UPDATE";
+
+    test(`the probe publishes both keys and each is used for its own job (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const operation = refUpdate(driver);
+
+      expect(fragmentContract(driver, operation.planning())).toEqual({
+        steps: [
+          {
+            id: "ref.locate",
+            kind: "read",
+            sql: `SELECT "t0"."id" AS "id", "t0"."tenantId" AS "tenantId", "t0"."targetCode" AS "targetCode" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            params: ["r1"],
+            outputs: {
+              rows: { kind: "rows" },
+              id: { kind: "firstRowField", field: "id" },
+              tenantId: { kind: "firstRowField", field: "tenantId" },
+              targetCode: { kind: "firstRowField", field: "targetCode" },
+            },
+            expects: {
+              kind: "exactlyOneRow",
+              failure: {
+                kind: "notFound",
+                message:
+                  "query-engine-v2 update located no 'ref' row for its unique where.",
+                raceable: false,
               },
             },
-          ],
+            racePin: null,
+            onUniqueConflict: null,
+          },
+          {
+            // Row key FIRST, then the reference-key fields the nested relation demands.
+            // The correlation itself is on the reference key, pairing the child's
+            // `targetCode` with the target's `code`.
+            id: "anchor.find",
+            kind: "read",
+            sql: `SELECT "t0"."id" AS "id", "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "parity_c_anchors" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."code" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
+            params: [
+              reference("ref.locate", "tenantId"),
+              reference("ref.locate", "targetCode"),
+              1,
+            ],
+            outputs: {
+              rows: { kind: "rows" },
+              id: { kind: "firstRowField", field: "id" },
+              tenantId: { kind: "firstRowField", field: "tenantId" },
+              code: { kind: "firstRowField", field: "code" },
+            },
+            expects: {
+              kind: "exactlyOneRow",
+              failure: {
+                kind: "nestedWrite",
+                message:
+                  "Cannot update relation 'anchor': target record was not found for this parent.",
+                relation: "anchor",
+                raceable: false,
+              },
+            },
+            racePin: null,
+            onUniqueConflict: null,
+          },
+          {
+            id: "ref.find",
+            kind: "read",
+            sql: `SELECT "t0"."id" AS "id" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            params: ["r2"],
+            outputs: { rows: { kind: "rows" } },
+            expects: null,
+            racePin: null,
+            onUniqueConflict: null,
+          },
+        ],
+        outputs: {
+          "ref.locate.rows": reference("ref.locate", "rows"),
+          "ref.locate.id": reference("ref.locate", "id"),
+          "ref.locate.tenantId": reference("ref.locate", "tenantId"),
+          "ref.locate.targetCode": reference("ref.locate", "targetCode"),
+          "anchor.find.rows": reference("anchor.find", "rows"),
+          "anchor.find.id": reference("anchor.find", "id"),
+          "anchor.find.tenantId": reference("anchor.find", "tenantId"),
+          "anchor.find.code": reference("anchor.find", "code"),
+          "ref.find.rows": reference("ref.find", "rows"),
         },
-      },
-      "query-engine-v2 update requires a child with one primary key for relation 'slots' one level deeper.",
-    ],
-  ])("%s", async (_site, relations, message) => {
-    const { client, driver } = clientOn();
-    expect(
-      await caught(() => client.owner.update(ownerUpdateArgs(relations)))
-    ).toEqual({ name: "UnsupportedOperationError", message });
-    expect(driver.statements).toEqual([]);
-  });
+      });
+
+      expect(
+        fragmentContract(driver, operation.compile(separationKnown))
+      ).toEqual({
+        steps: [
+          ...(substrate.batch
+            ? [
+                {
+                  id: "ref.guard.exists",
+                  premise: {
+                    kind: "exists",
+                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    params: ["r1"],
+                  },
+                  failure: {
+                    kind: "notFound",
+                    message:
+                      "query-engine-v2 update located no 'ref' row for its unique where.",
+                    raceable: false,
+                  },
+                },
+                {
+                  // The selector-side correlation (…Sel) AND the captured row key
+                  // (aCaptured), in one premise: two keys, two jobs, one statement.
+                  id: "anchor.guard.exists",
+                  premise: {
+                    kind: "exists",
+                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_anchors" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."code" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
+                    params: ["tSel", "cSel", "aCaptured", 1],
+                  },
+                  failure: {
+                    kind: "nestedWrite",
+                    message:
+                      "Cannot update relation 'anchor': target record was not found for this parent.",
+                    relation: "anchor",
+                    raceable: false,
+                  },
+                },
+                {
+                  id: "ref.guard.exists#1",
+                  premise: {
+                    kind: "exists",
+                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    params: ["r2"],
+                  },
+                  failure: {
+                    kind: "nestedWrite",
+                    message:
+                      "Cannot connect relation 'refs': target record was not found.",
+                    relation: "refs",
+                    raceable: false,
+                  },
+                },
+              ]
+            : []),
+          {
+            // The complete row key, and ONLY the row key.
+            id: "anchor.update",
+            kind: "write",
+            sql: 'UPDATE "parity_c_anchors" SET "note" = $1 WHERE "parity_c_anchors"."id" = $2 RETURNING "id" AS "id"',
+            params: ["n2", "aCaptured"],
+            outputs: {},
+            expects: substrate.batch
+              ? null
+              : {
+                  kind: "affectedRows",
+                  expected: 1,
+                  failure: {
+                    kind: "notFound",
+                    message:
+                      "query-engine-v2 update located no 'anchor' row for its unique where.",
+                    raceable: false,
+                  },
+                },
+            racePin: null,
+            onUniqueConflict: null,
+          },
+          {
+            // tenantId ← tenantId, targetCode ← code: the stored reference paired with
+            // the REFERENCE key in schema order, out of the captured row.
+            id: "ref.connect",
+            kind: "write",
+            sql: 'UPDATE "parity_c_refs" SET "tenantId" = CAST($1 AS TEXT), "targetCode" = CAST($2 AS TEXT) WHERE "parity_c_refs"."id" = $3 RETURNING "id" AS "id"',
+            params: ["tCap", "cCap", "r2"],
+            outputs: {},
+            expects: null,
+            racePin: null,
+            onUniqueConflict: null,
+          },
+          {
+            id: "ref.select",
+            kind: "read",
+            sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+            params: ["r1"],
+            outputs: { result: { kind: "rows" } },
+            expects: substrate.batch
+              ? null
+              : {
+                  kind: "exactlyOneRow",
+                  failure: {
+                    kind: "query",
+                    message:
+                      "query-engine-v2 update terminal read expected exactly one row.",
+                    raceable: false,
+                  },
+                },
+            racePin: null,
+            onUniqueConflict: null,
+          },
+        ],
+        outputs: { result: reference("ref.select", "result") },
+      });
+    });
+  }
 });

@@ -88,6 +88,8 @@ import {
   buildTargetProjection,
   capturedTargetColumnPredicate,
   targetProjectionColumns,
+  targetProjectionRowKeySelect,
+  targetProjectionSelect,
 } from "./target-projection";
 
 /**
@@ -322,7 +324,24 @@ type JunctionPlan =
 export class RelationJunctionPart implements Part {
   private readonly context: JunctionContext;
   private readonly childName: string;
+  /**
+   * JUNCTION CARVE-OUT (plan N2 / §7.4). This is the ONE selected-target key in the
+   * write engine that is still a single field, and it is deliberate: a junction side
+   * is one column today, so `getManyToManyJoinInfo` resolves it through
+   * `getRequiredSinglePrimaryKeyField`, which THROWS for a compound-keyed target
+   * before this Part is ever constructed. Every projection-derived read below
+   * therefore describes the same one-member row key the join info already fixed;
+   * this field is the junction's STORED REFERENCE to that target, not a second
+   * answer to "what is the target's row key".
+   *
+   * Compound many-to-many is an unimplemented capability, not a seal: N2 fixes its
+   * future shape as two ordered `JunctionSide` reference keys, which replaces this
+   * field, `sourcePkField`, and the join-info channel together. Package C does not
+   * add those types, and — the point of this comment — it must not DEEPEN the scalar
+   * assumption either: nothing new here may read a row key through this field.
+   */
   private readonly targetPkField: string;
+  /** The junction's stored reference to the SOURCE side; same carve-out. */
   private readonly sourcePkField: string;
   private readonly sourceFieldName: string;
   private readonly childScope: QueryScope;
@@ -911,7 +930,8 @@ export class RelationJunctionPart implements Part {
       compiler?.targetReadId ?? scope.allocate(`${this.childName}.find`);
     const publishesPk = (compiler?.planning().length ?? 0) > 0;
     const projection =
-      compiler?.targetProjection ?? buildTargetProjection([this.targetPkField]);
+      compiler?.targetProjection ??
+      buildTargetProjection(this.childScope.model);
     const selectedFields = projection.fields;
     const selectedColumns = targetProjectionColumns(
       this.childScope,
@@ -923,9 +943,7 @@ export class RelationJunctionPart implements Part {
           parentValue: this.parentRef(),
           whereUnique: where,
           take: 1,
-          select: Object.fromEntries(
-            selectedFields.map((field) => [field, true])
-          ),
+          select: targetProjectionSelect(projection),
           ...(selectedColumns.length
             ? {
                 additionalColumns: selectedColumns.map((column) => column.sql),
@@ -934,7 +952,7 @@ export class RelationJunctionPart implements Part {
         })
       : buildFindUnique(this.childScope, {
           where,
-          select: { [this.targetPkField]: true },
+          select: targetProjectionRowKeySelect(projection),
           forUpdate: this.context.txMode,
         });
     // N4-U1: a slot whose deeper edges `planned`-read this probe must publish the
@@ -1049,7 +1067,9 @@ export class RelationJunctionPart implements Part {
         kind: "read",
         statement: buildFindUnique(this.childScope, {
           where: item.where,
-          select: { [this.targetPkField]: true },
+          select: targetProjectionRowKeySelect(
+            buildTargetProjection(this.childScope.model)
+          ),
           forUpdate: this.context.txMode,
         }),
         outputs: { rows: { kind: "rows" } },
@@ -1143,24 +1163,27 @@ export class RelationJunctionPart implements Part {
   } {
     if (update.kind === "none" || update.compiler.targetReadId !== probeId) {
       return {
-        select: { [this.targetPkField]: true },
+        select: targetProjectionRowKeySelect(
+          buildTargetProjection(this.childScope.model)
+        ),
         additionalColumns: [],
         outputs: { rows: { kind: "rows" } },
       };
     }
     const projection = update.compiler.targetProjection;
-    const { fields } = projection;
     return {
-      select: Object.fromEntries(fields.map((field) => [field, true])),
+      select: targetProjectionSelect(projection),
       additionalColumns: targetProjectionColumns(
         this.childScope,
         projection,
         getTableName(this.childScope.model)
       ).map((column) => column.sql),
+      // Fields only, deliberately: the private columns travel as an inlined
+      // predicate ({@link capturedCompilerPredicate}), never as declared outputs.
       outputs: {
         rows: { kind: "rows" },
         ...Object.fromEntries(
-          fields.map((field) => [
+          projection.fields.map((field) => [
             field,
             { kind: "firstRowField" as const, field, optional: true },
           ])
@@ -1246,7 +1269,11 @@ export class RelationJunctionPart implements Part {
       ...(args.where && Object.keys(args.where).length > 0
         ? { where: args.where }
         : {}),
-      select: args.select ?? { [this.targetPkField]: true },
+      select:
+        args.select ??
+        targetProjectionRowKeySelect(
+          buildTargetProjection(this.childScope.model)
+        ),
       ...(args.additionalColumns?.length
         ? { additionalColumns: args.additionalColumns }
         : {}),
@@ -1404,7 +1431,9 @@ export class RelationJunctionPart implements Part {
         where: capturedSelectorWhere(this.childScope, where, {
           [this.targetPkField]: capturedPk,
         }),
-        select: { [this.targetPkField]: true },
+        select: targetProjectionRowKeySelect(
+          buildTargetProjection(this.childScope.model)
+        ),
       },
       {
         limit: 1,
@@ -1733,6 +1762,12 @@ export function buildJunctionParts(input: {
   const relationName = relationInfo.name;
   const childName = getStepModelName(relationInfo.targetModel, relationName);
   const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
+  /** The second holder of the junction carve-out documented on the class field
+   *  of the same name: `getManyToManyJoinInfo` resolves it through
+   *  `getRequiredSinglePrimaryKeyField`, which throws for a compound-keyed target
+   *  before this builder runs, so it names the junction's STORED REFERENCE to a
+   *  target whose row key is one member by construction. Nothing new may read a
+   *  row key through it; N2's `JunctionSide` replaces both holders together. */
   const targetPkField = getManyToManyJoinInfo(
     parentScope,
     relationInfo

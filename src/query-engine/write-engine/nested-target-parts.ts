@@ -53,7 +53,8 @@ import {
   resolvePolymorphicStorageValue,
 } from "./relation-membership";
 import type { StepScope } from "./StepScope";
-import { getStepModelName, UnsupportedOperationError } from "./shared";
+import { getStepModelName } from "./shared";
+import { buildTargetProjection } from "./target-projection";
 
 /** Located-target relation composition below the selected-record compiler. */
 
@@ -185,12 +186,6 @@ function foldJunctionTargetRelation(input: {
   }
 
   const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
-  const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-  if (childPrimaryKeys.length !== 1) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update requires a child with one primary key for relation '${relationName}' one level deeper.`
-    );
-  }
   const childName = getStepModelName(relationInfo.targetModel, relationName);
   const writeBase = {
     scope,
@@ -198,7 +193,9 @@ function foldJunctionTargetRelation(input: {
     relation,
     childName,
     childScope,
-    childPrimaryKey: childPrimaryKeys[0]!,
+    // Every targeted arm below addresses its child by the complete row key this
+    // projection publishes, so a compound-keyed child needs no separate route.
+    targetProjection: buildTargetProjection(childScope.model),
     parentId,
     txMode,
     nestedBuilder: deeperBuilder,
@@ -271,7 +268,7 @@ function foldJunctionChildHeldEntry(args: {
           relation,
           childName,
           childScope,
-          writeBase.childPrimaryKey,
+          writeBase.targetProjection,
           entry,
           parentId,
           txMode
