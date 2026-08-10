@@ -39,6 +39,11 @@ import {
   type StatementStep,
 } from "./OperationFragment";
 import { markRaceable, markRaceIfPinned, racePinMatches } from "./race-retry";
+import {
+  isRecordSeries,
+  type RecordSeriesOperation,
+  type RoutedExecutableOperation,
+} from "./record-series";
 import { isRecord, noAtomicSubstrateError } from "./shared";
 
 type RuntimeValues = Map<string, Map<string, unknown>>;
@@ -146,10 +151,29 @@ export class OperationExecutor {
   }
 
   execute<T>(
-    operation: ExecutableOperation,
+    operation: RoutedExecutableOperation,
     context: QueryExecutionContext,
     driverOverride?: AnyDriver
   ): Promise<T> {
+    // A SERIES has no single planning-then-compilation fragment, so none of the
+    // seams below it may be entered: it owns an interactive scope in which it
+    // captures, builds its members, and runs them one after another.
+    //
+    // It always opens that scope ITSELF — on the caller's driver when there is
+    // one, where `withTransaction` is a savepoint (the same nesting the client's
+    // callback seam already opens per operation). Borrowing the caller's scope
+    // instead would make the retry above untrue: a member failure would leave its
+    // predecessors' effects standing in a scope it had merely poisoned, so the
+    // second attempt could neither undo them nor run at all. `withTransaction`
+    // also refuses a substrate offering no interactive scope before it reaches the
+    // provider, under that method's own naming.
+    if (isRecordSeries(operation)) {
+      return (driverOverride ?? this.engine.driver).withTransaction(
+        (driver) => this.runSeriesOn<T>(operation, context, driver),
+        undefined,
+        context
+      );
+    }
     // A caller-supplied driver is already inside its own atomic scope (the
     // client's callback-transaction seam); run the fragments on it linearly
     // rather than opening a second envelope.
@@ -192,6 +216,62 @@ export class OperationExecutor {
       return this.runTransaction<T>(operation, context);
     }
     return this.runAtomicBatch<T>(operation, context);
+  }
+
+  /**
+   * Run one series inside an already-open interactive scope: capture, build every
+   * member, run the members one after another on THIS driver, then the result
+   * reads, then parse.
+   *
+   * Members go through {@link execute} with this driver as the override, so each
+   * keeps its own planning, compilation, postconditions and race marking. Linear
+   * execution admits no guard step — and none can reach it: a guard is a
+   * batch-mode lowering, and this scope exists only on a substrate that offers an
+   * interactive transaction, which is exactly the substrate on which every member
+   * compiles in transaction mode.
+   *
+   * Nothing here re-runs anything: the routed boundary above the executor owns the
+   * one retry, and it retries the COMPLETE series (this capture included) rather
+   * than a member on its own — a member that re-ran alone would re-run against
+   * state its predecessors have already changed inside this scope.
+   */
+  private async runSeriesOn<T>(
+    operation: RecordSeriesOperation,
+    context: QueryExecutionContext,
+    driver: AnyDriver
+  ): Promise<T> {
+    const capture = operation.capture();
+    validateFragment(capture);
+    const captured = await this.executeLinear(
+      capture,
+      driver,
+      new Map(),
+      context
+    );
+    // Every member is BUILT before the first one runs a statement: building is
+    // where a member's public envelope is checked, so a shape the engine cannot
+    // express is refused while this scope still has nothing to undo.
+    const members = operation.compileMembers(captured);
+    const memberResults: unknown[] = [];
+    for (const member of members) {
+      memberResults.push(await this.execute<unknown>(member, context, driver));
+    }
+    const resultReads = operation.compileResultReads(captured, memberResults);
+    const resultReadResults: unknown[] = [];
+    for (const resultRead of resultReads) {
+      resultReadResults.push(
+        await this.execute<unknown>(resultRead, context, driver)
+      );
+    }
+    const parsed = operation.parseSeries({
+      captured,
+      memberResults,
+      resultReadResults,
+    });
+    // The series owns its public shape exactly as `parse<T>` does for one
+    // fragment; the generic is the caller's expectation of it, not a second
+    // opinion the executor could hold.
+    return parsed as T;
   }
 
   private runTransaction<T>(
@@ -254,13 +334,17 @@ export class OperationExecutor {
    * several operations into one driver batch. It never executes them itself.
    */
   async prepareBatch<T>(
-    operation: ExecutableOperation,
+    operation: RoutedExecutableOperation,
     driver: AnyDriver,
     context: QueryExecutionContext
-  ): Promise<{
-    readonly queries: readonly Sql[];
-    parseResult(results: readonly QueryResult<unknown>[]): T;
-  }> {
+  ): Promise<
+    | {
+        readonly queries: readonly Sql[];
+        parseResult(results: readonly QueryResult<unknown>[]): T;
+      }
+    | undefined
+  > {
+    if (isRecordSeries(operation)) return undefined;
     operation.assertBatchPreparable?.();
     const plan = await this.buildAtomicPlan(operation, driver, context);
     return {
@@ -286,11 +370,12 @@ export class OperationExecutor {
    * on batch-only drivers.
    */
   async prepareSharedBatch<T>(
-    operation: ExecutableOperation,
+    operation: RoutedExecutableOperation,
     driver: AnyDriver,
     context: QueryExecutionContext,
     operationName: Operation
-  ): Promise<PreparedBatchOperation<T>> {
+  ): Promise<PreparedBatchOperation<T> | undefined> {
+    if (isRecordSeries(operation)) return undefined;
     operation.assertBatchPreparable?.();
     const plan = await this.buildAtomicPlan(operation, driver, context);
     if (plan.entries.some((entry) => stepUsesInsertIdScratch(entry.step))) {
@@ -361,13 +446,15 @@ export class OperationExecutor {
    * Otherwise `undefined`: the operation runs through the atomic-batch seam.
    */
   singleStatementPlan(
-    operation: ExecutableOperation
+    operation: RoutedExecutableOperation
   ): SingleStatementCandidate | undefined {
+    if (isRecordSeries(operation)) return undefined;
     const candidate = compileSingleStatementCandidate(operation);
     return candidate && canPrepareSingle(candidate) ? candidate : undefined;
   }
 
-  buildStatement(operation: ExecutableOperation): Sql | undefined {
+  buildStatement(operation: RoutedExecutableOperation): Sql | undefined {
+    if (isRecordSeries(operation)) return undefined;
     const candidate = compileSingleStatementCandidate(operation);
     return candidate && canBuildStatement(candidate)
       ? candidate.step.statement

@@ -2,11 +2,12 @@ import { MySQL2Driver } from "@drivers/mysql2";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
-import { createSchemaRegistry } from "@validation";
-import { beforeAll, describe, expect, test } from "vitest";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
+import { createSchemaRegistry } from "@validation";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /** The SQL text of a statement step (guard steps carry no statement). */
 function sqlOf(step: OperationStep): string {
@@ -56,23 +57,23 @@ function engine(): QueryEngine {
 
 describe("deleteMany with select on a non-returning driver", () => {
   test("plans a locked PK capture, then reads BEFORE it deletes", () => {
-    const operation = constructRoutedOperation(
-      engine(),
-      schema.gadget,
-      "deleteMany",
-      { where: { name: "Alpha" }, select: { id: true, name: true } }
+    const operation = fragmentAtom(
+      constructRoutedOperation(engine(), schema.gadget, "deleteMany", {
+        where: { name: "Alpha" },
+        select: { id: true, name: true },
+      }),
+      "deleteMany"
     );
-    expect(operation).toBeDefined();
 
     // Planning: exactly one read that locks the target primary keys.
-    const planning = operation!.planning();
+    const planning = operation.planning();
     expect(planning.steps).toHaveLength(1);
     const capture = planning.steps[0]!;
     expect(capture.kind).toBe("read");
     expect(sqlOf(capture)).toContain("FOR UPDATE");
 
     // Compile against a capture of two rows: read first, delete second.
-    const compiled = operation!.compile({
+    const compiled = operation.compile({
       [planningKey(capture.id, "rows")]: [{ id: "g1" }, { id: "g2" }],
     });
     expect(compiled.steps.map((step) => step.kind)).toEqual(["read", "write"]);
@@ -84,30 +85,31 @@ describe("deleteMany with select on a non-returning driver", () => {
   });
 
   test("an empty capture compiles to no statements and parses to []", () => {
-    const operation = constructRoutedOperation(
-      engine(),
-      schema.gadget,
-      "deleteMany",
-      { where: { name: "Nope" }, select: { id: true } }
+    const operation = fragmentAtom(
+      constructRoutedOperation(engine(), schema.gadget, "deleteMany", {
+        where: { name: "Nope" },
+        select: { id: true },
+      }),
+      "deleteMany"
     );
-    const capture = operation!.planning().steps[0]!;
+    const capture = operation.planning().steps[0]!;
 
-    const compiled = operation!.compile({
+    const compiled = operation.compile({
       [planningKey(capture.id, "rows")]: [],
     });
     expect(compiled.steps).toEqual([]);
-    expect(operation!.parse(compiled.outputs)).toEqual([]);
+    expect(operation.parse(compiled.outputs)).toEqual([]);
   });
 
   test("without select the same payload is the single-statement count arm", () => {
-    const operation = constructRoutedOperation(
-      engine(),
-      schema.gadget,
-      "deleteMany",
-      { where: { name: "Alpha" } }
+    const operation = fragmentAtom(
+      constructRoutedOperation(engine(), schema.gadget, "deleteMany", {
+        where: { name: "Alpha" },
+      }),
+      "deleteMany"
     );
-    expect(operation!.planning().steps).toEqual([]);
-    const compiled = operation!.compile({});
+    expect(operation.planning().steps).toEqual([]);
+    const compiled = operation.compile({});
     expect(compiled.steps.map((step) => step.kind)).toEqual(["write"]);
   });
 });

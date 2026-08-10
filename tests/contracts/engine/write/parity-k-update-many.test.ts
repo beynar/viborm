@@ -14,6 +14,7 @@ import {
 } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -114,14 +115,15 @@ function routeKind(
   kind: "updateMany" | "deleteMany",
   args: Record<string, unknown>
 ) {
-  const routed = constructRoutedOperation(
-    engineFor(driver),
-    parityKSchema.gadget,
-    kind,
-    args
+  return fragmentAtom(
+    constructRoutedOperation(
+      engineFor(driver),
+      parityKSchema.gadget,
+      kind,
+      args
+    ),
+    kind
   );
-  if (!routed) throw new Error(`'${kind}' did not route`);
-  return routed;
 }
 
 function route(driver: AnyDriver, args: Record<string, unknown>) {

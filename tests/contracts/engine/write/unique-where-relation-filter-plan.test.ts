@@ -5,10 +5,11 @@ import { createQueryScope } from "@query-engine/context";
 import { buildDelete, buildUpdate } from "@query-engine/operations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
-import { createSchemaRegistry } from "@validation";
-import { beforeAll, describe, expect, test } from "vitest";
 import type { WriteStep } from "@src/query-engine/write-engine/OperationFragment";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
+import { createSchemaRegistry } from "@validation";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * N6-U2 — how a RELATION filter inside a unique `where` compiles into the WRITE.
@@ -215,12 +216,14 @@ describe("the write that actually carries the filter on a non-returning driver",
       new MySQL2Driver(),
       createModelRegistry(schema, schemas)
     );
-    const routed = constructRoutedOperation(engine, node, "upsert", {
-      where: { id: 1, children: { some: { label: "live" } } },
-      create: { id: 1, label: "fresh", parentId: null },
-      update: { label: "renamed" },
-    });
-    if (!routed) throw new Error("'upsert' did not route");
+    const routed = fragmentAtom(
+      constructRoutedOperation(engine, node, "upsert", {
+        where: { id: 1, children: { some: { label: "live" } } },
+        create: { id: 1, label: "fresh", parentId: null },
+        update: { label: "renamed" },
+      }),
+      "upsert"
+    );
     // A non-empty locate result is the UPDATE arm — the branch under test.
     const fragment = routed.compile({
       [`${routed.planning().steps[0]?.id}.rows`]: [{ id: 1 }],
@@ -258,18 +261,20 @@ describe("N6-U1 × N6-U2: a NESTED target selector's relation filter", () => {
       driver,
       createModelRegistry(schema, schemas)
     );
-    const routed = constructRoutedOperation(engine, node, "update", {
-      where: { id: 1 },
-      data: {
-        children: {
-          update: {
-            where: { id: 2, children: { some: { label: "live" } } },
-            data: { label: "renamed" },
+    const routed = fragmentAtom(
+      constructRoutedOperation(engine, node, "update", {
+        where: { id: 1 },
+        data: {
+          children: {
+            update: {
+              where: { id: 2, children: { some: { label: "live" } } },
+              data: { label: "renamed" },
+            },
           },
         },
-      },
-    });
-    if (!routed) throw new Error("nested 'update' did not route");
+      }),
+      "nested update"
+    );
     const planning = routed.planning();
     const known: Record<string, unknown> = {};
     for (const step of planning.steps) {

@@ -7,11 +7,12 @@ import { NotFoundError, VibORMErrorCode } from "@errors";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
-import { createSchemaRegistry } from "@validation";
-import { beforeAll, describe, expect, test } from "vitest";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
+import { createSchemaRegistry } from "@validation";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * PHASE 3 — the delete fold (query-performance-plan).
@@ -502,11 +503,16 @@ describe("the delete fold — the plan shape, without a database", () => {
   }
 
   test("a RETURNING driver plans nothing and compiles to one write", () => {
-    const operation = constructRoutedOperation(
-      engineFor(new PGliteDriver()),
-      schema.account,
-      "delete",
-      { where: { id: 1 } }
+    const operation = fragmentAtom(
+      constructRoutedOperation(
+        engineFor(new PGliteDriver()),
+        schema.account,
+        "delete",
+        {
+          where: { id: 1 },
+        }
+      ),
+      "delete"
     );
 
     // EMPTY planning is the whole point: the direct single-statement policy
@@ -514,8 +520,8 @@ describe("the delete fold — the plan shape, without a database", () => {
     // and runs it directly on the base driver — no BEGIN, no COMMIT. A planning
     // step here would put the operation back inside a transaction envelope even
     // if the payload statements stayed at one.
-    expect(operation?.planning().steps).toEqual([]);
-    const compiled = operation!.compile({});
+    expect(operation.planning().steps).toEqual([]);
+    const compiled = operation.compile({});
     expect(compiled.steps.map((step) => step.kind)).toEqual(["write"]);
     expect(sqlOf(compiled.steps[0]!)).toContain("DELETE");
     expect(sqlOf(compiled.steps[0]!)).toContain("RETURNING");
@@ -556,25 +562,28 @@ describe("the delete fold — the plan shape, without a database", () => {
     ["select", { id: true, notes: { select: { body: true } } }, undefined],
     ["include", undefined, { notes: true }],
   ])("a relation named by `%s` declines the fold and reads UNLOCKED", (_spelling, select, include) => {
-    const operation = constructRoutedOperation(
-      engineFor(new PGliteDriver()),
-      schema.account,
-      "delete",
-      {
-        where: { id: 1 },
-        ...(select ? { select } : {}),
-        ...(include ? { include } : {}),
-      }
+    const operation = fragmentAtom(
+      constructRoutedOperation(
+        engineFor(new PGliteDriver()),
+        schema.account,
+        "delete",
+        {
+          where: { id: 1 },
+          ...(select ? { select } : {}),
+          ...(include ? { include } : {}),
+        }
+      ),
+      "delete"
     );
 
     // Declined: the locate survives.
-    const planning = operation!.planning();
+    const planning = operation.planning();
     expect(planning.steps).toHaveLength(1);
     // ...and it is the lock-taking one.
     expect(sqlOf(planning.steps[0]!)).toContain("FOR UPDATE");
 
     // The shape-capturing read joins the relation and must NOT re-lock.
-    const compiled = operation!.compile({
+    const compiled = operation.compile({
       [planningKey(planning.steps[0]!.id, "rows")]: [{ id: 1 }],
     });
     expect(compiled.steps.map((step) => step.kind)).toEqual(["read", "write"]);
@@ -591,14 +600,20 @@ describe("the delete fold — the plan shape, without a database", () => {
     // `_count` scalar, and folded into a `RETURNING` list where the correlation
     // loses its alias. Both Prisma spellings name the same projection.
     for (const count of [true, { select: { notes: true } }]) {
-      const operation = constructRoutedOperation(
-        engineFor(new PGliteDriver()),
-        schema.account,
-        "delete",
-        { where: { id: 1 }, select: { id: true, _count: count } }
+      const operation = fragmentAtom(
+        constructRoutedOperation(
+          engineFor(new PGliteDriver()),
+          schema.account,
+          "delete",
+          {
+            where: { id: 1 },
+            select: { id: true, _count: count },
+          }
+        ),
+        "delete"
       );
 
-      expect(operation!.planning().steps).toHaveLength(1);
+      expect(operation.planning().steps).toHaveLength(1);
     }
   });
 
@@ -606,21 +621,26 @@ describe("the delete fold — the plan shape, without a database", () => {
     // MySQL2Driver is transaction-capable and non-returning, so the ATOM §7
     // batch-only refusal does not pre-empt the plan. No connection is made:
     // planning and compile are pure.
-    const operation = constructRoutedOperation(
-      engineFor(new MySQL2Driver()),
-      schema.account,
-      "delete",
-      { where: { id: 1 } }
+    const operation = fragmentAtom(
+      constructRoutedOperation(
+        engineFor(new MySQL2Driver()),
+        schema.account,
+        "delete",
+        {
+          where: { id: 1 },
+        }
+      ),
+      "delete"
     );
 
-    const planning = operation!.planning();
+    const planning = operation.planning();
     expect(planning.steps).toHaveLength(1);
     expect(planning.steps[0]!.kind).toBe("read");
     expect(sqlOf(planning.steps[0]!)).toContain("FOR UPDATE");
 
     // Read BEFORE delete: without RETURNING the row cannot be recovered once it
     // is gone, so the capture has to precede the write.
-    const compiled = operation!.compile({
+    const compiled = operation.compile({
       [planningKey(planning.steps[0]!.id, "rows")]: [{ id: 1 }],
     });
     expect(compiled.steps.map((step) => step.kind)).toEqual(["read", "write"]);

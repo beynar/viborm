@@ -14,6 +14,7 @@ import type {
 import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import { ReadOperation } from "./ReadOperation";
 import { isRetryableRace } from "./race-retry";
+import type { RoutedExecutableOperation } from "./record-series";
 import { UpdateOperation } from "./UpdateOperation";
 import { UpsertOperation } from "./UpsertOperation";
 
@@ -68,7 +69,7 @@ export function constructRoutedOperation(
   model: Model<any>,
   operation: string,
   args: Record<string, unknown>
-): ExecutableOperation | undefined {
+): RoutedExecutableOperation | undefined {
   if (!ROUTED_OPERATIONS.has(operation)) return undefined;
   // The `requiresAtomicResolution` refusal (ATOM “Error-order rules”), reproduced at the ROUTED
   // layer only. A batch-only, non-returning driver cannot resolve a single-row
@@ -133,10 +134,16 @@ function assertRoutedAtomicResolution(
  * operation ONCE. Re-planning re-reads committed state, so the loser now takes
  * its adopt arm and converges; a second failure propagates. A violation matching
  * no racePin and not `meta.raceable` never retries.
+ *
+ * A transactional record series retries here as ONE unit — its capture and every
+ * one of its members run again — because a member has no scope of its own to be
+ * retried in: its predecessors' effects rolled back with the series' own
+ * transaction scope, so only the whole series can be re-planned against the state
+ * that actually survived.
  */
 export async function executeRoutedOperation<T>(
   executor: OperationExecutor,
-  operation: ExecutableOperation,
+  operation: RoutedExecutableOperation,
   context: QueryExecutionContext,
   driverOverride?: AnyDriver
 ): Promise<T> {

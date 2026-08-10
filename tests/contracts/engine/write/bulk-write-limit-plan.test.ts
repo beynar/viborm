@@ -1,17 +1,18 @@
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createQueryScope } from "@query-engine/context";
 import { buildDeleteMany } from "@query-engine/operations/delete";
 import { buildUpdateMany } from "@query-engine/operations/update";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
-import { createSchemaRegistry } from "@validation";
-import { beforeAll, describe, expect, test } from "vitest";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
+import { createSchemaRegistry } from "@validation";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /** The SQL text of a statement step (guard steps carry no statement). */
 function sqlOf(step: OperationStep): string {
@@ -73,14 +74,15 @@ function route(
   operation: "updateMany" | "deleteMany",
   args: Record<string, unknown>
 ) {
-  const routed = constructRoutedOperation(
-    engine(driverName),
-    schema.gadget,
-    operation,
-    args
+  return fragmentAtom(
+    constructRoutedOperation(
+      engine(driverName),
+      schema.gadget,
+      operation,
+      args
+    ),
+    operation
   );
-  if (!routed) throw new Error(`'${operation}' did not route`);
-  return routed;
 }
 
 const NATIVE_LIMIT = /LIMIT/;
@@ -200,9 +202,7 @@ describe("the per-dialect spelling of a nonzero limit", () => {
       expect(prepared.sql).toContain(
         'FROM "limit_plan_gadgets" AS "limit_plan_gadgets"'
       );
-      expect(prepared.sql).toContain(
-        '"limit_plan_gadgets"."code" = $'
-      );
+      expect(prepared.sql).toContain('"limit_plan_gadgets"."code" = $');
       expect(prepared.params).toContain("kept");
     }
   });

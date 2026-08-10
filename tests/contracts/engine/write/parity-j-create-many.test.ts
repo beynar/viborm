@@ -14,6 +14,7 @@ import {
 } from "@src/query-engine/write-engine/OperationFragment";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -123,14 +124,10 @@ function route(
   model: (typeof parityJSchema)[keyof typeof parityJSchema],
   args: Record<string, unknown>
 ) {
-  const routed = constructRoutedOperation(
-    engineFor(driver),
-    model,
-    "createMany",
-    args
+  return fragmentAtom(
+    constructRoutedOperation(engineFor(driver), model, "createMany", args),
+    "createMany"
   );
-  if (!routed) throw new Error("'createMany' did not route");
-  return routed;
 }
 
 function normalized(value: unknown): unknown {

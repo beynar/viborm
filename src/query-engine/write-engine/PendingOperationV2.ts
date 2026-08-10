@@ -59,12 +59,17 @@ export class PendingOperationV2<T> {
   /**
    * Return this operation's atomic-batch entries plus a `parseResult` closure,
    * consumable by the shared batch protocol (the array-`$transaction` path).
-   * It does not execute them.
+   * It does not execute them. `undefined` is the executor's decline for a form
+   * with no atomic-batch lowering; this fixture holds one fragment atom, which
+   * always has one.
    */
-  async prepareBatch(driver?: AnyDriver): Promise<{
-    readonly queries: readonly Sql[];
-    parseResult(results: readonly QueryResult<unknown>[]): T;
-  }> {
+  async prepareBatch(driver?: AnyDriver): Promise<
+    | {
+        readonly queries: readonly Sql[];
+        parseResult(results: readonly QueryResult<unknown>[]): T;
+      }
+    | undefined
+  > {
     return this.executor.prepareBatch<T>(
       this.operation,
       driver ?? this.engine.driver,

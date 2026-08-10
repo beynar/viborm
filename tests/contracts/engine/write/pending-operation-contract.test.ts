@@ -1,18 +1,17 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { PendingOperationV2 } from "@src/query-engine/write-engine/PendingOperationV2";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   correlatedUpsertArgs,
   updateSliceSchema,
 } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 function engineFor(driver: PGliteDriver) {
   return new QueryEngine(
@@ -82,6 +81,9 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
     const driver = new BatchOnlyPGliteDriver({ client: db });
     const engine = engineFor(driver);
     const prepared = await pendingFor(engine, args).prepareBatch(driver);
+    // `undefined` is the executor's decline for a form with no atomic-batch
+    // lowering; this fixture holds one fragment atom, which always has one.
+    if (!prepared) throw new Error("the composed operation prepared no batch");
 
     // The seam RETURNS the entries; the caller executes them as one batch.
     const queries = prepared.queries.map((statement) =>
