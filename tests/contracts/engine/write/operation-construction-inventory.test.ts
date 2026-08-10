@@ -2577,6 +2577,78 @@ describe("write engine route inventory (P6 accounting)", () => {
   // UnsupportedOperationError`). It answers when a later row moved an earlier row's
   // primary key so the returning arm can no longer address it — the alternative was
   // silently returning fewer rows than the payload created.
+  // PACKAGE H (2026-08-10) — 23 → 20. FOUR SITES DELETED, ONE ADDED, per-site below.
+  //
+  // The four deleted are §1.1-§1.4 of forbidden-shapes-reference.md, the to-one ARITY
+  // guards. Each said "this relation supports one operation/mutation kind"; H's lattice
+  // says a to-one relation supports one COMPOSITION — (vacate?, supplier, modify?) — so
+  // an arity count is no longer the question any of them was asking. They are replaced by
+  // TOTAL dispatches, not by other refusals: `composeToOneEntries` (child-held and
+  // polymorphic-inverse) and `interpretParentHeldComposition` (parent-held) enumerate the
+  // lattice and fall through to a `QueryEngineError`, which is an engine fault (the
+  // schema and the dispatch disagreeing) and therefore NOT a census site — the X1c
+  // precedent Package F used for the junction-target site.
+  //
+  //   · `CreateOperation.interpretParentHeld` (`entries.length !== 1`) and
+  //     `CreateOperation.interpretChildHeld` (`> 1`) — DELETED as refusals, converted in
+  //     place to engine-fault assertions. Under the CREATE root the to-one input owns
+  //     neither `update` nor a vacate key, so the only multi-entry payload the parse can
+  //     deliver is supplier + supplier, which `to-one-mutation-schema.ts` refuses first
+  //     (`parity-h-to-one-lattice` pins that sentence on both directions of this root).
+  //     Neither had a reachable payload before H either — the census recorded them as
+  //     unpinnable for exactly that reason;
+  //   · `RecordUpdateCompiler.interpretRelation`'s parent-held `kinds.length !== 1` —
+  //     DELETED outright, replaced by `interpretParentHeldComposition`;
+  //   · `assertToOneMutationArity` — DELETED outright, replaced by
+  //     `composeToOneEntries`, which owns the ORDER as well as the membership question.
+  //
+  // THE ONE SITE ADDED is inside `composeToOneEntries`: a `create` or `connectOrCreate`
+  // supplier composed with `update`. It is NOT the arity guard renamed. The arity guard
+  // refused a payload for having two kinds; this one accepts the shape as meaningful and
+  // names the engine's missing channel — a selected-record compiler locates its record
+  // with a PLANNING read, planning precedes every write, so a row this fragment is about
+  // to INSERT cannot be read by the step that would address it. `connect` composes with
+  // `update` precisely because its unique selector is an identity that exists before the
+  // first write. When the produced-identity selector channel lands, this site goes.
+  //
+  // THREE SHAPES THE LATTICE ADMITS AND ANOTHER OWNER STILL REFUSES — recorded because a
+  // site census cannot show them and Package O's ledger needs them. All three are
+  // `OwnWriteLedger.assertIndependent` (`NestedWriteError`, not a census site):
+  //   · parent-held `delete` + `connect` — the connect's target read against the delete's
+  //     target write. `delete: true` names the CURRENT member, whose identity is unknown
+  //     at construction, so the analyzer cannot rule out that it is the row the connect
+  //     names; if it were, the root would end pointing at a deleted row;
+  //   · child-held `delete` + supplier + `update` — same overlap, on the modify's read;
+  //   · child-held `create`/`connectOrCreate` + `update` reach the new site above first.
+  //   `disconnect` + `connect` + `update` DOES execute: H moved the composed modify's
+  //   decision read off membership and onto the supplier's selector in `OwnWriteSteps`,
+  //   because that is literally the locator the engine compiles for it — leaving it on
+  //   membership would have named the pair's own sibling vacate as the modify's premise,
+  //   a dependency the compiled plan does not have.
+  //
+  // H GATE (2026-08-10) — measured, and recorded here because none of it is a site.
+  //   · THE COUNT STANDS AT 20 DELIBERATELY. Every shape the lattice admits and the
+  //     engine refuses was re-measured through the public client, one payload each: two
+  //     reach the added site, five reach the own-write ledger. Narrowing them back into
+  //     `to-one-mutation-schema.ts` was considered and REJECTED. For the five, the ledger
+  //     already owns the invariant and a schema copy would have no coverage of its own —
+  //     the house rule forbids a second owner. For the two, the added site's sentence
+  //     names the obstacle and expires with it, while the schema's sentence would list
+  //     kinds and read like the arity guard H just deleted. A coherent shape refused by a
+  //     census-tracked engine site is this estate's normal way of carrying a limitation;
+  //     a shape refused by the lattice means "this can never be meaningful".
+  //   · ONE INVARIANT, TWO WRITERS: `composeToOneEntries` decides which payloads compose,
+  //     and `OwnWriteRelation`'s `resolveComposedSupplierSelector` re-derives the same
+  //     rule so the analyzer's decision read matches the compiled locator. They agree by
+  //     construction today and nothing enforces it; widening one without the other makes
+  //     the analyzer report a dependency the plan does not have. Both docblocks say so.
+  //   · A BRANCH WITH NO REACHABLE PAYLOAD: `interpretParentHeldDelete`'s `rebound` arm
+  //     takes `delete` beside any of the three suppliers, but `delete` + `connectOrCreate`
+  //     is lattice-refused and `delete` + `connect` is ledger-refused, so `create` is the
+  //     only supplier that reaches it — and a create's assignment is always a before-root
+  //     INSERT reference. The `connect` spelling, whose assignment can instead be a lookup
+  //     SUBQUERY, is unexercised. If the ledger's `delete`-target-write refusal is ever
+  //     narrowed, this elision goes live on a value shape no witness covers.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -2587,7 +2659,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(23);
+    expect(sites).toBe(20);
   });
 });
 

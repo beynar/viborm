@@ -429,6 +429,18 @@ function runSuite(
     // not parity — the collision is this seam's alone. Lifting it needs the fold and
     // the incoming reparent reconciled in ONE owner (per-column precedence with a
     // refusal when they disagree); that is carried forward as a Package D case.
+    //
+    // PACKAGE H — THE SAME CLASS, SECOND INSTANCE, and now with a precedent to point at.
+    // H3's parent-held composition is the same shape of problem: a vacate and a supplier
+    // both assign the edge's foreign-key columns in one root UPDATE, and before H the
+    // winner was whichever assignment `Object.assign(parentSet, link.assignment)` applied
+    // last. `interpretParentHeldComposition` answers it with PER-COLUMN PRECEDENCE
+    // decided before the SET is assembled — the supplier owns the column, so the vacate
+    // contributes no assignment at all — which is exactly the mechanism this carve-out is
+    // waiting for, minus the "refuse when they disagree" half (H's two writers cannot
+    // disagree; a replacement has one meaning). What the seam above still needs is that
+    // half: the incoming reparent and a nested fold CAN name different rows, and no owner
+    // decides between them. ONE ledger row covers both instances for Package O.
     // -----------------------------------------------------------------------
 
     const PARENT_HELD =

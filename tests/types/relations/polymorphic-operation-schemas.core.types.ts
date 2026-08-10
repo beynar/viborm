@@ -639,14 +639,26 @@ const ordinaryToOneOperationCompatibility = () => {
     data: { child: replacement },
   });
 
-  const contradictory = {
+  // LATTICE CHANGE (Package H): supply-then-modify. A child-held `connect` beside an
+  // `update` names one target and then modifies it, so this is now an accepted
+  // composition rather than two contradictory operations. Two SUPPLIERS still are.
+  const supplyThenModify = {
     connect: { id: "child-1" },
     update: { id: "child-2" },
   } as const;
   ordinaryInverseClient.ordinaryOptionalParent.update({
     where: { id: "parent-1" },
+    data: { child: supplyThenModify },
+  });
+
+  const contradictory = {
+    connect: { id: "child-1" },
+    create: { id: "child-2" },
+  } as const;
+  ordinaryInverseClient.ordinaryOptionalParent.update({
+    where: { id: "parent-1" },
     data: {
-      // @ts-expect-error - a to-one payload cannot carry two active operations
+      // @ts-expect-error - a to-one payload cannot name two suppliers for one slot
       child: contradictory,
     },
   });

@@ -54,6 +54,16 @@ export class OwnWriteRelation {
   readonly membershipOrientation: MembershipReadOrientation;
   readonly checkpoint: number;
   readonly steps: OwnWriteSteps;
+  /**
+   * H3 — the unique selector of a `connect` this to-one payload composes with an
+   * `update`. When it is present the modify does NOT read membership: the engine
+   * locates the supplied row by exactly this selector, because correlating would
+   * address the OUTGOING member (`RecordUpdateCompiler.interpretInverseToOneComposition`).
+   * Keeping the analyzer's decision read on membership after H would report a
+   * dependency the compiled plan does not have — a `disconnect` beside the pair would
+   * be named as the update's premise while the update never asks about membership.
+   */
+  readonly composedSupplierSelector: Record<string, unknown> | undefined;
 
   private constructor(
     node: OwnWriteNode,
@@ -73,6 +83,10 @@ export class OwnWriteRelation {
     this.membershipScope = membershipScope;
     this.membershipOrientation = getMembershipReadOrientation(boundRelation);
     this.checkpoint = ledger.checkpoint();
+    this.composedSupplierSelector = resolveComposedSupplierSelector(
+      boundRelation,
+      program
+    );
     this.steps = new OwnWriteSteps(this);
   }
 
@@ -332,4 +346,39 @@ export class OwnWriteRelation {
       targetConstraint
     );
   }
+}
+
+/**
+ * H3 — is this to-one payload a composed `connect` + `update`? The engine's own
+ * composition owner (`composeToOneEntries`, in `RecordUpdateCompiler.ts`) admits a
+ * supplier beside a modify only when the supplier is a `connect`, because its unique
+ * selector is the one identity that exists before the fragment's first write; the
+ * analyzer answers the same question the same way so the two cannot disagree about what
+ * the modify reads.
+ *
+ * That agreement is asserted, not enforced — this predicate re-derives the rule rather
+ * than consuming the compiler's answer, because the analyzer runs on the PROGRAM and the
+ * composition is decided during compilation. So the two are one invariant with two
+ * writers: widening the engine's composition without widening this predicate leaves the
+ * analyzer deciding on membership while the plan locates by an identity, which reports a
+ * dependency the plan does not have (or misses one it does). Both sites move together.
+ */
+function resolveComposedSupplierSelector(
+  boundRelation: BoundRelation,
+  program: RelationMutationProgram
+): Record<string, unknown> | undefined {
+  if (
+    boundRelation.kind !== "childHeldToOne" &&
+    boundRelation.kind !== "polymorphicChildHeldToOne" &&
+    boundRelation.kind !== "parentHeldToOne"
+  ) {
+    return undefined;
+  }
+  if (!program.entries.some((entry) => entry.kind === "update")) {
+    return undefined;
+  }
+  for (const entry of program.entries) {
+    if (entry.kind === "connect") return entry.targets[0];
+  }
+  return undefined;
 }

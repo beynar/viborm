@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-05
 **Re-anchored:** 2026-08-09, against the tree at the limitation-lift plan commit.
-**Scope:** the 30 refusals standing after PR #20, MINUS the 9 the final re-audit re-filed as expressible work, MINUS the 2 that Package B of the limitation lift deleted, MINUS the 1 that Package F deleted (2026-08-10; see "What has been DELIVERED since"). What remains is **20 shapes**, each with the payload that raises it and the reason it stands.
+**Scope:** the 30 refusals standing after PR #20, MINUS the 9 the final re-audit re-filed as expressible work, MINUS the 2 that Package B of the limitation lift deleted, MINUS the 1 that Package F deleted, MINUS the 4 of §1 that Package H delivered (2026-08-10; see "What has been DELIVERED since"). What remains is **16 shapes**, each with the payload that raises it and the reason it stands.
 
 Every refusal below is an `UnsupportedOperationError` raised at CONSTRUCTION — before any statement runs, so nothing is written. Each has a committed witness in `tests/contracts/engine/write/`. The examples are derived from the refusal conditions in code, the re-audit's per-site arguments, and those witnesses; they show the SHAPE, not a runnable fixture.
 
@@ -48,8 +48,9 @@ since the original writing, and neither changes a shape:
 
 The executable census owner is
 `tests/contracts/engine/write/operation-construction-inventory.test.ts`; it pins
-22 `new UnsupportedOperationError` sites under `src/query-engine/write-engine`
-(2026-08-10, after Packages B, C, D, G and F). Sites are positions, not shapes, and
+20 `new UnsupportedOperationError` sites under `src/query-engine/write-engine`
+(2026-08-10, after Packages B, C, D, G, F, J and H — J added one, H removed four and
+added one). Sites are positions, not shapes, and
 the mapping between the two is what that census test's narrative owns — including
 the one site Package F ADDED that is deliberately not a shape here (an atomic-batch
 substrate cannot publish a produced column) and the one it removed.
@@ -84,11 +85,21 @@ const user = s.model({
 
 ---
 
-## 1. Two intents for one to-one slot (4)
+## 1. Two intents for one to-one slot (4) — **ALL FOUR DELIVERED BY PACKAGE H (2026-08-10)**
 
-A to-one slot holds exactly one row. Two identity-supplying kinds are two intents, and no ordering makes them one.
+A to-one slot holds exactly one row. Two identity-supplying kinds are two intents, and no ordering makes them one. **That premise survives; the four sites below do not.** Package H replaced "how many kinds" with "which composition": a to-one relation accepts `(vacate?, supplier, modify?)`, and `composeToOneEntries` (child-held and polymorphic-inverse) plus `interpretParentHeldComposition` (parent-held) enumerate that lattice TOTALLY. Two suppliers are still two intents and are still refused — by `to-one-mutation-schema.ts`, the lattice's single owner, before any of this code runs.
 
-**1.1 — parent-held to-one under `create`** · `CreateOperation.ts:1378`
+Each entry below is kept with its original text and a **delivered** note, because a coordinate that vanishes teaches nothing. The census moved 23 → 20: four `UnsupportedOperationError` sites removed, one added.
+
+**What the four became.** `CreateOperation`'s two lines survive as `QueryEngineError` assertions in place — under the CREATE root the to-one input owns neither `update` nor a vacate key, so their only multi-entry payload is supplier + supplier and the schema answers first; reaching them means the schema and the dispatch disagree, which is an engine fault, not a declined shape. `RecordUpdateCompiler`'s two are deleted outright.
+
+**The one site added,** and it is a different claim: `create` or `connectOrCreate` composed with `update` is refused because a selected-record compiler locates its record with a PLANNING read, planning precedes every write, and those two suppliers only produce the row's identity by inserting it. `connect` composes, because a unique selector is an identity that exists before the fragment's first write. The site names that obstacle, so it stays truthful until the produced-identity selector channel lands.
+
+**Three shapes the lattice admits and `OwnWriteLedger` still refuses** (a `NestedWriteError`, not a census site): parent-held `delete` + `connect`, and child-held `delete` + supplier + `update`, both because `delete: true` names the CURRENT member — an identity unknown at construction — so the analyzer cannot rule out that it is the very row the sibling reads.
+
+Witnesses: `parity-h-to-one-lattice.test.ts` (plans, refusal sentences, census), `vacate-then-supply.test.ts` (all 21 pairs and all 6 triples by OWNER, plus the parent-held direction's state), `shared-pk-supply-modify.test.ts` (the shared-key fold through a composition).
+
+**1.1 — parent-held to-one under `create`** · was `CreateOperation.interpretParentHeld` — **DELIVERED (H): now a `QueryEngineError` engine-fault assertion in place**
 
 ```ts
 client.user.create({
@@ -102,7 +113,7 @@ client.user.create({
 
 The site is still spelled `!== 1`, so it reads as if it also refused **zero** kinds (`profile: {}`). It does not, and the parity question this note used to carry is settled: `buildRelationMutationProgram` returns `undefined` for a payload with no active kind (`builders/relation-mutation-parser.ts:309`) and `buildParsedRelationPrograms` records no program for it (`:354`), so an empty to-one payload is Prisma's measured no-op in BOTH directions and reaches no record compiler at all. The `!== 1` and its `|| "none"` message tail are unreachable spelling; the child-held twin already counts `> 1`.
 
-**1.2 — child-held/inverse to-one under `create`** · `CreateOperation.ts:1687`
+**1.2 — child-held/inverse to-one under `create`** · was `CreateOperation.interpretChildHeld` — **DELIVERED (H): now a `QueryEngineError` engine-fault assertion in place**
 
 ```ts
 client.user.create({
@@ -112,7 +123,7 @@ client.user.create({
 
 Newly forbidden in PR #20 (D5). Before the fix this ran **both** kinds and put two rows in a to-one slot.
 
-**1.3 — parent-held to-one under `update`** · `RecordUpdateCompiler.ts:1253`
+**1.3 — parent-held to-one under `update`** · was `RecordUpdateCompiler.interpretRelation`'s `kinds.length !== 1` — **DELIVERED (H): deleted; `interpretParentHeldComposition` accepts the five replacements and `connect` + `update`**
 
 ```ts
 client.user.update({
@@ -123,7 +134,9 @@ client.user.update({
 
 The vacate-then-supply pairs E6.5 absorbed apply to the **child-held** direction only. Here `delete`'s FK-null lands in the post-root bucket *after* the supplier's rebind has been folded into the root SET, so the pair would orphan the supplied row. Measured, not assumed.
 
-**1.4 — child-held to-one under `update`, supplier × supplier** · `RecordUpdateCompiler.ts:4116` (`assertToOneMutationArity`, reached from the inverse dispatches at `:1296` and `:1437`)
+**Delivered by H/R2.** The orphan was an ORDERING fact, and the ordering is now owned: when a sibling supplier rebinds the edge's foreign-key columns, the vacate contributes no assignment at all (per-column precedence, decided before the root SET is assembled — replacing an `Object.assign` order accident) and the FK-null UPDATE is not emitted. The correlated DELETE stays and still addresses the OLD value, inlined at compile from the located row. `delete` + `connect` on this direction is the one replacement that does not execute, and its owner is the own-write ledger, not this site.
+
+**1.4 — child-held to-one under `update`, supplier × supplier** · was `assertToOneMutationArity` — **DELIVERED (H): deleted; `composeToOneEntries` owns the order and the membership question. The supplier × supplier shape below stays refused, by the LATTICE.**
 
 ```ts
 client.user.update({

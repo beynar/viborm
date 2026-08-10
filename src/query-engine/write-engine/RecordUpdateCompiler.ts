@@ -138,6 +138,7 @@ import {
   sameScalarValue,
   selectExecutionMode,
   UnsupportedOperationError,
+  uniqueSelectorConjuncts,
 } from "./shared";
 import {
   buildTargetProjection,
@@ -313,7 +314,18 @@ type ParentHeldTarget =
       readonly kind: "delete";
       readonly relation: ParentHeldToOne;
       readonly childScope: QueryScope;
-      readonly nullWriteId: string;
+      /**
+       * H3/R2 — ABSENT when a sibling supplier in the same payload rebinds every one
+       * of this edge's foreign-key columns. The vacate's whole parent-side effect is
+       * to make the slot empty; a supplier that assigns the same columns in the same
+       * root UPDATE already makes the FINAL assignment non-null, so a second UPDATE
+       * that nulls them can only undo the supplier (measured at 8c2908d: the fresh row
+       * is inserted and then orphaned). Eliding it is the composition, not an
+       * optimization — and a true no-op allocates no step id, so the id is not burned
+       * either. The correlated DELETE below is unaffected: it addresses the OLD
+       * foreign-key value, inlined at compile from the located parent row.
+       */
+      readonly nullWriteId?: string;
       readonly deleteWriteId: string;
       readonly correlation: ParentHeldCorrelation;
     }
@@ -391,6 +403,24 @@ interface ParentHeldCorrelation {
   readonly parentFkFields: readonly string[];
   /** parentFkField → its rebound literal, when the same root update rewrites it. */
   readonly override: Record<string, unknown>;
+  /**
+   * H3/R2 — the SUPPLIER's own selector, present only when this arm's payload also
+   * carries the supplier that rebinds the edge in the same root UPDATE (parent-held
+   * `connect` + `update`). It REPLACES the foreign-key correlation: the modify must
+   * address the INCOMING member, and the parent's foreign-key column still holds the
+   * outgoing one everywhere this correlation is read (the locate row at planning, the
+   * same row's literal at compile — the root UPDATE that rebinds it has not run).
+   *
+   * MEASURED, and it is why the obvious spelling is not used: reading the supplier's
+   * folded assignment back out ({@link RecordUpdateCompilerState.toOneFkAssign}) cannot
+   * work — every one of those values is an `Sql` produced by {@link referenceSql}, and
+   * {@link classifyRelationKeyScalarUpdate} answers `resolved: false` for `isSql`, so an
+   * assignment-reading override would come back EMPTY and the modify would silently
+   * correlate on the OLD foreign key. The selector is the one spelling of the incoming
+   * member that is a construction literal in both directions, including the
+   * non-referenced-unique `connect` whose assignment is only ever a lookup subquery.
+   */
+  readonly suppliedFilters?: readonly Record<string, unknown>[];
 }
 
 /**
@@ -1315,31 +1345,17 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // A parent-held FK is a same-row change. `connect`/`disconnect` fold their
       // (construction-known) FK literal into the root SET; `create`/`connectOrCreate`
       // write the target before the root UPDATE and reference its identity from the
-      // UPDATE's SET. Only one kind is valid per to-one relation.
+      // UPDATE's SET.
       //
-      // E6.5 RE-JUSTIFIED, MEASURED. The vacate+supply pairs the inverse-side twin
-      // below absorbs do NOT compose here, and the reason is this direction's own
-      // write shape rather than the payload. `delete` is not one write but two — an
-      // UPDATE that NULLs the parent's own foreign key and a correlated DELETE of the
-      // old target — and the FK-null lands in the post-root write bucket, AFTER the
-      // supplier's rebind has already been folded into the root SET. Driving
-      // `{ delete: true, create: {...} }` through with only this guard lifted was
-      // measured at 8c2908d: the fresh row is inserted and then ORPHANED —
-      // `station.depotId = null`, `depots = [d-alt, d-new]` — the supplier's whole
-      // point undone by the vacate that was supposed to precede it. Making the pair
-      // mean what it says here is an ORDERING change (elide the FK-null when a
-      // sibling supplier rebinds the same column in the same payload), not a lifted
-      // guard, so the guard stays and the pair stays refused. `disconnect` + a
-      // supplier measured CORRECT in the same run, but only because both spellings
-      // collide on one key of the root SET and the later one wins by object-assign
-      // order — an implicit contract with no test of its own; absorbing it means
-      // owning that ordering deliberately, which is the same unit.
-      if (kinds.length !== 1) {
-        throw new UnsupportedOperationError(
-          `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ") || "none"}.`
-        );
-      }
-      this.interpretParentHeldToOne(input, relation, entries[0]!);
+      // H3/R2 — this dispatch is now TOTAL over the parent-held half of the to-one
+      // composition lattice, not one arm behind an arity refusal. What E6.5 measured at
+      // 8c2908d and declined to own is exactly what {@link interpretParentHeldComposition}
+      // now owns: the FK-null of a `delete` is elided when a sibling supplier rebinds the
+      // same columns (without the elision the fresh row was inserted and then ORPHANED —
+      // `station.depotId = null`, `depots = [d-alt, d-new]`), and `disconnect` + supplier
+      // no longer depends on which of two spellings object-assign order happened to leave
+      // last in the root SET: the supplier is the only writer of those columns and says so.
+      this.interpretParentHeldComposition(input, relation, entries);
       return;
     }
 
@@ -1358,27 +1374,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // The parent exists, so no fresh-parent elision: every probe reads committed
     // state, exactly as the to-many family already does under update.
     const isInverseToOne = relation.kind === "childHeldToOne";
-    // The twin of the parent-held gate above, on the dispatch that reaches the child-held
-    // direction: a to-one slot holds ONE row, so two kinds name two intents for one slot.
-    // Its unique coverage is this DISPATCH position (with `CreateOperation`'s
-    // `interpretChildHeld`); the census's to-one two-kinds family covers only the ARM
-    // positions. Without it the per-kind loop below built every arm, and the outcome
-    // depended on whether the child's foreign key carried a unique — a database
-    // `UniqueConstraintError` on a 1:1 leg, TWO ROWS in the to-one slot and no diagnostic
-    // at all on a fields-less `manyToOne` inverse, whose FK is not unique.
-    //
-    // E6.5 — except for a VACATE followed by a SUPPLY ({@link isVacateThenSupply}),
-    // which is the one two-kind shape that leaves the slot holding exactly ONE row.
-    // Two kinds, but ONE identity: the vacate names the row that is there now, the
-    // supplier names the row that will be. On this direction they touch DIFFERENT rows
-    // of the child table (the incumbent's foreign key, then the newcomer's), so the
-    // per-kind loop's `RELATION_MUTATION_KEYS` order is the whole mechanism — nothing
-    // is folded into a shared SET and no ordering has to be invented. Measured at
-    // 8c2908d over all six pairs: the incumbent ends orphaned under `disconnect` and
-    // GONE under `delete`, the supplied row ends connected, and the untouched decoy
-    // stays untouched. (`delete` + `connectOrCreate` is refused one layer up, by the
-    // own-write legality walk, and keeps that refusal.)
-    if (isInverseToOne) assertToOneMutationArity(relationName, kinds);
     // Compound foreign keys are per-field (ATOM “Field-bound foreign-key provenance”): every referenced parent
     // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
     // to the locate read's select/outputs so a per-field child part reads or refs
@@ -1451,20 +1446,20 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // deleteMany }`, `{ update, updateMany }`, …). Each present kind contributes
     // its own Part(s); they compose into the one linear fragment in a stable,
     // V1-mirroring order (link/adopt, then removals, then updates).
+    if (isInverseToOne) {
+      this.interpretInverseToOneComposition({
+        entries,
+        relation,
+        childScope,
+        childName,
+        writeBase,
+        input,
+        keyTransition,
+        adopt,
+      });
+      return;
+    }
     for (const entry of entries) {
-      if (isInverseToOne) {
-        this.interpretInverseToOneKind({
-          entry,
-          relation,
-          childScope,
-          childName,
-          writeBase,
-          input,
-          keyTransition,
-          adopt,
-        });
-        continue;
-      }
       // T3b-2 (family E): a nested `create`/`createMany` under the update root on a
       // child-held to-many. The located parent's FK is a construction-time literal
       // (the referenced column pinned by the unique `where`, or rewritten by the root
@@ -1499,8 +1494,16 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   ): void {
     const relationName = relation.relationInfo.name;
     const isInverseToOne = relation.kind === "polymorphicChildHeldToOne";
-    const kinds = entries.map((entry) => entry.kind);
-    if (isInverseToOne) assertToOneMutationArity(relationName, kinds);
+    // H3 — the fixed inverse topology takes the SAME composition as the ordinary
+    // child-held to-one: it is the same lattice owner (`to-one-mutation-schema.ts` via
+    // the polymorphic relation input), the same `buildToOneUpdatePart` leaf, and the same
+    // reason a composed modify cannot correlate. The discriminator is a qualifier of the
+    // MEMBERSHIP key, never of the target's row key, so the supplied selector locates the
+    // incoming row here exactly as it does there.
+    const composition = isInverseToOne
+      ? composeToOneEntries(relationName, entries)
+      : { entries };
+    const composed = composition.entries;
     const childScope = createQueryScope(
       this.engine.adapter,
       relation.relationInfo.targetModel
@@ -1543,11 +1546,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         }),
       ]);
     };
-    const needsTargetIdentity = entries.some(
+    const needsTargetIdentity = composed.some(
       (entry) => entry.kind !== "create" && entry.kind !== "createMany"
     );
     if (!needsTargetIdentity) {
-      for (const entry of entries) {
+      for (const entry of composed) {
         if (entry.kind === "create" || entry.kind === "createMany") {
           pushFresh(entry);
         }
@@ -1574,7 +1577,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       recordCompilers: this.recordCompilers,
     } as const;
 
-    for (const entry of entries) {
+    for (const entry of composed) {
       // biome-ignore lint/style/useDefaultSwitchClause: RelationMutationEntry is exhaustively discriminated.
       switch (entry.kind) {
         case "create":
@@ -1655,7 +1658,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         case "update":
           push(
             isInverseToOne
-              ? [buildToOneUpdatePart(writeBase, entry)]
+              ? [
+                  buildToOneUpdatePart(
+                    writeBase,
+                    entry,
+                    entry === composition.modify
+                      ? composition.suppliedWhere
+                      : undefined
+                  ),
+                ]
               : buildToManyUpdateParts(writeBase, entry)
           );
           break;
@@ -2259,9 +2270,67 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /**
-   * Compile one child-held to-one mutation. This is the arity-one child-held
-   * family: correlation is the locator, and the parse boundary limits the dispatch
-   * to create/connect/connectOrCreate/update/upsert plus optional disconnect/delete.
+   * H3 — compose the child-held half of the to-one lattice. THE RELATION OWNER, not
+   * `RELATION_MUTATION_KEYS`, decides the order: vacate the prior member, supply the
+   * new one, then modify it. Before H the accepted pairs were correct only because
+   * that constant happened to list `disconnect`/`delete` ahead of the suppliers —
+   * `isVacateThenSupply` read `kinds[0]`/`kinds[1]` POSITIONALLY, which
+   * `parity-h-to-one-lattice` falsified by reordering the constant and turning all five
+   * pairs red. The order is now stated here and the constant decides nothing.
+   *
+   * THE MODIFY'S LOCATOR is the composition's whole difficulty. A lone `update` on this
+   * direction is located by correlation alone (`WHERE fk = parent`), and correlation at
+   * PLANNING time — before any write — names the OUTGOING member, or nothing at all on
+   * an empty slot. So a modify composed with a supplier is located by the SUPPLIER's
+   * identity instead ({@link buildToOneUpdatePart}'s `suppliedWhere`), which is what
+   * §6 H3 steps 3-4 ("capture or publish the supplied target's complete identity, then
+   * pass that identity to `RecordUpdateCompiler`") mean on this direction.
+   *
+   * `connect` is the supplier that HAS such an identity at construction: its unique
+   * selector. `create` has none — its row does not exist when every probe runs — and
+   * `connectOrCreate`'s missing arm is the same row. Those two are refused below, at
+   * their own site and with their own sentence, rather than composed wrongly.
+   */
+  private interpretInverseToOneComposition(args: {
+    entries: readonly RelationMutationEntry[];
+    relation: ChildHeldToOne;
+    childScope: QueryScope;
+    childName: string;
+    writeBase: Parameters<typeof buildToManyUpdateParts>[0];
+    input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
+    keyTransition: ReturnType<
+      RecordUpdateCompilerState["interpretReferencedKeyTransition"]
+    >;
+    adopt?: PostTransitionAdopt;
+  }): void {
+    const { relation, writeBase, input } = args;
+    const composition = composeToOneEntries(
+      relation.relationInfo.name,
+      args.entries
+    );
+    for (const entry of composition.entries) {
+      if (
+        entry.kind === "update" &&
+        entry === composition.modify &&
+        composition.suppliedWhere
+      ) {
+        input.childParts.push(
+          buildToOneUpdatePart(writeBase, entry, composition.suppliedWhere)
+        );
+        continue;
+      }
+      this.interpretInverseToOneKind({ ...args, entry });
+    }
+  }
+
+  /**
+   * Compile ONE child-held to-one entry, at the position
+   * {@link RecordUpdateCompilerState.interpretInverseToOneComposition} gives it. Every
+   * arm here addresses the slot's current member, so correlation is the locator; the one
+   * entry that may address a different row — a modify composed with a supplier — is
+   * built by the composition owner instead and never reaches this dispatch. The parse
+   * boundary limits it to create/connect/connectOrCreate/update/upsert plus optional
+   * disconnect/delete.
    */
   private interpretInverseToOneKind(args: {
     entry: RelationMutationEntry;
@@ -2718,6 +2787,90 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     );
   }
 
+  /**
+   * H3 — compose the parent-held half of the to-one lattice: at most one intent, the
+   * five replacements (a vacate beside a supplier), and `connect` + `update`. The
+   * relation owner decides the composition; `RELATION_MUTATION_KEYS`'s order decides
+   * nothing here, which is the coupling §6 H3 removes.
+   *
+   * PER-COLUMN FINAL ASSIGNMENT, decided here rather than at assembly. A parent-held
+   * vacate and a parent-held supplier write the SAME foreign-key columns of the SAME
+   * root UPDATE, so the pair has one final value per column and the supplier owns it —
+   * the payload asks for a REPLACEMENT, and "replace" is what a non-null final
+   * assignment means. Before H that value was whichever assignment
+   * `Object.assign(parentSet, link.assignment)` happened to apply last
+   * ({@link RecordUpdateCompilerState} constructor), an accident of `toOneLinks` order
+   * with no test of its own. Now the vacate contributes no assignment at all when a
+   * supplier is present, so the constructor's fold never sees two writers for one
+   * column and the outcome does not depend on its order.
+   *
+   * Two consequences follow from the same fact and are spelled at their own sites:
+   * {@link interpretParentHeldDelete} elides the FK-null UPDATE (its correlated DELETE
+   * still addresses the OLD value), and `assertRelationCanDisconnect` is not consulted
+   * — it answers "may this slot become EMPTY", and a replaced slot never does.
+   */
+  private interpretParentHeldComposition(
+    input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
+    relation: ParentHeldToOne,
+    entries: readonly RelationMutationEntry[]
+  ): void {
+    const relationName = relation.relationInfo.name;
+    if (entries.length === 1) {
+      this.interpretParentHeldToOne(input, relation, entries[0]!);
+      return;
+    }
+    const vacate = entries.find(
+      (entry) => entry.kind === "disconnect" || entry.kind === "delete"
+    );
+    const supplier = entries.find(
+      (entry) =>
+        entry.kind === "connect" ||
+        entry.kind === "create" ||
+        entry.kind === "connectOrCreate"
+    );
+    const modify = entries.find((entry) => entry.kind === "update");
+    if (entries.length === 2 && supplier && vacate) {
+      // The supplier is interpreted FIRST so its assignment is the only one on the
+      // edge's columns, whichever key the payload spelled first. It goes through the
+      // ordinary single-intent dispatch: a supplier means the same thing composed as it
+      // does alone, and a second spelling of those three arms would be a second owner.
+      this.interpretParentHeldToOne(input, relation, supplier);
+      if (vacate.kind === "delete") {
+        input.parentHeldTargets.push(
+          this.interpretParentHeldDelete(input, relation, true)
+        );
+      }
+      // `disconnect` beside a supplier contributes NOTHING: its whole parent-side
+      // effect is the null assignment the supplier just replaced, and it owns no
+      // target write to keep (unlike `delete`).
+      return;
+    }
+    if (entries.length === 2 && supplier?.kind === "connect" && modify) {
+      // The supplier's selector is read BEFORE it is interpreted, from the one accessor
+      // that answers the question, so the composed modify cannot silently fall back to
+      // FK correlation (which addresses the OUTGOING member) if the parse ever hands
+      // this dispatch a target-less `connect`.
+      const suppliedWhere = requireToOneConnectTarget(supplier, relationName);
+      this.interpretParentHeldToOne(input, relation, supplier);
+      const compiled = this.interpretParentHeldUpdate(
+        input,
+        relation,
+        parentHeldUpdateTarget(modify, relationName),
+        suppliedWhere
+      );
+      if (compiled) input.parentHeldTargets.push(compiled);
+      return;
+    }
+    // Unreachable by construction: `to-one-mutation-schema.ts` is the lattice's owner
+    // and admits, on this direction, exactly one intent, the five replacements, and
+    // `connect` + `update` — every one of which is answered above. Reaching here means
+    // the schema and this dispatch disagree about what a parent-held to-one payload can
+    // be, which is an engine fault and not a shape we decline (the X1c precedent).
+    throw new QueryEngineError(
+      `query-engine-v2 internal: an uncomposable parent-held to-one payload reached the update dispatch on relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
+    );
+  }
+
   /** Compile one parent-held to-one mutation at its required position. */
   private interpretParentHeldToOne(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
@@ -2742,27 +2895,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         );
         return;
       case "update": {
-        // W4-U3: the to-one `update` payload reaches here as the relation schema's
-        // canonical envelope — bare data and Prisma's `{ where?, data }` wrapper are
-        // told apart ONCE, at the parse, off the user's own payload (a schema output
-        // rewrites scalar shorthands and is not a faithful witness of the form). The
-        // wrapper's `where` is a NON-unique filter on the currently connected record;
-        // it rides the locate, never the write. The bare form yields no filter and is
-        // byte-identical to pre-W4-U3.
-        const item = entry.items[0];
-        if (!(item && item.target.kind === "correlated")) {
-          throw new QueryEngineError(
-            `query-engine-v2 internal: parent-held to-one update on relation '${relationName}' requires one correlated target.`
-          );
-        }
-        const target: ToOneUpdateTarget = {
-          data: item.data,
-          ...(item.target.filter ? { filter: item.target.filter } : {}),
-        };
         const compiled = this.interpretParentHeldUpdate(
           input,
           relation,
-          target
+          parentHeldUpdateTarget(entry, relationName)
         );
         if (compiled) input.parentHeldTargets.push(compiled);
         return;
@@ -2797,6 +2933,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    * A column the same root update rebinds resolves to a construction-time literal;
    * an untouched column reads the located parent row.
    *
+   * H3 — that is the locator for an arm that addresses the slot's CURRENT member. A
+   * composed arm addresses a different row and says so through `suppliedTarget`, whose
+   * branch below replaces the FK correlation entirely rather than refining it. The
+   * elided `delete` is the other exception and the opposite one: it keeps this
+   * correlation deliberately on the OLD foreign key, because its `override` reads
+   * `rootScalarData`, which a sibling supplier's rebind never enters, so what the
+   * DELETE inlines is the located row's pre-update value.
+   *
    * E1 U6 — the referenced column need not be the child's PRIMARY key. The two jobs
    * this ledger does are separate and were conflated: the CORRELATION is
    * `child.<referenced> = <finalFk>`, which any single referenced column answers,
@@ -2819,9 +2963,24 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private parentHeldCorrelation(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne
+    relation: ParentHeldToOne,
+    suppliedTarget?: Record<string, unknown>
   ): ParentHeldCorrelation {
     const { foreignFields, referencedFields } = relation;
+    if (suppliedTarget) {
+      // H3/R2 — the incoming member is named by the supplier's own unique selector, so
+      // this arm reads none of the parent's foreign-key columns: adding them to the
+      // locate would publish a value nothing consumes.
+      return {
+        childReferencedFields: referencedFields,
+        parentFkFields: foreignFields,
+        override: {},
+        suppliedFilters: uniqueSelectorConjuncts(
+          { model: relation.relationInfo.targetModel },
+          suppliedTarget
+        ),
+      };
+    }
     // Every parent FK column must be a firstRowField output of the locate read so
     // the untouched-column path can ref/read it. Held in the parent-FK set (NOT
     // `locateFields`): these are the parent's own columns, not child-referenced, so
@@ -2840,7 +2999,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private interpretParentHeldUpdate(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: ParentHeldToOne,
-    target: ToOneUpdateTarget
+    target: ToOneUpdateTarget,
+    /** H3/R2 — the sibling supplier's selector, when this modify composes with one. */
+    suppliedTarget?: Record<string, unknown>
   ): ParentHeldTarget | undefined {
     const { relationInfo } = relation;
     const relationName = relationInfo.name;
@@ -2848,7 +3009,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       this.engine.adapter,
       relationInfo.targetModel
     );
-    const correlation = this.parentHeldCorrelation(input, relation);
+    const correlation = this.parentHeldCorrelation(
+      input,
+      relation,
+      suppliedTarget
+    );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
     const childUpdate = buildParsedRelationPrograms(childScope, target.data);
     assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
@@ -2923,12 +3088,19 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  is Prisma's no-op, dropped from the kind list (N7-U-B). */
   private interpretParentHeldDelete(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne
+    relation: ParentHeldToOne,
+    /**
+     * H3/R2 — a sibling supplier rebinds this edge's foreign-key columns in the same
+     * root UPDATE, so the slot's FINAL assignment is that supplier's value.
+     */
+    rebound = false
   ): ParentHeldTarget {
     const { relationInfo } = relation;
     const relationName = relationInfo.name;
     // A required (non-nullable) FK cannot be nulled — V1's verbatim typed rejection.
-    assertRelationCanDisconnect(relation);
+    // It answers "may this slot become EMPTY", so a rebound edge is not its question:
+    // the pair is a replacement and the column ends holding the supplier's value.
+    if (!rebound) assertRelationCanDisconnect(relation);
     const childScope = createQueryScope(
       this.engine.adapter,
       relationInfo.targetModel
@@ -2939,7 +3111,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       kind: "delete",
       relation,
       childScope,
-      nullWriteId: input.scope.allocate("parent.fknull"),
+      ...(rebound
+        ? {}
+        : { nullWriteId: input.scope.allocate("parent.fknull") }),
       deleteWriteId: input.scope.allocate(`${childName}.delete`),
       correlation,
     };
@@ -3072,6 +3246,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     known: Readonly<Record<string, unknown>> | undefined,
     useRef: boolean
   ): Record<string, unknown>[] {
+    // H3/R2 — a composed supplier names the INCOMING member itself. Correlating on the
+    // parent's foreign-key column here would address the OUTGOING one: the column still
+    // holds the old value at planning (the root UPDATE has not run) and at compile (the
+    // located row is what is inlined).
+    if (correlation.suppliedFilters) return [...correlation.suppliedFilters];
     return correlation.childReferencedFields.map((childField, index) => {
       const fkField = correlation.parentFkFields[index]!;
       if (Object.hasOwn(correlation.override, fkField)) {
@@ -3312,9 +3491,18 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *   · a root SET that spells the same row-key member the arm folds. Two writers, one
    *     column — the arm would win the SET by assignment order and the scalar value
    *     would vanish without a word. This conjunct compares the arm against the ROOT
-   *     SET only; two ARMS over one row-key member is not reachable here (two
-   *     parent-held edges declaring the same foreign field do not survive the
-   *     migrator's duplicate constraint), the same inherited limit
+   *     SET only; two ARMS over one row-key member is not reachable here. H made ONE
+   *     relation carrying two entries reachable, so that unreachability now rests on
+   *     two facts rather than on the old one-entry dispatch: WITHIN a relation, only a
+   *     SUPPLIER folds ({@link SHARED_KEY_FOLD_KINDS}) and the lattice admits at most
+   *     one of them per relation in both directions, while the two entries that may now
+   *     sit beside it write this edge's columns not at all — a parent-held `update`
+   *     addresses the target row and assigns no foreign key, and a vacate composed with
+   *     a supplier contributes no assignment either (a `disconnect` beside a supplier is
+   *     dropped and a `delete` beside one has its FK-null write elided, both at
+   *     {@link RecordUpdateCompilerState.interpretParentHeldComposition}); ACROSS
+   *     relations, two parent-held edges declaring the same foreign field do not
+   *     survive the migrator's duplicate constraint — the same inherited limit
    *     `CreateOperation.resolveSharedPkIdentity` records for the create root.
    * A member whose value the create arm simply cannot name is NOT this guard's: it is
    * already {@link beforeTargetReferencedValue}'s, in its own sentence, for the shared
@@ -3966,21 +4154,26 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     writes: OperationStep[]
   ): void {
     const relationName = target.relation.relationInfo.name;
-    writes.push({
-      id: target.nullWriteId,
-      kind: "write",
-      statement: buildUpdate(
-        createQueryScope(this.engine.adapter, this.model),
-        {
-          where: this.parentPrimaryKeyWhere(locatedRow),
-          data: Object.fromEntries(
-            target.relation.foreignFields.map((field) => [field, { set: null }])
-          ),
-          select: this.pkSelect(),
-        }
-      ),
-      outputs: {},
-    });
+    if (target.nullWriteId !== undefined) {
+      writes.push({
+        id: target.nullWriteId,
+        kind: "write",
+        statement: buildUpdate(
+          createQueryScope(this.engine.adapter, this.model),
+          {
+            where: this.parentPrimaryKeyWhere(locatedRow),
+            data: Object.fromEntries(
+              target.relation.foreignFields.map((field) => [
+                field,
+                { set: null },
+              ])
+            ),
+            select: this.pkSelect(),
+          }
+        ),
+        outputs: {},
+      });
+    }
     writes.push({
       id: target.deleteWriteId,
       kind: "write",
@@ -4149,12 +4342,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         ),
       };
     }
-    const connect = entry.targets[0];
-    if (!connect) {
-      throw new QueryEngineError(
-        `query-engine-v2 internal: parent-held to-one connect on relation '${relationName}' has no target.`
-      );
-    }
+    const connect = requireToOneConnectTarget(entry, relationName);
     // A directly-referenced unique folds its literal; a non-referenced one folds the
     // lookup subquery ({@link RecordUpdateCompilerState.toOneFkAssign}, E1 U1).
     const assignment = this.toOneFkAssign(relation, connect);
@@ -4353,11 +4541,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 /**
  * E1 — the kinds of parent-held to-one arm that WRITE the record's foreign key from a
  * value of their own, and therefore move a row key that is also that foreign key.
- * `update` and `delete` are absent because neither supplies a foreign key (`update`
- * reads the record's current value to correlate its target; `delete` NULLs the column,
- * which a row-key member refuses at {@link assertRelationCanDisconnect} before this
- * question arises), and `upsert` is absent because its two arms are accepted only when
- * they agree on the key the record already holds — no move.
+ * `update` and `delete` are absent because neither supplies a foreign key. An `update`
+ * writes the TARGET row and assigns none of this edge's columns, however it is located
+ * (correlation when it stands alone, the supplier's selector when it is composed). A
+ * `delete` alone NULLs the column, which a row-key member refuses at
+ * {@link assertRelationCanDisconnect} before this question arises; a `delete` beside a
+ * supplier does not write the column at all, because that UPDATE is elided and the
+ * supplier — a fold kind, counted here — owns the slot's final value. `upsert` is absent
+ * because its two arms are accepted only when they agree on the key the record already
+ * holds — no move.
  */
 const SHARED_KEY_FOLD_KINDS: ReadonlySet<string> = new Set([
   "connect",
@@ -4408,20 +4600,27 @@ function resolveSharedKeyMembers(
     if (polymorphic?.[relationName]?.kind === "targeted") continue;
     const relation = bindRelation(targetScope, program.relationInfo);
     if (relation.kind !== "parentHeldToOne") continue;
-    // A multi-kind to-one payload is refused before any of this matters, by
-    // `interpretRelation`'s OWN parent-held dispatch guard (`kinds.length !== 1`, and
-    // `kinds` is `entries.map(e => e.kind)`, so it is this exact condition). Naming it
-    // precisely matters: `assertToOneMutationArity` — the guard that carries the
-    // vacate-then-supply exemption — is called only on the CHILD-HELD direction, so a
-    // reader who resolves "the arity guard" to that one concludes this skip is
-    // fail-open. It is not; the compile throws before a plan exists.
-    // FOR PACKAGE H: lifting that dispatch guard to admit supply+modify pairs
-    // (connect+update, connectOrCreate+update, create+update) makes this skip
-    // fail-OPEN — the supply entry would still fill `sharedKeyFinal` while this map
-    // stayed empty, moving the terminal without the transition regime, the reorder or
-    // the occupied guard. Union over every fold-kind entry when that guard moves.
-    if (program.entries.length !== 1) continue;
-    if (!SHARED_KEY_FOLD_KINDS.has(program.entries[0]!.kind)) continue;
+    // H — the question is "does any entry FOLD", never "is there exactly one entry".
+    // A multi-kind to-one payload used to be refused before any of this mattered, by
+    // `interpretRelation`'s OWN parent-held dispatch guard (`kinds.length !== 1`), and
+    // reading the entry count here was reading that guard's premise rather than this
+    // map's question. Package H's lattice admits a supplier beside an `update` and
+    // beside a vacate, so the old skip would have gone fail-OPEN: the supplier would
+    // still fill `sharedKeyFinal` while this map stayed empty, moving the terminal
+    // without the transition regime, the reorder, or the occupied guard.
+    // The union is over every entry, and at most one of them can be a fold: two
+    // suppliers on one relation are refused by `to-one-mutation-schema.ts` (the lattice
+    // owner) in both directions, and neither `update` nor a vacate is a fold kind. The
+    // members a fold contributes do not depend on WHICH entry carries it — they are the
+    // edge's foreign fields that this record's row key also names.
+    let foldsThisRecordsKey = false;
+    for (const entry of program.entries) {
+      if (SHARED_KEY_FOLD_KINDS.has(entry.kind)) {
+        foldsThisRecordsKey = true;
+        break;
+      }
+    }
+    if (!foldsThisRecordsKey) continue;
     for (const foreignField of relation.foreignFields) {
       if (recordPk.includes(foreignField)) members.add(foreignField);
     }
@@ -4455,22 +4654,125 @@ const TO_ONE_SUPPLY_KINDS: ReadonlySet<string> = new Set([
   "create",
 ]);
 
-function isVacateThenSupply(kinds: readonly string[]): boolean {
-  return (
-    kinds.length === 2 &&
-    TO_ONE_VACATE_KINDS.has(kinds[0]!) &&
-    TO_ONE_SUPPLY_KINDS.has(kinds[1]!)
-  );
+/**
+ * H3 — the child-held composition, as ONE ordered list. §6 H3's steps 1-4 are an ORDER
+ * claim ("vacate, supply, capture the supplied identity, modify"), and before H that
+ * order was an accident of `RELATION_MUTATION_KEYS` — `isVacateThenSupply` read
+ * `kinds[0]`/`kinds[1]` POSITIONALLY off that constant, which `parity-h-to-one-lattice`
+ * falsified by reordering it and turning all five accepted pairs red. The relation owner
+ * states the order here instead, so the constant decides nothing.
+ *
+ * `suppliedWhere` is the locator the modify half needs. See
+ * {@link RecordUpdateCompilerState.interpretInverseToOneComposition} for why a modify
+ * composed with a supplier cannot use FK correlation, and why `connect` is the only
+ * supplier whose identity exists before the fragment's first write.
+ */
+interface ComposedToOnePayload {
+  readonly entries: readonly RelationMutationEntry[];
+  readonly modify?: RelationMutationEntry;
+  readonly suppliedWhere?: Record<string, unknown>;
 }
 
-function assertToOneMutationArity(
+/**
+ * The unique selector a to-one `connect` names, from the ONE place that answers it.
+ * Three readers need it — the parent-held link, the parent-held composition and the
+ * child-held composition — and two of those three would otherwise fall back to FK
+ * correlation, which at planning time addresses the OUTGOING member: the exact wrong-row
+ * outcome H3 exists to prevent, arrived at silently. An absent target is not a payload
+ * this layer declines: a to-one arm parses to exactly one record, because its schema is
+ * an object and `isRecord` refuses arrays, so zero means the parse and this dispatch
+ * disagree (an engine fault, the X1c precedent).
+ */
+/**
+ * The one correlated target a parent-held to-one `update` entry carries, in the envelope
+ * {@link RecordUpdateCompilerState.interpretParentHeldUpdate} consumes. Both the lone
+ * `update` and the one composed with a `connect` ask for it, and they must not ask
+ * differently.
+ *
+ * W4-U3: the payload reaches here as the relation schema's canonical envelope — bare
+ * data and Prisma's `{ where?, data }` wrapper are told apart ONCE, at the parse, off
+ * the user's own payload (a schema output rewrites scalar shorthands and is not a
+ * faithful witness of the form). The wrapper's `where` is a NON-unique filter on the
+ * connected record; it rides the locate, never the write. The bare form yields no
+ * filter and is byte-identical to pre-W4-U3.
+ */
+function parentHeldUpdateTarget(
+  entry: RelationMutationEntry,
+  relationName: string
+): ToOneUpdateTarget {
+  const item = entry.kind === "update" ? entry.items[0] : undefined;
+  if (!(item && item.target.kind === "correlated")) {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: parent-held to-one update on relation '${relationName}' requires one correlated target.`
+    );
+  }
+  return {
+    data: item.data,
+    ...(item.target.filter ? { filter: item.target.filter } : {}),
+  };
+}
+
+function requireToOneConnectTarget(
+  entry: Extract<RelationMutationEntry, { kind: "connect" }>,
+  relationName: string
+): Record<string, unknown> {
+  const target = entry.targets[0];
+  if (!target) {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: to-one connect on relation '${relationName}' has no target.`
+    );
+  }
+  return target;
+}
+
+function composeToOneEntries(
   relationName: string,
-  kinds: readonly string[]
-): void {
-  if (kinds.length <= 1 || isVacateThenSupply(kinds)) return;
-  throw new UnsupportedOperationError(
-    `query-engine-v2 update supports one mutation kind on the to-one relation '${relationName}'; it has ${kinds.join(", ")}.`
-  );
+  entries: readonly RelationMutationEntry[]
+): ComposedToOnePayload {
+  if (entries.length <= 1) return { entries };
+  let vacate: RelationMutationEntry | undefined;
+  let supplier: RelationMutationEntry | undefined;
+  let modify: RelationMutationEntry | undefined;
+  for (const entry of entries) {
+    if (TO_ONE_VACATE_KINDS.has(entry.kind)) vacate = entry;
+    else if (TO_ONE_SUPPLY_KINDS.has(entry.kind)) supplier = entry;
+    else if (entry.kind === "update") modify = entry;
+  }
+  const composed: RelationMutationEntry[] = [];
+  for (const entry of [vacate, supplier, modify]) {
+    if (entry) composed.push(entry);
+  }
+  if (composed.length !== entries.length || !supplier) {
+    // Unreachable by construction: `to-one-mutation-schema.ts` owns the lattice and
+    // admits, on this direction, one intent, a vacate beside a supplier, a supplier
+    // beside a modify, and those two composed — every one of which is
+    // (vacate?, supplier, modify?). Arriving here means the schema and this dispatch
+    // disagree about what a to-one payload can be: an engine fault, not a shape this
+    // layer declines (the X1c precedent).
+    throw new QueryEngineError(
+      `query-engine-v2 internal: an uncomposable child-held to-one payload reached the update dispatch on relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
+    );
+  }
+  if (!modify) return { entries: composed };
+  if (supplier.kind !== "connect") {
+    // NOT an arity refusal, and deliberately not the fall-through above either: the
+    // shape is coherent and the lattice admits it, but this engine has no channel that
+    // carries a row's identity from an INSERT into the selected-record compiler that
+    // must then modify it. `RecordUpdateCompiler` locates its record with a PLANNING
+    // read, and planning precedes every write in the fragment, so a row the same
+    // fragment is about to insert cannot be read by the step that would address it.
+    // `pinnedTarget` is not that channel: it carries the values a unique selector
+    // already pinned, not an identity a later statement will produce. Naming the
+    // obstacle rather than the arity keeps this truthful the day the channel lands.
+    throw new UnsupportedOperationError(
+      `query-engine-v2 update cannot compose '${supplier.kind}' with 'update' on the to-one relation '${relationName}': the modify addresses the supplied row through a planning read, and a '${supplier.kind}' supplier only produces that row's identity when it inserts it.`
+    );
+  }
+  return {
+    entries: composed,
+    modify,
+    suppliedWhere: requireToOneConnectTarget(supplier, relationName),
+  };
 }
 
 function isConstructionLiteral(value: unknown): boolean {

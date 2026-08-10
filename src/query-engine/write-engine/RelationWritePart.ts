@@ -136,7 +136,29 @@ interface RelationWriteContext {
    * must satisfy. It narrows the probe and guard, while the write uses captured
    * identity. Unlike a bulk filter, no match is a target-not-found failure. */
   readonly targetFilter?: Record<string, unknown>;
+  /**
+   * H3 — this targeted `update` modifies the member a SIBLING SUPPLIER in the same
+   * to-one payload is bringing in, so `where` is that supplier's own unique selector
+   * and the FK correlation is deliberately absent from the probe and the guard: the
+   * incoming row is NOT a member yet when they run (the planning probe precedes every
+   * write, and the batch guard is asserted inside the same atomic unit as the link
+   * write it must not presume). Correlating would address the OUTGOING member — §6 H3's
+   * wrong-row trap — or find nothing at all on an empty slot.
+   *
+   * The identity is nonetheless exact: the selector names one row, the probe captures
+   * that row's complete key, and the write addresses the captured key. What the guard
+   * gives up is only the membership premise, which the supplier's own Part owns.
+   */
+  readonly suppliedTarget?: boolean;
 }
+
+/** H3 — what a SUPPLIED target's probe correlates on: nothing. The incoming row is not
+ *  a member yet when the probe and the batch guard run, and its own unique selector is
+ *  the whole locator ({@link RelationWriteContext.suppliedTarget}). */
+const EMPTY_MEMBERSHIP_CONDITION: {
+  readonly filters: readonly Record<string, unknown>[];
+  readonly predicate: undefined;
+} = { filters: [], predicate: undefined };
 
 export type RelationWriteConfig = RelationWriteContext &
   (
@@ -509,21 +531,23 @@ export class RelationWritePart implements Part {
       this.config.childScope,
       projection
     );
-    const membership = useRef
-      ? planningMembershipCondition(
-          this.config.engine,
-          this.config.childScope,
-          this.config.membership,
-          this.config.childScope.rootAlias
-        )
-      : finalMembershipCondition(
-          this.config.engine,
-          this.config.childScope,
-          this.config.membership,
-          this.config.childScope.rootAlias,
-          known ?? {},
-          this.operationKind
-        );
+    const membership = this.config.suppliedTarget
+      ? EMPTY_MEMBERSHIP_CONDITION
+      : useRef
+        ? planningMembershipCondition(
+            this.config.engine,
+            this.config.childScope,
+            this.config.membership,
+            this.config.childScope.rootAlias
+          )
+        : finalMembershipCondition(
+            this.config.engine,
+            this.config.childScope,
+            this.config.membership,
+            this.config.childScope.rootAlias,
+            known ?? {},
+            this.operationKind
+          );
     const capturedRows = known?.[planningKey(this.probeId, "rows")];
     const captured =
       Array.isArray(capturedRows) && isRecord(capturedRows[0])
@@ -1212,7 +1236,13 @@ export function buildToManyUpdateParts(
  */
 export function buildToOneUpdatePart(
   base: WritePartBase,
-  entry: Extract<RelationMutationEntry, { kind: "update" }>
+  entry: Extract<RelationMutationEntry, { kind: "update" }>,
+  /**
+   * H3 — the unique selector of a sibling `connect` this modify composes with. When
+   * present it REPLACES the FK correlation as the locator: the row it names is the
+   * member this payload is bringing in, and correlation would find the outgoing one.
+   */
+  suppliedWhere?: Record<string, unknown>
 ): Part {
   const relationName = base.relation.relationInfo.name;
   const target = entry.items[0];
@@ -1221,11 +1251,14 @@ export function buildToOneUpdatePart(
       `query-engine-v2 internal: to-one update for relation '${relationName}' requires one correlated target.`
     );
   }
-  // The relation-owned FK is the whole locator and cannot also be update data.
+  // The relation owns this FK, so it is never update data — whether the locator is the
+  // FK correlation (a lone modify) or `suppliedWhere` (one composed with a supplier,
+  // whose own assignment writes the same column).
   assertOwnedFkAbsentFromUpdateData(base, target.data);
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
     data: target.data,
+    ...(suppliedWhere ? { where: suppliedWhere, suppliedTarget: true } : {}),
     ...(target.target.filter ? { targetFilter: target.target.filter } : {}),
   });
 }

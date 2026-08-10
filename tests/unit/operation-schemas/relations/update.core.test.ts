@@ -38,10 +38,12 @@ test("to-one updates validate both envelope fields and bare failures", () => {
   ).toBeDefined();
 });
 
-test("to-one create and parent-held update accept at most one operation", () => {
+test("a to-one create accepts at most one operation while its update composes a supplier with a modify", () => {
   expect(parse(requiredManyToOneSchemas.create, {}).issues).toBeUndefined();
   expect(parse(requiredManyToOneSchemas.update, {}).issues).toBeUndefined();
 
+  // The create root owns no `update` key at all, so no composition is spellable there
+  // and two suppliers stay two identities for one slot.
   expect(
     parse(requiredManyToOneSchemas.create, {
       connect: { id: "author-1" },
@@ -53,12 +55,37 @@ test("to-one create and parent-held update accept at most one operation", () => 
     }).issues?.[0]?.message
   ).toBe("Unsupported to-one operation combination: create, connect");
 
+  // LATTICE CHANGE (Package H): supply-then-modify. `Post.author` spells no
+  // `.fields()`, so the update surface treats it as CHILD-HELD, the direction that
+  // composes every supplier with a modify.
   expect(
     parse(requiredManyToOneSchemas.update, {
       connect: { id: "author-1" },
       update: { name: "Changed" },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(requiredManyToOneSchemas.update, {
+      create: { id: "author-2", name: "Second", email: "second@example.com" },
+      update: { name: "Changed" },
+    }).issues
+  ).toBeUndefined();
+
+  // The PARENT-HELD direction (`Profile.user` names `.fields("userId")`) composes only
+  // `connect` with a modify: `create` and `connectOrCreate` beside an `update` would
+  // modify a row the record's own root statement is still producing.
+  expect(
+    parse(optionalOneToOneSchemas.update, {
+      connect: { id: "user-1" },
+      update: { username: "changed" },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(optionalOneToOneSchemas.update, {
+      create: { id: "user-2", username: "second" },
+      update: { username: "changed" },
     }).issues?.[0]?.message
-  ).toBe("Unsupported to-one operation combination: connect, update");
+  ).toBe("Unsupported to-one operation combination: create, update");
 });
 
 test("to-one updates refuse an ambiguous data-field spelling", () => {
@@ -142,6 +169,28 @@ test("inverse to-one delete follows slot absence while disconnect follows FK nul
       connect: { id: "child-1" },
     }).issues
   ).toBeUndefined();
+  expect(
+    parse(optionalMembership, {
+      disconnect: true,
+      connectOrCreate: {
+        where: { id: "child-1" },
+        create: { id: "child-2" },
+      },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(optionalMembership, {
+      disconnect: true,
+      create: { id: "child-2" },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(optionalMembership, {
+      disconnect: true,
+      connect: { id: "child-1" },
+      create: { id: "child-2" },
+    }).issues?.[0]?.message
+  ).toContain("Unsupported to-one operation combination");
   expect(
     parse(optionalMembership, {
       delete: true,
@@ -438,10 +487,24 @@ describe("ToOne Update - Optional (Profile.user)", () => {
           ? true
           : false
       >().toEqualTypeOf<true>();
+      // LATTICE CHANGE (Package H): `Profile.user` is PARENT-HELD, and a vacate
+      // followed by a supplier now folds to one final foreign-key value on the
+      // record's own root statement, so this pair is accepted in both directions.
+      // The `disconnect: false` line above still says what it always said: an
+      // inactive verb is not an active operation. The pair that stays refused in
+      // BOTH directions is two suppliers, pinned below.
       expectTypeOf<
         {
           disconnect: true;
           connect: { id: string };
+        } extends UpdateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
+      expectTypeOf<
+        {
+          connect: { id: string };
+          create: { id: string; username: string };
         } extends UpdateInput
           ? true
           : false
@@ -510,12 +573,22 @@ describe("ToOne Update - Optional (Profile.user)", () => {
           connect: { id: "user-1" },
         }).issues
       ).toBeUndefined();
+      // LATTICE CHANGE (Package H): `Profile.user` is PARENT-HELD, and an ACTIVE
+      // vacate followed by a supplier now folds to one final foreign-key value. The
+      // inactive spelling above is still a different fact — it activates nothing —
+      // and two suppliers still name two identities for one slot.
       expect(
         parse(schema, {
           disconnect: true,
           connect: { id: "user-1" },
+        }).issues
+      ).toBeUndefined();
+      expect(
+        parse(schema, {
+          connect: { id: "user-1" },
+          create: { id: "user-2", username: "second" },
         }).issues?.[0]?.message
-      ).toBe("Unsupported to-one operation combination: connect, disconnect");
+      ).toBe("Unsupported to-one operation combination: create, connect");
     });
 
     test("runtime: accepts disconnect boolean for optional relation", () => {

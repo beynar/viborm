@@ -452,6 +452,20 @@ export function getFilterTargetConstraint(
   return normalizeTargetConstraint(model, identityFields, values);
 }
 
+/**
+ * The fields a read predicates on when ONE statement evaluates two predicates — a
+ * composed to-one modify locates by the supplier's selector AND by the wrapper filter's
+ * conjuncts in the same probe. `"unknown"` absorbs, because a predicate whose fields
+ * cannot be enumerated may name any of them.
+ */
+export function unionPredicateFields(
+  left: PredicateFieldSet,
+  right: PredicateFieldSet
+): PredicateFieldSet {
+  if (left === "unknown" || right === "unknown") return "unknown";
+  return new Set([...left, ...right]);
+}
+
 export function predicateFieldSetsIntersect(
   changedFields: ReadonlySet<string>,
   readFields: PredicateFieldSet

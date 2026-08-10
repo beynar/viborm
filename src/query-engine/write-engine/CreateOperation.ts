@@ -1195,8 +1195,16 @@ export class CreateOperation {
       );
       if (sharedForeignFields.length === 0) continue;
       const entries = program.entries;
-      // A multi-kind to-one payload is `interpretParentHeld`'s own arity refusal,
-      // which is more specific than this one and must reach the caller first.
+      // H3/R1 RE-JUSTIFIED. This skip used to be premised on a REFUSAL downstream —
+      // "`interpretParentHeld`'s own arity refusal is more specific and must reach the
+      // caller first" — and that refusal is now an engine-fault assertion, so the premise
+      // has to be the one that was always doing the work: the create root's to-one input
+      // owns neither `update` nor a vacate key, so `to-one-mutation-schema.ts` admits
+      // exactly ONE entry here and a second could only be a second supplier, which it
+      // refuses. The skip is therefore unreachable rather than fail-open — nothing walks
+      // past it leaving a shared key member unresolved. Its update-root twin,
+      // `RecordUpdateCompiler.resolveSharedKeyMembers`, DOES see multi-entry programs
+      // since H and unions over every entry accordingly.
       if (entries.length !== 1) continue;
       const entry = entries[0];
       if (!entry) continue;
@@ -1499,9 +1507,18 @@ export class CreateOperation {
   ): void {
     const { relationInfo } = relation;
     const relationName = relationInfo.name;
+    // H3/R1 — an ENGINE FAULT, not a shape this layer declines. Under the CREATE root
+    // the to-one input owns neither `update` nor a vacate key, so the only multi-entry
+    // payload the parse could deliver is supplier + supplier, which
+    // `to-one-mutation-schema.ts` — the lattice's single owner — refuses before the
+    // parser runs (`parity-h-to-one-lattice` pins that sentence on both directions of
+    // this root). A zero-entry program cannot be built at all: the parser returns
+    // `undefined` and no relation is interpreted, which is why the old `|| "none"` tail
+    // never had a payload either. So this line answers no user spelling; it answers the
+    // schema and this dispatch disagreeing, and says so (the X1c precedent).
     if (entries.length !== 1) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ") || "none"}.`
+      throw new QueryEngineError(
+        `query-engine-v2 internal: an uncomposable parent-held to-one payload reached the create dispatch on relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ") || "none"}.`
       );
     }
     // The shared-primary-key edge is decided in `resolveSharedPkIdentity` (E6.3), which
@@ -1790,16 +1807,15 @@ export class CreateOperation {
     const { txMode } = input;
     const { relationInfo } = relation;
     const relationName = relationInfo.name;
-    // A to-one slot holds ONE row, so two kinds on it name two intents for one slot —
-    // the contradiction `interpretParentHeld` refuses above, refused here on the dispatch
-    // that reaches the OTHER direction. THAT is this guard's unique coverage: the
-    // child-held to-one DISPATCH positions (this one, and `RecordUpdateCompiler`'s inverse
-    // branch), which the census's to-one two-kinds family covers only at the ARM
-    // positions. Without it the loop below built EVERY arm, and which contradiction the
-    // user got depended on whether the child's foreign key happened to carry a unique: a
-    // database `UniqueConstraintError` on a 1:1 leg, and — on a leg whose FK is not
-    // unique, the fields-less `manyToOne` inverse — TWO ROWS in the to-one slot with no
-    // diagnostic at all.
+    // H3/R1 — the child-held twin of the parent-held line above, and an ENGINE FAULT for
+    // the same reason: under the CREATE root the to-one input owns neither `update` nor a
+    // vacate, so the lattice's only multi-entry create-root payload is supplier +
+    // supplier and `to-one-mutation-schema.ts` refuses it first, on this direction too
+    // (`parity-h-to-one-lattice` pins both sentences). What used to justify a DECLINED
+    // shape here — that without it the loop built every arm and the user got a database
+    // `UniqueConstraintError` on a 1:1 leg, or TWO ROWS in the to-one slot and no
+    // diagnostic at all on a fields-less `manyToOne` inverse — is the consequence of the
+    // engine and the schema disagreeing, which is what this now says.
     //
     // `> 1`, not `!== 1`: a payload naming NO kind (`{ card: {} }`) asks for nothing and
     // is Prisma's no-op, which this loop already answers by building nothing — the same
@@ -1809,8 +1825,8 @@ export class CreateOperation {
         relation.kind === "polymorphicChildHeldToOne") &&
       entries.length > 1
     ) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create supports one operation on the to-one relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
+      throw new QueryEngineError(
+        `query-engine-v2 internal: an uncomposable child-held to-one payload reached the create dispatch on relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
       );
     }
     const childScope = createQueryScope(

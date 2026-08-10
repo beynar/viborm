@@ -1246,15 +1246,15 @@ describe("parity H — every multi-intent refusal, verbatim", () => {
    * that permutes the entries is caught by the message rather than by nothing.
    */
   test.each([
-    // H1 will ACCEPT these five. They are pinned as they refuse TODAY.
+    // PACKAGE H RETARGET — these four are ACCEPTED by the lattice now, so this block no
+    // longer owns them; their acceptance and final state are pinned in
+    // "parity H — the compositions the lattice accepts" below. What stayed refused, and
+    // what now owns each refusal, is recorded there too.
+    //
+    // The three composed shapes below reach a DIFFERENT owner than the arity guard H
+    // deleted, and each is pinned here with the sentence that owner spells:
     [
-      "connect + update",
-      "update",
-      { badge: { update: { tag: "t" }, connect: { id: "b-alt" } } },
-      COMBINATION("update", "connect, update"),
-    ],
-    [
-      "connectOrCreate + update",
+      "connectOrCreate + update — the produced-identity channel, not arity",
       "update",
       {
         badge: {
@@ -1265,28 +1265,16 @@ describe("parity H — every multi-intent refusal, verbatim", () => {
           },
         },
       },
-      COMBINATION("update", "connectOrCreate, update"),
+      "query-engine-v2 update cannot compose 'connectOrCreate' with 'update' on the to-one relation 'badge': the modify addresses the supplied row through a planning read, and a 'connectOrCreate' supplier only produces that row's identity when it inserts it.",
     ],
     [
-      "create + update",
+      "create + update — the produced-identity channel, not arity",
       "update",
       { badge: { update: { tag: "t" }, create: { id: "b9", tag: "fresh" } } },
-      COMBINATION("update", "create, update"),
+      "query-engine-v2 update cannot compose 'create' with 'update' on the to-one relation 'badge': the modify addresses the supplied row through a planning read, and a 'create' supplier only produces that row's identity when it inserts it.",
     ],
     [
-      "disconnect + connect + update",
-      "update",
-      {
-        badge: {
-          disconnect: true,
-          connect: { id: "b-alt" },
-          update: { tag: "t" },
-        },
-      },
-      COMBINATION("update", "connect, update, disconnect"),
-    ],
-    [
-      "delete + create + update",
+      "delete + create + update — the own-write ledger, not arity",
       "update",
       {
         badge: {
@@ -1295,25 +1283,7 @@ describe("parity H — every multi-intent refusal, verbatim", () => {
           update: { tag: "t" },
         },
       },
-      COMBINATION("update", "create, update, delete"),
-    ],
-    [
-      "parent-held vacate + supplier",
-      "update",
-      { owner: { disconnect: true, connect: { id: "o1" } } },
-      COMBINATION("update", "connect, disconnect"),
-    ],
-    [
-      "parent-held delete + create",
-      "update",
-      { owner: { delete: true, create: { id: "o9", name: "fresh" } } },
-      COMBINATION("update", "create, delete"),
-    ],
-    [
-      "parent-held connect + update",
-      "update",
-      { owner: { connect: { id: "o1" }, update: { name: "n" } } },
-      COMBINATION("update", "connect, update"),
+      "Nested operation 'update' on relation 'badge' depends on an earlier 'delete' membership write in the same nested write. Split these operations into separate queries.",
     ],
     // H1 keeps refusing these. Same message shape, opposite fate.
     [
@@ -1445,32 +1415,40 @@ describe("parity H — every multi-intent refusal, verbatim", () => {
 // =============================================================================
 
 /**
- * §1.1-§1.4 of forbidden-shapes-reference.md are four ENGINE guards, and none of them is
- * pinned anywhere in the estate:
+ * PACKAGE H RE-ANCHORED (2026-08-10). §1.1-§1.4 of forbidden-shapes-reference.md were
+ * four ENGINE arity guards, none of them pinned anywhere in the estate:
  *
- *   · CreateOperation.ts:1378 (`entries.length !== 1`, parent-held under create) and
- *     :1687 (`> 1`, child-held/inverse under create), both spelling
- *     "query-engine-v2 create supports one operation on the to-one relation '<r>'; it has
- *     <kinds>." — the first with a `|| "none"` tail;
- *   · RecordUpdateCompiler.ts:1253 (`kinds.length !== 1`, parent-held under update) and
- *     :4116 (`assertToOneMutationArity`, reached from :1296 and :1437 behind
- *     `isInverseToOne`), both spelling "query-engine-v2 update supports one mutation kind
- *     on the to-one relation '<r>'; it has <kinds>."
+ *   · `CreateOperation.interpretParentHeld` (`entries.length !== 1`, with a `|| "none"`
+ *     tail) and `CreateOperation.interpretChildHeld` (`> 1`), both spelling
+ *     "query-engine-v2 create supports one operation on the to-one relation '<r>'…";
+ *   · `RecordUpdateCompiler.interpretRelation`'s parent-held `kinds.length !== 1` and
+ *     `assertToOneMutationArity` (reached from the ordinary and the polymorphic inverse
+ *     dispatch), both spelling "query-engine-v2 update supports one mutation kind…".
  *
- * THE OBSTACLE, measured: every reachable spelling is answered first by
- * `to-one-mutation-schema.ts`'s `enforceAtMostOneMutation`, whose accepted set is exactly
- * "one active intent" plus five vacate-then-supply pairs — and all five pass the engine's
- * own `isVacateThenSupply` too. A zero-entry program cannot be built at all (the parser
- * returns `undefined`, plan §A2), so the `|| "none"` tails are unreachable spelling. There
- * is therefore no payload that reaches these four today, and a pin would have to fabricate
- * an entry point. Recorded here so H1 — which accepts `connect + update`,
- * `connectOrCreate + update` and `create + update`, three shapes that then arrive at
- * guards nothing measures — has to answer for them deliberately.
+ * ALL FOUR ARE GONE. The reason the census recorded them as unpinnable is the reason they
+ * could go: an arity count was never the question. A to-one relation supports one
+ * COMPOSITION — `(vacate?, supplier, modify?)` — and `composeToOneEntries` /
+ * `interpretParentHeldComposition` now enumerate that lattice TOTALLY, falling through to
+ * a `QueryEngineError` that says the schema and the dispatch disagree. That fall-through
+ * is an engine fault, not a declined shape, so it is not a census site (the X1c
+ * precedent). The two create-root lines survive as exactly such assertions: under the
+ * CREATE root the to-one input owns neither `update` nor a vacate, so their only
+ * multi-entry payload is supplier + supplier, which the two create-root rows in the
+ * refusal block above prove the SCHEMA answers first.
  *
- * What IS pinnable, and pinned below: that `RELATION_MUTATION_KEYS`'s order rather than
- * the payload's decides which pairs are accepted. `isVacateThenSupply` reads `kinds[0]`
- * and `kinds[1]` POSITIONALLY off that list, so a payload spelled supplier-first must
- * still compile to the vacate-first plan.
+ * ONE new site replaces them, and it is not the same claim: `create` / `connectOrCreate`
+ * composed with `update` is refused by the engine's missing produced-identity channel,
+ * pinned verbatim in the refusal block above. `connect + update` composes, because a
+ * unique selector is an identity that exists before the fragment's first write.
+ *
+ * What this block pins, unchanged in claim and rewritten in mechanism: that the PAYLOAD's
+ * key order does not decide the plan. Before H the accepted order came from
+ * `RELATION_MUTATION_KEYS` — `isVacateThenSupply` read `kinds[0]`/`kinds[1]` POSITIONALLY
+ * off that constant, which is what the falsification at the top of this file exploited.
+ * Now `composeToOneEntries` classifies each entry by KIND and emits vacate → supplier →
+ * modify, so the constant decides nothing and reordering it can no longer move a plan.
+ * The rows below are therefore the same rows with a different owner, and the
+ * composition block after them extends the same claim to the three-entry shapes.
  */
 describe("parity H — payload key order is not the lattice's order", () => {
   test.each([
@@ -1517,5 +1495,224 @@ describe("parity H — payload key order is not the lattice's order", () => {
         .steps.map((step) => step.id)
         .filter((id) => id.startsWith("badge."))
     ).toEqual(writes);
+  });
+});
+
+/**
+ * PACKAGE H — the compositions the lattice now ACCEPTS, on both substrates.
+ *
+ * These are the rows the refusal block used to own. What is pinned here is §6 H3's
+ * step order — "vacate the prior member, supply the new one, capture its identity,
+ * modify it" — as the compiled step sequence, because that order IS the mechanism H3
+ * replaces. The final state each one produces is pinned against a live database by
+ * `vacate-then-supply-behavior.ts` (both substrates, with an untouched decoy); this file
+ * owns the plan.
+ *
+ * The modify's locator is the composition's whole difficulty and shows up here as a
+ * DISTINCT probe: a lone to-one `update` correlates (`WHERE hubId = <located hub>`),
+ * while a composed one reads the supplier's own unique selector. Correlating would
+ * address the OUTGOING member — planning precedes every write, so at probe time the slot
+ * still holds the incumbent, or is empty.
+ */
+describe("parity H — the compositions the lattice accepts", () => {
+  /** The composed shapes read probes this file's shared `KNOWN` does not carry — a
+   *  supplier probe under a suffixed label, and the parent's own foreign key for the
+   *  correlated DELETE. Extending it per shape keeps the shared fixture untouched. */
+  const COMPOSED_KNOWN = {
+    ...KNOWN,
+    "hub.locate.rows": [{ id: "h1", ownerId: "o-old" }],
+    "hub.locate.ownerId": "o-old",
+    "badge.find#2.rows": [{ id: "b-alt", hubId: null }],
+    "owner.find#1.rows": [{ id: "o1" }],
+  };
+
+  const ids = (
+    substrate: Substrate,
+    data: Record<string, unknown>
+  ): { planning: string[]; final: string[] } => {
+    const driver = substrate.make();
+    const operation = hubUpdateOperation(driver, data);
+    const planning = operation.planning().steps.map((step) => step.id);
+    return {
+      planning,
+      final: operation.compile(COMPOSED_KNOWN).steps.map((step) => step.id),
+    };
+  };
+
+  for (const substrate of SUBSTRATES) {
+    test(`child-held connect + update composes supply then modify (${substrate.name})`, () => {
+      expect(
+        ids(substrate, {
+          badge: { update: { tag: "t" }, connect: { id: "b-alt" } },
+        })
+      ).toEqual({
+        planning: ["hub.locate", "badge.find", "badge.find#1"],
+        final: [
+          ...(substrate.batch
+            ? ["hub.guard.exists", "badge.guard.exists", "badge.guard.exists#1"]
+            : []),
+          "badge.connect",
+          "badge.update",
+          "hub.select",
+        ],
+      });
+    });
+
+    test(`child-held disconnect + connect + update composes all three (${substrate.name})`, () => {
+      expect(
+        ids(substrate, {
+          badge: {
+            update: { tag: "t" },
+            connect: { id: "b-alt" },
+            disconnect: true,
+          },
+        })
+      ).toEqual({
+        planning: ["hub.locate", "badge.find#1", "badge.find#2"],
+        final: [
+          ...(substrate.batch
+            ? ["hub.guard.exists", "badge.guard.exists", "badge.guard.exists#1"]
+            : []),
+          "badge.disconnect",
+          "badge.connect",
+          "badge.update",
+          "hub.select",
+        ],
+      });
+    });
+
+    test(`parent-held disconnect + connect is ONE root assignment (${substrate.name})`, () => {
+      // The vacate contributes NO step at all: its whole parent-side effect is the
+      // FK-null the supplier just replaced, and the supplier is the only writer of that
+      // column. Before H the same outcome depended on which assignment
+      // `Object.assign(parentSet, link.assignment)` happened to apply last.
+      expect(
+        ids(substrate, { owner: { disconnect: true, connect: { id: "o1" } } })
+      ).toEqual({
+        planning: ["hub.locate", "owner.find"],
+        final: [
+          ...(substrate.batch
+            ? ["hub.guard.exists", "owner.guard.exists"]
+            : []),
+          "hub.update",
+          "hub.select",
+        ],
+      });
+    });
+
+    test(`parent-held delete + create elides the FK-null write (${substrate.name})`, () => {
+      // R2's elision. Without it the plan carries a `parent.fknull` UPDATE AFTER the
+      // root — measured at 8c2908d as inserting the fresh row and then ORPHANING it.
+      // The correlated DELETE stays, and still addresses the OLD foreign-key value.
+      expect(
+        ids(substrate, {
+          owner: { delete: true, create: { id: "o9", name: "fresh" } },
+        })
+      ).toEqual({
+        planning: ["hub.locate"],
+        final: [
+          ...(substrate.batch ? ["hub.guard.exists"] : []),
+          "owner.create",
+          "hub.update",
+          "owner.delete",
+          "hub.select",
+        ],
+      });
+    });
+
+    test(`parent-held connect + update correlates the modify on the SUPPLIED row (${substrate.name})`, () => {
+      expect(
+        ids(substrate, {
+          owner: { connect: { id: "o1" }, update: { name: "n" } },
+        })
+      ).toEqual({
+        planning: ["hub.locate", "owner.find", "owner.find#1"],
+        final: [
+          ...(substrate.batch
+            ? ["hub.guard.exists", "owner.guard.exists", "owner.guard.exists#1"]
+            : []),
+          "hub.update",
+          "owner.update",
+          "hub.select",
+        ],
+      });
+    });
+  }
+
+  /**
+   * THE WRONG-ROW DECOY, at the level this file owns: the composed modify's probe must
+   * not mention the parent's foreign key or the membership correlation at all. If it
+   * did, it would address whoever occupies the slot NOW — the outgoing member — because
+   * every probe here is a planning read and planning precedes every write.
+   */
+  test("a composed modify probes by the supplier's selector, never by correlation", () => {
+    const driver = new PGliteDriver();
+    const parentHeld = hubUpdateOperation(driver, {
+      owner: { connect: { id: "o1" }, update: { name: "n" } },
+    });
+    const childHeld = hubUpdateOperation(driver, {
+      badge: { update: { tag: "t" }, connect: { id: "b-alt" } },
+    });
+    const probeSql = (operation: ReturnType<typeof hubUpdateOperation>) =>
+      operation
+        .planning()
+        .steps.filter((step) => step.id.endsWith("#1"))
+        .map((step) => prepared(driver, step));
+    expect(probeSql(parentHeld)).toEqual([
+      {
+        sql: 'SELECT "t0"."id" AS "id" FROM "ph_owners" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+        params: ["o1", 1],
+      },
+    ]);
+    expect(probeSql(childHeld)).toEqual([
+      {
+        sql: 'SELECT "t0"."id" AS "id" FROM "ph_badges" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+        params: ["b-alt", 1],
+      },
+    ]);
+  });
+});
+
+/**
+ * PACKAGE H — ONE MORE INSTANCE OF PACKAGE G's MEASURED CLASS, recorded and NOT closed.
+ *
+ * G's carry-forward item 3: "an untaken create arm still runs every construction-time
+ * SHAPE refusal in the found arm's subtree, because `RecordUpdateCompilerState`
+ * interprets programs in its constructor". H's composition site is a construction-time
+ * refusal in exactly that position, so a `create`/`connectOrCreate` supplier beside a
+ * modify, spelled inside an upsert's UPDATE arm, refuses the whole tree even when the
+ * row is ABSENT and the CREATE arm is the one that would run.
+ *
+ * MEASURED here rather than argued: the row does not exist, the create arm carries a
+ * payload that would succeed on its own, and the tree is still refused with nothing
+ * written. That is a fact about WHERE the site sits, not about the composition — every
+ * other construction-time refusal in that subtree behaves the same way, which is why
+ * this is one more instance of a class and not a new defect. Closing it means deferring
+ * the whole selected-record interpretation to the taken branch (the shape of Package G's
+ * `updateLegality` deferral, widened), which is a Package O decision, not H's.
+ */
+describe("parity H — the composition site is eager on an untaken upsert arm", () => {
+  test("an absent row still refuses for its untaken update arm's composition", async () => {
+    const driver = new RecordingPGliteDriver();
+    const client = createClient({ schema: parityHSchema, driver }) as any;
+    driver.recording = true;
+    const message = await client.hub
+      .upsert({
+        where: { id: "h-absent" },
+        create: { id: "h-absent", label: "L" },
+        update: {
+          badge: { create: { id: "b9", tag: "fresh" }, update: { tag: "t" } },
+        },
+        select: { id: true },
+      })
+      .then(
+        () => "EXECUTED",
+        (thrown: unknown) => (thrown as Error).message
+      );
+    expect({ message, statements: driver.statements }).toEqual({
+      message:
+        "query-engine-v2 update cannot compose 'create' with 'update' on the to-one relation 'badge': the modify addresses the supplied row through a planning read, and a 'create' supplier only produces that row's identity when it inserts it.",
+      statements: [],
+    });
   });
 });

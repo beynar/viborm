@@ -13,11 +13,13 @@ import {
   getCreatedWhereUniqueTarget,
   getFilterPredicateFields,
   getFilterTargetConstraint,
+  getTargetConstraintPredicateFields,
   getTargetIdentityFields,
   normalizeTargetConstraint,
   normalizeWhereUniqueTargetConstraint,
   selectorConstraint,
   type TargetConstraint,
+  unionPredicateFields,
   unknownConstraint,
   updateResultConstraints,
 } from "./TargetConstraint";
@@ -265,7 +267,38 @@ export class OwnWriteSteps {
           ? this.relation.family.scalarData
           : undefined
       );
-      if (input.target.kind === "correlated" && input.target.filter) {
+      const supplied = this.relation.composedSupplierSelector;
+      if (supplied) {
+        // H3 — a modify composed with a `connect` reads the SUPPLIER's selector, not
+        // membership: that is literally the locator the engine compiles for it. Asking
+        // the membership question here would report the pair's own sibling vacate as
+        // the modify's premise, which is a dependency the plan does not have.
+        //
+        // The wrapper's `where` does NOT go away when the selector arrives: the composed
+        // probe and its batch guard splice the selector's conjuncts and the filter's
+        // together ({@link RelationWritePart.correlatedProbeStatement} appends
+        // `targetFilters()` unconditionally), so the read predicates on BOTH field sets
+        // and must declare both. Declaring the selector alone would let a sibling write
+        // to a filtered field pass `assertIndependent` unseen.
+        const suppliedConstraint = selectorConstraint(
+          this.relation.target,
+          supplied
+        );
+        this.relation.ledger.assertTargetRead(
+          this.relation.relationName,
+          "update",
+          suppliedConstraint,
+          input.target.kind === "correlated" && input.target.filter
+            ? unionPredicateFields(
+                getTargetConstraintPredicateFields(suppliedConstraint),
+                getFilterPredicateFields(
+                  this.relation.target,
+                  input.target.filter
+                )
+              )
+            : undefined
+        );
+      } else if (input.target.kind === "correlated" && input.target.filter) {
         const filterConstraint = getFilterTargetConstraint(
           this.relation.target,
           input.target.filter
