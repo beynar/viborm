@@ -2464,6 +2464,58 @@ describe("write engine route inventory (P6 accounting)", () => {
   // ACCEPTED before) is not engaged; it is the same class as Package D's two recorded
   // retargets and Package G's deferred found-arm legality, and it is listed here for the
   // same reason those were.
+  // PACKAGE E (2026-08-10) — 22 → 22, ONE SITE NARROWED, nothing added or removed.
+  //
+  // `RecordUpdateCompiler.assertNotSharedPk` refused a SHAPE: any `create` /
+  // `connectOrCreate` / `upsert` on a parent-held edge whose foreign key is the selected
+  // record's own row key, whatever the payload said. §6 E's rule 6 is "reject only if the
+  // exact final value cannot be captured or derived", so the site is now
+  // `recordSharedKeyFold`, in the same file, refusing an ARM THAT NAMES NO ONE VALUE for a
+  // row-key member. Same class, same construction timing, one sentence, and the shape it
+  // used to cover compiles: `parity-e-shared-pk` pins the folds byte-for-byte on both
+  // substrates, and the four surviving payload classes verbatim.
+  //
+  // TWO REFUSALS RETARGETED, recorded because a site census cannot show a move between
+  // owners and Package O's ledger needs both:
+  //   · a shared-primary-key `connect` was answered at COMPILE by
+  //     `getUpdatedPrimaryKeyValue`'s `Sql` branch ("Cannot determine the updated primary
+  //     key for model 'card' because field 'accountId' uses an unsupported operation."),
+  //     AFTER the planning locate had been issued — the one refusal in this family with a
+  //     non-empty statement log. It is now the narrowed sentence at CONSTRUCTION with an
+  //     empty log, and only for the sub-shape that genuinely has no value (a foreign key
+  //     resolved by a correlated lookup subquery). A `connect` naming the referenced
+  //     column executes. That branch of `getUpdatedPrimaryKeyValue` keeps every operand it
+  //     was really about: the fold's members are withheld from the scalar derivation, so
+  //     the two owners no longer answer the same question;
+  //   · a shared-primary-key `create` beside a root SET that spells the same column used
+  //     to be covered by the shape refusal; it now reaches the narrowed sentence as "two
+  //     writers, one column", and the AGREEING spelling compiles. Neither direction was
+  //     ever an accepted payload, so §3.1 is not engaged.
+  //
+  // A THIRD RETARGET, found at the Package E gate rather than by the lift, and the one
+  // §3.1 deviation in the package: the refusal that was replaced was scope-blind, so the
+  // fold is too — a NESTED selected record moves its own row key as well, where §6 E says
+  // "at an update root". Measured on both substrates: under an enclosing ON UPDATE
+  // RESTRICT edge the typed construction refusal (zero statements) became the database's
+  // `ForeignKeyError` at execution with nothing written, and under ON UPDATE CASCADE it
+  // became a success. Kept, because at that position the relation spelling and the SCALAR
+  // spelling now AGREE on both edges, and a root-only gate would have made the relation
+  // spelling refuse where the scalar one succeeds. Not a census site either way: no
+  // `UnsupportedOperationError` is constructed on that path any more.
+  //
+  // ONE DISJUNCT DELETED from the narrowed sentence, which changes no site count and is
+  // recorded because the write-up it corrects was already in the tree: `isSql(value)` had
+  // no producer on any of the four resolvers, and the falsification note that claimed a
+  // witness for it had mis-read which branch fired (the row in question refuses on
+  // `value === undefined`). `value === null` was audited the same way and KEPT — its
+  // producer is a nullable referenced unique named NULL, which now has its own witness.
+  //
+  // ONE SITE THIS PACKAGE DELIBERATELY DID NOT ADD. Feeding the fold into the transition
+  // machinery (`sharedKeyMembers`) makes an occupied old slot refuse a shared-PK fold that
+  // coexists with a child-held edge on the same column — with `relationKeyOccupiedMessage`,
+  // Package D's existing owner, not a new sentence. The alternative considered and
+  // rejected was a fresh "a shared fold may not coexist with a child-held edge" guard,
+  // which would have been a second owner for an invariant that already has one.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

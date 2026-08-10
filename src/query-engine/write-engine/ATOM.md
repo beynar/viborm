@@ -595,6 +595,16 @@ compile when it cannot be spelled at construction. A locator that names some
 other unique, a compound reference, and a non-primary-key referenced unique are
 therefore the same shape as the pinned single member, not a separate surface.
 
+A primary-key transition is not always a scalar write. When a parent-held
+relation's foreign key is the selected record's own row key, the arm that
+supplies that foreign key moves the record's key, and the payload names no
+scalar. That fold is a transition like any other: it enters the same regime
+decision, the same occupied guard, the same before/after ordering, and the same
+terminal identity. The record compiler therefore answers "does this update move
+the record's own key" from both channels — the scalar SET and the fold — and an
+arm that resolves a row-key member to no single value is refused instead of
+folded.
+
 The read source is a required field of every membership-bearing config, never a
 default that falls back to the write source. One construction site can then be
 wrong about one edge, instead of every site being silently right only while no

@@ -1014,6 +1014,19 @@ export class UpsertOperation {
   private updatedTerminalWhere(
     locatedRow: Record<string, unknown>
   ): Record<string, unknown> {
+    // E1 — where the update arm carries relations, its selected-record compiler is the
+    // one owner of the row the update leaves behind: it holds the same scalar SET this
+    // arm parsed AND the shared-primary-key fold, which moves a row-key member from a
+    // relation arm and so appears in no scalar payload. On every other shape the two
+    // agree by construction (the compiler's SET is this `updateData` plus assignments on
+    // columns that are not the row key), which is why the branch changes no plan — and
+    // both branches are measured rather than reasoned about, in
+    // `shared-pk-update-root-behavior.ts`: the same row-key move spelled once as a FOLD
+    // (only this branch can see it) and once as a plain scalar with no relation beside it
+    // (only the branch below runs) must land the record in the same place.
+    if (this.updateCompiler) {
+      return this.updateCompiler.updatedPrimaryKeyWhere(locatedRow);
+    }
     const parent = createQueryScope(this.engine.adapter, this.model);
     return getUpdatedPrimaryKeyWhere(
       parent,
