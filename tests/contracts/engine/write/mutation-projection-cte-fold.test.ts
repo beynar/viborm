@@ -6,8 +6,8 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NotFoundError, UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { hydrateSchemaNames, s } from "@schema";
-import { beforeAll, describe, expect, test } from "vitest";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * PHASE 8.1 — the terminal read, folded into the mutating statement
@@ -92,8 +92,11 @@ const palette = s
 const soloSchema = { tag, palette };
 
 /** Phase 8.2's declining control: a model whose primary key the DATABASE
- *  generates. Its children's foreign key is a value that only exists once the
- *  parent INSERT has run, and a `WITH` arm cannot read what a sibling wrote. */
+ *  generates, over children whose keys it ALSO generates. Two arms calling
+ *  `nextval`, and PostgreSQL does not specify the order it runs unread
+ *  data-modifying arms in. (Package M lowered the value FLOW — one generated
+ *  parent key IS readable from a later arm now — so what this pair still
+ *  isolates is the ordering conjunct, not the flow.) */
 const seq = s
   .model({
     id: s.int().id().increment(),
@@ -989,7 +992,7 @@ describe("Phase 8.2 — the nested-create tree", () => {
     expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
   });
 
-  test("a database-generated parent key declines: the child's FK is a value no arm can read", async () => {
+  test("TWO database-generated keys decline: their sequence order is the planner's", async () => {
     const family = getSequenceFamily();
     const driver = new RecordingPGliteDriver({ client: family.database });
     const client = createClient({ schema: seqSchema, driver });
@@ -1003,8 +1006,12 @@ describe("Phase 8.2 — the nested-create tree", () => {
 
     expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
     expect(created).toEqual({ id: 1, label: "G" });
-    // The child took the key the parent's INSERT generated — which is exactly
-    // the value one statement could not have carried between its arms.
+    // The child took the key the parent's INSERT generated. Package M can spell
+    // that value inside one command — `(SELECT "id" FROM "__viborm_mutation")` —
+    // so the flow is no longer what declines here. The `kid` key is generated
+    // TOO, and two arms taking a database-assigned value are two the planner may
+    // run in either order. Removing Package M's lowering leaves this test green,
+    // which is how it stays a control for one thing.
     expect(await client.kid.findMany()).toEqual([
       { id: 1, body: "k0", seqId: 1 },
     ]);

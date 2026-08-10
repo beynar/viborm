@@ -29,11 +29,20 @@ import { describe, expect, test } from "vitest";
  * remain byte-identical" and "at most one post-insert read publishes all demanded fields
  * for a root". Both are counted here rather than asserted in prose:
  *
- *   · a demanded GENERATED identity costs THREE statements on every driver class, and the
- *     driver class changes only HOW the root INSERT reports the key — `RETURNING <pk>` +
- *     `firstRowField` on a returning driver in transaction mode, a bare INSERT +
- *     `insertId` otherwise (`capturesByReturning`, CreateOperation.ts:2469). Same ids,
- *     same order, same count;
+ *   · a demanded GENERATED identity costs THREE statements on every driver class that has
+ *     to carry the value BETWEEN statements, and the driver class changes only HOW the
+ *     root INSERT reports the key — `RETURNING <pk>` + `firstRowField` on a returning
+ *     driver in transaction mode, a bare INSERT + `insertId` otherwise
+ *     (`capturesByReturning`, CreateOperation.ts:2469). Same ids, same order, same count.
+ *     RE-BASELINED 2026-08-10 BY PACKAGE M, deliberately and in one direction: on the ONE
+ *     substrate whose `WITH` accepts a data-modifying statement (PGlite/PostgreSQL in a
+ *     transaction), the value no longer has to travel between statements, so the three are
+ *     ONE — see `FOLDED_ONE_CHILD` / `FOLDED_TWO_CHILDREN` below and
+ *     `mutation-dependency-fold.test.ts` for the measurement. What F pins is untouched:
+ *     the same single published field, the same one `RETURNING` column for two consumers,
+ *     the same destination cast at the same column. The pre-M three-statement form is
+ *     still asserted here on the batch and MySQL legs, and on three dialects in
+ *     `parity-m-create-dag.test.ts`;
  *   · a demanded field that is already KNOWN from the create data costs ONE statement,
  *     because the whole subtree folds into a single write-dependency CTE. F1 must not turn
  *     a knowable value into a published one and buy a second statement with it;
@@ -260,6 +269,18 @@ function fragmentContract(
 
 const EMPTY_PLANNING = { steps: [], outputs: {} };
 
+/**
+ * PACKAGE M's re-baseline, in one place so the two shapes it moved are legible
+ * side by side. On the ONE substrate whose `WITH` accepts a data-modifying
+ * statement, the three (and four) statements below are one: the reference the
+ * child spends is lowered to `(SELECT "id" FROM "__viborm_mutation")` and Phase
+ * 8.2's tree fold merges the arms. Everything F pins is still here — the demand
+ * registry still publishes ONE field for two consumers (one `RETURNING` column
+ * in the first arm, spent twice), the destination cast still wraps the value at
+ * the child's own column — it is now spelled inside one command instead of
+ * across three. Every other substrate keeps the series verbatim, and
+ * `parity-m-create-dag.test.ts` pins it on three dialects.
+ */
 const CREATE_TERMINAL_FAILURE = {
   kind: "exactlyOneRow",
   failure: {
@@ -269,8 +290,44 @@ const CREATE_TERMINAL_FAILURE = {
   },
 };
 
+const FOLDED_ONE_CHILD = {
+  steps: [
+    {
+      id: "hub.create",
+      kind: "write",
+      sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+      params: ["H", "t", "s1"],
+      outputs: { result: { kind: "rows" } },
+      expects: CREATE_TERMINAL_FAILURE,
+      racePin: null,
+      onUniqueConflict: null,
+    },
+  ],
+  outputs: { result: { ref: "hub.create.result" } },
+};
+
+const FOLDED_TWO_CHILDREN = {
+  steps: [
+    {
+      id: "hub.create",
+      kind: "write",
+      // ONE `RETURNING` list, and the same CTE column read by BOTH arms — the
+      // fold spends the published field twice exactly as the series did.
+      sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))), "__viborm_write_1" AS (INSERT INTO "parity_f_clips" ("id", "hubId") VALUES ($4, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+      params: ["H", "t", "s1", "k1"],
+      outputs: { result: { kind: "rows" } },
+      expects: CREATE_TERMINAL_FAILURE,
+      racePin: null,
+      onUniqueConflict: null,
+    },
+  ],
+  outputs: { result: { ref: "hub.create.result" } },
+};
+
 // ---------------------------------------------------------------------------
-// A produced identity: the same three statements everywhere, one line apart
+// A produced identity: the same three statements everywhere the value has to
+// travel between statements — and ONE where PostgreSQL can spell it inside the
+// command (Package M)
 // ---------------------------------------------------------------------------
 
 for (const substrate of [
@@ -283,6 +340,10 @@ for (const substrate of [
     placeholder: (index: number) => `$${index}`,
     intCast: "INTEGER",
     capturesByReturning: true,
+    // PACKAGE M: the only substrate here whose `WITH` accepts a data-modifying
+    // statement, so the only one whose produced identity has an in-statement
+    // spelling. See the re-baseline note in this file's header.
+    foldsCteWithMutations: true,
     // Only a transaction gets an `expects`: a batch step cannot abort on a
     // postcondition, so the shape is one assertion shorter.
     terminalExpects: CREATE_TERMINAL_FAILURE,
@@ -296,6 +357,8 @@ for (const substrate of [
     placeholder: (index: number) => `$${index}`,
     intCast: "INTEGER",
     capturesByReturning: false,
+    // A batch step is not a transaction, and the tree fold declines outside one.
+    foldsCteWithMutations: false,
     terminalExpects: null,
   },
   {
@@ -307,6 +370,8 @@ for (const substrate of [
     placeholder: () => "?",
     intCast: "SIGNED",
     capturesByReturning: false,
+    // MySQL CTEs are read-only.
+    foldsCteWithMutations: false,
     terminalExpects: CREATE_TERMINAL_FAILURE,
   },
 ]) {
@@ -320,7 +385,7 @@ for (const substrate of [
     : "";
 
   describe(`parity F — a demanded produced identity (${substrate.name})`, () => {
-    test("costs three statements, and only the root INSERT's reporting channel moves", () => {
+    test("costs three statements wherever the value must travel, and only the root INSERT's reporting channel moves", () => {
       const driver = substrate.createDriver();
       const operation = new CreateOperation(
         engineFor(driver),
@@ -333,6 +398,12 @@ for (const substrate of [
       expect(fragmentContract(driver, operation.planning())).toEqual(
         EMPTY_PLANNING
       );
+      if (substrate.foldsCteWithMutations) {
+        expect(fragmentContract(driver, operation.compile({}))).toEqual(
+          FOLDED_ONE_CHILD
+        );
+        return;
+      }
       expect(fragmentContract(driver, operation.compile({}))).toEqual({
         steps: [
           {
@@ -394,6 +465,12 @@ for (const substrate of [
       expect(fragmentContract(driver, operation.planning())).toEqual(
         EMPTY_PLANNING
       );
+      if (substrate.foldsCteWithMutations) {
+        expect(fragmentContract(driver, operation.compile({}))).toEqual(
+          FOLDED_TWO_CHILDREN
+        );
+        return;
+      }
       expect(fragmentContract(driver, operation.compile({}))).toEqual({
         steps: [
           {

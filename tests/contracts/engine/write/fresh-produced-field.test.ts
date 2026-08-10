@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -124,20 +125,48 @@ const CRATE_LEAF = {
   select: { id: true },
 };
 
+/**
+ * RE-BASELINED 2026-08-10 BY PACKAGE M, deliberately, in one direction, and only on
+ * PGlite-in-a-transaction.
+ *
+ * A demanded produced field IS a value that flows between statements, so the trees
+ * this block pins are exactly the trees the PostgreSQL write-dependency fold merges
+ * (`compileMutationDependencyFold`). On that one substrate the three (or four)
+ * statements are now one command whose arms are those statements in the same order.
+ *
+ * WHAT THAT COSTS THIS WITNESS, said plainly rather than absorbed: the per-step
+ * `outputs` map is no longer where F's channels are readable here, and the root arm's
+ * demand-narrowed RETURNING list is replaced by the fold's every-column list. Each
+ * claim below is therefore re-anchored on the merged SQL, where the same defect is
+ * still visible — two consumers reading ONE expression, two channels reading TWO
+ * different columns, the destination cast still at the consuming column. The
+ * `outputs`-level form of every claim survives unchanged on the MySQL and batch legs
+ * of this file, and the whole three-statement fragment survives on three dialects in
+ * `parity-m-create-dag.test.ts`.
+ *
+ * F'S CENTRAL CLAIM IS RE-PINNED, NOT RELOCATED AND HOPED FOR. The first test below
+ * asserts it on SQLite3 — a provider that captures BY RETURNING (so the demand-narrowed
+ * list and the `firstRowField` output are both real there) but has no data-modifying
+ * CTEs (so nothing merges). That leg is the one that would redden if F's publication
+ * were broken; the PGlite leg beside it now proves only how the same statements are
+ * spent once merged.
+ *
+ * Deleting Package M's two-line wiring in `CreateOperation.buildTreeFold` restores the
+ * pre-M shapes exactly; that was measured before the re-baseline.
+ */
 describe("F2 — a RETURNING provider publishes in the INSERT it already sends", () => {
-  test("the produced column joins the RETURNING list; no statement is added", () => {
-    const driver = new PGliteDriver();
+  test("SQLite3 — the demand-narrowed RETURNING and its firstRowField channel", () => {
+    // The claim §6 F's keep gate is written in: ONE clause added to a statement
+    // already being sent, publishing exactly the demanded column, on a provider that
+    // reads keys out of RETURNING. No CTE fold exists here to absorb it.
+    const driver = new SQLite3Driver();
     expect(
       shapeOf(driver, producedFieldSchema.depot as Model<any>, CRATE_LEAF)
     ).toEqual([
       {
         id: "depot.create",
         kind: "write",
-        // ONE clause added to the statement that was already being sent. `slot` is
-        // spelled NULL because it is omitted-and-nullable; `serial` is absent from the
-        // column list because the database assigns it — and returned because a
-        // descendant asked.
-        sql: 'INSERT INTO "pkgf_depots" ("id", "name", "slot") VALUES ($1, $2, NULL) RETURNING "serial" AS "serial"',
+        sql: 'INSERT INTO "pkgf_depots" ("id", "name", "slot") VALUES (?, ?, NULL) RETURNING "serial" AS "serial"',
         params: ["d1", "D"],
         outputs: {
           "produced:serial": { kind: "firstRowField", field: "serial" },
@@ -146,17 +175,44 @@ describe("F2 — a RETURNING provider publishes in the INSERT it already sends",
       {
         id: "crate.create",
         kind: "write",
-        // The destination cast is untouched: it lives at the CONSUMING column, which
-        // sees a `Ref` here exactly as it saw the generated identity's `Ref` before F.
-        sql: 'INSERT INTO "pkgf_crates" ("id", "depotSerial") VALUES ($1, CAST($2 AS INTEGER))',
+        // The destination cast lives at the CONSUMING column, which sees a `Ref`
+        // exactly as it saw the generated identity's `Ref` before F.
+        sql: 'INSERT INTO "pkgf_crates" ("id", "depotSerial") VALUES (?, CAST(? AS INTEGER))',
         params: ["c1", { ref: "depot.create.produced:serial" }],
         outputs: {},
       },
       {
         id: "depot.select",
         kind: "read",
-        sql: 'SELECT "t0"."id" AS "id" FROM "pkgf_depots" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+        sql: 'SELECT "t0"."id" AS "id" FROM "pkgf_depots" AS "t0" WHERE "t0"."id" = ? LIMIT 1',
         params: ["d1"],
+        outputs: { result: { kind: "rows" } },
+      },
+    ]);
+  });
+
+  test("the produced column joins the RETURNING list; no statement is added", () => {
+    // RE-BASELINED BY PACKAGE M (see this describe block's note). The three steps F
+    // pinned here are still compiled on every substrate that cannot merge them —
+    // `parity-m-create-dag.test.ts` and the MySQL leg below hold them — and on
+    // PostgreSQL they are the arms of this one command, in the same order.
+    const driver = new PGliteDriver();
+    expect(
+      shapeOf(driver, producedFieldSchema.depot as Model<any>, CRATE_LEAF)
+    ).toEqual([
+      {
+        id: "depot.create",
+        kind: "write",
+        // WHAT F STILL OWNS HERE, reading left to right: `slot` is spelled NULL
+        // because it is omitted-and-nullable; `serial` is absent from the INSERT's
+        // column list because the database assigns it; and the consumer reads it at
+        // the CONSUMING column, inside the destination cast the portable path put
+        // there. What moved is the root arm's RETURNING list — the fold rebuilds it
+        // as every column (`returningEveryColumn`), because the outer SELECT
+        // projects from it. The demand-narrowed list is asserted on the substrates
+        // that keep it.
+        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "pkgf_depots" ("id", "name", "slot") VALUES ($1, $2, NULL) RETURNING "id", "name", "serial", "slot"), "__viborm_write_0" AS (INSERT INTO "pkgf_crates" ("id", "depotSerial") VALUES ($3, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+        params: ["d1", "D", "c1"],
         outputs: { result: { kind: "rows" } },
       },
     ]);
@@ -173,18 +229,23 @@ describe("F2 — a RETURNING provider publishes in the INSERT it already sends",
       },
       select: { id: true },
     }) as any[];
-    expect(steps).toHaveLength(4);
-    expect(steps[0].sql).toContain('RETURNING "serial" AS "serial"');
-    expect(steps[0].sql.match(/RETURNING/g)).toHaveLength(1);
-    expect(Object.keys(steps[0].outputs)).toEqual(["produced:serial"]);
-    expect(steps[1].params).toEqual([
-      "c2",
-      { ref: "depot.create.produced:serial" },
-    ]);
-    expect(steps[2].params).toEqual([
-      "b2",
-      { ref: "depot.create.produced:serial" },
-    ]);
+    // RE-BASELINED BY PACKAGE M. The claim is unchanged and still checkable: ONE
+    // returned column for two consumers, and the SAME expression spent twice. A
+    // demand registry that appended per consumer would put `"serial"` in the root
+    // arm's RETURNING twice; a per-consumer channel would give the two arms
+    // different expressions to read.
+    expect(steps).toHaveLength(1);
+    const merged: string = steps[0].sql;
+    expect(merged.match(/"serial"/g)).toHaveLength(3); // one returned, two read
+    expect(
+      merged.match(/\(SELECT "serial" FROM "__viborm_mutation"\)/g)
+    ).toHaveLength(2);
+    expect(merged).toContain(
+      '"__viborm_write_0" AS (INSERT INTO "pkgf_crates" ("id", "depotSerial") VALUES ($3, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER)))'
+    );
+    expect(merged).toContain(
+      '"__viborm_write_1" AS (INSERT INTO "pkgf_bins" ("id", "depotSerial") VALUES ($4, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER)))'
+    );
   });
 
   test("a produced PK and a produced non-PK keep SEPARATE channels, identity first", () => {
@@ -195,12 +256,15 @@ describe("F2 — a RETURNING provider publishes in the INSERT it already sends",
       { data: { spans: { create: { id: "s1" } } }, select: { id: true } },
       twoSequenceSchema
     ) as any[];
-    // The CONTROL: `code` is produced too, and is NOT published, because nothing asked.
-    // Demand publishes; presence in the schema does not.
-    expect(identityOnly[0].sql).toContain('RETURNING "id" AS "id"');
-    expect(identityOnly[0].outputs).toEqual({
-      id: { kind: "firstRowField", field: "id" },
-    });
+    // The CONTROL: on this substrate the fold's root arm returns every column, so
+    // "was `code` published?" is not readable from the RETURNING list here. What IS
+    // readable, and is the claim, is that nothing READS `code`: exactly one arm, and
+    // it reads the identity.
+    expect(identityOnly).toHaveLength(1);
+    expect(identityOnly[0].sql).toContain(
+      'CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER)'
+    );
+    expect(identityOnly[0].sql).not.toContain('SELECT "code"');
 
     const both = shapeOf(
       driver,
@@ -214,15 +278,17 @@ describe("F2 — a RETURNING provider publishes in the INSERT it already sends",
       },
       twoSequenceSchema
     ) as any[];
-    // The generated identity keeps its historical `id` output on every path, and leads
-    // the projection so its column position cannot move when another field joins.
-    expect(both[0].sql).toContain('RETURNING "id" AS "id", "code" AS "code"');
-    expect(both[0].outputs).toEqual({
-      id: { kind: "firstRowField", field: "id" },
-      "produced:code": { kind: "firstRowField", field: "code" },
-    });
-    expect(both[1].params).toEqual(["s1", { ref: "hub.create.id" }]);
-    expect(both[2].params).toEqual(["m1", { ref: "hub.create.produced:code" }]);
+    // THE SEPARATION, which is what this test protects: two consumers, two
+    // DIFFERENT columns. Collapse the generated key's channel onto the produced
+    // column's and both arms would read the same one — here that is a visible
+    // difference in the SQL, not only in the output keys.
+    expect(both).toHaveLength(1);
+    expect(both[0].sql).toContain(
+      '"__viborm_write_0" AS (INSERT INTO "pkgf_spans" ("id", "hubId") VALUES ($1, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER)))'
+    );
+    expect(both[0].sql).toContain(
+      '"__viborm_write_1" AS (INSERT INTO "pkgf_marks" ("id", "hubCode") VALUES ($2, CAST((SELECT "code" FROM "__viborm_mutation") AS INTEGER)))'
+    );
   });
 });
 
@@ -367,14 +433,17 @@ describe("F1 — the published channel is per field, not per record", () => {
       twoSequenceSchema
     ) as any[];
     // `key` is the generated primary key and keeps the historical `id` output; the
-    // column literally named `id` is produced too, and takes a namespaced one. Collapse
-    // the two onto one name and the second consumer silently reads the first's value.
-    expect(steps[0].outputs).toEqual({
-      id: { kind: "firstRowField", field: "key" },
-      "produced:id": { kind: "firstRowField", field: "id" },
-    });
-    expect(steps[1].params).toEqual(["t1", { ref: "knob.create.id" }]);
-    expect(steps[2].params).toEqual(["g1", { ref: "knob.create.produced:id" }]);
+    // column literally named `id` is produced too, and takes a namespaced one.
+    // Collapse the two onto one name and the second consumer silently reads the
+    // first's value — which on this substrate shows up as two arms reading the SAME
+    // CTE column instead of `"key"` and `"id"`.
+    expect(steps).toHaveLength(1);
+    expect(steps[0].sql).toContain(
+      'CAST((SELECT "key" FROM "__viborm_mutation") AS INTEGER)'
+    );
+    expect(steps[0].sql).toContain(
+      'CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER)'
+    );
   });
 });
 

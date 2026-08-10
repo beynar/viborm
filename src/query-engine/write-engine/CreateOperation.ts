@@ -42,6 +42,7 @@ import {
   buildMutationProjectionFold,
   buildUpdate,
   buildUpdateMany,
+  compileMutationDependencyFold,
 } from "../operations";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import { planNestedCreateIdentity } from "../operations/mutation-identity";
@@ -412,6 +413,53 @@ export class CreateOperation {
    *  subtree's ROOT record INSERT (the statement that was the arm's own create leaf
    *  before the arm became a subtree). */
   private readonly rootRacePin: TargetConstraintPin | undefined;
+  /**
+   * This operation is an enclosing operation's ARM, and that owner rewrites the
+   * compiled steps afterwards, addressing THIS operation's root write BY ITS
+   * STEP ID. Today there is exactly one such owner:
+   * `UpsertOperation.annotateCreateRacePin`, which attaches the upsert's
+   * raceable missing-premise pin to the create arm's root INSERT.
+   *
+   * A fold keeps that id and loses the statement, so the pin lands on a command
+   * that ALSO contains the child INSERTs and the terminal read — and a child's
+   * unique violation is then read as "another session created the row",
+   * retrying the whole upsert. Declining is §4.5's "no race pin attribution is
+   * lost", enforced at the only seam where the annotation is visible: the arm
+   * cannot see a pin the owner has not attached yet, and the owner cannot tell a
+   * merged statement from an unmerged one.
+   *
+   * NOT A PACKAGE M HAZARD — A FIX FOR ONE THAT PREDATES IT, and the reason this
+   * line must survive any revert of M's perf lowering. The tree fold has shipped
+   * since Phase 8.2, and its OTHER conjuncts never objected to an upsert create
+   * arm: an arm whose keys are all APPLICATION-KNOWN carried no
+   * `OperationValueReference`, so it satisfied the pre-M value conjunct too and
+   * folded. MEASURED at 53622b7a's conjunct set, on PGlite, with a SELF-relation
+   * so the child's violation carries the same table and constraint the pin names
+   * (`racePinMatches` rejects any other attribution — which is also the true
+   * SCOPE of the defect: cross-table children were always safe):
+   *
+   * ```
+   * node.upsert({ where: { id: "root" },            // absent
+   *               create: { id: "root", name: "created",
+   *                         children: { create: [{ id: "kid" }] } },  // "kid" EXISTS
+   *               update: { name: "UPDATED-BY-RETRY" } })
+   * ```
+   *
+   * folded: 1 locate + 1 merged command, then the CHILD's violation retried the
+   * whole upsert — 2 locates, 2 attempts. Declining: 1 locate, 3 statements, the
+   * violation surfaces directly. Under a genuinely concurrent creator the second
+   * locate finds the row and the upsert silently takes its UPDATE arm, dropping
+   * the caller's nested `create` payload — a wrong answer, not a slow one.
+   *
+   * `skipOwnWrite` without `nestedFresh` is exactly that arm — the same
+   * discriminator the constructor already spends on `armLegalityChecks` — and a
+   * nested subtree (`nestedFresh`) suppresses its terminal and never reaches the
+   * tree fold at all. Conservative on purpose: an arm whose `where` withholds
+   * the pin declines too, because "my steps are rewritten by someone else" is
+   * the property being enforced, not "my children can collide with me", and a
+   * fold that had to predict the rewrite would be a second owner of it.
+   */
+  private readonly annotatedByEnclosingOwner: boolean;
   private readonly armLegalityChecks: (() => void) | undefined;
   /** N4-U2 — the adopt family's fresh-arm seam, bound to this operation's scope and
    *  engine (an arrow field, so `this` survives being passed as a callback). */
@@ -517,6 +565,8 @@ export class CreateOperation {
         parsedData.polymorphic
       );
     };
+    this.annotatedByEnclosingOwner =
+      options.skipOwnWrite === true && nestedFresh === undefined;
     if (options.skipOwnWrite) {
       this.armLegalityChecks = nestedFresh ? undefined : assertOwnWrite;
     } else {
@@ -690,17 +740,27 @@ export class CreateOperation {
    *    decide, so merging its write buys a statement and not the property.
    *  · **No premise is left unasserted.** A guard is a step the merge has no
    *    place for; the fold declines rather than dropping one silently.
-   *  · **Nothing flows between the statements.** A `WITH` gives every arm the
-   *    same snapshot, so an arm cannot read what a sibling wrote — a child INSERT
-   *    that needed the parent's DATABASE-generated key (an `OperationValueReference`
-   *    in its SQL) has no in-statement spelling here and declines. A tree whose
-   *    keys are literals — supplied, or materialized by a `ulid`/`cuid`/`uuid`
-   *    default at the parse boundary — carries no such value. Checked as the
-   *    executor checks it (`statement.values.some(isOperationValueReference)`),
-   *    which is also why a folded step still satisfies the statement-atomic path.
+   *  · **Every value that flows between the statements has an in-statement
+   *    spelling** ({@link compileMutationDependencyFold}, plan §4.5). A `WITH`
+   *    gives every arm the same snapshot, so an arm cannot read what a sibling
+   *    wrote by re-reading the table — but it CAN read the sibling's `RETURNING`
+   *    relation, and that is the channel a child INSERT needing the parent's
+   *    DATABASE-generated key travels. The lowerer replaces each
+   *    `OperationValueReference` in an arm's `Sql.values` with
+   *    `(SELECT <column> FROM <producing arm>)`; a reference it cannot spell —
+   *    a producer outside the fold, a producer that is not strictly earlier, an
+   *    output that is not a `firstRowField` — returns `undefined` and this fold
+   *    declines. A tree whose keys are all literals (supplied, or materialized
+   *    by a `ulid`/`cuid`/`uuid` default at the parse boundary) reaches the
+   *    lowerer with nothing to do and keeps its arms byte-identical.
+   *    After lowering, the merged statement holds no `OperationValueReference`
+   *    at all, which is what keeps the folded step on the statement-atomic path.
    *  · **No step carries an effect the merge would drop.** A `skip` effect needs
    *    a savepoint scope one statement has not got, and a per-step `expects` is a
    *    JS check on a result that stops existing once the steps are one.
+   *  · **No enclosing owner rewrites this operation's steps afterwards**
+   *    ({@link CreateOperation.annotatedByEnclosingOwner}, plan §4.5's "no race
+   *    pin attribution is lost").
    *  · **The arms do not care what order they run in** ({@link foldArmsAreOrderInsensitive}).
    *    The multi-statement path runs them in declaration order; PostgreSQL runs
    *    unread data-modifying `WITH` arms in an order it does not specify, and on
@@ -735,14 +795,24 @@ export class CreateOperation {
       statementWrites.length === writes.length &&
       rootWrite?.id === this.root.writeStepId &&
       foldArmsAreOrderInsensitive(writes, semantics) &&
+      !this.annotatedByEnclosingOwner &&
       statementWrites.every(
         (step) =>
-          isSql(step.statement) &&
-          !step.statement.values.some(isOperationValueReference) &&
-          !(step.expects || step.onUniqueConflict)
+          isSql(step.statement) && !(step.expects || step.onUniqueConflict)
       );
     if (!foldable) return undefined;
     const parent = createQueryScope(this.engine.adapter, this.model);
+    // PACKAGE M — offer the arms to the dependency lowerer, which spells each
+    // `OperationValueReference` as the producing arm's CTE column. `undefined`
+    // is every reference it cannot spell, and the caller's multi-statement
+    // fragment is returned untouched. The root's rebuilt INSERT below carries no
+    // reference the lowerer did not see: it is built from the same
+    // `rootInsertData` as `statementWrites[0]`, whose values the lowerer read.
+    const armStatements = compileMutationDependencyFold(
+      parent,
+      statementWrites
+    );
+    if (!armStatements) return undefined;
     return {
       id: this.root.writeStepId,
       kind: "write",
@@ -752,7 +822,7 @@ export class CreateOperation {
           rootInsertData.data,
           rootInsertData.polymorphicStorage
         ),
-        siblings: siblings.map((step) => step.statement),
+        siblings: armStatements,
         ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
       }),
       outputs: { result: { kind: "rows" } },
