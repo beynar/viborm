@@ -51,7 +51,7 @@ import type {
   WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
-import { planningKey } from "./Part";
+import { conditionalArmPlanning, planningKey } from "./Part";
 import type {
   RecordCompilerSeam,
   RecordUpdateCompiler,
@@ -162,6 +162,11 @@ export class RelationWritePart implements Part {
   // only the child Parts). Computed once at construction.
   private readonly updateScalarData: Record<string, unknown> = {};
   private readonly updateCompiler?: RecordUpdateCompiler;
+  // An upsert found arm's update legality, deferred until that arm is SELECTED
+  // (ATOM §13). The untaken update subtree of a missing create is never analyzed,
+  // so a payload the found arm would refuse compiles when the row is absent.
+  // A targeted `update` arm is unconditional and keeps its legality at construction.
+  private readonly updateLegality?: () => void;
   // A nested update that asks for nothing emits no probe, guard, or empty SET;
   // target existence is not a precondition. An upsert remains non-empty because
   // its create arm can still run.
@@ -196,20 +201,31 @@ export class RelationWritePart implements Part {
       updateCompiler?.writeId ??
       scope.allocate(`${config.childName}.${this.operationKind}`);
     this.guardId = scope.allocate(`${config.childName}.guard.exists`);
-    // Payload support is decided before I/O. Ordinary targeted updates delegate
-    // nested relations to the record compiler; bulk and inverse-upsert leaves
-    // remain scalar-only.
+    // Payload support is decided before I/O. Targeted updates and the upsert found
+    // arm delegate nested relations to the record compiler; bulk leaves remain
+    // scalar-only.
     if (config.kind === "updateMany") {
       this.updateScalarData = this.parseScalarUpdateData();
       this.isNoOpUpdate = Object.keys(this.updateScalarData).length === 0;
     } else if (config.kind === "inverseUpsert") {
-      const scalarData = this.parseScalarUpdateData();
+      // G1 — ONE parse of the complete record boundary. Dropping `polymorphic` here
+      // used to discard a direct polymorphic mutation whose intent carries no
+      // program (a disconnect), so the found arm silently wrote nothing.
+      const parsed = buildParsedRelationPrograms(
+        config.childScope,
+        config.data
+      );
       updateCompiler = config.recordCompilers.updateSelected({
         scope,
         engine: config.engine,
         targetScope: config.childScope,
-        scalarData,
-        relations: {},
+        scalarData: parsed.scalarData,
+        relations: parsed.relations,
+        polymorphic: parsed.polymorphic,
+        // No `incomingMembership`: the correlated probe found the row BY the
+        // membership, so this arm never reparents. No `pinnedTarget`: a correlated
+        // inverse to-one has no unique `where`, so nothing is construction-known —
+        // every value comes from the located row.
         targetRead: { id: this.probeId },
         rootWrite: { id: this.writeId },
         relationName: this.relationName,
@@ -220,6 +236,27 @@ export class RelationWritePart implements Part {
           raceable: false,
         },
       });
+      // G2 — the found arm's legality, deferred to the moment the arm is selected.
+      this.updateLegality = updateCompiler
+        ? () => {
+            assertPortablePrimaryKeyUpdateInput(
+              config.childScope.model,
+              "update",
+              {
+                data: parsed.scalarData,
+              }
+            );
+            assertRelationKeyUpdatesAreCompilable(
+              config.childScope,
+              parsed.scalarData,
+              parsed.relations
+            );
+            assertSelectedUpdateManyDataIsScalar(
+              config.childScope,
+              parsed.relations
+            );
+          }
+        : undefined;
     }
     this.updateCompiler = updateCompiler;
     // The probe is built LAST: whether it owes the deeper edges the located primary
@@ -234,7 +271,17 @@ export class RelationWritePart implements Part {
   planning(scope: StepScope): readonly StatementStep[] {
     if (this.isNoOpUpdate) return [];
     const steps: StatementStep[] = this.probe ? [this.probe] : [];
-    if (this.updateCompiler) steps.push(...this.updateCompiler.planning());
+    if (this.updateCompiler) {
+      // Both arms of an upsert plan (technique #2's widened superset), but only one
+      // later compiles: the found arm's descendant probes must not reject planning
+      // or demand a first-row field while the create arm is the one taken. A
+      // targeted `update` has no untaken arm and keeps its expectations.
+      steps.push(
+        ...(this.config.kind === "inverseUpsert"
+          ? conditionalArmPlanning(this.updateCompiler.planning())
+          : this.updateCompiler.planning())
+      );
+    }
     if (this.config.kind === "inverseUpsert") {
       steps.push(...this.config.createSubtree.planning(scope));
     }
@@ -350,6 +397,7 @@ export class RelationWritePart implements Part {
         )
       );
     }
+    this.updateLegality?.();
     steps.push(...this.updateCompiler.compile(known));
     return steps;
   }
@@ -589,7 +637,12 @@ export class RelationWritePart implements Part {
     });
   }
 
-  /** Bulk updates and inverse-to-one upsert updates accept scalar data only. */
+  /**
+   * Bulk updates accept scalar data only: a set-based UPDATE has no per-row captured
+   * identity for a descendant write to correlate to (ATOM §17). The inverse-upsert
+   * found arm was the other caller until Package G routed it through the record
+   * compiler; what remains here is the nested `updateMany` leaf.
+   */
   private parseScalarUpdateData(): Record<string, unknown> {
     const { data, childScope } = this.config;
     const kind = this.operationKind;
@@ -607,9 +660,8 @@ export class RelationWritePart implements Part {
     });
     assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
     if (Object.keys(relations).length > 0) {
-      const operation = this.config.kind === "inverseUpsert" ? "upsert" : kind;
       throw new UnsupportedOperationError(
-        `query-engine-v2 ${operation} for relation '${this.relationName}' does not support nested relation writes in its data.`
+        `query-engine-v2 ${kind} for relation '${this.relationName}' does not support nested relation writes in its data.`
       );
     }
     return scalarData;

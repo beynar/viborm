@@ -446,6 +446,81 @@ function registerPolymorphicWriteBehavior(
       ).toMatchObject({ featuredComment: { body: "created" } });
     });
 
+    /**
+     * PACKAGE G — the singular polymorphic inverse rides the ORDINARY child-held-to-one
+     * Parts, so its upsert found arm inherited the scalar-only refusal and now inherits
+     * the lift. Measured at a8349793, this payload threw at construction with an empty
+     * statement log: `query-engine-v2 upsert for relation 'featuredComment' does not
+     * support nested relation writes in its data.` The membership predicate is
+     * unchanged either way — both halves, id correlation AND exact discriminator — and
+     * the create arm still adopts by writing the fixed pair.
+     */
+    test("singular inverse upsert arms carry nested relation writes on both branches", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: { slug: "singular-arm-depth", title: "Arm depth" },
+      });
+      const board = await client.board.create({
+        data: { name: "arm depth board" },
+      });
+
+      // MISSING: the create arm runs, and none of the update subtree does.
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          featuredComment: {
+            upsert: {
+              create: { code: "arm-created", body: "created" },
+              update: {
+                body: "not reached",
+                board: { connect: { id: board.id } },
+              },
+            },
+          },
+        },
+      });
+      expect(
+        await client.post.findUniqueOrThrow({
+          where: { id: post.id },
+          include: { featuredComment: { include: { board: true } } },
+        })
+      ).toMatchObject({
+        featuredComment: { body: "created", board: null },
+      });
+
+      // FOUND: the same payload now compiles as one selected record.
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          featuredComment: {
+            upsert: {
+              create: { code: "arm-unused", body: "unused" },
+              update: {
+                body: "updated",
+                board: { connect: { id: board.id } },
+              },
+            },
+          },
+        },
+      });
+      expect(
+        await client.featuredComment.findUniqueOrThrow({
+          where: { code: "arm-created" },
+          include: { board: true },
+        })
+      ).toMatchObject({
+        body: "updated",
+        board: { name: "arm depth board" },
+      });
+      // A foreign-discriminator row is still not this parent's member: the create arm
+      // is the branch a mismatched pair takes, so no adoption happened by accident.
+      expect(
+        await client.featuredComment.findUnique({
+          where: { code: "arm-unused" },
+        })
+      ).toBeNull();
+    });
+
     test("singular inverse replaces a member with vacate-then-supply pairs", async () => {
       const { client } = getFamily();
       const post = await client.post.create({

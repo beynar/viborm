@@ -9,8 +9,8 @@ Every refusal below is an `UnsupportedOperationError` raised at CONSTRUCTION —
 **Anchoring convention.** A refusal SITE is anchored on its
 `throw new UnsupportedOperationError(` line, not on the message template one line
 below it. A named guard FUNCTION is anchored on its declaration line instead, and
-is always given by name — `RelationWritePart.ts:1046`
-(`assertOwnedFkAbsentFromUpdateData`) is a throw, and `:1036` is that same
+is always given by name — `RelationWritePart.ts:1167`
+(`assertOwnedFkAbsentFromUpdateData`) is a throw, and `:1157` is that same
 function's declaration. The limitation-lift plan and the parity witnesses use the
 same two rules; when a number here and a number there differ, the file that moved is
 the one at fault.
@@ -254,7 +254,7 @@ A set-based `UPDATE … WHERE id IN (…)` learns no per-row identity, and the e
 
 ## 5. The relation's own foreign key, spelled by hand (2)
 
-**5.1 — spelled in nested UPDATE data** · `RelationWritePart.ts:1046` (`assertOwnedFkAbsentFromUpdateData`)
+**5.1 — spelled in nested UPDATE data** · `RelationWritePart.ts:1167` (`assertOwnedFkAbsentFromUpdateData`)
 
 ```ts
 client.user.update({
@@ -367,7 +367,7 @@ The adopt kinds need the occupied guard's PRE-transition value **and** the POST 
 
 ## 8. Relation writes in the wrong data clause (1)
 
-**8.1 — relation writes inside child-held `updateMany` data** · `RelationWritePart.ts:601`
+**8.1 — relation writes inside child-held `updateMany` data** · `RelationWritePart.ts:663`
 
 ```ts
 client.author.update({
@@ -383,7 +383,9 @@ client.author.update({
 });
 ```
 
-The `:2314` wall verbatim, one relation kind over. *(The inverse-to-one UPSERT-arm half of this same site failed the re-audit and is future work; both halves still share this one throw, which words itself `upsert` when `config.kind === "inverseUpsert"`.)*
+The `:2314` wall verbatim, one relation kind over. *(This site used to be SHARED: its other half refused the inverse-to-one UPSERT arm, wording itself `upsert` when `config.kind === "inverseUpsert"`. Package G delivered that half — see "What has been DELIVERED since" — so the site now serves `updateMany` alone and the branching ternary is gone. The `updateMany` half is not future work of the same kind: a set-based UPDATE has no per-row captured identity for a descendant write to correlate to, so lifting it means capturing roots, which is the limitation-lift plan's Package K/L2.)*
+
+*(One thing the surviving half does NOT answer, measured at the gate rather than reasoned about, and named here so Package K/N does not have to rediscover it: `parseScalarUpdateData` reads only `scalarData` and `relations`, so the third parsed member — a direct polymorphic mutation whose resolved intent carries no relation program, i.e. a `disconnect` — passes the wall untouched and is then dropped. `author.update > posts.updateMany.data: { subject: { disconnect: true } }` compiles to the terminal select ALONE and succeeds having cleared nothing; with a scalar beside it, `UPDATE … SET "body" = $1 WHERE "authorId" = $2` runs and the private pair is silently left in place. That is a silent wrong answer rather than a refusal, which is why it has never appeared in this document — and it is exactly the defect Package G fixed on the upsert half by forwarding `polymorphic`. It has nothing to do with capture roots and is refusable today; `updateManyCarriesRelations` and `findRelationBearingUpdateManyData` share the blind spot, both reading `.relations` alone.)*
 
 ---
 
@@ -435,8 +437,6 @@ The refusals the final re-audit re-filed as expressible work — they still thro
 | `RecordUpdateCompiler.ts:1324`, `:1495`, `:2631`, `RelationUpsertPart.ts:1049`, `nested-target-parts.ts:190` | any nested write whose CHILD model has a compound primary key (five positions; `:1495` is the bound-polymorphic inverse one) |
 | `RecordUpdateCompiler.ts:3084` | shared-PK create/connectOrCreate/upsert at an update root |
 
-Plus the inverse-to-one upsert-arm half of `RelationWritePart.ts:601`.
-
 Changes since this list was written, each verified against the tree:
 
 - (2026-08-09) The list had **six** rows. One of them — a deeper write on the update arm "whose planning read asserts that its own target exists" — is **DELIVERED and removed**: the selected-record compiler makes a conditional arm's descendant outputs optional until the found arm is selected (`conditionalArmPlanning`, `write-engine/Part.ts:63`; `StatementOutputSource.optional`, `write-engine/OperationFragment.ts:37`; resolution at `write-engine/OperationExecutor.ts:905`). That message no longer occurs anywhere in `src`.
@@ -449,6 +449,10 @@ Changes since this list was written, each verified against the tree:
   RESIDUE, deliberate and narrow: a same-value write of a referenced column is treated as a real transition wherever the pre-value is not a construction literal — which needs BOTH a single-member reference and a locator that pins it, a compound reference having no construction-time post-value even when the locator pins every member. So an occupied old slot then refuses with the occupied message where a pinning single-member locator would accept. The no-op question needs the pre-value, and the two things the regime decides — `afterRootParts` ordering and the to-one upsert's create-arm reroute — are construction-time structure. For every nested kind but `create` / `createMany` this NARROWS a refusal that used to cover the whole shape.
   NOT a lift, and the ledger says so rather than letting the sentence above imply it: for nested `create` / `createMany` the occupied guard is a NEW REFUSAL on payloads that previously executed. `pastSurface` returned before the guard could be emitted and its caller let those two kinds through untouched, so a compound / non-primary-key / unpinned reference carrying create-only relations used to compile with no probe and no guard however occupied the old slot was — while the PINNED single-member twin of the same payload was refused with the occupied message throughout. The guard is kind-blind and relation-level, so unifying the two spellings costs that accept. This is a §3.1 change of "guards and postconditions", "statement count and round trips", and "error class, message" on an accepted payload, and it needs the coordinator's ratification rather than a package's. Measured on every driver leg (`compiled-key-transition-behavior.ts`, "an OCCUPIED old slot refuses the same nested create the empty slot accepts").
   BOUNDED at the gate: an old reference tuple with a NULL member addresses no row under MATCH SIMPLE, so the guard does not fire for it. That is decided once for both substrates, because the guard's two carriers lower a null pre-value differently — the planning probe binds it as a parameter (`= $n`, never true of NULL), the atomic batch's premise resolves it to a literal (`IS NULL`, true of NULL) — and the same payload was resolving on a transaction while throwing the occupied error on a batch (`RelationKeyGuard.oldReferenceIsAddressable`; pinned on both substrates in the same behavior file).
+- (2026-08-10, Package G) **The last row of this section is DELIVERED and removed**: the inverse-to-one upsert-arm HALF of §8.1's site. Its recorded obstacle was that the arm had no captured target to hand a nested write; the arm's own correlated probe had been publishing exactly that since Package C, and Package D removed the last reason an UNPINNED target could not carry one. `RelationWritePart`'s `inverseUpsert` branch now parses the arm ONCE through `buildParsedRelationPrograms` and hands all three members — `scalarData`, `relations`, and the `polymorphic` map it used to drop on the floor — to `RecordCompilerSeam.updateSelected`, with no `incomingMembership` (the probe found the row BY the membership, so the arm never reparents) and no `pinnedTarget` (a correlated inverse to-one has no unique `where`, so nothing is construction-known). The relation owner keeps the correlated probe, the found/missing decision, the batch premise guard and the transaction affected-rows failure; what moved is the found arm's body and the timing of its legality, which is now a deferred closure invoked after the arm is selected — ATOM §13's wording, which this seam was the last one not to obey.
+  DELIVERED TOO, in the same parse: a direct polymorphic `disconnect` resolves to an intent with no relation program, so it lived only in the dropped third member. Measured at `a8349793`, `owner.update > card.upsert.update: { subject: { disconnect: true } }` compiled the found arm to ZERO steps and the call succeeded having cleared nothing, while the sibling nested `update` kind emitted the UPDATE. That was a silent wrong answer, not a refusal, so it was never in this document; it is recorded here because the same line caused both.
+  §3.1 CHANGE, small and named: PK-portability and relation-key legality used to run at CONSTRUCTION for this seam, so a `profile.upsert.update` that fails them threw with an empty statement log whether or not the found arm was taken. They now run after the planning probe and only on the found arm; on a MISSING probe they do not run at all. Same class as Package D's two retargets. Witnessed on both substrates in `inverse-to-one-update-depth` (found-arm depth and grandchild depth, missing-arm inertness, deferred legality, empty found arm), `record-compiler-contract` (convergence with the nested `update` kind, compound captured row key with a decoy, the polymorphic forward), and `polymorphic-write-family` (the singular polymorphic inverse, which rides the same Parts). Three falsifications: dropping `conditionalArmPlanning` breaks the missing arm on both substrates, dropping the deferred call breaks the legality split, dropping `polymorphic` restores the silent discard.
+  NOT DELIVERED, stated so the §8.1 entry is not read as half-dead: the `updateMany` half stays, and so does the guarded-transition reroute (`RecordUpdateCompiler.rerouteTransitionedUpsertCreateArm`), which drops an inverse upsert's update payload WHOLESALE when the root transitions a referenced key — no wall fires there today and none fires after G, because the update arm is claimed unreachable under that regime. Package G left it untouched and records it here rather than silently inheriting it.
 
 ## The honesty note
 

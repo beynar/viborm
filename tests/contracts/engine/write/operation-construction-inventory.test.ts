@@ -2322,6 +2322,44 @@ describe("write engine route inventory (P6 accounting)", () => {
   // a §3.1 change on an accepted payload and needs the coordinator's ratification, not
   // a package's. Behavior on every driver leg in `compiled-key-transition-behavior.ts`;
   // ledger entry in `docs/architecture/forbidden-shapes-reference.md`.
+  // PACKAGE G MOVED THIS NUMBER NOT AT ALL, and that is the entry, not an omission.
+  // G lifted the inverse-side to-one upsert's scalar-only found arm — measured at
+  // a8349793 as `UnsupportedOperationError: query-engine-v2 upsert for relation
+  // 'profile' does not support nested relation writes in its data.`, thrown at
+  // construction with an empty statement log — by routing that arm through
+  // `RecordCompilerSeam.updateSelected` with the complete parsed record. But the throw
+  // it retired is a BRANCH of a SHARED site: `RelationWritePart.parseScalarUpdateData`
+  // serves nested `updateMany` too, and that half stays (ATOM §17 — a set-based UPDATE
+  // has no per-row captured identity for a descendant write to correlate to; lifting it
+  // is Package K/L2, not G). So the site survives, worded for `updateMany` alone, the
+  // dead `kind === "inverseUpsert" ? "upsert" : kind` ternary that spelled the other
+  // half is gone, and the count is 22 before and after. A census of SITES cannot show a
+  // half-site retiring, which is exactly why this paragraph exists.
+  //   The absorbed shape carries behavioral witnesses rather than a reachability
+  //   argument, per the CENSUS DISCIPLINE note above: `inverse-to-one-update-depth`
+  //   drives the found arm's depth, the missing arm's inertness, deferred found-arm
+  //   legality and the empty found arm on both substrates; `record-compiler-contract`
+  //   pins that the found arm and the sibling nested `update` kind now emit the same
+  //   steps, SQL and parameters, that a compound captured row key is addressed in full,
+  //   and that a direct polymorphic mutation with no relation program is forwarded (it
+  //   was silently DISCARDED before G — the arm compiled to zero steps and the call
+  //   succeeded having written nothing); `polymorphic-write-family` drives the singular
+  //   polymorphic inverse, which rides the same Parts.
+  //   ONE TIMING CHANGE THIS SITE'S DISAPPEARANCE HIDES, recorded for §O4: the found
+  //   arm's PK-portability and relation-key legality used to run at CONSTRUCTION for
+  //   this seam, so `profile.upsert.update` payloads that fail them threw with an empty
+  //   statement log whether or not the found arm was taken. They are now a deferred
+  //   closure invoked after the planning probe and only on the found arm — the same
+  //   retarget class Package D already had ratified, and what ATOM §13 always said.
+  //   Exactly ONE of the three asserts in that closure changed timing for a payload
+  //   class this seam used to ACCEPT in shape: `assertPortablePrimaryKeyUpdateInput`.
+  //   The other two need relations in the arm, and a relation-bearing arm was refused
+  //   outright before G, so their refusals could not previously fire here at all. That
+  //   one is pinned by `record-compiler-contract`'s "defers primary-key portability to
+  //   the found arm" on both substrates — construct, plan, MISSING creates, FOUND
+  //   refuses — and deleting only that assert from the closure reddens that test and
+  //   nothing else in the estate, which is how the closure satisfies one-guard-per-
+  //   invariant for each of its three members rather than as a block.
   // SCOPE, stated because the arithmetic does not add up otherwise: this scan reads
   // `query-engine/write-engine/*.ts` ONLY. D also deleted a third site, the compound-target
   // fail-closed refusal in `src/query-engine/relation-key-legality.ts` (3 → 2 there), and

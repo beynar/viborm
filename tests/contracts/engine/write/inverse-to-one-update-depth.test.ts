@@ -3,7 +3,6 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { hydrateSchemaNames, s } from "@schema";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
@@ -47,8 +46,13 @@ import { describe, expect, test } from "vitest";
  *    the self-UPDATE, then the child steps). In one atomic unit a failed guard aborts
  *    everything after it, so there is no arm under which a grandchild lands beside a
  *    target that vanished — no orphan.
- *  · **The carve-outs.** The inverse-side to-one UPSERT arm keeps its refusal (its
- *    compile decides the three-way and its found arm emits the update leaf alone). The
+ *  · **The carve-outs, both now lifted.** The inverse-side to-one UPSERT arm used to
+ *    keep the refusal (its compile decided the three-way and its found arm emitted the
+ *    update leaf alone); PACKAGE G routed that found arm through the same record
+ *    compiler, and the `PACKAGE G …UPSERT arm with relations` describe below carries
+ *    the same depth claims on both substrates plus the two the upsert alone can make —
+ *    the missing arm binds and validates none of the update subtree, and found-arm
+ *    legality runs only once the found arm is selected. The
  *    second carve-out — a payload that transitions the target's primary key with no
  *    where-pinned pre-value — was LIFTED by Package D2 and the two tests at the bottom
  *    now pin both halves of it: the occupied old slot still refuses, with the
@@ -491,6 +495,235 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
       }
     }, 30_000);
   });
+
+  /**
+   * PACKAGE G — the same depth, through the UPSERT arm. Until G this whole describe
+   * was one refusal (`…upsert for relation 'profile' does not support nested relation
+   * writes in its data.`, thrown at construction with an empty statement log). The
+   * relation owner still decides found vs missing; what changed is that the FOUND arm
+   * is now the ordinary selected record, and the MISSING arm still runs none of it.
+   */
+  describe(`PACKAGE G inverse-side to-one UPSERT arm with relations (${substrate})`, () => {
+    test("the FOUND arm folds a deeper create against the located target", async () => {
+      const client = await setup(makeDriver(getFamily().database));
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "p-unused", bio: "unused" },
+              update: {
+                bio: "after",
+                notes: { create: { id: "n-fresh", text: "fresh" } },
+              },
+            },
+          },
+        },
+      });
+      await expect(state(client)).resolves.toEqual({
+        profiles: [
+          { id: "p-decoy", bio: "decoy", userId: "decoy" },
+          { id: "p-owner", bio: "after", userId: "owner" },
+        ],
+        notes: [
+          { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
+          { id: "n-fresh", text: "fresh", profileId: "p-owner" },
+          { id: "n-owner", text: "owned", profileId: "p-owner" },
+        ],
+        attachments: [],
+      });
+    }, 30_000);
+
+    test("a grandchild edge on the FOUND arm lands under the located note", async () => {
+      const client = await setup(makeDriver(getFamily().database));
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "p-unused", bio: "unused" },
+              update: {
+                notes: {
+                  update: {
+                    where: { id: "n-owner" },
+                    data: {
+                      text: "deep",
+                      attachments: { create: { id: "a-deep", name: "deep" } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      await expect(state(client)).resolves.toMatchObject({
+        notes: [
+          { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
+          { id: "n-owner", text: "deep", profileId: "p-owner" },
+        ],
+        attachments: [{ id: "a-deep", name: "deep", noteId: "n-owner" }],
+      });
+    }, 30_000);
+
+    /**
+     * The missing arm binds and validates NOTHING of the update subtree. The payload
+     * carries a to-many `update` whose own probe expects exactly one row; the
+     * superset plan still ISSUES that probe (technique #2), correlated to a located
+     * profile key that does not exist, so without the untaken-arm relaxation the
+     * operation would abort with `Cannot update relation 'notes'…` instead of
+     * creating.
+     */
+    test("the MISSING arm creates and runs none of the update subtree", async () => {
+      const client = await setup(makeDriver(getFamily().database));
+      await client.user.create({ data: { id: "lonely", name: "lonely" } });
+      await client.user.update({
+        where: { id: "lonely" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "p-lonely", bio: "created" },
+              update: {
+                bio: "never",
+                notes: {
+                  update: { where: { id: "n-owner" }, data: { text: "never" } },
+                },
+              },
+            },
+          },
+        },
+      });
+      await expect(state(client)).resolves.toMatchObject({
+        profiles: [
+          { id: "p-decoy", bio: "decoy", userId: "decoy" },
+          { id: "p-lonely", bio: "created", userId: "lonely" },
+          { id: "p-owner", bio: "before", userId: "owner" },
+        ],
+        // `n-owner` belongs to another parent's profile and is untouched: the update
+        // subtree never bound.
+        notes: [
+          { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
+          { id: "n-owner", text: "owned", profileId: "p-owner" },
+        ],
+      });
+    }, 30_000);
+
+    /**
+     * Found-arm legality runs only after the found arm is selected (ATOM §13). The
+     * SAME payload is accepted when the row is absent and refused when it is present —
+     * and the refusal is the CLASS V walk's own message, not a construction-time
+     * carve-out.
+     */
+    test("found-arm legality is deferred: the missing arm accepts what the found arm refuses", async () => {
+      const client = await setup(makeDriver(getFamily().database));
+      const classV = {
+        notes: {
+          updateMany: {
+            where: {},
+            data: { profile: { connect: { id: "p-decoy" } } },
+          },
+        },
+      };
+      await client.user.create({ data: { id: "lonely", name: "lonely" } });
+      await client.user.update({
+        where: { id: "lonely" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "p-lonely", bio: "created" },
+              update: classV,
+            },
+          },
+        },
+      });
+      await expect(
+        client.profile.findUnique({ where: { id: "p-lonely" } })
+      ).resolves.toMatchObject({ bio: "created" });
+
+      await expect(
+        client.user.update({
+          where: { id: "owner" },
+          data: {
+            profile: {
+              upsert: {
+                create: { id: "p-unused", bio: "unused" },
+                update: classV,
+              },
+            },
+          },
+        })
+      ).rejects.toThrow(
+        "query-engine-v2 updateMany for relation 'notes' does not support nested relation writes in its data."
+      );
+      await expect(
+        client.note.findUnique({ where: { id: "n-owner" } })
+      ).resolves.toMatchObject({ profileId: "p-owner" });
+    }, 30_000);
+
+    test("an empty found update writes nothing at all", async () => {
+      const driver = new RecordingBatchDriver({ client: getFamily().database });
+      const client = await setup(driver);
+      driver.recording = true;
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            upsert: { create: { id: "p-unused", bio: "unused" }, update: {} },
+          },
+        },
+      });
+      driver.recording = false;
+      expect(
+        driver.statements.filter(
+          (sql) =>
+            sql.startsWith('UPDATE "e2u1_profiles"') ||
+            sql.startsWith('INSERT INTO "e2u1_profiles"')
+        )
+      ).toEqual([]);
+      await expect(state(client)).resolves.toMatchObject({
+        profiles: [
+          { id: "p-decoy", bio: "decoy", userId: "decoy" },
+          { id: "p-owner", bio: "before", userId: "owner" },
+        ],
+      });
+    }, 30_000);
+
+    test("a deeper targeted update on the FOUND arm naming the DECOY's row aborts", async () => {
+      const client = await setup(makeDriver(getFamily().database));
+      await expect(
+        client.user.update({
+          where: { id: "owner" },
+          data: {
+            profile: {
+              upsert: {
+                create: { id: "p-unused", bio: "unused" },
+                update: {
+                  bio: "never",
+                  notes: {
+                    update: {
+                      where: { id: "n-decoy" },
+                      data: { text: "stolen" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow(NOTE_NOT_FOUND);
+      await expect(state(client)).resolves.toEqual({
+        profiles: [
+          { id: "p-decoy", bio: "decoy", userId: "decoy" },
+          { id: "p-owner", bio: "before", userId: "owner" },
+        ],
+        notes: [
+          { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
+          { id: "n-owner", text: "owned", profileId: "p-owner" },
+        ],
+        attachments: [],
+      });
+    }, 30_000);
+  });
 }
 
 describe("E2-U1 batch ordering: the child Parts compile under the presence guard", () => {
@@ -652,43 +885,16 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
 });
 
 describe("E2-U1 the carve-outs that stay refused", () => {
-  test("the inverse-side to-one UPSERT arm keeps its refusal", async () => {
-    const driver = new RecordingBatchDriver({ client: getFamily().database });
-    const client = await setup(driver);
-    try {
-      driver.recording = true;
-      const act = () =>
-        client.user.update({
-          where: { id: "owner" },
-          data: {
-            profile: {
-              upsert: {
-                create: { id: "p-new", bio: "created" },
-                update: {
-                  bio: "after",
-                  notes: { create: { id: "n-arm", text: "arm" } },
-                },
-              },
-            },
-          },
-        });
-      await expect(act()).rejects.toThrow(UnsupportedOperationError);
-      await expect(act()).rejects.toThrow(
-        "query-engine-v2 upsert for relation 'profile' does not support nested relation writes in its data."
-      );
-      driver.recording = false;
-      // A construction-time decision: nothing was sent, not "rolled back".
-      expect(driver.statements).toEqual([]);
-      await expect(state(client)).resolves.toMatchObject({
-        notes: [
-          { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
-          { id: "n-owner", text: "owned", profileId: "p-owner" },
-        ],
-      });
-    } finally {
-    }
-  }, 30_000);
-
+  /**
+   * PACKAGE G DISCHARGED the first carve-out. This test used to assert the refusal:
+   *
+   *   UnsupportedOperationError: query-engine-v2 upsert for relation 'profile' does
+   *   not support nested relation writes in its data.   (0 statements, both substrates)
+   *
+   * measured on this exact payload at a8349793. Its replacement is the
+   * `PACKAGE G inverse-side to-one UPSERT arm with relations` describe above, which
+   * runs on both substrates. What remains here is the second carve-out's two halves.
+   */
   test("a primary-key transition with an OCCUPIED old slot is refused by the occupied guard", async () => {
     const driver = new RecordingBatchDriver({ client: getFamily().database });
     const client = await setup(driver);
