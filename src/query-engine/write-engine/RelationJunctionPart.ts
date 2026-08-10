@@ -30,7 +30,6 @@ import {
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import {
-  assertPinnedTransitionIsCompilable,
   assertRelationKeyUpdatesAreCompilable,
   assertSelectedUpdateManyDataIsScalar,
 } from "../relation-key-legality";
@@ -102,7 +101,7 @@ interface JunctionContext {
   readonly parentScope: QueryScope;
   readonly relation: JunctionRelation;
   readonly parentId: FinalReferenceSource;
-  readonly membershipReadSource?: FinalReferenceSource;
+  readonly membershipReadSource: FinalReferenceSource;
   readonly txMode: boolean;
 }
 
@@ -1709,8 +1708,7 @@ export class RelationJunctionPart implements Part {
   }
 
   private membershipMember(): CorrelatedForeignKeyMember {
-    const readSource =
-      this.context.membershipReadSource ?? this.context.parentId;
+    const readSource = this.context.membershipReadSource;
     return {
       ...this.parentWriteMember(),
       readSource: planningSourceFromFinal(
@@ -1743,7 +1741,7 @@ export function buildJunctionParts(input: {
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
   /** Parent value carried by existing membership rows before a key transition. */
-  membershipReadSource?: FinalReferenceSource;
+  membershipReadSource: FinalReferenceSource;
   /** A create-root parent has no pre-existing membership. */
   freshParent?: boolean;
   txMode: boolean;
@@ -1826,7 +1824,10 @@ export function buildJunctionParts(input: {
           childScope,
           literalParentId(spelledPk),
           relations,
-          txMode
+          txMode,
+          // A target this statement is INSERTing has no existing membership to read;
+          // the value that names it is the key it is being given.
+          literalParentId(spelledPk)
         ),
       };
     }
@@ -2173,15 +2174,6 @@ export function buildJunctionParts(input: {
               Object.keys(parsed.relations).length +
               Object.keys(parsed.polymorphic).length >
             0;
-          if (hasUpdate) {
-            assertPinnedTransitionIsCompilable(
-              childScope,
-              parsed.scalarData,
-              parsed.relations,
-              relationName,
-              pinnedTarget
-            );
-          }
           const compiler = hasUpdate
             ? input.recordCompilers.updateSelected({
                 scope,

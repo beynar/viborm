@@ -1,12 +1,10 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 
 /**
  * T3b1 fixer round 1, finding #1 — the PK-transition cascade boundary, post-P6 (the
@@ -45,18 +43,21 @@ import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared
  * **TWO ARMS ADDED AT THE N4/N5 MERGE.** N4-U1 lets this same nested target be located by
  * any unique, handing the deeper edges a `planned` source into the part's own probe
  * instead of a `where`-pinned literal. That absorption and N5-U1's ordering INTERSECT
- * here, and their intersection is the one shape neither mechanism serves: a target named
- * by a non-primary-key unique whose SET also rewrites its primary key, carrying a
- * non-cascade deeper edge. The probe runs BEFORE the self-UPDATE, so the planned source
- * reads the key the transition is about to vacate, and no `ParentIdSource` applies the
- * SET's operand to a planned value. The last two arms bracket exactly that: the
- * intersection refuses at construction with nothing written, and the same non-PK locator
- * with NO transition in the SET executes, landing the edge on the located row's key.
- * Falsified, and the measurement is what the comment says: drop the merge refusal and the
- * deeper edge is written against the VACATED key — here the FK constraint catches it and
- * a bare `ForeignKeyError` surfaces instead of the typed construction decline (2 of 12
- * fail), and on a schema where another row already holds the vacated key nothing would
- * catch it at all.
+ * here, and their intersection was said to be the one shape neither mechanism serves: a
+ * target named by a non-primary-key unique whose SET also rewrites its primary key,
+ * carrying a non-cascade deeper edge.
+ *
+ * **RETARGETED AGAIN BY PACKAGE D2 (authorized test change).** That intersection is
+ * served now. The recorded obstacle — "no `ParentIdSource` applies the SET's operand to
+ * a planned value" — was a missing SOURCE, not a missing fact:
+ * `RecordUpdateCompiler.postTransitionReference` applies the operand to the located
+ * value at COMPILE, per referenced member. So the first of the two merge arms executes
+ * instead of refusing, and pins the state (the deeper edge on the POST-transition key,
+ * the second root's subtree untouched); the second, which never had a transition, is
+ * unchanged. The old measurement still holds for the mechanism it described: bind the
+ * deeper edge to the located key WITHOUT the derivation and it is written against the
+ * VACATED key, which the FK constraint catches here and would not catch on a schema
+ * where another row already holds that key.
  *
  * **TWO ARMS ADDED IN THE FIX ROUND.** N5-U1b claimed "one rule, two depths, one
  * message" and shipped one and a half: depth read "the SET names the primary key" as
@@ -280,7 +281,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         // the child-held edge must be written after it. Both halves of that reading are
         // still true — what was false is that one ordering must supply one value. The
         // junction now READS on the where-pinned pre-transition key and WRITES on the
-        // post-transition one (`RelationJunctionConfig.correlationParentId`, the split
+        // post-transition one (`RelationJunctionConfig.membershipReadSource`, the split
         // N5-U1 already made for `set`), so the post-transition ordering serves both
         // edges at once. Same payload, and this arm asserts the state it produces.
         await (client as any).node.update(
@@ -327,35 +328,40 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
     );
 
     test(
-      `a non-PK locator plus a PK transition is the merge's one refusal (${substrate})`,
+      `D2 LIFT: a non-PK locator plus a PK transition now executes (${substrate})`,
       { timeout: 30_000 },
       async () => {
         const { client } = freshClient(substrate);
         await push(client as any, { force: true });
         await seed(client);
 
-        // N4-U1's provenance (locate by `label`, Ref the probe) and N5-U1b's ordering
-        // (bind the deeper edge to the POST-transition key) cannot both be served: the
-        // probe already ran, so the value it publishes is the key 7 replaces. Refused at
-        // construction, before any statement, rather than binding the vacated key.
-        await expect(
-          (client as any).node.update({
-            where: { id: 10 },
-            data: {
-              children: {
-                update: {
-                  where: { label: "target" },
-                  data: { id: 7, ...CHILD_HELD_EDGE },
-                },
+        // RETARGETED BY PACKAGE D2. This was "the merge's one refusal": N4-U1's
+        // provenance (locate by `label`, Ref the probe) and N5-U1b's ordering (bind the
+        // deeper edge to the POST-transition key) were said to be unserviceable
+        // together, because "the probe already ran, so the value it publishes is the key
+        // 7 replaces". Both halves were true and the conclusion was not: the probe
+        // publishing the PRE-transition key is exactly what a post-transition derivation
+        // needs, once the derivation is allowed to run at COMPILE instead of at
+        // construction. D2's `postTransitionReference` is that, so the payload compiles
+        // and lands the identical state the PK-locator arm above produces.
+        await (client as any).node.update({
+          where: { id: 10 },
+          data: {
+            children: {
+              update: {
+                where: { label: "target" },
+                data: { id: 7, ...CHILD_HELD_EDGE },
               },
             },
-          })
-        ).rejects.toBeInstanceOf(UnsupportedOperationError);
+          },
+        });
         expect((await snapshot(client)).parents).toEqual([
-          [1, 10],
           [3, 10],
           [4, 20],
-          [5, null],
+          // The deeper connect took the POST-transition key …
+          [5, 7],
+          // … which the self-UPDATE wrote, and the second root's subtree is untouched.
+          [7, 10],
           [10, null],
           [20, null],
         ]);

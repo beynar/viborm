@@ -1,12 +1,11 @@
+import { createClient } from "@client/client";
+import { PGliteDriver } from "@drivers/pglite";
+import type { PGlite } from "@electric-sql/pglite";
+import { hydrateSchemaNames, s } from "@schema";
 import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { hydrateSchemaNames, s } from "@schema";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -29,8 +28,11 @@ import { describe, expect, test } from "vitest";
  *  · its WRITES run after the self-UPDATE, by which time `ON UPDATE CASCADE` has carried
  *    those same rows to the new key, so they must use the POST-transition value.
  *
- * That is `RelationSetConfig.correlationParentId`, the split N5-U1 built for `set`'s two
- * halves, threaded through the child-Part seam into `RelationJunctionPart`.
+ * That is the split N5-U1 built for `set`'s two halves — today
+ * `RelationSetConfig.departingMembership` beside `WritePartBase.membershipReadSource`,
+ * which Package D1 made a REQUIRED field so every construction site names its own read
+ * source instead of defaulting to the write one — threaded through the child-Part seam
+ * into `RelationJunctionPart`.
  *
  * The batch substrate forced one more thing into the open, measured rather than assumed:
  * the atomic unit evaluates EVERY guard before any write in it (the root's bucketing in
@@ -398,16 +400,112 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
   });
 }
 
-describe("E2-U3 the carve-out that stays refused", () => {
-  test("a target named by a NON-primary-key unique keeps the merge refusal", async () => {
-    // The pre-transition value has to be a compile-time literal — both the junction's
-    // read correlation and the occupied guard's slot are that value — and a target
-    // named by another unique has only the probe's PRE-transition read, which is the
-    // key the transition vacates. Unchanged by this unit (the N4 × N5 merge row).
-    const client = await setup(
-      new PGliteDriver({ client: getFamily().database })
-    );
-    try {
+/**
+ * D2 — THE CARVE-OUT, LIFTED, AND THE A-HOLE WITNESS IT DOUBLES AS.
+ *
+ * The refusal this block used to pin was the last one standing between the two
+ * mechanisms this file is about:
+ *
+ *   query-engine-v2 update for relation 'posts' transitions the target primary key 'id'
+ *   while writing a deeper edge whose foreign key does not cascade on update; it must
+ *   locate the target by that primary key.
+ *
+ * Its recorded reason was "the pre-transition value has to be a compile-time literal —
+ * both the junction's read correlation and the occupied guard's slot are that value".
+ * The premise is the part D2 changed: neither needs a LITERAL, both need the PRE-TRANSITION
+ * value, and the probe that located the target publishes exactly that. So the target may
+ * now be named by any unique, and the three provenances the whole file is about stay
+ * separated with the locator supplying none of them:
+ *
+ *   · the junction's membership READ  → the located (pre-transition) key;
+ *   · the junction's WRITE            → the post-transition key, after the self-UPDATE,
+ *                                       with `ON UPDATE CASCADE` carrying the rows it
+ *                                       did not write;
+ *   · the non-cascade child edge      → the post-transition key, after the self-UPDATE,
+ *                                       behind the occupied guard.
+ *
+ * This is also the topology Package A recorded as D's unpinned hole ("junction and/or
+ * polymorphic transition witness — the topology parity-d lacks"): parity-d's schemas have
+ * no many-to-many member, so a junction under a transition has no fragment-level or
+ * behavioral before-picture there. It has one here, on both substrates, with the decoy
+ * author's post sharing `t1` and owning its own comment.
+ */
+describe("E2-U3 the carve-out D2 lifted", () => {
+  for (const substrate of ["transaction", "atomic batch"] as const) {
+    test(`a target named by a NON-primary-key unique now executes (${substrate})`, async () => {
+      const client = await setup(
+        substrate === "transaction"
+          ? new PGliteDriver({ client: getFamily().database })
+          : new BatchOnlyPGliteDriver({ client: getFamily().database })
+      );
+      await client.note.create({
+        data: { id: "n-old", body: "departing", postId: "p1" },
+      });
+      await client.author.update({
+        where: { id: "a1" },
+        data: {
+          posts: {
+            update: {
+              where: { slug: "target-slug" },
+              data: {
+                id: "p9",
+                tags: {
+                  update: { where: { id: "t1" }, data: { name: "e" } },
+                },
+                comments: { create: { id: "c1", body: "fresh" } },
+              },
+            },
+          },
+        },
+      });
+      await expect(
+        client.post.findUnique({ where: { id: "p9" } })
+      ).resolves.toEqual({
+        id: "p9",
+        title: "target",
+        slug: "target-slug",
+        authorId: "a1",
+      });
+      await expect(
+        client.post.findUnique({ where: { id: "p1" } })
+      ).resolves.toBeNull();
+      // The junction's membership READ found `t1` through the PRE-transition key …
+      await expect(
+        client.tag.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "t1", name: "e" },
+        { id: "t2", name: "second" },
+      ]);
+      // … and the join rows themselves followed the key by cascade.
+      await expect(tagsOf(client, "p9")).resolves.toEqual(["t1", "t2"]);
+      // The cascading child-held edge followed too; the non-cascading one was written
+      // after the self-UPDATE, against the new key.
+      await expect(
+        client.note.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([{ id: "n-old", body: "departing", postId: "p9" }]);
+      await expect(
+        client.comment.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "c-decoy", body: "decoy", postId: "p-decoy" },
+        { id: "c1", body: "fresh", postId: "p9" },
+      ]);
+      // The decoy author's post kept its own membership and its own comment.
+      await expect(tagsOf(client, "p-decoy")).resolves.toEqual(["t1"]);
+    }, 30_000);
+
+    test(`the same non-PK locator with an OCCUPIED non-cascading slot refuses (${substrate})`, async () => {
+      const client = await setup(
+        substrate === "transaction"
+          ? new PGliteDriver({ client: getFamily().database })
+          : new BatchOnlyPGliteDriver({ client: getFamily().database })
+      );
+      // `c-old` sits on the vacated key behind a NO-ACTION foreign key. The occupied
+      // guard's slot is now read from the located row rather than from a `where`
+      // literal, so it answers under this locator exactly as it does under the
+      // primary-key one — which is the whole claim of the lift.
+      await client.comment.create({
+        data: { id: "c-old", body: "incumbent", postId: "p1" },
+      });
       await expect(
         client.author.update({
           where: { id: "a1" },
@@ -424,13 +522,16 @@ describe("E2-U3 the carve-out that stays refused", () => {
             },
           },
         })
-      ).rejects.toThrow(
-        "query-engine-v2 update for relation 'posts' transitions the target primary key 'id' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key."
-      );
+      ).rejects.toThrow(OCCUPIED_AT_DEPTH);
       await expect(
         client.post.findUnique({ where: { id: "p1" } })
       ).resolves.toMatchObject({ id: "p1" });
-    } finally {
-    }
-  }, 30_000);
+      await expect(
+        client.comment.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "c-decoy", body: "decoy", postId: "p-decoy" },
+        { id: "c-old", body: "incumbent", postId: "p1" },
+      ]);
+    }, 30_000);
+  }
 });

@@ -663,24 +663,64 @@ function runSuite(
       ]);
     });
 
-    test("PK MOVE under a NON-PK locator beside a non-cascading edge: still refused", async () => {
-      // The deleted guard covered every locator; this half of its domain did NOT open,
-      // because a DIFFERENT guard was standing behind it the whole time and is now the
-      // one that answers. Pinned with its own message so the two are never confused,
-      // and so a later package cannot delete this one believing B1 already vacated it.
+    test("PK MOVE under a NON-PK locator beside a non-cascading OCCUPIED edge: refused by the occupied guard", async () => {
+      // RETARGETED BY PACKAGE D2. Until D, the second guard standing behind the deleted
+      // `assertArmPkStable` was `assertPinnedTransitionIsCompilable`, refusing at
+      // CONSTRUCTION with zero statements:
+      //
+      //   query-engine-v2 update for relation 'teams' transitions the target primary key
+      //   'id' while writing a deeper edge whose foreign key does not cascade on update;
+      //   it must locate the target by that primary key.
+      //
+      // D2 deleted it, because locating by the primary key is not what this payload
+      // needs: `n1` sits on `t1` with an `ON UPDATE NO ACTION` foreign key, so moving
+      // `t1` strands it under EITHER locator. The arm's own relation-level occupied
+      // guard says so, and says it for the right reason. The two halves of the domain
+      // the old refusal covered — occupied and empty — are this test and the next.
+      //
+      // The PUBLIC SURFACE moved with it, and not only the wording: the class is now
+      // `NestedWriteError` rather than `UnsupportedOperationError`, and the verdict is
+      // no longer construction-time, so the statement log is no longer empty (a
+      // planning probe runs first; on a batch substrate the verdict is an in-unit
+      // absence guard). No partial effect either way, asserted below. Package O's
+      // ledger carries this beside Package C's two ratified message changes.
       const error = await refusalOf(
         { notes: { create: [{ id: "nX", body: "x", tagName: "ntX" }] } },
         { slug: "team-1" },
         { id: "tMoved", label: "T1b" }
       );
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
+      expect(error).toBeInstanceOf(NestedWriteError);
       expect((error as Error).message).toBe(
-        "query-engine-v2 update for relation 'teams' transitions the target primary key 'id' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key."
+        "Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied."
       );
-      expect(driver.statements).toEqual([]);
       expect(await teams()).toEqual([
         { id: "t1", label: "T1", orgId: "o1" },
         { id: "tDecoy", label: "DECOY", orgId: "o1" },
+      ]);
+      expect(await notes()).toEqual([
+        { id: "n1", body: "old", teamId: "t1" },
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+      ]);
+    });
+
+    test("D2 LIFT: the same payload with an EMPTY old slot compiles, and the fresh note takes the NEW key", async () => {
+      // The half no locator could reach before D2. The arm's pre-transition key lives
+      // only in the row the probe located (`slug` names a different column), and the
+      // fresh note's foreign key is derived from it at COMPILE. The decoy team keeps
+      // its own note, which is what separates this from "the engine wrote something".
+      await client.note.delete({ where: { id: "n1" } });
+      await run(
+        { notes: { create: [{ id: "nX", body: "x", tagName: "ntX" }] } },
+        { slug: "team-1" },
+        { id: "tMoved", label: "T1b" }
+      );
+      expect(await teams()).toEqual([
+        { id: "tDecoy", label: "DECOY", orgId: "o1" },
+        { id: "tMoved", label: "T1b", orgId: "o1" },
+      ]);
+      expect(await notes()).toEqual([
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+        { id: "nX", body: "x", teamId: "tMoved" },
       ]);
     });
 

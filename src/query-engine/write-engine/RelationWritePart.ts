@@ -28,7 +28,6 @@ import {
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import {
-  assertPinnedTransitionIsCompilable,
   assertRelationKeyUpdatesAreCompilable,
   assertSelectedUpdateManyDataIsScalar,
 } from "../relation-key-legality";
@@ -560,13 +559,6 @@ export class RelationWritePart implements Part {
     const pinnedTarget = this.config.where
       ? pinnedTargetValues(this.config.childScope, this.config.where)
       : {};
-    assertPinnedTransitionIsCompilable(
-      this.config.childScope,
-      parsed.scalarData,
-      parsed.relations,
-      this.relationName,
-      pinnedTarget
-    );
     assertPortablePrimaryKeyUpdateInput(
       this.config.childScope.model,
       "update",
@@ -1090,7 +1082,15 @@ interface WritePartBase {
   /** What the child's probe publishes — its complete row key at minimum. */
   readonly targetProjection: TargetProjection;
   readonly parentId: FinalReferenceSource;
-  readonly membershipReadSource?: FinalReferenceSource;
+  /**
+   * What EXISTING membership is read by, beside the `parentId` new membership is
+   * written with. D1 — REQUIRED: the two are the same source wherever the parent's
+   * referenced value is not in transition, and every construction site says so
+   * itself. `?? parentId` was the old-from-new inference Package D deletes; it was
+   * benign only because every site that HAD a transition happened to thread this
+   * explicitly, which is a property of the callers, not of the type.
+   */
+  readonly membershipReadSource: FinalReferenceSource;
   readonly txMode: boolean;
   /** Compiler dependency for an inverse upsert's relation-bearing create arm. */
   readonly recordCompilers: RecordCompilerSeam;
@@ -1280,12 +1280,10 @@ export function buildToManyDeleteManyParts(
  * membership source separates old-key reads from new-key assignments. */
 export function buildToManySetPart(
   base: WritePartBase,
-  entry: Extract<RelationMutationEntry, { kind: "set" }>,
-  membershipReadSource?: FinalReferenceSource
+  entry: Extract<RelationMutationEntry, { kind: "set" }>
 ): RelationSetPart {
   const requiredFields = requiredForeignKeyFields(base.relation);
-  const readSource =
-    membershipReadSource ?? base.membershipReadSource ?? base.parentId;
+  const readSource = base.membershipReadSource;
   return new RelationSetPart(base.scope, {
     engine: base.engine,
     childScope: base.childScope,
@@ -1319,7 +1317,7 @@ function partConfig(
     membership: bindCorrelatedRelationMembership(
       base.relation,
       planningSourceFromFinal(
-        base.membershipReadSource ?? base.parentId,
+        base.membershipReadSource,
         base.relation.relationInfo.name,
         kind
       ),

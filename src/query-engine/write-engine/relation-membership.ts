@@ -26,7 +26,15 @@ export type FinalReferenceSource =
   | {
       readonly kind: "transitionedPlanningField";
       readonly step: string;
-      readonly apply: (before: unknown) => unknown;
+      /**
+       * D1 — the transformation is FIELD-AGNOSTIC and the field comes from the
+       * member it is bound to, so one source stays per-member correct however many
+       * members it is bound across. A source that closed its field in was correct
+       * only when built inside a per-member `map`, which made every broadcast site
+       * (`bindRelationMembership`, `bindCorrelatedRelationMembership`, every
+       * `referencedFields.map(() => source)`) a latent compound collapse.
+       */
+      readonly apply: (before: unknown, referencedField: string) => unknown;
     }
   | { readonly kind: "lookup"; readonly statement: Sql };
 
@@ -106,15 +114,22 @@ export function literalParentId(value: unknown): FinalReferenceSource {
   return { kind: "literal", value };
 }
 
+/**
+ * The post-transition value of whichever reference-key member this source is bound
+ * to: `transition` receives the located (pre-transition) value together with the
+ * member's own referenced field, so one source binds correctly across a compound
+ * reference in schema order. It is applied exactly once per member, at the single
+ * resolution point in {@link finalReferenceValue}; transitioned sources are never
+ * chained.
+ */
 export function transitionedParentId(
   readStep: string,
-  field: string,
   transition: (before: unknown, field: string) => unknown
 ): FinalReferenceSource {
   return {
     kind: "transitionedPlanningField",
     step: readStep,
-    apply: (before) => transition(before, field),
+    apply: transition,
   };
 }
 
@@ -150,6 +165,17 @@ export function bindRelationMembership(
   };
 }
 
+/**
+ * Bind one old-read and one new-write source across every referenced member in
+ * schema order. Fanning ONE source out is exact — never a compound collapse —
+ * because every source kind is resolved against the member it lands on: a
+ * `planningField` reads `row[member.referencedField]` and a
+ * `transitionedPlanningField` transforms that member's own value
+ * ({@link finalReferenceValue}). A caller whose members need DIFFERENT sources —
+ * the occupied guard, whose pre-value is a `where` literal for the members the
+ * locator pins and a located-row read for the rest — pairs them itself with
+ * {@link pairCorrelatedForeignKeyMembers}.
+ */
 export function bindCorrelatedRelationMembership(
   relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldRelation,
   readSource: PlanningReferenceSource,
@@ -440,7 +466,7 @@ function finalReferenceValue(
   }
   const before = (row as Record<string, unknown>)[referencedField];
   return source.kind === "transitionedPlanningField"
-    ? source.apply(before)
+    ? source.apply(before, referencedField)
     : before;
 }
 

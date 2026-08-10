@@ -195,9 +195,15 @@ provenance once. Ordinary membership carries ordered field-bound FK members;
 polymorphic membership carries the same parent source beside its fixed storage
 and discriminator. The owner alone lowers membership into assignments,
 planning/final predicates, probe projections, empty assignments, and decoded-row
-tests. Transitioned keys use distinct old-read and new-write sources. Final
-operation references cannot enter planning SQL, and lookup SQL cannot decide a
-branch.
+tests — including the occupied-slot predicate a referenced-key transition emits,
+whose conjuncts are the binding's members in schema order. Transitioned keys use
+distinct old-read and new-write sources, and the old-read source is a required
+input rather than a fallback to the write one. A transitioned source is
+field-agnostic: it transforms the value of whichever member it is bound to, so
+binding one source across a compound reference stays exact and applies the
+transformation once per member. Final operation references cannot enter planning
+SQL, a planning reference cannot enter an atomic unit's own SQL, and lookup SQL
+cannot decide a branch.
 
 ### Branch pins
 

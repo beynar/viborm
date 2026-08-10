@@ -61,45 +61,21 @@ export function assertSelectedUpdateManyDataIsScalar(
   );
 }
 
-/**
- * Every member of the target's row key is asked, not just the first: a compound
- * key transitions whichever member the data rewrites, and a deeper edge that
- * references THAT member is as uncompilable as one referencing the first. For a
- * one-member row key this is the same question, asked the same way, refused with
- * the same message.
+/*
+ * D2 — `assertPinnedTransitionIsCompilable` lived here and is DELETED. It refused a
+ * selected target that transitions a row-key member the locator does not pin while a
+ * deeper non-cascading edge references that member, because the engine could not name
+ * the member's pre-transition value: "…transitions the target primary key '<field>'
+ * while writing a deeper edge whose foreign key does not cascade on update; it must
+ * locate the target by that primary key."
+ *
+ * `RecordUpdateCompiler.interpretReferencedKeyTransition` now names it — the located
+ * row supplies every member's OLD value and `postTransitionReference` derives every
+ * member's NEW value — so the refusal has a compiling answer and its five eager arm-side
+ * call sites are gone with it. Its domain was also strictly NARROWER than the compiler's
+ * (row-key members only, and it matched `parentHeldToOne.referencedFields`, which name
+ * the TARGET's columns rather than the selected model's, by name across two models).
  */
-export function assertPinnedTransitionIsCompilable(
-  targetScope: QueryScope,
-  scalarData: Readonly<Record<string, unknown>>,
-  relations: Readonly<Record<string, RelationMutationProgram>>,
-  relationName: string,
-  pinnedTarget: Readonly<Record<string, unknown>>
-): void {
-  const transitioned = getPrimaryKeyFields(targetScope.model).filter(
-    (field) =>
-      Object.hasOwn(scalarData, field) && !Object.hasOwn(pinnedTarget, field)
-  );
-  if (transitioned.length === 0) return;
-
-  for (const program of Object.values(relations)) {
-    const relation = bindRelation(targetScope, program.relationInfo);
-    if (
-      relation.kind === "junction" ||
-      relation.kind === "polymorphicChildHeldToOne" ||
-      relation.kind === "polymorphicChildHeldToMany"
-    ) {
-      continue;
-    }
-    const referenced = transitioned.find((field) =>
-      relation.referencedFields.includes(field)
-    );
-    if (referenced !== undefined && relation.onUpdate !== "cascade") {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 update for relation '${relationName}' transitions the target primary key '${referenced}' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key.`
-      );
-    }
-  }
-}
 
 function findRelationBearingUpdateManyData(
   source: QueryScope,

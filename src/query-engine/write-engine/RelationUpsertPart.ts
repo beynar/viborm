@@ -13,7 +13,6 @@ import { buildFind, buildFindUnique, buildUpdate } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import {
-  assertPinnedTransitionIsCompilable,
   assertRelationKeyUpdatesAreCompilable,
   assertSelectedUpdateManyDataIsScalar,
 } from "../relation-key-legality";
@@ -1073,15 +1072,6 @@ function buildOneUpsertPart(
     );
   }
   const pinnedTarget = pinnedTargetValues(child, where);
-  if (update) {
-    assertPinnedTransitionIsCompilable(
-      child,
-      childUpdate.scalarData,
-      childUpdate.relations,
-      relationName,
-      pinnedTarget
-    );
-  }
   const incomingMembership = parent.membership;
   const correlatedMembership: CorrelatedRelationMembershipBinding | undefined =
     parent.correlation === "correlated" ? parent.membership : undefined;

@@ -1,14 +1,14 @@
-import {
-  BatchOnlyPGliteDriver,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { hydrateSchemaNames, s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 /**
  * E2-U1 — **the inverse-side to-one `update` folds the relations in its data.**
@@ -48,9 +48,12 @@ import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared
  *    everything after it, so there is no arm under which a grandchild lands beside a
  *    target that vanished — no orphan.
  *  · **The carve-outs.** The inverse-side to-one UPSERT arm keeps its refusal (its
- *    compile decides the three-way and its found arm emits the update leaf alone), and
- *    so does a payload that transitions the target's primary key with no where-pinned
- *    pre-value.
+ *    compile decides the three-way and its found arm emits the update leaf alone). The
+ *    second carve-out — a payload that transitions the target's primary key with no
+ *    where-pinned pre-value — was LIFTED by Package D2 and the two tests at the bottom
+ *    now pin both halves of it: the occupied old slot still refuses, with the
+ *    relation-level occupied message instead of a construction-time one that named the
+ *    wrong remedy, and an empty old slot compiles.
  */
 const inverseDepthSchema = (() => {
   const user = s
@@ -686,15 +689,29 @@ describe("E2-U1 the carve-outs that stay refused", () => {
     }
   }, 30_000);
 
-  test("a primary-key transition with no where-pinned pre-value keeps its refusal", async () => {
+  test("a primary-key transition with an OCCUPIED old slot is refused by the occupied guard", async () => {
     const driver = new RecordingBatchDriver({ client: getFamily().database });
     const client = await setup(driver);
     try {
       driver.recording = true;
-      // The note foreign key does not cascade on update, so the deeper edge must be
-      // written against the POST-transition key — and no `ParentIdSource` applies the
-      // SET's operand to a value the probe read. The inverse-side to-one cannot pin a
-      // pre-value (it has no `where` to name one), so this fails closed.
+      // RETARGETED BY PACKAGE D2. This payload used to be refused at CONSTRUCTION by
+      // `assertPinnedTransitionIsCompilable`, whose message named the wrong remedy:
+      //
+      //   query-engine-v2 update for relation 'profile' transitions the target primary
+      //   key 'id' while writing a deeper edge whose foreign key does not cascade on
+      //   update; it must locate the target by that primary key.
+      //
+      // Locating by the primary key would NOT have helped — the note foreign key does
+      // not cascade, `n-owner` sits in the slot `p-owner` is vacating, and moving the
+      // profile strands it whatever the locator says. D2 gives the nested compiler the
+      // pre-transition value (from the located row, not from a `where` it does not
+      // have), so the relation-level occupied guard answers instead, with the reason
+      // that is actually true. The accept half is the next test.
+      //
+      // The class and the timing moved with the wording: `NestedWriteError` rather than
+      // `UnsupportedOperationError`, decided after a planning probe rather than at
+      // construction, so the statement log is no longer empty. Nothing is written
+      // either way, which is what the two reads below assert.
       await expect(
         client.user.update({
           where: { id: "owner" },
@@ -708,14 +725,50 @@ describe("E2-U1 the carve-outs that stay refused", () => {
           },
         })
       ).rejects.toThrow(
-        "query-engine-v2 update for relation 'profile' transitions the target primary key 'id' while writing a deeper edge whose foreign key does not cascade on update; it must locate the target by that primary key."
+        "Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied."
       );
       driver.recording = false;
-      expect(driver.statements).toEqual([]);
       await expect(
         client.profile.findUnique({ where: { id: "p-owner" } })
       ).resolves.toMatchObject({ id: "p-owner" });
+      await expect(
+        client.note.findUnique({ where: { id: "n-moved" } })
+      ).resolves.toBeNull();
     } finally {
     }
+  }, 30_000);
+
+  test("D2 LIFT: with the old slot empty, the transition compiles and the deeper create takes the NEW key", async () => {
+    const driver = new RecordingBatchDriver({ client: getFamily().database });
+    const client = await setup(driver);
+    // The half the deleted construction-time refusal could never reach: the profile
+    // has no notes, so nothing is stranded, and the payload is exactly compilable.
+    // The pre-transition value lives only in the located row (an inverse-side to-one
+    // target has no `where`), and the fresh note's foreign key is derived from it at
+    // COMPILE. The decoy profile and its note must not move.
+    await client.note.delete({ where: { id: "n-owner" } });
+    driver.recording = true;
+    await client.user.update({
+      where: { id: "owner" },
+      data: {
+        profile: {
+          update: {
+            id: "p-moved",
+            notes: { create: { id: "n-moved", text: "moved" } },
+          },
+        },
+      },
+    });
+    driver.recording = false;
+    await expect(state(client)).resolves.toMatchObject({
+      profiles: [
+        expect.objectContaining({ id: "p-decoy" }),
+        expect.objectContaining({ id: "p-moved", userId: "owner" }),
+      ],
+      notes: [
+        { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
+        { id: "n-moved", text: "moved", profileId: "p-moved" },
+      ],
+    });
   }, 30_000);
 });

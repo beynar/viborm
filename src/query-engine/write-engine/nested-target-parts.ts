@@ -40,7 +40,6 @@ import {
   buildToOneUpdatePart,
 } from "./RelationWritePart";
 import {
-  bindCorrelatedRelationMembership,
   bindRelationMembership,
   type FinalReferenceSource,
   type ForeignKeyMember,
@@ -63,15 +62,18 @@ import { buildTargetProjection } from "./target-projection";
  * seam {@link RelationWritePart} calls without importing this module at runtime (an
  * erased type import breaks the cycle).
  *
- * `membershipReadSource` carries the pre-transition key when existing junction rows
- * are read by a different value than new rows are written with.
+ * `membershipReadSource` names the value EXISTING membership is read by, beside the
+ * `parentId` new membership is written with. D1 — it is REQUIRED, and every caller
+ * states its own answer: they are the same source wherever the parent's referenced
+ * value is not in transition, and defaulting one to the other is exactly the
+ * old-from-new inference Package D deletes.
  */
 export type JunctionTargetRelationsBuilder = (
   targetScope: QueryScope,
   parentId: FinalReferenceSource,
   relations: Record<string, RelationMutationProgram>,
   txMode: boolean,
-  membershipReadSource?: FinalReferenceSource
+  membershipReadSource: FinalReferenceSource
 ) => readonly Part[];
 
 /**
@@ -88,7 +90,7 @@ export function buildJunctionTargetRelationParts(
   parentId: FinalReferenceSource,
   txMode: boolean,
   recordCompilers: RecordCompilerSeam,
-  membershipReadSource?: FinalReferenceSource
+  membershipReadSource: FinalReferenceSource
 ): readonly Part[] {
   const parts: Part[] = [];
   for (const program of Object.values(relations)) {
@@ -114,8 +116,8 @@ function foldJunctionTargetRelation(input: {
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
   recordCompilers: RecordCompilerSeam;
-  /** Junction-only read source under post-transition ordering. */
-  membershipReadSource?: FinalReferenceSource;
+  /** What EXISTING membership is read by; equal to `parentId` with no transition. */
+  membershipReadSource: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -197,6 +199,7 @@ function foldJunctionTargetRelation(input: {
     // projection publishes, so a compound-keyed child needs no separate route.
     targetProjection: buildTargetProjection(childScope.model),
     parentId,
+    membershipReadSource: input.membershipReadSource,
     txMode,
     nestedBuilder: deeperBuilder,
     recordCompilers: input.recordCompilers,
@@ -213,7 +216,6 @@ function foldJunctionTargetRelation(input: {
       scope,
       engine,
       parentId,
-      membershipReadSource: input.membershipReadSource,
       txMode,
       parts: input.parts,
     });
@@ -234,7 +236,6 @@ function foldJunctionChildHeldEntry(args: {
   scope: StepScope;
   engine: QueryEngine;
   parentId: FinalReferenceSource;
-  membershipReadSource?: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -248,7 +249,6 @@ function foldJunctionChildHeldEntry(args: {
     scope,
     engine,
     parentId,
-    membershipReadSource,
     txMode,
     parts,
   } = args;
@@ -299,37 +299,28 @@ function foldJunctionChildHeldEntry(args: {
         return;
       }
       if (relation.kind === "polymorphicChildHeldToMany") {
-        if (membershipReadSource) {
-          push(
-            buildCorrelatedToManyUpsertParts(
-              scope,
-              engine,
-              entry.items,
-              bindCorrelatedRelationMembership(
-                relation,
-                planningSourceFromFinal(
-                  membershipReadSource,
-                  relationName,
-                  "upsert"
-                ),
-                parentId
-              ),
-              txMode,
-              recordCompilers
-            )
-          );
-        } else {
-          push(
-            buildToManyUpsertParts(
-              scope,
-              engine,
-              entry.items,
-              bindRelationMembership(relation, parentId),
-              txMode,
-              recordCompilers
-            )
-          );
-        }
+        // A GLOBAL adopt, not a correlated one: every target this builder folds under
+        // is a row the enclosing statement is INSERTing, so there is no committed
+        // membership for a correlated probe to find. That is the documented rule for a
+        // fresh parent (query-engine/AGENTS.md, "For inverse writes … A fresh-parent
+        // upsert also adopts globally").
+        // D1 deleted the correlated twin that stood here behind
+        // `if (membershipReadSource)`. Presence of a read source was never the question
+        // this position asks — freshness is — and with the source now required the
+        // branch would have flipped every fresh polymorphic upsert to a correlated
+        // probe. It had been unreachable since it was written: `nestedBuilder` has one
+        // invocation (`RelationJunctionPart`'s inline fresh-target insert) and it
+        // supplied no read source.
+        push(
+          buildToManyUpsertParts(
+            scope,
+            engine,
+            entry.items,
+            bindRelationMembership(relation, parentId),
+            txMode,
+            recordCompilers
+          )
+        );
         return;
       }
       const members = pairCorrelatedForeignKeyMembers(

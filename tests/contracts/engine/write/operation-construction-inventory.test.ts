@@ -2301,6 +2301,33 @@ describe("write engine route inventory (P6 accounting)", () => {
   // identical question, identical message, identical behaviour for a one-member row key —
   // and refuses the compound case in the same fail-closed direction. Lifting that refusal
   // is Package D's transition-provenance work, not a hole left open here.
+  // PACKAGE D DID LIFT IT (26 → 24 → 22 in this scan set). Two sites left
+  // `RecordUpdateCompiler.ts`, and only ONE of them is a lift:
+  //   · LIFT — the `pastSurface` refusal ("does not support a nested '<kind>' … while the
+  //     root update transitions a compound / non-PK / unpinned referenced column"). The
+  //     regime it belonged to is gone: a compound, non-PK, or unpinned reference now
+  //     compiles through per-member sources, pinned in `parity-d-transition` and in four
+  //     behavioral families.
+  //   · DEDUPLICATION — `transitionedCreateParent` and `resolvePolymorphicParent` each
+  //     carried their own copy of the "references a non-literal rewritten column" refusal
+  //     (the second differing only by a missing `-v2` prefix, so no caller could tell them
+  //     apart). One owner, `postTransitionReference`, now emits it with a `position`
+  //     argument. Nothing became legal; one site stopped being two.
+  // AND THE LIFT IS NOT PURELY ADDITIVE, which a census of refusal SITES cannot show,
+  // so it is written here where §O4 will read it: `pastSurface` returned before the
+  // relation-level occupied guard could be emitted, and let nested `create` /
+  // `createMany` through untouched. Those two kinds, on a compound / non-PK / unpinned
+  // reference over an OCCUPIED old slot, used to execute and now raise the occupied
+  // `NestedWriteError` — the verdict their pinned single-member twin always got. It is
+  // a §3.1 change on an accepted payload and needs the coordinator's ratification, not
+  // a package's. Behavior on every driver leg in `compiled-key-transition-behavior.ts`;
+  // ledger entry in `docs/architecture/forbidden-shapes-reference.md`.
+  // SCOPE, stated because the arithmetic does not add up otherwise: this scan reads
+  // `query-engine/write-engine/*.ts` ONLY. D also deleted a third site, the compound-target
+  // fail-closed refusal in `src/query-engine/relation-key-legality.ts` (3 → 2 there), and
+  // that deletion moves this number not at all. Package O's §O4 census must pick a scope
+  // and say which; the repo-wide count today is 22 here + 2 in relation-key-legality.ts +
+  // 1 in builders/decimal-portability.ts.
   // WHAT DID NOT MOVE, deliberately: `RelationJunctionPart`'s three sites. A junction side
   // is one column today and `getManyToManyJoinInfo` resolves it through
   // `getRequiredSinglePrimaryKeyField`, which throws before the Part is constructed — so
@@ -2317,7 +2344,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(24);
+    expect(sites).toBe(22);
   });
 });
 

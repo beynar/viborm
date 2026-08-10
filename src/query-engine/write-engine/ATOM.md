@@ -553,6 +553,34 @@ The ordering rule is not “always parent first” or “always child first.” 
 
 A no-op transition keeps the ordinary order. Compound members stay ordered.
 
+Neither value depends on the locator. The old value of every reference-key
+member comes from the `where` when it pins that member and from the located row
+otherwise; the new value is derived from whichever one arrived, per member, at
+compile when it cannot be spelled at construction. A locator that names some
+other unique, a compound reference, and a non-primary-key referenced unique are
+therefore the same shape as the pinned single member, not a separate surface.
+
+The read source is a required field of every membership-bearing config, never a
+default that falls back to the write source. One construction site can then be
+wrong about one edge, instead of every site being silently right only while no
+transition reaches it.
+
+Existing memberships the payload does not name are left alone. Where a real
+foreign key with `ON UPDATE CASCADE` owns the effect — including both sides of an
+implicit junction — the database carries them and the compiler orders the edge
+writes before the root UPDATE so it can. Where the action does not cascade, an
+occupied old slot is refused before any write rather than stranded. That refusal
+belongs to the relation, not to the nested kind: it is the same verdict for a
+`create` as for a `connect`, and it is the same verdict whichever unique the
+locator named.
+
+Occupancy is asked of a reference tuple that addresses a row. A tuple with a NULL
+member addresses none — a foreign key compares under MATCH SIMPLE — so the guard
+does not fire for it, and that is decided once rather than per substrate: a
+planning probe binds a null pre-value as a parameter and an atomic unit's premise
+resolves it to a literal `IS NULL`, and one payload must not get two verdicts for
+the substrate it ran on.
+
 ## 15. Wrong-row protection
 
 Selectors can include filters or values that the operation itself changes.

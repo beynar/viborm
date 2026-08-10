@@ -1279,6 +1279,11 @@ export class CreateOperation {
       );
       const engine = this.engine;
       const scope = this.scope;
+      const freshParentId = this.edgeParentId(
+        input.self,
+        getPrimaryKeyFields(input.self.model),
+        relationName
+      );
       input.afterParts.push(
         ...buildJunctionParts({
           scope,
@@ -1286,15 +1291,14 @@ export class CreateOperation {
           parentScope: input.childScope,
           relation,
           program,
-          parentId: this.edgeParentId(
-            input.self,
-            getPrimaryKeyFields(input.self.model),
-            relationName
-          ),
+          parentId: freshParentId,
           // E5-U1 — this record is being MADE, so it has no membership to read.
           freshParent: true,
           txMode,
           recordCompilers: this.recordCompilers,
+          // Same fact, said where the type asks for it: nothing committed can be read
+          // by an older value, so the read source is the fresh parent's own identity.
+          membershipReadSource: freshParentId,
           // T3b-2 (family C): a junction create target whose data carries its own
           // relations folds them one level deeper against the fresh target's explicit
           // literal PK (mechanism 2, fresh-parent elision — ATOM “Relation-owner boundary”). The fold

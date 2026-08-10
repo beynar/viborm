@@ -3,6 +3,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
+import { validateSchemaOrThrow } from "@schema/validation";
 import {
   isOperationValueReference,
   type OperationFragment,
@@ -21,36 +22,63 @@ import { describe, expect, test } from "vitest";
  * PARITY WITNESS — Package D (§6 D, "Unify old-read and new-write transition provenance").
  *
  * D1 makes transition legality and occupied-slot construction consume one correlated
- * binding; D2 lifts the non-cascading deeper edges the `pastSurface` regime refuses today;
+ * binding; D2 lifts the non-cascading deeper edges the `pastSurface` regime refused;
  * D3 rebuilds occupied-slot predicates from that binding and requires "conjunct and
  * parameter order" to be preserved. All three edit
- * `RecordUpdateCompiler.interpretReferencedKeyTransition` (:2389) and its
- * `pushOccupiedGuard` (:2454), so this witness pins what those two produce TODAY, in the
- * shapes the `compiled-key-transition` family already owns (its schema is imported rather
- * than re-declared, so the boundary pinned here is that family's own).
+ * `RecordUpdateCompiler.interpretReferencedKeyTransition` and its `pushOccupiedGuard`,
+ * so this witness pins what those two produce, in the shapes the
+ * `compiled-key-transition` family already owns (its schema is imported rather than
+ * re-declared, so the boundary pinned here is that family's own).
  *
- * PRIOR ART, and what is actually new. record-compiler-contract.test.ts:617-640 already
- * pins the guarded regime's transition probe byte-for-byte on a transaction driver — its
+ * AFTER PACKAGE D this file carries both pictures. The pre-D regimes and their
+ * statements are pinned unchanged (that is the "preserve conjunct and parameter order"
+ * gate, measured rather than asserted); the block that used to pin `pastSurface`
+ * refusals now pins the shapes that replaced them, with the deleted messages quoted in
+ * place so the before-picture stays readable.
+ *
+ * PRIOR ART, and what is actually new. `record-compiler-contract.test.ts` already pins
+ * the guarded regime's transition probe byte-for-byte on a transaction driver — its
  * OLD-value SQL and parameters, the planning output map, the final step id order and the
  * root UPDATE — with `create` where the first test below writes `connect`. The additive
  * material here is: the ATOMIC-BATCH arm (the `seat.guard.occupied` notExists premise,
- * which is the only compile-side carrier of the old value), the `pastSurface` and `none`
- * regimes, every guarded nested kind other than the adopt pair, and the two-relation
- * ordering at the end.
+ * which is the only compile-side carrier of the old value), the `none` regime, the
+ * shapes D2 lifted, every guarded nested kind other than the adopt pair, the polymorphic
+ * topology, and the two-relation ordering at the end.
  *
- * The three regimes are named by the production code and all three are pinned:
- *   · `"guarded"` — a single primary key pinned by the unique `where`. Two facts D must
- *     keep: the occupied probe reads the OLD value, the adopt write binds the NEW one,
- *     and the adopt is ORDERED AFTER the root UPDATE (§D2's "membership reads use old
- *     values and adoption writes use new values", verbatim).
- *   · `"pastSurface"` — a compound edge, a non-primary-key referenced unique, or an
- *     unpinned pre-value. Every kind but `create` / `createMany` refuses; those two
- *     proceed on a compile-derived literal. §D2 is exactly the lift of that refusal, so
- *     its text is the before-picture.
+ * TWO regimes survive Package D, and both are pinned:
+ *   · `"guarded"` — a real non-cascade transition. Two facts D must keep: the occupied
+ *     probe reads the OLD value, the adopt write binds the NEW one, and the adopt is
+ *     ORDERED AFTER the root UPDATE (§D2's "membership reads use old values and
+ *     adoption writes use new values", verbatim). Its pinned single-member shape keeps
+ *     construction-time literals; its compound and unpinned shapes — what `pastSurface`
+ *     used to refuse — read the located row instead, and are pinned in the block below.
  *   · `"none"` — `ON UPDATE CASCADE`, no referenced column written, or a no-op
- *     transition. §D's keep gate says "no extra planning read when the existing target
- *     projection already captured the field": today these three emit NO transition probe
- *     at all, which is the strongest form of that claim.
+ *     transition the locator pins both ends of. §D's keep gate says "no extra planning
+ *     read when the existing target projection already captured the field": these three
+ *     emit NO transition probe at all, which is the strongest form of that claim.
+ *
+ * `"pastSurface"` is GONE (D2). Its refusals are quoted at the block that replaced them.
+ *
+ * WHAT DID NOT ONLY GET WIDER, carried here because this is the file a reader opens to
+ * learn what Package D moved:
+ *   · THE NO-OP RESIDUE. `none`'s third branch — a same-value write of a referenced
+ *     column — is decidable only where `before` is a construction literal, which needs
+ *     BOTH a single-member reference and a locator that pins it. A compound reference
+ *     has no construction-time post-value even when the locator pins every member, so
+ *     it takes `guarded` and the occupied guard governs it. Recorded at the regime's
+ *     own doc comment and in `forbidden-shapes-reference.md`.
+ *   · A NEW REFUSAL. `pastSurface` returned BEFORE the occupied guard was emitted, and
+ *     its caller let nested `create` / `createMany` through untouched — so a compound /
+ *     non-PK / unpinned reference carrying create-only relations used to compile with
+ *     no probe and no guard, and SUCCEEDED over an occupied slot (every edge in
+ *     `compileTransitionSchema` is `onUpdate("setNull")`: the database nulls the
+ *     occupant rather than refusing). It is now refused, exactly as the PINNED twin of
+ *     the same payload always was. Behavior on every driver leg in
+ *     `compiled-key-transition-behavior.ts`; §3.1 deviation in the ledger.
+ *   · A NULL MEMBER of the old reference tuple addresses no row (MATCH SIMPLE), so the
+ *     guard does not fire for it — decided once for both substrates, because the
+ *     planning probe binds a null pre-value as a parameter and the batch premise
+ *     resolves it to a literal `IS NULL`. Behavior, both substrates, same file.
  *
  * DIMENSIONS PINNED (plan §6 A2's nine):
  *   · planning IDs and order — the transition probe is FIRST, ahead of every other
@@ -60,25 +88,50 @@ import { describe, expect, test } from "vitest";
  *     order" is measured against;
  *   · planning outputs — the probe publishes `rows` only, never an identity;
  *   · final IDs and order — the reorder decision (`reorderRootUpdateAfterChildren`,
- *     :564) differs across the regimes and each side is pinned;
+ *     differs across the regimes and each side is pinned;
  *   · final SQL and parameters — the OLD/NEW value split, and the arithmetic case where
  *     the root SET is `"id" = "id" + $1` in SQL while the child binds the JS-derived 15;
  *   · guards and expects — the batch occupied guard's `notExists` premise and failure;
  *   · race pins — none survive on these shapes, pinned as `null`;
- *   · exact errors — the `pastSurface` refusal for two kinds, the compile-time occupied
- *     `NestedWriteError`, and the non-literal-operand refusal;
- *   · statement counts — the step list IS the statement count; the refusals compile
+ *   · exact errors — the compile-time occupied `NestedWriteError` and the
+ *     non-literal-operand refusal;
+ *   · statement counts — the step list IS the statement count; the refusal compiles
  *     nothing at all.
  *
  * FALSIFIED 2026-08-09 against `src/query-engine/write-engine/RecordUpdateCompiler.ts`:
- * feeding `pushOccupiedGuard` the post-transition value (`before: after` at the call site,
- * :2442) — i.e. inferring the old value from the new one, the very inference §D1 says to
- * delete — turned four assertions red and left ten green. Red: both guarded PLANNING
- * assertions (the probe bound "o2" instead of "o1"), the batch guarded COMPILE (the
- * occupied premise bound "o2"), and the arithmetic shape (the probe bound 15 instead of
- * 10). Green and correctly so: the TRANSACTION guarded compile, whose occupied verdict is
- * a planning-time read rather than a step, plus every `pastSurface` and `none` assertion.
- * The original was restored from a scratchpad copy taken before the edit.
+ * feeding `pushOccupiedGuard` the post-transition value — i.e. inferring the old value
+ * from the new one, the very inference §D1 says to delete — turned four assertions red
+ * and left ten green. Red: both guarded PLANNING assertions (the probe bound "o2"
+ * instead of "o1"), the batch guarded COMPILE (the occupied premise bound "o2"), and the
+ * arithmetic shape (the probe bound 15 instead of 10). Green and correctly so: the
+ * TRANSACTION guarded compile, whose occupied verdict is a planning-time read rather
+ * than a step, plus every `pastSurface` and `none` assertion. The original was restored
+ * from a scratchpad copy taken before the edit.
+ *
+ * FALSIFIED THREE WAYS 2026-08-10, after D1/D2/D3, each against a different claim.
+ * The originals were restored from scratchpad copies taken before each edit.
+ *
+ *  (a) OLD READ FROM THE NEW VALUE — `pushOccupiedGuard`'s read sources built from
+ *      `write` instead of from the locator/located row. 17 red, 9 green, and in TWO
+ *      failure modes worth telling apart: where the locator pins the reference, `write`
+ *      is a literal and the probe silently binds the post-transition value; where it
+ *      does not, `write` is a `transitionedPlanningField` and `planningSourceFromFinal`
+ *      refuses it at construction — the module's own type boundary rejecting a
+ *      planning read of a value that does not exist yet. Green and correctly so: the
+ *      three `none` shapes (no probe to mis-bind), the transaction-mode occupied
+ *      verdict (a planning read, see the caveat below), and all three polymorphic
+ *      assertions (no guard at all on that topology).
+ *  (b) NEW WRITE FROM THE OLD VALUE — `postTransitionReference` returning `before`
+ *      unchanged in the `membership` position, i.e. adopting onto the key the root is
+ *      vacating. 4 red across two files and both substrates: the two lifted structural
+ *      shapes here, and `nested-update-pk-transition-cascade`'s D2 arm on tx and batch.
+ *      The lift witnesses whose deeper edge is a `create` stay green, correctly — a
+ *      create leaf resolves through the `nested create` position, which this mutation
+ *      leaves alone.
+ *  (c) THE GUARD COLLAPSED TO ONE MEMBER — `where: filters[0]` instead of the whole
+ *      conjunct list. 2 red, both compound: the planning probe and the batch premise.
+ *      Everything single-member stays green, which is the same statement as "a
+ *      one-member edge is byte-identical to what it was before D3".
  *
  * CAVEAT on that falsification. The transaction-mode occupied verdict stays green because
  * these tests FEED synthetic `seat.transition.find.rows`. On that substrate the old/new
@@ -87,19 +140,23 @@ import { describe, expect, test } from "vitest";
  * occupied verdict from planning to compile on the transaction substrate, only the batch
  * leg can catch a new-value binding.
  *
- * NOT PINNED HERE, recorded so the family stays auditable: D's focused families name
- * `pk-transition-junction-mixed-edge` and a polymorphic referenced-identity transition.
- * Neither `compileTransitionSchema` nor either local schema below has a many-to-many or a
- * polymorphic member, so a junction writing join rows with the NEW parent key while its
- * membership probes read the OLD one — and the polymorphic twin of that split — have no
- * before-picture here.
+ * THE TWO TOPOLOGIES PACKAGE A RECORDED AS D'S UNPINNED HOLE, both closed:
+ *   · JUNCTION — a junction writing join rows with the NEW parent key while its
+ *     membership probes read the OLD one. `compileTransitionSchema` has no many-to-many
+ *     member, so it is pinned where the topology already lives:
+ *     `pk-transition-junction-mixed-edge.test.ts`, behaviorally and on both substrates,
+ *     including the non-PK locator D2 lifted.
+ *   · POLYMORPHIC — pinned STRUCTURALLY at the bottom of this file, which is what was
+ *     missing: `polymorphic-write-family.test.ts` already measured the behaviour (the
+ *     old member keeps the vacated id, the adopt and the create take the new one), but
+ *     no test named the SQL, the parameters, or the step order that produce it.
  */
 
 hydrateSchemaNames(compileTransitionSchema);
 
 /** The one shape `compiled-key-transition` has no member of: an `ON UPDATE CASCADE`
  *  edge, whose referenced column the root rewrites. It is the `none` regime's first
- *  branch (RecordUpdateCompiler.ts:2402) and the one §D2 must leave to the database. */
+ *  branch and the one §D2 leaves to the database. */
 const cascadeSchema = (() => {
   const depot = s
     .model({
@@ -123,6 +180,34 @@ const cascadeSchema = (() => {
 })();
 
 hydrateSchemaNames(cascadeSchema);
+
+/** The polymorphic inverse topology, whose referenced identity the root rewrites.
+ *  `PolymorphicChildHeldRelation.onUpdate` is hard-coded `undefined` — there is no
+ *  polymorphic foreign key for a referential action to hang on — so the database can
+ *  never carry this transition and the engine owns every value in it. */
+const polymorphicSchema = (() => {
+  const post = s
+    .model({
+      id: s.int().id(),
+      slug: s.string().unique(),
+      comments: s.oneToMany(() => comment).name("commentable"),
+    })
+    .map("parity_d_posts");
+  const comment = s
+    .model({
+      id: s.int().id(),
+      body: s.string(),
+      commentable: s
+        .polymorphic({ post: () => post }, { values: { post: "parity.d.v1" } })
+        .name("commentable")
+        .optional(),
+    })
+    .map("parity_d_comments");
+  return { post, comment };
+})();
+
+hydrateSchemaNames(polymorphicSchema);
+validateSchemaOrThrow(polymorphicSchema);
 
 function engineFor(
   schema: Record<string, Model<any>>,
@@ -528,11 +613,45 @@ describe("parity D — the derived post-transition value equals the SQL operand"
 });
 
 // ---------------------------------------------------------------------------
-// regime "pastSurface" — what §D2 lifts
+// LIFTED BY D2 — what the "pastSurface" regime used to refuse
+//
+// The three refusals this block carried before Package D are gone; the payloads
+// compile. What replaces them below is the AFTER-picture in the same nine dimensions,
+// because a lift is only pinned when the accepted shape is pinned, not when the
+// refusal merely stops firing. The before-picture, verbatim from the deleted
+// assertions (all `UnsupportedOperationError`, all at CONSTRUCTION, all with zero
+// statements):
+//
+//   query-engine-v2 update does not support a nested 'connect' on the child-held
+//   relation 'seats' while the root update transitions a compound / non-PK / unpinned
+//   referenced column.
+//
+//   (the same sentence with 'connect' on 'spots', and with 'update' on 'spots')
+//
+// and one arm-side refusal, from `assertPinnedTransitionIsCompilable`, deleted with
+// them (pinned before Package D at nested-arm-dispatch.test.ts):
+//
+//   query-engine-v2 update for relation 'teams' transitions the target primary key
+//   'id' while writing a deeper edge whose foreign key does not cascade on update; it
+//   must locate the target by that primary key.
+//
+// One SHAPE change beside the lift, deliberate and pinned in the first test: a
+// transition past the pinned single-member surface now emits the occupied guard too.
+// The guard is kind-blind and relation-level, so unifying the pinned and unpinned
+// spellings could not leave it behind. What that costs is a NEW REFUSAL, not a
+// better diagnostic: before D this family reached a nested `create` with no guard and
+// no probe at all, and every edge in `compileTransitionSchema` is `onUpdate("setNull")`
+// — a SET NULL foreign key does not fail, it quietly nulls the occupant — so the
+// pre-D outcome for an occupied slot was a silent orphan, and the payload SUCCEEDED.
+// It is now refused with the typed occupied message, which is what the PINNED twin of
+// the same payload always did. Measured as behavior, on every driver leg, in
+// `compiled-key-transition-behavior.ts` ("an OCCUPIED old slot refuses the same nested
+// create the empty slot accepts"); recorded as a §3.1 deviation in
+// `docs/architecture/forbidden-shapes-reference.md`.
 // ---------------------------------------------------------------------------
 
-describe('parity D — regime "pastSurface"', () => {
-  test("a compound referenced edge emits NO transition probe and folds create onto literals", () => {
+describe("parity D — the shapes D2 lifted", () => {
+  test("a compound referenced edge guards the OLD tuple and folds create onto literals", () => {
     const driver = new PGliteDriver();
     const operation = new UpdateOperation(
       engineFor(compileTransitionSchema, driver),
@@ -565,11 +684,27 @@ describe('parity D — regime "pastSurface"', () => {
           racePin: null,
           onUniqueConflict: null,
         },
+        {
+          // D3 — the occupied probe's conjuncts are lowered from the COMPLETE
+          // correlated binding, so a compound edge names BOTH stored-reference
+          // members in schema order against BOTH pinned pre-values. A single-member
+          // edge collapses to the same one-conjunct `where` and single parameter it
+          // had before (the guarded describes above still pin that byte for byte).
+          id: "spot.transition.find",
+          kind: "read",
+          sql: 'SELECT "t0"."id" AS "id" FROM "e67_spots" AS "t0" WHERE ("t0"."zoneRegion" = $1 AND "t0"."zoneCode" = $2) ORDER BY "t0"."id" ASC LIMIT $3 FOR UPDATE',
+          params: ["eu", "west", 1],
+          outputs: { rows: { kind: "rows" } },
+          expects: null,
+          racePin: null,
+          onUniqueConflict: null,
+        },
       ],
       outputs: {
         "zone.locate.rows": reference("zone.locate", "rows"),
         "zone.locate.region": reference("zone.locate", "region"),
         "zone.locate.code": reference("zone.locate", "code"),
+        "spot.transition.find.rows": reference("spot.transition.find", "rows"),
       },
     });
     expect(
@@ -577,6 +712,7 @@ describe('parity D — regime "pastSurface"', () => {
         driver,
         operation.compile({
           "zone.locate.rows": [{ region: "eu", code: "west" }],
+          "spot.transition.find.rows": [],
         })
       )
     ).toEqual({
@@ -596,9 +732,14 @@ describe('parity D — regime "pastSurface"', () => {
           onUniqueConflict: null,
         },
         {
-          // Per-member provenance, already: `region` comes back verbatim from the
-          // `where` and `code` takes the root SET's value. Both are literals resolved
-          // at construction — no located-row source is consulted.
+          // Per-member provenance: `region` comes back verbatim and `code` takes the
+          // root SET's value. Both are resolved at COMPILE against the LOCATED ROW,
+          // not at construction — a compound reference routes through
+          // `resolveCreateParent` → `transitionedCreateParent` → `postTransitionReference`,
+          // whose source reads `zone.locate.rows`. That is why the locate publishes
+          // `region` and `code` as `firstRowField` outputs above, and why the "eu"
+          // below is the row's value rather than the `where`'s: delete the publication
+          // and this parameter goes undefined.
           id: "spot.create",
           kind: "write",
           sql: 'INSERT INTO "e67_spots" ("id", "name", "zoneRegion", "zoneCode") VALUES ($1, $2, CAST($3 AS TEXT), CAST($4 AS TEXT))',
@@ -663,59 +804,11 @@ describe('parity D — regime "pastSurface"', () => {
 
   test.each([
     [
-      "an unpinned pre-value (located by another unique)",
-      () =>
-        orgUpdate(
-          new PGliteDriver(),
-          { slug: "s1" },
-          { id: "o2", seats: { connect: [{ id: "st1" }] } }
-        ),
-      {},
-      "construct",
-      "query-engine-v2 update does not support a nested 'connect' on the child-held relation 'seats' while the root update transitions a compound / non-PK / unpinned referenced column.",
-    ],
-    [
-      "a compound edge under connect",
-      () =>
-        new UpdateOperation(
-          engineFor(compileTransitionSchema, new PGliteDriver()),
-          compileTransitionSchema.zone as Model<any>,
-          {
-            where: { region_code: { region: "eu", code: "west" } },
-            data: { code: "east", spots: { connect: [{ id: "sp1" }] } },
-            select: { code: true },
-          }
-        ),
-      {},
-      "construct",
-      "query-engine-v2 update does not support a nested 'connect' on the child-held relation 'spots' while the root update transitions a compound / non-PK / unpinned referenced column.",
-    ],
-    [
-      "a compound edge under update",
-      () =>
-        new UpdateOperation(
-          engineFor(compileTransitionSchema, new PGliteDriver()),
-          compileTransitionSchema.zone as Model<any>,
-          {
-            where: { region_code: { region: "eu", code: "west" } },
-            data: {
-              code: "east",
-              spots: {
-                update: [{ where: { id: "sp1" }, data: { name: "x" } }],
-              },
-            },
-            select: { code: true },
-          }
-        ),
-      {},
-      "construct",
-      "query-engine-v2 update does not support a nested 'update' on the child-held relation 'spots' while the root update transitions a compound / non-PK / unpinned referenced column.",
-    ],
-    [
-      // The one shape that reaches `resolveLiteralCreateParent`'s operand refusal
-      // through the public spelling: a nullable member of a non-primary-key
-      // referenced unique, rewritten to `null`. It is the only member of this family
-      // that waits for COMPILE, because the operand is paired with the located row.
+      // The one shape whose operand still has NO derivable post-transition value:
+      // a nullable member of a non-primary-key referenced unique, rewritten to
+      // `null`. It waits for COMPILE because the operand is paired with the located
+      // row. D2 lifted the surface, not this: `null` references no row, so there is
+      // nothing for the fresh child's foreign key to name.
       "a rewritten column with no construction value",
       () =>
         new UpdateOperation(
@@ -727,12 +820,16 @@ describe('parity D — regime "pastSurface"', () => {
             select: { id: true },
           }
         ),
-      { "bay.locate.rows": [{ id: "b1", area: "eu", slot: "west" }] },
+      {
+        "bay.locate.rows": [{ id: "b1", area: "eu", slot: "west" }],
+        "pad.transition.find.rows": [],
+      },
       "compile",
-      // NON-DISCRIMINATING: this exact sentence is emitted at RecordUpdateCompiler.ts:1877
-      // AND :1956, and a third site (:1670) differs only by the missing `-v2` prefix, so
-      // the row cannot name the guard that answered. §O2's duplicate-cluster ledger owns
-      // separating them; recorded here rather than worked around.
+      // NON-DISCRIMINATING no longer: after D1 this sentence has ONE emitter,
+      // `RecordUpdateCompiler.postTransitionReference`, whose `position` argument is
+      // the only thing that varies ("nested create" here, "membership" on the adopt
+      // path). The three near-duplicate spellings it replaced — including one that
+      // differed only by a missing `-v2` prefix — are gone.
       "query-engine-v2 update nested create on relation 'pads' references a non-literal rewritten column 'slot'.",
     ],
   ])("%s refuses typed", (_label, build, known, phase, message) => {
@@ -740,6 +837,198 @@ describe('parity D — regime "pastSurface"', () => {
       phase,
       name: UnsupportedOperationError.name,
       message,
+    });
+  });
+
+  /**
+   * D2's lift, in the two shapes the deleted refusals named, on both substrates.
+   * The claim under test is §D2's own sentence — "all membership reads use OLD values
+   * and all adoption writes use NEW values" — now that neither value is a construction
+   * literal of the same kind:
+   *
+   *   · UNPINNED single member: the occupied probe binds `Ref(org.locate.id)`, i.e. the
+   *     row the locate ACTED ON, never the `where` re-consulted (the wrong-row
+   *     doctrine); the adopt binds the derived `o2`.
+   *   · COMPOUND: the occupied probe binds BOTH members; the adopt binds the whole
+   *     post-transition TUPLE — `region` verbatim because the SET leaves it alone,
+   *     `code` transitioned — which is per-member provenance with no second source.
+   *
+   * In both, the adopt UPDATE is ordered AFTER the root UPDATE, because a NO-ACTION
+   * foreign key cannot point at a key the root has not written yet.
+   */
+  const seatConnect = (driver: PGliteDriver) =>
+    orgUpdate(
+      driver,
+      { slug: "s1" },
+      { id: "o2", seats: { connect: [{ id: "st1" }] } }
+    );
+
+  const zoneConnect = (driver: PGliteDriver) =>
+    new UpdateOperation(
+      engineFor(compileTransitionSchema, driver),
+      compileTransitionSchema.zone as Model<any>,
+      {
+        where: { region_code: { region: "eu", code: "west" } },
+        data: { code: "east", spots: { connect: [{ id: "sp1" }] } },
+        select: { code: true },
+      }
+    );
+
+  test("an UNPINNED pre-value: the probe binds the located row, the adopt binds the derived key", () => {
+    const driver = new PGliteDriver();
+    const operation = seatConnect(driver);
+    expect(operation.planning().steps.map((step) => step.id)).toEqual([
+      "org.locate",
+      "seat.transition.find",
+      "seat.find",
+    ]);
+    const planning = fragmentContract(driver, operation.planning()) as any;
+    expect(planning.steps[1]).toEqual({
+      id: "seat.transition.find",
+      kind: "read",
+      sql: 'SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+      // THE lift: a pre-transition value with no `where` literal behind it, read from
+      // the located row by reference. Before D2 this payload never reached planning.
+      params: [reference("org.locate", "id"), 1],
+      outputs: { rows: { kind: "rows" } },
+      expects: null,
+      racePin: null,
+      onUniqueConflict: null,
+    });
+    const compiled = fragmentContract(
+      driver,
+      operation.compile({
+        "org.locate.rows": [{ id: "o1", slug: "s1" }],
+        "seat.transition.find.rows": [],
+        "seat.find.rows": [{ id: "st1" }],
+      })
+    ) as any;
+    expect(compiled.steps.map((step: any) => step.id)).toEqual([
+      "org.update",
+      "seat.connect",
+      "org.select",
+    ]);
+    expect(compiled.steps[1]).toEqual({
+      id: "seat.connect",
+      kind: "write",
+      sql: 'UPDATE "e67_seats" SET "orgId" = CAST($1 AS TEXT) WHERE "e67_seats"."id" = $2 RETURNING "id" AS "id"',
+      params: ["o2", "st1"],
+      outputs: {},
+      expects: null,
+      racePin: null,
+      onUniqueConflict: null,
+    });
+  });
+
+  test("a COMPOUND edge: the probe binds both members, the adopt binds the whole tuple", () => {
+    const driver = new PGliteDriver();
+    const operation = zoneConnect(driver);
+    const compiled = fragmentContract(
+      driver,
+      operation.compile({
+        "zone.locate.rows": [{ region: "eu", code: "west" }],
+        "spot.transition.find.rows": [],
+        "spot.find.rows": [{ id: "sp1" }],
+      })
+    ) as any;
+    expect(compiled.steps.map((step: any) => step.id)).toEqual([
+      "zone.update",
+      "spot.connect",
+      "zone.select",
+    ]);
+    expect(compiled.steps[1]).toEqual({
+      id: "spot.connect",
+      kind: "write",
+      sql: 'UPDATE "e67_spots" SET "zoneRegion" = CAST($1 AS TEXT), "zoneCode" = CAST($2 AS TEXT) WHERE "e67_spots"."id" = $3 RETURNING "id" AS "id"',
+      // Per member: `region` is not in the SET so it comes back verbatim; `code` is,
+      // so it is derived. One source, two answers.
+      params: ["eu", "east", "sp1"],
+      outputs: {},
+      expects: null,
+      racePin: null,
+      onUniqueConflict: null,
+    });
+  });
+
+  test("a COMPOUND edge under update: the correlated probe reads OLD while the root moves to NEW", () => {
+    const driver = new PGliteDriver();
+    const operation = new UpdateOperation(
+      engineFor(compileTransitionSchema, driver),
+      compileTransitionSchema.zone as Model<any>,
+      {
+        where: { region_code: { region: "eu", code: "west" } },
+        data: {
+          code: "east",
+          spots: { update: [{ where: { id: "sp1" }, data: { name: "x" } }] },
+        },
+        select: { code: true },
+      }
+    );
+    const planning = fragmentContract(driver, operation.planning()) as any;
+    expect(planning.steps.map((step: any) => step.id)).toEqual([
+      "zone.locate",
+      "spot.transition.find",
+      "spot.find",
+    ]);
+    expect(planning.steps[2].sql).toBe(
+      'SELECT "t0"."id" AS "id" FROM "e67_spots" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."zoneRegion" = $2 AND "t0"."zoneCode" = $3) ORDER BY "t0"."id" ASC LIMIT $4 FOR UPDATE'
+    );
+    expect(planning.steps[2].params).toEqual([
+      "sp1",
+      reference("zone.locate", "region"),
+      reference("zone.locate", "code"),
+      1,
+    ]);
+    const compiled = fragmentContract(
+      driver,
+      operation.compile({
+        "zone.locate.rows": [{ region: "eu", code: "west" }],
+        "spot.transition.find.rows": [],
+        "spot.find.rows": [{ id: "sp1" }],
+      })
+    ) as any;
+    // The child write leads: correlation is on the value the row still holds, and the
+    // root UPDATE that vacates it is reordered behind it.
+    expect(compiled.steps.map((step: any) => step.id)).toEqual([
+      "spot.update",
+      "zone.update",
+      "zone.select",
+    ]);
+  });
+
+  test("atomic batch: the compound occupied premise binds the OLD tuple ahead of every write", () => {
+    const driver = new BatchOnlyPGliteDriver();
+    const operation = zoneConnect(driver as unknown as PGliteDriver);
+    const compiled = fragmentContract(
+      driver as unknown as PGliteDriver,
+      operation.compile({
+        "zone.locate.rows": [{ region: "eu", code: "west" }],
+        "spot.transition.find.rows": [],
+        "spot.find.rows": [{ id: "sp1" }],
+      })
+    ) as any;
+    expect(compiled.steps.map((step: any) => step.id)).toEqual([
+      "zone.guard.exists",
+      "spot.guard.occupied",
+      "spot.guard.exists",
+      "zone.update",
+      "spot.connect",
+      "zone.select",
+    ]);
+    expect(compiled.steps[1]).toEqual({
+      id: "spot.guard.occupied",
+      premise: {
+        kind: "notExists",
+        sql: 'SELECT "t0"."id" AS "id" FROM "e67_spots" AS "t0" WHERE ("t0"."zoneRegion" = $1 AND "t0"."zoneCode" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+        params: ["eu", "west", 1],
+      },
+      failure: {
+        kind: "nestedWrite",
+        message:
+          "Cannot update relation 'spots' with onUpdate('setNull') while the current relation is occupied.",
+        relation: "spots",
+        raceable: true,
+      },
     });
   });
 });
@@ -776,7 +1065,7 @@ describe('parity D — regime "none" emits no transition probe', () => {
       steps: [
         {
           // The adopt binds the OLD value and runs BEFORE the root UPDATE
-          // (`reorderRootUpdateAfterChildren`, :564): the declared cascade is what
+          // (`reorderRootUpdateAfterChildren`): the declared cascade is what
           // carries `b1` to `d2`, so the engine must not do it a second time.
           id: "bin.connect",
           kind: "write",
@@ -878,12 +1167,16 @@ describe('parity D — regime "none" emits no transition probe', () => {
 // regime "guarded" — every OTHER nested kind consumes the same OLD/NEW split
 // ---------------------------------------------------------------------------
 
-/** Under `guarded` every nested kind proceeds; the `pastSurface` refusal is the only one
- *  that stops a kind. All of them spend `interpretReferencedKeyTransition`'s single
- *  `adopt = { parentId: literalParentId(after), membershipReadSource: input.parentIdSource }`
- *  (:2360-2367), so each is a separate chance for D1 to bind the post-transition value to
- *  a membership READ. The split is asserted per kind: which parameter is "o1" and which
- *  is "o2", and on which side of the root UPDATE the child write lands. */
+/** Under `guarded` every nested kind proceeds — since D2 deleted `pastSurface` there is
+ *  no regime left that stops one, and the occupied guard the regime emits is kind-blind.
+ *  All of them spend `interpretReferencedKeyTransition`'s single
+ *  `adopt = { parentId: keyTransition.write, target: input.afterRootParts }`
+ *  (`PostTransitionAdopt`), which carries the NEW value only: existing membership keeps
+ *  reading through `WritePartBase.membershipReadSource`, and that split of one field
+ *  against the other IS the old-read / new-write rule. So each kind below is a separate
+ *  chance for D1 to bind the post-transition value to a membership READ. The split is
+ *  asserted per kind: which parameter is "o1" and which is "o2", and on which side of
+ *  the root UPDATE the child write lands. */
 for (const substrate of [
   { name: "transaction", batch: false, createDriver: () => new PGliteDriver() },
   {
@@ -1341,5 +1634,123 @@ describe("parity D — two transitioned edges keep one order in three places", (
       ["h2", "t1"],
       ["h2"],
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POLYMORPHIC referenced-identity transition — the structural pin Package A
+// recorded as missing.
+//
+// `polymorphic-write-family.test.ts` already measures the BEHAVIOUR of this shape
+// (":586", ":2654", ":2701", ":2828"): the old member keeps the vacated id, the adopt
+// and the create take the new one. What no test named until now is the plan those
+// outcomes come from — the SQL, the parameters, the step order, and above all the two
+// things this family is about that are ABSENT here.
+//
+// The topology is fixed, not payload-selected: `PolymorphicChildHeldRelation.onUpdate`
+// is hard-coded `undefined` (`relation-data-builder.ts`), because there is no
+// polymorphic foreign key for a referential action to hang on. Two consequences, both
+// asserted below rather than reasoned about:
+//
+//   1. NO occupied guard and NO `*.transition.find` probe — the guard reproduces a
+//      referential action, and there is none. Existing members are deliberately left on
+//      the vacated value (`query-engine/AGENTS.md`: "Existing members are not rewritten
+//      because the database has no polymorphic foreign key or automatic referential
+//      action"), which is also §D2's "keep untouched existing memberships unchanged".
+//   2. The locator does not change the plan. `resolvePolymorphicParent` reads the
+//      pre-transition value from the `where` when it pins one and from the located row
+//      when it does not, and derives the post-transition value from whichever it got —
+//      so the two spellings differ in PROVENANCE and in nothing else. That is the same
+//      claim D2 makes for the ordinary child-held path, on the path that already had it.
+// ---------------------------------------------------------------------------
+
+describe("parity D — a polymorphic referenced-identity transition", () => {
+  const polymorphicUpdate = (
+    driver: PGliteDriver,
+    where: Record<string, unknown>
+  ) =>
+    new UpdateOperation(
+      engineFor(polymorphicSchema, driver),
+      polymorphicSchema.post as Model<any>,
+      {
+        where,
+        data: {
+          id: 2,
+          comments: { connect: { id: 10 }, create: { id: 11, body: "fresh" } },
+        },
+        select: { id: true },
+      }
+    );
+
+  const POLYMORPHIC_KNOWN = {
+    "post.locate.rows": [{ id: 1, slug: "s" }],
+    "comment.find.rows": [{ id: 10 }],
+  };
+
+  test("no occupied guard and no transition probe: there is no referential action to reproduce", () => {
+    const driver = new PGliteDriver();
+    const operation = polymorphicUpdate(driver, { slug: "s" });
+    expect(operation.planning().steps.map((step) => step.id)).toEqual([
+      "post.locate",
+      "comment.find",
+    ]);
+    expect(
+      operation
+        .compile(POLYMORPHIC_KNOWN)
+        .steps.filter((step) => step.kind === "guard")
+    ).toEqual([]);
+  });
+
+  test("the adopt and the create both bind the NEW identity, after the root UPDATE", () => {
+    const driver = new PGliteDriver();
+    const operation = polymorphicUpdate(driver, { slug: "s" });
+    const compiled = fragmentContract(
+      driver,
+      operation.compile(POLYMORPHIC_KNOWN)
+    ) as { steps: Record<string, unknown>[] };
+    expect(compiled.steps.map((step) => step.id)).toEqual([
+      "post.update",
+      "comment.connect",
+      "comment.create",
+      "post.select",
+    ]);
+    // The root moves 1 → 2, addressed by the located pre-transition key …
+    expect(compiled.steps[0]).toMatchObject({
+      sql: 'UPDATE "parity_d_posts" SET "id" = $1 WHERE "parity_d_posts"."id" = $2 RETURNING "id" AS "id"',
+      params: [2, 1],
+    });
+    // … the adopt writes the private pair with the POST-transition identity …
+    expect(compiled.steps[1]).toMatchObject({
+      sql: 'UPDATE "parity_d_comments" SET "commentable_type" = $1, "commentable_id" = CAST($2 AS INTEGER) WHERE "parity_d_comments"."id" = $3 RETURNING "id" AS "id"',
+      params: ["parity.d.v1", 2, 10],
+    });
+    // … and so does the fresh row. The discriminator is a fixed qualifier of the
+    // MEMBERSHIP key, never a member of the target's row key, so the transition
+    // touches only the id half of the pair.
+    expect(compiled.steps[2]).toMatchObject({
+      sql: 'INSERT INTO "parity_d_comments" ("id", "body", "commentable_type", "commentable_id") VALUES ($1, $2, $3, CAST($4 AS INTEGER))',
+      params: [11, "fresh", "parity.d.v1", 2],
+    });
+  });
+
+  test("a pinned locator and an unpinned one compile the same plan", () => {
+    const pinnedDriver = new PGliteDriver();
+    const unpinnedDriver = new PGliteDriver();
+    const pinned = fragmentContract(
+      pinnedDriver,
+      polymorphicUpdate(pinnedDriver, { id: 1 }).compile({
+        "post.locate.rows": [{ id: 1 }],
+        "comment.find.rows": [{ id: 10 }],
+      })
+    );
+    const unpinned = fragmentContract(
+      unpinnedDriver,
+      polymorphicUpdate(unpinnedDriver, { slug: "s" }).compile(
+        POLYMORPHIC_KNOWN
+      )
+    );
+    // Identical down to the parameters: a `where` that pins the pre-value and a
+    // located row that carries it are two provenances for one number.
+    expect(unpinned).toEqual(pinned);
   });
 });
